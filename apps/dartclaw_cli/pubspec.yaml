@@ -1,0 +1,24 @@
+name: dartclaw_cli
+description: CLI application for DartClaw — chat REPL, serve, and status commands.
+publish_to: none
+version: 0.2.0
+
+environment:
+  sdk: ^3.11.0
+
+resolution: workspace
+
+dependencies:
+  dartclaw_core:
+    path: ../../packages/dartclaw_core
+  dartclaw_server:
+    path: ../../packages/dartclaw_server
+  args: ^2.7.0
+  logging: ^1.3.0
+  path: ^1.9.1
+  shelf: ^1.4.2
+  sqlite3: ^3.1.6
+
+dev_dependencies:
+  test: ^1.29.0
+  lints: ^6.0.0

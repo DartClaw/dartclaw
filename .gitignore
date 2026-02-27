@@ -1,0 +1,16 @@
+# Temp files
+.agent_temp/
+
+# Dart
+.dart_tool/
+build/
+*.g.dart
+pubspec.lock
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store

@@ -1,0 +1,5 @@
+{
+  "name": "dart-lsp",
+  "version": "1.0.0",
+  "description": "Dart language server for Claude Code, providing code intelligence for Dart projects."
+}

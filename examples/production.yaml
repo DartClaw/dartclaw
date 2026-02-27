@@ -1,0 +1,54 @@
+# DartClaw — Production Config
+# Usage: dartclaw --config production.yaml serve
+# Assumes secrets injected via env vars.
+
+host: 0.0.0.0
+
+gateway:
+  auth_mode: token
+  token: ${DARTCLAW_TOKEN}
+
+# Defense-in-depth: guards + container isolation
+guards:
+  enabled: true
+  fail_open: false
+  command:
+    extra_blocked_patterns:
+      - 'curl.*--upload'
+      - 'wget.*--post'
+  file:
+    extra_rules:
+      - pattern: '*.pem'
+        level: no_access
+      - pattern: '*.key'
+        level: no_access
+  network:
+    extra_allowed_domains:
+      - api.anthropic.com
+  content:
+    enabled: true
+    model: claude-haiku-4-5-20251001
+    max_bytes: 51200
+
+container:
+  enabled: true
+  image: dartclaw-sandbox:latest
+  mount_allowlist:
+    - ~/projects
+
+logging:
+  level: INFO
+  format: json
+  file: ${HOME}/.dartclaw/logs/dartclaw.log
+  redact_patterns:
+    - 'sk-ant-[a-zA-Z0-9-]+'
+    - 'Bearer [a-zA-Z0-9._-]+'
+
+sessions:
+  idle_timeout_minutes: 120
+
+concurrency:
+  max_parallel_turns: 2
+
+context:
+  reserve_tokens: 25000

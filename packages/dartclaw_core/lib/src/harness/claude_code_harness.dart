@@ -1,0 +1,656 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:logging/logging.dart';
+
+import '../bridge/bridge_events.dart';
+import '../container/container_manager.dart';
+import '../security/guard.dart';
+import '../worker/worker_state.dart';
+import 'agent_harness.dart';
+import 'claude_protocol.dart';
+import 'harness_config.dart';
+import 'mcp_tool_registry.dart';
+import 'tool_policy.dart';
+
+typedef ProcessFactory =
+    Future<Process> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+      bool includeParentEnvironment,
+    });
+
+typedef CommandProbe = Future<ProcessResult> Function(String executable, List<String> arguments);
+
+typedef DelayFactory = Future<void> Function(Duration duration);
+
+// ---------------------------------------------------------------------------
+// Claude CLI configuration
+// ---------------------------------------------------------------------------
+
+List<String> _buildClaudeArgs({String? model}) => [
+  '--print',
+  '--input-format',
+  'stream-json',
+  '--output-format',
+  'stream-json',
+  '--verbose',
+  '--include-partial-messages',
+  '--no-session-persistence',
+  '--permission-prompt-tool',
+  'stdio',
+  '--model',
+  model ?? 'claude-sonnet-4-6',
+];
+
+/// Env vars to clear to prevent claude nesting detection.
+const _envVarsToClear = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
+
+// ---------------------------------------------------------------------------
+// ClaudeCodeHarness
+// ---------------------------------------------------------------------------
+
+/// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
+/// its JSONL control protocol — no Deno/TypeScript layer required.
+class ClaudeCodeHarness implements AgentHarness {
+  final String claudeExecutable;
+  final String cwd;
+  final Duration turnTimeout;
+  final int maxRetries;
+  final Duration baseBackoff;
+  final ProcessFactory _processFactory;
+  final CommandProbe _commandProbe;
+  final DelayFactory _delayFactory;
+  final Map<String, String> _environment;
+  final ToolApprovalPolicy toolPolicy;
+  final GuardChain? guardChain;
+  final HarnessConfig harnessConfig;
+  final McpToolRegistry toolRegistry;
+  final ContainerManager? containerManager;
+
+  /// Memory handler callbacks (plain Map-based).
+  /// Kept for backward compat — auto-registered in toolRegistry on construction.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
+
+  static final _log = Logger('ClaudeCodeHarness');
+
+  WorkerState _state = WorkerState.stopped;
+  int _crashCount = 0;
+  int _spawnGeneration = 0;
+  Process? _process;
+  String? _sessionId;
+  Completer<Map<String, dynamic>>? _turnCompleter;
+
+  /// Serializes mutating lifecycle ops.
+  Future<void> _lock = Future<void>.value();
+
+  /// Stable broadcast stream that survives process restarts.
+  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
+
+  StreamSubscription<String>? _stdoutSub;
+  StreamSubscription<String>? _stderrSub;
+
+  /// Completer for the initialize handshake response.
+  Completer<Map<String, dynamic>>? _initCompleter;
+
+  ClaudeCodeHarness({
+    this.claudeExecutable = 'claude',
+    required this.cwd,
+    this.turnTimeout = const Duration(seconds: 600),
+    this.maxRetries = 5,
+    this.baseBackoff = const Duration(seconds: 5),
+    ProcessFactory? processFactory,
+    CommandProbe? commandProbe,
+    DelayFactory? delayFactory,
+    Map<String, String>? environment,
+    this.toolPolicy = ToolApprovalPolicy.allowAll,
+    this.guardChain,
+    this.onMemorySave,
+    this.onMemorySearch,
+    this.onMemoryRead,
+    this.harnessConfig = const HarnessConfig(),
+    this.containerManager,
+    McpToolRegistry? toolRegistry,
+  }) : _processFactory = processFactory ?? Process.start,
+       _commandProbe = commandProbe ?? Process.run,
+       _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
+       _environment = environment ?? Platform.environment,
+       toolRegistry = toolRegistry ?? McpToolRegistry() {
+    // Auto-register legacy memory callbacks into the tool registry
+    _registerMemoryTools();
+  }
+
+  void _registerMemoryTools() {
+    final save = onMemorySave;
+    final search = onMemorySearch;
+    final read = onMemoryRead;
+    if (save == null || search == null || read == null) return;
+
+    toolRegistry.registerServer('dartclaw-memory', [
+      McpToolDef(
+        name: 'memory_save',
+        description: 'Save a fact, preference, or piece of knowledge to persistent memory.',
+        inputSchema: {
+          'type': 'object',
+          'properties': {
+            'text': {'type': 'string', 'description': 'The text to save'},
+            'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
+          },
+          'required': ['text'],
+        },
+        handler: save,
+      ),
+      McpToolDef(
+        name: 'memory_search',
+        description: 'Search saved memories using natural language.',
+        inputSchema: {
+          'type': 'object',
+          'properties': {
+            'query': {'type': 'string', 'description': 'Search query'},
+            'limit': {'type': 'number', 'description': 'Max results (default 5)'},
+          },
+          'required': ['query'],
+        },
+        handler: search,
+      ),
+      McpToolDef(
+        name: 'memory_read',
+        description: 'Read the full contents of MEMORY.md.',
+        inputSchema: {'type': 'object', 'properties': <String, dynamic>{}},
+        handler: read,
+      ),
+    ]);
+  }
+
+  @override
+  WorkerState get state => _state;
+
+  @override
+  Stream<BridgeEvent> get events => _eventsCtrl.stream;
+
+  /// Session ID assigned by the claude binary after init.
+  String? get sessionId => _sessionId;
+
+  // -------------------------------------------------------------------------
+  // Lifecycle
+  // -------------------------------------------------------------------------
+
+  @override
+  Future<void> start() => _withLock(() async {
+    if (_state == WorkerState.idle) return;
+    if (_state == WorkerState.busy) {
+      throw StateError('Cannot start: harness is busy');
+    }
+    await _startInternal();
+  });
+
+  @override
+  Future<void> cancel() async {
+    // JSONL protocol has no cancel command — close stdin and SIGTERM.
+    try {
+      await _process?.stdin.close();
+    } catch (_) {}
+    _process?.kill();
+  }
+
+  @override
+  Future<void> stop() => _withLock(() async {
+    if (_state == WorkerState.busy) {
+      try {
+        await cancel();
+      } catch (_) {}
+      await _delayFactory(const Duration(milliseconds: 500));
+    }
+    _state = WorkerState.stopped;
+    await _stdoutSub?.cancel();
+    _stdoutSub = null;
+    await _stderrSub?.cancel();
+    _stderrSub = null;
+    try {
+      await _process?.stdin.close();
+    } catch (_) {}
+    _process?.kill();
+    _process = null;
+  });
+
+  @override
+  Future<void> dispose() async {
+    await stop();
+    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
+  }
+
+  // -------------------------------------------------------------------------
+  // turn()
+  // -------------------------------------------------------------------------
+
+  @override
+  Future<Map<String, dynamic>> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    Map<String, dynamic>? mcpServers,
+    bool resume = false,
+  }) async {
+    // Crash restart with exponential backoff.
+    if (_state == WorkerState.crashed) {
+      if (_crashCount > maxRetries) {
+        throw StateError('Harness unavailable: max retries exceeded');
+      }
+      final backoff = baseBackoff * pow(2, _crashCount - 1).toInt();
+      await _delayFactory(backoff);
+      await _withLock(() async {
+        if (_state == WorkerState.stopped) {
+          throw StateError('Harness stopped during backoff');
+        }
+        if (_state == WorkerState.crashed) await _startInternal();
+      });
+    }
+
+    if (_state != WorkerState.idle) {
+      throw StateError('Harness is not idle (state: $_state)');
+    }
+    _state = WorkerState.busy;
+
+    Timer? timeoutTimer;
+    timeoutTimer = Timer(turnTimeout, () async {
+      _log.warning('Turn timeout exceeded, cancelling...');
+      try {
+        await cancel();
+      } catch (_) {}
+      await _delayFactory(const Duration(seconds: 5));
+      _process?.kill();
+    });
+
+    _turnCompleter = Completer<Map<String, dynamic>>();
+
+    try {
+      // Build the user message payload. The claude binary manages its own
+      // history within the subprocess session, so we send the last user
+      // message plus the system prompt (injected each turn since the binary
+      // doesn't persist it across turn boundaries).
+      final payload = <String, dynamic>{
+        'type': 'user',
+        'message': {'role': 'user', 'content': messages.last['content']},
+      };
+      if (systemPrompt.isNotEmpty) {
+        payload['system_prompt'] = systemPrompt;
+      }
+      if (resume) {
+        payload['resume'] = true;
+      }
+      _writeLine(payload);
+
+      final result = await _turnCompleter!.future;
+      timeoutTimer.cancel();
+      if (_state != WorkerState.stopped) {
+        _crashCount = 0;
+        _state = WorkerState.idle;
+      }
+      return result;
+    } catch (e) {
+      timeoutTimer.cancel();
+      if (_state != WorkerState.crashed && _state != WorkerState.stopped) {
+        _state = WorkerState.idle;
+      }
+      rethrow;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal: start, auth, handshake
+  // -------------------------------------------------------------------------
+
+  Future<void> _startInternal() async {
+    // Check claude binary.
+    final claudeResult = await _commandProbe(claudeExecutable, ['--version']);
+    if (claudeResult.exitCode != 0) {
+      throw StateError('claude binary not found at $claudeExecutable');
+    }
+
+    // Verify authentication.
+    await _verifyAuth();
+
+    // Build clean env: inherit parent env, strip nesting-detection vars.
+    final env = Map<String, String>.from(_environment);
+    for (final key in _envVarsToClear) {
+      env.remove(key);
+    }
+
+    // Spawn claude process: containerized or direct.
+    final Process process;
+    final cm = containerManager;
+    if (cm != null) {
+      await cm.start();
+      process = await cm.exec([claudeExecutable, ..._buildClaudeArgs(model: harnessConfig.model)]);
+    } else {
+      process = await _processFactory(
+        claudeExecutable,
+        _buildClaudeArgs(model: harnessConfig.model),
+        workingDirectory: cwd,
+        environment: env,
+        includeParentEnvironment: false,
+      );
+    }
+
+    final generation = ++_spawnGeneration;
+    _process = process;
+
+    // Listen to stdout lines → parse JSONL → route messages.
+    _stdoutSub = process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .where((line) => line.isNotEmpty)
+        .listen(_handleLine, onError: (Object e) => _log.warning('stdout error: $e'));
+
+    // Capture stderr.
+    _stderrSub = process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) => _log.warning('[claude stderr] $line'));
+
+    // Crash detection via process exit.
+    unawaited(
+      process.exitCode.then((code) {
+        if (generation != _spawnGeneration) return;
+        if (_state == WorkerState.stopped) return;
+        _log.warning('Claude process exited unexpectedly: exit code $code');
+        if (_state != WorkerState.crashed) {
+          _state = WorkerState.crashed;
+          _crashCount++;
+        }
+        // Complete any pending turn with an error.
+        if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
+          _turnCompleter!.completeError(StateError('Claude process exited with code $code'));
+        }
+      }),
+    );
+
+    // Initialize handshake.
+    await _sendInitialize();
+
+    _state = WorkerState.idle;
+  }
+
+  /// Verifies that ANTHROPIC_API_KEY or Claude CLI OAuth session is available.
+  Future<void> _verifyAuth() async {
+    final hasApiKey = _environment['ANTHROPIC_API_KEY']?.trim().isNotEmpty ?? false;
+    if (hasApiKey) return;
+
+    final result = await _commandProbe(claudeExecutable, ['auth', 'status']);
+    if (result.exitCode == 0) {
+      try {
+        final status = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+        if (status['loggedIn'] == true) {
+          _log.info('Using Claude CLI OAuth auth (${status['authMethod']})');
+          return;
+        }
+      } on FormatException {
+        // JSON parse failed — fall through to error.
+      }
+    }
+
+    throw StateError(
+      'No authentication configured. Either:\n'
+      '  1. Export ANTHROPIC_API_KEY:  export ANTHROPIC_API_KEY=sk-ant-...\n'
+      '  2. Use Claude CLI OAuth:     claude login\n'
+      '  3. Use a setup token:        claude setup-token',
+    );
+  }
+
+  /// Sends the initialize control_request and waits for the response.
+  Future<void> _sendInitialize() async {
+    _initCompleter = Completer<Map<String, dynamic>>();
+
+    final requestId = 'req_init_${DateTime.now().millisecondsSinceEpoch}';
+    _log.info('Sending initialize (id: $requestId)...');
+
+    final initRequest = <String, dynamic>{
+      'subtype': 'initialize',
+      'hooks': {
+        'PreToolUse': [
+          {
+            'matcher': null,
+            'hookCallbackIds': ['hook_pre_tool'],
+            'timeout': 30,
+          },
+        ],
+        'PostToolUse': [
+          {
+            'matcher': null,
+            'hookCallbackIds': ['hook_post_tool'],
+            'timeout': 10,
+          },
+        ],
+      },
+      if (!toolRegistry.isEmpty) 'sdkMcpServers': toolRegistry.toSdkMcpServers(),
+      ...harnessConfig.toInitializeFields(),
+    };
+
+    _writeLine({'type': 'control_request', 'request_id': requestId, 'request': initRequest});
+
+    try {
+      await _initCompleter!.future.timeout(const Duration(seconds: 10));
+      _log.info('Initialize handshake complete');
+    } on TimeoutException {
+      _log.severe('Initialize handshake timed out — killing process');
+      _process?.kill();
+      _process = null;
+      throw StateError('Initialize handshake timed out after 10s');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // JSONL message routing
+  // -------------------------------------------------------------------------
+
+  void _handleLine(String line) {
+    // First check for control_response (not handled by parseJsonlLine, needed
+    // for the initialize handshake).
+    if (_initCompleter != null && !_initCompleter!.isCompleted) {
+      try {
+        final json = jsonDecode(line) as Map<String, dynamic>;
+        if (json['type'] == 'control_response') {
+          _initCompleter!.complete(json);
+          return;
+        }
+      } catch (_) {
+        // Fall through to normal parsing.
+      }
+    }
+
+    final msg = parseJsonlLine(line);
+    if (msg == null) return;
+
+    switch (msg) {
+      case StreamTextDelta(:final text):
+        _eventsCtrl.add(DeltaEvent(text));
+
+      case ToolUseBlock(:final name, :final id, :final input):
+        _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
+
+      case ToolResultBlock(:final toolId, :final output, :final isError):
+        _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
+
+      case ControlRequest(:final requestId, :final subtype, :final data):
+        _handleControlRequest(requestId, subtype, data);
+
+      case TurnResult(:final stopReason, :final costUsd, :final durationMs, :final inputTokens, :final outputTokens):
+        if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
+          _turnCompleter!.complete({
+            'stop_reason': stopReason,
+            'total_cost_usd': costUsd,
+            'duration_ms': durationMs,
+            'input_tokens': inputTokens,
+            'output_tokens': outputTokens,
+          });
+        }
+
+      case SystemInit(:final sessionId, :final toolCount, :final contextWindow):
+        _sessionId = sessionId;
+        _log.info('Session init: id=$sessionId, tools=$toolCount, contextWindow=$contextWindow');
+        if (contextWindow != null) {
+          _eventsCtrl.add(SystemInitEvent(contextWindow: contextWindow));
+        }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Control request handling
+  // -------------------------------------------------------------------------
+
+  void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
+    switch (subtype) {
+      case 'can_use_tool':
+        final allow = toolPolicy == ToolApprovalPolicy.allowAll;
+        final toolUseId = data['tool_use_id'] as String?;
+        _writeLine(buildToolResponse(requestId, allow: allow, toolUseId: toolUseId));
+
+      case 'hook_callback':
+        _handleHookCallback(requestId, data);
+
+      case 'mcp_message':
+        _handleMcpMessage(requestId, data);
+
+      default:
+        _writeLine(buildGenericResponse(requestId));
+    }
+  }
+
+  /// Routes hook_callback by event type: PreToolUse (guard + credential strip)
+  /// or PostToolUse (audit logging).
+  void _handleHookCallback(String requestId, Map<String, dynamic> data) {
+    final hookInput = data['input'] as Map<String, dynamic>?;
+    final hookEventName = hookInput?['hook_event_name'] as String?;
+
+    if (hookEventName == 'PostToolUse') {
+      _handlePostToolUseCallback(requestId, hookInput);
+      return;
+    }
+
+    // PreToolUse (default path)
+    unawaited(_handlePreToolUseCallback(requestId, hookInput));
+  }
+
+  Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic>? hookInput) async {
+    final toolName = hookInput?['tool_name'] as String? ?? '';
+    final toolInput = hookInput?['tool_input'] as Map<String, dynamic>? ?? {};
+
+    // Guard evaluation
+    final chain = guardChain;
+    if (chain != null) {
+      final verdict = await chain.evaluateBeforeToolCall(toolName, toolInput);
+      if (verdict.isBlock) {
+        _writeLine(buildHookResponse(requestId, allow: false));
+        return;
+      }
+    }
+
+    // Credential stripping for Bash tool
+    final envMap = toolInput['env'] as Map<String, dynamic>?;
+    if (envMap != null && envMap.containsKey('ANTHROPIC_API_KEY')) {
+      final sanitizedEnv = Map<String, dynamic>.from(envMap)..remove('ANTHROPIC_API_KEY');
+      final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
+      _log.info('Stripped ANTHROPIC_API_KEY from bash env');
+      _writeLine({
+        'type': 'control_response',
+        'response': {
+          'subtype': 'success',
+          'request_id': requestId,
+          'response': {
+            'continue': true,
+            'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': updatedInput},
+          },
+        },
+      });
+      return;
+    }
+
+    _writeLine(buildHookResponse(requestId, allow: true));
+  }
+
+  void _handlePostToolUseCallback(String requestId, Map<String, dynamic>? hookInput) {
+    final toolName = hookInput?['tool_name'] as String? ?? 'unknown';
+    final toolResponse = _parseToolResponse(hookInput?['tool_response']);
+
+    final success = toolResponse['error'] == null;
+    guardChain?.auditLogger.logPostToolUse(toolName: toolName, success: success, response: toolResponse);
+
+    _writeLine(buildHookResponse(requestId, allow: true));
+  }
+
+  static Map<String, dynamic> _parseToolResponse(Object? raw) {
+    try {
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+      if (raw is String) return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  /// Routes MCP tool calls to registered memory handlers.
+  void _handleMcpMessage(String requestId, Map<String, dynamic> data) {
+    unawaited(_handleMcpMessageAsync(requestId, data));
+  }
+
+  Future<void> _handleMcpMessageAsync(String requestId, Map<String, dynamic> data) async {
+    final mcpData = data['message'] as Map<String, dynamic>?;
+    if (mcpData == null) {
+      _writeLine(buildGenericResponse(requestId));
+      return;
+    }
+
+    final method = mcpData['method'] as String?;
+    final params = mcpData['params'] as Map<String, dynamic>? ?? {};
+    final mcpId = mcpData['id'];
+
+    Map<String, dynamic> result;
+    if (method == 'tools/call') {
+      final toolName = params['name'] as String? ?? '';
+      final toolArgs = params['arguments'] as Map<String, dynamic>? ?? {};
+      result = await toolRegistry.dispatch(toolName, toolArgs);
+    } else {
+      result = {
+        'content': [
+          {'type': 'text', 'text': 'Unsupported method: $method'},
+        ],
+        'isError': true,
+      };
+    }
+
+    final jsonRpcResponse = <String, dynamic>{'jsonrpc': '2.0', 'id': mcpId, 'result': result};
+
+    _writeLine({
+      'type': 'control_response',
+      'response': {
+        'subtype': 'success',
+        'request_id': requestId,
+        'mcp_response': jsonRpcResponse,
+        'response': jsonRpcResponse,
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
+
+  void _writeLine(Map<String, dynamic> json) {
+    final line = '${jsonEncode(json)}\n';
+    _process?.stdin.add(utf8.encode(line));
+  }
+
+  /// Chains [fn] after the current lifecycle lock, preventing concurrent
+  /// mutations.
+  Future<T> _withLock<T>(Future<T> Function() fn) {
+    final completer = Completer<T>();
+    final next = _lock.catchError((_) {}).then((_) => fn());
+    _lock = next.then<void>((_) {}, onError: (_) {});
+    next.then(completer.complete, onError: completer.completeError);
+    return completer.future;
+  }
+}

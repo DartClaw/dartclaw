@@ -1,0 +1,26 @@
+# DartClaw — Local Development Config
+# Usage: dartclaw --config examples/dev.yaml serve
+
+data_dir: .dartclaw-dev
+
+port: 3333
+
+# No auth needed for local dev
+gateway:
+  auth_mode: none
+
+# Disable guards during development
+guards:
+  enabled: false
+
+scheduling:
+  heartbeat:
+    enabled: false
+  jobs: []
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE

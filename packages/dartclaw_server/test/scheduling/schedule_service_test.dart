@@ -1,0 +1,378 @@
+import 'dart:async';
+
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('ScheduledJob.fromConfig', () {
+    test('parses cron job', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test-cron',
+        'prompt': 'Do something',
+        'schedule': {'type': 'cron', 'expression': '0 18 * * *'},
+        'delivery': 'none',
+      });
+      expect(job.id, 'test-cron');
+      expect(job.prompt, 'Do something');
+      expect(job.scheduleType, ScheduleType.cron);
+      expect(job.cronExpression, isNotNull);
+      expect(job.deliveryMode, DeliveryMode.none);
+    });
+
+    test('parses interval job', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test-interval',
+        'prompt': 'Check emails',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'webhook',
+        'webhook_url': 'http://localhost:8080/hook',
+      });
+      expect(job.scheduleType, ScheduleType.interval);
+      expect(job.intervalMinutes, 60);
+      expect(job.deliveryMode, DeliveryMode.webhook);
+      expect(job.webhookUrl, 'http://localhost:8080/hook');
+    });
+
+    test('parses one-time job', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test-once',
+        'prompt': 'Initialize',
+        'schedule': {'type': 'once', 'at': '2026-03-01T09:00:00'},
+        'delivery': 'none',
+      });
+      expect(job.scheduleType, ScheduleType.once);
+      expect(job.onceAt, DateTime(2026, 3, 1, 9, 0));
+    });
+
+    test('parses retry config', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test-retry',
+        'prompt': 'Retry test',
+        'schedule': {'type': 'interval', 'minutes': 30},
+        'retry': {'attempts': 3, 'delay_seconds': 120},
+      });
+      expect(job.retryAttempts, 3);
+      expect(job.retryDelaySeconds, 120);
+    });
+
+    test('defaults retry to 0 attempts', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test-no-retry',
+        'prompt': 'No retry',
+        'schedule': {'type': 'interval', 'minutes': 10},
+      });
+      expect(job.retryAttempts, 0);
+      expect(job.retryDelaySeconds, 60);
+    });
+
+    test('throws on missing id', () {
+      expect(
+        () => ScheduledJob.fromConfig({'prompt': 'test', 'schedule': {'type': 'cron', 'expression': '* * * * *'}}),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on missing prompt', () {
+      expect(
+        () => ScheduledJob.fromConfig({'id': 'test', 'schedule': {'type': 'cron', 'expression': '* * * * *'}}),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on invalid cron expression', () {
+      expect(
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'prompt': 'test',
+          'schedule': {'type': 'cron', 'expression': 'bad'},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on missing cron expression', () {
+      expect(
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'prompt': 'test',
+          'schedule': {'type': 'cron'},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on invalid interval', () {
+      expect(
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'prompt': 'test',
+          'schedule': {'type': 'interval', 'minutes': 0},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on invalid once datetime', () {
+      expect(
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'prompt': 'test',
+          'schedule': {'type': 'once', 'at': 'not-a-date'},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on unknown schedule type', () {
+      expect(
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'prompt': 'test',
+          'schedule': {'type': 'weekly'},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('unknown delivery mode defaults to none', () {
+      final job = ScheduledJob.fromConfig({
+        'id': 'test',
+        'prompt': 'test',
+        'schedule': {'type': 'interval', 'minutes': 10},
+        'delivery': 'unknown_mode',
+      });
+      expect(job.deliveryMode, DeliveryMode.none);
+    });
+  });
+
+  group('ScheduleService execution', () {
+    late _ConfigurableTurnManager turns;
+    late _FakeSessionService sessions;
+    late ScheduledJob intervalJob;
+    late ScheduledJob onceJob;
+
+    setUp(() {
+      turns = _ConfigurableTurnManager();
+      sessions = _FakeSessionService();
+      intervalJob = ScheduledJob.fromConfig({
+        'id': 'exec-job',
+        'prompt': 'Run task',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'none',
+      });
+      onceJob = ScheduledJob(
+        id: 'once-job',
+        prompt: 'One-time task',
+        scheduleType: ScheduleType.once,
+        onceAt: DateTime.now().add(const Duration(milliseconds: 50)),
+      );
+    });
+
+    test('executeJobForTesting runs the job and records execution', () async {
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+      await service.executeJobForTesting(intervalJob);
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('one-time job does not reschedule after execution', () async {
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [onceJob]);
+      service.start();
+      // Wait for the one-time timer to fire (50ms delay)
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      // Turn ran exactly once
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('concurrent skip: second call skips if job is already running', () async {
+      final firstCallStarted = Completer<void>();
+      final firstCallGate = Completer<void>();
+
+      turns.onStartTurn = (sessionId) async {
+        if (!firstCallStarted.isCompleted) {
+          firstCallStarted.complete();
+          // Block the first execution until gate is opened
+          await firstCallGate.future;
+        }
+      };
+
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+
+      // Launch first execution — it will block on the gate
+      final first = service.executeJobForTesting(intervalJob);
+      // Wait until first execution has started
+      await firstCallStarted.future;
+
+      // Second execution should skip (job still running)
+      await service.executeJobForTesting(intervalJob);
+
+      // Only one startTurn call so far (second was skipped)
+      expect(turns.startTurnCallCount, 1);
+
+      // Unblock the first execution
+      firstCallGate.complete();
+      await first;
+
+      // Still only one total call
+      expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('job failure does not prevent subsequent execution', () async {
+      turns.shouldFail = true;
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+
+      // First execution should fail (but not throw — errors are caught internally)
+      await service.executeJobForTesting(intervalJob);
+      expect(turns.startTurnCallCount, 1);
+
+      // Second execution should run normally
+      turns.shouldFail = false;
+      await service.executeJobForTesting(intervalJob);
+      expect(turns.startTurnCallCount, 2);
+
+      service.stop();
+    });
+
+    test('failed turn outcome throws, triggering retry logic', () async {
+      // Return a failed TurnOutcome — _executeWithRetry should throw
+      turns.returnFailedOutcome = true;
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+
+      // With retryAttempts = 0, one attempt is made and failure is logged (no throw to caller)
+      await service.executeJobForTesting(intervalJob);
+      expect(turns.startTurnCallCount, 1);
+
+      service.stop();
+    });
+  });
+
+  group('ScheduleService', () {
+    test('stop cancels all timers without error', () {
+      // We can't easily unit-test timer firing without a TurnManager,
+      // but we can verify start/stop lifecycle doesn't throw
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [
+          ScheduledJob.fromConfig({
+            'id': 'test-job',
+            'prompt': 'Do something',
+            'schedule': {'type': 'interval', 'minutes': 60},
+          }),
+        ],
+      );
+      service.start();
+      service.stop();
+    });
+
+    test('start with empty jobs is no-op', () {
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [],
+      );
+      service.start();
+      service.stop();
+    });
+
+    test('double start is idempotent', () {
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [
+          ScheduledJob.fromConfig({
+            'id': 'test-job',
+            'prompt': 'Do something',
+            'schedule': {'type': 'interval', 'minutes': 60},
+          }),
+        ],
+      );
+      service.start();
+      service.start(); // should not throw or double-schedule
+      service.stop();
+    });
+  });
+}
+
+// Minimal fakes to construct ScheduleService without real dependencies
+class _FakeTurnManager implements TurnManager {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Configurable fake for execution tests.
+class _ConfigurableTurnManager implements TurnManager {
+  int startTurnCallCount = 0;
+  bool shouldFail = false;
+  bool returnFailedOutcome = false;
+
+  /// Optional hook called inside startTurn — use to block execution for concurrency tests.
+  Future<void> Function(String sessionId)? onStartTurn;
+
+  final Map<String, Completer<TurnOutcome>> _pending = {};
+
+  @override
+  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages) async {
+    startTurnCallCount++;
+    final turnId = 'fake-turn-$startTurnCallCount';
+
+    if (shouldFail) {
+      throw Exception('Simulated startTurn failure');
+    }
+
+    if (onStartTurn != null) {
+      await onStartTurn!(sessionId);
+    }
+
+    final completer = Completer<TurnOutcome>();
+    _pending[turnId] = completer;
+
+    final status = returnFailedOutcome ? TurnStatus.failed : TurnStatus.completed;
+    final outcome = TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: status,
+      errorMessage: returnFailedOutcome ? 'simulated failure' : null,
+      completedAt: DateTime.now(),
+    );
+    completer.complete(outcome);
+
+    return turnId;
+  }
+
+  @override
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
+    final c = _pending[turnId];
+    if (c == null) throw ArgumentError('Unknown turnId: $turnId');
+    return c.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeSessionService implements SessionService {
+  final Map<String, Session> _keyedSessions = {};
+
+  @override
+  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user}) async {
+    return _keyedSessions.putIfAbsent(
+      key,
+      () => Session(
+        id: 'fake-uuid-for-$key',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}

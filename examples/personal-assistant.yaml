@@ -1,0 +1,42 @@
+# DartClaw — Personal Assistant Config
+# Usage: dartclaw --config examples/personal-assistant.yaml serve
+# Long-running knowledge companion with journaling and git backup.
+
+data_dir: ~/.dartclaw-assistant
+
+agent:
+  model: sonnet
+  max_turns: 100
+
+memory_max_bytes: 65536
+
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 60
+  jobs:
+    - id: daily-journal
+      prompt: "Review today's conversations and update MEMORY.md with key insights, decisions, and action items."
+      schedule:
+        type: cron
+        expression: "0 22 * * *"
+      delivery: none
+    - id: weekly-review
+      prompt: "Summarize this week's activity, highlight patterns, and suggest focus areas for next week."
+      schedule:
+        type: cron
+        expression: "0 10 * * 1"
+      delivery: announce
+
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+
+sessions:
+  idle_timeout_minutes: 480
+
+# Guards enabled but relaxed for personal use
+guards:
+  enabled: true
+  fail_open: false

@@ -1,0 +1,110 @@
+/* DartClaw Design Tokens
+   Palette: Catppuccin Mocha (dark) / Latte (light) with terminal-green accent
+   Toggle: data-theme="light" on <html>, default = dark */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Background layers (darkest → lightest surface) --- */
+  --bg-crust:    #11111b;
+  --bg-mantle:   #181825;
+  --bg-base:     #1e1e2e;
+  --bg-surface0: #313244;
+  --bg-surface1: #45475a;
+  --bg-surface2: #585b70;
+
+  /* --- Foreground (brightest → most muted) --- */
+  --fg:          #cdd6f4;
+  --fg-sub1:     #bac2de;
+  --fg-sub0:     #a6adc8;
+  --fg-overlay:  #7f849c;
+
+  /* --- Accent --- */
+  --accent:      #a6e3a1;
+  --accent-dim:  #40a060;
+
+  /* --- Semantic --- */
+  --success:     #a6e3a1;
+  --error:       #f38ba8;
+  --warning:     #fab387;
+  --info:        #89b4fa;
+
+  /* --- Typography --- */
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono',
+               'Menlo', 'Consolas', monospace;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg:   1rem;
+  --text-xl:   1.25rem;
+
+  --leading:       1.6;
+  --leading-tight: 1.3;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold:   600;
+
+  /* --- Spacing (4px base) --- */
+  --sp-1:  0.25rem;
+  --sp-2:  0.5rem;
+  --sp-3:  0.75rem;
+  --sp-4:  1rem;
+  --sp-5:  1.25rem;
+  --sp-6:  1.5rem;
+  --sp-8:  2rem;
+  --sp-10: 2.5rem;
+  --sp-12: 3rem;
+
+  /* --- Layout --- */
+  --sidebar-w:     260px;
+  --topbar-h:      48px;
+  --input-h:       80px;
+  --container-max: 900px;
+
+  /* --- Breakpoints (reference only — used in media queries) --- */
+  /* --bp-mobile:  640px;  */
+  /* --bp-tablet:  768px;  */
+  /* --bp-desktop: 1024px; */
+
+  /* --- Effects --- */
+  --radius:    4px;
+  --radius-lg: 6px;
+  --border:    1px solid var(--bg-surface0);
+  --border-active: 1px solid var(--accent);
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.4);
+
+  --transition: 150ms ease;
+}
+
+/* --- Light theme overrides --- */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-crust:    #dce0e8;
+  --bg-mantle:   #e6e9ef;
+  --bg-base:     #eff1f5;
+  --bg-surface0: #ccd0da;
+  --bg-surface1: #bcc0cc;
+  --bg-surface2: #acb0be;
+
+  --fg:          #4c4f69;
+  --fg-sub1:     #5c5f77;
+  --fg-sub0:     #6c6f85;
+  --fg-overlay:  #8c8fa1;
+
+  --accent:      #2d7d24;
+  --accent-dim:  #5aad50;
+
+  --success:     #2d7d24;
+  --error:       #d20f39;
+  --warning:     #c45100;
+  --info:        #1558d6;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.08);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.12);
+}

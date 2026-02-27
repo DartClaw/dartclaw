@@ -1,0 +1,10 @@
+name: _dartclaw_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.11.0
+
+workspace:
+  - packages/dartclaw_core
+  - packages/dartclaw_server
+  - apps/dartclaw_cli

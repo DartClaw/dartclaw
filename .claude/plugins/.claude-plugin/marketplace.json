@@ -1,0 +1,14 @@
+{
+  "name": "dartclaw-local",
+  "description": "Project-local plugins for DartClaw",
+  "owner": {
+    "name": "DartClaw"
+  },
+  "plugins": [
+    {
+      "name": "dart-lsp",
+      "description": "Dart language server (analysis_server) for Claude Code — provides diagnostics, go-to-definition, find references, and hover info for .dart files.",
+      "source": "./dart-lsp"
+    }
+  ]
+}

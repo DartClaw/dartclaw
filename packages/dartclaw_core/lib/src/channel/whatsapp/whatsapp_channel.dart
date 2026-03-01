@@ -5,7 +5,7 @@ import '../channel_manager.dart';
 import 'dm_access.dart';
 import 'gowa_manager.dart';
 import 'mention_gating.dart';
-import 'response_formatter.dart';
+import 'response_formatter.dart' as fmt;
 import 'whatsapp_config.dart';
 
 /// WhatsApp channel implementation via GOWA sidecar.
@@ -49,6 +49,18 @@ class WhatsAppChannel extends Channel {
       return;
     }
     await gowa.start();
+
+    // Retrieve own JID from GOWA status for mention gating
+    try {
+      final status = await gowa.getStatus();
+      final deviceId = status.deviceId;
+      if (deviceId != null && deviceId.isNotEmpty) {
+        mentionGating.ownJid = deviceId;
+        _log.info('WhatsApp own JID: $deviceId');
+      }
+    } catch (e) {
+      _log.warning('Could not retrieve own JID from GOWA', e);
+    }
   }
 
   @override
@@ -128,10 +140,10 @@ class WhatsAppChannel extends Channel {
     }
   }
 
-  /// Format an agent response for WhatsApp delivery.
-  List<ChannelResponse> formatAgentResponse(String agentOutput) {
-    return formatResponse(
-      agentOutput,
+  @override
+  List<ChannelResponse> formatResponse(String text) {
+    return fmt.formatResponse(
+      text,
       model: _model,
       agentName: _agentName,
       maxChunkSize: config.maxChunkSize,
@@ -139,27 +151,35 @@ class WhatsAppChannel extends Channel {
     );
   }
 
-  ChannelMessage? _parseWebhookPayload(Map<String, dynamic> payload) {
-    final senderJid = payload['jid'] as String?;
-    final text = payload['message'] as String?;
+  /// Parse GOWA v8 webhook envelope: `{event, device_id, payload: {...}}`.
+  ChannelMessage? _parseWebhookPayload(Map<String, dynamic> envelope) {
+    // Only process 'message' events
+    final event = envelope['event'] as String?;
+    if (event != 'message') return null;
+
+    final inner = envelope['payload'] as Map<String, dynamic>?;
+    if (inner == null) return null;
+
+    // Skip own outgoing messages
+    if (inner['is_from_me'] == true) return null;
+
+    final senderJid = inner['from'] as String?;
+    final text = inner['body'] as String?;
     if (senderJid == null || text == null || text.isEmpty) return null;
 
-    final isGroup = payload['is_group'] as bool? ?? false;
-    final groupJid = isGroup ? (payload['group_jid'] as String?) : null;
-
-    // Parse mentioned JIDs
-    final mentionedRaw = payload['mentioned_jids'];
-    final mentionedJids = mentionedRaw is List ? mentionedRaw.whereType<String>().toList() : <String>[];
+    final chatId = inner['chat_id'] as String?;
+    final isGroup = chatId != null && chatId.endsWith('@g.us');
+    final groupJid = isGroup ? chatId : null;
 
     return ChannelMessage(
       channelType: ChannelType.whatsapp,
       senderJid: senderJid,
       groupJid: groupJid,
       text: text,
-      mentionedJids: mentionedJids,
+      mentionedJids: const [],
       metadata: {
-        if (payload['pushname'] != null) 'pushname': payload['pushname'],
-        if (payload['quoted_message_sender'] != null) 'quotedMessageSender': payload['quoted_message_sender'],
+        if (inner['from_name'] != null) 'pushname': inner['from_name'],
+        if (inner['replied_to_id'] != null) 'repliedToId': inner['replied_to_id'],
       },
     );
   }

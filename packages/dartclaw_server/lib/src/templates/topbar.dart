@@ -65,3 +65,27 @@ String topbarTemplate({String? title, String? sessionId, SessionType? sessionTyp
 </header>
 ''';
 }
+
+/// Topbar for standalone pages (settings, health dashboard, scheduling, session info).
+///
+/// Simpler than [topbarTemplate] — static title, optional back link, no session actions.
+String pageTopbarTemplate({
+  required String title,
+  String? backHref,
+  String? backLabel,
+}) {
+  final backLink = backHref != null
+      ? '<a href="${htmlEscape(backHref)}" class="btn btn-ghost" style="font-size:var(--text-sm);">'
+        '&larr; ${htmlEscape(backLabel ?? 'Back')}</a>'
+      : '';
+
+  return '''
+<header class="topbar">
+  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
+  <span class="session-title-static">${htmlEscape(title)}</span>
+  <div class="topbar-actions">
+    $backLink
+    <button class="theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>''';
+}

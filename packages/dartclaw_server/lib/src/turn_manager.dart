@@ -77,6 +77,7 @@ class TurnManager {
   final Set<String> _cancelledTurns = {};
   final Map<String, ({TurnOutcome outcome, DateTime expiresAt})> _recentOutcomes = {};
   final Map<String, Completer<TurnOutcome>> _outcomePending = {};
+  final Set<String> _recoveredSessions = {};
 
   TurnManager({
     required MessageService messages,
@@ -123,15 +124,30 @@ class TurnManager {
     return entry.outcome.sessionId == sessionId ? entry.outcome : null;
   }
 
-  /// Atomically checks busy state and reserves a new turn slot.
-  /// Returns the new [turnId]. Throws [BusyTurnException] if busy.
+  /// Reserves a new turn slot for [sessionId].
+  /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
+  /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
-  String reserveTurn(String sessionId) {
-    _lockManager.acquire(sessionId); // throws BusyTurnException on conflict
+  Future<String> reserveTurn(String sessionId) async {
+    await _lockManager.acquire(sessionId); // queues for same-session, throws for global cap
     final turnId = _uuid.v4();
     _activeTurns[sessionId] = TurnContext(turnId: turnId, sessionId: sessionId, startedAt: DateTime.now());
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
+
+    // Persist turn state for crash recovery (fire-and-forget, non-blocking)
+    final kv = _kv;
+    if (kv != null) {
+      unawaited(
+        kv.set(
+          'turn:$sessionId',
+          jsonEncode({'turnId': turnId, 'startedAt': DateTime.now().toIso8601String()}),
+        ).catchError((e) {
+          _log.warning('Failed to persist turn state for crash recovery', e);
+        }),
+      );
+    }
+
     return turnId;
   }
 
@@ -148,7 +164,7 @@ class TurnManager {
   }
 
   Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages) async {
-    final turnId = reserveTurn(sessionId);
+    final turnId = await reserveTurn(sessionId);
     executeTurn(sessionId, turnId, messages);
     return turnId;
   }
@@ -183,11 +199,57 @@ class TurnManager {
     throw ArgumentError('Unknown turnId: $turnId');
   }
 
+  /// Scans KvService for orphaned turn:* entries from a previous crash.
+  /// Logs warnings, cleans up entries, and populates recovery notice set.
+  Future<List<String>> detectAndCleanOrphanedTurns() async {
+    final kv = _kv;
+    if (kv == null) return [];
+
+    try {
+      final orphans = await kv.getByPrefix('turn:');
+      if (orphans.isEmpty) return [];
+
+      final sessionIds = <String>[];
+      for (final entry in orphans.entries) {
+        final sessionId = entry.key.substring('turn:'.length);
+        sessionIds.add(sessionId);
+
+        Map<String, dynamic>? data;
+        try {
+          data = jsonDecode(entry.value) as Map<String, dynamic>;
+        } catch (_) {}
+
+        final turnId = data?['turnId'] as String? ?? 'unknown';
+        final startedAt = data?['startedAt'] as String? ?? 'unknown';
+        _log.warning(
+          'Orphaned turn detected: session=$sessionId, turn=$turnId, started=$startedAt',
+        );
+        await kv.delete(entry.key);
+      }
+
+      _recoveredSessions.addAll(sessionIds);
+      _log.info('Cleaned up ${sessionIds.length} orphaned turn(s)');
+      return sessionIds;
+    } catch (e) {
+      _log.warning('Failed to detect orphaned turns', e);
+      return [];
+    }
+  }
+
+  /// Returns true (once) if this session recovered from a crash.
+  bool consumeRecoveryNotice(String sessionId) {
+    return _recoveredSessions.remove(sessionId);
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
 
   Future<String> _buildSystemPrompt() async {
+    // Append-strategy harnesses use --append-system-prompt at spawn;
+    // no per-turn system prompt needed.
+    if (_worker.promptStrategy == PromptStrategy.append) return '';
+
     final behaviorPrompt = await _behavior.composeSystemPrompt();
 
     // Check MEMORY.md size for warning (read by BehaviorFileService, use MemoryFileService for size tracking)
@@ -359,6 +421,16 @@ class TurnManager {
       await eventSub.cancel();
       _activeTurns.remove(sessionId);
       _lockManager.release(sessionId);
+
+      // Clean up persisted turn state
+      final kv = _kv;
+      if (kv != null) {
+        unawaited(
+          kv.delete('turn:$sessionId').catchError((e) {
+            _log.warning('Failed to clean up turn state', e);
+          }),
+        );
+      }
       final resolved =
           outcome ??
           TurnOutcome(

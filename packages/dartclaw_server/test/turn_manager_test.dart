@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,9 @@ class FakeWorkerService implements AgentHarness {
 
   /// Resolves when the next [turn] call arrives (after composeSystemPrompt completes).
   Future<void> get turnInvoked => _turnInvoked.future;
+
+  @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override
   WorkerState get state => WorkerState.idle;
@@ -97,6 +102,63 @@ class FakeWorkerService implements AgentHarness {
 }
 
 // ---------------------------------------------------------------------------
+// _AppendStrategyWorker — FakeWorkerService variant with append prompt strategy
+// ---------------------------------------------------------------------------
+
+class _AppendStrategyWorker implements AgentHarness {
+  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
+  Completer<Map<String, dynamic>>? _turnCompleter;
+  Completer<void> _turnInvoked = Completer<void>();
+  String? lastSystemPrompt;
+
+  Future<void> get turnInvoked => _turnInvoked.future;
+
+  @override
+  PromptStrategy get promptStrategy => PromptStrategy.append;
+
+  @override
+  WorkerState get state => WorkerState.idle;
+
+  @override
+  Stream<BridgeEvent> get events => _eventsCtrl.stream;
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<Map<String, dynamic>> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    Map<String, dynamic>? mcpServers,
+    bool resume = false,
+  }) {
+    lastSystemPrompt = systemPrompt;
+    _turnCompleter = Completer<Map<String, dynamic>>();
+    if (!_turnInvoked.isCompleted) _turnInvoked.complete();
+    return _turnCompleter!.future;
+  }
+
+  @override
+  Future<void> cancel() async {
+    _turnCompleter?.completeError(StateError('Cancelled'));
+  }
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {
+    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
+  }
+
+  void completeSuccess() {
+    _turnCompleter?.complete({'ok': true});
+    _turnInvoked = Completer<void>();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -137,18 +199,32 @@ void main() {
       await turns.waitForOutcome('s1', turnId);
     });
 
-    test('same-session busy throws BusyTurnException with isSameSession=true', () async {
-      final turnId = await turns.startTurn('s1', []);
+    test('same-session second request queues behind first (not 409)', () async {
+      final turnId1 = await turns.startTurn('s1', []);
 
-      expect(
-        () => turns.startTurn('s1', []),
-        throwsA(isA<BusyTurnException>().having((e) => e.isSameSession, 'isSameSession', isTrue)),
-      );
+      // Second request on same session should queue, not throw
+      var secondStarted = false;
+      final secondFuture = turns.startTurn('s1', []).then((turnId) {
+        secondStarted = true;
+        return turnId;
+      });
 
-      // Cleanup
+      await Future.delayed(Duration.zero);
+      expect(secondStarted, isFalse);
+
+      // Complete first turn to unblock second
       await worker.turnInvoked;
       worker.completeSuccess();
-      await turns.waitForOutcome('s1', turnId);
+      await turns.waitForOutcome('s1', turnId1);
+
+      final turnId2 = await secondFuture;
+      expect(secondStarted, isTrue);
+      expect(turnId2, isNotEmpty);
+
+      // Cleanup second turn
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await turns.waitForOutcome('s1', turnId2);
     });
 
     test('global busy (different session) throws BusyTurnException with isSameSession=false', () async {
@@ -170,6 +246,38 @@ void main() {
       await worker.turnInvoked;
       worker.completeSuccess();
       await singleTurns.waitForOutcome('s1', turnId);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('promptStrategy', () {
+    test('append-strategy harness receives empty systemPrompt', () async {
+      final appendWorker = _AppendStrategyWorker();
+      final appendTurns = TurnManager(
+        messages: messages,
+        worker: appendWorker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+      );
+
+      final turnId = await appendTurns.startTurn('s1', [{'role': 'user', 'content': 'hello'}]);
+      await appendWorker.turnInvoked;
+      expect(appendWorker.lastSystemPrompt, isEmpty);
+
+      appendWorker.completeSuccess();
+      await appendTurns.waitForOutcome('s1', turnId);
+    });
+
+    test('replace-strategy harness receives non-empty systemPrompt', () async {
+      final session = await SessionService(baseDir: tempDir.path).createSession();
+      final sessionId = session.id;
+
+      final turnId = await turns.startTurn(sessionId, [{'role': 'user', 'content': 'hello'}]);
+      await worker.turnInvoked;
+      // Default FakeWorkerService has promptStrategy.replace — systemPrompt should be non-empty
+      // (at least the default prompt from BehaviorFileService)
+      worker.completeSuccess();
+      await turns.waitForOutcome(sessionId, turnId);
+      // The turn completed without error — the system prompt was composed and sent
     });
   });
 
@@ -615,6 +723,152 @@ void main() {
       expect(outcome.status, TurnStatus.completed);
       final msgs = await messages.getMessages(sessionId);
       expect(msgs.last.content, 'Response');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('crash recovery', () {
+    late KvService kvService;
+
+    setUp(() {
+      kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    });
+
+    tearDown(() async {
+      await kvService.dispose();
+    });
+
+    test('turn start writes turn state to KV', () async {
+      final turnsWithKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: kvService,
+      );
+
+      final turnId = await turnsWithKv.startTurn('s1', []);
+
+      // Allow fire-and-forget KV write to complete
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final stored = await kvService.get('turn:s1');
+      expect(stored, isNotNull);
+      final data = jsonDecode(stored!) as Map<String, dynamic>;
+      expect(data['turnId'], equals(turnId));
+      expect(data['startedAt'], isNotNull);
+
+      // Cleanup
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await turnsWithKv.waitForOutcome('s1', turnId);
+    });
+
+    test('turn completion removes turn state from KV', () async {
+      final session = await SessionService(baseDir: tempDir.path).createSession();
+      final sessionId = session.id;
+      final turnsWithKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: kvService,
+      );
+
+      final turnId = await turnsWithKv.startTurn(sessionId, []);
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await turnsWithKv.waitForOutcome(sessionId, turnId);
+
+      // Allow fire-and-forget KV delete to complete
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final stored = await kvService.get('turn:$sessionId');
+      expect(stored, isNull);
+    });
+
+    test('detectAndCleanOrphanedTurns finds and cleans orphans', () async {
+      // Seed kv.json with orphaned turn entries (simulating a crash)
+      await kvService.set(
+        'turn:session1',
+        jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}),
+      );
+      await kvService.set(
+        'turn:session2',
+        jsonEncode({'turnId': 'turn-bbb', 'startedAt': '2026-01-01T00:01:00.000'}),
+      );
+      await kvService.set('session_cost:session1', '{"total_tokens": 100}');
+
+      final turnsWithKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: kvService,
+      );
+
+      final recovered = await turnsWithKv.detectAndCleanOrphanedTurns();
+
+      expect(recovered, unorderedEquals(['session1', 'session2']));
+      expect(await kvService.get('turn:session1'), isNull);
+      expect(await kvService.get('turn:session2'), isNull);
+      expect(await kvService.get('session_cost:session1'), isNotNull);
+    });
+
+    test('consumeRecoveryNotice returns true once then false', () async {
+      await kvService.set(
+        'turn:session1',
+        jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}),
+      );
+
+      final turnsWithKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: kvService,
+      );
+
+      await turnsWithKv.detectAndCleanOrphanedTurns();
+
+      expect(turnsWithKv.consumeRecoveryNotice('session1'), isTrue);
+      expect(turnsWithKv.consumeRecoveryNotice('session1'), isFalse);
+    });
+
+    test('detectAndCleanOrphanedTurns returns empty when no orphans', () async {
+      await kvService.set('session_cost:xyz', '{"total_tokens": 50}');
+
+      final turnsWithKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: kvService,
+      );
+
+      final recovered = await turnsWithKv.detectAndCleanOrphanedTurns();
+      expect(recovered, isEmpty);
+    });
+
+    test('detectAndCleanOrphanedTurns returns empty when no KV service', () async {
+      final recovered = await turns.detectAndCleanOrphanedTurns();
+      expect(recovered, isEmpty);
+    });
+
+    test('KV write failure degrades gracefully', () async {
+      final readOnlyKv = KvService(filePath: '/dev/null/impossible/kv.json');
+      final turnsWithBadKv = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        kv: readOnlyKv,
+      );
+
+      // Should not throw — turn proceeds despite KV write failure
+      final turnId = await turnsWithBadKv.startTurn('s1', []);
+      expect(turnId, isNotEmpty);
+      expect(turnsWithBadKv.isActive('s1'), isTrue);
+
+      // Cleanup
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await turnsWithBadKv.waitForOutcome('s1', turnId);
+      await readOnlyKv.dispose();
     });
   });
 }

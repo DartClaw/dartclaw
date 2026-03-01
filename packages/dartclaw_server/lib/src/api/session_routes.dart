@@ -142,14 +142,12 @@ Router sessionRoutes(
 
       final trimmedMessage = rawMessage!.trim();
 
-      // 3. Reserve turn atomically (sync) — before any DB writes.
+      // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
       final String turnId;
       try {
-        turnId = turns.reserveTurn(id);
-      } on BusyTurnException catch (e) {
-        return e.isSameSession
-            ? _errorResponse(409, 'SESSION_BUSY', 'Session already has an active turn')
-            : _errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
+        turnId = await turns.reserveTurn(id);
+      } on BusyTurnException {
+        return _errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
       }
 
       // 4. Persist + fetch messages; release reservation on failure.

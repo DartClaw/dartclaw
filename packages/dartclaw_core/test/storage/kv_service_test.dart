@@ -62,6 +62,30 @@ void main() {
     });
   });
 
+  group('getByPrefix', () {
+    test('returns matching entries', () async {
+      await kv.set('turn:abc', 'data1');
+      await kv.set('turn:def', 'data2');
+      await kv.set('session_cost:xyz', 'cost');
+
+      final result = await kv.getByPrefix('turn:');
+      expect(result.length, equals(2));
+      expect(result['turn:abc'], equals('data1'));
+      expect(result['turn:def'], equals('data2'));
+    });
+
+    test('returns empty map when no matches', () async {
+      await kv.set('session_cost:xyz', 'cost');
+      final result = await kv.getByPrefix('turn:');
+      expect(result, isEmpty);
+    });
+
+    test('returns empty map when file does not exist', () async {
+      final result = await kv.getByPrefix('turn:');
+      expect(result, isEmpty);
+    });
+  });
+
   group('serialized writes', () {
     test('multiple concurrent writes do not corrupt data', () async {
       // Fire multiple writes concurrently

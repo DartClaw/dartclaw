@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -39,6 +41,7 @@ typedef ServerFactory =
       ResultTrimmer? resultTrimmer,
       ChannelManager? channelManager,
       WhatsAppChannel? whatsAppChannel,
+      String? webhookSecret,
       bool authEnabled,
     });
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
@@ -104,6 +107,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer,
              channelManager,
              whatsAppChannel,
+             webhookSecret,
              authEnabled = true,
            }) => DartclawServer(
              sessions: sessions,
@@ -123,6 +127,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer: resultTrimmer,
              channelManager: channelManager,
              whatsAppChannel: whatsAppChannel,
+             webhookSecret: webhookSecret,
              authEnabled: authEnabled,
            )),
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
@@ -259,12 +264,20 @@ class ServeCommand extends Command<void> {
       final memory = MemoryService(searchDb);
       final handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile);
 
+      final behavior = BehaviorFileService(
+        workspaceDir: config.workspaceDir,
+        projectDir: p.join(Directory.current.path, '.dartclaw'),
+        maxMemoryBytes: config.memoryMaxBytes,
+      );
+
+      final staticPrompt = await behavior.composeStaticPrompt();
       final harnessConfig = HarnessConfig(
         disallowedTools: config.agentDisallowedTools,
         maxTurns: config.agentMaxTurns,
         model: config.agentModel,
         agents: config.agentAgents,
         context1m: config.agentContext1m,
+        appendSystemPrompt: staticPrompt,
       );
 
       harness = _harnessFactory(
@@ -284,12 +297,6 @@ class ServeCommand extends Command<void> {
         await _teardown(null, searchDb, harness);
         _exitFn(1);
       }
-
-      final behavior = BehaviorFileService(
-        workspaceDir: config.workspaceDir,
-        projectDir: p.join(Directory.current.path, '.dartclaw'),
-        maxMemoryBytes: config.memoryMaxBytes,
-      );
 
       // Construct guard chain with per-guard YAML configs
       final guardChain = config.guards.enabled
@@ -390,6 +397,7 @@ class ServeCommand extends Command<void> {
       // Channel + message queue (H-01: S14-S15 wiring)
       ChannelManager? channelManager;
       WhatsAppChannel? whatsAppChannel;
+      String? webhookSecret;
       final waConfig = config.channelConfig.channelConfigs['whatsapp'];
       if (waConfig != null && waConfig['enabled'] == true) {
         final messageQueue = MessageQueue(
@@ -413,10 +421,17 @@ class ServeCommand extends Command<void> {
           for (final w in warns) {
             Logger('ServeCommand').warning('WhatsApp config: $w');
           }
+          // Generate shared webhook secret for GOWA→DartClaw webhook auth
+          final webhookSecretBytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+          webhookSecret = base64Url.encode(webhookSecretBytes).replaceAll('=', '');
+          final webhookUrl = 'http://localhost:$port/webhook/whatsapp?secret=$webhookSecret';
+
           final gowaManager = GowaManager(
             executable: parsedConfig.gowaExecutable,
             host: parsedConfig.gowaHost,
             port: parsedConfig.gowaPort,
+            dbUri: parsedConfig.gowaDbUri,
+            webhookUrl: webhookUrl,
           );
           final waChannel = WhatsAppChannel(
             gowa: gowaManager,
@@ -428,7 +443,7 @@ class ServeCommand extends Command<void> {
             mentionGating: MentionGating(
               requireMention: parsedConfig.requireMention,
               mentionPatterns: parsedConfig.mentionPatterns,
-              ownJid: '', // Set after GOWA connects and provides own JID
+              ownJid: '',
             ),
             channelManager: channelManager,
             workspaceDir: config.workspaceDir,
@@ -459,8 +474,12 @@ class ServeCommand extends Command<void> {
         resultTrimmer: resultTrimmer,
         channelManager: channelManager,
         whatsAppChannel: whatsAppChannel,
+        webhookSecret: webhookSecret,
         authEnabled: authEnabled,
       );
+
+      // Detect orphaned turns from previous crash
+      await server.turns.detectAndCleanOrphanedTurns();
 
       // Parse scheduled jobs from config
       final scheduledJobs = <ScheduledJob>[];

@@ -1,12 +1,23 @@
 import '../bridge/bridge_events.dart';
 import '../worker/worker_state.dart';
 
+/// Strategy for injecting behavior content into the agent's system prompt.
+enum PromptStrategy {
+  /// Replace the agent's built-in prompt (used for harnesses with no built-in prompt).
+  replace,
+  /// Append to the agent's built-in prompt via spawn-time flag.
+  append,
+}
+
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).
 ///
 /// Consumers depend on this interface, not concrete implementations
 /// (ClaudeCodeHarness, future PiHarness, etc.).
 abstract class AgentHarness {
+  /// How this harness injects behavior content. Default: [PromptStrategy.replace].
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
   /// Current lifecycle state of the harness.
   WorkerState get state;
 

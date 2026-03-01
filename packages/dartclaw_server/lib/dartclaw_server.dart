@@ -7,7 +7,6 @@ export 'src/auth/auth_middleware.dart';
 export 'src/auth/security_headers.dart';
 export 'src/auth/session_store.dart';
 export 'src/auth/token_service.dart';
-export 'src/concurrency/session_key.dart';
 export 'src/concurrency/session_lock_manager.dart';
 export 'src/context/context_monitor.dart';
 export 'src/context/result_trimmer.dart';

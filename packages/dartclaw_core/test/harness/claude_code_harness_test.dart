@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
+import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
 import 'package:test/test.dart';
@@ -76,6 +78,31 @@ class FakeProcess implements Process {
   }
 }
 
+/// A [FakeProcess] variant that captures JSONL lines written to stdin.
+class CapturingFakeProcess extends FakeProcess {
+  final List<Map<String, dynamic>> _captured;
+
+  CapturingFakeProcess(this._captured);
+
+  @override
+  IOSink get stdin => _CapturingIOSink(_captured);
+}
+
+class _CapturingIOSink extends _NullIOSink {
+  final List<Map<String, dynamic>> _captured;
+  _CapturingIOSink(this._captured);
+
+  @override
+  void add(List<int> data) {
+    final line = utf8.decode(data).trim();
+    if (line.isNotEmpty) {
+      try {
+        _captured.add(jsonDecode(line) as Map<String, dynamic>);
+      } catch (_) {}
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -90,6 +117,7 @@ ClaudeCodeHarness _buildHarness({
   CommandProbe? commandProbe,
   DelayFactory? delayFactory,
   Map<String, String>? environment,
+  HarnessConfig harnessConfig = const HarnessConfig(),
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -97,6 +125,7 @@ ClaudeCodeHarness _buildHarness({
     commandProbe: commandProbe ?? _defaultCommandProbe,
     delayFactory: delayFactory ?? _noOpDelay,
     environment: environment ?? {'ANTHROPIC_API_KEY': 'sk-test-key'},
+    harnessConfig: harnessConfig,
   );
 }
 
@@ -418,6 +447,105 @@ void main() {
         h.events.listen((_) {});
         h.events.listen((_) {});
         addTeardownAsync(() => h.dispose());
+      });
+    });
+
+    // ----- prompt strategy / append protocol ------------------------------
+
+    group('prompt strategy', () {
+      test('promptStrategy is append', () {
+        final h = ClaudeCodeHarness(cwd: '/tmp');
+        expect(h.promptStrategy, PromptStrategy.append);
+      });
+
+      test('spawn args include --append-system-prompt when configured', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          harnessConfig: const HarnessConfig(appendSystemPrompt: 'test behavior prompt'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(capturedArgs, isNotNull);
+        final idx = capturedArgs!.indexOf('--append-system-prompt');
+        expect(idx, greaterThanOrEqualTo(0), reason: '--append-system-prompt flag should be present');
+        expect(capturedArgs![idx + 1], 'test behavior prompt');
+      });
+
+      test('spawn args omit --append-system-prompt when not configured', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(capturedArgs, isNotNull);
+        expect(capturedArgs, isNot(contains('--append-system-prompt')));
+      });
+
+      test('JSONL payload omits system_prompt for append-strategy harness', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+
+        final h = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            final fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            // Emit turn result so the turn completes
+            Future.delayed(const Duration(milliseconds: 20), () {
+              fake.emitStdout(jsonEncode({
+                'type': 'result',
+                'result': 'test response',
+                'cost_usd': 0.01,
+                'duration_ms': 100,
+                'duration_api_ms': 50,
+                'num_turns': 1,
+                'is_error': false,
+                'session_id': 'test-session',
+              }));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        expect(h.promptStrategy, PromptStrategy.append);
+
+        await h.turn(
+          sessionId: 'test',
+          messages: [{'role': 'user', 'content': 'hello'}],
+          systemPrompt: 'this should NOT appear in payload',
+        );
+
+        // Find the user-type payload (the turn message)
+        final userPayloads = stdinLines.where((p) => p['type'] == 'user').toList();
+        expect(userPayloads, isNotEmpty, reason: 'Should have sent a user message');
+        for (final p in userPayloads) {
+          expect(p.containsKey('system_prompt'), isFalse,
+              reason: 'Append-strategy harness should not send system_prompt in JSONL');
+        }
       });
     });
   });

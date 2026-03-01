@@ -173,7 +173,10 @@ class MessageQueue {
         final entry = queue.removeFirst();
         try {
           final response = await _dispatcher(entry.sessionKey, entry.message.text, senderJid: entry.message.senderJid);
-          await entry.sourceChannel.sendMessage(entry.message.senderJid, ChannelResponse(text: response));
+          final formatted = entry.sourceChannel.formatResponse(response);
+          for (final chunk in formatted) {
+            await entry.sourceChannel.sendMessage(entry.message.senderJid, chunk);
+          }
         } catch (e, st) {
           entry.attempt++;
           if (entry.attempt < defaultRetryPolicy.maxAttempts) {

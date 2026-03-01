@@ -22,6 +22,9 @@ class FakeWorkerService implements AgentHarness {
   Future<void> get turnInvoked => _turnInvoked.future;
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override

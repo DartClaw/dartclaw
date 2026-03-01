@@ -13,10 +13,12 @@ class FakeGowaManager extends GowaManager {
   bool stopped = false;
   final List<(String, String)> sentTexts = [];
   final List<(String, String)> sentMedia = [];
+  GowaStatus statusResult = (isConnected: false, isLoggedIn: false, deviceId: null);
+  String? loginQrResult;
 
   FakeGowaManager()
       : super(
-          executable: 'gowa',
+          executable: 'whatsapp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             return _NeverExitProcess();
           },
@@ -41,6 +43,12 @@ class FakeGowaManager extends GowaManager {
   Future<void> sendMedia(String jid, String filePath, {String? caption}) async {
     sentMedia.add((jid, filePath));
   }
+
+  @override
+  Future<GowaStatus> getStatus() async => statusResult;
+
+  @override
+  Future<String?> getLoginQr() async => loginQrResult;
 }
 
 class FakeChannelManager extends ChannelManager {
@@ -90,6 +98,17 @@ class _NullIOSink implements IOSink {
   @override void writeCharCode(int charCode) {}
   @override void writeln([Object? object = '']) {}
 }
+
+/// Build a GOWA v8 webhook envelope for testing.
+Map<String, dynamic> _v8Envelope({
+  String event = 'message',
+  String? deviceId,
+  required Map<String, dynamic> payload,
+}) => {
+  'event': event,
+  if (deviceId != null) 'device_id': deviceId,
+  'payload': payload,
+};
 
 void main() {
   late FakeGowaManager gowa;
@@ -158,36 +177,100 @@ void main() {
       expect(gowa.sentTexts, isEmpty);
     });
 
-    test('handleWebhook routes DM message to channel manager', () {
-      channel.handleWebhook({
-        'jid': '123@s.whatsapp.net',
-        'message': 'Hello agent',
-        'is_group': false,
-      });
+    // ---- v8 webhook parsing ----
+
+    test('handleWebhook routes DM message (v8 envelope)', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'Hello agent',
+          'chat_id': '123@s.whatsapp.net',
+          'from_name': 'Alice',
+        },
+      ));
       expect(channelManager.received, hasLength(1));
       expect(channelManager.received.first.text, 'Hello agent');
       expect(channelManager.received.first.senderJid, '123@s.whatsapp.net');
+      expect(channelManager.received.first.metadata['pushname'], 'Alice');
     });
 
-    test('handleWebhook drops message with missing text', () {
-      channel.handleWebhook({'jid': '123@s.whatsapp.net'});
-      expect(channelManager.received, isEmpty);
-    });
-
-    test('handleWebhook drops message with missing jid', () {
-      channel.handleWebhook({'message': 'text'});
-      expect(channelManager.received, isEmpty);
-    });
-
-    test('handleWebhook parses group message', () {
-      channel.handleWebhook({
-        'jid': '123@s.whatsapp.net',
-        'message': 'group msg',
-        'is_group': true,
-        'group_jid': 'grp@g.us',
-      });
+    test('handleWebhook parses group message (v8 envelope)', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'group msg',
+          'chat_id': 'grp@g.us',
+          'from_name': 'Bob',
+        },
+      ));
       expect(channelManager.received, hasLength(1));
       expect(channelManager.received.first.groupJid, 'grp@g.us');
+    });
+
+    test('handleWebhook ignores non-message events', () {
+      channel.handleWebhook(_v8Envelope(
+        event: 'reaction',
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'some reaction',
+          'chat_id': '123@s.whatsapp.net',
+        },
+      ));
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('handleWebhook ignores is_from_me messages', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'my own message',
+          'chat_id': '123@s.whatsapp.net',
+          'is_from_me': true,
+        },
+      ));
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('handleWebhook drops message with missing body', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'chat_id': '123@s.whatsapp.net',
+        },
+      ));
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('handleWebhook drops message with missing from', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'body': 'text',
+          'chat_id': '123@s.whatsapp.net',
+        },
+      ));
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('handleWebhook handles malformed envelope gracefully', () {
+      // Missing payload entirely
+      channel.handleWebhook({'event': 'message'});
+      expect(channelManager.received, isEmpty);
+
+      // Payload is not a map
+      channel.handleWebhook({'event': 'message', 'payload': 'invalid'});
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('handleWebhook preserves replied_to_id in metadata', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'replying',
+          'chat_id': '123@s.whatsapp.net',
+          'replied_to_id': 'msg-id-456',
+        },
+      ));
+      expect(channelManager.received.first.metadata['repliedToId'], 'msg-id-456');
     });
 
     test('handleWebhook respects group disabled policy', () {
@@ -200,12 +283,13 @@ void main() {
         workspaceDir: '/tmp',
       );
 
-      disabledChannel.handleWebhook({
-        'jid': '123@s.whatsapp.net',
-        'message': 'group msg',
-        'is_group': true,
-        'group_jid': 'grp@g.us',
-      });
+      disabledChannel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'group msg',
+          'chat_id': 'grp@g.us',
+        },
+      ));
       expect(channelManager.received, isEmpty);
     });
 
@@ -219,29 +303,66 @@ void main() {
         workspaceDir: '/tmp',
       );
 
-      restrictedChannel.handleWebhook({
-        'jid': '123@s.whatsapp.net',
-        'message': 'Hello',
-        'is_group': false,
-      });
+      restrictedChannel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'Hello',
+          'chat_id': '123@s.whatsapp.net',
+        },
+      ));
       expect(channelManager.received, isEmpty);
     });
 
-    test('handleWebhook parses mentioned JIDs', () {
-      channel.handleWebhook({
-        'jid': '123@s.whatsapp.net',
-        'message': 'Hello @bot',
-        'is_group': true,
-        'group_jid': 'grp@g.us',
-        'mentioned_jids': ['bot@s.whatsapp.net'],
-      });
-      expect(channelManager.received.first.mentionedJids, ['bot@s.whatsapp.net']);
+    test('v8 mentionedJids are empty (removed in v8)', () {
+      channel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': '123@s.whatsapp.net',
+          'body': 'Hello @bot',
+          'chat_id': 'grp@g.us',
+        },
+      ));
+      expect(channelManager.received.first.mentionedJids, isEmpty);
     });
 
-    test('formatAgentResponse returns ChannelResponse list', () {
-      final responses = channel.formatAgentResponse('Hello from agent');
+    test('formatResponse returns ChannelResponse list', () {
+      final responses = channel.formatResponse('Hello from agent');
       expect(responses, isNotEmpty);
       expect(responses.first.text, isNotEmpty);
+    });
+
+    test('formatResponse overrides Channel default with WhatsApp formatting', () {
+      final responses = channel.formatResponse('Test output');
+      expect(responses.first.text, contains('Claude'));
+    });
+
+    test('connect sets ownJid from GOWA getStatus deviceId', () async {
+      gowa.statusResult = (isConnected: true, isLoggedIn: true, deviceId: '1234567890@s.whatsapp.net');
+      final mg = MentionGating(requireMention: true, mentionPatterns: [], ownJid: '');
+      final ch = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(enabled: true),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: mg,
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+      await ch.connect();
+      expect(mg.ownJid, '1234567890@s.whatsapp.net');
+    });
+
+    test('connect handles missing deviceId gracefully', () async {
+      gowa.statusResult = (isConnected: false, isLoggedIn: false, deviceId: null);
+      final mg = MentionGating(requireMention: true, mentionPatterns: [], ownJid: '');
+      final ch = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(enabled: true),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: mg,
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+      await ch.connect();
+      expect(mg.ownJid, ''); // Stays empty, no crash
     });
   });
 }

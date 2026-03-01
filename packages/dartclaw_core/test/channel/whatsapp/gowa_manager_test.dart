@@ -76,54 +76,59 @@ class _NullIOSink implements IOSink {
 void main() {
   group('GowaManager', () {
     test('baseUrl constructed from host and port', () {
-      final mgr = GowaManager(executable: 'gowa', host: '0.0.0.0', port: 4000);
+      final mgr = GowaManager(executable: 'whatsapp', host: '0.0.0.0', port: 4000);
       expect(mgr.baseUrl, 'http://0.0.0.0:4000');
     });
 
-    test('default baseUrl', () {
-      final mgr = GowaManager(executable: 'gowa');
-      expect(mgr.baseUrl, 'http://127.0.0.1:3080');
+    test('default baseUrl uses port 3000', () {
+      final mgr = GowaManager(executable: 'whatsapp');
+      expect(mgr.baseUrl, 'http://127.0.0.1:3000');
     });
 
     test('isRunning is false initially', () {
-      final mgr = GowaManager(executable: 'gowa');
+      final mgr = GowaManager(executable: 'whatsapp');
       expect(mgr.isRunning, isFalse);
     });
 
-    test('start spawns process with correct args', () async {
+    test('start spawns process with correct args (rest subcommand, --db-uri, --webhook)', () async {
       late String capturedExe;
       late List<String> capturedArgs;
 
       final mgr = GowaManager(
-        executable: '/usr/local/bin/gowa',
+        executable: '/usr/local/bin/whatsapp',
         host: '0.0.0.0',
         port: 5000,
-        dataDir: '/data',
+        dbUri: '/data/wa.db',
+        webhookUrl: 'http://localhost:3333/webhook/whatsapp?secret=abc',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedExe = exe;
           capturedArgs = args;
           return FakeProcess();
         },
-        // Health check will fail (no real server), so start() will throw.
-        // We catch that to verify the process was spawned with correct args.
         delay: (d) => Future.value(),
       );
 
       try {
         await mgr.start();
       } on StateError {
-        // Expected: health check fails
+        // Expected: health check fails (no real server)
       }
 
-      expect(capturedExe, '/usr/local/bin/gowa');
-      expect(capturedArgs, ['--host', '0.0.0.0', '--port', '5000', '--data', '/data']);
+      expect(capturedExe, '/usr/local/bin/whatsapp');
+      expect(capturedArgs, [
+        'rest',
+        '--host', '0.0.0.0',
+        '--port', '5000',
+        '--db-uri', '/data/wa.db',
+        '--webhook=http://localhost:3333/webhook/whatsapp?secret=abc',
+      ]);
     });
 
-    test('start without dataDir omits --data flag', () async {
+    test('start without dbUri omits --db-uri flag', () async {
       late List<String> capturedArgs;
 
       final mgr = GowaManager(
-        executable: 'gowa',
+        executable: 'whatsapp',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           capturedArgs = args;
           return FakeProcess();
@@ -137,21 +142,43 @@ void main() {
         // Expected: health check fails
       }
 
-      expect(capturedArgs, ['--host', '127.0.0.1', '--port', '3080']);
-      expect(capturedArgs, isNot(contains('--data')));
+      expect(capturedArgs, contains('rest'));
+      expect(capturedArgs, containsAllInOrder(['--host', '127.0.0.1', '--port', '3000']));
+      expect(capturedArgs, isNot(contains('--db-uri')));
+    });
+
+    test('start without webhookUrl omits --webhook flag', () async {
+      late List<String> capturedArgs;
+
+      final mgr = GowaManager(
+        executable: 'whatsapp',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          capturedArgs = args;
+          return FakeProcess();
+        },
+        delay: (d) => Future.value(),
+      );
+
+      try {
+        await mgr.start();
+      } on StateError {
+        // Expected: health check fails
+      }
+
+      expect(capturedArgs, isNot(contains(startsWith('--webhook'))));
     });
 
     test('start throws when already stopped', () async {
-      final mgr = GowaManager(executable: 'gowa');
+      final mgr = GowaManager(executable: 'whatsapp');
       await mgr.stop(); // sets _stopped = true
       expect(() => mgr.start(), throwsStateError);
     });
 
     test('start rethrows process spawn failure', () async {
       final mgr = GowaManager(
-        executable: 'gowa',
+        executable: 'whatsapp',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-          throw ProcessException('gowa', args, 'not found');
+          throw ProcessException('whatsapp', args, 'not found');
         },
       );
 
@@ -161,7 +188,7 @@ void main() {
     test('stop sends SIGTERM to running process', () async {
       final proc = FakeProcess();
       final mgr = GowaManager(
-        executable: 'gowa',
+        executable: 'whatsapp',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           return proc;
         },
@@ -181,16 +208,32 @@ void main() {
     });
 
     test('stop on already-stopped manager is a no-op', () async {
-      final mgr = GowaManager(executable: 'gowa');
+      final mgr = GowaManager(executable: 'whatsapp');
       await mgr.stop();
       // Should not throw
       await mgr.stop();
     });
 
     test('dispose aliases stop', () async {
-      final mgr = GowaManager(executable: 'gowa');
+      final mgr = GowaManager(executable: 'whatsapp');
       await mgr.dispose();
       expect(mgr.isRunning, isFalse);
+    });
+
+    test('startup timeout kills process before throwing', () async {
+      final proc = FakeProcess();
+      final mgr = GowaManager(
+        executable: 'whatsapp',
+        processFactory: (exe, args,
+            {workingDirectory, environment, includeParentEnvironment = true}) async {
+          return proc;
+        },
+        delay: (d) => Future.value(),
+      );
+
+      expect(proc.killed, isFalse);
+      await expectLater(() => mgr.start(), throwsStateError);
+      expect(proc.killed, isTrue);
     });
   });
 }

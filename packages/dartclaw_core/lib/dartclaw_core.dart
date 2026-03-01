@@ -1,6 +1,7 @@
 library;
 
 export 'src/models/models.dart';
+export 'src/models/session_key.dart';
 export 'src/storage/session_service.dart';
 export 'src/storage/message_service.dart';
 export 'src/storage/kv_service.dart';

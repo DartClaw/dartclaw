@@ -16,6 +16,7 @@ import '../templates/session_info.dart';
 import '../templates/settings.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
+import '../turn_manager.dart';
 
 /// HTML page routes for the web UI.
 ///
@@ -29,6 +30,7 @@ Router webRoutes(
   HealthService? healthService,
   WhatsAppChannel? whatsAppChannel,
   GuardChain? guardChain,
+  TurnManager? turns,
   bool heartbeatEnabled = false,
   int heartbeatIntervalMinutes = 30,
   List<Map<String, dynamic>> scheduledJobs = const [],
@@ -120,6 +122,13 @@ Router webRoutes(
       if (workerStateGetter?.call() == WorkerState.crashed) {
         bannerHtml.write(
           '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. Retry your message.'
+          '<button class="dismiss" aria-label="Dismiss">&#10005;</button></div>',
+        );
+      }
+      if (turns?.consumeRecoveryNotice(id) ?? false) {
+        bannerHtml.write(
+          '<div class="banner banner-warning">This session recovered from an interrupted turn. '
+          'Your conversation is intact.'
           '<button class="dismiss" aria-label="Dismiss">&#10005;</button></div>',
         );
       }

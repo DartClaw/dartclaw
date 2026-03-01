@@ -17,6 +17,9 @@ class FakeWorkerService implements AgentHarness {
   bool cancelCalled = false;
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override
@@ -62,7 +65,6 @@ class FakeWorkerService implements AgentHarness {
 
 class FakeTurnManager extends TurnManager {
   bool _busy = false;
-  bool _sameSessionBusy = false;
   final Map<String, String> _activeTurns = {};
   final Map<String, TurnOutcome> _outcomes = {};
 
@@ -73,17 +75,16 @@ class FakeTurnManager extends TurnManager {
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
       );
 
-  void setBusy({required bool sameSession}) {
+  void setBusy() {
     _busy = true;
-    _sameSessionBusy = sameSession;
   }
 
   void clearBusy() => _busy = false;
 
   @override
-  String reserveTurn(String sessionId) {
+  Future<String> reserveTurn(String sessionId) async {
     if (_busy) {
-      throw BusyTurnException(_sameSessionBusy ? 'same session busy' : 'global busy', isSameSession: _sameSessionBusy);
+      throw BusyTurnException('global busy', isSameSession: false);
     }
     const turnId = 'fake-turn-id';
     _activeTurns[sessionId] = turnId;
@@ -403,24 +404,9 @@ void main() {
       expect(await _errorCode(res), equals('SESSION_NOT_FOUND'));
     });
 
-    test('returns 409 SESSION_BUSY when same session busy', () async {
+    test('returns 409 AGENT_BUSY_GLOBAL when global cap exceeded', () async {
       final session = await sessions.createSession();
-      turns.setBusy(sameSession: true);
-      final res = await handler(
-        Request(
-          'POST',
-          Uri.parse('http://localhost/api/sessions/${session.id}/send'),
-          body: 'message=Hello',
-          headers: {'content-type': 'application/x-www-form-urlencoded'},
-        ),
-      );
-      expect(res.statusCode, equals(409));
-      expect(await _errorCode(res), equals('SESSION_BUSY'));
-    });
-
-    test('returns 409 AGENT_BUSY_GLOBAL when different session busy', () async {
-      final session = await sessions.createSession();
-      turns.setBusy(sameSession: false);
+      turns.setBusy();
       final res = await handler(
         Request(
           'POST',
@@ -449,7 +435,7 @@ void main() {
 
     test('does not persist user message when busy (atomic reservation)', () async {
       final session = await sessions.createSession();
-      turns.setBusy(sameSession: true);
+      turns.setBusy();
       final res = await handler(
         Request(
           'POST',

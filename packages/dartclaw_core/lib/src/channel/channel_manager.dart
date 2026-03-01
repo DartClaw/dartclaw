@@ -1,5 +1,6 @@
 import 'package:logging/logging.dart';
 
+import '../models/session_key.dart';
 import 'channel.dart';
 import 'channel_config.dart';
 import 'message_queue.dart';
@@ -37,16 +38,15 @@ class ChannelManager {
   }
 
   /// Derive a deterministic session key from a channel message.
-  ///
-  /// DM: `agent:main:per-peer:<encodedSenderJid>`
-  /// Group: `agent:main:per-channel-peer:<channelType>:<encodedGroupJid>:<encodedSenderJid>`
   static String deriveSessionKey(ChannelMessage message) {
-    final sender = Uri.encodeComponent(message.senderJid);
     if (message.groupJid != null) {
-      final group = Uri.encodeComponent(message.groupJid!);
-      return 'agent:main:per-channel-peer:${message.channelType.name}:$group:$sender';
+      return SessionKey.channelPeerSession(
+        channelType: message.channelType.name,
+        channelId: message.groupJid!,
+        peerId: message.senderJid,
+      );
     }
-    return 'agent:main:per-peer:$sender';
+    return SessionKey.peerSession(agentId: 'main', peerId: message.senderJid);
   }
 
   /// Connect all registered channels.

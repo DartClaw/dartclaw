@@ -19,6 +19,9 @@ class FakeWorkerService implements AgentHarness {
   bool disposeCalled = false;
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override

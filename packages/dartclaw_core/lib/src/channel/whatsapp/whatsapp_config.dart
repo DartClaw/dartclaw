@@ -10,6 +10,7 @@ class WhatsAppConfig {
   final String gowaExecutable;
   final String gowaHost;
   final int gowaPort;
+  final String? gowaDbUri;
   final DmAccessMode dmAccess;
   final GroupAccessMode groupAccess;
   final List<String> dmAllowlist;
@@ -22,9 +23,10 @@ class WhatsAppConfig {
 
   const WhatsAppConfig({
     this.enabled = false,
-    this.gowaExecutable = 'gowa',
+    this.gowaExecutable = 'whatsapp',
     this.gowaHost = '127.0.0.1',
-    this.gowaPort = 3080,
+    this.gowaPort = 3000,
+    this.gowaDbUri,
     this.dmAccess = DmAccessMode.pairing,
     this.groupAccess = GroupAccessMode.disabled,
     this.dmAllowlist = const [],
@@ -54,7 +56,7 @@ class WhatsAppConfig {
       warns.add('Invalid type for whatsapp.gowa_host: "${host.runtimeType}" — using default');
     }
 
-    var gowaPort = 3080;
+    var gowaPort = 3000;
     final port = yaml['gowa_port'];
     if (port is int) {
       gowaPort = port;
@@ -84,6 +86,11 @@ class WhatsAppConfig {
       }
     }
 
+    final gowaDbUri = yaml['gowa_db_uri'];
+    if (gowaDbUri != null && gowaDbUri is! String) {
+      warns.add('Invalid type for whatsapp.gowa_db_uri: "${gowaDbUri.runtimeType}" — using default');
+    }
+
     final dmAllowlist = _parseStringList(yaml['dm_allowlist']);
     final groupAllowlist = _parseStringList(yaml['group_allowlist']);
     final mentionPatterns = _parseStringList(yaml['mention_patterns']);
@@ -110,9 +117,10 @@ class WhatsAppConfig {
 
     return WhatsAppConfig(
       enabled: enabled is bool ? enabled : false,
-      gowaExecutable: exec is String ? exec : 'gowa',
+      gowaExecutable: exec is String ? exec : 'whatsapp',
       gowaHost: host is String ? host : '127.0.0.1',
       gowaPort: gowaPort,
+      gowaDbUri: gowaDbUri is String ? gowaDbUri : null,
       dmAccess: dmAccess,
       groupAccess: groupAccess,
       dmAllowlist: dmAllowlist,

@@ -56,6 +56,43 @@ class BehaviorFileService {
     return parts.join('\n\n');
   }
 
+  /// Composes static prompt content for append-mode harnesses.
+  /// Includes SOUL, USER, TOOLS, AGENTS (no MEMORY -- agent uses MCP tools).
+  Future<String> composeStaticPrompt() async {
+    final parts = <String>[];
+    final projDir = projectDir;
+
+    // SOUL.md
+    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
+    if (globalSoul != null) parts.add(globalSoul);
+    final projSoul = projDir != null ? await _readFile(p.join(projDir, 'SOUL.md')) : null;
+    if (projSoul != null) parts.add(projSoul);
+    if (globalSoul == null && projSoul == null) parts.add(defaultPrompt);
+
+    // USER.md
+    final userMd = await _readFile(p.join(workspaceDir, 'USER.md'));
+    if (userMd != null && userMd.trim().isNotEmpty) {
+      parts.add('## User Context\n$userMd');
+    }
+
+    // TOOLS.md
+    final toolsMd = await _readFile(p.join(workspaceDir, 'TOOLS.md'));
+    if (toolsMd != null && toolsMd.trim().isNotEmpty) {
+      parts.add('## Environment Notes\n$toolsMd');
+    }
+
+    // AGENTS.md
+    final agentsMd = await composeAppendPrompt();
+    if (agentsMd.isNotEmpty) {
+      parts.add(agentsMd);
+    }
+
+    // Memory hint (agent uses MCP tools for dynamic memory access)
+    parts.add('## Memory\nUse the memory_read tool to check for relevant context before responding.');
+
+    return parts.join('\n\n');
+  }
+
   /// Loads AGENTS.md from workspace and returns its content for append to system prompt.
   /// Returns empty string if file is missing or unreadable (never throws).
   Future<String> composeAppendPrompt() async {

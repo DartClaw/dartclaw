@@ -52,6 +52,21 @@ class KvService {
     return op.completer.future;
   }
 
+  /// Returns all entries whose key starts with [prefix].
+  Future<Map<String, String>> getByPrefix(String prefix) async {
+    final file = File(filePath);
+    if (!file.existsSync()) return {};
+    final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final result = <String, String>{};
+    for (final entry in map.entries) {
+      if (entry.key.startsWith(prefix)) {
+        final value = (entry.value as Map<String, dynamic>)['value'] as String?;
+        if (value != null) result[entry.key] = value;
+      }
+    }
+    return result;
+  }
+
   Future<void> delete(String key) {
     final op = _WriteOp(() async {
       final file = File(filePath);

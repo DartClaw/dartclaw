@@ -4,7 +4,7 @@ import '../channel.dart';
 class MentionGating {
   final bool requireMention;
   final List<RegExp> _patterns;
-  final String ownJid;
+  String ownJid;
 
   MentionGating({required this.requireMention, required List<String> mentionPatterns, required this.ownJid})
     : _patterns = mentionPatterns.map(RegExp.new).toList();
@@ -27,10 +27,6 @@ class MentionGating {
     for (final pattern in _patterns) {
       if (pattern.hasMatch(message.text)) return true;
     }
-
-    // Check reply-to-bot via metadata
-    final quotedSender = message.metadata['quotedMessageSender'];
-    if (quotedSender is String && quotedSender == ownJid) return true;
 
     return false;
   }

@@ -9,6 +9,8 @@ import 'package:test/test.dart';
 
 class _FakeHarness implements AgentHarness {
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+  @override
   WorkerState get state => WorkerState.idle;
   @override
   Stream<BridgeEvent> get events => const Stream.empty();

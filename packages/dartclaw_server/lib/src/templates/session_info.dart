@@ -1,6 +1,7 @@
 import 'helpers.dart';
 import 'layout.dart';
 import 'sidebar.dart';
+import 'topbar.dart';
 
 /// Renders the session info standalone page.
 String sessionInfoTemplate({
@@ -30,38 +31,13 @@ String sessionInfoTemplate({
     activeSessionId: sessionId,
   );
 
-  final topbar = '''
-<header class="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
-  <span class="session-title-static">Session Info</span>
-  <div class="topbar-actions">
-    <a href="/sessions/$escapedId" class="btn btn-ghost" style="font-size:var(--text-sm);">&larr; Back to Chat</a>
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
-  </div>
-</header>''';
+  final topbar = pageTopbarTemplate(
+    title: 'Session Info',
+    backHref: '/sessions/$escapedId',
+    backLabel: 'Back to Chat',
+  );
 
   final body = '''
-<style>
-  .info-content { overflow-y: auto; padding: var(--sp-6); }
-  @media (max-width: 768px) { .info-content { padding: var(--sp-4); } }
-  .info-inner { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
-  .info-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-1); }
-  .info-subtitle { font-size: var(--text-xs); color: var(--fg-overlay); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .token-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
-  .token-stat { background: var(--bg-base); border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); border: var(--border); }
-  .token-stat.total { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
-  .token-stat-label { font-size: var(--text-xs); color: var(--fg-sub0); margin-bottom: var(--sp-1); }
-  .token-stat-value { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); }
-  .token-stat.total .token-stat-label, .token-stat.total .token-stat-value { margin-bottom: 0; }
-  .meta-row {
-    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
-    padding: var(--sp-2) 0; border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
-  }
-  .meta-row:last-child { border-bottom: none; }
-  .meta-label { font-size: var(--text-sm); color: var(--fg-sub0); flex-shrink: 0; }
-  .meta-value { font-size: var(--text-sm); color: var(--fg); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta-value-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
-</style>
 <div class="shell">
   $sidebar
   $topbar

@@ -14,6 +14,9 @@ class FakeWorkerService implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override

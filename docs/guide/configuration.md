@@ -101,9 +101,12 @@ logging:
 channels:
   whatsapp:
     enabled: false
-    gowa_path: /usr/local/bin/gowa
+    gowa_executable: whatsapp    # binary name or absolute path
+    gowa_host: 127.0.0.1        # GOWA listen address
+    gowa_port: 3000             # GOWA listen port (default: 3000)
+    gowa_db_uri: ''             # GOWA database URI (--db-uri flag)
     dm_access: pairing           # pairing | allowlist | open | disabled
-    group_policy: disabled       # allowlist | open | disabled
+    group_access: disabled        # allowlist | open | disabled
     require_mention: true
     debounce_ms: 1000
 

@@ -37,17 +37,6 @@ void main() {
       expect(gating.shouldProcess(msg), isTrue);
     });
 
-    test('group with reply-to-bot processes', () {
-      final msg = ChannelMessage(
-        channelType: ChannelType.whatsapp,
-        senderJid: 'user@s.whatsapp.net',
-        groupJid: 'group@g.us',
-        text: 'thanks',
-        metadata: {'quotedMessageSender': botJid},
-      );
-      expect(gating.shouldProcess(msg), isTrue);
-    });
-
     test('group without mention does not process', () {
       final msg = ChannelMessage(
         channelType: ChannelType.whatsapp,

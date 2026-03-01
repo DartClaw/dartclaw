@@ -1,12 +1,25 @@
 # WhatsApp Integration
 
-DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that handles the WhatsApp Web protocol.
+DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that wraps the [whatsmeow](https://github.com/tulir/whatsmeow) library, exposing WhatsApp Web multi-device protocol via a REST API + webhook interface.
 
 ## Prerequisites
 
-- GOWA binary installed and on PATH
-- A WhatsApp account (phone number)
+- GOWA binary installed and on PATH (or absolute path in config)
+- A WhatsApp account (phone number) — use a dedicated number to reduce ban risk
 - Network access to WhatsApp servers
+
+## Installing GOWA
+
+```bash
+# Build from source (requires Go 1.21+)
+git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice
+cd go-whatsapp-web-multidevice
+git checkout v8.3.2
+go build -o whatsapp .
+sudo mv whatsapp /usr/local/bin/
+```
+
+Verify: `./whatsapp --help`
 
 ## Setup
 
@@ -16,14 +29,22 @@ DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that hand
 channels:
   whatsapp:
     enabled: true
-    gowa_executable: gowa    # default
-    gowa_port: 3080          # default
-    dm_access: pairing       # pairing | allowlist | open | disabled
-    group_access: mention    # mention | all | disabled
+    gowa_executable: whatsapp    # binary name or absolute path
+    gowa_host: 127.0.0.1        # GOWA listen address
+    gowa_port: 3000             # GOWA listen port
+    gowa_db_uri: ''             # GOWA database URI (--db-uri flag)
+    dm_access: pairing          # pairing | allowlist | open | disabled
+    group_access: disabled      # allowlist | open | disabled
+    require_mention: true       # groups: only respond when @mentioned
     mention_patterns:
       - '@DartClaw'
       - '@bot'
+    dm_allowlist: []            # JIDs for allowlist mode
+    group_allowlist: []         # group JIDs for allowlist mode
+    max_chunk_size: 4000
 ```
+
+DartClaw passes the webhook URL via the `--webhook` CLI flag when spawning GOWA (`--webhook=http://localhost:<port>/webhook/whatsapp`), so GOWA knows where to POST inbound messages.
 
 ### 2. Start DartClaw and Pair
 
@@ -62,11 +83,81 @@ WhatsApp may ban accounts that appear automated. Mitigations:
 
 **Recovery**: If banned, create a new WhatsApp account with a different number. Your workspace data and configuration are preserved.
 
+### GOWA Not Found
+
+If `whatsapp` is not on PATH and `gowa_executable` is not an absolute path:
+- DartClaw logs a SEVERE warning and continues without WhatsApp
+- Web UI and other features work normally
+- `/whatsapp/pairing` shows "GOWA sidecar is not running" with config instructions
+
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| GOWA won't start | Check `gowa --version`, verify port 3080 is free |
-| QR code not loading | Check GOWA health: `curl http://localhost:3080/health` |
+| GOWA won't start | Check `whatsapp --help`, verify port 3000 is free |
+| QR code not loading | Check GOWA health: `curl http://localhost:3000/app/status` |
 | Messages not delivered | Check DM access mode, verify pairing is complete |
 | Agent not responding in groups | Verify mention patterns match your @mention format |
+| Webhook not receiving messages | DartClaw passes webhook URL via `--webhook` CLI flag; check logs for GOWA startup command |
+| GOWA crashes repeatedly | Check logs for restart attempts; max 5 retries with exponential backoff |
+
+## Manual E2E Test Procedure
+
+These tests verify the full WhatsApp integration. Tests requiring a phone are marked accordingly.
+
+### T01: GOWA Startup
+
+1. Configure `dartclaw.yaml` with `channels.whatsapp.enabled: true`
+2. Run `dartclaw serve`
+3. Verify: logs show "GOWA started successfully"
+4. Verify: `curl http://localhost:3000/app/status` returns 200
+
+### T02: QR Pairing (requires phone)
+
+1. Open `http://localhost:<port>/whatsapp/pairing` (with auth token)
+2. Verify: QR code image displayed
+3. WhatsApp > Settings > Linked Devices > Link a Device > scan QR
+4. Verify: pairing page shows "WhatsApp Connected"
+
+### T03: Text DM Round-Trip (requires phone)
+
+1. Send a WhatsApp DM to the paired number: "Hello"
+2. Verify: GOWA webhook fires (logs: `POST /webhook/whatsapp`)
+3. Verify: agent processes the message (turn starts)
+4. Verify: response received in WhatsApp with prefix `*Claude* -- _DartClaw_`
+
+### T04: Group Mention Gating (requires phone)
+
+1. Add bot to a group, set `group_access: open` in config
+2. Send message **without** mentioning bot — verify: no response
+3. Send message @mentioning bot — verify: bot responds
+4. Reply to bot message — verify: bot responds
+
+### T05: DM Access Control (requires phone)
+
+| Mode | Test | Expected |
+|------|------|----------|
+| `open` | Any phone DMs bot | Bot responds |
+| `disabled` | Any phone DMs bot | No response |
+| `allowlist` | Unlisted phone DMs | No response |
+| `allowlist` | Listed phone DMs | Bot responds |
+
+### T06: Text Chunking (requires phone)
+
+1. Send a prompt that generates a response > 4000 chars
+2. Verify: response arrives as multiple messages with `(1/N)` `(2/N)` prefixes
+
+### T07: GOWA Crash Recovery
+
+1. While DartClaw is running, kill the GOWA process: `pkill whatsapp`
+2. Verify: logs show "GOWA exited unexpectedly"
+3. Verify: logs show restart attempt with backoff delay
+4. Verify: GOWA restarts within ~30s
+
+### T08: GOWA Not Installed
+
+1. Set `gowa_executable: /nonexistent/whatsapp` in config
+2. Start DartClaw
+3. Verify: log shows SEVERE error for WhatsApp channel
+4. Verify: server continues running; web UI works
+5. Verify: `/whatsapp/pairing` shows "GOWA sidecar is not running"

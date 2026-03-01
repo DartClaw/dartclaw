@@ -2,25 +2,41 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 
 import '../../harness/claude_code_harness.dart' show ProcessFactory, DelayFactory;
 
+/// Status record returned by [GowaManager.getStatus].
+typedef GowaStatus = ({bool isConnected, bool isLoggedIn, String? deviceId});
+
 /// Manages the GOWA (Go WhatsApp) sidecar binary as a subprocess.
 ///
 /// Follows the ClaudeCodeHarness lifecycle pattern: spawn, health check,
 /// crash recovery with exponential backoff.
+///
+/// Targets GOWA v8.3.2 API contract.
 class GowaManager {
   static final _log = Logger('GowaManager');
 
   final String executable;
   final String host;
   final int port;
-  final String? dataDir;
+  final String? dbUri;
+  final String? webhookUrl;
   final int maxRestartAttempts;
   final ProcessFactory _processFactory;
   final DelayFactory _delay;
+
+  /// Timeout for standard API calls (sendText, getStatus, getLoginQr, requestPairingCode).
+  static const _apiTimeout = Duration(seconds: 10);
+
+  /// Timeout for media uploads (sendMedia / multipart).
+  static const _mediaTimeout = Duration(seconds: 60);
+
+  /// Timeout for GOWA to become reachable during startup.
+  static const _startupTimeout = Duration(seconds: 30);
 
   Process? _process;
   int _generation = 0;
@@ -30,8 +46,9 @@ class GowaManager {
   GowaManager({
     required this.executable,
     this.host = '127.0.0.1',
-    this.port = 3080,
-    this.dataDir,
+    this.port = 3000,
+    this.dbUri,
+    this.webhookUrl,
     this.maxRestartAttempts = 5,
     ProcessFactory? processFactory,
     DelayFactory? delay,
@@ -49,8 +66,9 @@ class GowaManager {
     final gen = ++_generation;
     _log.info('Starting GOWA (gen $gen): $executable on $host:$port');
 
-    final args = ['--host', host, '--port', port.toString()];
-    if (dataDir != null) args.addAll(['--data', dataDir!]);
+    final args = ['rest', '--host', host, '--port', port.toString()];
+    if (dbUri != null) args.addAll(['--db-uri', dbUri!]);
+    if (webhookUrl != null) args.add('--webhook=$webhookUrl');
 
     try {
       _process = await _processFactory(executable, args);
@@ -72,9 +90,12 @@ class GowaManager {
     // Monitor for unexpected exit
     unawaited(_process!.exitCode.then((code) => _onExit(code, gen)));
 
-    // Wait for health check
+    // Wait for GOWA server to become reachable (HTTP 200 on /app/status)
     if (!await _waitForHealth()) {
-      throw StateError('GOWA failed health check after start');
+      // Kill the orphaned process before throwing
+      _process?.kill(ProcessSignal.sigterm);
+      _process = null;
+      throw StateError('GOWA failed to respond within ${_startupTimeout.inSeconds}s');
     }
 
     _restartCount = 0;
@@ -110,43 +131,73 @@ class GowaManager {
 
   /// Send a text message via GOWA.
   Future<void> sendText(String jid, String text) async {
-    await _post('/api/send/text', {'jid': jid, 'text': text});
+    await _post('/send/message', {'phone': jid, 'message': text});
   }
 
   /// Send a media file via GOWA.
+  ///
+  /// Routes to type-specific endpoint based on file extension:
+  /// - Images (.jpg, .jpeg, .png, .gif, .webp) → POST /send/image
+  /// - Videos (.mp4, .mov, .avi, .webm) → POST /send/video
+  /// - Everything else → POST /send/file
   Future<void> sendMedia(String jid, String filePath, {String? caption}) async {
-    await _post('/api/send/media', {'jid': jid, 'file': filePath, 'caption': ?caption});
+    final ext = filePath.split('.').last.toLowerCase();
+    final (path, field) = switch (ext) {
+      'jpg' || 'jpeg' || 'png' || 'gif' || 'webp' => ('/send/image', 'image'),
+      'mp4' || 'mov' || 'avi' || 'webm' => ('/send/video', 'video'),
+      _ => ('/send/file', 'file'),
+    };
+    await _postMultipart(path, filePath, field, {
+      'phone': jid,
+      if (caption != null) 'caption': caption,
+    });
   }
 
-  /// Get QR code data for WhatsApp pairing.
-  Future<Map<String, dynamic>> getLoginStatus() async {
-    return _get('/app/login');
+  /// Get QR code link for WhatsApp pairing.
+  ///
+  /// Returns the QR image URL from `results.qr_link`, or null if not available.
+  Future<String?> getLoginQr() async {
+    final results = await _get('/app/login');
+    return results['qr_link'] as String?;
+  }
+
+  /// Get GOWA connection/login status.
+  Future<GowaStatus> getStatus() async {
+    final results = await _get('/app/status');
+    return (
+      isConnected: results['is_connected'] as bool? ?? false,
+      isLoggedIn: results['is_logged_in'] as bool? ?? false,
+      deviceId: results['device_id'] as String?,
+    );
   }
 
   /// Request a pairing code for a phone number.
   Future<Map<String, dynamic>> requestPairingCode(String phone) async {
-    return _post('/app/pair', {'phone': phone});
+    final encodedPhone = Uri.encodeQueryComponent(phone);
+    return _get('/app/login-with-code?phone=$encodedPhone');
   }
 
   // ---- Health check ----
 
-  Future<bool> _waitForHealth({int maxAttempts = 10, Duration interval = const Duration(seconds: 1)}) async {
+  Future<bool> _waitForHealth() async {
+    final maxAttempts = _startupTimeout.inSeconds;
     for (var i = 0; i < maxAttempts; i++) {
       if (_stopped) return false;
       try {
-        await _get('/');
+        await _getRaw('/app/status');
         return true;
       } catch (_) {
-        await _delay(interval);
+        await _delay(const Duration(seconds: 1));
       }
     }
     return false;
   }
 
+  /// Check if GOWA is connected to WhatsApp (not just reachable).
   Future<bool> healthCheck() async {
     try {
-      await _get('/');
-      return true;
+      final status = await getStatus();
+      return status.isConnected;
     } catch (_) {
       return false;
     }
@@ -185,11 +236,18 @@ class GowaManager {
 
   // ---- HTTP helpers ----
 
+  /// GET request that unwraps GOWA v8 response envelope, returning `results`.
   Future<Map<String, dynamic>> _get(String path) async {
+    final raw = await _getRaw(path);
+    return _unwrapEnvelope(raw);
+  }
+
+  /// Raw GET request (no envelope unwrapping). Used by health check.
+  Future<Map<String, dynamic>> _getRaw(String path) async {
     final client = HttpClient();
     try {
       final request = await client.getUrl(Uri.parse('$baseUrl$path'));
-      final response = await request.close();
+      final response = await request.close().timeout(_apiTimeout);
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 400) {
         throw HttpException('GOWA $path returned ${response.statusCode}: $body');
@@ -201,21 +259,75 @@ class GowaManager {
     }
   }
 
+  /// POST request that unwraps GOWA v8 response envelope, returning `results`.
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> payload) async {
     final client = HttpClient();
     try {
       final request = await client.postUrl(Uri.parse('$baseUrl$path'));
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
-      final response = await request.close();
+      final response = await request.close().timeout(_apiTimeout);
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 400) {
         throw HttpException('GOWA $path returned ${response.statusCode}: $body');
       }
       if (body.isEmpty) return {};
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _unwrapEnvelope(jsonDecode(body) as Map<String, dynamic>);
     } finally {
       client.close();
     }
+  }
+
+  /// POST multipart/form-data for media uploads.
+  Future<void> _postMultipart(
+    String path,
+    String filePath,
+    String fileField,
+    Map<String, String> fields,
+  ) async {
+    final client = HttpClient();
+    try {
+      final boundary = 'dartclaw-${DateTime.now().millisecondsSinceEpoch}';
+      final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+      request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
+
+      final file = File(filePath);
+      final fileName = file.uri.pathSegments.last;
+      final fileBytes = await file.readAsBytes();
+
+      final buffer = BytesBuilder();
+      // Text fields
+      for (final entry in fields.entries) {
+        buffer.add(utf8.encode('--$boundary\r\n'));
+        buffer.add(utf8.encode('Content-Disposition: form-data; name="${entry.key}"\r\n\r\n'));
+        buffer.add(utf8.encode('${entry.value}\r\n'));
+      }
+      // File field
+      buffer.add(utf8.encode('--$boundary\r\n'));
+      buffer.add(utf8.encode('Content-Disposition: form-data; name="$fileField"; filename="$fileName"\r\n'));
+      buffer.add(utf8.encode('Content-Type: application/octet-stream\r\n\r\n'));
+      buffer.add(fileBytes);
+      buffer.add(utf8.encode('\r\n'));
+      buffer.add(utf8.encode('--$boundary--\r\n'));
+
+      final bodyBytes = buffer.toBytes();
+      request.contentLength = bodyBytes.length;
+      request.add(bodyBytes);
+
+      final response = await request.close().timeout(_mediaTimeout);
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 400) {
+        throw HttpException('GOWA $path returned ${response.statusCode}: $body');
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Unwrap GOWA v8 response envelope `{status, code, message, results}`.
+  Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> raw) {
+    final results = raw['results'];
+    if (results is Map<String, dynamic>) return results;
+    return raw;
   }
 }

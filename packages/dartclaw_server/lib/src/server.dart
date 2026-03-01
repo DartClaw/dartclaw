@@ -37,6 +37,7 @@ class DartclawServer {
   final ChannelManager? _channelManager;
   final WhatsAppChannel? _whatsAppChannel;
   final GuardChain? _guardChain;
+  final String? _webhookSecret;
 
   DartclawServer._(
     this._sessions,
@@ -53,6 +54,7 @@ class DartclawServer {
     this._channelManager,
     this._whatsAppChannel,
     this._guardChain,
+    this._webhookSecret,
   );
 
   factory DartclawServer({
@@ -74,6 +76,7 @@ class DartclawServer {
     ResultTrimmer? resultTrimmer,
     ChannelManager? channelManager,
     WhatsAppChannel? whatsAppChannel,
+    String? webhookSecret,
     bool authEnabled = true,
   }) {
     return DartclawServer._(
@@ -103,6 +106,7 @@ class DartclawServer {
       channelManager,
       whatsAppChannel,
       guardChain,
+      webhookSecret,
     );
   }
 
@@ -133,7 +137,7 @@ class DartclawServer {
     router.mount('/static/', staticHandler);
 
     // Webhook routes (unauthenticated — before auth middleware).
-    final webhookRouter = webhookRoutes(whatsApp: _whatsAppChannel);
+    final webhookRouter = webhookRoutes(whatsApp: _whatsAppChannel, webhookSecret: _webhookSecret);
     router.mount('/', webhookRouter.call);
 
     // WhatsApp pairing page.
@@ -142,13 +146,21 @@ class DartclawServer {
       router.get('/whatsapp/pairing', (Request request) async {
         final sidebarData = await buildSidebarData(_sessions);
         try {
-          final connected = await waChannel.gowa.healthCheck();
-          String? qrUrl;
-          if (connected) {
-            qrUrl = '${waChannel.gowa.baseUrl}/app/login';
+          final status = await waChannel.gowa.getStatus();
+          if (status.isLoggedIn) {
+            return Response.ok(
+              whatsappPairingTemplate(
+                isConnected: true,
+                connectedPhone: status.deviceId,
+                sidebarData: sidebarData,
+              ),
+              headers: {'content-type': 'text/html; charset=utf-8'},
+            );
           }
+          // GOWA reachable but not logged in — show QR
+          final qrUrl = await waChannel.gowa.getLoginQr();
           return Response.ok(
-            whatsappPairingTemplate(qrImageUrl: qrUrl, isConnected: connected, sidebarData: sidebarData),
+            whatsappPairingTemplate(qrImageUrl: qrUrl, sidebarData: sidebarData),
             headers: {'content-type': 'text/html; charset=utf-8'},
           );
         } catch (e) {
@@ -174,6 +186,7 @@ class DartclawServer {
       healthService: _healthService,
       whatsAppChannel: _whatsAppChannel,
       guardChain: _guardChain,
+      turns: _turns,
     );
     router.mount('/', webRouter.call);
 

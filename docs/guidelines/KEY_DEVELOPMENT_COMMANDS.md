@@ -3,12 +3,29 @@
 ## Running the Application
 
 ```bash
-# CLI chat REPL (Phase 2)
-dart run dartclaw_cli:dartclaw chat
-
-# HTTP server + web UI
+# HTTP server + web UI (default port 3000)
 dart run dartclaw_cli:dartclaw serve
+dart run dartclaw_cli:dartclaw serve --port 3333
 
+# Check runtime status
+dart run dartclaw_cli:dartclaw status
+```
+
+
+## CLI Management Commands
+
+```bash
+# Auth token management
+dart run dartclaw_cli:dartclaw token show
+dart run dartclaw_cli:dartclaw token rotate
+
+# Rebuild search index
+dart run dartclaw_cli:dartclaw rebuild-index
+
+# Deployment (setup, config, secrets)
+dart run dartclaw_cli:dartclaw deploy setup
+dart run dartclaw_cli:dartclaw deploy config
+dart run dartclaw_cli:dartclaw deploy secrets
 ```
 
 
@@ -41,14 +58,16 @@ dart analyze
 ## Testing (Unit, Integration, E2E)
 
 ```bash
-# All core unit tests
+# All tests across workspace
 dart test packages/dartclaw_core
+dart test packages/dartclaw_server
+dart test apps/dartclaw_cli
 
 # Specific test directory
-dart test packages/dartclaw_core/test/db
+dart test packages/dartclaw_core/test/storage
 
 # Single test file
-dart test packages/dartclaw_core/test/db/session_service_test.dart
+dart test packages/dartclaw_core/test/storage/session_service_test.dart
 ```
 
 
@@ -57,4 +76,6 @@ dart test packages/dartclaw_core/test/db/session_service_test.dart
 
 ## Visual Validation
 
-No UI yet — section not applicable for current phase.
+See `VISUAL-VALIDATION-WORKFLOW.md` for project-specific conventions (server setup, auth, chrome-devtools, viewports, screenshot naming).
+
+See `docs/testing/UI-SMOKE-TEST.md` for concrete numbered test cases (TC-01…TC-18).

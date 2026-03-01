@@ -32,7 +32,7 @@ typedef DelayFactory = Future<void> Function(Duration duration);
 // Claude CLI configuration
 // ---------------------------------------------------------------------------
 
-List<String> _buildClaudeArgs({String? model}) => [
+List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt}) => [
   '--print',
   '--input-format',
   'stream-json',
@@ -45,6 +45,7 @@ List<String> _buildClaudeArgs({String? model}) => [
   'stdio',
   '--model',
   model ?? 'claude-sonnet-4-6',
+  if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
 ];
 
 /// Env vars to clear to prevent claude nesting detection.
@@ -169,6 +170,9 @@ class ClaudeCodeHarness implements AgentHarness {
   }
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.append;
+
+  @override
   WorkerState get state => _state;
 
   @override
@@ -278,7 +282,8 @@ class ClaudeCodeHarness implements AgentHarness {
         'type': 'user',
         'message': {'role': 'user', 'content': messages.last['content']},
       };
-      if (systemPrompt.isNotEmpty) {
+      // Only send system_prompt for replace-mode harnesses (append-mode uses CLI flag)
+      if (promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty) {
         payload['system_prompt'] = systemPrompt;
       }
       if (resume) {
@@ -327,11 +332,11 @@ class ClaudeCodeHarness implements AgentHarness {
     final cm = containerManager;
     if (cm != null) {
       await cm.start();
-      process = await cm.exec([claudeExecutable, ..._buildClaudeArgs(model: harnessConfig.model)]);
+      process = await cm.exec([claudeExecutable, ..._buildClaudeArgs(model: harnessConfig.model, appendSystemPrompt: harnessConfig.appendSystemPrompt)]);
     } else {
       process = await _processFactory(
         claudeExecutable,
-        _buildClaudeArgs(model: harnessConfig.model),
+        _buildClaudeArgs(model: harnessConfig.model, appendSystemPrompt: harnessConfig.appendSystemPrompt),
         workingDirectory: cwd,
         environment: env,
         includeParentEnvironment: false,

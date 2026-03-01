@@ -19,6 +19,9 @@ class _FakeWorkerService implements AgentHarness {
   bool stopped = false;
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override
@@ -161,6 +164,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              webhookSecret,
               authEnabled = true,
             }) => DartclawServer(
               sessions: sessions,
@@ -227,6 +231,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              webhookSecret,
               authEnabled = true,
             }) => DartclawServer(
               sessions: sessions,

@@ -1,6 +1,7 @@
 import '../templates/helpers.dart';
 import '../templates/layout.dart';
 import '../templates/sidebar.dart';
+import '../templates/topbar.dart';
 
 /// Render the WhatsApp pairing/status page using the full shell layout.
 String whatsappPairingTemplate({
@@ -18,15 +19,11 @@ String whatsappPairingTemplate({
     navItems: navItems,
   );
 
-  final topbar = '''
-<header class="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
-  <span class="session-title-static">WhatsApp Channel</span>
-  <div class="topbar-actions">
-    <a href="/settings" class="btn btn-ghost" style="font-size:var(--text-sm);">&larr; Settings</a>
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
-  </div>
-</header>''';
+  final topbar = pageTopbarTemplate(
+    title: 'WhatsApp Channel',
+    backHref: '/settings',
+    backLabel: 'Settings',
+  );
 
   final content = StringBuffer();
 
@@ -81,7 +78,7 @@ String whatsappPairingTemplate({
   <pre class="wa-pre">channels:
   whatsapp:
     enabled: true
-    gowa_executable: gowa</pre>
+    gowa_executable: whatsapp</pre>
 </div>
 ''');
   }
@@ -89,35 +86,6 @@ String whatsappPairingTemplate({
   content.write('</div>');
 
   final body = '''
-<style>
-  .wa-main { overflow-y: auto; padding: var(--sp-6) var(--sp-4); }
-  .wa-inner { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
-  .wa-content { display: flex; flex-direction: column; gap: var(--sp-6); }
-  .wa-section {
-    background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg);
-    padding: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4);
-  }
-  .wa-connected-header {
-    display: flex; align-items: center; gap: var(--sp-2);
-    font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg);
-  }
-  .wa-detail { font-size: var(--text-sm); color: var(--fg-sub0); }
-  .wa-detail-value { color: var(--fg); }
-  .wa-qr-wrapper { display: flex; justify-content: center; }
-  .wa-qr-img { max-width: 280px; border: var(--border); border-radius: var(--radius-lg); }
-  .wa-hint { font-size: var(--text-sm); color: var(--fg-sub0); text-align: center; }
-  .wa-status-row { display: flex; align-items: center; gap: var(--sp-2); }
-  .wa-spinner {
-    display: inline-block; width: 14px; height: 14px;
-    border: 2px solid var(--bg-surface2); border-top-color: var(--accent);
-    border-radius: 50%; animation: wa-spin 0.8s linear infinite;
-  }
-  @keyframes wa-spin { to { transform: rotate(360deg); } }
-  .wa-pre {
-    background: var(--bg-base); border: var(--border); border-radius: var(--radius);
-    padding: var(--sp-3); font-size: var(--text-xs); white-space: pre; overflow-x: auto;
-  }
-</style>
 <div class="shell">
   $sidebar
   $topbar

@@ -136,6 +136,50 @@ void main() {
     });
   });
 
+  group('composeStaticPrompt', () {
+    test('includes SOUL, USER, TOOLS, AGENTS but not MEMORY', () async {
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul content');
+      File('${globalDir.path}/USER.md').writeAsStringSync('User prefs');
+      File('${globalDir.path}/TOOLS.md').writeAsStringSync('Tool info');
+      File('${globalDir.path}/AGENTS.md').writeAsStringSync('## Agent rules');
+      File('${globalDir.path}/MEMORY.md').writeAsStringSync('Secret memory data');
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeStaticPrompt();
+      expect(result, contains('Soul content'));
+      expect(result, contains('User prefs'));
+      expect(result, contains('Tool info'));
+      expect(result, contains('## Agent rules'));
+      expect(result, isNot(contains('Secret memory data')));
+      expect(result, contains('memory_read tool'));
+    });
+
+    test('uses default prompt when no SOUL.md exists', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeStaticPrompt();
+      expect(result, contains(BehaviorFileService.defaultPrompt));
+      expect(result, contains('memory_read tool'));
+    });
+
+    test('includes project SOUL.md', () async {
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('Global');
+      File('${projectDir.path}/SOUL.md').writeAsStringSync('Project');
+      final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
+      final result = await service.composeStaticPrompt();
+      expect(result, contains('Global'));
+      expect(result, contains('Project'));
+    });
+
+    test('works with only SOUL.md (no optional files)', () async {
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('Minimal soul');
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeStaticPrompt();
+      expect(result, contains('Minimal soul'));
+      expect(result, isNot(contains('## User Context')));
+      expect(result, isNot(contains('## Environment Notes')));
+      expect(result, contains('memory_read tool'));
+    });
+  });
+
   group('memory truncation', () {
     test('MEMORY.md under cap — returned in full', () async {
       final dir = Directory.systemTemp.createTempSync('dartclaw_behavior_trunc_');

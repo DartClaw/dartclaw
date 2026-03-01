@@ -11,7 +11,7 @@ final _log = Logger('ScheduleService');
 
 /// Manages time-based job execution: cron, interval, and one-time schedules.
 ///
-/// Each job runs in an isolated session (key: `cron:<jobId>`) to avoid
+/// Each job runs in an isolated session (via [SessionKey.cronSession]) to avoid
 /// polluting user chat. Uses single-shot [Timer] + reschedule pattern
 /// to handle variable cron intervals and timer drift.
 class ScheduleService {
@@ -151,7 +151,7 @@ class ScheduleService {
 
   Future<String> _runJobTurn(ScheduledJob job) async {
     // Create isolated session for this cron job
-    final sessionKey = 'cron:${job.id}';
+    final sessionKey = SessionKey.cronSession(jobId: job.id);
     final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
 
     final userMessage = <String, dynamic>{

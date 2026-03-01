@@ -10,11 +10,22 @@ final _log = Logger('WebhookRoutes');
 /// HTTP routes for channel webhooks.
 ///
 /// These endpoints are excluded from gateway auth — GOWA calls them directly.
-Router webhookRoutes({WhatsAppChannel? whatsApp}) {
+/// When [webhookSecret] is set, incoming requests must include a matching
+/// `secret` query parameter.
+Router webhookRoutes({WhatsAppChannel? whatsApp, String? webhookSecret}) {
   final router = Router();
 
   if (whatsApp != null) {
     router.post('/webhook/whatsapp', (Request request) async {
+      // Validate webhook secret if configured
+      if (webhookSecret != null) {
+        final requestSecret = request.requestedUri.queryParameters['secret'];
+        if (requestSecret != webhookSecret) {
+          _log.warning('Webhook request with invalid/missing secret');
+          return Response.forbidden('');
+        }
+      }
+
       try {
         final body = await request.readAsString();
         final payload = jsonDecode(body) as Map<String, dynamic>;

@@ -8,6 +8,9 @@ class _FakeHarness implements AgentHarness {
   WorkerState _state = WorkerState.idle;
 
   @override
+  PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
   WorkerState get state => _state;
 
   void setState(WorkerState s) => _state = s;

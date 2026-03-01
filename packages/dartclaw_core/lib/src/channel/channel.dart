@@ -46,4 +46,8 @@ abstract class Channel {
   Future<void> sendMessage(String recipientJid, ChannelResponse response);
   bool ownsJid(String jid);
   Future<void> disconnect();
+
+  /// Format raw agent output for this channel's delivery requirements.
+  /// Default: wrap in a single [ChannelResponse].
+  List<ChannelResponse> formatResponse(String text) => [ChannelResponse(text: text)];
 }

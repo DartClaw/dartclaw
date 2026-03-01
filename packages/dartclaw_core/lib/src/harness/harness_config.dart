@@ -6,12 +6,17 @@ class HarnessConfig {
   final Map<String, dynamic>? agents;
   final bool context1m;
 
+  /// Content to pass via --append-system-prompt CLI flag at spawn.
+  /// Null means no flag (replace-mode harnesses use per-turn JSONL instead).
+  final String? appendSystemPrompt;
+
   const HarnessConfig({
     this.disallowedTools = const [],
     this.maxTurns,
     this.model,
     this.agents,
     this.context1m = false,
+    this.appendSystemPrompt,
   });
 
   /// Returns non-null fields as map entries for the initialize handshake.

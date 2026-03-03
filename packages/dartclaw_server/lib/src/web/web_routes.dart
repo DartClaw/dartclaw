@@ -16,6 +16,7 @@ import '../templates/session_info.dart';
 import '../templates/settings.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
+import '../runtime_config.dart';
 import '../turn_manager.dart';
 
 /// HTML page routes for the web UI.
@@ -39,6 +40,7 @@ Router webRoutes(
   SignalChannel? signalChannel,
   GuardChain? guardChain,
   TurnManager? turns,
+  RuntimeConfig? runtimeConfig,
   bool heartbeatEnabled = false,
   int heartbeatIntervalMinutes = 30,
   List<Map<String, dynamic>> scheduledJobs = const [],
@@ -209,7 +211,7 @@ Router webRoutes(
       final allSessions = await sessions.listSessions();
       final sidebarData = await buildSidebarData(sessions);
 
-      final status = _getStatus(healthService, workerStateGetter, allSessions.length);
+      final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
 
       final page = healthDashboardTemplate(
         status: status['status'] as String? ?? 'healthy',
@@ -234,13 +236,18 @@ Router webRoutes(
       final allSessions = await sessions.listSessions();
       final sidebarData = await buildSidebarData(sessions);
 
-      final status = _getStatus(healthService, workerStateGetter, allSessions.length);
+      final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
 
       final gc = guardChain;
       final guardsEnabled = gc != null;
       final activeGuards = gc != null
           ? gc.guards.map((g) => g.runtimeType.toString().replaceAll('Guard', '-Guard')).toList()
           : <String>[];
+
+      // Use RuntimeConfig for live state when available, fall back to startup config.
+      final rc = runtimeConfig;
+      final liveHeartbeatEnabled = rc?.heartbeatEnabled ?? heartbeatEnabled;
+      final liveGitSyncEnabled = rc?.gitSyncEnabled ?? gitSyncEnabled;
 
       final page = settingsTemplate(
         sidebarData: sidebarData,
@@ -258,10 +265,10 @@ Router webRoutes(
         guardsEnabled: guardsEnabled,
         activeGuards: activeGuards,
         scheduledJobsCount: scheduledJobs.length,
-        heartbeatEnabled: heartbeatEnabled,
+        heartbeatEnabled: liveHeartbeatEnabled,
         heartbeatIntervalMinutes: heartbeatIntervalMinutes,
         workspacePath: workspacePath,
-        gitSyncEnabled: gitSyncEnabled,
+        gitSyncEnabled: liveGitSyncEnabled,
       );
 
       return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
@@ -275,9 +282,11 @@ Router webRoutes(
     try {
       final sidebarData = await buildSidebarData(sessions);
 
+      final liveHb = runtimeConfig?.heartbeatEnabled ?? heartbeatEnabled;
+
       final page = schedulingTemplate(
         sidebarData: sidebarData,
-        heartbeatEnabled: heartbeatEnabled,
+        heartbeatEnabled: liveHb,
         heartbeatIntervalMinutes: heartbeatIntervalMinutes,
         jobs: scheduledJobs,
         signalEnabled: signalEnabled,
@@ -321,11 +330,11 @@ Future<SidebarData> buildSidebarData(SessionService sessions) async {
   return (main: main, channels: channels, entries: entries);
 }
 
-Map<String, dynamic> _getStatus(
+Future<Map<String, dynamic>> _getStatus(
   HealthService? healthService,
   WorkerState? Function()? workerStateGetter,
   int sessionCount,
-) {
+) async {
   if (healthService != null) return healthService.getStatus();
   final ws = workerStateGetter?.call();
   return {

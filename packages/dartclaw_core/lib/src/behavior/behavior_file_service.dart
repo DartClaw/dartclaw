@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+/// Reads and manages the agent behavior prompt file (BEHAVIOR.md).
 class BehaviorFileService {
   static final _log = Logger('BehaviorFileService');
   static const defaultPrompt = 'You are a helpful, capable AI assistant.';
@@ -39,7 +40,19 @@ class BehaviorFileService {
       parts.add('## Environment Notes\n$toolsMd');
     }
 
-    // 5. MEMORY.md — workspace only
+    // 5. errors.md — auto-populated on failures
+    final errorsMd = await _readFile(p.join(workspaceDir, 'errors.md'));
+    if (errorsMd != null && errorsMd.trim().isNotEmpty) {
+      parts.add('## Recent Errors\n$errorsMd');
+    }
+
+    // 6. learnings.md — agent-written via memory_save category='learning'
+    final learningsMd = await _readFile(p.join(workspaceDir, 'learnings.md'));
+    if (learningsMd != null && learningsMd.trim().isNotEmpty) {
+      parts.add('## Learnings\n$learningsMd');
+    }
+
+    // 7. MEMORY.md — workspace only
     var memory = await _readFile(p.join(workspaceDir, 'MEMORY.md'));
     if (memory != null) {
       final maxBytes = maxMemoryBytes;
@@ -79,6 +92,18 @@ class BehaviorFileService {
     final toolsMd = await _readFile(p.join(workspaceDir, 'TOOLS.md'));
     if (toolsMd != null && toolsMd.trim().isNotEmpty) {
       parts.add('## Environment Notes\n$toolsMd');
+    }
+
+    // errors.md
+    final errorsMd = await _readFile(p.join(workspaceDir, 'errors.md'));
+    if (errorsMd != null && errorsMd.trim().isNotEmpty) {
+      parts.add('## Recent Errors\n$errorsMd');
+    }
+
+    // learnings.md
+    final learningsMd = await _readFile(p.join(workspaceDir, 'learnings.md'));
+    if (learningsMd != null && learningsMd.trim().isNotEmpty) {
+      parts.add('## Learnings\n$learningsMd');
     }
 
     // AGENTS.md

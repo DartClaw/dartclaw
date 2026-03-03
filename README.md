@@ -20,7 +20,7 @@ User --> HTTP/WhatsApp --> Dart Host --> Guards --> Container --> claude binary
 ```
 
 Two layers with clear trust boundaries:
-- **Dart host** -- state (file-based + SQLite), HTTP API, web UI, security policy, scheduling, channels
+- **Dart host** -- state (file-based + SQLite via `dartclaw_storage`), HTTP API, web UI, security policy, scheduling, channels
 - **Agent runtime** -- reasoning, tool execution, bash commands (optionally in Docker container)
 
 The Dart host communicates with the agent runtime through the `AgentHarness` abstract interface. The current implementation (`ClaudeCodeHarness`) drives the native `claude` CLI binary via bidirectional JSONL over stdin/stdout. The harness abstraction is runtime-agnostic — the rest of the system (server, turn manager, health checks, guards) depends only on the interface, never on a specific runtime. This means alternative agent runtimes (e.g. Pi, local models, or other AI CLIs) can be integrated by implementing a new harness class without modifying any consuming code.
@@ -66,12 +66,14 @@ dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
 ## Project Structure
 
 ```
-apps/dartclaw_cli/         CLI app (serve, status, deploy, token commands)
-packages/dartclaw_core/    Shared lib: storage, harness, protocol, guards, channels,
-                           agents, search, memory, security, scheduling
-packages/dartclaw_server/  HTTP API (Shelf), web UI templates, SSE streaming,
-                           turn orchestration, static assets
-docs/                      Specs, ADRs, guidelines, user guide
+apps/dartclaw_cli/          CLI app (serve, status, deploy, token commands)
+packages/dartclaw_core/     Shared lib: harness, protocol, guards, channels,
+                            agents, security, scheduling (sqlite3-free)
+packages/dartclaw_storage/  SQLite3-backed storage: MemoryService, SearchDb,
+                            FTS5/QMD backends, MemoryPruner
+packages/dartclaw_server/   HTTP API (Shelf), web UI templates, SSE streaming,
+                            turn orchestration, static assets
+docs/                       Specs, ADRs, guidelines, user guide
 ```
 
 Dart pub workspace -- all packages share dependencies and resolve locally.

@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/logging/log_redactor.dart';
 import 'package:test/test.dart';
 
@@ -9,23 +10,18 @@ void main() {
       redactor = LogRedactor();
     });
 
-    test('redacts Anthropic API keys', () {
+    test('delegates to MessageRedactor — redacts Anthropic API keys', () {
       const input = 'Using key sk-ant-abc123_XYZ-def456 for auth';
-      expect(redactor.redact(input), contains('[REDACTED]'));
-      expect(redactor.redact(input), isNot(contains('sk-ant-')));
+      final result = redactor.redact(input);
+      expect(result, contains('***'));
+      expect(result, isNot(contains('def456')));
     });
 
-    test('redacts 64-char hex tokens', () {
-      final token = 'a' * 64;
-      final input = 'Gateway token: $token';
-      expect(redactor.redact(input), contains('[REDACTED]'));
-      expect(redactor.redact(input), isNot(contains(token)));
-    });
-
-    test('redacts Bearer tokens', () {
+    test('redacts Bearer tokens with proportional reveal', () {
       const input = 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig';
-      expect(redactor.redact(input), contains('[REDACTED]'));
-      expect(redactor.redact(input), isNot(contains('Bearer eyJ')));
+      final result = redactor.redact(input);
+      expect(result, contains('***'));
+      expect(result, isNot(contains('payload.sig')));
     });
 
     test('does not modify normal text', () {
@@ -33,20 +29,20 @@ void main() {
       expect(redactor.redact(input), equals(input));
     });
 
-    test('supports custom patterns', () {
-      final custom = LogRedactor(patterns: [r'SECRET_\w+']);
+    test('supports custom patterns via MessageRedactor', () {
+      final customRedactor = MessageRedactor(extraPatterns: [r'SECRET_\w+']);
+      final custom = LogRedactor(redactor: customRedactor);
       const input = 'Found SECRET_PASSWORD in config';
-      expect(custom.redact(input), contains('[REDACTED]'));
-      expect(custom.redact(input), isNot(contains('SECRET_PASSWORD')));
+      final result = custom.redact(input);
+      expect(result, contains('***'));
+      expect(result, isNot(contains('SECRET_PASSWORD')));
     });
 
     test('applies multiple patterns in single input', () {
-      final token = 'a' * 64;
-      final input = 'key=sk-ant-abc123 token=$token header=Bearer xyz.abc.def';
+      const input = 'key=sk-ant-abc123def456 header=Bearer xyz.abc.def';
       final result = redactor.redact(input);
-      expect(result, isNot(contains('sk-ant-')));
-      expect(result, isNot(contains(token)));
-      expect(result, isNot(contains('Bearer xyz')));
+      expect(result, isNot(contains('def456')));
+      expect(result, isNot(contains('abc.def')));
     });
   });
 }

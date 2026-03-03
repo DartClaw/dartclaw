@@ -189,6 +189,11 @@ class SignalCliManager {
     await _rpc('register', {'account': phoneNumber});
   }
 
+  /// Requests a voice call verification to [phoneNumber].
+  Future<void> requestVoiceVerification() async {
+    await _rpc('register', {'account': phoneNumber, 'voice': true});
+  }
+
   /// Verifies [code] received via SMS and completes registration.
   Future<void> verifySmsCode(String code) async {
     await _rpc('verify', {'account': phoneNumber, 'verificationCode': code});

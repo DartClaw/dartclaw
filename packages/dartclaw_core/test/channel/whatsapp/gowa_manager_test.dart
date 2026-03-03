@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/whatsapp/gowa_manager.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------

@@ -15,3 +15,6 @@
 /// - **Channel** — messaging interface (WhatsApp, Signal)
 /// - **BridgeEvent** — sealed event hierarchy from the JSONL control protocol
 library;
+
+export 'package:dartclaw_core/dartclaw_core.dart';
+export 'package:dartclaw_storage/dartclaw_storage.dart';

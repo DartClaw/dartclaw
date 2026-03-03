@@ -20,9 +20,10 @@ enum TurnStatus { completed, failed, cancelled }
 class TurnContext {
   final String turnId;
   final String sessionId;
+  final String agentName;
   final DateTime startedAt;
 
-  TurnContext({required this.turnId, required this.sessionId, required this.startedAt});
+  TurnContext({required this.turnId, required this.sessionId, this.agentName = 'main', required this.startedAt});
 }
 
 class TurnOutcome {
@@ -71,6 +72,9 @@ class TurnManager {
   final SessionResetService? _resetService;
   final ContextMonitor _contextMonitor;
   final ResultTrimmer _resultTrimmer;
+  final MessageRedactor? _redactor;
+  final SelfImprovementService? _selfImprovement;
+  final UsageTracker? _usageTracker;
   final Duration _outcomeTtl;
 
   final Map<String, TurnContext> _activeTurns = {};
@@ -91,6 +95,9 @@ class TurnManager {
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
     ResultTrimmer? resultTrimmer,
+    MessageRedactor? redactor,
+    SelfImprovementService? selfImprovement,
+    UsageTracker? usageTracker,
     Duration outcomeTtl = const Duration(seconds: 30),
   }) : _messages = messages,
        _worker = worker,
@@ -103,6 +110,9 @@ class TurnManager {
        _resetService = resetService,
        _contextMonitor = contextMonitor ?? ContextMonitor(),
        _resultTrimmer = resultTrimmer ?? const ResultTrimmer(),
+       _redactor = redactor,
+       _selfImprovement = selfImprovement,
+       _usageTracker = usageTracker,
        _outcomeTtl = outcomeTtl;
 
   // ---------------------------------------------------------------------------
@@ -128,10 +138,10 @@ class TurnManager {
   /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
   /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
-  Future<String> reserveTurn(String sessionId) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main'}) async {
     await _lockManager.acquire(sessionId); // queues for same-session, throws for global cap
     final turnId = _uuid.v4();
-    _activeTurns[sessionId] = TurnContext(turnId: turnId, sessionId: sessionId, startedAt: DateTime.now());
+    _activeTurns[sessionId] = TurnContext(turnId: turnId, sessionId: sessionId, agentName: agentName, startedAt: DateTime.now());
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
 
@@ -152,8 +162,8 @@ class TurnManager {
   }
 
   /// Launches async execution for a previously [reserveTurn]'d turn.
-  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages) {
-    unawaited(_runTurn(sessionId: sessionId, turnId: turnId, messages: messages));
+  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) {
+    unawaited(_runTurn(sessionId: sessionId, turnId: turnId, messages: messages, source: source));
   }
 
   /// Rolls back a [reserveTurn] reservation without executing.
@@ -163,9 +173,9 @@ class TurnManager {
     _outcomePending.remove(turnId)?.completeError(StateError('Turn released without execution'));
   }
 
-  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages) async {
-    final turnId = await reserveTurn(sessionId);
-    executeTurn(sessionId, turnId, messages);
+  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) async {
+    final turnId = await reserveTurn(sessionId, agentName: agentName);
+    executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
   }
 
@@ -273,11 +283,13 @@ class TurnManager {
     required String sessionId,
     required String turnId,
     required List<Map<String, dynamic>> messages,
+    String? source,
   }) async {
     return LogContext.runWith(() => _runTurnInner(
       sessionId: sessionId,
       turnId: turnId,
       messages: messages,
+      source: source,
     ), sessionId: sessionId, turnId: turnId);
   }
 
@@ -285,6 +297,7 @@ class TurnManager {
     required String sessionId,
     required String turnId,
     required List<Map<String, dynamic>> messages,
+    String? source,
   }) async {
     // Subscribe BEFORE calling turn() — events stream is broadcast (non-replay).
     final buffer = StringBuffer();
@@ -315,7 +328,7 @@ class TurnManager {
         // Guard: messageReceived — evaluate full content before sending to agent
         final chain = _guardChain;
         if (chain != null && userMessageFull != null && userMessageFull.isNotEmpty) {
-          final msgVerdict = await chain.evaluateMessageReceived(userMessageFull);
+          final msgVerdict = await chain.evaluateMessageReceived(userMessageFull, source: source);
           if (msgVerdict.isBlock) {
             await _messages.insertMessage(
               sessionId: sessionId,
@@ -329,6 +342,11 @@ class TurnManager {
               errorMessage: 'Blocked by guard: ${msgVerdict.message}',
               completedAt: DateTime.now(),
             );
+            unawaited(_selfImprovement?.appendError(
+              errorType: 'GUARD_BLOCK',
+              sessionId: sessionId,
+              context: msgVerdict.message ?? 'unknown',
+            ));
             return;
           }
         }
@@ -345,6 +363,26 @@ class TurnManager {
           );
         } catch (e) {
           _log.warning('Failed to track cost', e);
+        }
+
+        // Usage tracking (fire-and-forget — never blocks turns)
+        final tracker = _usageTracker;
+        if (tracker != null) {
+          final turnCtx = _activeTurns[sessionId];
+          final inputTokens = result['input_tokens'] as int? ?? 0;
+          final outputTokens = result['output_tokens'] as int? ?? 0;
+          final durationMs = turnCtx != null ? DateTime.now().difference(turnCtx.startedAt).inMilliseconds : 0;
+          unawaited(
+            tracker.record(UsageEvent(
+              timestamp: DateTime.now(),
+              sessionId: sessionId,
+              agentName: turnCtx?.agentName ?? 'main',
+              model: result['model'] as String?,
+              inputTokens: inputTokens,
+              outputTokens: outputTokens,
+              durationMs: durationMs,
+            )).catchError((_) {}),
+          );
         }
 
         // Guard: beforeAgentSend — evaluate before persisting response
@@ -364,11 +402,17 @@ class TurnManager {
               errorMessage: 'Response blocked by guard: ${sendVerdict.message}',
               completedAt: DateTime.now(),
             );
+            unawaited(_selfImprovement?.appendError(
+              errorType: 'RESPONSE_BLOCKED',
+              sessionId: sessionId,
+              context: sendVerdict.message ?? 'unknown',
+            ));
             return;
           }
         }
 
-        final trimmed = _resultTrimmer.trim(accumulated);
+        final redacted = _redactor?.redact(accumulated) ?? accumulated;
+        final trimmed = _resultTrimmer.trim(redacted);
         await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: trimmed);
         await _sessions?.touchUpdatedAt(sessionId);
         outcome = TurnOutcome(
@@ -384,7 +428,7 @@ class TurnManager {
             sessionId: sessionId,
             userMessage: userMessage,
             toolEvents: toolEvents,
-            result: accumulated,
+            result: redacted,
           );
         } catch (e) {
           _log.warning('Failed to write daily log', e);
@@ -402,7 +446,10 @@ class TurnManager {
         final wasCancelled = _cancelledTurns.remove(turnId);
         _log.warning('Turn $turnId ${wasCancelled ? 'cancelled' : 'failed'}', e, st);
         try {
-          final partial = buffer.toString();
+          var partial = buffer.toString();
+          if (partial.isNotEmpty && _redactor != null) {
+            partial = _redactor.redact(partial);
+          }
           await _messages.insertMessage(
             sessionId: sessionId,
             role: 'assistant',
@@ -416,6 +463,11 @@ class TurnManager {
           errorMessage: wasCancelled ? null : 'Turn execution failed',
           completedAt: DateTime.now(),
         );
+        unawaited(_selfImprovement?.appendError(
+          errorType: wasCancelled ? 'TURN_CANCELLED' : 'TURN_FAILURE',
+          sessionId: sessionId,
+          context: '$e',
+        ));
       }
     } finally {
       await eventSub.cancel();

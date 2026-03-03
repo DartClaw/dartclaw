@@ -55,7 +55,7 @@ String healthDashboardTemplate({
     navItems: navItems,
   );
 
-  final topbar = pageTopbarTemplate(title: 'System Health');
+  final topbar = pageTopbarTemplate(title: 'System Health', backHref: '/', backLabel: 'Back to Chat');
 
   final cards = <Map<String, dynamic>>[
     {

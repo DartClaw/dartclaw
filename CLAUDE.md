@@ -20,8 +20,10 @@ Architecture: 2-layer model — Dart host (state/API/security) → native `claud
 
 ```
 packages/
-  dartclaw_core/       # Shared lib: file-based storage, search index (raw sqlite3), control protocol,
-                       # models, services. No Flutter deps — shareable with future Flutter app
+  dartclaw/            # Published umbrella — re-exports dartclaw_core + dartclaw_storage
+  dartclaw_core/       # Shared lib: models, security, bridge, harness, channels, config.
+                       # NO sqlite3 — shareable with future Flutter app
+  dartclaw_storage/    # SQLite3-backed services: memory storage, search index, memory pruning
   dartclaw_server/     # HTTP API + HTMX web UI (shelf). Server-only, not Flutter-compatible
 apps/
   dartclaw_cli/        # CLI app (AOT-compilable): chat REPL, serve, status commands
@@ -57,7 +59,7 @@ Deferred issues, tech debt, and improvement items: see `docs/TECH-DEBT-BACKLOG.m
 
 - Lean dependencies — only what's needed per package (see dependency matrix in plan)
 - Control protocol: Bidirectional JSONL over stdin/stdout for Dart↔claude binary communication
-- Storage: file-based (NDJSON + JSON) for sessions/messages/kv; raw `sqlite3` for search index only (ADR-002)
+- Storage: file-based (NDJSON + JSON) for sessions/messages/kv in `dartclaw_core`; raw `sqlite3` for search index in `dartclaw_storage` (ADR-002, ADR-008)
 - Memory search: FTS5 default; QMD hybrid search opt-in (`search.backend: qmd` in config)
 - In-memory SQLite for search index tests; temp directories for file-based service tests
 - Single-threaded (add isolates only if profiling shows bottleneck)

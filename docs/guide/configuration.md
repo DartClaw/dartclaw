@@ -109,6 +109,19 @@ channels:
     group_access: disabled        # allowlist | open | disabled
     require_mention: true
     debounce_ms: 1000
+  signal:
+    enabled: false
+    phone_number: ''              # E.164 format: +1234567890
+    executable: signal-cli        # binary name or absolute path
+    host: 127.0.0.1              # signal-cli daemon listen address
+    port: 8080                   # signal-cli daemon listen port
+    dm_access: allowlist          # allowlist | open | disabled
+    group_access: disabled        # allowlist | open | disabled
+    dm_allowlist: []              # phone numbers (E.164 format)
+    group_allowlist: []           # signal group IDs (base64)
+    require_mention: true         # require @mention in groups
+    mention_patterns: []          # regex patterns for mention detection
+    max_chunk_size: 4000          # max message length before chunking
 
 # --- Agent Config ---
 agent:

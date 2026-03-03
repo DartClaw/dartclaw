@@ -1,6 +1,7 @@
-import '../models/models.dart';
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemorySearchResult, SearchBackend;
+
 import '../storage/memory_service.dart';
-import 'search_backend.dart';
 
 /// FTS5-based search backend — wraps the existing [MemoryService].
 ///

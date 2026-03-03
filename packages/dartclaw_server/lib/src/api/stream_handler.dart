@@ -18,7 +18,13 @@ String _sseFrame(String event, Map<String, dynamic> data) {
   return 'event: $event\ndata: $safe\n\n';
 }
 
-Response sseStreamResponse(AgentHarness worker, TurnManager turns, String sessionId, String turnId) {
+Response sseStreamResponse(
+  AgentHarness worker,
+  TurnManager turns,
+  String sessionId,
+  String turnId, {
+  MessageRedactor? redactor,
+}) {
   // 1. Already completed — no content.
   final outcome = turns.recentOutcome(sessionId, turnId);
   if (outcome != null) return Response(204);
@@ -48,11 +54,13 @@ Response sseStreamResponse(AgentHarness worker, TurnManager turns, String sessio
     if (controller.isClosed) return;
     final String frame;
     if (event is DeltaEvent) {
-      frame = _sseFrame('delta', {'text': event.text});
+      final text = redactor?.redact(event.text) ?? event.text;
+      frame = _sseFrame('delta', {'text': text});
     } else if (event is ToolUseEvent) {
       frame = _sseFrame('tool_use', {'tool_name': event.toolName, 'tool_id': event.toolId, 'input': event.input});
     } else if (event is ToolResultEvent) {
-      frame = _sseFrame('tool_result', {'tool_id': event.toolId, 'output': event.output, 'is_error': event.isError});
+      final output = redactor?.redact(event.output) ?? event.output;
+      frame = _sseFrame('tool_result', {'tool_id': event.toolId, 'output': output, 'is_error': event.isError});
     } else {
       return;
     }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5 — 2026-03-03
+
+Security hardening, memory lifecycle, MCP foundation, package split, Signal/WhatsApp E2E verification.
+
+### Security
+- **Input sanitizer** (S01): `InputSanitizer` — regex-based prompt injection prevention on all inbound channel messages; 4 built-in pattern categories (instruction override, role-play, prompt leak, meta-injection); content length cap to bound backtracking
+- **Outbound redaction** (S02): `MessageRedactor` strips secrets and PII from agent output across all 4 delivery paths (channel, SSE, tool output, logs)
+- **Content classifier** (S03): `ContentClassifier` abstract interface; `ClaudeBinaryClassifier` (OAuth-compatible, default) and `AnthropicApiClassifier` implementations; config-driven via `content_guard.classifier`
+- **Webhook hardening** (S05): shared-secret validation on incoming webhooks; payload size limit; `UsageTracker` records per-agent token usage to `usage.jsonl` with daily KV aggregates
+
+### Memory
+- **Memory pruning** (S07): `MemoryPruner` — deduplication and age-based archiving of MEMORY.md entries to `MEMORY.archive.md`; FTS5-searchable archive; registered as built-in `ScheduledJob` (visible in scheduling UI, supports pause/resume)
+- **Self-improvement files** (S06): `SelfImprovementService` — `errors.md` auto-populated on turn failures/guard blocks; `learnings.md` writable via `memory_save`; both loaded in behavior cascade
+
+### Channels
+- **Signal** (S12): `formatResponse` implementation + DM/group access config
+- **Signal voice verification** (S13): voice verification flow + route tests
+- **WhatsApp E2E** (S14): end-to-end test suite for WhatsApp channel
+- **Signal E2E** (S15): end-to-end test suite for Signal channel
+
+### MCP
+- **MCP foundation** (S16): `McpTool` interface, MCP router with 1 MB body size limit, tool registration scaffolding
+- **MCP tool migration** (S17): `SessionsSendTool`, `SessionsSpawnTool`, `MemorySaveTool`, `MemorySearchTool`, `MemoryReadTool` implementing `McpTool` interface
+
+### Configuration
+- **Search agent model config** (S04): configurable model for search agent via `dartclaw.yaml`
+- **Live config tier 1** (S18): `RuntimeConfig` ephemeral state; runtime toggles for heartbeat and git sync via `/api/settings/*`; per-job pause/resume via `/api/scheduling/jobs/<name>/toggle`
+
+### Architecture
+- **Package split** (S11): new `packages/dartclaw_storage/` extracts sqlite3-backed services from `dartclaw_core` (`MemoryService`, `SearchDb`, FTS5/QMD backends, `MemoryPruner`); `dartclaw_core` is now sqlite3-free
+- **API surface audit** (S10): barrel exports narrowed with `show` clauses; `///` doc comments added to all exported symbols
+
+### Documentation
+- **Use-case cookbook** (S08+S09): `docs/guide/` expanded with WhatsApp, Signal, scheduling, and deployment recipes
+
+
 ## 0.4 — 2026-03-03
 
 Template engine migration, SPA navigation, search agent wiring, Signal channel.
@@ -36,7 +72,6 @@ Template engine migration, SPA navigation, search agent wiring, Signal channel.
 - `constantTimeEquals` extracted to `auth/auth_utils.dart`, shared across webhook/signal/token auth
 - Version fallback `'unknown'` instead of hardcoded `'0.2.0'`
 
-1105 tests, `dart analyze` clean.
 
 ## 0.3 — 2026-03-01
 
@@ -69,7 +104,6 @@ Consolidation milestone — template DX, tech debt resolution, system prompt cor
 - `PromptStrategy` enum (`append`/`replace`) on `AgentHarness`
 - `BehaviorFileService.composeStaticPrompt()` for spawn-time prompt composition
 
-1011 tests, `dart analyze` clean.
 
 ## 0.2 — 2026-02-27
 
@@ -88,5 +122,3 @@ Initial public release. Core agent runtime with security hardening.
 - Cron scheduling with deterministic session keys
 - WhatsApp channel (GowaManager sidecar, webhook receiver, DM/group access control, mention gating, pairing UI)
 - Deployment tooling (launchd/systemd, firewall rules)
-
-890 tests, `dart analyze` clean.

@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/container/docker_validator.dart';
+import 'package:dartclaw_core/src/container/container_config.dart';
 import 'package:test/test.dart';
 
 void main() {

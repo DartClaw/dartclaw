@@ -4,12 +4,13 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Collects runtime health metrics: uptime, worker state, session count, DB size.
 class HealthService {
-  static const _version = '0.2.0';
+  static const _version = '0.5.0';
   static const _cacheTtl = Duration(seconds: 60);
 
   final AgentHarness _worker;
   final String _searchDbPath;
   final String _sessionsDir;
+  final UsageTracker? _usageTracker;
   final DateTime _startedAt;
 
   int _cachedSessionCount = 0;
@@ -20,13 +21,15 @@ class HealthService {
     required AgentHarness worker,
     required String searchDbPath,
     required String sessionsDir,
+    UsageTracker? usageTracker,
     DateTime? startedAt,
   }) : _worker = worker,
        _searchDbPath = searchDbPath,
        _sessionsDir = sessionsDir,
+       _usageTracker = usageTracker,
        _startedAt = startedAt ?? DateTime.now();
 
-  Map<String, dynamic> getStatus() {
+  Future<Map<String, dynamic>> getStatus() async {
     _refreshCacheIfNeeded();
 
     final status = switch (_worker.state) {
@@ -35,7 +38,7 @@ class HealthService {
       _ => 'healthy',
     };
 
-    return {
+    final result = <String, dynamic>{
       'status': status,
       'uptime_s': DateTime.now().difference(_startedAt).inSeconds,
       'worker_state': _worker.state.name,
@@ -43,6 +46,18 @@ class HealthService {
       'db_size_bytes': _cachedDbSizeBytes,
       'version': _version,
     };
+
+    final tracker = _usageTracker;
+    if (tracker != null) {
+      try {
+        final daily = await tracker.dailySummary();
+        if (daily != null) result['daily_usage'] = daily;
+      } catch (_) {
+        // Omit daily_usage if unavailable
+      }
+    }
+
+    return result;
   }
 
   void _refreshCacheIfNeeded() {

@@ -1,23 +1,13 @@
-/// Filters sensitive data from log output using configurable regex patterns.
+import 'package:dartclaw_core/dartclaw_core.dart';
+
+/// Filters sensitive data from log output by delegating to [MessageRedactor].
+///
+/// Thin wrapper for backward compatibility within `dartclaw_server`. All
+/// pattern matching and proportional-reveal logic lives in [MessageRedactor].
 class LogRedactor {
-  static const _defaultPatterns = [
-    r'sk-ant-[a-zA-Z0-9_-]+', // Anthropic API keys
-    r'[a-f0-9]{64}', // Gateway tokens (hex)
-    r'Bearer [a-zA-Z0-9_.-]+', // Bearer tokens
-  ];
+  final MessageRedactor _redactor;
 
-  final List<RegExp> _patterns;
+  LogRedactor({MessageRedactor? redactor}) : _redactor = redactor ?? MessageRedactor();
 
-  LogRedactor({List<String> patterns = const []}) : _patterns = [
-    ..._defaultPatterns.map(RegExp.new),
-    ...patterns.map(RegExp.new),
-  ];
-
-  String redact(String input) {
-    var result = input;
-    for (final pattern in _patterns) {
-      result = result.replaceAll(pattern, '[REDACTED]');
-    }
-    return result;
-  }
+  String redact(String input) => _redactor.redact(input);
 }

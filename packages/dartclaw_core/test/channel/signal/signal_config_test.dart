@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/signal/signal_config.dart';
 import 'package:test/test.dart';
 
 void main() {

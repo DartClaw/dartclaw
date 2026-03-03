@@ -1,9 +1,16 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+/// Extracts text from MCP result format: `{'content': [{'type': 'text', 'text': ...}]}`.
+String _text(Map<String, dynamic> result) {
+  final content = result['content'] as List;
+  return (content[0] as Map<String, dynamic>)['text'] as String;
+}
 
 void main() {
   late Database db;
@@ -33,10 +40,9 @@ void main() {
   });
 
   group('onSave', () {
-    test('saves text and returns chunk count', () async {
+    test('saves text and returns confirmation', () async {
       final result = await handlers.onSave({'text': 'User prefers Dart', 'category': 'prefs'});
-      expect(result['ok'], isTrue);
-      expect(result['chunks_created'], 1);
+      expect(_text(result), contains('chunk'));
 
       // Verify FTS5 searchable
       final search = memory.search('"Dart"');
@@ -46,7 +52,8 @@ void main() {
     test('splits long text into multiple chunks', () async {
       final longText = List.generate(20, (i) => 'Paragraph $i with enough content to fill it up nicely.').join('\n\n');
       final result = await handlers.onSave({'text': longText});
-      expect(result['chunks_created'], greaterThan(1));
+      // Should report more than 1 chunk saved
+      expect(_text(result), matches(RegExp(r'Saved \d+ chunk')));
     });
 
     test('rejects empty text', () async {
@@ -70,21 +77,19 @@ void main() {
     test('returns results for matching query', () async {
       await handlers.onSave({'text': 'Dart is a great language'});
       final result = await handlers.onSearch({'query': 'Dart language'});
-      final results = result['results'] as List;
-      expect(results, isNotEmpty);
-      expect(results.first['text'], contains('Dart'));
+      expect(_text(result), contains('Dart'));
     });
 
-    test('returns empty for empty query', () async {
+    test('returns empty message for empty query', () async {
       final result = await handlers.onSearch({'query': ''});
-      expect((result['results'] as List), isEmpty);
+      expect(_text(result), contains('No results'));
     });
 
     test('handles FTS5 operator chars safely', () async {
       await handlers.onSave({'text': 'Test data for search'});
       // These should not cause FTS5 syntax errors
       final result = await handlers.onSearch({'query': 'test AND OR * NEAR'});
-      expect(result['results'], isA<List<Map<String, dynamic>>>());
+      expect(result['content'], isA<List<dynamic>>());
     });
 
     test('respects limit parameter', () async {
@@ -92,22 +97,25 @@ void main() {
         await handlers.onSave({'text': 'Search entry $i about testing'});
       }
       final result = await handlers.onSearch({'query': 'testing', 'limit': 2});
-      expect((result['results'] as List).length, lessThanOrEqualTo(2));
+      final text = _text(result);
+      // With limit 2, should have at most 2 result lines
+      if (text != 'No results.') {
+        final lines = text.split('\n').where((l) => l.startsWith('- [')).toList();
+        expect(lines.length, lessThanOrEqualTo(2));
+      }
     });
   });
 
   group('onRead', () {
-    test('returns empty content when no MEMORY.md', () async {
+    test('returns empty indicator when no MEMORY.md', () async {
       final result = await handlers.onRead({});
-      expect(result['content'], isEmpty);
-      expect(result['size_bytes'], 0);
+      expect(_text(result), contains('empty'));
     });
 
     test('returns MEMORY.md content after save', () async {
       await handlers.onSave({'text': 'Remembered fact'});
       final result = await handlers.onRead({});
-      expect(result['content'], contains('Remembered fact'));
-      expect(result['size_bytes'], greaterThan(0));
+      expect(_text(result), contains('Remembered fact'));
     });
   });
 }

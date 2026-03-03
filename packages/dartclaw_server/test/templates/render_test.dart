@@ -201,7 +201,7 @@ void main() {
       });
       expect(html, contains('htmx.org'));
       expect(html, contains('marked'));
-      expect(html, contains('dompurify'));
+      expect(html, contains('purify.min.js'));
     });
 
     test('includes static asset references', () async {

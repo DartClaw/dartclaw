@@ -12,7 +12,6 @@ import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'claude_protocol.dart';
 import 'harness_config.dart';
-import 'mcp_tool_registry.dart';
 import 'tool_policy.dart';
 
 typedef ProcessFactory =
@@ -32,7 +31,7 @@ typedef DelayFactory = Future<void> Function(Duration duration);
 // Claude CLI configuration
 // ---------------------------------------------------------------------------
 
-List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt}) => [
+List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt, String? mcpConfigPath}) => [
   '--print',
   '--input-format',
   'stream-json',
@@ -46,6 +45,7 @@ List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt}) => [
   '--model',
   model ?? 'claude-sonnet-4-6',
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
+  if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
 ];
 
 /// Env vars to clear to prevent claude nesting detection.
@@ -70,11 +70,11 @@ class ClaudeCodeHarness implements AgentHarness {
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final HarnessConfig harnessConfig;
-  final McpToolRegistry toolRegistry;
   final ContainerManager? containerManager;
 
-  /// Memory handler callbacks (plain Map-based).
-  /// Kept for backward compat — auto-registered in toolRegistry on construction.
+  /// Memory handler callbacks. Used for `sdkMcpServers` fallback in chat mode
+  /// (no MCP server). When `harnessConfig.mcpServerUrl` is set, memory tools
+  /// are served via the `/mcp` HTTP endpoint instead.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
@@ -82,6 +82,7 @@ class ClaudeCodeHarness implements AgentHarness {
   static final _log = Logger('ClaudeCodeHarness');
 
   WorkerState _state = WorkerState.stopped;
+  String? _mcpConfigPath;
   int _crashCount = 0;
   int _spawnGeneration = 0;
   Process? _process;
@@ -117,57 +118,10 @@ class ClaudeCodeHarness implements AgentHarness {
     this.onMemoryRead,
     this.harnessConfig = const HarnessConfig(),
     this.containerManager,
-    McpToolRegistry? toolRegistry,
   }) : _processFactory = processFactory ?? Process.start,
        _commandProbe = commandProbe ?? Process.run,
        _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
-       _environment = environment ?? Platform.environment,
-       toolRegistry = toolRegistry ?? McpToolRegistry() {
-    // Auto-register legacy memory callbacks into the tool registry
-    _registerMemoryTools();
-  }
-
-  void _registerMemoryTools() {
-    final save = onMemorySave;
-    final search = onMemorySearch;
-    final read = onMemoryRead;
-    if (save == null || search == null || read == null) return;
-
-    toolRegistry.registerServer('dartclaw-memory', [
-      McpToolDef(
-        name: 'memory_save',
-        description: 'Save a fact, preference, or piece of knowledge to persistent memory.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'text': {'type': 'string', 'description': 'The text to save'},
-            'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
-          },
-          'required': ['text'],
-        },
-        handler: save,
-      ),
-      McpToolDef(
-        name: 'memory_search',
-        description: 'Search saved memories using natural language.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': 'Search query'},
-            'limit': {'type': 'number', 'description': 'Max results (default 5)'},
-          },
-          'required': ['query'],
-        },
-        handler: search,
-      ),
-      McpToolDef(
-        name: 'memory_read',
-        description: 'Read the full contents of MEMORY.md.',
-        inputSchema: {'type': 'object', 'properties': <String, dynamic>{}},
-        handler: read,
-      ),
-    ]);
-  }
+       _environment = environment ?? Platform.environment;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -221,6 +175,14 @@ class ClaudeCodeHarness implements AgentHarness {
     } catch (_) {}
     _process?.kill();
     _process = null;
+    // Clean up MCP config temp file.
+    final mcpPath = _mcpConfigPath;
+    if (mcpPath != null) {
+      try {
+        await File(mcpPath).delete();
+      } catch (_) {}
+      _mcpConfigPath = null;
+    }
   });
 
   @override
@@ -327,16 +289,45 @@ class ClaudeCodeHarness implements AgentHarness {
       env.remove(key);
     }
 
+    // Write MCP config temp file if internal MCP server is configured.
+    final mcpUrl = harnessConfig.mcpServerUrl;
+    final mcpToken = harnessConfig.mcpGatewayToken;
+    String? mcpConfigPath;
+    if (mcpUrl != null && mcpToken != null) {
+      final tmpDir = Directory.systemTemp;
+      final configFile = File('${tmpDir.path}/dartclaw-mcp-config-$pid.json');
+      final configJson = jsonEncode({
+        'mcpServers': {
+          'dartclaw': {
+            'type': 'http',
+            'url': mcpUrl,
+            'headers': {'Authorization': 'Bearer $mcpToken'},
+          },
+        },
+      });
+      await configFile.writeAsString(configJson, flush: true);
+      // Set 0600 permissions (owner read/write only).
+      await Process.run('chmod', ['600', configFile.path]);
+      mcpConfigPath = configFile.path;
+      _mcpConfigPath = mcpConfigPath;
+      _log.fine('Wrote MCP config to $mcpConfigPath');
+    }
+
     // Spawn claude process: containerized or direct.
+    final args = _buildClaudeArgs(
+      model: harnessConfig.model,
+      appendSystemPrompt: harnessConfig.appendSystemPrompt,
+      mcpConfigPath: mcpConfigPath,
+    );
     final Process process;
     final cm = containerManager;
     if (cm != null) {
       await cm.start();
-      process = await cm.exec([claudeExecutable, ..._buildClaudeArgs(model: harnessConfig.model, appendSystemPrompt: harnessConfig.appendSystemPrompt)]);
+      process = await cm.exec([claudeExecutable, ...args]);
     } else {
       process = await _processFactory(
         claudeExecutable,
-        _buildClaudeArgs(model: harnessConfig.model, appendSystemPrompt: harnessConfig.appendSystemPrompt),
+        args,
         workingDirectory: cwd,
         environment: env,
         includeParentEnvironment: false,
@@ -433,7 +424,9 @@ class ClaudeCodeHarness implements AgentHarness {
           },
         ],
       },
-      if (!toolRegistry.isEmpty) 'sdkMcpServers': toolRegistry.toSdkMcpServers(),
+      // Memory tools via sdkMcpServers fallback for chat mode (no MCP server).
+      // When mcpServerUrl is set (serve command), tools come from /mcp instead.
+      if (harnessConfig.mcpServerUrl == null) ..._buildMemorySdkMcpServers(),
       ...harnessConfig.toInitializeFields(),
     };
 
@@ -448,6 +441,53 @@ class ClaudeCodeHarness implements AgentHarness {
       _process = null;
       throw StateError('Initialize handshake timed out after 10s');
     }
+  }
+
+  /// Builds `sdkMcpServers` map for memory tools in chat mode (no MCP server).
+  Map<String, dynamic> _buildMemorySdkMcpServers() {
+    final save = onMemorySave;
+    final search = onMemorySearch;
+    final read = onMemoryRead;
+    if (save == null || search == null || read == null) return {};
+
+    return {
+      'sdkMcpServers': {
+        'dartclaw-memory': {
+          'type': 'sdk_mcp_server',
+          'tools': [
+            {
+              'name': 'memory_save',
+              'description': 'Save a fact, preference, or piece of knowledge to persistent memory.',
+              'input_schema': {
+                'type': 'object',
+                'properties': {
+                  'text': {'type': 'string', 'description': 'The text to save'},
+                  'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
+                },
+                'required': ['text'],
+              },
+            },
+            {
+              'name': 'memory_search',
+              'description': 'Search saved memories using natural language.',
+              'input_schema': {
+                'type': 'object',
+                'properties': {
+                  'query': {'type': 'string', 'description': 'Search query'},
+                  'limit': {'type': 'number', 'description': 'Max results (default 5)'},
+                },
+                'required': ['query'],
+              },
+            },
+            {
+              'name': 'memory_read',
+              'description': 'Read the full contents of MEMORY.md.',
+              'input_schema': {'type': 'object', 'properties': <String, dynamic>{}},
+            },
+          ],
+        },
+      },
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -518,9 +558,6 @@ class ClaudeCodeHarness implements AgentHarness {
 
       case 'hook_callback':
         _handleHookCallback(requestId, data);
-
-      case 'mcp_message':
-        _handleMcpMessage(requestId, data);
 
       default:
         _writeLine(buildGenericResponse(requestId));
@@ -595,49 +632,6 @@ class ClaudeCodeHarness implements AgentHarness {
       if (raw is String) return Map<String, dynamic>.from(jsonDecode(raw) as Map);
     } catch (_) {}
     return <String, dynamic>{};
-  }
-
-  /// Routes MCP tool calls to registered memory handlers.
-  void _handleMcpMessage(String requestId, Map<String, dynamic> data) {
-    unawaited(_handleMcpMessageAsync(requestId, data));
-  }
-
-  Future<void> _handleMcpMessageAsync(String requestId, Map<String, dynamic> data) async {
-    final mcpData = data['message'] as Map<String, dynamic>?;
-    if (mcpData == null) {
-      _writeLine(buildGenericResponse(requestId));
-      return;
-    }
-
-    final method = mcpData['method'] as String?;
-    final params = mcpData['params'] as Map<String, dynamic>? ?? {};
-    final mcpId = mcpData['id'];
-
-    Map<String, dynamic> result;
-    if (method == 'tools/call') {
-      final toolName = params['name'] as String? ?? '';
-      final toolArgs = params['arguments'] as Map<String, dynamic>? ?? {};
-      result = await toolRegistry.dispatch(toolName, toolArgs);
-    } else {
-      result = {
-        'content': [
-          {'type': 'text', 'text': 'Unsupported method: $method'},
-        ],
-        'isError': true,
-      };
-    }
-
-    final jsonRpcResponse = <String, dynamic>{'jsonrpc': '2.0', 'id': mcpId, 'result': result};
-
-    _writeLine({
-      'type': 'control_response',
-      'response': {
-        'subtype': 'success',
-        'request_id': requestId,
-        'mcp_response': jsonRpcResponse,
-        'response': jsonRpcResponse,
-      },
-    });
   }
 
   // -------------------------------------------------------------------------

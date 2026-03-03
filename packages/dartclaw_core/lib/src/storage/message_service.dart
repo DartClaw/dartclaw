@@ -15,6 +15,7 @@ class _WriteOp {
   _WriteOp(this.fn) : completer = Completer<void>();
 }
 
+/// Manages message persistence with cursor-based crash recovery.
 class MessageService {
   static final _log = Logger('MessageService');
 

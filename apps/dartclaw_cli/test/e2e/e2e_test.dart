@@ -242,4 +242,78 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
   });
+
+  // Regression: setRuntimeServices() must be called BEFORE server.handler
+  // is evaluated. If not, _runtimeConfig is null and config routes are
+  // skipped, causing /api/settings/runtime to 404.
+  group('E2E: config routes initialization order', () {
+    test('GET /api/settings/runtime returns 200 when runtime services set before handler', () async {
+      final tempDir2 = Directory.systemTemp.createTempSync('dartclaw_e2e_cfg_');
+      addTearDown(() {
+        if (tempDir2.existsSync()) tempDir2.deleteSync(recursive: true);
+      });
+
+      final sessions2 = SessionService(baseDir: tempDir2.path);
+      final messages2 = MessageService(baseDir: tempDir2.path);
+      final worker2 = FakeWorkerService();
+      final server2 = DartclawServer(
+        sessions: sessions2,
+        messages: messages2,
+        worker: worker2,
+        staticDir: _staticDir(),
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        authEnabled: false,
+      );
+      addTearDown(() => server2.shutdown());
+
+      // Inject runtime services BEFORE accessing handler — mirrors the fix
+      // in serve_command.dart.
+      server2.setRuntimeServices(
+        runtimeConfig: RuntimeConfig(
+          heartbeatEnabled: false,
+          gitSyncEnabled: false,
+        ),
+      );
+
+      final handler = server2.handler;
+
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/settings/runtime')),
+      );
+      expect(response.statusCode, equals(200));
+
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body, contains('heartbeat'));
+      expect(body, contains('gitSync'));
+    });
+
+    test('GET /api/settings/runtime returns 404 when runtime services NOT set', () async {
+      final tempDir3 = Directory.systemTemp.createTempSync('dartclaw_e2e_cfg_no_');
+      addTearDown(() {
+        if (tempDir3.existsSync()) tempDir3.deleteSync(recursive: true);
+      });
+
+      final sessions3 = SessionService(baseDir: tempDir3.path);
+      final messages3 = MessageService(baseDir: tempDir3.path);
+      final worker3 = FakeWorkerService();
+      final server3 = DartclawServer(
+        sessions: sessions3,
+        messages: messages3,
+        worker: worker3,
+        staticDir: _staticDir(),
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        authEnabled: false,
+      );
+      addTearDown(() => server3.shutdown());
+
+      // Deliberately do NOT call setRuntimeServices — simulates the old bug.
+      final handler = server3.handler;
+
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/settings/runtime')),
+      );
+      // Without runtime services, config routes are not mounted — expect 404.
+      expect(response.statusCode, equals(404));
+    });
+  });
 }

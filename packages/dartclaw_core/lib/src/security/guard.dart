@@ -24,6 +24,9 @@ class GuardContext {
   /// Active agent ID when evaluating in sub-agent context (null = main agent).
   final String? agentId;
 
+  /// Message origin: 'channel', 'web', 'cron', 'heartbeat', or null.
+  final String? source;
+
   final DateTime timestamp;
 
   const GuardContext({
@@ -32,6 +35,7 @@ class GuardContext {
     this.toolInput,
     this.messageContent,
     this.agentId,
+    this.source,
     required this.timestamp,
   });
 }
@@ -78,10 +82,11 @@ class GuardChain {
   }
 
   /// Evaluates all guards for a 'messageReceived' hook point.
-  Future<GuardVerdict> evaluateMessageReceived(String content) {
+  Future<GuardVerdict> evaluateMessageReceived(String content, {String? source}) {
     final context = GuardContext(
       hookPoint: 'messageReceived',
       messageContent: content,
+      source: source,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);

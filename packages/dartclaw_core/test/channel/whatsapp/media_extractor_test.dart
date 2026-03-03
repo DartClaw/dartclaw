@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/whatsapp/media_extractor.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

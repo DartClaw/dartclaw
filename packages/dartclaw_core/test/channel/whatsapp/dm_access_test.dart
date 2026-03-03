@@ -1,6 +1,7 @@
 import 'dart:math';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/whatsapp/whatsapp_config.dart';
+import 'package:dartclaw_core/src/channel/whatsapp/dm_access.dart';
 import 'package:test/test.dart';
 
 void main() {

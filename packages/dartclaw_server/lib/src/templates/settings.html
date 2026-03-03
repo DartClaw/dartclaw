@@ -65,8 +65,20 @@
         <div class="card-detail">
           Scheduled jobs: <span class="card-detail-value" tl:text="${scheduledJobsCount}">0</span>
         </div>
-        <div class="card-detail">
-          Heartbeat: <span class="card-detail-value" tl:text="${heartbeatDisplay}">disabled</span>
+        <div class="card-detail toggle-row" id="heartbeat-toggle">
+          <span>Heartbeat:</span>
+          <span class="card-detail-value" tl:text="${heartbeatDisplay}">disabled</span>
+          <label class="toggle-switch">
+            <input type="checkbox" tl:if="${heartbeatOn}" checked
+                   hx-post="/api/settings/heartbeat/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <input type="checkbox" tl:unless="${heartbeatOn}"
+                   hx-post="/api/settings/heartbeat/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <span class="toggle-slider"></span>
+          </label>
         </div>
         <div class="card-actions">
           <a href="/scheduling" class="card-link">View Schedule &#8594;</a>
@@ -116,8 +128,20 @@
           <span tl:unless="${gitSyncEnabled}" class="status-badge status-badge-muted">No sync</span>
         </div>
         <div class="card-detail card-detail-mono" tl:text="${workspacePathDisplay}">~/.dartclaw/workspace/</div>
-        <div class="card-detail">
-          Git sync: <span class="card-detail-value" tl:text="${gitSyncDisplay}">Disabled</span>
+        <div class="card-detail toggle-row" id="git-sync-toggle">
+          <span>Git sync:</span>
+          <span class="card-detail-value" tl:text="${gitSyncDisplay}">Disabled</span>
+          <label class="toggle-switch">
+            <input type="checkbox" tl:if="${gitSyncEnabled}" checked
+                   hx-post="/api/settings/git-sync/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <input type="checkbox" tl:unless="${gitSyncEnabled}"
+                   hx-post="/api/settings/git-sync/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
 

@@ -4,11 +4,22 @@
   <main id="main-content" hx-history-elt class="page-content">
     <div class="page-inner">
 
-      <div class="heartbeat-card">
+      <div class="heartbeat-card" id="heartbeat-section">
         <div class="heartbeat-header">
           <span tl:classappend="${pulseClass}" class="pulse-icon"></span>
           <span class="heartbeat-label">Heartbeat</span>
           <span tl:classappend="${badgeClass}" class="heartbeat-status-badge" tl:text="${badgeText}">Active</span>
+          <label class="toggle-switch toggle-inline">
+            <input type="checkbox" tl:if="${heartbeatOn}" checked
+                   hx-post="/api/settings/heartbeat/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <input type="checkbox" tl:unless="${heartbeatOn}"
+                   hx-post="/api/settings/heartbeat/toggle"
+                   hx-swap="none"
+                   hx-vals='js:{"enabled": event.target.checked}'>
+            <span class="toggle-slider"></span>
+          </label>
         </div>
         <div class="heartbeat-grid">
           <div class="heartbeat-stat">
@@ -32,6 +43,7 @@
               <th>Schedule</th>
               <th>Delivery</th>
               <th>Status</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -40,6 +52,18 @@
               <td><span class="cron-expr" tl:text="${job.schedule}">* * * * *</span></td>
               <td><span tl:classappend="${job.deliveryBadgeClass}" class="delivery-badge" tl:text="${job.delivery}">none</span></td>
               <td><span tl:classappend="${job.statusDotClass}" class="status-dot" tl:text="${job.status}">active</span></td>
+              <td>
+                <button class="btn-icon" tl:if="${job.isActive}"
+                        tl:attr="hx-post='/api/scheduling/jobs/' + ${job.name} + '/toggle'"
+                        hx-vals='{"status": "paused"}'
+                        hx-swap="none"
+                        title="Pause job">&#9646;&#9646;</button>
+                <button class="btn-icon" tl:unless="${job.isActive}"
+                        tl:attr="hx-post='/api/scheduling/jobs/' + ${job.name} + '/toggle'"
+                        hx-vals='{"status": "active"}'
+                        hx-swap="none"
+                        title="Resume job">&#9654;</button>
+              </td>
             </tr>
             <tr tl:unless="${hasJobs}">
               <td colspan="4" style="text-align:center;color:var(--fg-overlay);padding:var(--sp-6);">No scheduled jobs configured</td>

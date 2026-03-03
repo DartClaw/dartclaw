@@ -30,9 +30,9 @@ void main() {
       expect(html, contains('marked'));
     });
 
-    test('contains DOMPurify CDN link', () {
+    test('contains DOMPurify script', () {
       final html = layoutTemplate(title: 'Test', body: '');
-      expect(html, contains('dompurify'));
+      expect(html, contains('purify.min.js'));
     });
 
     test('contains /static/app.js', () {

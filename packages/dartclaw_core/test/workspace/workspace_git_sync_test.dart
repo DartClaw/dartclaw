@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/workspace/workspace_git_sync.dart';
 import 'package:test/test.dart';
 
 /// Records all commands run and returns preconfigured results.

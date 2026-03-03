@@ -53,8 +53,8 @@ void main() {
     test('redacts sensitive data', () {
       final record = LogRecord(Level.INFO, 'Key: sk-ant-secret123_key', 'Config');
       final output = formatter.format(record);
-      expect(output, contains('[REDACTED]'));
-      expect(output, isNot(contains('sk-ant-secret123')));
+      expect(output, contains('***'));
+      expect(output, isNot(contains('secret123_key')));
     });
   });
 
@@ -105,8 +105,8 @@ void main() {
     test('redacts sensitive data in JSON', () {
       final record = LogRecord(Level.INFO, 'Token: Bearer eyJxyz.abc.def', 'Auth');
       final output = formatter.format(record);
-      expect(output, contains('[REDACTED]'));
-      expect(output, isNot(contains('Bearer eyJ')));
+      expect(output, contains('***'));
+      expect(output, isNot(contains('abc.def')));
     });
 
     test('time is UTC ISO8601', () {

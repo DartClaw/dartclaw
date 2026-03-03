@@ -1,8 +1,8 @@
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemorySearchResult, SearchBackend;
 import 'package:logging/logging.dart';
 
-import '../models/models.dart';
 import 'qmd_manager.dart';
-import 'search_backend.dart';
 
 /// Search depth options for QMD queries.
 enum SearchDepth {

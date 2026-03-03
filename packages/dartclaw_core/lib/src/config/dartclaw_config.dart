@@ -49,8 +49,16 @@ class DartclawConfig {
   final int searchQmdPort;
   final String searchDefaultDepth;
   final bool contentGuardEnabled;
+  final String contentGuardClassifier;
   final String contentGuardModel;
   final int contentGuardMaxBytes;
+  final bool inputSanitizerEnabled;
+  final bool inputSanitizerChannelsOnly;
+  final int? usageBudgetWarningTokens;
+  final int usageMaxFileSizeBytes;
+  final bool memoryPruningEnabled;
+  final int memoryArchiveAfterDays;
+  final String memoryPruningSchedule;
 
   /// Raw guards YAML map for per-guard config (command, file, network sections).
   final Map<String, dynamic> guardsYaml;
@@ -104,8 +112,16 @@ class DartclawConfig {
     this.searchQmdPort = 8181,
     this.searchDefaultDepth = 'standard',
     this.contentGuardEnabled = true,
+    this.contentGuardClassifier = 'claude_binary',
     this.contentGuardModel = 'claude-haiku-4-5-20251001',
     this.contentGuardMaxBytes = 50 * 1024,
+    this.inputSanitizerEnabled = true,
+    this.inputSanitizerChannelsOnly = true,
+    this.usageBudgetWarningTokens,
+    this.usageMaxFileSizeBytes = 10 * 1024 * 1024,
+    this.memoryPruningEnabled = true,
+    this.memoryArchiveAfterDays = 90,
+    this.memoryPruningSchedule = '0 3 * * *',
     this.guardsYaml = const {},
     this.warnings = const [],
   });
@@ -446,6 +462,7 @@ class DartclawConfig {
 
     // Content-guard config (under guards.content)
     var contentGuardEnabled = defaults.contentGuardEnabled;
+    var contentGuardClassifier = defaults.contentGuardClassifier;
     var contentGuardModel = defaults.contentGuardModel;
     var contentGuardMaxBytes = defaults.contentGuardMaxBytes;
     if (guardsRaw is Map) {
@@ -453,6 +470,14 @@ class DartclawConfig {
       if (contentRaw is Map) {
         final en = contentRaw['enabled'];
         if (en is bool) contentGuardEnabled = en;
+        final classifier = contentRaw['classifier'];
+        if (classifier is String) {
+          if (classifier == 'claude_binary' || classifier == 'anthropic_api') {
+            contentGuardClassifier = classifier;
+          } else {
+            warns.add('Invalid guards.content.classifier: "$classifier" — using default');
+          }
+        }
         final model = contentRaw['model'];
         if (model is String) contentGuardModel = model;
         contentGuardMaxBytes = _parseInt(
@@ -463,6 +488,65 @@ class DartclawConfig {
           warns,
         );
       }
+    }
+
+    // Input-sanitizer config (under guards.input_sanitizer)
+    var inputSanitizerEnabled = defaults.inputSanitizerEnabled;
+    var inputSanitizerChannelsOnly = defaults.inputSanitizerChannelsOnly;
+    if (guardsRaw is Map) {
+      final isRaw = guardsRaw['input_sanitizer'];
+      if (isRaw is Map) {
+        final en = isRaw['enabled'];
+        if (en is bool) inputSanitizerEnabled = en;
+        final co = isRaw['channels_only'];
+        if (co is bool) inputSanitizerChannelsOnly = co;
+      }
+    }
+
+    // Usage tracking config
+    int? usageBudgetWarningTokens = defaults.usageBudgetWarningTokens;
+    var usageMaxFileSizeBytes = defaults.usageMaxFileSizeBytes;
+    final usageRaw = yamlValues['usage'];
+    if (usageRaw is Map) {
+      final bwt = usageRaw['budget_warning_tokens'];
+      if (bwt is int) {
+        usageBudgetWarningTokens = bwt;
+      } else if (bwt != null) {
+        warns.add('Invalid type for usage.budget_warning_tokens: "${bwt.runtimeType}" — ignoring');
+      }
+      usageMaxFileSizeBytes = _parseInt(
+        'usage.max_file_size_bytes',
+        null,
+        usageRaw['max_file_size_bytes'],
+        defaults.usageMaxFileSizeBytes,
+        warns,
+      );
+    } else if (usageRaw != null) {
+      warns.add('Invalid type for usage: "${usageRaw.runtimeType}" — using defaults');
+    }
+
+    // Memory pruning config (under memory.pruning)
+    var memoryPruningEnabled = defaults.memoryPruningEnabled;
+    var memoryArchiveAfterDays = defaults.memoryArchiveAfterDays;
+    var memoryPruningSchedule = defaults.memoryPruningSchedule;
+    final memoryRaw = yamlValues['memory'];
+    if (memoryRaw is Map) {
+      final pruningRaw = memoryRaw['pruning'];
+      if (pruningRaw is Map) {
+        final en = pruningRaw['enabled'];
+        if (en is bool) memoryPruningEnabled = en;
+        memoryArchiveAfterDays = _parseInt(
+          'memory.pruning.archive_after_days',
+          null,
+          pruningRaw['archive_after_days'],
+          defaults.memoryArchiveAfterDays,
+          warns,
+        );
+        final sched = pruningRaw['schedule'];
+        if (sched is String) memoryPruningSchedule = sched;
+      }
+    } else if (memoryRaw != null) {
+      warns.add('Invalid type for memory: "${memoryRaw.runtimeType}" — using defaults');
     }
 
     return DartclawConfig(
@@ -504,8 +588,16 @@ class DartclawConfig {
       searchQmdPort: searchQmdPort,
       searchDefaultDepth: searchDefaultDepth,
       contentGuardEnabled: contentGuardEnabled,
+      contentGuardClassifier: contentGuardClassifier,
       contentGuardModel: contentGuardModel,
       contentGuardMaxBytes: contentGuardMaxBytes,
+      inputSanitizerEnabled: inputSanitizerEnabled,
+      inputSanitizerChannelsOnly: inputSanitizerChannelsOnly,
+      usageBudgetWarningTokens: usageBudgetWarningTokens,
+      usageMaxFileSizeBytes: usageMaxFileSizeBytes,
+      memoryPruningEnabled: memoryPruningEnabled,
+      memoryArchiveAfterDays: memoryArchiveAfterDays,
+      memoryPruningSchedule: memoryPruningSchedule,
       guardsYaml: guardsYaml,
       warnings: List.unmodifiable(warns),
     );
@@ -547,6 +639,8 @@ class DartclawConfig {
     'channels',
     'workspace',
     'search',
+    'usage',
+    'memory',
   };
 
   static Map<String, dynamic> _loadYaml(

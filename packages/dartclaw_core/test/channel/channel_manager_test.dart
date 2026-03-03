@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/channel_config.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------

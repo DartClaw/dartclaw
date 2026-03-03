@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
 final _log = Logger('MemoryHandlers');
@@ -15,6 +16,7 @@ createMemoryHandlers({
   required MemoryService memory,
   required MemoryFileService memoryFile,
   required SearchBackend searchBackend,
+  SelfImprovementService? selfImprovement,
 }) {
   return (
     onSave: (Map<String, dynamic> params) async {
@@ -26,7 +28,12 @@ createMemoryHandlers({
       final stripped = MemoryFileService.stripMarkdown(text);
       final chunks = MemoryFileService.splitParagraphs(stripped);
 
-      await memoryFile.appendMemory(text: text, category: category);
+      // Route learning category to learnings.md instead of MEMORY.md
+      if (category == 'learning' && selfImprovement != null) {
+        await selfImprovement.appendLearning(text: text);
+      } else {
+        await memoryFile.appendMemory(text: text, category: category);
+      }
 
       for (final chunk in chunks) {
         try {
@@ -39,26 +46,50 @@ createMemoryHandlers({
 
       await searchBackend.indexAfterWrite();
 
-      return {'ok': true, 'chunks_created': chunks.length};
+      return {
+        'content': [
+          {'type': 'text', 'text': 'Saved ${chunks.length} chunk(s) to memory.'},
+        ],
+      };
     },
     onSearch: (Map<String, dynamic> params) async {
       final query = params['query'] as String;
-      if (query.trim().isEmpty) return {'results': <Map<String, dynamic>>[]};
+      if (query.trim().isEmpty) {
+        return {
+          'content': [
+            {'type': 'text', 'text': 'No results (empty query).'},
+          ],
+        };
+      }
 
       final limit = (params['limit'] as num?)?.toInt() ?? 5;
       final sanitized = _sanitizeFts5Query(query);
-      if (sanitized == '""') return {'results': <Map<String, dynamic>>[]};
+      if (sanitized == '""') {
+        return {
+          'content': [
+            {'type': 'text', 'text': 'No results.'},
+          ],
+        };
+      }
       final results = await searchBackend.search(sanitized, limit: limit);
 
+      final formatted = results
+          .map((r) => '- [${r.category}] ${r.text} (score: ${r.score.toStringAsFixed(2)})')
+          .join('\n');
       return {
-        'results': results
-            .map((r) => {'text': r.text, 'source': r.source, 'score': r.score, 'category': r.category})
-            .toList(),
+        'content': [
+          {'type': 'text', 'text': results.isEmpty ? 'No results.' : formatted},
+        ],
       };
     },
     onRead: (Map<String, dynamic> params) async {
-      final content = await memoryFile.readMemory();
-      return {'content': content, 'size_bytes': utf8.encode(content).length};
+      final memContent = await memoryFile.readMemory();
+      final sizeBytes = utf8.encode(memContent).length;
+      return {
+        'content': [
+          {'type': 'text', 'text': memContent.isEmpty ? '(MEMORY.md is empty)' : '$memContent\n\n---\nSize: $sizeBytes bytes'},
+        ],
+      };
     },
   );
 }

@@ -13,6 +13,7 @@ class AgentDefinition {
   final int maxChildrenPerAgent;
   final String sessionStorePath;
   final int maxResponseBytes;
+  final String? model;
   final Map<String, dynamic> extra;
 
   const AgentDefinition({
@@ -26,6 +27,7 @@ class AgentDefinition {
     this.maxChildrenPerAgent = 0,
     this.sessionStorePath = '',
     this.maxResponseBytes = 5 * 1024 * 1024,
+    this.model,
     this.extra = const {},
   });
 
@@ -34,6 +36,7 @@ class AgentDefinition {
     String prompt = _defaultSearchPrompt,
     int maxConcurrent = 2,
     int maxResponseBytes = 5 * 1024 * 1024,
+    String model = 'claude-haiku-4-5',
   }) {
     return AgentDefinition(
       id: 'search',
@@ -47,6 +50,7 @@ class AgentDefinition {
       maxChildrenPerAgent: 0,
       sessionStorePath: 'agents/search/sessions',
       maxResponseBytes: maxResponseBytes,
+      model: model,
     );
   }
 
@@ -84,6 +88,7 @@ class AgentDefinition {
           'agents/$id/sessions',
       maxResponseBytes: yaml['max_response_bytes'] as int? ??
           5 * 1024 * 1024,
+      model: yaml['model'] as String?,
       extra: _extractExtra(yaml),
     );
   }
@@ -93,6 +98,7 @@ class AgentDefinition {
     return {
       'description': description,
       'prompt': prompt,
+      if (model != null) 'model': model,
       if (deniedTools.isNotEmpty)
         'disallowedTools': deniedTools.toList(),
       ...extra,
@@ -101,7 +107,7 @@ class AgentDefinition {
 
   static Map<String, dynamic> _extractExtra(Map<String, dynamic> yaml) {
     const reserved = {
-      'tools', 'denied_tools', 'description', 'prompt',
+      'tools', 'denied_tools', 'description', 'prompt', 'model',
       'max_spawn_depth', 'max_concurrent', 'max_children_per_agent',
       'session_store_path', 'max_response_bytes',
     };

@@ -83,6 +83,18 @@
           </form>
         </div>
 
+        <div tl:if="${showLinkDevice}" class="wa-section" style="margin-top:var(--sp-8);">
+          <div class="section-label">Option 3 — Register via Voice Call</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">
+            If SMS is not available, request a voice call to
+            <strong tl:text="${smsPhoneDisplay}">the configured number</strong>
+            with the verification code.
+          </p>
+          <form method="post" action="/signal/pairing/register-voice" style="margin-top:var(--sp-4);">
+            <button type="submit" class="btn btn-secondary">Request Voice Call</button>
+          </form>
+        </div>
+
         <!-- Daemon not reachable state -->
         <div tl:if="${showSetup}" class="wa-section">
           <div class="section-label">signal-cli Not Reachable</div>

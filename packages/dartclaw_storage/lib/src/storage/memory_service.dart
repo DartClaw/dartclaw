@@ -1,7 +1,7 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult;
 import 'package:sqlite3/sqlite3.dart';
 
-import '../models/models.dart';
-
+/// Manages the FTS5 memory search index backed by SQLite.
 class MemoryService {
   final Database _db;
 

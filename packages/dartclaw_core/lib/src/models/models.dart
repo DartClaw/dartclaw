@@ -1,5 +1,7 @@
+/// Classification for how a session was created.
 enum SessionType { main, channel, cron, user, archive }
 
+/// A conversation session containing messages between user and agent.
 class Session {
   final String id;
   final String? title;
@@ -59,6 +61,7 @@ class Session {
   }
 }
 
+/// A single message in a session, with a cursor for crash-recovery resumption.
 class Message {
   final int cursor;
   final String id;
@@ -99,6 +102,7 @@ class Message {
   );
 }
 
+/// A chunk of text stored in the FTS5 memory index for semantic search.
 class MemoryChunk {
   final int id;
   final String textContent;
@@ -115,6 +119,7 @@ class MemoryChunk {
   });
 }
 
+/// A ranked result from a memory search query.
 class MemorySearchResult {
   final String text;
   final String source;

@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -30,6 +31,7 @@ typedef ServerFactory =
       required String staticDir,
       required BehaviorFileService behavior,
       MemoryFileService? memoryFile,
+      SessionService? sessionsForTurns,
       GuardChain? guardChain,
       KvService? kv,
       HealthService? healthService,
@@ -43,7 +45,16 @@ typedef ServerFactory =
       WhatsAppChannel? whatsAppChannel,
       SignalChannel? signalChannel,
       String? webhookSecret,
+      MessageRedactor? redactor,
+      String? gatewayToken,
+      SelfImprovementService? selfImprovement,
+      UsageTracker? usageTracker,
       bool authEnabled,
+      bool heartbeatEnabled,
+      int heartbeatIntervalMinutes,
+      List<Map<String, dynamic>> scheduledJobs,
+      String? workspacePath,
+      bool gitSyncEnabled,
     });
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
 typedef WriteLine = void Function(String line);
@@ -98,6 +109,7 @@ class ServeCommand extends Command<void> {
              required staticDir,
              required behavior,
              memoryFile,
+             sessionsForTurns,
              guardChain,
              kv,
              healthService,
@@ -111,7 +123,16 @@ class ServeCommand extends Command<void> {
              whatsAppChannel,
              signalChannel,
              webhookSecret,
+             redactor,
+             gatewayToken,
+             selfImprovement,
+             usageTracker,
              authEnabled = true,
+             heartbeatEnabled = false,
+             heartbeatIntervalMinutes = 30,
+             scheduledJobs = const [],
+             workspacePath,
+             gitSyncEnabled = false,
            }) => DartclawServer(
              sessions: sessions,
              messages: messages,
@@ -132,7 +153,16 @@ class ServeCommand extends Command<void> {
              whatsAppChannel: whatsAppChannel,
              signalChannel: signalChannel,
              webhookSecret: webhookSecret,
+             redactor: redactor,
+             gatewayToken: gatewayToken,
+             selfImprovement: selfImprovement,
+             usageTracker: usageTracker,
              authEnabled: authEnabled,
+             heartbeatEnabled: heartbeatEnabled,
+             heartbeatIntervalMinutes: heartbeatIntervalMinutes,
+             scheduledJobs: scheduledJobs,
+             workspacePath: workspacePath,
+             gitSyncEnabled: gitSyncEnabled,
            )),
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stdoutLine = stdoutLine ?? stdout.writeln,
@@ -245,11 +275,13 @@ class ServeCommand extends Command<void> {
         ? argResults!['log-level'] as String
         : config.logLevel;
 
+    final messageRedactor = MessageRedactor(extraPatterns: config.redactPatterns);
+    final logRedactor = LogRedactor(redactor: messageRedactor);
     final logService = LogService.fromConfig(
       format: logFormat,
       logFile: logFile,
       level: logLevel,
-      redactPatterns: config.redactPatterns,
+      redactor: logRedactor,
     );
     logService.install();
 
@@ -307,7 +339,13 @@ class ServeCommand extends Command<void> {
         qmdManager: qmdManager,
         defaultDepth: config.searchDefaultDepth,
       );
-      final handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile, searchBackend: searchBackend);
+      final selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir);
+      final handlers = createMemoryHandlers(
+        memory: memory,
+        memoryFile: memoryFile,
+        searchBackend: searchBackend,
+        selfImprovement: selfImprovement,
+      );
 
       final behavior = BehaviorFileService(
         workspaceDir: config.workspaceDir,
@@ -316,13 +354,34 @@ class ServeCommand extends Command<void> {
       );
 
       final staticPrompt = await behavior.composeStaticPrompt();
+
+      // Build agent definitions before HarnessConfig so default search agent
+      // model is included in the initialize handshake.
+      final agentDefs = config.agentDefinitions.isNotEmpty ? config.agentDefinitions : [AgentDefinition.searchAgent()];
+      final agentMap = {for (final a in agentDefs) a.id: a};
+      final agentsPayload = {for (final a in agentDefs) a.id: a.toInitializePayload()};
+
+      // Resolve gateway token early so it's available for MCP config in HarnessConfig.
+      final authEnabled = config.gatewayAuthMode != 'none';
+      String? resolvedGatewayToken;
+      if (authEnabled) {
+        resolvedGatewayToken = config.gatewayToken ?? TokenService.loadFromFile(dataDir);
+        if (resolvedGatewayToken == null) {
+          final ts = TokenService();
+          resolvedGatewayToken = ts.token;
+          TokenService.persistToFile(dataDir, resolvedGatewayToken);
+        }
+      }
+
       final harnessConfig = HarnessConfig(
         disallowedTools: config.agentDisallowedTools,
         maxTurns: config.agentMaxTurns,
         model: config.agentModel,
-        agents: config.agentAgents,
+        agents: agentsPayload,
         context1m: config.agentContext1m,
         appendSystemPrompt: staticPrompt,
+        mcpServerUrl: resolvedGatewayToken != null ? 'http://127.0.0.1:$port/mcp' : null,
+        mcpGatewayToken: resolvedGatewayToken,
       );
 
       harness = _harnessFactory(
@@ -343,10 +402,6 @@ class ServeCommand extends Command<void> {
         _exitFn(1);
       }
 
-      // Build agent definitions (default search agent if none configured)
-      final agentDefs = config.agentDefinitions.isNotEmpty ? config.agentDefinitions : [AgentDefinition.searchAgent()];
-      final agentMap = {for (final a in agentDefs) a.id: a};
-
       // Build ToolPolicyCascade from agent definitions
       final agentAllow = <String, Set<String>>{};
       final agentDeny = <String, Set<String>>{};
@@ -366,6 +421,17 @@ class ServeCommand extends Command<void> {
           ? GuardChain(
               failOpen: config.guards.failOpen,
               guards: [
+                InputSanitizer(
+                  config: config.guardsYaml['input_sanitizer'] is Map
+                      ? InputSanitizerConfig.fromYaml(
+                          Map<String, dynamic>.from(config.guardsYaml['input_sanitizer'] as Map),
+                        )
+                      : InputSanitizerConfig(
+                          enabled: config.inputSanitizerEnabled,
+                          channelsOnly: config.inputSanitizerChannelsOnly,
+                          patterns: InputSanitizerConfig.defaults().patterns,
+                        ),
+                ),
                 CommandGuard(
                   config: config.guardsYaml['command'] is Map
                       ? CommandGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['command'] as Map))
@@ -389,19 +455,39 @@ class ServeCommand extends Command<void> {
             )
           : null;
 
-      // ContentGuard: requires ANTHROPIC_API_KEY from environment
+      // ContentGuard: classifier selection based on config
       ContentGuard? contentGuard;
       if (config.contentGuardEnabled) {
-        final apiKey = Platform.environment['ANTHROPIC_API_KEY'];
-        if (apiKey != null && apiKey.isNotEmpty) {
-          contentGuard = ContentGuard(
-            client: AnthropicClient(apiKey: apiKey, model: config.contentGuardModel),
-            maxContentBytes: config.contentGuardMaxBytes,
-          );
+        ContentClassifier? classifier;
+        var failOpen = false;
+
+        if (config.contentGuardClassifier == 'anthropic_api') {
+          final apiKey = Platform.environment['ANTHROPIC_API_KEY'];
+          if (apiKey != null && apiKey.isNotEmpty) {
+            classifier = AnthropicApiClassifier(
+              apiKey: apiKey,
+              model: config.contentGuardModel,
+            );
+          } else {
+            Logger('ServeCommand').warning(
+              'ANTHROPIC_API_KEY not set — content guard disabled. '
+              'Set the environment variable or switch to classifier: claude_binary.',
+            );
+          }
         } else {
-          Logger('ServeCommand').warning(
-            'ANTHROPIC_API_KEY not set — content guard disabled. '
-            'Set the environment variable to enable content classification at agent boundaries.',
+          // Default: claude_binary — works with OAuth, no API key needed
+          classifier = ClaudeBinaryClassifier(
+            claudeExecutable: config.claudeExecutable,
+            model: config.contentGuardModel,
+          );
+          failOpen = true;
+        }
+
+        if (classifier != null) {
+          contentGuard = ContentGuard(
+            classifier: classifier,
+            maxContentBytes: config.contentGuardMaxBytes,
+            failOpen: failOpen,
           );
         }
       }
@@ -424,7 +510,7 @@ class ServeCommand extends Command<void> {
         dispatch: ({required sessionId, required message, required agentId}) async {
           final session = await sessions.getOrCreateByKey(sessionId);
           final userMsg = <String, dynamic>{'role': 'user', 'content': message};
-          final turnId = await server!.turns.startTurn(session.id, [userMsg]);
+          final turnId = await server!.turns.startTurn(session.id, [userMsg], agentName: agentId);
           final outcome = await server.turns.waitForOutcome(session.id, turnId);
           if (outcome.status != TurnStatus.completed) {
             throw StateError('Agent turn failed: ${outcome.errorMessage}');
@@ -443,13 +529,16 @@ class ServeCommand extends Command<void> {
         auditLogger: auditLogger,
       );
 
-      // Register SessionDelegate MCP tools with the harness tool registry
-      if (harness is ClaudeCodeHarness) {
-        sessionDelegate.registerTools(harness.toolRegistry);
-      }
-
       // KV store for per-session cost tracking
       final kvService = KvService(filePath: config.kvPath);
+
+      // Usage tracking (fire-and-forget, never blocks turns)
+      final usageTracker = UsageTracker(
+        dataDir: dataDir,
+        kv: kvService,
+        budgetWarningTokens: config.usageBudgetWarningTokens,
+        maxFileSizeBytes: config.usageMaxFileSizeBytes,
+      );
 
       // Health service
       final startedSearchDb = searchDb;
@@ -458,21 +547,15 @@ class ServeCommand extends Command<void> {
         worker: startedHarness,
         searchDbPath: config.searchDbPath,
         sessionsDir: config.sessionsDir,
+        usageTracker: usageTracker,
       );
 
-      // Gateway auth
-      final authEnabled = config.gatewayAuthMode != 'none';
+      // Gateway auth (token already resolved earlier for HarnessConfig MCP wiring).
       TokenService? tokenService;
       SessionStore? sessionStore;
 
       if (authEnabled) {
-        final existingToken = config.gatewayToken ?? TokenService.loadFromFile(dataDir);
-        if (existingToken != null) {
-          tokenService = TokenService(token: existingToken);
-        } else {
-          tokenService = TokenService();
-          TokenService.persistToFile(dataDir, tokenService.token);
-        }
+        tokenService = TokenService(token: resolvedGatewayToken!);
         sessionStore = SessionStore();
       } else {
         final isLoopback = host == 'localhost' || host == '127.0.0.1';
@@ -527,7 +610,7 @@ class ServeCommand extends Command<void> {
       String? webhookSecret;
 
       if (waEnabled || sigEnabled) {
-        channelManager = _buildChannelManager(config: config, sessions: sessions, serverRef: () => server);
+        channelManager = _buildChannelManager(config: config, sessions: sessions, serverRef: () => server, redactor: messageRedactor);
       }
 
       if (waEnabled && channelManager != null) {
@@ -585,10 +668,13 @@ class ServeCommand extends Command<void> {
             phoneNumber: parsedSignalConfig.phoneNumber,
           );
 
-          final sigDmAccess = SignalDmAccessController(mode: SignalDmAccessMode.open);
+          final sigDmAccess = SignalDmAccessController(
+            mode: parsedSignalConfig.dmAccess,
+            allowlist: parsedSignalConfig.dmAllowlist.toSet(),
+          );
           final sigMentionGating = SignalMentionGating(
-            requireMention: false,
-            mentionPatterns: const [],
+            requireMention: parsedSignalConfig.requireMention,
+            mentionPatterns: parsedSignalConfig.mentionPatterns,
             ownNumber: parsedSignalConfig.phoneNumber,
           );
 
@@ -606,6 +692,10 @@ class ServeCommand extends Command<void> {
           Logger('ServeCommand').warning('Failed to initialize Signal channel: $e');
         }
       }
+
+      // Mutable display list for scheduling UI (includes both user-configured
+      // and built-in jobs). Starts as a copy of the raw config maps.
+      final displayJobs = config.schedulingJobs.map((j) => Map<String, dynamic>.of(j)).toList();
 
       server = _serverFactory(
         sessions: sessions,
@@ -627,8 +717,24 @@ class ServeCommand extends Command<void> {
         whatsAppChannel: whatsAppChannel,
         signalChannel: signalChannel,
         webhookSecret: webhookSecret,
+        redactor: messageRedactor,
+        gatewayToken: resolvedGatewayToken,
+        selfImprovement: selfImprovement,
+        usageTracker: usageTracker,
         authEnabled: authEnabled,
+        heartbeatEnabled: config.heartbeatEnabled,
+        heartbeatIntervalMinutes: config.heartbeatIntervalMinutes,
+        scheduledJobs: displayJobs,
+        workspacePath: config.workspaceDir,
+        gitSyncEnabled: config.gitSyncEnabled,
       );
+
+      // Register MCP tools on the internal MCP server (/mcp HTTP endpoint).
+      server.registerTool(SessionsSendTool(delegate: sessionDelegate));
+      server.registerTool(SessionsSpawnTool(delegate: sessionDelegate));
+      server.registerTool(MemorySaveTool(handler: handlers.onSave));
+      server.registerTool(MemorySearchTool(handler: handlers.onSearch));
+      server.registerTool(MemoryReadTool(handler: handlers.onRead));
 
       // Detect orphaned turns from previous crash
       await server.turns.detectAndCleanOrphanedTurns();
@@ -643,7 +749,90 @@ class ServeCommand extends Command<void> {
         }
       }
 
-      // Start HTTP server
+      // Register memory pruner as a built-in scheduled job
+      if (config.memoryPruningEnabled) {
+        final pruner = MemoryPruner(
+          workspaceDir: config.workspaceDir,
+          memoryService: memory,
+          archiveAfterDays: config.memoryArchiveAfterDays,
+        );
+        scheduledJobs.add(ScheduledJob(
+          id: 'memory-pruner',
+          scheduleType: ScheduleType.cron,
+          cronExpression: CronExpression.parse(config.memoryPruningSchedule),
+          onExecute: () async {
+            final result = await pruner.prune();
+            final msg = '${result.entriesArchived} archived, '
+                '${result.duplicatesRemoved} deduped, '
+                '${result.entriesRemaining} remaining (${result.finalSizeBytes}B)';
+            Logger('MemoryPruner').info(msg);
+            return msg;
+          },
+        ));
+        displayJobs.add({
+          'name': 'memory-pruner',
+          'schedule': config.memoryPruningSchedule,
+          'delivery': 'none',
+          'status': 'active',
+        });
+        Logger('ServeCommand').info(
+          'Memory pruner scheduled (${config.memoryPruningSchedule}, '
+          'archive after ${config.memoryArchiveAfterDays}d)',
+        );
+      }
+
+      // Start cron scheduler
+      ScheduleService? scheduleService;
+      if (scheduledJobs.isNotEmpty) {
+        scheduleService = ScheduleService(turns: server.turns, sessions: sessions, jobs: scheduledJobs);
+        scheduleService.start();
+      }
+
+      // Workspace git sync
+      WorkspaceGitSync? gitSync;
+      if (config.gitSyncEnabled) {
+        gitSync = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.gitSyncPushEnabled);
+        if (await gitSync.isGitAvailable()) {
+          await gitSync.initIfNeeded();
+          Logger('ServeCommand').info('Workspace git sync enabled');
+        } else {
+          gitSync = null;
+        }
+      }
+
+      // Heartbeat scheduler
+      HeartbeatScheduler? heartbeat;
+      if (config.heartbeatEnabled) {
+        heartbeat = HeartbeatScheduler(
+          interval: Duration(minutes: config.heartbeatIntervalMinutes),
+          workspaceDir: config.workspaceDir,
+          dispatch: (sessionKey, message) async {
+            final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
+            final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+            await server!.turns.startTurn(session.id, [userMsg], source: 'heartbeat', agentName: 'heartbeat');
+          },
+          gitSync: gitSync,
+        );
+        heartbeat.start();
+        Logger('ServeCommand').info('Heartbeat scheduler started (${config.heartbeatIntervalMinutes}m interval)');
+      }
+
+      // Inject runtime services BEFORE building the HTTP handler. The handler
+      // getter constructs the router once; routes are registered conditionally
+      // based on these services, so they must be wired before server.handler
+      // is evaluated.
+      server.setRuntimeServices(
+        heartbeat: heartbeat,
+        scheduleService: scheduleService,
+        gitSync: gitSync,
+        runtimeConfig: RuntimeConfig(
+          heartbeatEnabled: config.heartbeatEnabled,
+          gitSyncEnabled: config.gitSyncEnabled,
+          gitSyncPushEnabled: config.gitSyncPushEnabled,
+        ),
+      );
+
+      // Start HTTP server (handler built here — services are set above)
       late HttpServer httpServer;
       try {
         httpServer = await _serveFn(server.handler, host, port);
@@ -658,42 +847,6 @@ class ServeCommand extends Command<void> {
         _stdoutLine('Web UI: http://$host:$port/?token=${tokenService.token}');
       }
       resetService.start();
-
-      // Start cron scheduler
-      ScheduleService? scheduleService;
-      if (scheduledJobs.isNotEmpty) {
-        scheduleService = ScheduleService(turns: server.turns, sessions: sessions, jobs: scheduledJobs);
-        scheduleService.start();
-      }
-
-      // Workspace git sync (H-01: S17 wiring)
-      WorkspaceGitSync? gitSync;
-      if (config.gitSyncEnabled) {
-        gitSync = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.gitSyncPushEnabled);
-        if (await gitSync.isGitAvailable()) {
-          await gitSync.initIfNeeded();
-          Logger('ServeCommand').info('Workspace git sync enabled');
-        } else {
-          gitSync = null;
-        }
-      }
-
-      // Heartbeat scheduler (H-01: S16 wiring)
-      HeartbeatScheduler? heartbeat;
-      if (config.heartbeatEnabled) {
-        heartbeat = HeartbeatScheduler(
-          interval: Duration(minutes: config.heartbeatIntervalMinutes),
-          workspaceDir: config.workspaceDir,
-          dispatch: (sessionKey, message) async {
-            final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
-            final userMsg = <String, dynamic>{'role': 'user', 'content': message};
-            await server!.turns.startTurn(session.id, [userMsg]);
-          },
-          gitSync: gitSync,
-        );
-        heartbeat.start();
-        Logger('ServeCommand').info('Heartbeat scheduler started (${config.heartbeatIntervalMinutes}m interval)');
-      }
 
       // Connect channels
       if (channelManager != null) {
@@ -716,6 +869,7 @@ class ServeCommand extends Command<void> {
             scheduleService?.stop();
             resetService.dispose();
             await kvService.dispose();
+            await selfImprovement.dispose();
             await qmdManager?.stop();
             startedSearchDb.close();
             _stderrLine('Shutdown complete');
@@ -786,17 +940,19 @@ class ServeCommand extends Command<void> {
     required DartclawConfig config,
     required SessionService sessions,
     required DartclawServer? Function() serverRef,
+    MessageRedactor? redactor,
   }) {
     final messageQueue = MessageQueue(
       debounceWindow: config.channelConfig.debounceWindow,
       maxConcurrentTurns: config.maxParallelTurns,
       maxQueueDepth: config.channelConfig.maxQueueDepth,
       defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
+      redactor: redactor,
       dispatcher: (sessionKey, message, {String? senderJid}) async {
         final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
         final userMsg = <String, dynamic>{'role': 'user', 'content': message};
         final srv = serverRef()!;
-        final turnId = await srv.turns.startTurn(session.id, [userMsg]);
+        final turnId = await srv.turns.startTurn(session.id, [userMsg], source: 'channel');
         final outcome = await srv.turns.waitForOutcome(session.id, turnId);
         return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
       },

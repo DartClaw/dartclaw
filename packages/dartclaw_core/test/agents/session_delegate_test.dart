@@ -160,16 +160,20 @@ void main() {
       expect(limits.totalActive, 0);
     });
 
-    test('registerTools adds to McpToolRegistry', () {
-      final registry = McpToolRegistry();
+    test('handler methods are directly callable', () async {
       final delegate = SessionDelegate(
-        dispatch: ({required sessionId, required message, required agentId}) async => '',
+        dispatch: ({required sessionId, required message, required agentId}) async => 'result text',
         limits: limits,
         agents: {'search': searchAgent},
       );
 
-      delegate.registerTools(registry);
-      expect(registry.isEmpty, isFalse);
+      final sendResult = await delegate.handleSessionsSend({
+        'agent': 'search',
+        'message': 'test query',
+      });
+      expect(sendResult['isError'], isNull);
+      final text = (sendResult['content'] as List).first['text'] as String;
+      expect(text, contains('result text'));
     });
   });
 }

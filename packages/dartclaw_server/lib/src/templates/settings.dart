@@ -66,6 +66,7 @@ String settingsTemplate({
     'uptimeStr': uptimeStr,
     'sessionCount': sessionCount,
     'version': version,
+    'heartbeatOn': heartbeatEnabled,
     'gitSyncEnabled': gitSyncEnabled,
     'workspacePathDisplay': workspacePath ?? '~/.dartclaw/workspace/',
     'gitSyncDisplay': gitSyncEnabled ? 'Enabled' : 'Disabled',

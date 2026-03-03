@@ -20,6 +20,7 @@ Guards evaluate tool calls, messages, and agent responses. First block wins. Exc
 
 | Guard | Category | What It Blocks |
 |-------|----------|---------------|
+| **InputSanitizer** | input | Prompt injection patterns (instruction override, role-play, prompt leak, meta-injection) |
 | **CommandGuard** | command | Shell injection, dangerous commands (rm -rf, curl to untrusted hosts) |
 | **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape |
 | **NetworkGuard** | network | Connections to non-allowlisted hosts/ports |
@@ -30,6 +31,11 @@ Guards evaluate tool calls, messages, and agent responses. First block wins. Exc
 
 ```yaml
 guards:
+  input_sanitizer:
+    enabled: true               # default: true
+    channels_only: true          # default: true — only scan channel messages, web UI bypasses
+    extra_patterns:              # optional additional regex patterns (case-insensitive)
+      - 'custom\s+injection'
   command:
     enabled: true
     blocked_commands: [rm, shutdown, reboot]
@@ -44,6 +50,8 @@ guards:
     enabled: true
     model: claude-haiku-4-5-20251001
 ```
+
+The **InputSanitizer** ships with built-in patterns for 4 injection categories and requires no configuration for baseline protection. Set `channels_only: false` to also scan web UI messages.
 
 ## Container Isolation
 

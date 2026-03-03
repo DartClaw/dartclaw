@@ -84,7 +84,7 @@ class FakeTurnManager extends TurnManager {
   void clearBusy() => _busy = false;
 
   @override
-  Future<String> reserveTurn(String sessionId) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main'}) async {
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);
     }
@@ -94,7 +94,7 @@ class FakeTurnManager extends TurnManager {
   }
 
   @override
-  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages) {
+  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) {
     // no-op: FakeTurnManager doesn't run real async turns
   }
 

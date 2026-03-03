@@ -20,3 +20,19 @@
 Download latest from https://highlightjs.org/download and replace `hljs.min.js`.
 Language grammars from https://cdnjs.cloudflare.com/ajax/libs/highlight.js/{version}/languages/{lang}.min.js.
 Themes from https://github.com/catppuccin/highlightjs.
+
+## DOMPurify
+
+- **Version**: 3.3.1
+- **License**: Apache-2.0 OR MPL-2.0
+- **Source**: https://github.com/cure53/DOMPurify
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `purify.min.js` | DOMPurify minified (source map reference stripped) |
+
+### Upgrading
+
+Download latest from `https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js` and strip the trailing `//# sourceMappingURL=...` line to avoid CSP console warnings.

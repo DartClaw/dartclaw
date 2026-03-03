@@ -50,7 +50,7 @@ void main() {
   });
 
   group('HealthService', () {
-    test('returns healthy status when worker is idle', () {
+    test('returns healthy status when worker is idle', () async {
       final service = HealthService(
         worker: harness,
         searchDbPath: '/nonexistent/search.db',
@@ -58,7 +58,7 @@ void main() {
         startedAt: DateTime.now().subtract(const Duration(seconds: 60)),
       );
 
-      final status = service.getStatus();
+      final status = await service.getStatus();
       expect(status['status'], 'healthy');
       expect(status['uptime_s'], greaterThanOrEqualTo(59));
       expect(status['worker_state'], 'idle');
@@ -66,7 +66,7 @@ void main() {
       expect(status['version'], isNotEmpty);
     });
 
-    test('returns unhealthy when worker is stopped', () {
+    test('returns unhealthy when worker is stopped', () async {
       harness.setState(WorkerState.stopped);
       final service = HealthService(
         worker: harness,
@@ -74,10 +74,11 @@ void main() {
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['status'], 'unhealthy');
+      final status = await service.getStatus();
+      expect(status['status'], 'unhealthy');
     });
 
-    test('returns degraded when worker is crashed', () {
+    test('returns degraded when worker is crashed', () async {
       harness.setState(WorkerState.crashed);
       final service = HealthService(
         worker: harness,
@@ -85,10 +86,11 @@ void main() {
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['status'], 'degraded');
+      final status = await service.getStatus();
+      expect(status['status'], 'degraded');
     });
 
-    test('counts session directories', () {
+    test('counts session directories', () async {
       Directory('${tempDir.path}/session-1').createSync();
       Directory('${tempDir.path}/session-2').createSync();
       // File should not be counted
@@ -100,10 +102,11 @@ void main() {
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['session_count'], 2);
+      final status = await service.getStatus();
+      expect(status['session_count'], 2);
     });
 
-    test('reports DB file size', () {
+    test('reports DB file size', () async {
       final dbFile = File('${tempDir.path}/search.db');
       dbFile.writeAsStringSync('x' * 1024);
 
@@ -113,28 +116,31 @@ void main() {
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['db_size_bytes'], 1024);
+      final status = await service.getStatus();
+      expect(status['db_size_bytes'], 1024);
     });
 
-    test('returns 0 for missing DB file', () {
+    test('returns 0 for missing DB file', () async {
       final service = HealthService(
         worker: harness,
         searchDbPath: '/nonexistent/search.db',
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['db_size_bytes'], 0);
+      final status = await service.getStatus();
+      expect(status['db_size_bytes'], 0);
     });
 
-    test('version is present', () {
+    test('version is present', () async {
       final service = HealthService(
         worker: harness,
         searchDbPath: '/nonexistent/search.db',
         sessionsDir: tempDir.path,
       );
 
-      expect(service.getStatus()['version'], isA<String>());
-      expect(service.getStatus()['version'], isNotEmpty);
+      final status = await service.getStatus();
+      expect(status['version'], isA<String>());
+      expect(status['version'], isNotEmpty);
     });
   });
 }

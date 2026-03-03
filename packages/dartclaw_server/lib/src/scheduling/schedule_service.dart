@@ -21,6 +21,7 @@ class ScheduleService {
 
   final Map<String, Timer> _timers = {};
   final Set<String> _running = {};
+  final Set<String> _paused = {};
   bool _started = false;
 
   ScheduleService({
@@ -56,6 +57,34 @@ class ScheduleService {
     _running.clear();
     _started = false;
   }
+
+  /// Pause a job by name: cancel its pending timer and prevent future fires.
+  ///
+  /// Idempotent. If the job is currently executing it will complete but
+  /// will not reschedule. Call [resumeJob] to re-enable.
+  void pauseJob(String id) {
+    _paused.add(id);
+    _timers[id]?.cancel();
+    _timers.remove(id);
+  }
+
+  /// Resume a paused job. Re-schedules the next fire time if the service
+  /// is currently running.
+  ///
+  /// Idempotent. No-op if the job was not paused.
+  void resumeJob(String id) {
+    _paused.remove(id);
+    if (!_started) return;
+    for (final job in _jobs) {
+      if (job.id == id) {
+        _scheduleNext(job);
+        break;
+      }
+    }
+  }
+
+  /// Whether [id] is currently paused.
+  bool isJobPaused(String id) => _paused.contains(id);
 
   void _scheduleNext(ScheduledJob job) {
     _timers[job.id]?.cancel();
@@ -108,6 +137,10 @@ class ScheduleService {
   }
 
   Future<void> _executeJob(ScheduledJob job) async {
+    if (_paused.contains(job.id)) {
+      _log.info('Job "${job.id}": paused — skipping fire');
+      return;
+    }
     if (_running.contains(job.id)) {
       _log.warning('Job "${job.id}": still running from previous fire — skipping');
       _reschedule(job);
@@ -150,6 +183,11 @@ class ScheduleService {
   }
 
   Future<String> _runJobTurn(ScheduledJob job) async {
+    // Built-in callback jobs run directly — no agent turn needed.
+    if (job.onExecute != null) {
+      return job.onExecute!();
+    }
+
     // Create isolated session for this cron job
     final sessionKey = SessionKey.cronSession(jobId: job.id);
     final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
@@ -159,7 +197,7 @@ class ScheduleService {
       'content': job.prompt,
     };
 
-    final turnId = await _turns.startTurn(session.id, [userMessage]);
+    final turnId = await _turns.startTurn(session.id, [userMessage], source: 'cron', agentName: 'cron:${job.id}');
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 
     if (outcome.status == TurnStatus.failed) {
@@ -173,7 +211,7 @@ class ScheduleService {
   Future<void> executeJobForTesting(ScheduledJob job) => _executeJob(job);
 
   void _reschedule(ScheduledJob job) {
-    if (!_started) return;
+    if (!_started || _paused.contains(job.id)) return;
 
     // One-time jobs don't reschedule
     if (job.scheduleType == ScheduleType.once) {

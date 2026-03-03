@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart' show MapEquality;
 
+/// Base type for events received from the claude binary over the JSONL bridge.
 sealed class BridgeEvent {}
 
 final class DeltaEvent extends BridgeEvent {

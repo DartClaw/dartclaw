@@ -25,16 +25,20 @@ class LogService {
        _level = level;
 
   /// Convenience factory from string config values.
+  ///
+  /// When [redactor] is provided, it is used for all log redaction (ignoring
+  /// [redactPatterns]). Otherwise a default [LogRedactor] is created.
   factory LogService.fromConfig({
     String format = 'human',
     String? logFile,
     String level = 'INFO',
     List<String> redactPatterns = const [],
+    LogRedactor? redactor,
   }) {
-    final redactor = LogRedactor(patterns: redactPatterns);
+    final effectiveRedactor = redactor ?? LogRedactor();
     final formatter = switch (format) {
-      'json' => JsonFormatter(redactor: redactor),
-      _ => HumanFormatter(redactor: redactor),
+      'json' => JsonFormatter(redactor: effectiveRedactor),
+      _ => HumanFormatter(redactor: effectiveRedactor),
     };
 
     IOSink? fileSink;

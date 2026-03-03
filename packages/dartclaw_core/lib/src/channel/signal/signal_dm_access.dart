@@ -3,6 +3,9 @@ import '../channel.dart';
 /// DM access mode for Signal channel.
 enum SignalDmAccessMode { allowlist, open, disabled }
 
+/// Group access mode for Signal channel.
+enum SignalGroupAccessMode { allowlist, open, disabled }
+
 /// Controls which senders are allowed to DM the bot via Signal.
 class SignalDmAccessController {
   final SignalDmAccessMode mode;

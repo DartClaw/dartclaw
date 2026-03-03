@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+/// The transport channel type for inbound messages.
 enum ChannelType { web, whatsapp, signal }
 
 /// Normalized inbound message from any channel.

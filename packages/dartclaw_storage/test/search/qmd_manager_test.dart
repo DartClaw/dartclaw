@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:test/test.dart';
 
 ProcessResult _ok([String stdout = '']) => ProcessResult(0, 0, stdout, '');

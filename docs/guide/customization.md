@@ -87,7 +87,7 @@ Extend DartClaw's Dart source for deep customization:
 - **Custom Guards**: Implement the `Guard` abstract class for domain-specific security rules
 - **Custom Channels**: Implement the `Channel` abstract class for new messaging platforms
 - **Template Overrides**: Modify HTML template functions in `dartclaw_server`
-- **Harness Extensions**: Register custom MCP tools via `McpToolRegistry`
+- **Custom MCP Tools**: Implement the `McpTool` interface and register via `server.registerTool()`
 
 **Example**: Custom guard that blocks after business hours:
 ```dart

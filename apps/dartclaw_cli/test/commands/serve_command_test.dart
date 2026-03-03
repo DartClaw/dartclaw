@@ -169,6 +169,7 @@ void main() {
               required staticDir,
               required behavior,
               memoryFile,
+              sessionsForTurns,
               guardChain,
               kv,
               healthService,
@@ -182,7 +183,16 @@ void main() {
               whatsAppChannel,
               signalChannel,
               webhookSecret,
+              redactor,
+              gatewayToken,
+              selfImprovement,
+              usageTracker,
               authEnabled = true,
+              heartbeatEnabled = false,
+              heartbeatIntervalMinutes = 30,
+              scheduledJobs = const [],
+              workspacePath,
+              gitSyncEnabled = false,
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -199,6 +209,8 @@ void main() {
               resetService: resetService,
               contextMonitor: contextMonitor,
               resultTrimmer: resultTrimmer,
+              redactor: redactor,
+              gatewayToken: gatewayToken,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -242,6 +254,7 @@ void main() {
               required staticDir,
               required behavior,
               memoryFile,
+              sessionsForTurns,
               guardChain,
               kv,
               healthService,
@@ -255,7 +268,16 @@ void main() {
               whatsAppChannel,
               signalChannel,
               webhookSecret,
+              redactor,
+              gatewayToken,
+              selfImprovement,
+              usageTracker,
               authEnabled = true,
+              heartbeatEnabled = false,
+              heartbeatIntervalMinutes = 30,
+              scheduledJobs = const [],
+              workspacePath,
+              gitSyncEnabled = false,
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -272,6 +294,8 @@ void main() {
               resetService: resetService,
               contextMonitor: contextMonitor,
               resultTrimmer: resultTrimmer,
+              redactor: redactor,
+              gatewayToken: gatewayToken,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -308,7 +332,7 @@ void main() {
       expect(stderrLines.join('\n'), contains('Error: Cannot open search database'));
     });
 
-    test('content guard emits warning when ANTHROPIC_API_KEY is absent', () async {
+    test('content guard with default claude_binary classifier needs no ANTHROPIC_API_KEY', () async {
       final apiKey = Platform.environment['ANTHROPIC_API_KEY'] ?? '';
       if (apiKey.isNotEmpty) {
         markTestSkipped('Cannot test absent-key path when ANTHROPIC_API_KEY is set');
@@ -347,6 +371,7 @@ void main() {
               required staticDir,
               required behavior,
               memoryFile,
+              sessionsForTurns,
               guardChain,
               kv,
               healthService,
@@ -360,7 +385,16 @@ void main() {
               whatsAppChannel,
               signalChannel,
               webhookSecret,
+              redactor,
+              gatewayToken,
+              selfImprovement,
+              usageTracker,
               authEnabled = true,
+              heartbeatEnabled = false,
+              heartbeatIntervalMinutes = 30,
+              scheduledJobs = const [],
+              workspacePath,
+              gitSyncEnabled = false,
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -377,6 +411,8 @@ void main() {
               resetService: resetService,
               contextMonitor: contextMonitor,
               resultTrimmer: resultTrimmer,
+              redactor: redactor,
+              gatewayToken: gatewayToken,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -387,7 +423,9 @@ void main() {
       final localRunner = DartclawRunner()..addCommand(command);
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>()));
-      expect(warnings.join('\n'), contains('ANTHROPIC_API_KEY not set'));
+      // Default classifier is claude_binary which doesn't need ANTHROPIC_API_KEY.
+      // No API key warning should appear.
+      expect(warnings.join('\n'), isNot(contains('ANTHROPIC_API_KEY not set')));
     });
   });
 }

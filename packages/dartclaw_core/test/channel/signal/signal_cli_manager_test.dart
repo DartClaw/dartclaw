@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/signal/signal_cli_manager.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -185,6 +185,13 @@ void main() {
       expect(proc.killed, isFalse);
       await expectLater(() => mgr.start(), throwsStateError);
       expect(proc.killed, isTrue);
+    });
+
+    test('requestVoiceVerification exists and is callable', () {
+      final mgr = SignalCliManager(executable: 'signal-cli', phoneNumber: '+1');
+      // Verify the method exists on SignalCliManager (will fail at RPC level
+      // without a real server, but we just verify it doesn't throw synchronously).
+      expect(() => mgr.requestVoiceVerification(), throwsA(anything));
     });
 
     test('events stream is broadcast', () {

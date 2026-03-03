@@ -8,6 +8,7 @@ import '../models/models.dart';
 import 'atomic_write.dart';
 import 'uuid_validation.dart';
 
+/// Manages session CRUD operations backed by NDJSON file storage.
 class SessionService {
   final String baseDir;
   static const _uuid = Uuid();

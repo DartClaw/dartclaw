@@ -11,7 +11,7 @@ class GuardConfig {
   /// Parses from YAML map. Unknown keys and type errors produce warnings
   /// (appended to [warns]) and fall back to defaults.
   factory GuardConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    const knownKeys = {'fail_open', 'enabled', 'command', 'file', 'network', 'content'};
+    const knownKeys = {'fail_open', 'enabled', 'command', 'file', 'network', 'content', 'input_sanitizer'};
     final defaults = const GuardConfig.defaults();
 
     for (final key in yaml.keys) {

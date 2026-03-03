@@ -10,6 +10,7 @@ class _WriteOp {
   _WriteOp(this.fn) : completer = Completer<void>();
 }
 
+/// Simple key-value store backed by a JSON file with atomic writes.
 class KvService {
   final String filePath;
   final _queue = StreamController<_WriteOp>();

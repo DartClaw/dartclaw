@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 
 import '../channel.dart';
 import '../channel_manager.dart';
+import '../whatsapp/text_chunking.dart';
 import 'signal_cli_manager.dart';
 import 'signal_config.dart';
 import 'signal_dm_access.dart';
@@ -60,6 +61,12 @@ class SignalChannel extends Channel {
   }
 
   @override
+  List<ChannelResponse> formatResponse(String text) {
+    final chunks = chunkText(text, maxSize: config.maxChunkSize);
+    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
+  }
+
+  @override
   Future<void> disconnect() async {
     await _eventSub?.cancel();
     _eventSub = null;
@@ -76,6 +83,22 @@ class SignalChannel extends Channel {
       if (message.groupJid == null && !dmAccess.isAllowed(message.senderJid)) {
         _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
         return;
+      }
+
+      // Group access control
+      if (message.groupJid != null) {
+        switch (config.groupAccess) {
+          case SignalGroupAccessMode.disabled:
+            _log.fine('Group message from ${message.groupJid} — group access disabled');
+            return;
+          case SignalGroupAccessMode.allowlist:
+            if (!config.groupAllowlist.contains(message.groupJid)) {
+              _log.fine('Group ${message.groupJid} not in allowlist — dropping');
+              return;
+            }
+          case SignalGroupAccessMode.open:
+            break;
+        }
       }
 
       // Mention gating (groups only)

@@ -7,5 +7,6 @@ environment:
 workspace:
   - packages/dartclaw
   - packages/dartclaw_core
+  - packages/dartclaw_storage
   - packages/dartclaw_server
   - apps/dartclaw_cli

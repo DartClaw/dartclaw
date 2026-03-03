@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/security/file_guard.dart';
 import 'package:test/test.dart';
 
 GuardContext _bash(String command) => GuardContext(

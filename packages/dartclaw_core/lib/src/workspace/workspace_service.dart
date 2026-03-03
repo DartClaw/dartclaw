@@ -13,6 +13,7 @@ class WorkspaceMigrationException implements Exception {
   String toString() => 'WorkspaceMigrationException: $message';
 }
 
+/// Manages the DartClaw workspace directory structure and migrations.
 class WorkspaceService {
   static final _log = Logger('WorkspaceService');
 
@@ -171,6 +172,7 @@ class WorkspaceService {
 - NEVER modify system configuration files outside the workspace directory.
 - NEVER expose, log, or transmit API keys, credentials, or secrets.
 - If uncertain whether an action is safe, ask for explicit confirmation before proceeding.
+- Check errors.md for past mistakes before attempting similar tasks. Learn from previous failures.
 ''';
 
   static const defaultSoulMd = 'You are a helpful, capable AI assistant.\n';

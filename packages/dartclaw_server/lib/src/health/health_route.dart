@@ -6,8 +6,8 @@ import 'health_service.dart';
 
 /// Returns a shelf [Handler] for `GET /health`.
 Handler healthHandler(HealthService service) {
-  return (Request request) {
-    final status = service.getStatus();
+  return (Request request) async {
+    final status = await service.getStatus();
     return Response.ok(
       jsonEncode(status),
       headers: {'Content-Type': 'application/json'},

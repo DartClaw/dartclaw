@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
-import '../harness/mcp_tool_registry.dart';
 import '../security/content_guard.dart';
 import '../security/guard.dart';
 import '../security/guard_audit.dart';
@@ -41,54 +40,6 @@ class SessionDelegate {
         _agents = agents,
         _contentGuard = contentGuard,
         _auditLogger = auditLogger;
-
-  /// Register `sessions_send` and `sessions_spawn` as MCP tools.
-  void registerTools(McpToolRegistry registry) {
-    registry.registerServer('dartclaw-agents', [
-      McpToolDef(
-        name: 'sessions_send',
-        description: 'Send a query to a sub-agent and wait for the result. '
-            'Use for web search, information retrieval, or delegated tasks.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'agent': {
-              'type': 'string',
-              'description': 'Agent ID (e.g. "search")',
-            },
-            'message': {
-              'type': 'string',
-              'description': 'The query or instruction to send',
-            },
-          },
-          'required': ['agent', 'message'],
-        },
-        handler: handleSessionsSend,
-        timeout: const Duration(seconds: 120),
-      ),
-      McpToolDef(
-        name: 'sessions_spawn',
-        description: 'Spawn a background sub-agent task. Returns a session ID '
-            'immediately without waiting for completion.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'agent': {
-              'type': 'string',
-              'description': 'Agent ID (e.g. "search")',
-            },
-            'message': {
-              'type': 'string',
-              'description': 'The query or instruction to send',
-            },
-          },
-          'required': ['agent', 'message'],
-        },
-        handler: handleSessionsSpawn,
-        timeout: const Duration(seconds: 10),
-      ),
-    ]);
-  }
 
   /// Handle synchronous delegation — wait for the sub-agent to complete.
   Future<Map<String, dynamic>> handleSessionsSend(Map<String, dynamic> params) async {

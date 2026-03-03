@@ -47,6 +47,7 @@ String schedulingTemplate({
       'deliveryBadgeClass': deliveryBadgeClass,
       'statusDotClass': statusDotClass,
       'rowClass': jobStatus == 'error' ? 'row-error' : '',
+      'isActive': jobStatus == 'active',
     };
   }).toList();
 
@@ -57,6 +58,7 @@ String schedulingTemplate({
     'badgeClass': heartbeatEnabled ? '' : 'paused',
     'badgeText': heartbeatEnabled ? 'Active' : 'Disabled',
     'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
+    'heartbeatOn': heartbeatEnabled,
     'hasJobs': jobs.isNotEmpty,
     'jobs': jobRows,
   });

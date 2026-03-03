@@ -23,6 +23,7 @@ Router sessionRoutes(
   TurnManager turns,
   AgentHarness worker, {
   SessionResetService? resetService,
+  MessageRedactor? redactor,
 }) {
   final router = Router();
 
@@ -156,7 +157,7 @@ Router sessionRoutes(
         final sessionMessages = await messages.getMessages(id);
         final messagesList = sessionMessages.map(_messageToJson).toList();
         // 5. Launch async execution.
-        turns.executeTurn(id, turnId, messagesList);
+        turns.executeTurn(id, turnId, messagesList, source: 'web');
       } catch (e) {
         turns.releaseTurn(id, turnId);
         rethrow;
@@ -193,7 +194,7 @@ Router sessionRoutes(
       return _errorResponse(404, 'TURN_NOT_FOUND', 'Turn not found or expired');
     }
 
-    return sseStreamResponse(worker, turns, id, turnId);
+    return sseStreamResponse(worker, turns, id, turnId, redactor: redactor);
   });
 
   // POST /api/sessions/<id>/resume — convert archive to user session

@@ -3,7 +3,16 @@ import 'delivery.dart';
 
 enum ScheduleType { cron, interval, once }
 
+/// Callback for built-in jobs that execute directly without an agent turn.
+typedef JobCallback = Future<String> Function();
+
 /// A scheduled job definition parsed from config.
+///
+/// Jobs execute in one of two modes:
+/// - **Prompt-based** (user-configured): sends [prompt] through the agent turn
+///   system via `TurnManager`.
+/// - **Callback-based** (built-in): runs [onExecute] directly — no agent turn,
+///   no session created. Used for internal tasks like memory pruning.
 class ScheduledJob {
   final String id;
   final String prompt;
@@ -16,9 +25,13 @@ class ScheduledJob {
   final int retryAttempts;
   final int retryDelaySeconds;
 
+  /// If non-null, the job runs this callback directly instead of dispatching
+  /// through the agent turn system. The returned string is the job result.
+  final JobCallback? onExecute;
+
   ScheduledJob({
     required this.id,
-    required this.prompt,
+    this.prompt = '',
     required this.scheduleType,
     this.cronExpression,
     this.intervalMinutes,
@@ -27,6 +40,7 @@ class ScheduledJob {
     this.webhookUrl,
     this.retryAttempts = 0,
     this.retryDelaySeconds = 60,
+    this.onExecute,
   });
 
   /// Parses a job from a YAML config map.

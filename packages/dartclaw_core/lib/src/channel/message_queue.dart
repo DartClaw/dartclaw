@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:logging/logging.dart';
 
+import '../security/message_redactor.dart';
 import 'channel.dart';
 import 'channel_config.dart';
 
@@ -30,6 +31,7 @@ class MessageQueue {
   final int maxQueueDepth;
   final RetryPolicy defaultRetryPolicy;
   final TurnDispatcher _dispatcher;
+  final MessageRedactor? _redactor;
   final Random _random;
 
   /// Per-session debounce state: accumulated text + source info.
@@ -55,8 +57,10 @@ class MessageQueue {
     this.maxQueueDepth = 100,
     this.defaultRetryPolicy = const RetryPolicy(),
     required TurnDispatcher dispatcher,
+    MessageRedactor? redactor,
     Random? random,
   }) : _dispatcher = dispatcher,
+       _redactor = redactor,
        _random = random ?? Random.secure();
 
   /// Enqueue an inbound channel message for processing.
@@ -172,7 +176,8 @@ class MessageQueue {
 
         final entry = queue.removeFirst();
         try {
-          final response = await _dispatcher(entry.sessionKey, entry.message.text, senderJid: entry.message.senderJid);
+          var response = await _dispatcher(entry.sessionKey, entry.message.text, senderJid: entry.message.senderJid);
+          response = _redactor?.redact(response) ?? response;
           final formatted = entry.sourceChannel.formatResponse(response);
           for (final chunk in formatted) {
             await entry.sourceChannel.sendMessage(entry.message.senderJid, chunk);

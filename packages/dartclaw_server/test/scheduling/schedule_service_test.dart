@@ -298,6 +298,133 @@ void main() {
       service.start(); // should not throw or double-schedule
       service.stop();
     });
+
+    test('pauseJob marks job as paused', () {
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [
+          ScheduledJob.fromConfig({
+            'id': 'my-job',
+            'prompt': 'Do something',
+            'schedule': {'type': 'interval', 'minutes': 60},
+          }),
+        ],
+      );
+      service.start();
+      expect(service.isJobPaused('my-job'), isFalse);
+      service.pauseJob('my-job');
+      expect(service.isJobPaused('my-job'), isTrue);
+      service.stop();
+    });
+
+    test('resumeJob clears paused state', () {
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [
+          ScheduledJob.fromConfig({
+            'id': 'my-job',
+            'prompt': 'Do something',
+            'schedule': {'type': 'interval', 'minutes': 60},
+          }),
+        ],
+      );
+      service.start();
+      service.pauseJob('my-job');
+      expect(service.isJobPaused('my-job'), isTrue);
+      service.resumeJob('my-job');
+      expect(service.isJobPaused('my-job'), isFalse);
+      service.stop();
+    });
+
+    test('pauseJob/resumeJob are idempotent', () {
+      final service = ScheduleService(
+        turns: _FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: [],
+      );
+      // Operations on unknown job IDs should not throw
+      expect(() => service.pauseJob('nonexistent'), returnsNormally);
+      expect(() => service.resumeJob('nonexistent'), returnsNormally);
+      expect(service.isJobPaused('nonexistent'), isFalse);
+    });
+
+    test('callback job runs onExecute without agent turn', () async {
+      final turns = _ConfigurableTurnManager();
+      var callbackInvoked = false;
+      final callbackJob = ScheduledJob(
+        id: 'callback-job',
+        scheduleType: ScheduleType.interval,
+        intervalMinutes: 60,
+        onExecute: () async {
+          callbackInvoked = true;
+          return 'callback result';
+        },
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: _FakeSessionService(),
+        jobs: [callbackJob],
+      );
+      service.start();
+      await service.executeJobForTesting(callbackJob);
+      expect(callbackInvoked, isTrue);
+      // No agent turn should have been created
+      expect(turns.startTurnCallCount, 0);
+      service.stop();
+    });
+
+    test('callback job supports pause/resume lifecycle', () async {
+      final turns = _ConfigurableTurnManager();
+      var invocations = 0;
+      final callbackJob = ScheduledJob(
+        id: 'pausable-callback',
+        scheduleType: ScheduleType.interval,
+        intervalMinutes: 60,
+        onExecute: () async {
+          invocations++;
+          return 'ok';
+        },
+      );
+      final service = ScheduleService(
+        turns: turns,
+        sessions: _FakeSessionService(),
+        jobs: [callbackJob],
+      );
+      service.start();
+
+      // Pause and attempt execution — should skip
+      service.pauseJob('pausable-callback');
+      await service.executeJobForTesting(callbackJob);
+      expect(invocations, 0);
+
+      // Resume and execute — should run
+      service.resumeJob('pausable-callback');
+      await service.executeJobForTesting(callbackJob);
+      expect(invocations, 1);
+
+      service.stop();
+    });
+
+    test('paused job is skipped during execution', () async {
+      final turns = _ConfigurableTurnManager();
+      final service = ScheduleService(
+        turns: turns,
+        sessions: _FakeSessionService(),
+        jobs: [],
+      );
+      service.start();
+      final job = ScheduledJob.fromConfig({
+        'id': 'skip-job',
+        'prompt': 'Do skipped thing',
+        'schedule': {'type': 'interval', 'minutes': 60},
+      });
+      service.pauseJob('skip-job');
+      await service.executeJobForTesting(job);
+      expect(turns.startTurnCallCount, 0);
+      service.stop();
+    });
   });
 }
 
@@ -319,7 +446,7 @@ class _ConfigurableTurnManager implements TurnManager {
   final Map<String, Completer<TurnOutcome>> _pending = {};
 
   @override
-  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages) async {
+  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) async {
     startTurnCallCount++;
     final turnId = 'fake-turn-$startTurnCallCount';
 

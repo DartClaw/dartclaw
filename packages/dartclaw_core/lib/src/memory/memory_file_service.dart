@@ -10,6 +10,7 @@ class _WriteOp {
   _WriteOp(this.fn) : completer = Completer<void>();
 }
 
+/// Manages the MEMORY.md file with category-based sections and atomic writes.
 class MemoryFileService {
   final String baseDir;
   int _lastMemorySize = 0;

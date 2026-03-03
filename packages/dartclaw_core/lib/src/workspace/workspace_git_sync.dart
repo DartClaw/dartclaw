@@ -16,10 +16,10 @@ typedef CommandRunner = Future<ProcessResult> Function(
 class WorkspaceGitSync {
   static final _log = Logger('WorkspaceGitSync');
 
-  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\n';
+  static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\nlearnings.md\n';
 
   final String workspaceDir;
-  final bool pushEnabled;
+  bool pushEnabled;
   final CommandRunner _run;
   bool _gitAvailable = false;
 

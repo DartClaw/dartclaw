@@ -98,20 +98,50 @@ void main() {
     expect(result, contains('SSH: server.local'));
   });
 
-  test('prompt ordering: SOUL > USER > TOOLS > MEMORY', () async {
+  test('prompt ordering: SOUL > USER > TOOLS > errors > learnings > MEMORY', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('SOUL');
     File('${globalDir.path}/USER.md').writeAsStringSync('USER');
     File('${globalDir.path}/TOOLS.md').writeAsStringSync('TOOLS');
+    File('${globalDir.path}/errors.md').writeAsStringSync('## [2025-01-01] TEST\n');
+    File('${globalDir.path}/learnings.md').writeAsStringSync('- [2025-01-01] lesson\n');
     File('${globalDir.path}/MEMORY.md').writeAsStringSync('MEMORY');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
     final result = await service.composeSystemPrompt();
     final soulIdx = result.indexOf('SOUL');
     final userIdx = result.indexOf('## User Context');
     final toolsIdx = result.indexOf('## Environment Notes');
+    final errorsIdx = result.indexOf('## Recent Errors');
+    final learningsIdx = result.indexOf('## Learnings');
     final memIdx = result.lastIndexOf('MEMORY');
     expect(soulIdx, lessThan(userIdx));
     expect(userIdx, lessThan(toolsIdx));
-    expect(toolsIdx, lessThan(memIdx));
+    expect(toolsIdx, lessThan(errorsIdx));
+    expect(errorsIdx, lessThan(learningsIdx));
+    expect(learningsIdx, lessThan(memIdx));
+  });
+
+  test('includes errors.md with header in system prompt', () async {
+    File('${globalDir.path}/errors.md').writeAsStringSync('## [2025-01-01] GUARD_BLOCK\n- Session: s1\n');
+    final service = BehaviorFileService(workspaceDir: globalDir.path);
+    final result = await service.composeSystemPrompt();
+    expect(result, contains('## Recent Errors'));
+    expect(result, contains('GUARD_BLOCK'));
+  });
+
+  test('includes learnings.md with header in system prompt', () async {
+    File('${globalDir.path}/learnings.md').writeAsStringSync('- [2025-01-01] Always validate input\n');
+    final service = BehaviorFileService(workspaceDir: globalDir.path);
+    final result = await service.composeSystemPrompt();
+    expect(result, contains('## Learnings'));
+    expect(result, contains('Always validate input'));
+  });
+
+  test('omits errors.md header when file is empty', () async {
+    File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
+    final service = BehaviorFileService(workspaceDir: globalDir.path);
+    final result = await service.composeSystemPrompt();
+    expect(result, isNot(contains('## Recent Errors')));
+    expect(result, isNot(contains('## Learnings')));
   });
 
   test('missing USER.md and TOOLS.md do not error', () async {
@@ -167,6 +197,16 @@ void main() {
       final result = await service.composeStaticPrompt();
       expect(result, contains('Global'));
       expect(result, contains('Project'));
+    });
+
+    test('includes errors.md and learnings.md in static prompt', () async {
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
+      File('${globalDir.path}/errors.md').writeAsStringSync('## [2025-01-01] ERR\n');
+      File('${globalDir.path}/learnings.md').writeAsStringSync('- [2025-01-01] lesson\n');
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeStaticPrompt();
+      expect(result, contains('## Recent Errors'));
+      expect(result, contains('## Learnings'));
     });
 
     test('works with only SOUL.md (no optional files)', () async {

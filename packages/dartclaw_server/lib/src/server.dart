@@ -6,21 +6,26 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
+import 'api/config_routes.dart';
 import 'api/session_routes.dart';
 import 'api/webhook_routes.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/security_headers.dart';
+import 'mcp/mcp_router.dart';
+import 'mcp/mcp_server.dart';
 import 'auth/session_store.dart';
 import 'auth/token_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
 import 'health/health_service.dart';
+import 'runtime_config.dart';
+import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
 import 'templates/error_page.dart';
 import 'turn_manager.dart';
 import 'web/web_routes.dart';
-import 'web/signal_pairing.dart';
+import 'web/signal_pairing_routes.dart';
 import 'web/whatsapp_pairing.dart';
 
 const _htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
@@ -43,6 +48,36 @@ class DartclawServer {
   final SignalChannel? _signalChannel;
   final GuardChain? _guardChain;
   final String? _webhookSecret;
+  final MessageRedactor? _redactor;
+  final McpProtocolHandler _mcpHandler;
+  final String? _gatewayToken;
+
+  // Runtime toggle state + service references (injected after construction).
+  RuntimeConfig? _runtimeConfig;
+  HeartbeatScheduler? _heartbeat;
+  ScheduleService? _scheduleService;
+  WorkspaceGitSync? _gitSync;
+
+  /// Inject runtime services for toggle control. Must be called after
+  /// service creation in serve_command.dart.
+  void setRuntimeServices({
+    HeartbeatScheduler? heartbeat,
+    ScheduleService? scheduleService,
+    WorkspaceGitSync? gitSync,
+    RuntimeConfig? runtimeConfig,
+  }) {
+    _heartbeat = heartbeat;
+    _scheduleService = scheduleService;
+    _gitSync = gitSync;
+    _runtimeConfig = runtimeConfig;
+  }
+
+  // Config values forwarded to webRoutes for accurate page rendering.
+  final bool _heartbeatEnabled;
+  final int _heartbeatIntervalMinutes;
+  final List<Map<String, dynamic>> _scheduledJobs;
+  final String? _workspacePath;
+  final bool _gitSyncEnabled;
 
   DartclawServer._(
     this._sessions,
@@ -61,6 +96,14 @@ class DartclawServer {
     this._signalChannel,
     this._guardChain,
     this._webhookSecret,
+    this._redactor,
+    this._mcpHandler,
+    this._gatewayToken,
+    this._heartbeatEnabled,
+    this._heartbeatIntervalMinutes,
+    this._scheduledJobs,
+    this._workspacePath,
+    this._gitSyncEnabled,
   );
 
   factory DartclawServer({
@@ -84,7 +127,16 @@ class DartclawServer {
     WhatsAppChannel? whatsAppChannel,
     SignalChannel? signalChannel,
     String? webhookSecret,
+    MessageRedactor? redactor,
+    String? gatewayToken,
+    SelfImprovementService? selfImprovement,
+    UsageTracker? usageTracker,
     bool authEnabled = true,
+    bool heartbeatEnabled = false,
+    int heartbeatIntervalMinutes = 30,
+    List<Map<String, dynamic>> scheduledJobs = const [],
+    String? workspacePath,
+    bool gitSyncEnabled = false,
   }) {
     return DartclawServer._(
       sessions,
@@ -102,6 +154,9 @@ class DartclawServer {
         resetService: resetService,
         contextMonitor: contextMonitor,
         resultTrimmer: resultTrimmer,
+        redactor: redactor,
+        selfImprovement: selfImprovement,
+        usageTracker: usageTracker,
       ),
       memoryFile,
       healthService,
@@ -115,8 +170,22 @@ class DartclawServer {
       signalChannel,
       guardChain,
       webhookSecret,
+      redactor,
+      McpProtocolHandler(),
+      gatewayToken,
+      heartbeatEnabled,
+      heartbeatIntervalMinutes,
+      scheduledJobs,
+      workspacePath,
+      gitSyncEnabled,
     );
   }
+
+  /// Register an MCP tool. Must be called before the server starts handling requests.
+  void registerTool(McpTool tool) => _mcpHandler.registerTool(tool);
+
+  /// The MCP protocol handler, exposed for testing.
+  McpProtocolHandler get mcpHandler => _mcpHandler;
 
   Future<void> shutdown() async {
     for (final sessionId in _turns.activeSessionIds.toList()) {
@@ -134,10 +203,16 @@ class DartclawServer {
     // Health endpoint (unauthenticated, before other routes).
     final hs = _healthService;
     if (hs != null) {
-      router.get('/health', (Request request) {
-        final status = hs.getStatus();
+      router.get('/health', (Request request) async {
+        final status = await hs.getStatus();
         return Response.ok(jsonEncode(status), headers: {'Content-Type': 'application/json'});
       });
+    }
+
+    // MCP endpoint (bearer token auth — before session auth middleware).
+    final gt = _gatewayToken;
+    if (gt != null) {
+      router.post('/mcp', mcpRoute(_mcpHandler, gatewayToken: gt));
     }
 
     // Static files at /static/ prefix.
@@ -186,91 +261,32 @@ class DartclawServer {
       });
     }
 
-    // Signal pairing page + registration routes.
+    // Signal pairing page + registration routes (extracted for testability).
     final sigChannel = _signalChannel;
     if (sigChannel != null) {
-      router.get('/signal/pairing', (Request request) async {
-        final sidebarData = await buildSidebarData(_sessions);
-        final phone = sigChannel.config.phoneNumber;
-        final error = request.requestedUri.queryParameters['error'];
-        final step = request.requestedUri.queryParameters['step'];
+      final sigRouter = signalPairingRoutes(
+        signalChannel: sigChannel,
+        sessions: _sessions,
+      );
+      router.mount('/signal', sigRouter.call);
+    }
 
-        var verificationPending = false;
-        var isConnected = false;
-        String? connectedPhone;
-        String? configuredPhone = phone;
-        String? linkDeviceUri;
-        String? templateError = error;
-
-        if (step == 'verify') {
-          // SMS verification pending — show code entry form.
-          verificationPending = true;
-        } else {
-          try {
-            final reachable = await sigChannel.sidecar.healthCheck();
-            if (reachable) {
-              final registered = await sigChannel.sidecar.isAccountRegistered();
-              if (registered) {
-                isConnected = true;
-                connectedPhone = phone;
-                configuredPhone = null;
-                templateError = null;
-              } else {
-                // Sidecar up but not registered — fetch link device URI.
-                linkDeviceUri = await sigChannel.sidecar.getLinkDeviceUri();
-              }
-            }
-          } catch (e) {
-            templateError = 'Failed to check signal-cli status: $e';
-          }
-        }
-
-        return Response.ok(
-          signalPairingTemplate(
-            verificationPending: verificationPending,
-            isConnected: isConnected,
-            connectedPhone: connectedPhone,
-            configuredPhone: configuredPhone,
-            linkDeviceUri: linkDeviceUri,
-            error: templateError,
-            sidebarData: sidebarData,
-            signalEnabled: true,
-          ),
-          headers: _htmlHeaders,
-        );
-      });
-
-      // POST /signal/pairing/register — trigger SMS verification.
-      router.post('/signal/pairing/register', (Request request) async {
-        try {
-          await sigChannel.sidecar.requestSmsVerification();
-          return Response.found('/signal/pairing?step=verify');
-        } catch (e) {
-          final msg = Uri.encodeQueryComponent('Failed to send SMS: $e');
-          return Response.found('/signal/pairing?error=$msg');
-        }
-      });
-
-      // POST /signal/pairing/verify — complete SMS verification.
-      router.post('/signal/pairing/verify', (Request request) async {
-        try {
-          final body = await request.readAsString();
-          final params = Uri.splitQueryString(body);
-          final token = params['token'] ?? '';
-          if (token.isEmpty) {
-            return Response.found('/signal/pairing?step=verify&error=${Uri.encodeQueryComponent('Code is required')}');
-          }
-          await sigChannel.sidecar.verifySmsCode(token);
-          return Response.found('/signal/pairing');
-        } catch (e) {
-          final msg = Uri.encodeQueryComponent('Verification failed: $e');
-          return Response.found('/signal/pairing?step=verify&error=$msg');
-        }
-      });
+    // Config toggle routes (must be before session routes to avoid path conflicts).
+    final rc = _runtimeConfig;
+    if (rc != null) {
+      final cfgRouter = configRoutes(
+        runtimeConfig: rc,
+        heartbeat: _heartbeat,
+        scheduleService: _scheduleService,
+        gitSync: _gitSync,
+        heartbeatIntervalMinutes: _heartbeatIntervalMinutes,
+        scheduledJobs: _scheduledJobs,
+      );
+      router.mount('/', cfgRouter.call);
     }
 
     // API routes (prefixed /api/ — no collision with web routes).
-    final sessionRouter = sessionRoutes(_sessions, _messages, _turns, _worker, resetService: _resetService);
+    final sessionRouter = sessionRoutes(_sessions, _messages, _turns, _worker, resetService: _resetService, redactor: _redactor);
     router.mount('/', sessionRouter.call);
 
     // Web/HTML routes (/, /sessions/*, /login).
@@ -285,6 +301,12 @@ class DartclawServer {
       signalChannel: _signalChannel,
       guardChain: _guardChain,
       turns: _turns,
+      runtimeConfig: _runtimeConfig,
+      heartbeatEnabled: _heartbeatEnabled,
+      heartbeatIntervalMinutes: _heartbeatIntervalMinutes,
+      scheduledJobs: _scheduledJobs,
+      workspacePath: _workspacePath,
+      gitSyncEnabled: _gitSyncEnabled,
     );
     router.mount('/', webRouter.call);
 

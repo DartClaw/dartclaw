@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
 
+import 'test_utils.dart';
+
 // ---------------------------------------------------------------------------
 // FakeWorkerService
 // ---------------------------------------------------------------------------
@@ -75,6 +77,9 @@ String _staticDir() {
 }
 
 void main() {
+  setUpAll(() => initTemplates(resolveTemplatesDir()));
+  tearDownAll(() => resetTemplates());
+
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert' hide htmlEscape;
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
@@ -7,7 +7,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../session/session_reset_service.dart';
-import '../templates/helpers.dart';
+import '../templates/loader.dart';
 import '../turn_manager.dart';
 import 'stream_handler.dart';
 
@@ -163,18 +163,14 @@ Router sessionRoutes(
       }
 
       // 6. Return HTML fragment
-      final html =
-          '<div class="msg msg-user">\n'
-          '  <div class="msg-role">You</div>\n'
-          '  <div class="msg-content"><p>${htmlEscape(trimmedMessage)}</p></div>\n'
-          '</div>\n'
-          '<div class="msg msg-assistant" id="streaming-msg">\n'
-          '  <div class="msg-role">Assistant</div>\n'
-          '  <div class="msg-content streaming" id="streaming-content"></div>\n'
-          '</div>\n'
-          '<div id="sse-connector"\n'
-          '     data-sse-url="/api/sessions/$id/stream?turn=$turnId">\n'
-          '</div>';
+      final html = templateLoader.trellis.renderFragment(
+        templateLoader.source('chat'),
+        fragment: 'sendResponse',
+        context: {
+          'message': trimmedMessage,
+          'sseUrl': '/api/sessions/$id/stream?turn=$turnId',
+        },
+      );
 
       return Response(200, body: html, headers: {'content-type': 'text/html; charset=utf-8'});
     } catch (e) {

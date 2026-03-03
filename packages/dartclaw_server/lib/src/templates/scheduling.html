@@ -1,0 +1,57 @@
+<div tl:fragment="scheduling" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" hx-history-elt class="page-content">
+    <div class="page-inner">
+
+      <div class="heartbeat-card">
+        <div class="heartbeat-header">
+          <span tl:classappend="${pulseClass}" class="pulse-icon"></span>
+          <span class="heartbeat-label">Heartbeat</span>
+          <span tl:classappend="${badgeClass}" class="heartbeat-status-badge" tl:text="${badgeText}">Active</span>
+        </div>
+        <div class="heartbeat-grid">
+          <div class="heartbeat-stat">
+            <span class="heartbeat-stat-label">Interval</span>
+            <span class="heartbeat-stat-value" tl:text="${intervalDisplay}">—</span>
+          </div>
+          <div class="heartbeat-stat">
+            <span class="heartbeat-stat-label">Status</span>
+            <span class="heartbeat-stat-value" tl:text="${badgeText}">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="section-header">Scheduled Jobs</h2>
+      <div class="table-wrap">
+        <table class="data-table">
+          <caption class="sr-only">Scheduled jobs overview</caption>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Schedule</th>
+              <th>Delivery</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr tl:if="${hasJobs}" tl:each="job : ${jobs}" tl:classappend="${job.rowClass}">
+              <td tl:text="${job.name}">Job name</td>
+              <td><span class="cron-expr" tl:text="${job.schedule}">* * * * *</span></td>
+              <td><span tl:classappend="${job.deliveryBadgeClass}" class="delivery-badge" tl:text="${job.delivery}">none</span></td>
+              <td><span tl:classappend="${job.statusDotClass}" class="status-dot" tl:text="${job.status}">active</span></td>
+            </tr>
+            <tr tl:unless="${hasJobs}">
+              <td colspan="4" style="text-align:center;color:var(--fg-overlay);padding:var(--sp-6);">No scheduled jobs configured</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="info-footer">
+        Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code>. This is a read-only status view.
+      </div>
+
+    </div>
+  </main>
+</div>

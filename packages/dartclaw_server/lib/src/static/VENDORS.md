@@ -11,10 +11,12 @@
 | File | Description |
 |------|-------------|
 | `hljs.min.js` | highlight.js core + common languages bundle |
+| `hljs-dart.min.js` | Dart language grammar (loaded after core) |
 | `hljs-catppuccin-mocha.css` | Catppuccin Mocha (dark) theme |
 | `hljs-catppuccin-latte.css` | Catppuccin Latte (light) theme |
 
 ### Upgrading
 
 Download latest from https://highlightjs.org/download and replace `hljs.min.js`.
+Language grammars from https://cdnjs.cloudflare.com/ajax/libs/highlight.js/{version}/languages/{lang}.min.js.
 Themes from https://github.com/catppuccin/highlightjs.

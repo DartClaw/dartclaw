@@ -24,5 +24,6 @@ export 'src/scheduling/scheduled_job.dart';
 export 'src/server.dart';
 export 'src/session/session_reset_service.dart';
 export 'src/templates/helpers.dart';
+export 'src/templates/loader.dart' show initTemplates, resetTemplates;
 export 'src/turn_manager.dart';
 export 'src/web/web_routes.dart';

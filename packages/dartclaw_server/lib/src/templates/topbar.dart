@@ -1,6 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-import 'helpers.dart';
+import 'loader.dart';
 
 /// Top navigation bar.
 ///
@@ -9,83 +9,45 @@ import 'helpers.dart';
 /// - main/channel: reset button, no delete
 /// - user: reset button (manual reset still allowed)
 /// - archive: resume button, read-only
+///
+/// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
 String topbarTemplate({String? title, String? sessionId, SessionType? sessionType}) {
-  final displayTitle = (title == null || title.trim().isEmpty) ? 'New Session' : htmlEscape(title);
+  final src = templateLoader.source('topbar');
 
-  final String titleElement;
-  final String resetButton;
-  final String infoButton;
-  final String resumeButton;
-
-  if (sessionId != null) {
-    final escapedId = htmlEscape(sessionId);
-    final isArchive = sessionType == SessionType.archive;
-
-    titleElement = isArchive
-        ? '<span class="session-title">$displayTitle</span>'
-        : '<input id="session-title" class="session-title" type="text"'
-            ' value="$displayTitle"'
-            ' maxlength="100"'
-            ' data-session-id="$escapedId"'
-            ' data-original-title="$displayTitle"'
-            ' aria-label="Session title">';
-
-    resetButton = isArchive
-        ? ''
-        : '<button class="btn btn-ghost btn-sm btn-reset" '
-            'hx-post="/api/sessions/$escapedId/reset" '
-            'hx-confirm="Reset this session? Conversation will be archived." '
-            'hx-on::after-request="location.reload()" '
-            'aria-label="Reset session">Reset</button>';
-
-    infoButton =
-        '<a href="/sessions/$escapedId/info" class="btn btn-icon btn-ghost" aria-label="Session info">&#9432;</a>';
-
-    resumeButton = isArchive
-        ? '<button class="btn btn-ghost btn-sm" data-action="resume-archive" '
-            'data-session-id="$escapedId">Resume</button>'
-        : '';
-  } else {
-    titleElement = '<span class="session-title">DartClaw</span>';
-    resetButton = '';
-    infoButton = '';
-    resumeButton = '';
+  if (sessionId == null) {
+    return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: const {});
   }
 
-  return '''
-<header class="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
-  $titleElement
-  <div class="topbar-actions">
-    $infoButton
-    $resumeButton
-    $resetButton
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
-  </div>
-</header>
-''';
+  final displayTitle = (title == null || title.trim().isEmpty) ? 'New Session' : title;
+  final isArchive = sessionType == SessionType.archive;
+
+  return templateLoader.trellis.renderFragment(src, fragment: 'sessionTopbar', context: {
+    'displayTitle': displayTitle,
+    'sessionId': sessionId,
+    'isArchive': isArchive,
+    'showResume': isArchive,
+    'showReset': !isArchive,
+    'infoHref': '/sessions/$sessionId/info',
+    'resetHref': '/api/sessions/$sessionId/reset',
+  });
 }
 
 /// Topbar for standalone pages (settings, health dashboard, scheduling, session info).
 ///
 /// Simpler than [topbarTemplate] — static title, optional back link, no session actions.
+/// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
 String pageTopbarTemplate({
   required String title,
   String? backHref,
   String? backLabel,
 }) {
-  final backLink = backHref != null
-      ? '<a href="${htmlEscape(backHref)}" class="btn btn-ghost" style="font-size:var(--text-sm);">'
-        '&larr; ${htmlEscape(backLabel ?? 'Back')}</a>'
-      : '';
-
-  return '''
-<header class="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
-  <span class="session-title-static">${htmlEscape(title)}</span>
-  <div class="topbar-actions">
-    $backLink
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
-  </div>
-</header>''';
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('topbar'),
+    fragment: 'pageTopbar',
+    context: {
+      'title': title,
+      'backHref': backHref,
+      'backLabel': backLabel ?? 'Back',
+    },
+  );
 }

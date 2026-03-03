@@ -29,6 +29,10 @@ a:hover { text-decoration: underline; }
   height: 100dvh;
 }
 
+/* Trellis tl:utext wraps injected HTML in a <div>; display:contents makes
+   those wrappers invisible to grid so <aside> and <header> remain grid items. */
+.shell > div { display: contents; }
+
 /* === SIDEBAR === */
 .sidebar {
   grid-row: 1 / -1;
@@ -452,6 +456,9 @@ a:hover { text-decoration: underline; }
   color: var(--accent);
   animation: blink 1s step-end infinite;
 }
+
+/* === STREAMING GUARD: disable SPA nav links during active SSE stream === */
+body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -1007,18 +1014,19 @@ a:hover { text-decoration: underline; }
 .meta-value-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 
 /* === SETTINGS === */
-.settings-area { overflow-y: auto; padding: var(--sp-6) var(--sp-8); }
-@media (max-width: 768px) { .settings-area { padding: var(--sp-4); } }
 .settings-header { margin-bottom: var(--sp-6); }
 .settings-header h1 { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-1); }
 .settings-header p { font-size: var(--text-sm); color: var(--fg-overlay); }
 .settings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4); max-width: 960px; }
 @media (max-width: 768px) { .settings-grid { grid-template-columns: 1fr; } }
 .settings-card { display: flex; flex-direction: column; gap: var(--sp-3); }
-.settings-area .card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.settings-area .card-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg); }
+.settings-card .card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.settings-card .card-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg); }
 .card-detail { font-size: var(--text-sm); color: var(--fg-sub0); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 .card-detail-value { color: var(--fg); }
+.card-detail-muted { color: var(--fg-overlay); }
+.card-detail-hint { font-size: var(--text-xs); color: var(--fg-overlay); }
+.card-detail-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .guard-list { display: flex; flex-direction: column; gap: var(--sp-1); }
 .guard-item { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--fg-sub0); }
 .guard-check { color: var(--success); font-weight: var(--weight-bold); flex-shrink: 0; }
@@ -1048,6 +1056,9 @@ a:hover { text-decoration: underline; }
   background: color-mix(in srgb, var(--status-color) 15%, var(--bg-base));
   border: 2px solid var(--status-color); color: var(--status-color);
 }
+.status-hero-healthy { --status-color: var(--success); }
+.status-hero-degraded { --status-color: var(--warning); }
+.status-hero-error { --status-color: var(--error); }
 .status-details { flex: 1; min-width: 0; }
 .status-label { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--status-color); }
 .status-meta { display: flex; gap: var(--sp-6); margin-top: var(--sp-2); flex-wrap: wrap; }
@@ -1078,6 +1089,7 @@ a:hover { text-decoration: underline; }
 .card-row { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-sm); }
 .card-row-label { color: var(--fg-overlay); }
 .card-row-value { color: var(--fg); font-weight: var(--weight-medium); text-align: right; }
+.card-row-value.text-success { color: var(--success); }
 .metrics-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); margin-bottom: var(--sp-4);
 }
@@ -1171,6 +1183,21 @@ a:hover { text-decoration: underline; }
 .wa-pre {
   background: var(--bg-base); border: var(--border); border-radius: var(--radius);
   padding: var(--sp-3); font-size: var(--text-xs); white-space: pre; overflow-x: auto;
+}
+
+/* === VIEW TRANSITIONS === */
+/* Only the main content area cross-fades; sidebar/topbar stay static. */
+#main-content { view-transition-name: main-content; }
+
+@keyframes vt-fade-out { to { opacity: 0 } }
+@keyframes vt-fade-in  { from { opacity: 0 } }
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none; }
+
+  ::view-transition-old(main-content) { animation: vt-fade-out 150ms ease-out both; }
+  ::view-transition-new(main-content) { animation: vt-fade-in  150ms ease-out both; }
 }
 
 /* === REDUCED MOTION === */

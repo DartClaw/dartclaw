@@ -5,6 +5,8 @@ import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../auth/auth_utils.dart';
+
 final _log = Logger('WebhookRoutes');
 
 /// HTTP routes for channel webhooks.
@@ -20,14 +22,19 @@ Router webhookRoutes({WhatsAppChannel? whatsApp, String? webhookSecret}) {
       // Validate webhook secret if configured
       if (webhookSecret != null) {
         final requestSecret = request.requestedUri.queryParameters['secret'];
-        if (requestSecret != webhookSecret) {
+        if (requestSecret == null || !constantTimeEquals(requestSecret, webhookSecret)) {
           _log.warning('Webhook request with invalid/missing secret');
           return Response.forbidden('');
         }
       }
 
+      final body = await readBounded(request, maxWebhookPayloadBytes);
+      if (body == null) {
+        _log.warning('WhatsApp webhook payload exceeds size limit');
+        return Response(413);
+      }
+
       try {
-        final body = await request.readAsString();
         final payload = jsonDecode(body) as Map<String, dynamic>;
         whatsApp.handleWebhook(payload);
       } catch (e) {

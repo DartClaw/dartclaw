@@ -11,7 +11,11 @@ final _log = Logger('MemoryHandlers');
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
 })
-createMemoryHandlers({required MemoryService memory, required MemoryFileService memoryFile}) {
+createMemoryHandlers({
+  required MemoryService memory,
+  required MemoryFileService memoryFile,
+  required SearchBackend searchBackend,
+}) {
   return (
     onSave: (Map<String, dynamic> params) async {
       final text = params['text'] as String;
@@ -33,6 +37,8 @@ createMemoryHandlers({required MemoryService memory, required MemoryFileService 
         }
       }
 
+      await searchBackend.indexAfterWrite();
+
       return {'ok': true, 'chunks_created': chunks.length};
     },
     onSearch: (Map<String, dynamic> params) async {
@@ -42,11 +48,12 @@ createMemoryHandlers({required MemoryService memory, required MemoryFileService 
       final limit = (params['limit'] as num?)?.toInt() ?? 5;
       final sanitized = _sanitizeFts5Query(query);
       if (sanitized == '""') return {'results': <Map<String, dynamic>>[]};
-      final results = memory.search(sanitized, limit: limit);
+      final results = await searchBackend.search(sanitized, limit: limit);
 
       return {
-        'results':
-            results.map((r) => {'text': r.text, 'source': r.source, 'score': r.score, 'category': r.category}).toList(),
+        'results': results
+            .map((r) => {'text': r.text, 'source': r.source, 'score': r.score, 'category': r.category})
+            .toList(),
       };
     },
     onRead: (Map<String, dynamic> params) async {

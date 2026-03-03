@@ -22,7 +22,8 @@ void main() {
     memory = MemoryService(db);
     tempDir = Directory.systemTemp.createTempSync('handlers_test');
     memoryFile = MemoryFileService(baseDir: tempDir.path);
-    handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile);
+    final searchBackend = Fts5SearchBackend(memoryService: memory);
+    handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile, searchBackend: searchBackend);
   });
 
   tearDown(() async {

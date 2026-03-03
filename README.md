@@ -146,4 +146,4 @@ Born from spending too much time wrangling AI agents and wondering why the tooli
 
 ## License
 
-Private -- not yet licensed for distribution.
+MIT

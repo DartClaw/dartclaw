@@ -1,85 +1,8 @@
 import 'helpers.dart';
 import 'layout.dart';
+import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
-
-/// Returns the color var for the given [status].
-String _statusColor(String status) => switch (status) {
-  'healthy' => 'var(--success)',
-  'degraded' => 'var(--warning)',
-  _ => 'var(--error)',
-};
-
-String _statusHeroSection({
-  required String statusColor,
-  required String statusLabel,
-  required String statusIcon,
-  required String uptimeStr,
-  required String version,
-  required String workerState,
-}) {
-  return '''
-<div class="status-hero" style="--status-color: $statusColor">
-  <div class="status-indicator">$statusIcon</div>
-  <div class="status-details">
-    <div class="status-label">$statusLabel</div>
-    <dl class="status-meta">
-      <div><dt>Uptime</dt><dd>$uptimeStr</dd></div>
-      <div><dt>Version</dt><dd>${htmlEscape(version)}</dd></div>
-      <div><dt>Worker</dt><dd>${htmlEscape(workerState)}</dd></div>
-    </dl>
-  </div>
-</div>''';
-}
-
-String _serviceCard({
-  required String title,
-  required String badgeClass,
-  required String badgeText,
-  required List<(String label, String value, String? style)> rows,
-}) {
-  final rowsHtml = rows.map((r) {
-    final styleAttr = r.$3 != null ? ' style="${r.$3}"' : '';
-    return '<div class="card-row">'
-        '<span class="card-row-label">${htmlEscape(r.$1)}</span>'
-        '<span class="card-row-value"$styleAttr>${htmlEscape(r.$2)}</span>'
-        '</div>';
-  }).join('\n            ');
-
-  return '''
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">${htmlEscape(title)}</span>
-            <span class="card-badge $badgeClass">${htmlEscape(badgeText)}</span>
-          </div>
-          <div class="card-rows">
-            $rowsHtml
-          </div>
-        </div>''';
-}
-
-String _metricsGridSection({
-  required String uptimeStr,
-  required int sessionCount,
-  required String dbSizeStr,
-}) {
-  return '''
-      <h2 class="section-label">Metrics</h2>
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-value">$uptimeStr</div>
-          <div class="metric-label">Uptime</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-value">$sessionCount</div>
-          <div class="metric-label">Sessions</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-value">$dbSizeStr</div>
-          <div class="metric-label">DB Size</div>
-        </div>
-      </div>''';
-}
 
 /// Renders the full health dashboard page.
 String healthDashboardTemplate({
@@ -90,16 +13,16 @@ String healthDashboardTemplate({
   required int dbSizeBytes,
   required String version,
   required SidebarData sidebarData,
+  bool signalEnabled = false,
 }) {
-  final statusColor = _statusColor(status);
-  final statusLabel = status[0].toUpperCase() + status.substring(1);
   final uptimeStr = formatUptime(uptimeSeconds);
   final dbSizeStr = formatBytes(dbSizeBytes);
+  final statusLabel = status[0].toUpperCase() + status.substring(1);
 
-  final workerBadgeClass = switch (workerState) {
-    'running' || 'idle' => 'badge-success',
-    'crashed' => 'badge-error',
-    _ => 'badge-muted',
+  final statusColorClass = switch (status) {
+    'healthy' => 'status-hero-healthy',
+    'degraded' => 'status-hero-degraded',
+    _ => 'status-hero-error',
   };
 
   const svgAttrs =
@@ -117,11 +40,13 @@ String healthDashboardTemplate({
           '<line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   };
 
-  final navItems = [
-    (label: 'Health', href: '/health-dashboard', active: true),
-    (label: 'Settings', href: '/settings', active: false),
-    (label: 'Scheduling', href: '/scheduling', active: false),
-  ];
+  final workerBadgeClass = switch (workerState) {
+    'running' || 'idle' => 'badge-success',
+    'crashed' => 'badge-error',
+    _ => 'badge-muted',
+  };
+
+  final navItems = buildSystemNavItems(activePage: 'Health', signalEnabled: signalEnabled);
 
   final sidebar = sidebarTemplate(
     mainSession: sidebarData.main,
@@ -130,86 +55,66 @@ String healthDashboardTemplate({
     navItems: navItems,
   );
 
-  final topbar = pageTopbarTemplate(
-    title: 'System Health',
-    backHref: '/',
-    backLabel: 'Back',
-  );
+  final topbar = pageTopbarTemplate(title: 'System Health');
 
-  final heroHtml = _statusHeroSection(
-    statusColor: statusColor,
-    statusLabel: statusLabel,
-    statusIcon: statusIcon,
-    uptimeStr: uptimeStr,
-    version: version,
-    workerState: workerState,
-  );
-
-  final cardsHtml = [
-    _serviceCard(
-      title: 'Worker',
-      badgeClass: workerBadgeClass,
-      badgeText: workerState,
-      rows: [
-        ('State', workerState, null),
-        ('Runtime', 'claude binary', null),
+  final cards = <Map<String, dynamic>>[
+    {
+      'title': 'Worker',
+      'badgeClass': workerBadgeClass,
+      'badgeText': workerState,
+      'rows': [
+        {'label': 'State', 'value': workerState, 'valueClass': ''},
+        {'label': 'Runtime', 'value': 'claude binary', 'valueClass': ''},
       ],
-    ),
-    _serviceCard(
-      title: 'Database',
-      badgeClass: 'badge-success',
-      badgeText: 'ok',
-      rows: [
-        ('Size', dbSizeStr, null),
-        ('FTS5 Index', 'active', 'color:var(--success)'),
-        ('Type', 'SQLite', null),
+    },
+    {
+      'title': 'Database',
+      'badgeClass': 'badge-success',
+      'badgeText': 'ok',
+      'rows': [
+        {'label': 'Size', 'value': dbSizeStr, 'valueClass': ''},
+        {'label': 'FTS5 Index', 'value': 'active', 'valueClass': 'text-success'},
+        {'label': 'Type', 'value': 'SQLite', 'valueClass': ''},
       ],
-    ),
-    _serviceCard(
-      title: 'Sessions',
-      badgeClass: 'badge-muted',
-      badgeText: '$sessionCount total',
-      rows: [
-        ('Total', '$sessionCount', null),
-        ('Storage', 'NDJSON files', null),
+    },
+    {
+      'title': 'Sessions',
+      'badgeClass': 'badge-muted',
+      'badgeText': '$sessionCount total',
+      'rows': [
+        {'label': 'Total', 'value': '$sessionCount', 'valueClass': ''},
+        {'label': 'Storage', 'value': 'NDJSON files', 'valueClass': ''},
       ],
-    ),
-    _serviceCard(
-      title: 'Storage',
-      badgeClass: 'badge-success',
-      badgeText: 'ok',
-      rows: [
-        ('Search DB', dbSizeStr, null),
-        ('Format', 'file-based', null),
+    },
+    {
+      'title': 'Storage',
+      'badgeClass': 'badge-success',
+      'badgeText': 'ok',
+      'rows': [
+        {'label': 'Search DB', 'value': dbSizeStr, 'valueClass': ''},
+        {'label': 'Format', 'value': 'file-based', 'valueClass': ''},
       ],
-    ),
-  ].join('\n');
+    },
+  ];
 
-  final metricsHtml = _metricsGridSection(
-    uptimeStr: uptimeStr,
-    sessionCount: sessionCount,
-    dbSizeStr: dbSizeStr,
-  );
+  final metrics = <Map<String, dynamic>>[
+    {'value': uptimeStr, 'label': 'Uptime'},
+    {'value': '$sessionCount', 'label': 'Sessions'},
+    {'value': dbSizeStr, 'label': 'DB Size'},
+  ];
 
-  final body = '''
-<div class="shell">
-  $sidebar
-  $topbar
-  <main class="dashboard">
-    <div class="dashboard-inner">
-
-      $heroHtml
-
-      <h2 class="section-label">Services</h2>
-      <div class="card-grid">
-$cardsHtml
-      </div>
-
-$metricsHtml
-
-    </div>
-  </main>
-</div>''';
+  final body = templateLoader.trellis.render(templateLoader.source('health_dashboard'), {
+    'sidebar': sidebar,
+    'topbar': topbar,
+    'statusColorClass': statusColorClass,
+    'statusIcon': statusIcon,
+    'statusLabel': statusLabel,
+    'uptimeStr': uptimeStr,
+    'version': version,
+    'workerState': workerState,
+    'cards': cards,
+    'metrics': metrics,
+  });
 
   return layoutTemplate(title: 'Health', body: body);
 }

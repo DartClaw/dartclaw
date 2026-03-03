@@ -6,8 +6,18 @@ import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+String _templatesDir() {
+  const fromWorkspace = 'packages/dartclaw_server/lib/src/templates';
+  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
+  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
+  if (Directory(fromApp).existsSync()) return fromApp;
+  return fromWorkspace;
+}
 
 class _ExitIntercept implements Exception {
   final int code;
@@ -139,12 +149,18 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(host: '0.0.0.0', dataDir: tempDir.path, staticDir: Directory.current.path);
+      final config = DartclawConfig(
+        host: '0.0.0.0',
+        dataDir: tempDir.path,
+        staticDir: Directory.current.path,
+        templatesDir: _templatesDir(),
+      );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+        harnessFactory:
+            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
         serverFactory:
             ({
               required sessions,
@@ -164,6 +180,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              signalChannel,
               webhookSecret,
               authEnabled = true,
             }) => DartclawServer(
@@ -206,12 +223,17 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(dataDir: tempDir.path, staticDir: Directory.current.path);
+      final config = DartclawConfig(
+        dataDir: tempDir.path,
+        staticDir: Directory.current.path,
+        templatesDir: _templatesDir(),
+      );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory: (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+        harnessFactory:
+            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
         serverFactory:
             ({
               required sessions,
@@ -231,6 +253,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              signalChannel,
               webhookSecret,
               authEnabled = true,
             }) => DartclawServer(
@@ -270,7 +293,7 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(dataDir: tempDir.path);
+      final config = DartclawConfig(dataDir: tempDir.path, templatesDir: _templatesDir());
 
       final command = ServeCommand(
         config: config,
@@ -283,6 +306,88 @@ void main() {
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
       expect(stderrLines.join('\n'), contains('Error: Cannot open search database'));
+    });
+
+    test('content guard emits warning when ANTHROPIC_API_KEY is absent', () async {
+      final apiKey = Platform.environment['ANTHROPIC_API_KEY'] ?? '';
+      if (apiKey.isNotEmpty) {
+        markTestSkipped('Cannot test absent-key path when ANTHROPIC_API_KEY is set');
+        return;
+      }
+
+      final warnings = <String>[];
+      final sub = Logger.root.onRecord.listen((r) {
+        if (r.level >= Level.WARNING) warnings.add(r.message);
+      });
+      addTearDown(sub.cancel);
+
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        contentGuardEnabled: true,
+        dataDir: tempDir.path,
+        staticDir: Directory.current.path,
+        templatesDir: _templatesDir(),
+      );
+      final worker = _FakeWorkerService();
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory:
+            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+        serverFactory:
+            ({
+              required sessions,
+              required messages,
+              required worker,
+              required staticDir,
+              required behavior,
+              memoryFile,
+              guardChain,
+              kv,
+              healthService,
+              tokenService,
+              sessionStore,
+              lockManager,
+              resetService,
+              contextMonitor,
+              resultTrimmer,
+              channelManager,
+              whatsAppChannel,
+              signalChannel,
+              webhookSecret,
+              authEnabled = true,
+            }) => DartclawServer(
+              sessions: sessions,
+              messages: messages,
+              worker: worker,
+              staticDir: staticDir,
+              behavior: behavior,
+              memoryFile: memoryFile,
+              guardChain: guardChain,
+              kv: kv,
+              healthService: healthService,
+              tokenService: tokenService,
+              sessionStore: sessionStore,
+              lockManager: lockManager,
+              resetService: resetService,
+              contextMonitor: contextMonitor,
+              resultTrimmer: resultTrimmer,
+              authEnabled: authEnabled,
+            ),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stdoutLine: (_) {},
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>()));
+      expect(warnings.join('\n'), contains('ANTHROPIC_API_KEY not set'));
     });
   });
 }

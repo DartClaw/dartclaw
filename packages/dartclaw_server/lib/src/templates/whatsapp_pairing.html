@@ -1,0 +1,59 @@
+<div tl:fragment="whatsappPairing" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" hx-history-elt class="wa-main">
+    <div class="wa-inner">
+
+      <div tl:if="${error}" class="banner banner-warning">
+        <span tl:text="${error}">Error</span>
+        <button class="dismiss" aria-label="Dismiss">&#10005;</button>
+      </div>
+
+      <div class="wa-content">
+
+        <!-- Connected state -->
+        <div tl:if="${isConnected}" class="wa-section">
+          <div class="wa-connected-header">
+            <span style="color:var(--success);font-size:var(--text-xl);">&#10003;</span>
+            WhatsApp Connected
+          </div>
+          <div class="wa-detail">Phone: <span class="wa-detail-value" tl:text="${phoneDisplay}">Connected</span></div>
+          <div class="wa-detail" style="color:var(--fg-overlay);font-size:var(--text-sm);">
+            Messages will be delivered to your WhatsApp number.
+          </div>
+        </div>
+
+        <!-- QR code state -->
+        <div tl:if="${showQr}" class="wa-section">
+          <div class="section-label">Connect WhatsApp</div>
+          <div class="wa-qr-wrapper">
+            <img tl:attr="src=${qrImageUrl}" alt="WhatsApp QR Code" class="wa-qr-img">
+          </div>
+          <p class="wa-hint">Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device, then scan this QR code.</p>
+          <p style="font-size:var(--text-xs);color:var(--fg-overlay);">
+            QR code refreshes automatically. <a href="/whatsapp/pairing">Reload page</a> if expired.
+          </p>
+          <div class="wa-status-row">
+            <span class="wa-spinner"></span>
+            <span style="color:var(--fg-sub0);font-size:var(--text-sm);">Waiting for connection...</span>
+          </div>
+        </div>
+
+        <!-- Not connected / no QR state -->
+        <div tl:if="${showSetup}" class="wa-section">
+          <div class="section-label">Not Connected</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">GOWA sidecar is not running or not ready.</p>
+          <p style="font-size:var(--text-sm);color:var(--fg-sub0);margin-top:var(--sp-2);">
+            Ensure GOWA is installed and configured in <code>dartclaw.yaml</code>:
+          </p>
+          <pre class="wa-pre">channels:
+  whatsapp:
+    enabled: true
+    gowa_executable: whatsapp</pre>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+</div>

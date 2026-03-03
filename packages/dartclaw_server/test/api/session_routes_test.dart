@@ -7,6 +7,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 // ---------------------------------------------------------------------------
 // FakeWorkerService
 // ---------------------------------------------------------------------------
@@ -142,6 +144,9 @@ Future<String> _errorCode(Response res) async {
 // ---------------------------------------------------------------------------
 
 void main() {
+  setUpAll(() => initTemplates(resolveTemplatesDir()));
+  tearDownAll(() => resetTemplates());
+
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
@@ -345,7 +350,7 @@ void main() {
       );
       expect(res.statusCode, equals(200));
       final html = await res.readAsString();
-      expect(html, contains('&lt;script&gt;alert(1)&lt;&#47;script&gt;'));
+      expect(html, contains('&lt;script&gt;alert(1)&lt;/script&gt;'));
       expect(html, isNot(contains('<script>alert(1)</script>')));
     });
 

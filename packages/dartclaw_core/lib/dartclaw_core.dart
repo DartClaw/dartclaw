@@ -25,6 +25,11 @@ export 'src/channel/whatsapp/text_chunking.dart';
 export 'src/channel/whatsapp/media_extractor.dart';
 export 'src/channel/whatsapp/response_formatter.dart';
 
+export 'src/channel/signal/signal_channel.dart';
+export 'src/channel/signal/signal_config.dart';
+export 'src/channel/signal/signal_cli_manager.dart';
+export 'src/channel/signal/signal_dm_access.dart';
+
 export 'src/harness/agent_harness.dart';
 export 'src/harness/claude_code_harness.dart';
 export 'src/harness/harness_config.dart';

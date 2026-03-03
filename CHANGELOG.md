@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4 — 2026-03-03
+
+Template engine migration, SPA navigation, search agent wiring, Signal channel.
+
+### Trellis Template Engine
+- Migrated all 13 templates from inline Dart string builders to `.html` files with Trellis engine (`tl:text` auto-escaping, `tl:utext` trusted HTML, `tl:fragment` for partial rendering)
+- `TemplateLoader` pre-loads and validates all templates at startup (smoke-render with empty context)
+- 42 render tests covering all templates and fragments
+
+### HTMX SPA Navigation
+- SPA-style navigation via `hx-get` + `hx-target="#main-content"` + `hx-select-oob` for topbar/sidebar
+- Two-path server rendering: full page for direct requests, fragment for HTMX requests (`HX-Request` detection)
+- Streaming guard: disables nav links during SSE stream, re-enables on `htmx:sseClose`
+- View Transitions API integration with CSS fade animations
+- `HX-Location` redirect for session create/reset, `Vary: HX-Request` for caching correctness
+- `htmx:afterSwap` re-init for `marked`/`hljs` content rendering
+
+### Server Integration
+- Wired `SessionDelegate`, `ContentGuard`, `ToolPolicyGuard` into `serve_command.dart`
+- Search agent session directory created at startup; graceful degradation when `ANTHROPIC_API_KEY` missing
+- FTS5 `SearchBackend` wired into memory service handlers; memory consolidation in heartbeat
+- Content-guard fail-closed when API key available
+
+### Signal Channel
+- `SignalConfig`, `SignalCliManager` (exponential backoff 1s→30s), `SignalChannel` implementing `Channel` interface
+- `SignalDmAccessController` + `SignalMentionGating` for DM/group access control
+- Webhook route (`/webhook/signal?secret=<token>`) with constant-time secret validation
+- Pairing page (SMS/voice/linked device registration flows)
+- Settings status card + conditional sidebar nav item
+- Message deduplication, Docker-unavailable degradation
+
+### Other
+- Trellis upgraded to 0.2.1 (resolves `<tl:block>` fragment, null `tl:each`, `!` negation)
+- `constantTimeEquals` extracted to `auth/auth_utils.dart`, shared across webhook/signal/token auth
+- Version fallback `'unknown'` instead of hardcoded `'0.2.0'`
+
+1105 tests, `dart analyze` clean.
+
 ## 0.3 — 2026-03-01
 
 Consolidation milestone — template DX, tech debt resolution, system prompt correctness, GOWA v8 alignment. No new features or dependencies.

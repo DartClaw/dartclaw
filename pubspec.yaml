@@ -5,6 +5,7 @@ environment:
   sdk: ^3.11.0
 
 workspace:
+  - packages/dartclaw
   - packages/dartclaw_core
   - packages/dartclaw_server
   - apps/dartclaw_cli

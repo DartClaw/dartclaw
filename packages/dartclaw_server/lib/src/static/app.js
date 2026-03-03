@@ -1,6 +1,9 @@
 // app.js - DartClaw client-side logic
 'use strict';
 
+// Enable View Transitions API for SPA navigation swaps.
+htmx.config.globalViewTransitions = true;
+
 let activeSource = null;
 let activeStreamUrl = null;
 let reconnectAttempts = 0;
@@ -305,6 +308,7 @@ function closeActiveStream() {
     activeSource = null;
     activeStreamUrl = null;
   }
+  document.body.classList.remove('streaming');
 }
 
 function scheduleReconnect(url) {
@@ -344,6 +348,7 @@ function startStream(url) {
   const source = new EventSource(url);
   activeSource = source;
   activeStreamUrl = url;
+  document.body.classList.add('streaming');
 
   source.addEventListener('delta', (event) => {
     reconnectAttempts = 0;
@@ -624,6 +629,25 @@ function initSseConnectorHandling() {
   });
 }
 
+// === SPA content re-initialization after HTMX swap ===
+
+function initAfterSwapReinit() {
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    const target = event.detail && event.detail.target;
+    // Skip SSE container swaps — handled by initSseConnectorHandling.
+    if (target && target.id === 'sse-container') return;
+
+    renderMarkdown();
+    scrollToBottom();
+    initThemeToggle();
+    initSidebar();
+    initTextareaResize();
+    initKeyboardSubmit();
+    initSendButtonState();
+    initInlineRename();
+  });
+}
+
 // === Init ===
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -634,6 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSendButtonState();
   initHtmxRequestLifecycle();
   initSseConnectorHandling();
+  initAfterSwapReinit();
   initSessionCreate();
   initSessionDelete();
   initResumeArchive();

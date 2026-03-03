@@ -1,0 +1,40 @@
+<header tl:fragment="sessionTopbar" class="topbar" id="topbar">
+  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
+  <span tl:if="${isArchive}" class="session-title" tl:text="${displayTitle}">New Session</span>
+  <input tl:unless="${isArchive}" id="session-title" class="session-title" type="text"
+    tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
+    maxlength="100" aria-label="Session title">
+  <div class="topbar-actions">
+    <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="btn btn-icon btn-ghost" aria-label="Session info"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar">&#9432;</a>
+    <button tl:if="${showResume}" class="btn btn-ghost btn-sm"
+      data-action="resume-archive" tl:attr="data-session-id=${sessionId}">Resume</button>
+    <button tl:if="${showReset}" class="btn btn-ghost btn-sm btn-reset"
+      tl:attr="hx-post=${resetHref}"
+      hx-confirm="Reset this session? Conversation will be archived."
+      hx-on::after-request="location.reload()"
+      aria-label="Reset session">Reset</button>
+    <button class="theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<header tl:fragment="plainTopbar" class="topbar" id="topbar">
+  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
+  <span class="session-title">DartClaw</span>
+  <div class="topbar-actions">
+    <button class="theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<header tl:fragment="pageTopbar" class="topbar" id="topbar">
+  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
+  <span class="session-title-static" tl:text="${title}">Page Title</span>
+  <div class="topbar-actions">
+    <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="btn btn-ghost"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar"
+      style="font-size:var(--text-sm);">&larr; <span tl:text="${backLabel}">Back</span></a>
+    <button class="theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>

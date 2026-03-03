@@ -1,14 +1,11 @@
-import 'helpers.dart';
 import 'layout.dart';
+import 'loader.dart';
 
 /// Renders a full styled error page with design tokens.
 String errorPageTemplate(int code, String title, String detail) {
-  final body =
-      '<div class="error-page">'
-      '<div class="error-code">$code</div>'
-      '<div class="error-title">${htmlEscape(title)}</div>'
-      '<div class="error-detail">${htmlEscape(detail)}</div>'
-      '<a href="/" class="btn btn-primary">&#8592; Back to Home</a>'
-      '</div>';
+  final body = templateLoader.trellis.render(
+    templateLoader.source('error_page'),
+    {'code': code, 'title': title, 'detail': detail},
+  );
   return layoutTemplate(title: '$code $title', body: body);
 }

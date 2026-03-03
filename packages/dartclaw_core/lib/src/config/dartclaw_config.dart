@@ -17,6 +17,7 @@ class DartclawConfig {
   final int workerTimeout;
   final String claudeExecutable;
   final String staticDir;
+  final String templatesDir;
   final int memoryMaxBytes;
   final GuardConfig guards;
   final String logFormat;
@@ -71,6 +72,7 @@ class DartclawConfig {
     this.workerTimeout = 600,
     this.claudeExecutable = 'claude',
     this.staticDir = 'packages/dartclaw_server/lib/src/static',
+    this.templatesDir = 'packages/dartclaw_server/lib/src/templates',
     this.memoryMaxBytes = 32 * 1024,
     this.guards = const GuardConfig.defaults(),
     this.logFormat = 'human',
@@ -158,9 +160,10 @@ class DartclawConfig {
       warns,
     );
 
-    // claudeExecutable and staticDir: CLI only (not from YAML)
+    // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML)
     final claudeExecutable = cli['claude_executable'] ?? defaults.claudeExecutable;
     final staticDir = cli['static_dir'] ?? defaults.staticDir;
+    final templatesDir = cli['templates_dir'] ?? defaults.templatesDir;
 
     // Guards config: nested map from YAML
     final guardsRaw = yamlValues['guards'];
@@ -469,6 +472,7 @@ class DartclawConfig {
       workerTimeout: workerTimeout,
       claudeExecutable: claudeExecutable,
       staticDir: staticDir,
+      templatesDir: templatesDir,
       memoryMaxBytes: memoryMaxBytes,
       guards: guards,
       logFormat: logFormat,

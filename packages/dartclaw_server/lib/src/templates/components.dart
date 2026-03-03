@@ -1,34 +1,30 @@
-import 'helpers.dart';
+import 'loader.dart';
 
 /// Banner notification. [type] is one of `error`, `warning`, or `info`.
-/// [message] is HTML-escaped.
+/// [message] is auto-escaped by Trellis (`tl:text`).
 String bannerTemplate(String type, String message) {
   final safeType = const {'error', 'warning', 'info'}.contains(type) ? type : 'error';
-  return '''
-<div class="banner banner-$safeType">
-  <span>${htmlEscape(message)}</span>
-  <button class="dismiss" aria-label="Dismiss">&#215;</button>
-</div>
-''';
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('components'),
+    fragment: 'banner',
+    context: {'type': safeType, 'message': message},
+  );
 }
 
 /// Empty state shown when a session has no messages yet.
-String emptyStateTemplate() => '''
-<div class="empty-state">
-  <div class="icon">&#10095;_</div>
-  <p><strong>No messages yet</strong></p>
-  <p>Send a message to start the conversation.</p>
-</div>
-''';
+String emptyStateTemplate() {
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('components'),
+    fragment: 'emptyState',
+    context: const {},
+  );
+}
 
 /// Empty app state shown when no sessions exist yet.
-String emptyAppStateTemplate() => '''
-<main class="chat-area">
-  <div class="empty-state" style="flex: 1;">
-    <div class="icon">&#10095;_</div>
-    <p><strong>No sessions yet</strong></p>
-    <p>Create a new session to start chatting with DartClaw.</p>
-    <button class="btn btn-primary" data-action="create-session">+ New Session</button>
-  </div>
-</main>
-''';
+String emptyAppStateTemplate() {
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('components'),
+    fragment: 'emptyAppState',
+    context: const {},
+  );
+}

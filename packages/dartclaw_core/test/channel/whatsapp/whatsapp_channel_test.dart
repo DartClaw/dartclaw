@@ -106,7 +106,7 @@ Map<String, dynamic> _v8Envelope({
   required Map<String, dynamic> payload,
 }) => {
   'event': event,
-  if (deviceId != null) 'device_id': deviceId,
+  'device_id': ?deviceId,
   'payload': payload,
 };
 

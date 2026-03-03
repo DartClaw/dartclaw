@@ -1,0 +1,52 @@
+<aside tl:fragment="sidebar" class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <span class="logo">&#10095; DartClaw</span>
+    <button class="btn btn-icon btn-ghost sidebar-close" aria-label="Close sidebar">&#215;</button>
+  </div>
+
+  <div tl:if="${mainSession}" class="session-item session-item-main"
+    tl:classappend="${mainActive} ? 'active' : ''">
+    <a tl:attr="href=${mainHref},hx-get=${mainHref}" class="session-item-link"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar">
+      <span class="session-item-title">Main</span></a>
+  </div>
+
+  <hr class="sidebar-divider">
+
+  <div class="sidebar-section-label">Channels</div>
+  <div tl:if="${noChannels}" class="sidebar-placeholder">No active channels</div>
+  <div tl:each="ch : ${channels}" class="session-item session-item-channel"
+    tl:classappend="${ch.active} ? 'active' : ''">
+    <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar">
+      <span class="session-item-title" tl:text="${ch.title}">Channel</span></a>
+  </div>
+
+  <hr class="sidebar-divider">
+
+  <div class="sidebar-section-label">Sessions</div>
+  <button class="btn btn-ghost btn-new-session" data-action="create-session">+ New Session</button>
+  <div tl:if="${noEntries}" class="sidebar-placeholder">No sessions yet</div>
+
+  <div tl:each="entry : ${entries}" class="session-item"
+    tl:classappend="${entry.extraClass}">
+    <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar">
+      <span class="session-item-title" tl:text="${entry.title}">Session</span></a>
+    <button tl:unless="${entry.isArchive}" class="session-delete" data-action="delete-session"
+      tl:attr="data-session-id=${entry.id}" aria-label="Delete session">&#215;</button>
+  </div>
+
+  <nav tl:if="${hasNav}" class="sidebar-section" aria-label="System navigation">
+    <div class="sidebar-section-label">System</div>
+    <a tl:each="nav : ${navItems}" class="sidebar-nav-item"
+      tl:classappend="${nav.active} ? 'active' : ''"
+      tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent}"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar"
+      tl:text="${nav.label}">Link</a>
+  </nav>
+</aside>

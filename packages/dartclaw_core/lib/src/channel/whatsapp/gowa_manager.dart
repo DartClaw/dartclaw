@@ -149,7 +149,7 @@ class GowaManager {
     };
     await _postMultipart(path, filePath, field, {
       'phone': jid,
-      if (caption != null) 'caption': caption,
+      'caption': ?caption,
     });
   }
 

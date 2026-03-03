@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-enum ChannelType { web, whatsapp }
+enum ChannelType { web, whatsapp, signal }
 
 /// Normalized inbound message from any channel.
 class ChannelMessage {

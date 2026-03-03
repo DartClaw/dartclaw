@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
@@ -19,7 +20,10 @@ import 'session/session_reset_service.dart';
 import 'templates/error_page.dart';
 import 'turn_manager.dart';
 import 'web/web_routes.dart';
+import 'web/signal_pairing.dart';
 import 'web/whatsapp_pairing.dart';
+
+const _htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
 
 class DartclawServer {
   final SessionService _sessions;
@@ -36,6 +40,7 @@ class DartclawServer {
   final String _staticDir;
   final ChannelManager? _channelManager;
   final WhatsAppChannel? _whatsAppChannel;
+  final SignalChannel? _signalChannel;
   final GuardChain? _guardChain;
   final String? _webhookSecret;
 
@@ -53,6 +58,7 @@ class DartclawServer {
     this._staticDir,
     this._channelManager,
     this._whatsAppChannel,
+    this._signalChannel,
     this._guardChain,
     this._webhookSecret,
   );
@@ -76,6 +82,7 @@ class DartclawServer {
     ResultTrimmer? resultTrimmer,
     ChannelManager? channelManager,
     WhatsAppChannel? whatsAppChannel,
+    SignalChannel? signalChannel,
     String? webhookSecret,
     bool authEnabled = true,
   }) {
@@ -105,6 +112,7 @@ class DartclawServer {
       staticDir,
       channelManager,
       whatsAppChannel,
+      signalChannel,
       guardChain,
       webhookSecret,
     );
@@ -142,6 +150,7 @@ class DartclawServer {
 
     // WhatsApp pairing page.
     final waChannel = _whatsAppChannel;
+    final sigEnabled = _signalChannel != null;
     if (waChannel != null) {
       router.get('/whatsapp/pairing', (Request request) async {
         final sidebarData = await buildSidebarData(_sessions);
@@ -153,21 +162,109 @@ class DartclawServer {
                 isConnected: true,
                 connectedPhone: status.deviceId,
                 sidebarData: sidebarData,
+                signalEnabled: sigEnabled,
               ),
-              headers: {'content-type': 'text/html; charset=utf-8'},
+              headers: _htmlHeaders,
             );
           }
           // GOWA reachable but not logged in — show QR
           final qrUrl = await waChannel.gowa.getLoginQr();
           return Response.ok(
-            whatsappPairingTemplate(qrImageUrl: qrUrl, sidebarData: sidebarData),
-            headers: {'content-type': 'text/html; charset=utf-8'},
+            whatsappPairingTemplate(qrImageUrl: qrUrl, sidebarData: sidebarData, signalEnabled: sigEnabled),
+            headers: _htmlHeaders,
           );
         } catch (e) {
           return Response.ok(
-            whatsappPairingTemplate(error: 'Failed to check GOWA status: $e', sidebarData: sidebarData),
-            headers: {'content-type': 'text/html; charset=utf-8'},
+            whatsappPairingTemplate(
+              error: 'Failed to check GOWA status: $e',
+              sidebarData: sidebarData,
+              signalEnabled: sigEnabled,
+            ),
+            headers: _htmlHeaders,
           );
+        }
+      });
+    }
+
+    // Signal pairing page + registration routes.
+    final sigChannel = _signalChannel;
+    if (sigChannel != null) {
+      router.get('/signal/pairing', (Request request) async {
+        final sidebarData = await buildSidebarData(_sessions);
+        final phone = sigChannel.config.phoneNumber;
+        final error = request.requestedUri.queryParameters['error'];
+        final step = request.requestedUri.queryParameters['step'];
+
+        var verificationPending = false;
+        var isConnected = false;
+        String? connectedPhone;
+        String? configuredPhone = phone;
+        String? linkDeviceUri;
+        String? templateError = error;
+
+        if (step == 'verify') {
+          // SMS verification pending — show code entry form.
+          verificationPending = true;
+        } else {
+          try {
+            final reachable = await sigChannel.sidecar.healthCheck();
+            if (reachable) {
+              final registered = await sigChannel.sidecar.isAccountRegistered();
+              if (registered) {
+                isConnected = true;
+                connectedPhone = phone;
+                configuredPhone = null;
+                templateError = null;
+              } else {
+                // Sidecar up but not registered — fetch link device URI.
+                linkDeviceUri = await sigChannel.sidecar.getLinkDeviceUri();
+              }
+            }
+          } catch (e) {
+            templateError = 'Failed to check signal-cli status: $e';
+          }
+        }
+
+        return Response.ok(
+          signalPairingTemplate(
+            verificationPending: verificationPending,
+            isConnected: isConnected,
+            connectedPhone: connectedPhone,
+            configuredPhone: configuredPhone,
+            linkDeviceUri: linkDeviceUri,
+            error: templateError,
+            sidebarData: sidebarData,
+            signalEnabled: true,
+          ),
+          headers: _htmlHeaders,
+        );
+      });
+
+      // POST /signal/pairing/register — trigger SMS verification.
+      router.post('/signal/pairing/register', (Request request) async {
+        try {
+          await sigChannel.sidecar.requestSmsVerification();
+          return Response.found('/signal/pairing?step=verify');
+        } catch (e) {
+          final msg = Uri.encodeQueryComponent('Failed to send SMS: $e');
+          return Response.found('/signal/pairing?error=$msg');
+        }
+      });
+
+      // POST /signal/pairing/verify — complete SMS verification.
+      router.post('/signal/pairing/verify', (Request request) async {
+        try {
+          final body = await request.readAsString();
+          final params = Uri.splitQueryString(body);
+          final token = params['token'] ?? '';
+          if (token.isEmpty) {
+            return Response.found('/signal/pairing?step=verify&error=${Uri.encodeQueryComponent('Code is required')}');
+          }
+          await sigChannel.sidecar.verifySmsCode(token);
+          return Response.found('/signal/pairing');
+        } catch (e) {
+          final msg = Uri.encodeQueryComponent('Verification failed: $e');
+          return Response.found('/signal/pairing?step=verify&error=$msg');
         }
       });
     }
@@ -185,13 +282,14 @@ class DartclawServer {
       sessionStore: _sessionStore,
       healthService: _healthService,
       whatsAppChannel: _whatsAppChannel,
+      signalChannel: _signalChannel,
       guardChain: _guardChain,
       turns: _turns,
     );
     router.mount('/', webRouter.call);
 
     var pipeline = const Pipeline()
-        .addMiddleware(logRequests())
+        .addMiddleware(logRequests(logger: _sanitizedLogger))
         .addMiddleware(securityHeadersMiddleware())
         .addMiddleware(_corsMiddleware());
     if (_tokenService != null && _sessionStore != null) {
@@ -200,13 +298,29 @@ class DartclawServer {
       );
     }
     // Cascade: pass through to styled 404 when router finds no matching route.
-    final cascade = Cascade().add(router.call).add(
-      (_) => Response.notFound(
-        errorPageTemplate(404, 'Page Not Found', 'The requested page does not exist.'),
-        headers: {'content-type': 'text/html; charset=utf-8'},
-      ),
-    );
+    final cascade = Cascade()
+        .add(router.call)
+        .add(
+          (_) => Response.notFound(
+            errorPageTemplate(404, 'Page Not Found', 'The requested page does not exist.'),
+            headers: _htmlHeaders,
+          ),
+        );
     return pipeline.addHandler(cascade.handler);
+  }
+}
+
+/// Redacts sensitive query parameters (e.g. `secret`) from request log lines.
+///
+/// Shelf's default `logRequests()` logs the full URI including query strings,
+/// which would expose webhook secrets in plaintext. This logger strips the
+/// `secret` parameter value before logging.
+void _sanitizedLogger(String msg, bool isError) {
+  final sanitized = msg.replaceAll(RegExp(r'([?&])secret=[^&\s]*'), r'$1secret=REDACTED');
+  if (isError) {
+    stderr.writeln('[ERROR] $sanitized');
+  } else {
+    print(sanitized);
   }
 }
 

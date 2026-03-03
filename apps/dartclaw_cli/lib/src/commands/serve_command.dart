@@ -41,6 +41,7 @@ typedef ServerFactory =
       ResultTrimmer? resultTrimmer,
       ChannelManager? channelManager,
       WhatsAppChannel? whatsAppChannel,
+      SignalChannel? signalChannel,
       String? webhookSecret,
       bool authEnabled,
     });
@@ -78,15 +79,16 @@ class ServeCommand extends Command<void> {
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _harnessFactory =
            harnessFactory ??
-           ((cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => ClaudeCodeHarness(
-             claudeExecutable: claudeExecutable ?? 'claude',
-             cwd: cwd,
-             turnTimeout: turnTimeout ?? const Duration(seconds: 600),
-             onMemorySave: onMemorySave,
-             onMemorySearch: onMemorySearch,
-             onMemoryRead: onMemoryRead,
-             harnessConfig: harnessConfig ?? const HarnessConfig(),
-           )),
+           ((cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) =>
+               ClaudeCodeHarness(
+                 claudeExecutable: claudeExecutable ?? 'claude',
+                 cwd: cwd,
+                 turnTimeout: turnTimeout ?? const Duration(seconds: 600),
+                 onMemorySave: onMemorySave,
+                 onMemorySearch: onMemorySearch,
+                 onMemoryRead: onMemoryRead,
+                 harnessConfig: harnessConfig ?? const HarnessConfig(),
+               )),
        _serverFactory =
            serverFactory ??
            (({
@@ -107,6 +109,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer,
              channelManager,
              whatsAppChannel,
+             signalChannel,
              webhookSecret,
              authEnabled = true,
            }) => DartclawServer(
@@ -127,6 +130,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer: resultTrimmer,
              channelManager: channelManager,
              whatsAppChannel: whatsAppChannel,
+             signalChannel: signalChannel,
              webhookSecret: webhookSecret,
              authEnabled: authEnabled,
            )),
@@ -143,7 +147,12 @@ class ServeCommand extends Command<void> {
       ..addOption('claude-executable', help: 'Path to claude binary (default: claude)')
       ..addOption('log-format', allowed: ['human', 'json'], defaultsTo: 'human', help: 'Log output format')
       ..addOption('log-file', help: 'Write logs to file (in addition to stderr)')
-      ..addOption('log-level', allowed: ['FINE', 'INFO', 'WARNING', 'SEVERE'], defaultsTo: 'INFO', help: 'Minimum log level');
+      ..addOption(
+        'log-level',
+        allowed: ['FINE', 'INFO', 'WARNING', 'SEVERE'],
+        defaultsTo: 'INFO',
+        help: 'Minimum log level',
+      );
   }
 
   @override
@@ -197,6 +206,14 @@ class ServeCommand extends Command<void> {
       }
     } on FileSystemException {
       _stderrLine('Error: Cannot write to data directory at $dataDir');
+      _exitFn(1);
+    }
+
+    // Load and validate HTML templates
+    try {
+      initTemplates(config.templatesDir);
+    } on StateError catch (e) {
+      _stderrLine('Error: ${e.message}');
       _exitFn(1);
     }
 
@@ -262,7 +279,35 @@ class ServeCommand extends Command<void> {
       // Memory stack (MEMORY.md now lives in workspace/)
       final memoryFile = MemoryFileService(baseDir: config.workspaceDir);
       final memory = MemoryService(searchDb);
-      final handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile);
+
+      // QMD hybrid search (optional — requires `qmd` binary)
+      QmdManager? qmdManager;
+      if (config.searchBackend == 'qmd') {
+        final mgr = QmdManager(
+          host: config.searchQmdHost,
+          port: config.searchQmdPort,
+          workspaceDir: config.workspaceDir,
+        );
+        if (await mgr.isAvailable()) {
+          try {
+            await mgr.start();
+            qmdManager = mgr;
+            Logger('ServeCommand').info('QMD hybrid search active on ${mgr.baseUrl}');
+          } catch (e) {
+            Logger('ServeCommand').warning('QMD daemon failed to start, falling back to FTS5: $e');
+          }
+        } else {
+          Logger('ServeCommand').warning('search.backend is "qmd" but qmd binary not found — falling back to FTS5');
+        }
+      }
+
+      final searchBackend = createSearchBackend(
+        backend: config.searchBackend,
+        memoryService: memory,
+        qmdManager: qmdManager,
+        defaultDepth: config.searchDefaultDepth,
+      );
+      final handlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile, searchBackend: searchBackend);
 
       final behavior = BehaviorFileService(
         workspaceDir: config.workspaceDir,
@@ -298,34 +343,110 @@ class ServeCommand extends Command<void> {
         _exitFn(1);
       }
 
+      // Build agent definitions (default search agent if none configured)
+      final agentDefs = config.agentDefinitions.isNotEmpty ? config.agentDefinitions : [AgentDefinition.searchAgent()];
+      final agentMap = {for (final a in agentDefs) a.id: a};
+
+      // Build ToolPolicyCascade from agent definitions
+      final agentAllow = <String, Set<String>>{};
+      final agentDeny = <String, Set<String>>{};
+      for (final agent in agentDefs) {
+        if (agent.allowedTools.isNotEmpty) agentAllow[agent.id] = agent.allowedTools;
+        if (agent.deniedTools.isNotEmpty) agentDeny[agent.id] = agent.deniedTools;
+      }
+      final toolPolicyCascade = ToolPolicyCascade(
+        globalDeny: config.agentDisallowedTools.toSet(),
+        agentDeny: agentDeny,
+        agentAllow: agentAllow,
+      );
+
       // Construct guard chain with per-guard YAML configs
+      final auditLogger = GuardAuditLogger();
       final guardChain = config.guards.enabled
           ? GuardChain(
               failOpen: config.guards.failOpen,
               guards: [
                 CommandGuard(
                   config: config.guardsYaml['command'] is Map
-                      ? CommandGuardConfig.fromYaml(
-                          Map<String, dynamic>.from(config.guardsYaml['command'] as Map))
+                      ? CommandGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['command'] as Map))
                       : CommandGuardConfig.defaults(),
                 ),
                 FileGuard(
-                  config: (config.guardsYaml['file'] is Map
-                          ? FileGuardConfig.fromYaml(
-                              Map<String, dynamic>.from(config.guardsYaml['file'] as Map))
-                          : FileGuardConfig.defaults())
-                      .withSelfProtection(p.join(dataDir, 'dartclaw.yaml')),
+                  config:
+                      (config.guardsYaml['file'] is Map
+                              ? FileGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['file'] as Map))
+                              : FileGuardConfig.defaults())
+                          .withSelfProtection(p.join(dataDir, 'dartclaw.yaml')),
                 ),
                 NetworkGuard(
                   config: config.guardsYaml['network'] is Map
-                      ? NetworkGuardConfig.fromYaml(
-                          Map<String, dynamic>.from(config.guardsYaml['network'] as Map))
+                      ? NetworkGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['network'] as Map))
                       : NetworkGuardConfig.defaults(),
                 ),
+                ToolPolicyGuard(cascade: toolPolicyCascade),
               ],
-              auditLogger: GuardAuditLogger(),
+              auditLogger: auditLogger,
             )
           : null;
+
+      // ContentGuard: requires ANTHROPIC_API_KEY from environment
+      ContentGuard? contentGuard;
+      if (config.contentGuardEnabled) {
+        final apiKey = Platform.environment['ANTHROPIC_API_KEY'];
+        if (apiKey != null && apiKey.isNotEmpty) {
+          contentGuard = ContentGuard(
+            client: AnthropicClient(apiKey: apiKey, model: config.contentGuardModel),
+            maxContentBytes: config.contentGuardMaxBytes,
+          );
+        } else {
+          Logger('ServeCommand').warning(
+            'ANTHROPIC_API_KEY not set — content guard disabled. '
+            'Set the environment variable to enable content classification at agent boundaries.',
+          );
+        }
+      }
+
+      // Ensure agent session directories exist
+      for (final agent in agentDefs) {
+        if (agent.sessionStorePath.isNotEmpty) {
+          Directory(p.join(config.workspaceDir, agent.sessionStorePath)).createSync(recursive: true);
+        }
+      }
+
+      // SessionDelegate: dispatches sub-agent turns with content guard at boundary
+      final totalConcurrent = agentDefs.fold(0, (sum, a) => sum + a.maxConcurrent);
+      final subagentLimits = SubagentLimits(
+        maxConcurrent: totalConcurrent,
+        maxSpawnDepth: 1,
+        maxChildrenPerAgent: totalConcurrent,
+      );
+      final sessionDelegate = SessionDelegate(
+        dispatch: ({required sessionId, required message, required agentId}) async {
+          final session = await sessions.getOrCreateByKey(sessionId);
+          final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+          final turnId = await server!.turns.startTurn(session.id, [userMsg]);
+          final outcome = await server.turns.waitForOutcome(session.id, turnId);
+          if (outcome.status != TurnStatus.completed) {
+            throw StateError('Agent turn failed: ${outcome.errorMessage}');
+          }
+          // Extract last assistant message from the session
+          final msgs = await messages.getMessages(session.id);
+          final lastAssistant = msgs.lastWhere(
+            (m) => m.role == 'assistant',
+            orElse: () => throw StateError('No assistant response in session'),
+          );
+          return lastAssistant.content;
+        },
+        limits: subagentLimits,
+        agents: agentMap,
+        contentGuard: contentGuard,
+        auditLogger: auditLogger,
+      );
+
+      // Register SessionDelegate MCP tools with the harness tool registry
+      if (harness is ClaudeCodeHarness) {
+        sessionDelegate.registerTools(harness.toolRegistry);
+      }
 
       // KV store for per-session cost tracking
       final kvService = KvService(filePath: config.kvPath);
@@ -395,26 +516,21 @@ class ServeCommand extends Command<void> {
       }
 
       // Channel + message queue (H-01: S14-S15 wiring)
+      final waConfig = config.channelConfig.channelConfigs['whatsapp'];
+      final sigConfig = config.channelConfig.channelConfigs['signal'];
+      final waEnabled = waConfig != null && waConfig['enabled'] == true;
+      final sigEnabled = sigConfig != null && sigConfig['enabled'] == true;
+
       ChannelManager? channelManager;
       WhatsAppChannel? whatsAppChannel;
+      SignalChannel? signalChannel;
       String? webhookSecret;
-      final waConfig = config.channelConfig.channelConfigs['whatsapp'];
-      if (waConfig != null && waConfig['enabled'] == true) {
-        final messageQueue = MessageQueue(
-          debounceWindow: config.channelConfig.debounceWindow,
-          maxConcurrentTurns: config.maxParallelTurns,
-          maxQueueDepth: config.channelConfig.maxQueueDepth,
-          defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
-          dispatcher: (sessionKey, message, {String? senderJid}) async {
-            final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-            final userMsg = <String, dynamic>{'role': 'user', 'content': message};
-            final turnId = await server!.turns.startTurn(session.id, [userMsg]);
-            final outcome = await server.turns.waitForOutcome(session.id, turnId);
-            return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
-          },
-        );
-        channelManager = ChannelManager(queue: messageQueue, config: config.channelConfig);
 
+      if (waEnabled || sigEnabled) {
+        channelManager = _buildChannelManager(config: config, sessions: sessions, serverRef: () => server);
+      }
+
+      if (waEnabled && channelManager != null) {
         try {
           final warns = <String>[];
           final parsedConfig = WhatsAppConfig.fromYaml(waConfig, warns);
@@ -436,10 +552,7 @@ class ServeCommand extends Command<void> {
           final waChannel = WhatsAppChannel(
             gowa: gowaManager,
             config: parsedConfig,
-            dmAccess: DmAccessController(
-              mode: parsedConfig.dmAccess,
-              allowlist: parsedConfig.dmAllowlist.toSet(),
-            ),
+            dmAccess: DmAccessController(mode: parsedConfig.dmAccess, allowlist: parsedConfig.dmAllowlist.toSet()),
             mentionGating: MentionGating(
               requireMention: parsedConfig.requireMention,
               mentionPatterns: parsedConfig.mentionPatterns,
@@ -453,6 +566,44 @@ class ServeCommand extends Command<void> {
           Logger('ServeCommand').info('WhatsApp channel registered');
         } catch (e) {
           Logger('ServeCommand').warning('Failed to initialize WhatsApp channel: $e');
+        }
+      }
+
+      // Signal channel wiring
+      if (sigEnabled && channelManager != null) {
+        try {
+          final warns = <String>[];
+          final parsedSignalConfig = SignalConfig.fromYaml(sigConfig, warns);
+          for (final w in warns) {
+            Logger('ServeCommand').warning('Signal config: $w');
+          }
+
+          final sidecar = SignalCliManager(
+            executable: parsedSignalConfig.executable,
+            host: parsedSignalConfig.host,
+            port: parsedSignalConfig.port,
+            phoneNumber: parsedSignalConfig.phoneNumber,
+          );
+
+          final sigDmAccess = SignalDmAccessController(mode: SignalDmAccessMode.open);
+          final sigMentionGating = SignalMentionGating(
+            requireMention: false,
+            mentionPatterns: const [],
+            ownNumber: parsedSignalConfig.phoneNumber,
+          );
+
+          final sigChannel = SignalChannel(
+            sidecar: sidecar,
+            config: parsedSignalConfig,
+            dmAccess: sigDmAccess,
+            mentionGating: sigMentionGating,
+            channelManager: channelManager,
+          );
+          channelManager.registerChannel(sigChannel);
+          signalChannel = sigChannel;
+          Logger('ServeCommand').info('Signal channel registered');
+        } catch (e) {
+          Logger('ServeCommand').warning('Failed to initialize Signal channel: $e');
         }
       }
 
@@ -474,6 +625,7 @@ class ServeCommand extends Command<void> {
         resultTrimmer: resultTrimmer,
         channelManager: channelManager,
         whatsAppChannel: whatsAppChannel,
+        signalChannel: signalChannel,
         webhookSecret: webhookSecret,
         authEnabled: authEnabled,
       );
@@ -510,21 +662,14 @@ class ServeCommand extends Command<void> {
       // Start cron scheduler
       ScheduleService? scheduleService;
       if (scheduledJobs.isNotEmpty) {
-        scheduleService = ScheduleService(
-          turns: server.turns,
-          sessions: sessions,
-          jobs: scheduledJobs,
-        );
+        scheduleService = ScheduleService(turns: server.turns, sessions: sessions, jobs: scheduledJobs);
         scheduleService.start();
       }
 
       // Workspace git sync (H-01: S17 wiring)
       WorkspaceGitSync? gitSync;
       if (config.gitSyncEnabled) {
-        gitSync = WorkspaceGitSync(
-          workspaceDir: config.workspaceDir,
-          pushEnabled: config.gitSyncPushEnabled,
-        );
+        gitSync = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.gitSyncPushEnabled);
         if (await gitSync.isGitAvailable()) {
           await gitSync.initIfNeeded();
           Logger('ServeCommand').info('Workspace git sync enabled');
@@ -571,6 +716,7 @@ class ServeCommand extends Command<void> {
             scheduleService?.stop();
             resetService.dispose();
             await kvService.dispose();
+            await qmdManager?.stop();
             startedSearchDb.close();
             _stderrLine('Shutdown complete');
           }).timeout(const Duration(seconds: 10));
@@ -630,6 +776,32 @@ class ServeCommand extends Command<void> {
     }
 
     Logger('ServeCommand').info('Log rotation configs generated in $logsDir');
+  }
+
+  /// Builds the shared [ChannelManager] used by all messaging channels.
+  ///
+  /// The dispatcher closure captures [serverRef] (a lazy callback) so the
+  /// server reference is resolved at dispatch time, after it's been assigned.
+  ChannelManager _buildChannelManager({
+    required DartclawConfig config,
+    required SessionService sessions,
+    required DartclawServer? Function() serverRef,
+  }) {
+    final messageQueue = MessageQueue(
+      debounceWindow: config.channelConfig.debounceWindow,
+      maxConcurrentTurns: config.maxParallelTurns,
+      maxQueueDepth: config.channelConfig.maxQueueDepth,
+      defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
+      dispatcher: (sessionKey, message, {String? senderJid}) async {
+        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+        final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+        final srv = serverRef()!;
+        final turnId = await srv.turns.startTurn(session.id, [userMsg]);
+        final outcome = await srv.turns.waitForOutcome(session.id, turnId);
+        return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
+      },
+    );
+    return ChannelManager(queue: messageQueue, config: config.channelConfig);
   }
 
   /// Tears down server + search DB without HTTP server (used when bind fails).

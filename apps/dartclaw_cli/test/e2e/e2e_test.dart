@@ -86,11 +86,23 @@ String _staticDir() {
   return fromPkg;
 }
 
+/// Resolves templates dir whether tests run from workspace root or app root.
+String _templatesDir() {
+  const fromWorkspace = 'packages/dartclaw_server/lib/src/templates';
+  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
+  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
+  if (Directory(fromApp).existsSync()) return fromApp;
+  return fromWorkspace;
+}
+
 // ---------------------------------------------------------------------------
 // E2E Integration Tests
 // ---------------------------------------------------------------------------
 
 void main() {
+  setUpAll(() => initTemplates(_templatesDir()));
+  tearDownAll(() => resetTemplates());
+
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;

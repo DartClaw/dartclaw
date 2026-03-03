@@ -21,6 +21,13 @@ import '../turn_manager.dart';
 /// HTML page routes for the web UI.
 ///
 /// [workerState] is checked on session page load to show recovery banners.
+///
+/// SPA navigation: sidebar links send `HX-Request: true` with `hx-get`.
+/// When an HTMX request arrives (and it is NOT a history restore), the server
+/// returns only the `#main-content` fragment plus out-of-band `#topbar` and
+/// `#sidebar` swaps — no full `<html>` document. History restore requests
+/// (`HX-History-Restore-Request: true`) and non-HTMX requests receive the
+/// full page.
 Router webRoutes(
   SessionService sessions,
   MessageService messages, {
@@ -29,6 +36,7 @@ Router webRoutes(
   SessionStore? sessionStore,
   HealthService? healthService,
   WhatsAppChannel? whatsAppChannel,
+  SignalChannel? signalChannel,
   GuardChain? guardChain,
   TurnManager? turns,
   bool heartbeatEnabled = false,
@@ -38,6 +46,8 @@ Router webRoutes(
   bool gitSyncEnabled = false,
 }) {
   final router = Router();
+  final signalEnabled = signalChannel != null;
+  final systemNav = buildSystemNavItems(activePage: '', signalEnabled: signalEnabled);
 
   // GET /login — render login page.
   router.get('/login', (Request request) {
@@ -52,7 +62,7 @@ Router webRoutes(
     final ts = tokenService;
     final ss = sessionStore;
     if (ts == null || ss == null) {
-      return Response.found('/');
+      return _redirect(request, '/');
     }
 
     final body = await request.readAsString();
@@ -67,7 +77,7 @@ Router webRoutes(
     }
 
     final sessionId = ss.createSession();
-    return Response.found('/', headers: {
+    return _redirect(request, '/', extraHeaders: {
       'set-cookie': 'dart_session=$sessionId; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000',
     });
   });
@@ -76,12 +86,12 @@ Router webRoutes(
   router.get('/', (Request request) async {
     final mainSession = (await sessions.listSessions(type: SessionType.main)).firstOrNull;
     if (mainSession != null) {
-      return Response.found('/sessions/${mainSession.id}');
+      return _redirect(request, '/sessions/${mainSession.id}');
     }
     // Fallback: any session
     final all = await sessions.listSessions();
     if (all.isNotEmpty) {
-      return Response.found('/sessions/${all.first.id}');
+      return _redirect(request, '/sessions/${all.first.id}');
     }
 
     final sidebarData = await buildSidebarData(sessions);
@@ -89,7 +99,7 @@ Router webRoutes(
       mainSession: sidebarData.main,
       channelSessions: sidebarData.channels,
       sessionEntries: sidebarData.entries,
-      navItems: _systemNav,
+      navItems: systemNav,
     );
     final topbar = topbarTemplate();
     final main = emptyAppStateTemplate();
@@ -99,7 +109,7 @@ Router webRoutes(
     return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
   });
 
-  // GET /sessions/<id> — full page render.
+  // GET /sessions/<id> — full page or SPA fragment.
   router.get('/sessions/<id>', (Request request, String id) async {
     try {
       final session = await sessions.getSession(id);
@@ -107,21 +117,22 @@ Router webRoutes(
 
       final sidebarData = await buildSidebarData(sessions);
       final msgs = await messages.getMessages(id);
-      final messageList = msgs.map((m) => (id: m.id, role: m.role, content: m.content)).toList();
+      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
 
       final sidebar = sidebarTemplate(
         mainSession: sidebarData.main,
         channelSessions: sidebarData.channels,
         sessionEntries: sidebarData.entries,
         activeSessionId: id,
-        navItems: _systemNav,
+        navItems: systemNav,
       );
       final topbar = topbarTemplate(title: session.title, sessionId: id, sessionType: session.type);
       final msgsHtml = messagesHtmlFragment(messageList);
       final bannerHtml = StringBuffer();
       if (workerStateGetter?.call() == WorkerState.crashed) {
         bannerHtml.write(
-          '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. Retry your message.'
+          '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. '
+          'Retry your message.'
           '<button class="dismiss" aria-label="Dismiss">&#10005;</button></div>',
         );
       }
@@ -140,9 +151,13 @@ Router webRoutes(
         bannerHtml: bannerHtml.toString(),
         readOnly: isArchive,
       );
+
+      if (_wantsFragment(request)) {
+        return _htmlFragment('$chat$topbar$sidebar');
+      }
+
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
       final page = layoutTemplate(title: session.title ?? 'New Session', body: bodyHtml);
-
       return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
     } catch (e) {
       return _htmlError('Failed to load session: $e');
@@ -156,7 +171,7 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final msgs = await messages.getMessages(id);
-      final messageList = msgs.map((m) => (id: m.id, role: m.role, content: m.content)).toList();
+      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
 
       return Response.ok(messagesHtmlFragment(messageList), headers: {'content-type': 'text/html; charset=utf-8'});
     } catch (e) {
@@ -178,6 +193,7 @@ Router webRoutes(
         sessionTitle: session.title ?? '',
         messageCount: msgs.length,
         sidebarData: sidebarData,
+        navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
       );
 
@@ -201,8 +217,9 @@ Router webRoutes(
         workerState: status['worker_state'] as String? ?? 'unknown',
         sessionCount: status['session_count'] as int? ?? 0,
         dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
-        version: status['version'] as String? ?? '0.2.0',
+        version: status['version'] as String? ?? 'unknown',
         sidebarData: sidebarData,
+        signalEnabled: signalEnabled,
       );
 
       return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
@@ -231,8 +248,13 @@ Router webRoutes(
         sessionCount: status['session_count'] as int? ?? 0,
         dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
         workerState: status['worker_state'] as String? ?? 'unknown',
-        version: status['version'] as String? ?? '0.2.0',
+        version: status['version'] as String? ?? 'unknown',
         whatsAppEnabled: whatsAppChannel != null,
+        signalEnabled: signalEnabled,
+        signalPhone: signalChannel?.config.phoneNumber,
+        signalStatus: signalChannel != null
+            ? (signalChannel.sidecar.isRunning ? 'connected' : 'disconnected')
+            : 'not configured',
         guardsEnabled: guardsEnabled,
         activeGuards: activeGuards,
         scheduledJobsCount: scheduledJobs.length,
@@ -258,6 +280,7 @@ Router webRoutes(
         heartbeatEnabled: heartbeatEnabled,
         heartbeatIntervalMinutes: heartbeatIntervalMinutes,
         jobs: scheduledJobs,
+        signalEnabled: signalEnabled,
       );
 
       return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
@@ -311,15 +334,35 @@ Map<String, dynamic> _getStatus(
     'worker_state': ws?.name ?? 'unknown',
     'session_count': sessionCount,
     'db_size_bytes': 0,
-    'version': '0.2.0',
+    'version': 'unknown',
   };
 }
 
-const _systemNav = [
-  (label: 'Health', href: '/health-dashboard', active: false),
-  (label: 'Settings', href: '/settings', active: false),
-  (label: 'Scheduling', href: '/scheduling', active: false),
-];
+// ---------------------------------------------------------------------------
+// HTMX SPA helpers
+// ---------------------------------------------------------------------------
+
+/// Whether the request is an HTMX SPA navigation that expects a fragment
+/// (not a history-restore which needs the full page).
+bool _wantsFragment(Request request) {
+  final isHx = request.headers['HX-Request'] == 'true';
+  final isHistoryRestore = request.headers['HX-History-Restore-Request'] == 'true';
+  return isHx && !isHistoryRestore;
+}
+
+/// Returns an HTML fragment response (used for SPA partial swaps).
+Response _htmlFragment(String html) => Response.ok(html, headers: {'content-type': 'text/html; charset=utf-8'});
+
+/// Redirect helper: HTMX requests get `HX-Location` (client-side redirect),
+/// non-HTMX requests get a standard 302.
+Response _redirect(Request request, String path, {Map<String, String>? extraHeaders}) {
+  final headers = <String, String>{...?extraHeaders};
+  if (request.headers['HX-Request'] == 'true') {
+    headers['HX-Location'] = path;
+    return Response.ok('', headers: headers);
+  }
+  return Response.found(path, headers: headers);
+}
 
 Response _htmlNotFound(String message) => Response.notFound(
   errorPageTemplate(404, 'Page Not Found', message),

@@ -33,7 +33,7 @@ apps/
 - **JSONL control protocol**: Dart↔claude binary communication via bidirectional JSONL over stdin/stdout. Dart sends user messages + control responses, claude sends stream events + control requests (tool approval, hook callbacks, MCP messages)
 - **Filesystem IPC**: JSON files with atomic writes (temp file + rename) for agent→host communication when containerized
 - **Two-tier privilege model**: Main group = admin, other groups = sandboxed with per-group isolation
-- **HTML templates as Dart functions**: String interpolation, no template engine. HTMX + SSE for streaming, zero JS build toolchain
+- **Trellis HTML templates**: `.html` files in `packages/dartclaw_server/lib/src/templates/` using `tl:text` for auto-escaping and `tl:utext` for trusted HTML. Inline Dart string constants with `tl:fragment` for fragment-based rendering. HTMX + SSE for streaming, zero JS build toolchain
 - **SSE streaming**: Implemented directly in shelf (`Response.ok(eventStream, headers: {'Content-Type': 'text/event-stream'})`)
 
 ## Security Model (Core Principle)

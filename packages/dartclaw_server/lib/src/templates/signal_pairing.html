@@ -1,0 +1,109 @@
+<div tl:fragment="signalPairing" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" hx-history-elt class="wa-main">
+    <div class="wa-inner">
+
+      <div tl:if="${error}" class="banner banner-warning">
+        <span tl:text="${error}">Error</span>
+        <button class="dismiss" aria-label="Dismiss">&#10005;</button>
+      </div>
+
+      <div class="wa-content">
+
+        <!-- Connected state -->
+        <div tl:if="${isConnected}" class="wa-section">
+          <div class="wa-connected-header">
+            <span style="color:var(--success);font-size:var(--text-xl);">&#10003;</span>
+            Signal Connected
+          </div>
+          <div class="wa-detail">Phone: <span class="wa-detail-value" tl:text="${phoneDisplay}">Connected</span></div>
+          <div class="wa-detail" style="color:var(--fg-overlay);font-size:var(--text-sm);">
+            Messages will be delivered via Signal.
+          </div>
+        </div>
+
+        <!-- Verification pending state -->
+        <div tl:if="${verificationPending}" class="wa-section">
+          <div class="section-label">Enter Verification Code</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">
+            An SMS verification code was sent to <strong tl:text="${verifyPhone}">your number</strong>.
+            Enter the code below to complete registration.
+          </p>
+          <form method="post" action="/signal/pairing/verify" style="margin-top:var(--sp-4);">
+            <div style="display:flex;gap:var(--sp-2);align-items:flex-end;">
+              <div style="flex:1;">
+                <label for="token" style="display:block;font-size:var(--text-sm);color:var(--fg-sub0);margin-bottom:var(--sp-1);">
+                  Verification code
+                </label>
+                <input id="token" name="token" type="text" inputmode="numeric" pattern="[0-9]*"
+                       placeholder="123456" autocomplete="one-time-code"
+                       style="width:100%;padding:var(--sp-2) var(--sp-3);background:var(--bg-mantle);
+                              border:1px solid var(--surface2);border-radius:var(--radius-sm);
+                              color:var(--fg);font-size:var(--text-sm);" required="">
+              </div>
+              <button type="submit" class="btn btn-primary">Verify &#10095;</button>
+            </div>
+          </form>
+          <p style="margin-top:var(--sp-4);font-size:var(--text-sm);color:var(--fg-overlay);">
+            Didn't receive a code?
+            <a href="/signal/pairing">Try again</a> or use
+            <a href="/signal/pairing?method=link">device linking</a> instead.
+          </p>
+        </div>
+
+        <!-- Link device state -->
+        <div tl:if="${showLinkDevice}" class="wa-section">
+          <div class="section-label">Option 1 — Link Device (Recommended)</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">
+            Open Signal on your phone &rarr; <strong>Settings &rarr; Linked Devices &rarr; Link New Device</strong>,
+            then scan this QR code or open the link on a mobile device.
+          </p>
+          <div class="wa-qr-wrapper" style="margin:var(--sp-4) 0;padding:var(--sp-3);
+               background:var(--bg-mantle);border:1px solid var(--surface1);border-radius:var(--radius-sm);">
+            <p style="font-size:var(--text-xs);color:var(--fg-overlay);margin-bottom:var(--sp-2);">Device link URI:</p>
+            <code style="font-size:var(--text-xs);word-break:break-all;color:var(--accent);" tl:text="${linkDeviceUri}">sgnl://...</code>
+          </div>
+          <div class="wa-status-row">
+            <span class="wa-spinner"></span>
+            <span style="color:var(--fg-sub0);font-size:var(--text-sm);">Waiting for device link&hellip;
+              <a href="/signal/pairing" style="margin-left:var(--sp-2);">Refresh</a>
+            </span>
+          </div>
+        </div>
+
+        <div tl:if="${showLinkDevice}" class="wa-section" style="margin-top:var(--sp-8);">
+          <div class="section-label">Option 2 — Register via SMS</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">
+            Registers <strong tl:text="${smsPhoneDisplay}">the configured number</strong> as a new Signal account
+            using SMS verification. Only use this if you are registering a fresh number.
+          </p>
+          <form method="post" action="/signal/pairing/register" style="margin-top:var(--sp-4);">
+            <button type="submit" class="btn btn-secondary">Send SMS Code</button>
+          </form>
+        </div>
+
+        <!-- Daemon not reachable state -->
+        <div tl:if="${showSetup}" class="wa-section">
+          <div class="section-label">signal-cli Not Reachable</div>
+          <p style="color:var(--fg-sub0);font-size:var(--text-sm);">
+            The signal-cli daemon is not running or not reachable.
+            Ensure signal-cli is installed and configured in <code>dartclaw.yaml</code>:
+          </p>
+          <pre class="wa-pre">channels:
+  signal:
+    enabled: true
+    phone_number: "+1234567890"
+    executable: signal-cli   # default
+    host: 127.0.0.1          # default
+    port: 8080               # default</pre>
+          <p style="margin-top:var(--sp-4);font-size:var(--text-sm);color:var(--fg-overlay);">
+            Once signal-cli is installed, <a href="/signal/pairing">refresh this page</a> to begin pairing.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+</div>

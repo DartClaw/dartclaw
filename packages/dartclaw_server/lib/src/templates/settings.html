@@ -1,0 +1,127 @@
+<div tl:fragment="settings" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" hx-history-elt class="page-content">
+    <div class="page-inner">
+    <div class="settings-header">
+      <h1>Settings</h1>
+      <p>Configuration and system status</p>
+    </div>
+    <div class="settings-grid">
+
+      <!-- WhatsApp Channel -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">WhatsApp Channel</span>
+          <span tl:if="${whatsAppEnabled}" class="status-badge status-badge-success">Connected</span>
+          <span tl:unless="${whatsAppEnabled}" class="status-badge status-badge-muted">Disabled</span>
+        </div>
+        <div tl:if="${whatsAppEnabled}" class="card-actions">
+          <a href="/whatsapp/pairing" class="card-link">Configure &#8594;</a>
+        </div>
+        <div tl:unless="${whatsAppEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Signal Channel -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">Signal Channel</span>
+          <span tl:if="${signalConnected}" class="status-badge status-badge-success">Connected</span>
+          <span tl:if="${signalDisconnected}" class="status-badge status-badge-warning">Disconnected</span>
+          <span tl:if="${signalNotConfigured}" class="status-badge status-badge-muted">Not configured</span>
+        </div>
+        <div tl:if="${signalEnabled}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${signalPhone}">-</span>
+        </div>
+        <div tl:if="${signalEnabled}" class="card-actions">
+          <a href="/signal/pairing" class="card-link">Configure &#8594;</a>
+        </div>
+        <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Security & Guards -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">Security &amp; Guards</span>
+          <span tl:if="${guardsActive}" class="status-badge status-badge-success"
+                tl:text="${activeGuardCount} + ' active'">0 active</span>
+          <span tl:unless="${guardsActive}" class="status-badge status-badge-muted">Disabled</span>
+        </div>
+        <div class="guard-list">
+          <div class="guard-item" tl:each="guard : ${activeGuards}">
+            <span class="guard-check">&#10003;</span> <span tl:text="${guard}">Guard</span>
+          </div>
+          <div tl:unless="${guardsActive}" class="guard-item card-detail-muted">No guards active</div>
+        </div>
+      </div>
+
+      <!-- Scheduling -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">Scheduling</span>
+          <span tl:if="${schedulingActive}" class="status-badge status-badge-success">Active</span>
+          <span tl:unless="${schedulingActive}" class="status-badge status-badge-muted">Inactive</span>
+        </div>
+        <div class="card-detail">
+          Scheduled jobs: <span class="card-detail-value" tl:text="${scheduledJobsCount}">0</span>
+        </div>
+        <div class="card-detail">
+          Heartbeat: <span class="card-detail-value" tl:text="${heartbeatDisplay}">disabled</span>
+        </div>
+        <div class="card-actions">
+          <a href="/scheduling" class="card-link">View Schedule &#8594;</a>
+        </div>
+      </div>
+
+      <!-- Authentication -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">Authentication</span>
+          <span class="mode-badge">Token-based</span>
+        </div>
+        <div class="card-detail">Token:</div>
+        <div class="token-row">
+          <span class="token-masked">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
+        </div>
+        <div class="card-detail card-detail-hint">
+          Use <code>dartclaw token show</code> to reveal
+        </div>
+      </div>
+
+      <!-- System Health -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">System Health</span>
+          <span class="status-badge" tl:classappend="${healthBadgeClass}" tl:text="${healthLabel}">Healthy</span>
+        </div>
+        <div class="card-detail">
+          Uptime: <span class="card-detail-value" tl:text="${uptimeStr}">0m</span>
+        </div>
+        <div class="card-detail">
+          Sessions: <span class="card-detail-value" tl:text="${sessionCount}">0</span>
+        </div>
+        <div class="card-detail">
+          Version: <span class="card-detail-value" tl:text="${version}">0.0.0</span>
+        </div>
+        <div class="card-actions">
+          <a href="/health-dashboard" class="card-link">Full Dashboard &#8594;</a>
+        </div>
+      </div>
+
+      <!-- Workspace -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title">Workspace</span>
+          <span tl:if="${gitSyncEnabled}" class="status-badge status-badge-success">Synced</span>
+          <span tl:unless="${gitSyncEnabled}" class="status-badge status-badge-muted">No sync</span>
+        </div>
+        <div class="card-detail card-detail-mono" tl:text="${workspacePathDisplay}">~/.dartclaw/workspace/</div>
+        <div class="card-detail">
+          Git sync: <span class="card-detail-value" tl:text="${gitSyncDisplay}">Disabled</span>
+        </div>
+      </div>
+
+    </div>
+    </div>
+  </main>
+</div>

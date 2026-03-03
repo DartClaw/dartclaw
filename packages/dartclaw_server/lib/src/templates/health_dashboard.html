@@ -1,0 +1,45 @@
+<div tl:fragment="healthDashboard" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" hx-history-elt class="dashboard">
+    <div class="dashboard-inner">
+
+      <div class="status-hero" tl:classappend="${statusColorClass}">
+        <div class="status-indicator" tl:utext="${statusIcon}"><!-- icon --></div>
+        <div class="status-details">
+          <div class="status-label" tl:text="${statusLabel}">Healthy</div>
+          <dl class="status-meta">
+            <div><dt>Uptime</dt><dd tl:text="${uptimeStr}">0m</dd></div>
+            <div><dt>Version</dt><dd tl:text="${version}">0.0.0</dd></div>
+            <div><dt>Worker</dt><dd tl:text="${workerState}">unknown</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <h2 class="section-label">Services</h2>
+      <div class="card-grid">
+        <div class="card" tl:each="card : ${cards}">
+          <div class="card-header">
+            <span class="card-title" tl:text="${card.title}">Service</span>
+            <span class="card-badge" tl:classappend="${card.badgeClass}" tl:text="${card.badgeText}">ok</span>
+          </div>
+          <div class="card-rows">
+            <div class="card-row" tl:each="row : ${card.rows}">
+              <span class="card-row-label" tl:text="${row.label}">Label</span>
+              <span class="card-row-value" tl:classappend="${row.valueClass}" tl:text="${row.value}">Value</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="section-label">Metrics</h2>
+      <div class="metrics-grid">
+        <div class="metric-card" tl:each="metric : ${metrics}">
+          <div class="metric-value" tl:text="${metric.value}">0</div>
+          <div class="metric-label" tl:text="${metric.label}">Metric</div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>

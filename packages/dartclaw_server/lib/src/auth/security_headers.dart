@@ -2,7 +2,7 @@ import 'package:shelf/shelf.dart';
 
 /// SHA-256 hash of the inline theme-detection script in layout.dart.
 /// Must be updated if that script changes.
-const _themeScriptHash = 'sha256-GLKF32Vrb/mzXWsmX60VmtsgKSLe7yR6CTAHv4MtOFQ=';
+const _themeScriptHash = 'sha256-Nv1JReIKyK52u/L2sOlX5XEwoodaiEphFAlIFGeX9A8=';
 
 /// Content-Security-Policy: script hashes for static inline scripts,
 /// explicit CDN allowlist, no unsafe-inline for scripts.
@@ -29,6 +29,7 @@ Middleware securityHeadersMiddleware() {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Cache-Control': 'no-store',
+      'Vary': 'HX-Request',
     });
   };
 }

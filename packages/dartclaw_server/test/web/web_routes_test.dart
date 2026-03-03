@@ -1,11 +1,16 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/src/web/web_routes.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
+  setUpAll(() => initTemplates(resolveTemplatesDir()));
+  tearDownAll(() => resetTemplates());
+
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
@@ -69,8 +74,12 @@ void main() {
       await sessions.updateTitle(session.id, '<script>alert(1)</script>');
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
+      // Title in <title> tag and sidebar tl:text are fully entity-escaped.
       expect(body, contains('&lt;script&gt;'));
-      expect(body, isNot(contains('<script>alert')));
+      // Ensure <script>alert does NOT appear in text content (outside attributes).
+      // In properly-quoted attribute values (e.g. input value="..."), <> are
+      // safe per HTML5 spec and do not execute.
+      expect(body, isNot(RegExp(r'>[^<]*<script>alert')));
     });
 
     test('response body contains messages section', () async {
@@ -124,6 +133,30 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
       expect(body, contains('data-markdown'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('Security headers and SPA fragment behaviour', () {
+    test('Vary: HX-Request header present on responses', () async {
+      final pipeline = const Pipeline()
+          .addMiddleware(securityHeadersMiddleware())
+          .addHandler(webRoutes(sessions, messages).call);
+      final res = await pipeline(Request('GET', Uri.parse('http://localhost/')));
+      expect(res.headers['vary'], contains('HX-Request'));
+    });
+
+    test('HX-Request: true returns fragment without DOCTYPE', () async {
+      final session = await sessions.createSession();
+      final res = await handler(Request(
+        'GET',
+        Uri.parse('http://localhost/sessions/${session.id}'),
+        headers: {'HX-Request': 'true'},
+      ));
+      expect(res.statusCode, equals(200));
+      final body = await res.readAsString();
+      expect(body, isNot(contains('<!DOCTYPE html>')));
+      expect(body, contains('id="main-content"'));
     });
   });
 }

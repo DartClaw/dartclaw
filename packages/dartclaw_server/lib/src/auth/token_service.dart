@@ -3,6 +3,8 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
+import 'auth_utils.dart';
+
 /// Manages the gateway authentication token.
 ///
 /// The token is a 64-character hex string generated from 32 cryptographically
@@ -55,13 +57,5 @@ class TokenService {
   }
 
   /// Constant-time comparison to prevent timing attacks.
-  bool validateToken(String candidate) {
-    final expected = token;
-    if (candidate.length != expected.length) return false;
-    var result = 0;
-    for (var i = 0; i < expected.length; i++) {
-      result |= candidate.codeUnitAt(i) ^ expected.codeUnitAt(i);
-    }
-    return result == 0;
-  }
+  bool validateToken(String candidate) => constantTimeEquals(candidate, token);
 }

@@ -77,8 +77,6 @@
     "deny": []
   },
   "hooks": {},
-  "plansDirectory": "docs/plans",
-  "enabledPlugins": {
-    "dart-lsp@dartclaw-local": true
-  }
+  "plansDirectory": "../docs/plans",
+  "enabledPlugins": {}
 }

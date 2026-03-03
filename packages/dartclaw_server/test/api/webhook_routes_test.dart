@@ -3,23 +3,21 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/auth/auth_utils.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
-// Minimal test doubles
+// Minimal test doubles — WhatsApp
 // ---------------------------------------------------------------------------
 class _FakeGowaManager extends GowaManager {
   _FakeGowaManager()
-      : super(
-          executable: 'whatsapp',
-          processFactory: (exe, args,
-              {workingDirectory,
-              environment,
-              includeParentEnvironment = true}) async {
-            return _NeverExitProcess();
-          },
-        );
+    : super(
+        executable: 'whatsapp',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          return _NeverExitProcess();
+        },
+      );
 
   @override
   Future<void> start() async {}
@@ -31,12 +29,10 @@ class _FakeGowaManager extends GowaManager {
   Future<void> sendText(String jid, String text) async {}
 
   @override
-  Future<void> sendMedia(String jid, String filePath,
-      {String? caption}) async {}
+  Future<void> sendMedia(String jid, String filePath, {String? caption}) async {}
 
   @override
-  Future<GowaStatus> getStatus() async =>
-      (isConnected: false, isLoggedIn: false, deviceId: null);
+  Future<GowaStatus> getStatus() async => (isConnected: false, isLoggedIn: false, deviceId: null);
 
   @override
   Future<String?> getLoginQr() async => null;
@@ -44,13 +40,10 @@ class _FakeGowaManager extends GowaManager {
 
 class _FakeChannelManager extends ChannelManager {
   _FakeChannelManager()
-      : super(
-          queue: MessageQueue(
-            dispatcher: (_, _, {senderJid}) async => '',
-            maxConcurrentTurns: 1,
-          ),
-          config: const ChannelConfig.defaults(),
-        );
+    : super(
+        queue: MessageQueue(dispatcher: (_, _, {senderJid}) async => '', maxConcurrentTurns: 1),
+        config: const ChannelConfig.defaults(),
+      );
 
   @override
   void handleInboundMessage(ChannelMessage message) {}
@@ -109,8 +102,7 @@ void main() {
       gowa: _FakeGowaManager(),
       config: WhatsAppConfig(enabled: true),
       dmAccess: DmAccessController(mode: DmAccessMode.open),
-      mentionGating:
-          MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
+      mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
       channelManager: _FakeChannelManager(),
       workspaceDir: '/tmp',
     );
@@ -118,50 +110,81 @@ void main() {
 
   group('webhook secret validation', () {
     test('correct secret returns 200', () async {
-      final router =
-          webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
       final handler = const Pipeline().addHandler(router.call);
-      final response = await handler(Request(
-        'POST',
-        Uri.parse('http://localhost/webhook/whatsapp?secret=abc'),
-        body: '{"event":"message","payload":{}}',
-      ));
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/webhook/whatsapp?secret=abc'),
+          body: '{"event":"message","payload":{}}',
+        ),
+      );
       expect(response.statusCode, 200);
     });
 
     test('wrong secret returns 403', () async {
-      final router =
-          webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
       final handler = const Pipeline().addHandler(router.call);
-      final response = await handler(Request(
-        'POST',
-        Uri.parse('http://localhost/webhook/whatsapp?secret=wrong'),
-        body: '{"event":"message","payload":{}}',
-      ));
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/webhook/whatsapp?secret=wrong'),
+          body: '{"event":"message","payload":{}}',
+        ),
+      );
       expect(response.statusCode, 403);
     });
 
     test('missing secret returns 403', () async {
-      final router =
-          webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
       final handler = const Pipeline().addHandler(router.call);
-      final response = await handler(Request(
-        'POST',
-        Uri.parse('http://localhost/webhook/whatsapp'),
-        body: '{"event":"message","payload":{}}',
-      ));
+      final response = await handler(
+        Request('POST', Uri.parse('http://localhost/webhook/whatsapp'), body: '{"event":"message","payload":{}}'),
+      );
       expect(response.statusCode, 403);
     });
 
     test('null webhookSecret accepts all requests', () async {
-      final router =
-          webhookRoutes(whatsApp: channel, webhookSecret: null);
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: null);
       final handler = const Pipeline().addHandler(router.call);
-      final response = await handler(Request(
-        'POST',
-        Uri.parse('http://localhost/webhook/whatsapp'),
-        body: '{"event":"message","payload":{}}',
-      ));
+      final response = await handler(
+        Request('POST', Uri.parse('http://localhost/webhook/whatsapp'), body: '{"event":"message","payload":{}}'),
+      );
+      expect(response.statusCode, 200);
+    });
+  });
+
+  group('WhatsApp webhook payload size limit', () {
+    test('returns 413 when Content-Length exceeds limit', () async {
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: null);
+      final handler = const Pipeline().addHandler(router.call);
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/webhook/whatsapp'),
+          body: '',
+          headers: {'content-length': '${maxWebhookPayloadBytes + 1}'},
+        ),
+      );
+      expect(response.statusCode, 413);
+    });
+
+    test('returns 413 when body exceeds limit', () async {
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: null);
+      final handler = const Pipeline().addHandler(router.call);
+      final oversizedBody = 'x' * (maxWebhookPayloadBytes + 1);
+      final response = await handler(
+        Request('POST', Uri.parse('http://localhost/webhook/whatsapp'), body: oversizedBody),
+      );
+      expect(response.statusCode, 413);
+    });
+
+    test('accepts body within limit', () async {
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: null);
+      final handler = const Pipeline().addHandler(router.call);
+      final response = await handler(
+        Request('POST', Uri.parse('http://localhost/webhook/whatsapp'), body: '{"event":"message","payload":{}}'),
+      );
       expect(response.statusCode, 200);
     });
   });

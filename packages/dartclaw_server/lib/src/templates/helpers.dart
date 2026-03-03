@@ -1,11 +1,3 @@
-import 'dart:convert';
-
-const _escape = HtmlEscape();
-
-/// HTML-escapes [input], converting `&`, `<`, `>`, `"`, `'`, and `/`
-/// to their entity equivalents.
-String htmlEscape(String input) => _escape.convert(input);
-
 /// Formats [seconds] into a human-readable uptime string like "3d 14h 22m".
 String formatUptime(int seconds) {
   final d = seconds ~/ 86400;

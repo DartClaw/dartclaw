@@ -30,7 +30,7 @@ class RebuildIndexCommand extends Command<void> {
       write('WARNING: $w');
     }
 
-    final memoryPath = p.join(config.dataDir, 'MEMORY.md');
+    final memoryPath = p.join(config.workspaceDir, 'MEMORY.md');
     final file = File(memoryPath);
     if (!file.existsSync()) {
       write('No MEMORY.md found at $memoryPath');

@@ -648,6 +648,26 @@ function initAfterSwapReinit() {
   });
 }
 
+// === HTMX history restore re-init ===
+
+function initHistoryRestore() {
+  document.body.addEventListener('htmx:historyCacheMissLoad', () => {
+    renderMarkdown();
+    scrollToBottom();
+  });
+
+  document.body.addEventListener('htmx:historyRestore', () => {
+    renderMarkdown();
+    scrollToBottom();
+    initThemeToggle();
+    initSidebar();
+    initTextareaResize();
+    initKeyboardSubmit();
+    initSendButtonState();
+    initInlineRename();
+  });
+}
+
 // === Init ===
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -659,6 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHtmxRequestLifecycle();
   initSseConnectorHandling();
   initAfterSwapReinit();
+  initHistoryRestore();
   initSessionCreate();
   initSessionDelete();
   initResumeArchive();

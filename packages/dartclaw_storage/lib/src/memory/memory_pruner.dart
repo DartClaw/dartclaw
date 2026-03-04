@@ -21,6 +21,7 @@ typedef PruneResult = ({
 /// Undated entries are preserved (never archived or removed as duplicates).
 class MemoryPruner {
   static final _log = Logger('MemoryPruner');
+  static const _emptyResult = (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
 
   static final _timestampRe = RegExp(r'^\- \[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]');
 
@@ -42,19 +43,17 @@ class MemoryPruner {
     final file = File(_memoryPath);
     if (!file.existsSync()) {
       _log.info('MEMORY.md does not exist, skipping prune');
-      return (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
+      return _emptyResult;
     }
 
     final content = file.readAsStringSync();
     if (content.trim().isEmpty) {
       _log.info('MEMORY.md is empty, skipping prune');
-      return (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
+      return _emptyResult;
     }
 
     final entries = parseMemoryEntries(content);
-    if (entries.isEmpty) {
-      return (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
-    }
+    if (entries.isEmpty) return _emptyResult;
 
     // Step 1: Deduplication
     final deduped = removeDuplicates(entries);
@@ -211,13 +210,12 @@ class MemoryPruner {
   }
 
   /// Returns true if [a] should be kept over [b] (a is "newer").
-  bool _isNewer(MemoryEntry a, MemoryEntry b) {
-    // Undated entries are treated as newest
-    if (a.timestamp == null && b.timestamp != null) return true;
-    if (a.timestamp != null && b.timestamp == null) return false;
-    if (a.timestamp == null && b.timestamp == null) return false; // keep existing
-    return a.timestamp!.isAfter(b.timestamp!);
-  }
+  bool _isNewer(MemoryEntry a, MemoryEntry b) => switch ((a.timestamp, b.timestamp)) {
+    (null, DateTime()) => true, // undated beats dated
+    (DateTime(), null) => false,
+    (null, null) => false, // keep existing
+    (final ta?, final tb?) => ta.isAfter(tb),
+  };
 
   /// Partitions entries into keep/archive lists based on age threshold.
   /// Undated entries always stay in keep list.

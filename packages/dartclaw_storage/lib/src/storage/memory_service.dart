@@ -103,7 +103,7 @@ class MemoryService {
   }
 
   /// Stub for future vector search. Returns empty list.
-  List<MemorySearchResult> searchVector(List<double> embedding, {int limit = 20}) => [];
+  List<MemorySearchResult> searchVector(List<double> embedding, {int limit = 20}) => const [];
 
   int deleteBySource(String source, {String userId = 'owner'}) {
     _db.execute('DELETE FROM memory_chunks WHERE source = ? AND user_id = ?', [source, userId]);
@@ -112,13 +112,13 @@ class MemoryService {
 
   void rebuildIndex(List<({String text, String source, String? category})> chunks, {String userId = 'owner'}) {
     _db.execute('DELETE FROM memory_chunks WHERE user_id = ?', [userId]);
-    for (final chunk in chunks) {
-      _db.execute('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)', [
-        chunk.text,
-        chunk.source,
-        chunk.category,
-        userId,
-      ]);
+    final stmt = _db.prepare('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)');
+    try {
+      for (final chunk in chunks) {
+        stmt.execute([chunk.text, chunk.source, chunk.category, userId]);
+      }
+    } finally {
+      stmt.close();
     }
   }
 

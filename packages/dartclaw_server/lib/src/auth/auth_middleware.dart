@@ -2,26 +2,35 @@ import 'dart:convert';
 
 import 'package:shelf/shelf.dart';
 
-import 'session_store.dart';
+import 'session_token.dart';
 import 'token_service.dart';
 
 const _publicPaths = {'/health', '/login', '/favicon.ico'};
-const _publicPrefixes = ['/webhook/', '/static/'];
 
-const _cookieName = 'dart_session';
-const _cookieMaxAge = 2592000; // 30 days in seconds
+/// URL prefixes that bypass authentication entirely.
+///
+/// **Security note**: Any route under these prefixes is auth-exempt. This is
+/// correct for webhook callbacks (which use per-route shared secrets) and
+/// static assets, but adding new routes under these prefixes without their
+/// own auth will create an unauthenticated endpoint. Always verify that new
+/// webhook-style routes include per-route secret validation.
+const _publicPrefixes = ['/webhook/', '/static/'];
 
 /// Auth middleware for the DartClaw gateway.
 ///
+/// Uses stateless HMAC-signed cookies — no server-side session storage.
+/// Cookies survive server restarts; `token rotate` auto-invalidates all
+/// sessions (new token won't match old cookie signatures).
+///
 /// Check order:
 /// 1. Public path -> pass through
-/// 2. Valid session cookie -> pass through
+/// 2. Valid session cookie (HMAC-signed) -> pass through
 /// 3. Valid Bearer token -> pass through
 /// 4. GET / with `?token=<valid>` -> set cookie, redirect /
 /// 5. Else -> browser? redirect /login : 401 JSON
 Middleware authMiddleware({
   required TokenService tokenService,
-  required SessionStore sessionStore,
+  required String gatewayToken,
   bool enabled = true,
 }) {
   if (!enabled) return (Handler inner) => inner;
@@ -34,11 +43,11 @@ Middleware authMiddleware({
       return inner(request);
     }
 
-    // 2. Session cookie
+    // 2. Session cookie (HMAC-signed, stateless)
     final cookieHeader = request.headers['cookie'];
     if (cookieHeader != null) {
-      final sessionId = _parseCookie(cookieHeader, _cookieName);
-      if (sessionId != null && sessionStore.validate(sessionId)) {
+      final token = _parseCookie(cookieHeader, sessionCookieName);
+      if (token != null && validateSessionToken(token, gatewayToken)) {
         return inner(request);
       }
     }
@@ -56,9 +65,9 @@ Middleware authMiddleware({
     if (request.method == 'GET' && request.url.path.isEmpty) {
       final tokenParam = request.url.queryParameters['token'];
       if (tokenParam != null && tokenService.validateToken(tokenParam)) {
-        final sessionId = sessionStore.createSession();
+        final sessionToken = createSessionToken(gatewayToken);
         return Response.found('/', headers: {
-          'set-cookie': '$_cookieName=$sessionId; HttpOnly; SameSite=Strict; Path=/; Max-Age=$_cookieMaxAge',
+          'set-cookie': sessionCookieHeader(sessionToken),
         });
       }
     }

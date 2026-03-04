@@ -51,9 +51,9 @@ class GuardAuditLogger {
     }
   }
 
-  static String _verdictLabel(GuardVerdict v) {
-    if (v.isBlock) return 'block';
-    if (v.isWarn) return 'warn';
-    return 'pass';
-  }
+  static String _verdictLabel(GuardVerdict v) => switch (v) {
+    GuardVerdict(isBlock: true) => 'block',
+    GuardVerdict(isWarn: true) => 'warn',
+    _ => 'pass',
+  };
 }

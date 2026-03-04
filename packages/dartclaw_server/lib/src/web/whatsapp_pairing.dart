@@ -3,7 +3,11 @@ import '../templates/loader.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 
-/// Render the WhatsApp pairing/status page using the full shell layout.
+/// Render the WhatsApp pairing/status page.
+///
+/// When [fragmentOnly] is true (HTMX SPA navigation), returns only the
+/// main content + out-of-band topbar/sidebar fragments. Otherwise returns
+/// the full shell layout.
 String whatsappPairingTemplate({
   String? qrImageUrl,
   bool isConnected = false,
@@ -11,6 +15,7 @@ String whatsappPairingTemplate({
   String? connectedPhone,
   SidebarData sidebarData = const (main: null, channels: [], entries: []),
   bool signalEnabled = false,
+  bool fragmentOnly = false,
 }) {
   final navItems = buildSystemNavItems(activePage: 'Settings', signalEnabled: signalEnabled);
   final sidebar = sidebarTemplate(
@@ -41,5 +46,6 @@ String whatsappPairingTemplate({
     },
   );
 
+  if (fragmentOnly) return '$body$topbar$sidebar';
   return layoutTemplate(title: 'WhatsApp Setup', body: body);
 }

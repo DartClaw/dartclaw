@@ -190,9 +190,8 @@ class UsageTracker {
   }
 
   static String _dailyKey(DateTime timestamp) {
-    final date = '${timestamp.year}-'
-        '${timestamp.month.toString().padLeft(2, '0')}-'
-        '${timestamp.day.toString().padLeft(2, '0')}';
-    return 'usage_daily:$date';
+    final m = timestamp.month.toString().padLeft(2, '0');
+    final d = timestamp.day.toString().padLeft(2, '0');
+    return 'usage_daily:${timestamp.year}-$m-$d';
   }
 }

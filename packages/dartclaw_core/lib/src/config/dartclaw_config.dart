@@ -184,7 +184,7 @@ class DartclawConfig {
     // Guards config: nested map from YAML
     final guardsRaw = yamlValues['guards'];
     final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
-    GuardConfig guards;
+    late final GuardConfig guards;
     if (guardsRaw is Map) {
       try {
         guards = GuardConfig.fromYaml(Map<String, dynamic>.from(guardsRaw), warns);
@@ -192,10 +192,10 @@ class DartclawConfig {
         warns.add('Error parsing guards config: $e — using defaults');
         guards = const GuardConfig.defaults();
       }
-    } else if (guardsRaw != null) {
-      warns.add('Invalid type for guards: "${guardsRaw.runtimeType}" — using defaults');
-      guards = const GuardConfig.defaults();
     } else {
+      if (guardsRaw != null) {
+        warns.add('Invalid type for guards: "${guardsRaw.runtimeType}" — using defaults');
+      }
       guards = const GuardConfig.defaults();
     }
 

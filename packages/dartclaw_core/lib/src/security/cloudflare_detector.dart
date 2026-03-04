@@ -18,9 +18,6 @@ class CloudflareDetector {
   /// Returns true if [content] looks like a Cloudflare challenge page.
   static bool isCloudflareChallenge(String content) {
     final lower = content.toLowerCase();
-    for (final indicator in _indicators) {
-      if (lower.contains(indicator)) return true;
-    }
-    return false;
+    return _indicators.any(lower.contains);
   }
 }

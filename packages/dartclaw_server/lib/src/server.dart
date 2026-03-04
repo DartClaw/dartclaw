@@ -11,21 +11,21 @@ import 'api/session_routes.dart';
 import 'api/webhook_routes.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/security_headers.dart';
-import 'mcp/mcp_router.dart';
-import 'mcp/mcp_server.dart';
-import 'auth/session_store.dart';
 import 'auth/token_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
 import 'health/health_service.dart';
+import 'mcp/mcp_router.dart';
+import 'mcp/mcp_server.dart';
 import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
 import 'templates/error_page.dart';
 import 'turn_manager.dart';
-import 'web/web_routes.dart';
 import 'web/signal_pairing_routes.dart';
+import 'web/web_routes.dart';
+import 'web/web_utils.dart';
 import 'web/whatsapp_pairing.dart';
 
 const _htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
@@ -39,7 +39,6 @@ class DartclawServer {
   final MemoryFileService? _memoryFile;
   final HealthService? _healthService;
   final TokenService? _tokenService;
-  final SessionStore? _sessionStore;
   final SessionResetService? _resetService;
   final bool _authEnabled;
   final String _staticDir;
@@ -87,7 +86,6 @@ class DartclawServer {
     this._memoryFile,
     this._healthService,
     this._tokenService,
-    this._sessionStore,
     this._resetService,
     this._authEnabled,
     this._staticDir,
@@ -118,7 +116,6 @@ class DartclawServer {
     KvService? kv,
     HealthService? healthService,
     TokenService? tokenService,
-    SessionStore? sessionStore,
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
@@ -161,7 +158,6 @@ class DartclawServer {
       memoryFile,
       healthService,
       tokenService,
-      sessionStore,
       resetService,
       authEnabled,
       staticDir,
@@ -229,6 +225,7 @@ class DartclawServer {
     if (waChannel != null) {
       router.get('/whatsapp/pairing', (Request request) async {
         final sidebarData = await buildSidebarData(_sessions);
+        final fragment = wantsFragment(request);
         try {
           final status = await waChannel.gowa.getStatus();
           if (status.isLoggedIn) {
@@ -238,6 +235,7 @@ class DartclawServer {
                 connectedPhone: status.deviceId,
                 sidebarData: sidebarData,
                 signalEnabled: sigEnabled,
+                fragmentOnly: fragment,
               ),
               headers: _htmlHeaders,
             );
@@ -245,7 +243,12 @@ class DartclawServer {
           // GOWA reachable but not logged in — show QR
           final qrUrl = await waChannel.gowa.getLoginQr();
           return Response.ok(
-            whatsappPairingTemplate(qrImageUrl: qrUrl, sidebarData: sidebarData, signalEnabled: sigEnabled),
+            whatsappPairingTemplate(
+              qrImageUrl: qrUrl,
+              sidebarData: sidebarData,
+              signalEnabled: sigEnabled,
+              fragmentOnly: fragment,
+            ),
             headers: _htmlHeaders,
           );
         } catch (e) {
@@ -254,6 +257,7 @@ class DartclawServer {
               error: 'Failed to check GOWA status: $e',
               sidebarData: sidebarData,
               signalEnabled: sigEnabled,
+              fragmentOnly: fragment,
             ),
             headers: _htmlHeaders,
           );
@@ -295,7 +299,7 @@ class DartclawServer {
       _messages,
       workerStateGetter: () => _worker.state,
       tokenService: _tokenService,
-      sessionStore: _sessionStore,
+      gatewayToken: _gatewayToken,
       healthService: _healthService,
       whatsAppChannel: _whatsAppChannel,
       signalChannel: _signalChannel,
@@ -314,9 +318,9 @@ class DartclawServer {
         .addMiddleware(logRequests(logger: _sanitizedLogger))
         .addMiddleware(securityHeadersMiddleware())
         .addMiddleware(_corsMiddleware());
-    if (_tokenService != null && _sessionStore != null) {
+    if (_tokenService != null && _gatewayToken != null) {
       pipeline = pipeline.addMiddleware(
-        authMiddleware(tokenService: _tokenService, sessionStore: _sessionStore, enabled: _authEnabled),
+        authMiddleware(tokenService: _tokenService, gatewayToken: _gatewayToken, enabled: _authEnabled),
       );
     }
     // Cascade: pass through to styled 404 when router finds no matching route.

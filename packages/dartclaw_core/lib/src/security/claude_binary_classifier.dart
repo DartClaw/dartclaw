@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 
+import '../harness/claude_protocol.dart';
 import 'anthropic_api_classifier.dart';
 import 'content_classifier.dart';
 
@@ -25,13 +26,6 @@ class ClaudeBinaryClassifier implements ContentClassifier {
   final String model;
   final ClassifierProcessFactory _processFactory;
 
-  /// Env vars to clear to prevent claude nesting detection.
-  static const _envVarsToClear = [
-    'CLAUDECODE',
-    'CLAUDE_CODE_ENTRYPOINT',
-    'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
-  ];
-
   ClaudeBinaryClassifier({
     this.claudeExecutable = 'claude',
     this.model = 'claude-haiku-4-5-20251001',
@@ -48,7 +42,7 @@ class ClaudeBinaryClassifier implements ContentClassifier {
 
     // Build clean environment without nesting-detection vars
     final env = Map<String, String>.from(Platform.environment);
-    for (final key in _envVarsToClear) {
+    for (final key in claudeNestingEnvVars) {
       env.remove(key);
     }
 

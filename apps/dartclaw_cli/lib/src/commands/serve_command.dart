@@ -36,7 +36,6 @@ typedef ServerFactory =
       KvService? kv,
       HealthService? healthService,
       TokenService? tokenService,
-      SessionStore? sessionStore,
       SessionLockManager? lockManager,
       SessionResetService? resetService,
       ContextMonitor? contextMonitor,
@@ -114,7 +113,6 @@ class ServeCommand extends Command<void> {
              kv,
              healthService,
              tokenService,
-             sessionStore,
              lockManager,
              resetService,
              contextMonitor,
@@ -144,7 +142,6 @@ class ServeCommand extends Command<void> {
              kv: kv,
              healthService: healthService,
              tokenService: tokenService,
-             sessionStore: sessionStore,
              lockManager: lockManager,
              resetService: resetService,
              contextMonitor: contextMonitor,
@@ -265,15 +262,13 @@ class ServeCommand extends Command<void> {
     _writeLogRotationSamples(logsDir.path);
 
     // Configure structured logging
-    final logFormat = _config == null && argResults!.wasParsed('log-format')
-        ? argResults!['log-format'] as String
-        : config.logFormat;
-    final logFile = _config == null && argResults!.wasParsed('log-file')
-        ? argResults!['log-file'] as String?
-        : config.logFile;
-    final logLevel = _config == null && argResults!.wasParsed('log-level')
-        ? argResults!['log-level'] as String
-        : config.logLevel;
+    // CLI flags override config values only when config was not injected.
+    T cliOr<T>(String flag, T configValue) =>
+        _config == null && argResults!.wasParsed(flag) ? argResults![flag] as T : configValue;
+
+    final logFormat = cliOr('log-format', config.logFormat);
+    final logFile = cliOr<String?>('log-file', config.logFile);
+    final logLevel = cliOr('log-level', config.logLevel);
 
     final messageRedactor = MessageRedactor(extraPatterns: config.redactPatterns);
     final logRedactor = LogRedactor(redactor: messageRedactor);
@@ -552,11 +547,9 @@ class ServeCommand extends Command<void> {
 
       // Gateway auth (token already resolved earlier for HarnessConfig MCP wiring).
       TokenService? tokenService;
-      SessionStore? sessionStore;
 
       if (authEnabled) {
         tokenService = TokenService(token: resolvedGatewayToken!);
-        sessionStore = SessionStore();
       } else {
         final isLoopback = host == 'localhost' || host == '127.0.0.1';
         if (isLoopback) {
@@ -708,7 +701,6 @@ class ServeCommand extends Command<void> {
         kv: kvService,
         healthService: healthService,
         tokenService: tokenService,
-        sessionStore: sessionStore,
         lockManager: lockManager,
         resetService: resetService,
         contextMonitor: contextMonitor,
@@ -807,9 +799,7 @@ class ServeCommand extends Command<void> {
           interval: Duration(minutes: config.heartbeatIntervalMinutes),
           workspaceDir: config.workspaceDir,
           dispatch: (sessionKey, message) async {
-            final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
-            final userMsg = <String, dynamic>{'role': 'user', 'content': message};
-            await server!.turns.startTurn(session.id, [userMsg], source: 'heartbeat', agentName: 'heartbeat');
+            await _dispatchTurn(sessions, () => server, sessionKey, message, type: SessionType.cron, source: 'heartbeat', agentName: 'heartbeat');
           },
           gitSync: gitSync,
         );
@@ -949,15 +939,33 @@ class ServeCommand extends Command<void> {
       defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
       redactor: redactor,
       dispatcher: (sessionKey, message, {String? senderJid}) async {
-        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-        final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+        final (:sessionId, :turnId) = await _dispatchTurn(sessions, serverRef, sessionKey, message, type: SessionType.channel, source: 'channel');
         final srv = serverRef()!;
-        final turnId = await srv.turns.startTurn(session.id, [userMsg], source: 'channel');
-        final outcome = await srv.turns.waitForOutcome(session.id, turnId);
+        final outcome = await srv.turns.waitForOutcome(sessionId, turnId);
         return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
       },
     );
     return ChannelManager(queue: messageQueue, config: config.channelConfig);
+  }
+
+  /// Resolves a session by key, creates a user message, and starts a turn.
+  ///
+  /// Shared by the channel dispatcher and heartbeat scheduler to avoid
+  /// duplicating the session-resolution + turn-start pattern.
+  static Future<({String sessionId, String turnId})> _dispatchTurn(
+    SessionService sessions,
+    DartclawServer? Function() serverRef,
+    String sessionKey,
+    String message, {
+    required SessionType type,
+    required String source,
+    String? agentName,
+  }) async {
+    final session = await sessions.getOrCreateByKey(sessionKey, type: type);
+    final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+    final srv = serverRef()!;
+    final turnId = await srv.turns.startTurn(session.id, [userMsg], source: source, agentName: agentName ?? 'main');
+    return (sessionId: session.id, turnId: turnId);
   }
 
   /// Tears down server + search DB without HTTP server (used when bind fails).

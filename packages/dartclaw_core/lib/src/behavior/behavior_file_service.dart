@@ -16,43 +16,9 @@ class BehaviorFileService {
   BehaviorFileService({required this.workspaceDir, this.projectDir, this.maxMemoryBytes});
 
   Future<String> composeSystemPrompt() async {
-    final parts = <String>[];
-    final projDir = projectDir;
+    final parts = await _loadCoreParts();
 
-    // 1. SOUL.md — workspace then project
-    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-    if (globalSoul != null) parts.add(globalSoul);
-    final projSoul = projDir != null ? await _readFile(p.join(projDir, 'SOUL.md')) : null;
-    if (projSoul != null) parts.add(projSoul);
-
-    // 2. If no SOUL.md found anywhere, use hardcoded default
-    if (globalSoul == null && projSoul == null) parts.add(defaultPrompt);
-
-    // 3. USER.md — workspace only (agent-updatable user context)
-    final userMd = await _readFile(p.join(workspaceDir, 'USER.md'));
-    if (userMd != null && userMd.trim().isNotEmpty) {
-      parts.add('## User Context\n$userMd');
-    }
-
-    // 4. TOOLS.md — workspace only (human-maintained environment notes)
-    final toolsMd = await _readFile(p.join(workspaceDir, 'TOOLS.md'));
-    if (toolsMd != null && toolsMd.trim().isNotEmpty) {
-      parts.add('## Environment Notes\n$toolsMd');
-    }
-
-    // 5. errors.md — auto-populated on failures
-    final errorsMd = await _readFile(p.join(workspaceDir, 'errors.md'));
-    if (errorsMd != null && errorsMd.trim().isNotEmpty) {
-      parts.add('## Recent Errors\n$errorsMd');
-    }
-
-    // 6. learnings.md — agent-written via memory_save category='learning'
-    final learningsMd = await _readFile(p.join(workspaceDir, 'learnings.md'));
-    if (learningsMd != null && learningsMd.trim().isNotEmpty) {
-      parts.add('## Learnings\n$learningsMd');
-    }
-
-    // 7. MEMORY.md — workspace only
+    // MEMORY.md — workspace only
     var memory = await _readFile(p.join(workspaceDir, 'MEMORY.md'));
     if (memory != null) {
       final maxBytes = maxMemoryBytes;
@@ -72,39 +38,7 @@ class BehaviorFileService {
   /// Composes static prompt content for append-mode harnesses.
   /// Includes SOUL, USER, TOOLS, AGENTS (no MEMORY -- agent uses MCP tools).
   Future<String> composeStaticPrompt() async {
-    final parts = <String>[];
-    final projDir = projectDir;
-
-    // SOUL.md
-    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-    if (globalSoul != null) parts.add(globalSoul);
-    final projSoul = projDir != null ? await _readFile(p.join(projDir, 'SOUL.md')) : null;
-    if (projSoul != null) parts.add(projSoul);
-    if (globalSoul == null && projSoul == null) parts.add(defaultPrompt);
-
-    // USER.md
-    final userMd = await _readFile(p.join(workspaceDir, 'USER.md'));
-    if (userMd != null && userMd.trim().isNotEmpty) {
-      parts.add('## User Context\n$userMd');
-    }
-
-    // TOOLS.md
-    final toolsMd = await _readFile(p.join(workspaceDir, 'TOOLS.md'));
-    if (toolsMd != null && toolsMd.trim().isNotEmpty) {
-      parts.add('## Environment Notes\n$toolsMd');
-    }
-
-    // errors.md
-    final errorsMd = await _readFile(p.join(workspaceDir, 'errors.md'));
-    if (errorsMd != null && errorsMd.trim().isNotEmpty) {
-      parts.add('## Recent Errors\n$errorsMd');
-    }
-
-    // learnings.md
-    final learningsMd = await _readFile(p.join(workspaceDir, 'learnings.md'));
-    if (learningsMd != null && learningsMd.trim().isNotEmpty) {
-      parts.add('## Learnings\n$learningsMd');
-    }
+    final parts = await _loadCoreParts();
 
     // AGENTS.md
     final agentsMd = await composeAppendPrompt();
@@ -116,6 +50,38 @@ class BehaviorFileService {
     parts.add('## Memory\nUse the memory_read tool to check for relevant context before responding.');
 
     return parts.join('\n\n');
+  }
+
+  /// Loads the shared core prompt parts: SOUL, USER, TOOLS, errors, learnings.
+  Future<List<String>> _loadCoreParts() async {
+    final parts = <String>[];
+    final projDir = projectDir;
+
+    // SOUL.md — workspace then project
+    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
+    if (globalSoul != null) parts.add(globalSoul);
+    final projSoul = projDir != null ? await _readFile(p.join(projDir, 'SOUL.md')) : null;
+    if (projSoul != null) parts.add(projSoul);
+    if (globalSoul == null && projSoul == null) parts.add(defaultPrompt);
+
+    // USER.md — workspace only (agent-updatable user context)
+    await _addSection(parts, 'USER.md', '## User Context');
+    // TOOLS.md — workspace only (human-maintained environment notes)
+    await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+    // errors.md — auto-populated on failures
+    await _addSection(parts, 'errors.md', '## Recent Errors');
+    // learnings.md — agent-written via memory_save category='learning'
+    await _addSection(parts, 'learnings.md', '## Learnings');
+
+    return parts;
+  }
+
+  /// Reads a workspace file and adds it as a headed section if non-empty.
+  Future<void> _addSection(List<String> parts, String filename, String header) async {
+    final content = await _readFile(p.join(workspaceDir, filename));
+    if (content != null && content.trim().isNotEmpty) {
+      parts.add('$header\n$content');
+    }
   }
 
   /// Loads AGENTS.md from workspace and returns its content for append to system prompt.

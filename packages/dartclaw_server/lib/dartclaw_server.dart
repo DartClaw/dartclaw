@@ -9,7 +9,8 @@ export 'src/api/webhook_routes.dart' show webhookRoutes;
 // Auth
 export 'src/auth/auth_middleware.dart' show authMiddleware;
 export 'src/auth/security_headers.dart' show securityHeadersMiddleware;
-export 'src/auth/session_store.dart' show SessionStore;
+export 'src/auth/session_token.dart'
+    show createSessionToken, validateSessionToken, sessionCookieHeader, sessionCookieName;
 export 'src/auth/token_service.dart' show TokenService;
 
 // Concurrency
@@ -67,3 +68,4 @@ export 'src/turn_manager.dart'
 // Web routes
 export 'src/web/signal_pairing_routes.dart' show signalPairingRoutes;
 export 'src/web/web_routes.dart' show webRoutes, buildSidebarData;
+export 'src/web/web_utils.dart' show wantsFragment, htmlFragment;

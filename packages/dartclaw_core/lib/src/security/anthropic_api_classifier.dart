@@ -7,8 +7,7 @@ import 'content_classifier.dart';
 
 /// [ContentClassifier] that calls the Anthropic Messages API directly.
 ///
-/// Wraps the same HTTP logic as [AnthropicClient] — requires an
-/// `ANTHROPIC_API_KEY`. Opt-in via `content_guard.classifier: anthropic_api`.
+/// Requires an `ANTHROPIC_API_KEY`. Opt-in via `content_guard.classifier: anthropic_api`.
 class AnthropicApiClassifier implements ContentClassifier {
   static final _log = Logger('AnthropicApiClassifier');
 

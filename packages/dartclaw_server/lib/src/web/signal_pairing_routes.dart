@@ -4,6 +4,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'signal_pairing.dart';
 import 'web_routes.dart' show buildSidebarData;
+import 'web_utils.dart';
 
 const _htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
 
@@ -52,19 +53,19 @@ Router signalPairingRoutes({
       }
     }
 
-    return Response.ok(
-      signalPairingTemplate(
-        verificationPending: verificationPending,
-        isConnected: isConnected,
-        connectedPhone: connectedPhone,
-        configuredPhone: configuredPhone,
-        linkDeviceUri: linkDeviceUri,
-        error: templateError,
-        sidebarData: sidebarData,
-        signalEnabled: true,
-      ),
-      headers: _htmlHeaders,
+    final html = signalPairingTemplate(
+      verificationPending: verificationPending,
+      isConnected: isConnected,
+      connectedPhone: connectedPhone,
+      configuredPhone: configuredPhone,
+      linkDeviceUri: linkDeviceUri,
+      error: templateError,
+      sidebarData: sidebarData,
+      signalEnabled: true,
+      fragmentOnly: wantsFragment(request),
     );
+
+    return Response.ok(html, headers: _htmlHeaders);
   });
 
   // POST /pairing/register — trigger SMS verification.

@@ -9,6 +9,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  crypto: ^3.0.6
   dartclaw_core:
     path: ../dartclaw_core
   dartclaw_storage:

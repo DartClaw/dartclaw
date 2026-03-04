@@ -81,10 +81,7 @@ class ScheduledJob {
     }
 
     final deliveryStr = config['delivery'] as String? ?? 'none';
-    final deliveryMode = DeliveryMode.values.firstWhere(
-      (m) => m.name == deliveryStr,
-      orElse: () => DeliveryMode.none,
-    );
+    final deliveryMode = DeliveryMode.values.asNameMap()[deliveryStr] ?? DeliveryMode.none;
 
     final webhookUrl = config['webhook_url'] as String?;
     final retry = config['retry'] as Map<String, dynamic>?;

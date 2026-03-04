@@ -4,6 +4,10 @@ import 'package:logging/logging.dart';
 
 final _log = Logger('ClaudeProtocol');
 
+/// Env vars to clear to prevent claude nesting detection.
+/// Shared between [ClaudeCodeHarness] and [ClaudeBinaryClassifier].
+const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
+
 // ---------------------------------------------------------------------------
 // Sealed class hierarchy for claude binary JSONL messages
 // ---------------------------------------------------------------------------

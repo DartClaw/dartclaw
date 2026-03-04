@@ -2,7 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../auth/session_store.dart';
+import '../auth/session_token.dart';
 import '../auth/token_service.dart';
 import '../health/health_service.dart';
 import '../templates/chat.dart';
@@ -18,6 +18,7 @@ import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
 import '../turn_manager.dart';
+import 'web_utils.dart';
 
 /// HTML page routes for the web UI.
 ///
@@ -34,7 +35,7 @@ Router webRoutes(
   MessageService messages, {
   WorkerState? Function()? workerStateGetter,
   TokenService? tokenService,
-  SessionStore? sessionStore,
+  String? gatewayToken,
   HealthService? healthService,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
@@ -62,8 +63,8 @@ Router webRoutes(
   // POST /login — validate token, set cookie, redirect.
   router.post('/login', (Request request) async {
     final ts = tokenService;
-    final ss = sessionStore;
-    if (ts == null || ss == null) {
+    final gt = gatewayToken;
+    if (ts == null || gt == null) {
       return _redirect(request, '/');
     }
 
@@ -78,9 +79,9 @@ Router webRoutes(
       );
     }
 
-    final sessionId = ss.createSession();
+    final sessionToken = createSessionToken(gt);
     return _redirect(request, '/', extraHeaders: {
-      'set-cookie': 'dart_session=$sessionId; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000',
+      'set-cookie': sessionCookieHeader(sessionToken),
     });
   });
 
@@ -154,8 +155,8 @@ Router webRoutes(
         readOnly: isArchive,
       );
 
-      if (_wantsFragment(request)) {
-        return _htmlFragment('$chat$topbar$sidebar');
+      if (wantsFragment(request)) {
+        return htmlFragment('$chat$topbar$sidebar');
       }
 
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
@@ -350,17 +351,6 @@ Future<Map<String, dynamic>> _getStatus(
 // ---------------------------------------------------------------------------
 // HTMX SPA helpers
 // ---------------------------------------------------------------------------
-
-/// Whether the request is an HTMX SPA navigation that expects a fragment
-/// (not a history-restore which needs the full page).
-bool _wantsFragment(Request request) {
-  final isHx = request.headers['HX-Request'] == 'true';
-  final isHistoryRestore = request.headers['HX-History-Restore-Request'] == 'true';
-  return isHx && !isHistoryRestore;
-}
-
-/// Returns an HTML fragment response (used for SPA partial swaps).
-Response _htmlFragment(String html) => Response.ok(html, headers: {'content-type': 'text/html; charset=utf-8'});
 
 /// Redirect helper: HTMX requests get `HX-Location` (client-side redirect),
 /// non-HTMX requests get a standard 302.

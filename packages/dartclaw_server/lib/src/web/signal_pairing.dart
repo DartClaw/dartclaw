@@ -3,7 +3,11 @@ import '../templates/loader.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 
-/// Render the Signal pairing/status page using the full shell layout.
+/// Render the Signal pairing/status page.
+///
+/// When [fragmentOnly] is true (HTMX SPA navigation), returns only the
+/// main content + out-of-band topbar/sidebar fragments. Otherwise returns
+/// the full shell layout.
 ///
 /// States (checked in order via template conditionals):
 /// - [isConnected] — account registered and sidecar healthy
@@ -19,6 +23,7 @@ String signalPairingTemplate({
   String? error,
   SidebarData sidebarData = const (main: null, channels: [], entries: []),
   bool signalEnabled = false,
+  bool fragmentOnly = false,
 }) {
   final navItems = buildSystemNavItems(activePage: 'Settings', signalEnabled: signalEnabled);
   final sidebar = sidebarTemplate(
@@ -56,5 +61,6 @@ String signalPairingTemplate({
     },
   );
 
+  if (fragmentOnly) return '$body$topbar$sidebar';
   return layoutTemplate(title: 'Signal Setup', body: body);
 }

@@ -36,7 +36,8 @@ void main() {
   });
 
   test('prints message when MEMORY.md is empty', () async {
-    File(p.join(tempDir.path, 'MEMORY.md')).writeAsStringSync('');
+    final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('');
     final config = DartclawConfig(dataDir: tempDir.path);
     await runCommand(config);
     expect(output, hasLength(1));
@@ -44,7 +45,8 @@ void main() {
   });
 
   test('prints message when MEMORY.md has headers only (no entries)', () async {
-    File(p.join(tempDir.path, 'MEMORY.md')).writeAsStringSync('## general\n');
+    final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('## general\n');
     final config = DartclawConfig(dataDir: tempDir.path);
     await runCommand(config);
     expect(output, hasLength(1));
@@ -60,7 +62,8 @@ void main() {
 ## project
 - [2026-02-23 11:00] Working on DartClaw
 ''';
-    File(p.join(tempDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
+    final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
     final config = DartclawConfig(dataDir: tempDir.path);
 
     // Use file-based DB so we can reopen after command closes it
@@ -91,7 +94,8 @@ void main() {
   and reduced motion
 - [2026-02-23 10:05] Another preference
 ''';
-    File(p.join(tempDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
+    final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
     final config = DartclawConfig(dataDir: tempDir.path);
 
     final dbPath = p.join(tempDir.path, 'search.db');

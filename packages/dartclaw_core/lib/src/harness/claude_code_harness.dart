@@ -48,9 +48,6 @@ List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt, String
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
 ];
 
-/// Env vars to clear to prevent claude nesting detection.
-const _envVarsToClear = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
-
 // ---------------------------------------------------------------------------
 // ClaudeCodeHarness
 // ---------------------------------------------------------------------------
@@ -285,7 +282,7 @@ class ClaudeCodeHarness implements AgentHarness {
 
     // Build clean env: inherit parent env, strip nesting-detection vars.
     final env = Map<String, String>.from(_environment);
-    for (final key in _envVarsToClear) {
+    for (final key in claudeNestingEnvVars) {
       env.remove(key);
     }
 

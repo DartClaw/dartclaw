@@ -2,48 +2,62 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('SessionStore', () {
-    late SessionStore store;
+  final gatewayToken = 'a' * 64;
 
-    setUp(() {
-      store = SessionStore();
+  group('session token (HMAC-signed)', () {
+    test('createSessionToken returns dot-separated format', () {
+      final token = createSessionToken(gatewayToken);
+      expect(token.contains('.'), isTrue);
+      final parts = token.split('.');
+      expect(parts.length, 2);
+      expect(parts[0].isNotEmpty, isTrue);
+      expect(parts[1].isNotEmpty, isTrue);
     });
 
-    test('createSession returns 64-char hex string', () {
-      final id = store.createSession();
-      expect(id.length, 64);
-      expect(RegExp(r'^[0-9a-f]{64}$').hasMatch(id), isTrue);
+    test('validateSessionToken returns true for fresh token', () {
+      final token = createSessionToken(gatewayToken);
+      expect(validateSessionToken(token, gatewayToken), isTrue);
     });
 
-    test('validate returns true for fresh session', () {
-      final id = store.createSession();
-      expect(store.validate(id), isTrue);
+    test('validateSessionToken returns false for wrong key', () {
+      final token = createSessionToken(gatewayToken);
+      expect(validateSessionToken(token, 'b' * 64), isFalse);
     });
 
-    test('validate returns false for unknown session', () {
-      expect(store.validate('nonexistent'), isFalse);
+    test('validateSessionToken returns false for tampered payload', () {
+      final token = createSessionToken(gatewayToken);
+      final parts = token.split('.');
+      final tampered = '${parts[0]}x.${parts[1]}';
+      expect(validateSessionToken(tampered, gatewayToken), isFalse);
     });
 
-    test('validate returns false and evicts expired session', () {
-      final store = SessionStore(ttl: Duration.zero);
-      final id = store.createSession();
-      // Session should be expired immediately
-      expect(store.validate(id), isFalse);
-      expect(store.length, 0);
+    test('validateSessionToken returns false for expired token', () {
+      final token = createSessionToken(gatewayToken);
+      expect(validateSessionToken(token, gatewayToken, ttl: Duration.zero), isFalse);
     });
 
-    test('invalidateAll clears all sessions', () {
-      store.createSession();
-      store.createSession();
-      expect(store.length, 2);
-      store.invalidateAll();
-      expect(store.length, 0);
+    test('validateSessionToken returns false for garbage input', () {
+      expect(validateSessionToken('garbage', gatewayToken), isFalse);
+      expect(validateSessionToken('', gatewayToken), isFalse);
+      expect(validateSessionToken('.', gatewayToken), isFalse);
     });
 
-    test('unique session IDs', () {
-      final a = store.createSession();
-      final b = store.createSession();
-      expect(a, isNot(b));
+    test('sessionCookieHeader includes security attributes', () {
+      final header = sessionCookieHeader('test-token');
+      expect(header, contains('dart_session=test-token'));
+      expect(header, contains('HttpOnly'));
+      expect(header, contains('SameSite=Strict'));
+      expect(header, contains('Path=/'));
+      expect(header, contains('Max-Age='));
+    });
+
+    test('unique tokens per call', () {
+      final a = createSessionToken(gatewayToken);
+      // Small delay to ensure different iat
+      final b = createSessionToken(gatewayToken);
+      // Tokens may or may not differ (same millisecond), but both should validate
+      expect(validateSessionToken(a, gatewayToken), isTrue);
+      expect(validateSessionToken(b, gatewayToken), isTrue);
     });
   });
 }

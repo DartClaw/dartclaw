@@ -37,6 +37,15 @@ String channelDetailTemplate({
   );
 
   final pairingHref = channelType == 'whatsapp' ? '/whatsapp/pairing' : '/signal/pairing';
+  final disconnectHref = '$pairingHref/disconnect';
+  final isConnected = statusLabel == 'Connected';
+  final heroTitle = channelLabel;
+  final heroSubtitle = channelType == 'whatsapp'
+      ? 'Channel access rules, pairing approvals, and session routing.'
+      : 'Access policy, group controls, and conversation scoping for Signal traffic.';
+  final dmCards = _buildModeCards(['pairing', 'allowlist', 'open', 'disabled'], dmAccessMode, _dmModeHelp);
+  final groupCards = _buildModeCards(['allowlist', 'open', 'disabled'], groupAccessMode, _groupModeHelp);
+  final groupAccessDisabled = groupAccessMode == 'disabled';
 
   final body = templateLoader.trellis.render(templateLoader.source('channel_detail'), {
     'sidebar': sidebar,
@@ -47,15 +56,22 @@ String channelDetailTemplate({
     'statusClass': statusClass,
     'phone': phone,
     'pairingHref': pairingHref,
+    'disconnectHref': disconnectHref,
+    'showDisconnectAction': isConnected,
+    'heroTitle': heroTitle,
+    'heroSubtitle': heroSubtitle,
     'dmAccessMode': dmAccessMode,
     'dmAccessModes': dmAccessModes,
+    'dmModeCards': dmCards,
     'dmAllowlist': dmAllowlist,
     'dmAllowlistCount': dmAllowlist.length,
     'groupAccessMode': groupAccessMode,
     'groupAccessModes': groupAccessModes,
+    'groupModeCards': groupCards,
     'groupAllowlist': groupAllowlist,
     'groupAllowlistCount': groupAllowlist.length,
     'requireMention': requireMention,
+    'groupAccessDisabled': groupAccessDisabled,
     'entryPlaceholder': entryPlaceholder,
     'groupPlaceholder': groupPlaceholder,
     'showPairingSection': dmAccessMode == 'pairing',
@@ -64,4 +80,30 @@ String channelDetailTemplate({
   });
 
   return layoutTemplate(title: '$channelLabel Channel', body: body, appName: appName);
+}
+
+const _dmModeHelp = <String, String>{
+  'pairing': 'Unknown senders must request approval before a direct session is opened.',
+  'allowlist': 'Only known senders can start direct conversations.',
+  'open': 'Any sender may start a direct conversation.',
+  'disabled': 'All direct messages are blocked for this channel.',
+};
+
+const _groupModeHelp = <String, String>{
+  'allowlist': 'Only approved groups may create or resume conversations.',
+  'open': 'Any group on this channel can reach the agent.',
+  'disabled': 'All group conversations are blocked for this channel.',
+};
+
+List<Map<String, dynamic>> _buildModeCards(List<String> modes, String activeMode, Map<String, String> helpMap) {
+  return modes.map((mode) {
+    final label = switch (mode) {
+      'pairing' => 'Pairing',
+      'allowlist' => 'Allowlist',
+      'open' => 'Open',
+      'disabled' => 'Disabled',
+      _ => mode,
+    };
+    return <String, dynamic>{'value': mode, 'label': label, 'help': helpMap[mode] ?? '', 'active': mode == activeMode};
+  }).toList();
 }

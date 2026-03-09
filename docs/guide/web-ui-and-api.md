@@ -30,6 +30,7 @@ The interface has three main areas:
 - **Rename**: Click the title in the topbar to enter edit mode, type a new name, click "Save"
 - **Delete**: Click the × button on a sidebar item, or the delete button in the topbar
 - **Auto-title**: After the first assistant response, the session is titled with the first ~50 characters of your message
+- **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
 
 **Chat**
 - **Send**: Type in the textarea, press **Ctrl+Enter** (or **Cmd+Enter** on macOS)
@@ -250,6 +251,100 @@ POST /api/memory/prune
 
 Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
 
+### Channel Access Management
+
+#### Get DM allowlist
+
+```
+GET /api/config/channels/:type/dm-allowlist
+```
+
+Returns the current DM allowlist for a channel (`whatsapp` or `signal`).
+
+#### Add to DM allowlist
+
+```
+POST /api/config/channels/:type/dm-allowlist
+Content-Type: application/json
+
+{"entry": "+1234567890"}
+```
+
+Adds an entry and persists to YAML. Returns `409` if already present.
+
+#### Remove from DM allowlist
+
+```
+DELETE /api/config/channels/:type/dm-allowlist
+Content-Type: application/json
+
+{"entry": "+1234567890"}
+```
+
+#### Get group allowlist
+
+```
+GET /api/config/channels/:type/group-allowlist
+```
+
+Returns the group allowlist (restart-required — reads from persisted YAML).
+
+#### Add to group allowlist
+
+```
+POST /api/config/channels/:type/group-allowlist
+Content-Type: application/json
+
+{"entry": "group-id-here"}
+```
+
+Restart-required. Returns `201` on success.
+
+#### Remove from group allowlist
+
+```
+DELETE /api/config/channels/:type/group-allowlist
+Content-Type: application/json
+
+{"entry": "group-id-here"}
+```
+
+#### List pending pairings
+
+```
+GET /api/channels/:type/dm-pairing
+```
+
+Returns pending pairing codes with remaining TTL.
+
+#### Confirm pairing
+
+```
+POST /api/channels/:type/dm-pairing/confirm
+Content-Type: application/json
+
+{"code": "ABC12345"}
+```
+
+Approves a pending pairing, adding the sender to the DM allowlist. Persists to YAML before updating runtime state.
+
+#### Reject pairing
+
+```
+POST /api/channels/:type/dm-pairing/reject
+Content-Type: application/json
+
+{"code": "ABC12345"}
+```
+
+#### Pairing counts (for badge display)
+
+```
+GET /api/channels/pairing-counts
+```
+
+Returns `{"whatsapp": 0, "signal": 1}`.
+
 ### System
 
 #### Restart server
@@ -279,7 +374,8 @@ Global SSE stream for system-level events (e.g., `server_restart`). Separate fro
 | `GET /sessions/:id/messages-html` | HTML fragment of message history (for HTMX partial reload) |
 | `GET /health-dashboard` | System health status, services, guard audit log |
 | `GET /health-dashboard/audit` | Guard audit table fragment (HTMX polling) |
-| `GET /settings` | Configuration editor (agent, server, security, scheduling settings) |
+| `GET /settings` | Configuration editor (agent, server, security, sessions, scheduling settings) |
+| `GET /settings/channels/:type` | Channel detail page (DM/group access, allowlist management, pairing) |
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
 | `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |

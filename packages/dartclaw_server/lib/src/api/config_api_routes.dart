@@ -32,11 +32,10 @@ Router configApiRoutes({
   required String dataDir,
   RestartService? restartService,
   SseBroadcast? sseBroadcast,
-  HeartbeatScheduler? heartbeat,
-  WorkspaceGitSync? gitSync,
   ScheduleService? scheduleService,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
+  EventBus? eventBus,
 }) {
   final router = Router();
   const serializer = ConfigSerializer();
@@ -44,7 +43,9 @@ Router configApiRoutes({
   // GET /api/config — full config JSON with _meta
   router.get('/api/config', (Request request) async {
     try {
-      final json = serializer.toJson(config, runtime: runtimeConfig);
+      // Read fresh from disk to reflect PATCH writes (restart-required fields)
+      final freshConfig = DartclawConfig.load(configPath: writer.configPath);
+      final json = serializer.toJson(freshConfig, runtime: runtimeConfig);
 
       // Build _meta
       final pending = readRestartPending(dataDir);
@@ -114,24 +115,15 @@ Router configApiRoutes({
       }
     }
 
-    // Apply live fields immediately (runtime side-effects)
-    for (final entry in liveFields.entries) {
-      switch (entry.key) {
-        case 'scheduling.heartbeat.enabled':
-          final enabled = entry.value as bool;
-          if (enabled) {
-            heartbeat?.start();
-          } else {
-            heartbeat?.stop();
-          }
-          runtimeConfig.heartbeatEnabled = enabled;
-        case 'workspace.git_sync.enabled':
-          runtimeConfig.gitSyncEnabled = entry.value as bool;
-        case 'workspace.git_sync.push_enabled':
-          final enabled = entry.value as bool;
-          if (gitSync != null) gitSync.pushEnabled = enabled;
-          runtimeConfig.gitSyncPushEnabled = enabled;
-      }
+    // Fire ConfigChangedEvent — subscribers handle live side-effects.
+    if (allFields.isNotEmpty) {
+      eventBus?.fire(ConfigChangedEvent(
+        changedKeys: allFields.keys.toList(),
+        oldValues: <String, dynamic>{},
+        newValues: allFields,
+        requiresRestart: restartFields.isNotEmpty,
+        timestamp: DateTime.now(),
+      ));
     }
 
     // Create/update restart.pending if needed
@@ -394,16 +386,18 @@ Router configApiRoutes({
       return errorResponse(409, 'CONFLICT', 'Entry "$entry" already in allowlist');
     }
 
-    controller.addToAllowlist(entry);
-
+    // Persist BEFORE mutating controller — if write fails, state stays consistent
+    final updatedList = [...controller.allowlist, entry];
     try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', controller.allowlist.toList());
+      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
     }
 
+    // Write succeeded — now mutate live controller
+    controller.addToAllowlist(entry);
     return jsonResponse(200, {'added': true, 'allowlist': controller.allowlist.toList()});
   });
 
@@ -428,16 +422,18 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Entry "$entry" not in allowlist');
     }
 
-    controller.removeFromAllowlist(entry);
-
+    // Persist BEFORE mutating controller — if write fails, state stays consistent
+    final updatedList = controller.allowlist.where((e) => e != entry).toList();
     try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', controller.allowlist.toList());
+      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
     }
 
+    // Write succeeded — now mutate live controller
+    controller.removeFromAllowlist(entry);
     return jsonResponse(200, {'removed': true, 'allowlist': controller.allowlist.toList()});
   });
 
@@ -492,6 +488,14 @@ Router configApiRoutes({
     }
 
     writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
+
+    eventBus?.fire(ConfigChangedEvent(
+      changedKeys: ['channels.$type.group_allowlist'],
+      oldValues: {'channels.$type.group_allowlist': current},
+      newValues: {'channels.$type.group_allowlist': updated},
+      requiresRestart: true,
+      timestamp: DateTime.now(),
+    ));
 
     return jsonResponse(201, {'added': true, 'allowlist': updated});
   });
@@ -584,18 +588,22 @@ Router configApiRoutes({
       return errorResponse(404, 'NOT_FOUND', 'Pairing code not found or expired');
     }
 
-    final confirmed = controller.confirmPairing(code);
-    if (!confirmed) {
-      return errorResponse(404, 'NOT_FOUND', 'Pairing code not found or expired');
-    }
+    // Compute what allowlist will look like after confirmation
+    final updatedList = [...controller.allowlist, pairing.jid];
 
-    // Persist updated allowlist to YAML
+    // Persist BEFORE mutating controller — if write fails, state stays consistent
     try {
-      await writer.writeChannelAllowlist(type, 'dm_allowlist', controller.allowlist.toList());
+      await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+
+    // Write succeeded — now confirm (mutates controller: removes pending + adds to allowlist)
+    final confirmed = controller.confirmPairing(code);
+    if (!confirmed) {
+      return errorResponse(404, 'NOT_FOUND', 'Pairing code not found or expired');
     }
 
     return jsonResponse(200, {'confirmed': true, 'senderId': pairing.jid});

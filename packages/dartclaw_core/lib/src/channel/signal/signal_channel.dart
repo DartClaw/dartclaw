@@ -6,6 +6,7 @@ import '../channel.dart';
 import '../channel_manager.dart';
 import '../whatsapp/text_chunking.dart';
 import 'signal_cli_manager.dart';
+import 'signal_sender_map.dart';
 import '../dm_access.dart';
 import 'signal_config.dart';
 import 'signal_dm_access.dart';
@@ -24,6 +25,8 @@ class SignalChannel extends Channel {
   final DmAccessController dmAccess;
   final SignalMentionGating mentionGating;
   final ChannelManager? _channelManager;
+  final String? _dataDir;
+  SignalSenderMap? _senderMap;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
 
   SignalChannel({
@@ -32,11 +35,18 @@ class SignalChannel extends Channel {
     required this.dmAccess,
     required this.mentionGating,
     ChannelManager? channelManager,
-  }) : _channelManager = channelManager;
+    String? dataDir,
+  }) : _channelManager = channelManager,
+       _dataDir = dataDir;
 
   @override
   Future<void> connect() async {
     _log.info('Starting Signal channel');
+    if (_dataDir != null) {
+      final mapPath = '$_dataDir/channels/signal/signal-sender-map.json';
+      _senderMap = SignalSenderMap(filePath: mapPath);
+      await _senderMap!.load();
+    }
     await sidecar.start();
     _eventSub = sidecar.events.listen(_handleEvent);
     _log.info('Signal channel connected');
@@ -169,12 +179,18 @@ class SignalChannel extends Channel {
     // - 'sourceNumber': E.164 phone (e.g. "+1234567890") — preferred
     // - 'sourceUuid': ACI UUID (e.g. "12bfcd5a-...") — sealed-sender fallback
     // - 'source': may be either phone or UUID depending on signal-cli version
-    // Prefer phone number for consistency, fall back to UUID.
-    final source = (envelope['sourceNumber'] as String?)?.isNotEmpty == true
-        ? envelope['sourceNumber'] as String
-        : (envelope['source'] as String?)?.isNotEmpty == true
-            ? envelope['source'] as String
-            : envelope['sourceUuid'] as String?;
+    // Use sender map for UUID->phone normalization when available.
+    final sourceNumber = envelope['sourceNumber'] as String?;
+    final sourceUuid = envelope['sourceUuid'] as String?;
+    final source = _senderMap?.resolve(
+          sourceNumber: sourceNumber,
+          sourceUuid: sourceUuid,
+        ) ??
+        (sourceNumber?.isNotEmpty == true
+            ? sourceNumber
+            : (envelope['source'] as String?)?.isNotEmpty == true
+                ? envelope['source'] as String
+                : sourceUuid);
     if (source == null || source.isEmpty) return null;
 
     final dataMessage = envelope['dataMessage'] as Map<String, dynamic>?;

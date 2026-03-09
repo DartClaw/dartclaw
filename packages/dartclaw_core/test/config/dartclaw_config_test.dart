@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/src/config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -60,7 +60,7 @@ void main() {
         final config = DartclawConfig.load(
           fileReader: (path) {
             if (path == 'dartclaw.yaml') {
-              return 'port: 8080\nhost: 0.0.0.0\ndata_dir: /custom/data\nworker_timeout: 300\n';
+              return 'port: 8080\nhost: 0.0.0.0\ndata_dir: /custom/data\nworker_timeout: 300\ngateway:\n  hsts: true\n';
             }
             return null;
           },
@@ -70,6 +70,24 @@ void main() {
         expect(config.host, '0.0.0.0');
         expect(config.dataDir, '/custom/data');
         expect(config.workerTimeout, 300);
+        expect(config.gatewayHsts, isTrue);
+      });
+
+      test('gateway.hsts defaults to false when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.gatewayHsts, isFalse);
+      });
+
+      test('gateway.hsts invalid type collects warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'gateway:\n  hsts: yes\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.gatewayHsts, isFalse);
+        expect(config.warnings, anyElement(contains('Invalid type for gateway.hsts')));
       });
 
       test('resolution order: CLI > YAML > defaults', () {
@@ -247,6 +265,94 @@ void main() {
       });
     });
 
+    group('session scope config parsing', () {
+      String? noFile(String path) => null;
+
+      test('default config has SessionScopeConfig.defaults()', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
+        expect(config.sessionScopeConfig.channels, isEmpty);
+      });
+
+      test('sessions.dm_scope: shared parses to DmScope.shared', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.shared);
+      });
+
+      test('sessions.group_scope: per-member parses to GroupScope.perMember', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  group_scope: per-member\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.groupScope, GroupScope.perMember);
+      });
+
+      test('sessions.channels.signal.group_scope parses channel override', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  channels:\n    signal:\n      group_scope: per-member\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.channels['signal']?.groupScope, GroupScope.perMember);
+        expect(config.sessionScopeConfig.channels['signal']?.dmScope, isNull);
+      });
+
+      test('invalid sessions.dm_scope produces warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  dm_scope: invalid\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
+      });
+
+      test('invalid type for sessions.dm_scope produces warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
+      });
+
+      test('unknown channel name in sessions.channels is parsed without error', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  channels:\n    unknown_channel:\n      dm_scope: shared\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.channels['unknown_channel']?.dmScope, DmScope.shared);
+      });
+    });
+
     group('guards config', () {
       String? noFile(String path) => null;
 
@@ -408,6 +514,222 @@ void main() {
       test('no search section returns empty providers', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
         expect(config.searchProviders, isEmpty);
+      });
+    });
+
+    group('session scope config', () {
+      String? noFile(String path) => null;
+
+      test('default config has SessionScopeConfig.defaults()', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.sessionScopeConfig, const SessionScopeConfig.defaults());
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
+      });
+
+      test('sessions.dm_scope: shared parses to DmScope.shared', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.shared);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('sessions.group_scope: per-member parses to GroupScope.perMember', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  group_scope: per-member\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.groupScope, GroupScope.perMember);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('per-channel override parsed correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  dm_scope: per-contact\n  channels:\n    signal:\n      group_scope: per-member\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.channels, hasLength(1));
+        final signalScope = config.sessionScopeConfig.forChannel('signal');
+        expect(signalScope.groupScope, GroupScope.perMember);
+        expect(signalScope.dmScope, DmScope.perContact);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('invalid dm_scope value produces warning, uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: invalid\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
+      });
+
+      test('invalid type for dm_scope produces warning, uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
+      });
+
+      test('unknown channel name in overrides produces warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  channels:\n    unknown:\n      dm_scope: shared\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        // Still parses the override — unknown channel names are not rejected
+        expect(config.sessionScopeConfig.channels, hasLength(1));
+        expect(config.sessionScopeConfig.channels['unknown']?.dmScope, DmScope.shared);
+      });
+
+      test('invalid channel override value produces warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  channels:\n    signal:\n      dm_scope: bogus\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        // Invalid value ignored, channel not added (no valid overrides)
+        expect(config.sessionScopeConfig.channels, isEmpty);
+        expect(config.warnings, anyElement(contains('Invalid value for sessions.channels.signal.dm_scope')));
+      });
+    });
+
+    group('session maintenance config parsing', () {
+      test('default config has SessionMaintenanceConfig.defaults()', () {
+        final config = const DartclawConfig.defaults();
+        expect(config.sessionMaintenanceConfig, const SessionMaintenanceConfig.defaults());
+        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.warn);
+        expect(config.sessionMaintenanceConfig.pruneAfterDays, 30);
+        expect(config.sessionMaintenanceConfig.maxSessions, 500);
+        expect(config.sessionMaintenanceConfig.maxDiskMb, 0);
+        expect(config.sessionMaintenanceConfig.cronRetentionHours, 24);
+        expect(config.sessionMaintenanceConfig.schedule, '0 3 * * *');
+      });
+
+      test('sessions.maintenance.mode: enforce parses correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    mode: enforce\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.enforce);
+      });
+
+      test('sessions.maintenance.prune_after_days: 7 parses correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    prune_after_days: 7\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.pruneAfterDays, 7);
+      });
+
+      test('all maintenance int fields parse correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    max_sessions: 100\n    max_disk_mb: 512\n    cron_retention_hours: 48\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.maxSessions, 100);
+        expect(config.sessionMaintenanceConfig.maxDiskMb, 512);
+        expect(config.sessionMaintenanceConfig.cronRetentionHours, 48);
+      });
+
+      test('sessions.maintenance.schedule parses correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    schedule: "0 4 * * *"\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.schedule, '0 4 * * *');
+      });
+
+      test('invalid sessions.maintenance.mode warns and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    mode: invalid\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.warn);
+        expect(config.warnings, anyElement(contains('Invalid value for sessions.maintenance.mode')));
+      });
+
+      test('invalid type for maintenance int field warns and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance:\n    prune_after_days: abc\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig.pruneAfterDays, 30);
+        expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance.prune_after_days')));
+      });
+
+      test('invalid type for sessions.maintenance warns and uses defaults', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  maintenance: true\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessionMaintenanceConfig, const SessionMaintenanceConfig.defaults());
+        expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance')));
       });
     });
   });

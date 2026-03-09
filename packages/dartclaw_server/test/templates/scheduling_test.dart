@@ -9,7 +9,7 @@ void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  final SidebarData emptySidebar = (main: null, channels: <SidebarSession>[], entries: <SidebarSession>[]);
+  final SidebarData emptySidebar = (main: null, dmChannels: <SidebarSession>[], groupChannels: <SidebarSession>[], activeEntries: <SidebarSession>[], archivedEntries: <SidebarSession>[]);
 
   group('schedulingTemplate', () {
     test('renders system badge for system jobs', () {

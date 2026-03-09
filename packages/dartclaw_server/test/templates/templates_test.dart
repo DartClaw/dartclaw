@@ -6,6 +6,7 @@ import 'package:dartclaw_server/src/templates/layout.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/topbar.dart';
 import 'package:dartclaw_server/src/templates/chat.dart';
+import 'package:dartclaw_server/src/templates/channel_detail.dart';
 import 'package:dartclaw_server/src/templates/components.dart';
 
 import '../test_utils.dart';
@@ -71,42 +72,35 @@ void main() {
     });
 
     test('renders main session pinned at top', () {
-      final html = sidebarTemplate(
-        mainSession: (id: 'm1', title: 'Main', type: SessionType.main),
-      );
+      final html = sidebarTemplate(mainSession: (id: 'm1', title: 'Main', type: SessionType.main));
       expect(html, contains('session-item-main'));
       expect(html, contains('Agent'));
     });
 
     test('renders channel sessions with icon', () {
-      final html = sidebarTemplate(
-        channelSessions: [(id: 'c1', title: 'WhatsApp Alice', type: SessionType.channel)],
-      );
+      final html = sidebarTemplate(dmChannels: [(id: 'c1', title: 'WhatsApp Alice', type: SessionType.channel)]);
       expect(html, contains('session-item-channel'));
       expect(html, contains('WhatsApp Alice'));
     });
 
     test('renders user sessions with delete button', () {
-      final html = sidebarTemplate(
-        sessionEntries: [(id: 's1', title: 'My Research', type: SessionType.user)],
-      );
+      final html = sidebarTemplate(activeEntries: [(id: 's1', title: 'My Research', type: SessionType.user)]);
       expect(html, contains('My Research'));
       expect(html, contains('session-delete'));
       expect(html, contains('data-session-id="s1"'));
     });
 
-    test('renders archive sessions with clock icon, no delete button', () {
-      final html = sidebarTemplate(
-        sessionEntries: [(id: 'a1', title: 'Old session', type: SessionType.archive)],
-      );
+    test('renders archive sessions in archived section, no delete button', () {
+      final html = sidebarTemplate(archivedEntries: [(id: 'a1', title: 'Old session', type: SessionType.archive)]);
       expect(html, contains('session-item-archive'));
       expect(html, contains('Old session'));
-      expect(html, isNot(contains('data-action="delete-session"')));
+      expect(html, contains('sidebar-archive-section'));
+      expect(html, contains('sidebar-archive-toggle'));
     });
 
     test('active session gets active class', () {
       final html = sidebarTemplate(
-        sessionEntries: [
+        activeEntries: [
           (id: 's1', title: 'Alpha', type: SessionType.user),
           (id: 's2', title: 'Beta', type: SessionType.user),
         ],
@@ -116,16 +110,12 @@ void main() {
     });
 
     test('empty title renders as New Session for user type', () {
-      final html = sidebarTemplate(
-        sessionEntries: [(id: 's1', title: '', type: SessionType.user)],
-      );
+      final html = sidebarTemplate(activeEntries: [(id: 's1', title: '', type: SessionType.user)]);
       expect(html, contains('New Session'));
     });
 
     test('titles are HTML-escaped', () {
-      final html = sidebarTemplate(
-        sessionEntries: [(id: 's1', title: '<b>Bold</b>', type: SessionType.user)],
-      );
+      final html = sidebarTemplate(activeEntries: [(id: 's1', title: '<b>Bold</b>', type: SessionType.user)]);
       expect(html, contains('&lt;b&gt;Bold'));
       expect(html, isNot(contains('<b>Bold</b>')));
     });
@@ -143,12 +133,59 @@ void main() {
 
     test('XSS in session id is safe in attributes', () {
       final html = sidebarTemplate(
-        sessionEntries: [(id: '<script>xss</script>', title: 'Test', type: SessionType.user)],
+        activeEntries: [(id: '<script>xss</script>', title: 'Test', type: SessionType.user)],
       );
       // Trellis escapes per HTML spec: attribute values are properly quoted
       // (preventing attribute breakout). The " char is escaped to &quot;.
       // <> are allowed in quoted attribute values per HTML5 spec.
       expect(html, contains('data-session-id='));
+    });
+
+    test('renders archived section with count badge when archives exist', () {
+      final html = sidebarTemplate(
+        archivedEntries: [
+          (id: 'a1', title: 'Old chat', type: SessionType.archive),
+          (id: 'a2', title: 'Ancient chat', type: SessionType.archive),
+        ],
+      );
+      expect(html, contains('sidebar-archive-section'));
+      expect(html, contains('sidebar-archive-toggle'));
+      expect(html, contains('sidebar-archive-count'));
+      expect(html, contains('>2<')); // count badge shows 2
+      expect(html, contains('Old chat'));
+      expect(html, contains('Ancient chat'));
+    });
+
+    test('hides archived section when no archives exist', () {
+      final html = sidebarTemplate(activeEntries: [(id: 's1', title: 'Active', type: SessionType.user)]);
+      expect(html, isNot(contains('sidebar-archive-section')));
+      expect(html, isNot(contains('sidebar-archive-toggle')));
+    });
+
+    test('active archived session adds force-expanded class', () {
+      final html = sidebarTemplate(
+        archivedEntries: [(id: 'a1', title: 'Old', type: SessionType.archive)],
+        activeSessionId: 'a1',
+      );
+      expect(html, contains('force-expanded'));
+    });
+
+    test('shows DM/Group subsections when group channels present', () {
+      final html = sidebarTemplate(
+        dmChannels: [(id: 'c1', title: 'Alice DM', type: SessionType.channel)],
+        groupChannels: [(id: 'c2', title: 'Team Chat', type: SessionType.channel)],
+      );
+      expect(html, contains('sidebar-subsection-label'));
+      expect(html, contains('DMs'));
+      expect(html, contains('Groups'));
+      expect(html, contains('Alice DM'));
+      expect(html, contains('Team Chat'));
+    });
+
+    test('shows single Channels section when no groups', () {
+      final html = sidebarTemplate(dmChannels: [(id: 'c1', title: 'Alice DM', type: SessionType.channel)]);
+      expect(html, contains('Alice DM'));
+      expect(html, isNot(contains('sidebar-subsection-label')));
     });
   });
 
@@ -207,6 +244,99 @@ void main() {
     test('contains theme toggle button', () {
       final html = topbarTemplate(title: 'Chat', sessionId: 's1');
       expect(html, contains('theme-toggle'));
+    });
+  });
+
+  group('channelDetailTemplate', () {
+    const sidebarData = (
+      main: null,
+      dmChannels: <SidebarSession>[],
+      groupChannels: <SidebarSession>[],
+      activeEntries: <SidebarSession>[],
+      archivedEntries: <SidebarSession>[],
+    );
+
+    test('renders hero summary and pairing action', () {
+      final html = channelDetailTemplate(
+        channelType: 'whatsapp',
+        channelLabel: 'WhatsApp',
+        statusLabel: 'Connected',
+        statusClass: 'status-badge-success',
+        phone: '15551234567@s.whatsapp.net',
+        dmAccessMode: 'pairing',
+        dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
+        dmAllowlist: const ['alice@s.whatsapp.net'],
+        groupAccessMode: 'allowlist',
+        groupAccessModes: const ['allowlist', 'open', 'disabled'],
+        groupAllowlist: const ['team@g.us'],
+        requireMention: true,
+        entryPlaceholder: 'jid',
+        groupPlaceholder: 'group',
+        sidebarData: sidebarData,
+        pendingPairings: const [],
+      );
+
+      expect(html, contains('Channel access rules, pairing approvals, and session routing.'));
+      expect(html, contains('Pairing / Registration'));
+      expect(html, contains('Disconnect'));
+      expect(html, contains('DM mode:'));
+      expect(html, contains('Group mode:'));
+      expect(html, contains('data-mode-select="dm_access"'));
+      expect(html, contains('data-mode-select="group_access"'));
+    });
+
+    test('renders pairing queue only when mode is pairing', () {
+      final html = channelDetailTemplate(
+        channelType: 'signal',
+        channelLabel: 'Signal',
+        statusLabel: 'Pairing needed',
+        statusClass: 'status-badge-warning',
+        dmAccessMode: 'pairing',
+        dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
+        dmAllowlist: const [],
+        groupAccessMode: 'disabled',
+        groupAccessModes: const ['allowlist', 'open', 'disabled'],
+        groupAllowlist: const [],
+        requireMention: false,
+        entryPlaceholder: 'phone or uuid',
+        groupPlaceholder: 'group',
+        sidebarData: sidebarData,
+        pendingPairings: const [
+          {'senderId': '+1555', 'displayName': 'Bob', 'remainingLabel': '22m', 'code': 'abc'},
+        ],
+      );
+
+      expect(html, contains('Pending Pairing Requests'));
+      expect(html, contains('Known DM Allowlist'));
+      expect(html, contains('Only meaningful when group access is enabled.'));
+    });
+
+    test('binds labels and names for channel form controls', () {
+      final html = channelDetailTemplate(
+        channelType: 'signal',
+        channelLabel: 'Signal',
+        statusLabel: 'Connected',
+        statusClass: 'status-badge-success',
+        dmAccessMode: 'open',
+        dmAccessModes: const ['pairing', 'allowlist', 'open', 'disabled'],
+        dmAllowlist: const [],
+        groupAccessMode: 'disabled',
+        groupAccessModes: const ['allowlist', 'open', 'disabled'],
+        groupAllowlist: const [],
+        requireMention: false,
+        entryPlaceholder: 'phone or uuid',
+        groupPlaceholder: 'group',
+        sidebarData: sidebarData,
+      );
+
+      expect(html, contains('id="channel-dm-access"'));
+      expect(html, contains('name="dm_access"'));
+      expect(html, contains('for="dm-allowlist-entry"'));
+      expect(html, contains('name="dm_allowlist_entry"'));
+      expect(html, contains('id="channel-group-access"'));
+      expect(html, contains('name="group_access"'));
+      expect(html, contains('for="require-mention"'));
+      expect(html, contains('id="require-mention"'));
     });
   });
 

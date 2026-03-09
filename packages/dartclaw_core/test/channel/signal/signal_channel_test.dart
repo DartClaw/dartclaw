@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_core/src/channel/channel_config.dart';
@@ -590,6 +591,143 @@ void main() {
 
       // Expected: dropped — UUID→phone resolution requires contact_aliases (deferred to 0.8)
       expect(pairingManager.received, isEmpty);
+    });
+  });
+
+  // ---- Sender normalization ----
+  group('sender normalization', () {
+    late FakeSignalCliManager normSidecar;
+    late FakeChannelManager normManager;
+    late Directory tempDir;
+
+    setUp(() {
+      normSidecar = FakeSignalCliManager();
+      normManager = FakeChannelManager();
+      tempDir = Directory.systemTemp.createTempSync('signal_norm_test_');
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('UUID-only message uses UUID as senderJid when no prior mapping', () async {
+      final ch = SignalChannel(
+        sidecar: normSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: normManager,
+        dataDir: tempDir.path,
+      );
+
+      await ch.connect();
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'Hello',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(normManager.received, hasLength(1));
+      expect(normManager.received.first.senderJid, '12bfcd5a-3363-45f4-94b6-3fe247f11ab8');
+    });
+
+    test('UUID-only message resolves to phone after prior message with both', () async {
+      final ch = SignalChannel(
+        sidecar: normSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: normManager,
+        dataDir: tempDir.path,
+      );
+
+      await ch.connect();
+
+      // First: both phone and UUID present
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '+1234567890',
+        sourceNumber: '+1234567890',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'First',
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(normManager.received, hasLength(1));
+      expect(normManager.received.first.senderJid, '+1234567890');
+
+      // Second: UUID only — should resolve to cached phone
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'Second',
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(normManager.received, hasLength(2));
+      expect(normManager.received[1].senderJid, '+1234567890');
+    });
+
+    test('phone change updates mapping', () async {
+      final ch = SignalChannel(
+        sidecar: normSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: normManager,
+        dataDir: tempDir.path,
+      );
+
+      await ch.connect();
+
+      // First: phone1 + UUID
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '+1234567890',
+        sourceNumber: '+1234567890',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'First',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Second: phone2 + same UUID
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '+9876543210',
+        sourceNumber: '+9876543210',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'Second',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Third: UUID only — should resolve to new phone
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8',
+        message: 'Third',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(normManager.received, hasLength(3));
+      expect(normManager.received[2].senderJid, '+9876543210');
+    });
+
+    test('sender normalization works without dataDir (no persistence)', () async {
+      final ch = SignalChannel(
+        sidecar: normSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: normManager,
+        // No dataDir — sender map not initialized
+      );
+
+      await ch.connect();
+      normSidecar.emitEvent(_signalEnvelope(
+        source: '+1234567890',
+        sourceNumber: '+1234567890',
+        message: 'Hello',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(normManager.received, hasLength(1));
+      expect(normManager.received.first.senderJid, '+1234567890');
     });
   });
 }

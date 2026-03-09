@@ -203,7 +203,7 @@ void main() {
     expect(outbound.$2, contains('OK'));
     expect(outbound.$2, contains('*Claude*'));
 
-    final channelKey = SessionKey.peerSession(agentId: 'main', peerId: '123@s.whatsapp.net');
+    final channelKey = SessionKey.dmPerContact(peerId: '123@s.whatsapp.net');
     final channelSessions = await sessions.listSessions(type: SessionType.channel);
     final matched = channelSessions.where((s) => s.channelKey == channelKey).toList();
     expect(matched, hasLength(1));
@@ -225,7 +225,7 @@ void main() {
           ),
         ),
       ],
-      auditLogger: GuardAuditLogger(),
+      eventBus: EventBus(),
     );
     await buildStack(guardChain: guardChain);
 
@@ -250,7 +250,7 @@ void main() {
     final outbound = gowa.sentTexts.single.$2;
     expect(outbound, contains('Failed: Blocked by guard'));
 
-    final channelKey = SessionKey.peerSession(agentId: 'main', peerId: '222@s.whatsapp.net');
+    final channelKey = SessionKey.dmPerContact(peerId: '222@s.whatsapp.net');
     final channelSessions = await sessions.listSessions(type: SessionType.channel);
     final matched = channelSessions.where((s) => s.channelKey == channelKey).toList();
     expect(matched, hasLength(1));

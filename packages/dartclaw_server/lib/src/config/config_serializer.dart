@@ -16,10 +16,7 @@ class ConfigSerializer {
   ///
   /// [config] provides startup-time values and defaults.
   /// [runtime] provides current toggle state for live-mutable fields.
-  Map<String, dynamic> toJson(
-    DartclawConfig config, {
-    required RuntimeConfig runtime,
-  }) {
+  Map<String, dynamic> toJson(DartclawConfig config, {required RuntimeConfig runtime}) {
     return {
       'port': config.port,
       'host': config.host,
@@ -27,22 +24,30 @@ class ConfigSerializer {
       'dataDir': config.dataDir,
       'workerTimeout': config.workerTimeout,
       'memoryMaxBytes': config.memoryMaxBytes,
-      'agent': {
-        'model': config.agentModel,
-        'maxTurns': config.agentMaxTurns,
-        'context1m': config.agentContext1m,
-      },
-      'concurrency': {
-        'maxParallelTurns': config.maxParallelTurns,
-      },
+      'agent': {'model': config.agentModel, 'maxTurns': config.agentMaxTurns, 'context1m': config.agentContext1m},
+      'concurrency': {'maxParallelTurns': config.maxParallelTurns},
       'sessions': {
         'resetHour': config.sessionResetHour,
         'idleTimeoutMinutes': config.sessionIdleTimeoutMinutes,
+        'dmScope': config.sessionScopeConfig.dmScope.toYaml(),
+        'groupScope': config.sessionScopeConfig.groupScope.toYaml(),
+        'channels': {
+          for (final entry in config.sessionScopeConfig.channels.entries)
+            entry.key: {
+              if (entry.value.dmScope != null) 'dmScope': entry.value.dmScope!.toYaml(),
+              if (entry.value.groupScope != null) 'groupScope': entry.value.groupScope!.toYaml(),
+            },
+        },
+        'maintenance': {
+          'mode': config.sessionMaintenanceConfig.mode.toYaml(),
+          'pruneAfterDays': config.sessionMaintenanceConfig.pruneAfterDays,
+          'maxSessions': config.sessionMaintenanceConfig.maxSessions,
+          'maxDiskMb': config.sessionMaintenanceConfig.maxDiskMb,
+          'cronRetentionHours': config.sessionMaintenanceConfig.cronRetentionHours,
+          'schedule': config.sessionMaintenanceConfig.schedule,
+        },
       },
-      'logging': {
-        'level': config.logLevel,
-        'format': config.logFormat,
-      },
+      'logging': {'level': config.logLevel, 'format': config.logFormat},
       'scheduling': {
         'heartbeat': {
           // Live-mutable: read from RuntimeConfig
@@ -51,13 +56,8 @@ class ConfigSerializer {
         },
         'jobs': config.schedulingJobs,
       },
-      'context': {
-        'reserveTokens': config.contextReserveTokens,
-        'maxResultBytes': config.contextMaxResultBytes,
-      },
-      'search': {
-        'backend': config.searchBackend,
-      },
+      'context': {'reserveTokens': config.contextReserveTokens, 'maxResultBytes': config.contextMaxResultBytes},
+      'search': {'backend': config.searchBackend},
       'guards': {
         'content': {
           'enabled': config.contentGuardEnabled,
@@ -65,10 +65,7 @@ class ConfigSerializer {
           'model': config.contentGuardModel,
           'maxBytes': config.contentGuardMaxBytes,
         },
-        'inputSanitizer': {
-          'enabled': config.inputSanitizerEnabled,
-          'channelsOnly': config.inputSanitizerChannelsOnly,
-        },
+        'inputSanitizer': {'enabled': config.inputSanitizerEnabled, 'channelsOnly': config.inputSanitizerChannelsOnly},
       },
       'memory': {
         'pruning': {
@@ -105,6 +102,7 @@ class ConfigSerializer {
       'gateway': {
         'authMode': config.gatewayAuthMode,
         'token': config.gatewayToken != null ? '***' : null,
+        'hsts': config.gatewayHsts,
       },
     };
   }
@@ -117,10 +115,7 @@ class ConfigSerializer {
     final result = <String, dynamic>{};
     for (final entry in ConfigMeta.fields.entries) {
       final f = entry.value;
-      final fieldMap = <String, dynamic>{
-        'mutable': f.mutability.name,
-        'type': _typeLabel(f.type),
-      };
+      final fieldMap = <String, dynamic>{'mutable': f.mutability.name, 'type': _typeLabel(f.type)};
       if (f.min != null) fieldMap['min'] = f.min;
       if (f.max != null) fieldMap['max'] = f.max;
       if (f.allowedValues != null) fieldMap['allowedValues'] = f.allowedValues;
@@ -131,9 +126,9 @@ class ConfigSerializer {
   }
 
   static String _typeLabel(ConfigFieldType type) => switch (type) {
-        ConfigFieldType.int_ => 'int',
-        ConfigFieldType.string => 'string',
-        ConfigFieldType.bool_ => 'bool',
-        ConfigFieldType.enum_ => 'enum',
-      };
+    ConfigFieldType.int_ => 'int',
+    ConfigFieldType.string => 'string',
+    ConfigFieldType.bool_ => 'bool',
+    ConfigFieldType.enum_ => 'enum',
+  };
 }

@@ -577,7 +577,7 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
         guardChain: GuardChain(
           guards: [FakeGuard(verdict: GuardVerdict.block('unsafe input'))],
-          auditLogger: GuardAuditLogger(),
+          eventBus: EventBus(),
         ),
       );
 
@@ -606,7 +606,7 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
         guardChain: GuardChain(
           guards: [FakeGuard(verdict: GuardVerdict.warn('proceed with caution'))],
-          auditLogger: GuardAuditLogger(),
+          eventBus: EventBus(),
         ),
       );
 
@@ -645,7 +645,7 @@ void main() {
               },
             ),
           ],
-          auditLogger: GuardAuditLogger(),
+          eventBus: EventBus(),
         ),
       );
 
@@ -685,7 +685,7 @@ void main() {
               },
             ),
           ],
-          auditLogger: GuardAuditLogger(),
+          eventBus: EventBus(),
         ),
       );
 

@@ -7,16 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Channel DM access management — unified controller, config API, settings UI, pairing flow.
+---
+
+## [0.7.0] — 2026-03-09
+
+Session scoping, session maintenance, event bus infrastructure, channel DM access management.
 
 ### Added
-- **Unified DM access controller** (S02): shared `DmAccessController` extracted to `dartclaw_core/channel/`; Signal gains `pairing` mode (was WhatsApp-only); `SignalDmAccessController` removed; `DmAccessMode` enum (`open`, `disabled`, `allowlist`, `pairing`) shared across both channels; Signal allowlist accepts both phone numbers and ACI UUIDs
-- **Channel access config API** (S03): `GET/PATCH /api/config` now includes channel DM/group access fields; dedicated allowlist CRUD endpoints (`GET/POST/DELETE /api/config/channels/<type>/dm-allowlist`); allowlist changes are live (no restart); E.164 and JID validation on entries
-- **Channel access config UI** (S04): `/settings/channels/whatsapp` and `/settings/channels/signal` detail pages; DM mode selector, DM allowlist editor, group mode selector, group allowlist editor, mention gating toggle; restart-required banner for mode changes; closes wireframe deviation #8
-- **Pairing flow** (S05): unknown senders in `pairing` mode now trigger `createPairing()` instead of silent drop; pending pairings shown on channel detail page with sender ID, display name, and expiry countdown; Approve/Reject buttons wire through `confirmPairing()` → live allowlist update + YAML persist; pairing management endpoints (`GET /api/channels/<type>/dm-pairing`, `POST .../confirm`, `DELETE .../reject`); notification badge on channel card when pending pairings exist; HTMX polling for real-time updates
+- **Configurable session scoping** (S02): `SessionScopeConfig` model with `DmScope` (`shared`, `per-contact`, `per-channel-contact`) and `GroupScope` (`shared`, `per-member`) enums; parsed from `sessions:` block in `dartclaw.yaml`; per-channel overrides via `sessions.channels.<name>`; registered in `ConfigMeta` for API exposure
+- **Session maintenance service** (S05): `SessionMaintenanceConfig` + `SessionMaintenanceService` — 4-stage pipeline (prune stale → count cap → cron retention → disk budget); `warn`/`enforce` mode; configurable thresholds for `prune_after_days`, `max_sessions`, `max_disk_mb`, `cron_retention_hours`; scheduled via internal cron job (default daily 3 AM)
+- **CLI cleanup command** (S06): `dartclaw sessions cleanup` with `--dry-run` and `--enforce` flags; structured summary output (sessions archived, deleted, disk reclaimed)
+- **Session scope settings UI** (S07): "Sessions" section on `/settings` with DM/group scope selectors and per-channel overrides; session scope section on channel detail pages (`/settings/channels/<type>`); restart-required banner for scope changes
+- **Sidebar archive separation** (S08): collapsible "Archived" subsection with count badge; DM/Group channel subsections; `localStorage` persistence for collapse state
+- **Auto-create group sessions** (S09): `GroupSessionInitializer` pre-creates sessions for allowlisted groups on startup and config changes via `EventBus`
+- **EventBus** (S10): typed event bus using `StreamController.broadcast()`; sealed `DartclawEvent` hierarchy — `GuardBlockEvent`, `ConfigChangedEvent`, `SessionCreatedEvent`, `SessionEndedEvent`, `SessionErrorEvent`; wired as singleton in `service_wiring.dart`
+- **Event bus migrations** (S11): guard audit logging, config change propagation, and session lifecycle all migrated from direct coupling to event bus subscribers
+- **Unified DM access controller**: shared `DmAccessController` in `dartclaw_core/channel/`; Signal gains `pairing` mode; `DmAccessMode` enum (`open`, `disabled`, `allowlist`, `pairing`) shared across both channels; Signal allowlist accepts phone numbers and ACI UUIDs
+- **Channel access config API**: `GET/PATCH /api/config` includes channel DM/group access fields; dedicated allowlist CRUD (`GET/POST/DELETE /api/config/channels/<type>/dm-allowlist`); live allowlist changes without restart
+- **Channel access config UI**: `/settings/channels/whatsapp` and `/settings/channels/signal` detail pages; DM mode selector, allowlist editor, group mode selector, mention gating toggle; closes wireframe deviation #8
+- **Pairing flow**: `createPairing()` for unknown senders in `pairing` mode; approval UI with Approve/Reject buttons, expiry countdown, HTMX polling; pairing management API endpoints; notification badge on channel cards
 
 ### Changed
-- **Doc corrections** (S01): GOWA v8 alignment plan corrected — `GET /app/status` `device_id` is an internal UUID, not the WhatsApp JID; JID available via `GET /devices` → `jid` and `LOGIN_SUCCESS` event; signal-cli sealed-sender behaviour documented — `source` field carries ACI UUID, `sourceNumber` is the phone fallback
+- **SessionKey factory refactor** (S01): new factories `dmShared()`, `dmPerContact()`, `dmPerChannelContact()`, `groupShared()`, `groupPerMember()`; old overloaded `channelPeerSession()` removed; `webSession()` scope renamed from `main` to `web`
+- **Group session fix** (S03): group messages now route to shared per-group session (was per-user-in-group — P0 bug); `ChannelManager.deriveSessionKey()` uses `SessionScopeConfig` and new factories
+- **Signal sender normalization** (S04): `UUID ↔ phone` mapping via `signal-sender-map.json` prevents duplicate sessions from sealed-sender identity shifts; UUID-only messages resolve to cached phone; graceful degradation on missing/corrupt map
 
 ---
 

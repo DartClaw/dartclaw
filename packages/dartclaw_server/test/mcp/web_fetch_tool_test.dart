@@ -123,6 +123,101 @@ void main() {
         // Should fail with connection error, NOT with 'Blocked'.
         expect(_text(result), isNot(contains('Blocked')));
       });
+
+      test('DNS resolution catches localhost-resolving hostname', () async {
+        // localhost resolves to 127.0.0.1 via DNS — should be caught
+        // even though "localhost" is already caught by the fast path,
+        // this validates the async checkSsrfPolicy flow end-to-end.
+        final result = await WebFetchTool.checkSsrfPolicy(
+          Uri.parse('http://localhost/secret'),
+        );
+        expect(result, isNotNull);
+        expect(result, contains('Blocked'));
+      });
+    });
+
+    group('checkIpv4Octets', () {
+      test('blocks loopback 127.x.x.x', () {
+        expect(WebFetchTool.checkIpv4Octets(127, 0), contains('loopback'));
+        expect(WebFetchTool.checkIpv4Octets(127, 1), contains('loopback'));
+      });
+
+      test('blocks link-local 169.254.x.x', () {
+        expect(
+          WebFetchTool.checkIpv4Octets(169, 254),
+          contains('link-local'),
+        );
+      });
+
+      test('blocks RFC1918 10.x.x.x', () {
+        expect(WebFetchTool.checkIpv4Octets(10, 0), contains('RFC1918'));
+        expect(WebFetchTool.checkIpv4Octets(10, 255), contains('RFC1918'));
+      });
+
+      test('blocks RFC1918 172.16-31.x.x', () {
+        expect(WebFetchTool.checkIpv4Octets(172, 16), contains('RFC1918'));
+        expect(WebFetchTool.checkIpv4Octets(172, 31), contains('RFC1918'));
+        // 172.15 and 172.32 should NOT be blocked.
+        expect(WebFetchTool.checkIpv4Octets(172, 15), isNull);
+        expect(WebFetchTool.checkIpv4Octets(172, 32), isNull);
+      });
+
+      test('blocks RFC1918 192.168.x.x', () {
+        expect(WebFetchTool.checkIpv4Octets(192, 168), contains('RFC1918'));
+      });
+
+      test('blocks CGNAT 100.64-127.x.x', () {
+        expect(WebFetchTool.checkIpv4Octets(100, 64), contains('CGNAT'));
+        expect(WebFetchTool.checkIpv4Octets(100, 127), contains('CGNAT'));
+        // 100.63 and 100.128 should NOT be blocked.
+        expect(WebFetchTool.checkIpv4Octets(100, 63), isNull);
+        expect(WebFetchTool.checkIpv4Octets(100, 128), isNull);
+      });
+
+      test('blocks unspecified 0.x.x.x', () {
+        expect(
+          WebFetchTool.checkIpv4Octets(0, 0),
+          contains('unspecified'),
+        );
+      });
+
+      test('blocks multicast/reserved >= 224', () {
+        expect(WebFetchTool.checkIpv4Octets(224, 0), contains('multicast'));
+        expect(WebFetchTool.checkIpv4Octets(255, 255), contains('multicast'));
+      });
+
+      test('allows public addresses', () {
+        expect(WebFetchTool.checkIpv4Octets(8, 8), isNull);
+        expect(WebFetchTool.checkIpv4Octets(93, 184), isNull);
+        expect(WebFetchTool.checkIpv4Octets(203, 0), isNull);
+      });
+    });
+
+    group('checkResolvedAddress', () {
+      test('blocks IPv4 loopback', () {
+        final addr = InternetAddress('127.0.0.1');
+        expect(WebFetchTool.checkResolvedAddress(addr), contains('loopback'));
+      });
+
+      test('blocks IPv6 loopback', () {
+        final addr = InternetAddress('::1');
+        expect(WebFetchTool.checkResolvedAddress(addr), contains('loopback'));
+      });
+
+      test('blocks RFC1918 via resolved address', () {
+        final addr = InternetAddress('10.0.0.1');
+        expect(WebFetchTool.checkResolvedAddress(addr), contains('Blocked'));
+      });
+
+      test('blocks 192.168 via resolved address', () {
+        final addr = InternetAddress('192.168.1.1');
+        expect(WebFetchTool.checkResolvedAddress(addr), contains('Blocked'));
+      });
+
+      test('allows public IPv4', () {
+        final addr = InternetAddress('8.8.8.8');
+        expect(WebFetchTool.checkResolvedAddress(addr), isNull);
+      });
     });
 
     group('input validation', () {

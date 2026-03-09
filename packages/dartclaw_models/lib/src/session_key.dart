@@ -33,44 +33,66 @@ class SessionKey {
 
   /// Primary web session key.
   static String webSession({String agentId = 'main'}) =>
-      SessionKey(agentId: agentId, scope: 'main').toString();
+      SessionKey(agentId: agentId, scope: 'web').toString();
 
-  /// Per-peer session key (e.g. WhatsApp DM).
-  static String peerSession({required String agentId, required String peerId}) =>
-      SessionKey(
-        agentId: agentId,
-        scope: 'per-peer',
-        identifiers: Uri.encodeComponent(peerId),
-      ).toString();
+  /// Shared DM session — all DM contacts share one session.
+  static String dmShared({String agentId = 'main'}) =>
+      SessionKey(agentId: agentId, scope: 'dm', identifiers: 'shared').toString();
 
-  /// Per-channel-peer session key (e.g., WhatsApp group messages).
-  static String channelPeerSession({
+  /// Per-contact DM session — one session per contact across all channels.
+  static String dmPerContact({String agentId = 'main', required String peerId}) {
+    if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
+    return SessionKey(
+      agentId: agentId,
+      scope: 'dm',
+      identifiers: 'contact:${Uri.encodeComponent(peerId)}',
+    ).toString();
+  }
+
+  /// Per-channel-contact DM session — one session per contact per channel type.
+  static String dmPerChannelContact({
     String agentId = 'main',
     required String channelType,
-    required String channelId,
     required String peerId,
-  }) =>
-      SessionKey(
-        agentId: agentId,
-        scope: 'per-channel-peer',
-        identifiers:
-            '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(channelId)}:${Uri.encodeComponent(peerId)}',
-      ).toString();
+  }) {
+    if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
+    return SessionKey(
+      agentId: agentId,
+      scope: 'dm',
+      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(peerId)}',
+    ).toString();
+  }
 
-  /// Per-account-channel-peer session key.
-  static String accountChannelPeerSession({
+  /// Shared group session — one session per group.
+  static String groupShared({
     String agentId = 'main',
-    required String accountId,
     required String channelType,
-    required String channelId,
+    required String groupId,
+  }) {
+    if (groupId.isEmpty) throw ArgumentError('groupId must not be empty');
+    return SessionKey(
+      agentId: agentId,
+      scope: 'group',
+      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}',
+    ).toString();
+  }
+
+  /// Per-member group session — one session per member in a group.
+  static String groupPerMember({
+    String agentId = 'main',
+    required String channelType,
+    required String groupId,
     required String peerId,
-  }) =>
-      SessionKey(
-        agentId: agentId,
-        scope: 'per-account-channel-peer',
-        identifiers:
-            '${Uri.encodeComponent(accountId)}:${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(channelId)}:${Uri.encodeComponent(peerId)}',
-      ).toString();
+  }) {
+    if (groupId.isEmpty) throw ArgumentError('groupId must not be empty');
+    if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
+    return SessionKey(
+      agentId: agentId,
+      scope: 'group',
+      identifiers:
+          '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}:${Uri.encodeComponent(peerId)}',
+    ).toString();
+  }
 
   /// Cron session key.
   static String cronSession({String agentId = 'main', required String jobId}) =>

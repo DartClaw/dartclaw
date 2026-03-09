@@ -1,6 +1,7 @@
 import 'package:logging/logging.dart';
 
-import 'guard_audit.dart';
+import '../events/dartclaw_event.dart';
+import '../events/event_bus.dart';
 import 'guard_verdict.dart';
 
 // ---------------------------------------------------------------------------
@@ -73,10 +74,10 @@ class GuardChain {
   static final _log = Logger('GuardChain');
 
   final List<Guard> guards;
-  final GuardAuditLogger auditLogger;
+  final EventBus eventBus;
   final bool failOpen;
 
-  GuardChain({required this.guards, required this.auditLogger, this.failOpen = false});
+  GuardChain({required this.guards, required this.eventBus, this.failOpen = false});
 
   /// Evaluates all guards for a 'beforeToolCall' hook point.
   Future<GuardVerdict> evaluateBeforeToolCall(
@@ -140,16 +141,24 @@ class GuardChain {
             : GuardVerdict.block('Guard error: $e');
       }
 
-      auditLogger.logVerdict(
-        verdict: verdict,
-        guardName: guard.name,
-        guardCategory: guard.category,
-        hookPoint: context.hookPoint,
-        timestamp: context.timestamp,
-        sessionId: context.sessionId,
-        channel: context.source,
-        peerId: context.peerId,
-      );
+      if (verdict.isBlock || verdict.isWarn) {
+        eventBus.fire(GuardBlockEvent(
+          guardName: guard.name,
+          guardCategory: guard.category,
+          verdict: verdict.isBlock ? 'block' : 'warn',
+          verdictMessage: verdict.message,
+          hookPoint: context.hookPoint,
+          sessionId: context.sessionId,
+          channel: context.source,
+          peerId: context.peerId,
+          timestamp: context.timestamp,
+        ));
+      } else {
+        _log.info(
+          '[${guard.name}][${guard.category}][${context.hookPoint}] '
+          'verdict=pass at=${context.timestamp.toIso8601String()}',
+        );
+      }
 
       if (verdict.isBlock) return verdict;
       if (verdict.isWarn && result.isPass) result = verdict;

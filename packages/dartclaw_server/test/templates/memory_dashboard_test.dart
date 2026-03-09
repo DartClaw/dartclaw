@@ -59,7 +59,7 @@ Map<String, dynamic> sampleStatus({
 }
 
 SidebarData emptySidebarData() =>
-    (main: null, channels: <SidebarSession>[], entries: <SidebarSession>[]);
+    (main: null, dmChannels: <SidebarSession>[], groupChannels: <SidebarSession>[], activeEntries: <SidebarSession>[], archivedEntries: <SidebarSession>[]);
 
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));

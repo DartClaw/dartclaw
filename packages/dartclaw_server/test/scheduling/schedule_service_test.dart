@@ -20,6 +20,20 @@ void main() {
       expect(job.deliveryMode, DeliveryMode.none);
     });
 
+    test('parses UI-authored cron job shape', () {
+      final job = ScheduledJob.fromConfig({
+        'name': 'daily-summary',
+        'prompt': 'Do something',
+        'schedule': '0 18 * * *',
+        'delivery': 'announce',
+      });
+      expect(job.id, 'daily-summary');
+      expect(job.prompt, 'Do something');
+      expect(job.scheduleType, ScheduleType.cron);
+      expect(job.cronExpression, isNotNull);
+      expect(job.deliveryMode, DeliveryMode.announce);
+    });
+
     test('parses interval job', () {
       final job = ScheduledJob.fromConfig({
         'id': 'test-interval',
@@ -68,14 +82,20 @@ void main() {
 
     test('throws on missing id', () {
       expect(
-        () => ScheduledJob.fromConfig({'prompt': 'test', 'schedule': {'type': 'cron', 'expression': '* * * * *'}}),
+        () => ScheduledJob.fromConfig({
+          'prompt': 'test',
+          'schedule': {'type': 'cron', 'expression': '* * * * *'},
+        }),
         throwsFormatException,
       );
     });
 
     test('throws on missing prompt', () {
       expect(
-        () => ScheduledJob.fromConfig({'id': 'test', 'schedule': {'type': 'cron', 'expression': '* * * * *'}}),
+        () => ScheduledJob.fromConfig({
+          'id': 'test',
+          'schedule': {'type': 'cron', 'expression': '* * * * *'},
+        }),
         throwsFormatException,
       );
     });
@@ -273,11 +293,7 @@ void main() {
     });
 
     test('start with empty jobs is no-op', () {
-      final service = ScheduleService(
-        turns: _FakeTurnManager(),
-        sessions: _FakeSessionService(),
-        jobs: [],
-      );
+      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       service.start();
       service.stop();
     });
@@ -339,11 +355,7 @@ void main() {
     });
 
     test('pauseJob/resumeJob are idempotent', () {
-      final service = ScheduleService(
-        turns: _FakeTurnManager(),
-        sessions: _FakeSessionService(),
-        jobs: [],
-      );
+      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       // Operations on unknown job IDs should not throw
       expect(() => service.pauseJob('nonexistent'), returnsNormally);
       expect(() => service.resumeJob('nonexistent'), returnsNormally);
@@ -362,11 +374,7 @@ void main() {
           return 'callback result';
         },
       );
-      final service = ScheduleService(
-        turns: turns,
-        sessions: _FakeSessionService(),
-        jobs: [callbackJob],
-      );
+      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: [callbackJob]);
       service.start();
       await service.executeJobForTesting(callbackJob);
       expect(callbackInvoked, isTrue);
@@ -387,11 +395,7 @@ void main() {
           return 'ok';
         },
       );
-      final service = ScheduleService(
-        turns: turns,
-        sessions: _FakeSessionService(),
-        jobs: [callbackJob],
-      );
+      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: [callbackJob]);
       service.start();
 
       // Pause and attempt execution — should skip
@@ -409,11 +413,7 @@ void main() {
 
     test('paused job is skipped during execution', () async {
       final turns = _ConfigurableTurnManager();
-      final service = ScheduleService(
-        turns: turns,
-        sessions: _FakeSessionService(),
-        jobs: [],
-      );
+      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: []);
       service.start();
       final job = ScheduledJob.fromConfig({
         'id': 'skip-job',
@@ -446,7 +446,12 @@ class _ConfigurableTurnManager implements TurnManager {
   final Map<String, Completer<TurnOutcome>> _pending = {};
 
   @override
-  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) async {
+  Future<String> startTurn(
+    String sessionId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+  }) async {
     startTurnCallCount++;
     final turnId = 'fake-turn-$startTurnCallCount';
 
@@ -492,11 +497,7 @@ class _FakeSessionService implements SessionService {
   Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user}) async {
     return _keyedSessions.putIfAbsent(
       key,
-      () => Session(
-        id: 'fake-uuid-for-$key',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
+      () => Session(id: 'fake-uuid-for-$key', createdAt: DateTime.now(), updatedAt: DateTime.now()),
     );
   }
 

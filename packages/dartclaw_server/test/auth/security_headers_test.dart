@@ -4,16 +4,11 @@ import 'package:test/test.dart';
 import 'package:dartclaw_server/src/auth/security_headers.dart';
 
 void main() {
-  late Handler handler;
-
-  setUp(() {
-    handler = securityHeadersMiddleware()(
-      (_) => Response.ok('ok'),
-    );
-  });
+  Handler buildHandler({bool enableHsts = false}) =>
+      securityHeadersMiddleware(enableHsts: enableHsts)((_) => Response.ok('ok'));
 
   test('sets Content-Security-Policy header', () async {
-    final response = await handler(Request('GET', Uri.parse('http://localhost/')));
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     final csp = response.headers['content-security-policy']!;
 
     expect(csp, contains("default-src 'none'"));
@@ -29,22 +24,37 @@ void main() {
   });
 
   test('sets X-Frame-Options DENY', () async {
-    final response = await handler(Request('GET', Uri.parse('http://localhost/')));
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     expect(response.headers['x-frame-options'], 'DENY');
   });
 
   test('sets X-Content-Type-Options nosniff', () async {
-    final response = await handler(Request('GET', Uri.parse('http://localhost/')));
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     expect(response.headers['x-content-type-options'], 'nosniff');
   });
 
   test('sets Referrer-Policy no-referrer', () async {
-    final response = await handler(Request('GET', Uri.parse('http://localhost/')));
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     expect(response.headers['referrer-policy'], 'no-referrer');
   });
 
   test('sets Cache-Control no-store', () async {
-    final response = await handler(Request('GET', Uri.parse('http://localhost/')));
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
     expect(response.headers['cache-control'], 'no-store');
+  });
+
+  test('does not set HSTS header by default', () async {
+    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
+    expect(response.headers['strict-transport-security'], isNull);
+  });
+
+  test('sets HSTS header when enableHsts is true', () async {
+    final response = await buildHandler(enableHsts: true)(Request('GET', Uri.parse('http://localhost/')));
+    expect(response.headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
+  });
+
+  test('does not set HSTS header when enableHsts is false', () async {
+    final response = await buildHandler(enableHsts: false)(Request('GET', Uri.parse('http://localhost/')));
+    expect(response.headers['strict-transport-security'], isNull);
   });
 }

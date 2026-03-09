@@ -72,6 +72,7 @@ class DartclawServer {
   DartclawConfig? _config;
   RestartService? _restartService;
   SseBroadcast? _sseBroadcast;
+  EventBus? _eventBus;
 
   /// Inject runtime services for toggle control. Must be called after
   /// service creation in serve_command.dart.
@@ -87,6 +88,7 @@ class DartclawServer {
     DartclawConfig? config,
     RestartService? restartService,
     SseBroadcast? sseBroadcast,
+    EventBus? eventBus,
   }) {
     _heartbeat = heartbeat;
     _scheduleService = scheduleService;
@@ -99,6 +101,7 @@ class DartclawServer {
     _config = config;
     _restartService = restartService;
     _sseBroadcast = sseBroadcast;
+    _eventBus = eventBus;
   }
 
   // Config values forwarded to webRoutes for accurate page rendering.
@@ -403,11 +406,7 @@ class DartclawServer {
     // Signal pairing page + registration routes (extracted for testability).
     final sigChannel = _signalChannel;
     if (sigChannel != null) {
-      final sigRouter = signalPairingRoutes(
-        signalChannel: sigChannel,
-        sessions: _sessions,
-        appName: _appDisplay.name,
-      );
+      final sigRouter = signalPairingRoutes(signalChannel: sigChannel, sessions: _sessions, appName: _appDisplay.name);
       router.mount('/signal', sigRouter.call);
     }
 
@@ -438,11 +437,10 @@ class DartclawServer {
         dataDir: dd,
         restartService: _restartService,
         sseBroadcast: _sseBroadcast,
-        heartbeat: _heartbeat,
-        gitSync: _gitSync,
         scheduleService: _scheduleService,
         whatsAppChannel: _whatsAppChannel,
         signalChannel: _signalChannel,
+        eventBus: _eventBus,
       );
       router.mount('/', cfgApiRouter.call);
     }
@@ -461,7 +459,14 @@ class DartclawServer {
     }
 
     // API routes (prefixed /api/ — no collision with web routes).
-    final sessionRouter = sessionRoutes(_sessions, _messages, _turns, _worker, resetService: _resetService, redactor: _redactor);
+    final sessionRouter = sessionRoutes(
+      _sessions,
+      _messages,
+      _turns,
+      _worker,
+      resetService: _resetService,
+      redactor: _redactor,
+    );
     router.mount('/', sessionRouter.call);
 
     // Web/HTML routes (/, /sessions/*, /login).
@@ -488,7 +493,7 @@ class DartclawServer {
 
     var pipeline = const Pipeline()
         .addMiddleware(logRequests(logger: _sanitizedLogger))
-        .addMiddleware(securityHeadersMiddleware())
+        .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gatewayHsts ?? false))
         .addMiddleware(_corsMiddleware());
     if (_tokenService != null && _gatewayToken != null) {
       pipeline = pipeline.addMiddleware(

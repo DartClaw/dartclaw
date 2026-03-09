@@ -35,6 +35,7 @@ export 'src/channel/signal/signal_channel.dart' show SignalChannel;
 export 'src/channel/signal/signal_cli_manager.dart' show SignalCliManager;
 export 'src/channel/signal/signal_config.dart' show SignalConfig;
 export 'src/channel/signal/signal_dm_access.dart' show SignalGroupAccessMode, SignalMentionGating;
+export 'src/channel/signal/signal_sender_map.dart' show SignalSenderMap;
 
 // WhatsApp channel
 export 'src/channel/whatsapp/whatsapp_channel.dart' show WhatsAppChannel;
@@ -74,7 +75,7 @@ export 'src/security/network_guard.dart' show NetworkGuard, NetworkGuardConfig;
 export 'src/security/input_sanitizer.dart' show InputSanitizer, InputSanitizerConfig;
 export 'src/security/message_redactor.dart' show MessageRedactor;
 export 'src/security/content_guard.dart' show ContentGuard;
-export 'src/security/guard_audit.dart' show GuardAuditLogger, AuditEntry;
+export 'src/security/guard_audit.dart' show GuardAuditLogger, GuardAuditSubscriber, AuditEntry;
 export 'src/security/anthropic_api_classifier.dart' show AnthropicApiClassifier;
 export 'src/security/claude_binary_classifier.dart' show ClaudeBinaryClassifier;
 
@@ -92,6 +93,11 @@ export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTime
 
 // Config
 export 'src/config/dartclaw_config.dart' show DartclawConfig, SearchProviderEntry;
+export 'src/config/live_scope_config.dart' show LiveScopeConfig;
+export 'src/config/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
+export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
+export 'src/maintenance/session_maintenance_service.dart'
+    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
 
 // Agents
 export 'src/agents/agent_definition.dart' show AgentDefinition;
@@ -104,6 +110,19 @@ export 'src/search/search_backend.dart' show SearchBackend;
 
 // Observability
 export 'src/observability/usage_tracker.dart' show UsageTracker, UsageEvent;
+
+// Events
+export 'src/events/event_bus.dart' show EventBus;
+export 'src/events/dartclaw_event.dart'
+    show
+        DartclawEvent,
+        GuardBlockEvent,
+        ConfigChangedEvent,
+        SessionLifecycleEvent,
+        SessionCreatedEvent,
+        SessionEndedEvent,
+        SessionErrorEvent;
+export 'src/events/session_lifecycle_subscriber.dart' show SessionLifecycleSubscriber;
 
 // Utilities
 export 'src/utils/path_utils.dart' show expandHome;

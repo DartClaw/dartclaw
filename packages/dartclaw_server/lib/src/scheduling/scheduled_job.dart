@@ -46,12 +46,18 @@ class ScheduledJob {
 
   /// Parses a job from a YAML config map.
   factory ScheduledJob.fromConfig(Map<String, dynamic> config) {
-    final id = config['id'] as String? ?? '';
+    final id = (config['id'] ?? config['name']) as String? ?? '';
     final prompt = config['prompt'] as String? ?? '';
     if (id.isEmpty) throw FormatException('Job missing "id"');
     if (prompt.isEmpty) throw FormatException('Job "$id" missing "prompt"');
 
-    final schedule = config['schedule'] as Map<String, dynamic>? ?? {};
+    final scheduleRaw = config['schedule'];
+    final schedule = switch (scheduleRaw) {
+      String expr when expr.trim().isNotEmpty => <String, dynamic>{'type': 'cron', 'expression': expr.trim()},
+      Map<String, dynamic> map => map,
+      Map<Object?, Object?> map => {for (final entry in map.entries) entry.key.toString(): entry.value},
+      _ => <String, dynamic>{},
+    };
     final typeStr = schedule['type'] as String? ?? 'cron';
 
     ScheduleType scheduleType;

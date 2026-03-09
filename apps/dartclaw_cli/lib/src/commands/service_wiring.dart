@@ -31,6 +31,7 @@ class WiringResult {
   final ChannelManager? channelManager;
   final bool authEnabled;
   final TokenService? tokenService;
+  final EventBus eventBus;
   final Future<void> Function() shutdownExtras;
 
   const WiringResult({
@@ -46,6 +47,7 @@ class WiringResult {
     required this.channelManager,
     required this.authEnabled,
     required this.tokenService,
+    required this.eventBus,
     required this.shutdownExtras,
   });
 }
@@ -90,10 +92,14 @@ class ServiceWiring {
   /// Returns a [WiringResult] containing everything [ServeCommand.run] needs
   /// to start the HTTP server, print the startup banner, and wire shutdown.
   Future<WiringResult> wire() async {
+    // Event bus — constructed early, disposed on shutdown. S11 will inject
+    // into services that fire events.
+    final eventBus = EventBus();
+
     // Construct file-based services
     Directory(config.sessionsDir).createSync(recursive: true);
 
-    final sessions = SessionService(baseDir: config.sessionsDir);
+    final sessions = SessionService(baseDir: config.sessionsDir, eventBus: eventBus);
     final messages = MessageService(baseDir: config.sessionsDir);
 
     // Ensure main session exists on startup
@@ -334,9 +340,17 @@ class ServiceWiring {
               ),
               ToolPolicyGuard(cascade: toolPolicyCascade),
             ],
-            auditLogger: auditLogger,
+            eventBus: eventBus,
           )
         : null;
+
+    // Wire guard audit subscriber — bridges GuardBlockEvent to NDJSON logger.
+    final guardAuditSubscriber = GuardAuditSubscriber(auditLogger);
+    guardAuditSubscriber.subscribe(eventBus);
+
+    // Wire session lifecycle subscriber — structured logging for create/end.
+    final sessionLifecycleSubscriber = SessionLifecycleSubscriber();
+    sessionLifecycleSubscriber.subscribe(eventBus);
 
     // ContentGuard: classifier selection based on config
     ContentClassifier? contentClassifier;
@@ -470,10 +484,12 @@ class ServiceWiring {
     WhatsAppChannel? whatsAppChannel;
     SignalChannel? signalChannel;
     String? webhookSecret;
+    final liveScopeConfig = LiveScopeConfig(config.sessionScopeConfig);
 
     if (waEnabled || sigEnabled) {
       channelManager = _buildChannelManager(
         config: config,
+        liveScopeConfig: liveScopeConfig,
         sessions: sessions,
         messages: messages,
         serverRef: () => serverRef,
@@ -564,6 +580,7 @@ class ServiceWiring {
           dmAccess: sigDmAccess,
           mentionGating: sigMentionGating,
           channelManager: channelManager,
+          dataDir: dataDir,
         );
         channelManager.registerChannel(sigChannel);
         signalChannel = sigChannel;
@@ -712,6 +729,62 @@ class ServiceWiring {
       );
     }
 
+    // Register session maintenance as a built-in scheduled job (F13)
+    final maintSchedule = config.sessionMaintenanceConfig.schedule;
+    if (maintSchedule.isNotEmpty && maintSchedule != 'disabled') {
+      try {
+        final cronExpr = CronExpression.parse(maintSchedule);
+        scheduledJobs.add(
+          ScheduledJob(
+            id: 'session-maintenance',
+            scheduleType: ScheduleType.cron,
+            cronExpression: cronExpr,
+            onExecute: () async {
+              // Protect ALL channel-type sessions when any channel is active
+              final channelSessions = await sessions.listSessions(type: SessionType.channel);
+              final activeChannelKeys = <String>{};
+              if (channelManager != null && channelManager.channels.isNotEmpty) {
+                for (final s in channelSessions) {
+                  if (s.channelKey != null) {
+                    activeChannelKeys.add(s.channelKey!);
+                  }
+                }
+              }
+
+              final maintenance = SessionMaintenanceService(
+                sessions: sessions,
+                config: config.sessionMaintenanceConfig,
+                activeChannelKeys: activeChannelKeys,
+                activeJobIds: scheduledJobs.map((j) => j.id).toSet(),
+                sessionsDir: config.sessionsDir,
+              );
+              final report = await maintenance.run();
+              _log.info(
+                'Maintenance complete: '
+                '${report.sessionsArchived} archived, '
+                '${report.sessionsDeleted} deleted, '
+                '${_formatBytes(report.diskReclaimedBytes)} reclaimed',
+              );
+              for (final w in report.warnings) {
+                _log.warning('Maintenance warning: $w');
+              }
+              return 'archived=${report.sessionsArchived} deleted=${report.sessionsDeleted}';
+            },
+          ),
+        );
+        displayJobs.add({
+          'name': 'session-maintenance',
+          'schedule': maintSchedule,
+          'delivery': 'none',
+          'status': 'active',
+        });
+        systemJobNames.add('session-maintenance');
+        _log.info('Session maintenance scheduled ($maintSchedule)');
+      } on FormatException catch (e) {
+        _log.warning('Invalid maintenance schedule "$maintSchedule": $e — maintenance disabled');
+      }
+    }
+
     // Start cron scheduler
     ScheduleService? scheduleService;
     if (scheduledJobs.isNotEmpty) {
@@ -794,15 +867,56 @@ class ServiceWiring {
     // getter constructs the router once; routes are registered conditionally
     // based on these services, so they must be wired before server.handler
     // is evaluated.
+    final runtimeConfig = RuntimeConfig(
+      heartbeatEnabled: config.heartbeatEnabled,
+      gitSyncEnabled: config.gitSyncEnabled,
+      gitSyncPushEnabled: config.gitSyncPushEnabled,
+    );
+
+    // Wire config change subscriber — handles live field side-effects.
+    final configChangeSubscriber = ConfigChangeSubscriber(
+      runtimeConfig: runtimeConfig,
+      heartbeat: heartbeat,
+      gitSync: gitSync,
+    );
+    configChangeSubscriber.subscribe(eventBus);
+    final scopeReconciler = ScopeReconciler(liveScopeConfig: liveScopeConfig);
+    scopeReconciler.subscribe(eventBus);
+
+    // Pre-create sessions for allowlisted groups so they appear in sidebar immediately.
+    final channelGroupConfigs = <ChannelGroupConfig>[];
+    if (whatsAppChannel != null) {
+      final waConf = whatsAppChannel.config;
+      channelGroupConfigs.add(
+        ChannelGroupConfig(
+          channelType: 'whatsapp',
+          groupAccessEnabled: waConf.groupAccess != GroupAccessMode.disabled,
+          groupAllowlist: waConf.groupAllowlist,
+        ),
+      );
+    }
+    if (signalChannel != null) {
+      final sigConf = signalChannel.config;
+      channelGroupConfigs.add(
+        ChannelGroupConfig(
+          channelType: 'signal',
+          groupAccessEnabled: sigConf.groupAccess != SignalGroupAccessMode.disabled,
+          groupAllowlist: sigConf.groupAllowlist,
+        ),
+      );
+    }
+    final groupSessionInit = GroupSessionInitializer(
+      sessions: sessions,
+      eventBus: eventBus,
+      channelConfigs: channelGroupConfigs,
+    );
+    await groupSessionInit.initialize();
+
     server.setRuntimeServices(
       heartbeat: heartbeat,
       scheduleService: scheduleService,
       gitSync: gitSync,
-      runtimeConfig: RuntimeConfig(
-        heartbeatEnabled: config.heartbeatEnabled,
-        gitSyncEnabled: config.gitSyncEnabled,
-        gitSyncPushEnabled: config.gitSyncPushEnabled,
-      ),
+      runtimeConfig: runtimeConfig,
       memoryStatusService: memoryStatusService,
       memoryPruner: memoryPruner,
       kvService: kvService,
@@ -810,6 +924,7 @@ class ServiceWiring {
       config: config,
       restartService: restartService,
       sseBroadcast: sseBroadcast,
+      eventBus: eventBus,
     );
 
     return WiringResult(
@@ -825,7 +940,10 @@ class ServiceWiring {
       channelManager: channelManager,
       authEnabled: authEnabled,
       tokenService: tokenService,
+      eventBus: eventBus,
       shutdownExtras: () async {
+        groupSessionInit.dispose();
+        await scopeReconciler.cancel();
         await containerManager?.stop();
         await credentialProxy?.stop();
       },
@@ -838,6 +956,7 @@ class ServiceWiring {
   /// server reference is resolved at dispatch time, after it's been assigned.
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
+    required LiveScopeConfig liveScopeConfig,
     required SessionService sessions,
     required MessageService messages,
     required DartclawServer? Function() serverRef,
@@ -882,7 +1001,7 @@ class ServiceWiring {
         return outcome.responseText ?? '';
       },
     );
-    return ChannelManager(queue: messageQueue, config: config.channelConfig);
+    return ChannelManager(queue: messageQueue, config: config.channelConfig, liveScopeConfig: liveScopeConfig);
   }
 
   /// Resolves a session by key, creates a user message, and starts a turn.
@@ -989,4 +1108,11 @@ class ServiceWiring {
 /// Whether any search provider is enabled with a non-empty API key.
 bool _hasSearchProvider(DartclawConfig config) {
   return config.searchProviders.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }

@@ -23,7 +23,7 @@ String whatsappPairingTemplate({
   String? pairingCode,
   int restartAttempt = 0,
   int maxRestartAttempts = 5,
-  SidebarData sidebarData = const (main: null, channels: [], entries: []),
+  SidebarData sidebarData = const (main: null, dmChannels: [], groupChannels: [], activeEntries: [], archivedEntries: []),
   bool fragmentOnly = false,
   String appName = 'DartClaw',
 }) {

@@ -5,15 +5,18 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_models/dartclaw_models.dart';
+import '../events/dartclaw_event.dart';
+import '../events/event_bus.dart';
 import 'atomic_write.dart';
 import 'uuid_validation.dart';
 
 /// Manages session CRUD operations backed by NDJSON file storage.
 class SessionService {
   final String baseDir;
+  final EventBus? eventBus;
   static const _uuid = Uuid();
 
-  SessionService({required this.baseDir});
+  SessionService({required this.baseDir, this.eventBus});
 
   Future<Session> createSession({SessionType type = SessionType.user, String? channelKey}) async {
     final id = _uuid.v4();
@@ -23,6 +26,12 @@ class SessionService {
     final now = DateTime.now();
     final session = Session(id: id, type: type, channelKey: channelKey, createdAt: now, updatedAt: now);
     await atomicWriteJson(File(p.join(dir.path, 'meta.json')), session.toJson());
+    eventBus?.fire(SessionCreatedEvent(
+      sessionId: session.id,
+      sessionKey: channelKey,
+      sessionType: type.name,
+      timestamp: now,
+    ));
     return session;
   }
 
@@ -146,18 +155,26 @@ class SessionService {
     if (!isValidUuid(id)) return 0;
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
     if (!metaFile.existsSync()) return 0;
+    Session? sessionForEvent;
     try {
       final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
       final session = Session.fromJson(json);
       if (protectedTypes.contains(session.type)) {
         throw StateError('Cannot delete ${session.type.name} session');
       }
+      sessionForEvent = session;
     } catch (e) {
       if (e is StateError) rethrow;
       // Malformed meta — allow delete
     }
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
+    eventBus?.fire(SessionEndedEvent(
+      sessionId: id,
+      sessionKey: sessionForEvent?.channelKey,
+      sessionType: sessionForEvent?.type.name ?? 'unknown',
+      timestamp: DateTime.now(),
+    ));
     return 1;
   }
 

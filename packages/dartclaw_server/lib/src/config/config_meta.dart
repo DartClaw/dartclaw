@@ -11,12 +11,7 @@ enum ConfigMutability {
 }
 
 /// Scalar type of a config field.
-enum ConfigFieldType {
-  int_,
-  string,
-  bool_,
-  enum_,
-}
+enum ConfigFieldType { int_, string, bool_, enum_ }
 
 /// Metadata describing a single config field.
 class FieldMeta {
@@ -173,6 +168,63 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.int_,
       mutability: ConfigMutability.restart,
       min: 0,
+    ),
+    'sessions.dm_scope': FieldMeta(
+      yamlPath: 'sessions.dm_scope',
+      jsonKey: 'sessions.dmScope',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.live,
+      allowedValues: ['shared', 'per-contact', 'per-channel-contact'],
+    ),
+    'sessions.group_scope': FieldMeta(
+      yamlPath: 'sessions.group_scope',
+      jsonKey: 'sessions.groupScope',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.live,
+      allowedValues: ['shared', 'per-member'],
+    ),
+
+    // Sessions — maintenance
+    'sessions.maintenance.mode': FieldMeta(
+      yamlPath: 'sessions.maintenance.mode',
+      jsonKey: 'sessions.maintenance.mode',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['warn', 'enforce'],
+    ),
+    'sessions.maintenance.prune_after_days': FieldMeta(
+      yamlPath: 'sessions.maintenance.prune_after_days',
+      jsonKey: 'sessions.maintenance.pruneAfterDays',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'sessions.maintenance.max_sessions': FieldMeta(
+      yamlPath: 'sessions.maintenance.max_sessions',
+      jsonKey: 'sessions.maintenance.maxSessions',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'sessions.maintenance.max_disk_mb': FieldMeta(
+      yamlPath: 'sessions.maintenance.max_disk_mb',
+      jsonKey: 'sessions.maintenance.maxDiskMb',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'sessions.maintenance.cron_retention_hours': FieldMeta(
+      yamlPath: 'sessions.maintenance.cron_retention_hours',
+      jsonKey: 'sessions.maintenance.cronRetentionHours',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 0,
+    ),
+    'sessions.maintenance.schedule': FieldMeta(
+      yamlPath: 'sessions.maintenance.schedule',
+      jsonKey: 'sessions.maintenance.schedule',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
     ),
 
     // Logging
@@ -361,15 +413,19 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.readonly,
     ),
+    'gateway.hsts': FieldMeta(
+      yamlPath: 'gateway.hsts',
+      jsonKey: 'gateway.hsts',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
   };
 
   static Map<String, FieldMeta>? _byJsonKey;
 
   /// All registered fields keyed by JSON key.
   static Map<String, FieldMeta> get byJsonKey {
-    return _byJsonKey ??= {
-      for (final f in fields.values) f.jsonKey: f,
-    };
+    return _byJsonKey ??= {for (final f in fields.values) f.jsonKey: f};
   }
 
   /// Returns fields matching the given [mutability].

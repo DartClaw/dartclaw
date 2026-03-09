@@ -66,10 +66,7 @@ Router webRoutes(
 
   // GET /login — render login page.
   router.get('/login', (Request request) {
-    return Response.ok(
-      loginPageTemplate(appName: appDisplay.name),
-      headers: htmlHeaders,
-    );
+    return Response.ok(loginPageTemplate(appName: appDisplay.name), headers: htmlHeaders);
   });
 
   // POST /login — validate token, set cookie, redirect.
@@ -92,9 +89,7 @@ Router webRoutes(
     }
 
     final sessionToken = createSessionToken(gt);
-    return _redirect(request, '/', extraHeaders: {
-      'set-cookie': sessionCookieHeader(sessionToken),
-    });
+    return _redirect(request, '/', extraHeaders: {'set-cookie': sessionCookieHeader(sessionToken)});
   });
 
   // GET / — redirect to main session (guaranteed to exist after startup).
@@ -112,8 +107,10 @@ Router webRoutes(
     final sidebarData = await buildSidebarData(sessions);
     final sidebar = sidebarTemplate(
       mainSession: sidebarData.main,
-      channelSessions: sidebarData.channels,
-      sessionEntries: sidebarData.entries,
+      dmChannels: sidebarData.dmChannels,
+      groupChannels: sidebarData.groupChannels,
+      activeEntries: sidebarData.activeEntries,
+      archivedEntries: sidebarData.archivedEntries,
       navItems: systemNav,
       appName: appDisplay.name,
     );
@@ -137,13 +134,20 @@ Router webRoutes(
 
       final sidebar = sidebarTemplate(
         mainSession: sidebarData.main,
-        channelSessions: sidebarData.channels,
-        sessionEntries: sidebarData.entries,
+        dmChannels: sidebarData.dmChannels,
+        groupChannels: sidebarData.groupChannels,
+        activeEntries: sidebarData.activeEntries,
+        archivedEntries: sidebarData.archivedEntries,
         activeSessionId: id,
         navItems: systemNav,
         appName: appDisplay.name,
       );
-      final topbar = topbarTemplate(title: session.title, sessionId: id, sessionType: session.type, appName: appDisplay.name);
+      final topbar = topbarTemplate(
+        title: session.title,
+        sessionId: id,
+        sessionType: session.type,
+        appName: appDisplay.name,
+      );
       final msgsHtml = messagesHtmlFragment(messageList);
       final bannerHtml = StringBuffer(_restartBannerHtml(appDisplay.dataDir));
       if (workerStateGetter?.call() == WorkerState.crashed) {
@@ -204,19 +208,24 @@ Router webRoutes(
 
       final msgs = await messages.getMessages(id);
 
-      final recentTurns = msgs.reversed.take(8).map((m) {
-        final text = m.content.replaceAll('\n', ' ');
-        final excerpt = text.length > 80 ? '${text.substring(0, 80)}\u2026' : text;
-        final h = m.createdAt.hour.toString().padLeft(2, '0');
-        final min = m.createdAt.minute.toString().padLeft(2, '0');
-        final isUser = m.role == 'user';
-        return <String, String>{
-          'time': '$h:$min',
-          'roleLabel': isUser ? 'You' : 'Assistant',
-          'roleClass': isUser ? 'turn-role-user' : 'turn-role-assistant',
-          'excerpt': excerpt,
-        };
-      }).toList().reversed.toList();
+      final recentTurns = msgs.reversed
+          .take(8)
+          .map((m) {
+            final text = m.content.replaceAll('\n', ' ');
+            final excerpt = text.length > 80 ? '${text.substring(0, 80)}\u2026' : text;
+            final h = m.createdAt.hour.toString().padLeft(2, '0');
+            final min = m.createdAt.minute.toString().padLeft(2, '0');
+            final isUser = m.role == 'user';
+            return <String, String>{
+              'time': '$h:$min',
+              'roleLabel': isUser ? 'You' : 'Assistant',
+              'roleClass': isUser ? 'turn-role-user' : 'turn-role-assistant',
+              'excerpt': excerpt,
+            };
+          })
+          .toList()
+          .reversed
+          .toList();
 
       final page = sessionInfoTemplate(
         sessionId: id,
@@ -248,11 +257,8 @@ Router webRoutes(
 
       final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
 
-      final auditPage = await auditReader?.read(
-            verdictFilter: verdictFilter,
-            guardFilter: guardFilter,
-          ) ??
-          AuditPage.empty;
+      final auditPage =
+          await auditReader?.read(verdictFilter: verdictFilter, guardFilter: guardFilter) ?? AuditPage.empty;
 
       final page = healthDashboardTemplate(
         status: status['status'] as String? ?? 'healthy',
@@ -283,23 +289,12 @@ Router webRoutes(
       final verdict = params['verdict'];
       final guard = params['guard'];
 
-      final auditPage = await auditReader?.read(
-            page: page,
-            verdictFilter: verdict,
-            guardFilter: guard,
-          ) ??
-          AuditPage.empty;
+      final auditPage =
+          await auditReader?.read(page: page, verdictFilter: verdict, guardFilter: guard) ?? AuditPage.empty;
 
-      final html = auditTableFragment(
-        auditPage: auditPage,
-        verdictFilter: verdict,
-        guardFilter: guard,
-      );
+      final html = auditTableFragment(auditPage: auditPage, verdictFilter: verdict, guardFilter: guard);
 
-      return Response.ok(html, headers: {
-        ...htmlHeaders,
-        'vary': 'HX-Request',
-      });
+      return Response.ok(html, headers: {...htmlHeaders, 'vary': 'HX-Request'});
     } catch (e) {
       return _htmlError('Failed to load audit table: $e');
     }
@@ -315,10 +310,7 @@ Router webRoutes(
 
       final gc = guardChain;
       final guardsEnabled = gc != null;
-      final guardConfigs = extractGuardConfigs(
-        gc,
-        contentGuardDisplay: contentGuardDisplay,
-      );
+      final guardConfigs = extractGuardConfigs(gc, contentGuardDisplay: contentGuardDisplay);
 
       final waStatus = await _whatsAppChannelStatus(whatsAppChannel);
       final sigStatus = await _signalChannelStatus(signalChannel);
@@ -477,10 +469,7 @@ Router webRoutes(
       if (memService == null) return _htmlError('Memory not configured');
 
       final status = await memService.getStatus();
-      final fragment = memoryDashboardContentFragment(
-        status: status,
-        workspacePath: workspaceDisplay.path ?? '',
-      );
+      final fragment = memoryDashboardContentFragment(status: status, workspacePath: workspaceDisplay.path ?? '');
       return htmlFragment(fragment);
     } catch (e) {
       return _htmlError('Failed to refresh memory data: $e');
@@ -498,8 +487,10 @@ Router webRoutes(
 Future<SidebarData> buildSidebarData(SessionService sessions) async {
   final all = await sessions.listSessions();
   SidebarSession? main;
-  final channels = <SidebarSession>[];
-  final entries = <SidebarSession>[]; // user + archive, already sorted by updatedAt desc
+  final dmChannels = <SidebarSession>[];
+  final groupChannels = <SidebarSession>[];
+  final activeEntries = <SidebarSession>[];
+  final archivedEntries = <SidebarSession>[];
 
   for (final s in all) {
     final entry = (id: s.id, title: s.title ?? '', type: s.type);
@@ -507,16 +498,37 @@ Future<SidebarData> buildSidebarData(SessionService sessions) async {
       case SessionType.main:
         main = entry;
       case SessionType.channel:
-        channels.add(entry);
+        if (_isGroupChannel(s.channelKey)) {
+          groupChannels.add(entry);
+        } else {
+          dmChannels.add(entry);
+        }
       case SessionType.cron:
         break; // hidden from sidebar
       case SessionType.user:
+        activeEntries.add(entry);
       case SessionType.archive:
-        entries.add(entry);
+        archivedEntries.add(entry);
     }
   }
 
-  return (main: main, channels: channels, entries: entries);
+  return (
+    main: main,
+    dmChannels: dmChannels,
+    groupChannels: groupChannels,
+    activeEntries: activeEntries,
+    archivedEntries: archivedEntries,
+  );
+}
+
+/// Returns true if the channel key represents a group session.
+bool _isGroupChannel(String? channelKey) {
+  if (channelKey == null) return false;
+  try {
+    return SessionKey.parse(channelKey).scope == 'group';
+  } catch (_) {
+    return false;
+  }
 }
 
 Future<Map<String, dynamic>> _getStatus(
@@ -581,15 +593,11 @@ Response _redirect(Request request, String path, {Map<String, String>? extraHead
   return Response.found(path, headers: headers);
 }
 
-Response _htmlNotFound(String message) => Response.notFound(
-  errorPageTemplate(404, 'Page Not Found', message),
-  headers: htmlHeaders,
-);
+Response _htmlNotFound(String message) =>
+    Response.notFound(errorPageTemplate(404, 'Page Not Found', message), headers: htmlHeaders);
 
-Response _htmlError(String message) => Response.internalServerError(
-  body: errorPageTemplate(500, 'Internal Server Error', message),
-  headers: htmlHeaders,
-);
+Response _htmlError(String message) =>
+    Response.internalServerError(body: errorPageTemplate(500, 'Internal Server Error', message), headers: htmlHeaders);
 
 List<Map<String, dynamic>> _pendingPairingsData(DmAccessController controller) {
   final now = DateTime.now();
@@ -608,8 +616,6 @@ String _restartBannerHtml(String? dataDir) {
   if (dataDir == null) return '';
   final pending = readRestartPending(dataDir);
   if (pending == null) return '';
-  final fields =
-      (pending['fields'] as List<dynamic>?)?.whereType<String>().toList() ??
-          [];
+  final fields = (pending['fields'] as List<dynamic>?)?.whereType<String>().toList() ?? [];
   return restartBannerTemplate(pendingFields: fields);
 }

@@ -102,17 +102,18 @@ void main() {
       final dispatched = <String>[];
 
       final scheduler = HeartbeatScheduler(
-        interval: const Duration(milliseconds: 50),
+        interval: const Duration(milliseconds: 100),
         workspaceDir: tmpDir.path,
         dispatch: (key, msg) async => dispatched.add(key),
       );
 
       scheduler.start();
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
       scheduler.stop();
       final countAtStop = dispatched.length;
+      expect(countAtStop, greaterThanOrEqualTo(1));
 
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       // No new dispatches after stop
       expect(dispatched.length, countAtStop);
     });

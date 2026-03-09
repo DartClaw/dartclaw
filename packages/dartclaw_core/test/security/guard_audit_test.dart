@@ -416,15 +416,16 @@ void main() {
       expect(ctx.peerId, isNull);
     });
 
-    test('evaluateMessageReceived passes session context to audit', () async {
-      final capturedEntries = <({String? sessionId, String? channel, String? peerId})>[];
+    test('evaluateMessageReceived passes session context via event', () async {
+      final eventBus = EventBus();
+      final events = <GuardBlockEvent>[];
+      eventBus.on<GuardBlockEvent>().listen(events.add);
 
-      final auditLogger = _CapturingAuditLogger(capturedEntries);
       final chain = GuardChain(
         guards: [
-          _PassGuard(),
+          _WarnGuard(),
         ],
-        auditLogger: auditLogger,
+        eventBus: eventBus,
       );
 
       await chain.evaluateMessageReceived(
@@ -434,10 +435,74 @@ void main() {
         peerId: '+999',
       );
 
-      expect(capturedEntries, hasLength(1));
-      expect(capturedEntries.first.sessionId, 'sess-1');
-      expect(capturedEntries.first.channel, 'whatsapp');
-      expect(capturedEntries.first.peerId, '+999');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, hasLength(1));
+      expect(events.first.sessionId, 'sess-1');
+      expect(events.first.channel, 'whatsapp');
+      expect(events.first.peerId, '+999');
+
+      await eventBus.dispose();
+    });
+  });
+
+  group('GuardAuditSubscriber', () {
+    test('subscriber receives GuardBlockEvent and calls logVerdict', () async {
+      final eventBus = EventBus();
+      final logger = GuardAuditLogger();
+      final subscriber = GuardAuditSubscriber(logger);
+      subscriber.subscribe(eventBus);
+
+      final records = <LogRecord>[];
+      Logger('GuardAudit').onRecord.listen(records.add);
+
+      eventBus.fire(GuardBlockEvent(
+        guardName: 'TestGuard',
+        guardCategory: 'test',
+        verdict: 'block',
+        verdictMessage: 'blocked!',
+        hookPoint: 'beforeToolCall',
+        sessionId: 'sess-1',
+        timestamp: DateTime.utc(2026, 1, 1),
+      ));
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(records, hasLength(1));
+      expect(records.first.level, Level.SEVERE);
+      expect(records.first.message, contains('verdict=block'));
+      expect(records.first.message, contains('TestGuard'));
+
+      await subscriber.cancel();
+      await eventBus.dispose();
+    });
+
+    test('subscriber handles warn verdicts', () async {
+      final eventBus = EventBus();
+      final logger = GuardAuditLogger();
+      final subscriber = GuardAuditSubscriber(logger);
+      subscriber.subscribe(eventBus);
+
+      final records = <LogRecord>[];
+      Logger('GuardAudit').onRecord.listen(records.add);
+
+      eventBus.fire(GuardBlockEvent(
+        guardName: 'WarnGuard',
+        guardCategory: 'security',
+        verdict: 'warn',
+        verdictMessage: 'careful',
+        hookPoint: 'messageReceived',
+        timestamp: DateTime.utc(2026, 1, 1),
+      ));
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(records, hasLength(1));
+      expect(records.first.level, Level.WARNING);
+      expect(records.first.message, contains('verdict=warn'));
+
+      await subscriber.cancel();
+      await eventBus.dispose();
     });
   });
 
@@ -484,32 +549,13 @@ void main() {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-class _CapturingAuditLogger extends GuardAuditLogger {
-  final List<({String? sessionId, String? channel, String? peerId})> entries;
-
-  _CapturingAuditLogger(this.entries);
-
+class _WarnGuard extends Guard {
   @override
-  void logVerdict({
-    required GuardVerdict verdict,
-    required String guardName,
-    required String guardCategory,
-    required String hookPoint,
-    required DateTime timestamp,
-    String? sessionId,
-    String? channel,
-    String? peerId,
-  }) {
-    entries.add((sessionId: sessionId, channel: channel, peerId: peerId));
-  }
-}
-
-class _PassGuard extends Guard {
-  @override
-  String get name => 'pass';
+  String get name => 'warn';
   @override
   String get category => 'test';
 
   @override
-  Future<GuardVerdict> evaluate(GuardContext context) async => GuardVerdict.pass();
+  Future<GuardVerdict> evaluate(GuardContext context) async =>
+      GuardVerdict.warn('test warning');
 }

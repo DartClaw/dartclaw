@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:html2md/html2md.dart' as html2md;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 /// MCP tool that fetches a URL, converts HTML to markdown, and scans
 /// the content through [ContentClassifier] before returning it to the agent.
@@ -72,7 +73,7 @@ class WebFetchTool implements McpTool {
       if (uri.scheme != 'http' && uri.scheme != 'https') {
         return ToolResult.error('Unsupported URL scheme "${uri.scheme}" — only http/https allowed');
       }
-      final ssrfError = _checkSsrfPolicy(uri);
+      final ssrfError = await checkSsrfPolicy(uri);
       if (ssrfError != null) return ToolResult.error(ssrfError);
     }
 
@@ -171,38 +172,95 @@ class WebFetchTool implements McpTool {
   /// Returns an error message if the URI targets a blocked internal address,
   /// or null if the request is permitted.
   ///
-  /// Blocks loopback, link-local, and RFC1918 private ranges to prevent SSRF.
-  static String? _checkSsrfPolicy(Uri uri) {
+  /// Blocks loopback, link-local, RFC1918 private, CGNAT, multicast/reserved,
+  /// and IPv6 private ranges to prevent SSRF. Resolves DNS to catch hostnames
+  /// that map to internal addresses.
+  @visibleForTesting
+  static Future<String?> checkSsrfPolicy(Uri uri) async {
     final host = uri.host.toLowerCase();
 
-    // Block loopback by hostname.
+    // Fast path: literal hostname checks.
     if (host == 'localhost' || host == '0.0.0.0') {
       return 'Blocked: "$host" is a loopback address';
     }
+    if (host == '::1' || host == '[::1]') {
+      return 'Blocked: IPv6 loopback address ($host)';
+    }
 
-    // Attempt numeric IP parsing to check private/loopback ranges.
+    // Fast path: literal IPv4 checks.
     final parts = host.split('.');
     if (parts.length == 4) {
       final octets = parts.map(int.tryParse).toList();
       if (octets.every((o) => o != null)) {
-        final a = octets[0]!;
-        final b = octets[1]!;
-        // Loopback: 127.x.x.x
-        if (a == 127) return 'Blocked: loopback address range ($host)';
-        // Link-local: 169.254.x.x
-        if (a == 169 && b == 254) return 'Blocked: link-local address range ($host)';
-        // RFC1918: 10.x.x.x
-        if (a == 10) return 'Blocked: private address range ($host)';
-        // RFC1918: 172.16.x.x – 172.31.x.x
-        if (a == 172 && b >= 16 && b <= 31) return 'Blocked: private address range ($host)';
-        // RFC1918: 192.168.x.x
-        if (a == 192 && b == 168) return 'Blocked: private address range ($host)';
+        final reason = checkIpv4Octets(octets[0]!, octets[1]!);
+        if (reason != null) return reason;
       }
     }
 
-    // IPv6 loopback ::1
-    if (host == '::1' || host == '[::1]') {
-      return 'Blocked: IPv6 loopback address ($host)';
+    // Resolve DNS and check all resolved addresses.
+    List<InternetAddress> addresses;
+    try {
+      addresses = await InternetAddress.lookup(host);
+    } on SocketException {
+      return 'DNS resolution failed for "$host"';
+    }
+
+    if (addresses.isEmpty) {
+      return 'DNS resolution returned no addresses for "$host"';
+    }
+
+    for (final addr in addresses) {
+      final reason = checkResolvedAddress(addr);
+      if (reason != null) return '$reason (resolved from "$host")';
+    }
+
+    return null;
+  }
+
+  /// Checks an IPv4 address (by first two octets) for private/internal ranges.
+  @visibleForTesting
+  static String? checkIpv4Octets(int a, int b) {
+    if (a == 127) return 'Blocked: loopback address range';
+    if (a == 169 && b == 254) return 'Blocked: link-local address range';
+    if (a == 10) return 'Blocked: private address range (RFC1918)';
+    if (a == 172 && b >= 16 && b <= 31) {
+      return 'Blocked: private address range (RFC1918)';
+    }
+    if (a == 192 && b == 168) return 'Blocked: private address range (RFC1918)';
+    if (a == 100 && b >= 64 && b <= 127) {
+      return 'Blocked: CGNAT address range (RFC6598)';
+    }
+    if (a == 0) return 'Blocked: unspecified address range';
+    if (a >= 224) return 'Blocked: multicast/reserved address range';
+    return null;
+  }
+
+  /// Checks a resolved [InternetAddress] against all private/internal ranges.
+  @visibleForTesting
+  static String? checkResolvedAddress(InternetAddress addr) {
+    if (addr.isLoopback) return 'Blocked: loopback address (${addr.address})';
+    if (addr.isLinkLocal) {
+      return 'Blocked: link-local address (${addr.address})';
+    }
+
+    if (addr.type == InternetAddressType.IPv4) {
+      final bytes = addr.rawAddress;
+      return checkIpv4Octets(bytes[0], bytes[1]);
+    }
+
+    if (addr.type == InternetAddressType.IPv6) {
+      final bytes = addr.rawAddress;
+      // fc00::/7 — Unique Local Address
+      if ((bytes[0] & 0xFE) == 0xFC) {
+        return 'Blocked: IPv6 ULA (${addr.address})';
+      }
+      // ::ffff:0:0/96 — IPv4-mapped IPv6
+      final isV4Mapped = bytes.sublist(0, 10).every((b) => b == 0) &&
+          bytes[10] == 0xFF &&
+          bytes[11] == 0xFF;
+      if (isV4Mapped) {
+        return checkIpv4Octets(bytes[12], bytes[13]);
+      }
     }
 
     return null;

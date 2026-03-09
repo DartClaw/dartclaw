@@ -215,7 +215,7 @@ void main() {
         ),
         ContentGuard(classifier: classifier, failOpen: false),
       ],
-      auditLogger: GuardAuditLogger(),
+      eventBus: EventBus(),
     );
 
     turns = TurnManager(

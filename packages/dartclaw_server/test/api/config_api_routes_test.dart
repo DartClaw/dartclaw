@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/channel_config.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -41,12 +42,10 @@ workspace:
   });
 
   /// Creates a test router with injected dependencies.
-  Router createRouter({
-    DartclawConfig? config,
-    RuntimeConfig? runtime,
-  }) {
+  Router createRouter({DartclawConfig? config, RuntimeConfig? runtime, EventBus? eventBus}) {
     final cfg = config ?? const DartclawConfig.defaults();
-    final rc = runtime ??
+    final rc =
+        runtime ??
         RuntimeConfig(
           heartbeatEnabled: cfg.heartbeatEnabled,
           gitSyncEnabled: cfg.gitSyncEnabled,
@@ -55,19 +54,22 @@ workspace:
     final writer = ConfigWriter(configPath: configPath);
     final validator = const ConfigValidator();
 
+    // Wire EventBus + ConfigChangeSubscriber so live field side-effects work.
+    final bus = eventBus ?? EventBus();
+    ConfigChangeSubscriber(runtimeConfig: rc).subscribe(bus);
+
     return configApiRoutes(
       config: cfg,
       writer: writer,
       validator: validator,
       runtimeConfig: rc,
       dataDir: dataDir,
+      eventBus: bus,
     );
   }
 
   /// Creates a test router with a WhatsApp channel's DM access controller.
-  Router createRouterWithPairing({
-    required DmAccessController dmAccessController,
-  }) {
+  Router createRouterWithPairing({required DmAccessController dmAccessController}) {
     final cfg = const DartclawConfig.defaults();
     final rc = RuntimeConfig(
       heartbeatEnabled: cfg.heartbeatEnabled,
@@ -163,12 +165,14 @@ workspace:
   /// Writes jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
   /// returns them (tests that need pre-existing jobs must call this).
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
-    final jobsYaml = jobs.map((j) {
-      return '  - name: ${j['name']}\n'
-          '    schedule: "${j['schedule']}"\n'
-          '    prompt: "${j['prompt']}"\n'
-          '    delivery: ${j['delivery']}';
-    }).join('\n');
+    final jobsYaml = jobs
+        .map((j) {
+          return '  - name: ${j['name']}\n'
+              '    schedule: "${j['schedule']}"\n'
+              '    prompt: "${j['prompt']}"\n'
+              '    delivery: ${j['delivery']}';
+        })
+        .join('\n');
     File(configPath).writeAsStringSync('''
 port: 3000
 host: localhost
@@ -229,9 +233,23 @@ workspace:
     });
 
     test('gateway.token is masked', () async {
-      final router = createRouter(
-        config: const DartclawConfig(gatewayToken: 'secret-token'),
-      );
+      // Write gateway token into YAML so fresh config load picks it up
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+gateway:
+  token: secret-token
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter(config: const DartclawConfig(gatewayToken: 'secret-token'));
       final response = await get(router, '/api/config');
       final json = await readJson(response);
 
@@ -299,14 +317,9 @@ workspace:
 
   group('PATCH /api/config — live fields', () {
     test('heartbeat toggle applied immediately, no restart.pending', () async {
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final response = await patch(router, '/api/config', {
-        'scheduling.heartbeat.enabled': false,
-      });
+      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -317,6 +330,48 @@ workspace:
       expect(runtime.heartbeatEnabled, false);
 
       // No restart.pending file
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
+    });
+
+    test('session scope patch changes the next derived channel session key without restart', () async {
+      final eventBus = EventBus();
+      final liveScopeConfig = LiveScopeConfig(
+        const SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.shared),
+      );
+      final reconciler = ScopeReconciler(liveScopeConfig: liveScopeConfig);
+      reconciler.subscribe(eventBus);
+      addTearDown(() async {
+        await reconciler.cancel();
+        await eventBus.dispose();
+      });
+
+      final router = createRouter(
+        config: const DartclawConfig(
+          sessionScopeConfig: SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.shared),
+        ),
+        eventBus: eventBus,
+      );
+      final manager = ChannelManager(
+        queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid}) async => ''),
+        config: const ChannelConfig.defaults(),
+        liveScopeConfig: liveScopeConfig,
+      );
+
+      final before = manager.deriveSessionKey(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'alice@s.whatsapp.net', text: 'before'),
+      );
+      expect(before, SessionKey.dmPerContact(peerId: 'alice@s.whatsapp.net'));
+
+      final response = await patch(router, '/api/config', {'sessions.dm_scope': 'shared'});
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], ['sessions.dm_scope']);
+      expect(json['pendingRestart'], isEmpty);
+
+      final after = manager.deriveSessionKey(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'alice@s.whatsapp.net', text: 'after'),
+      );
+      expect(after, SessionKey.dmShared());
       expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
   });
@@ -345,15 +400,9 @@ workspace:
 
   group('PATCH /api/config — mixed', () {
     test('live + restart fields both handled', () async {
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
       final router = createRouter(runtime: runtime);
-      final response = await patch(router, '/api/config', {
-        'scheduling.heartbeat.enabled': false,
-        'port': 3001,
-      });
+      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false, 'port': 3001});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -446,9 +495,7 @@ workspace:
       writeJobsToYaml(jobs);
       final config = DartclawConfig(schedulingJobs: jobs);
       final router = createRouter(config: config);
-      final response = await put(router, '/api/scheduling/jobs/my-job', {
-        'schedule': '0 8 * * *',
-      });
+      final response = await put(router, '/api/scheduling/jobs/my-job', {'schedule': '0 8 * * *'});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -459,9 +506,7 @@ workspace:
 
     test('PUT non-existent job returns 404', () async {
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/jobs/nonexistent', {
-        'schedule': '0 8 * * *',
-      });
+      final response = await put(router, '/api/scheduling/jobs/nonexistent', {'schedule': '0 8 * * *'});
 
       expect(response.statusCode, 404);
     });
@@ -538,9 +583,7 @@ workspace:
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567', displayName: 'Alice')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {
-        'code': pairing.code,
-      });
+      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {'code': pairing.code});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -553,9 +596,7 @@ workspace:
     test('confirm with expired/unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {
-        'code': 'INVALID!',
-      });
+      final response = await post(router, '/api/channels/whatsapp/dm-pairing/confirm', {'code': 'INVALID!'});
 
       expect(response.statusCode, 404);
     });
@@ -564,9 +605,7 @@ workspace:
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final pairing = ctrl.createPairing('+15551234567')!;
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {
-        'code': pairing.code,
-      });
+      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {'code': pairing.code});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -578,9 +617,7 @@ workspace:
     test('reject with unknown code returns 404', () async {
       final ctrl = DmAccessController(mode: DmAccessMode.pairing, random: Random(42));
       final router = createRouterWithPairing(dmAccessController: ctrl);
-      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {
-        'code': 'NONEXIST',
-      });
+      final response = await post(router, '/api/channels/whatsapp/dm-pairing/reject', {'code': 'NONEXIST'});
 
       expect(response.statusCode, 404);
     });

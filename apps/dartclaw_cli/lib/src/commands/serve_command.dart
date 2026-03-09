@@ -379,6 +379,7 @@ class ServeCommand extends Command<void> {
             result.resetService.dispose();
             await result.kvService.dispose();
             await result.selfImprovement.dispose();
+            await result.eventBus.dispose();
             await result.qmdManager?.stop();
             await result.shutdownExtras();
             result.searchDb.close();

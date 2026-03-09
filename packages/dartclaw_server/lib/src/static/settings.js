@@ -34,6 +34,20 @@ function activateSettingsTab(tabId) {
   if (main) main.scrollTop = 0;
 }
 
+// === Scope display labels ===
+
+var scopeDisplayLabels = {
+  'sessions.dm_scope': {
+    'shared': 'Shared (all DMs in one session)',
+    'per-contact': 'Per Contact (one session per sender)',
+    'per-channel-contact': 'Per Channel + Contact',
+  },
+  'sessions.group_scope': {
+    'shared': 'Shared (all members in one session)',
+    'per-member': 'Per Member (one session per member)',
+  },
+};
+
 // === Settings Form ===
 
 var settingsInitialConfig = null;
@@ -103,10 +117,11 @@ function populateSettingsForm(config, meta) {
     var metaField = meta && meta.fields ? meta.fields[field] : null;
     if (input.tagName === 'SELECT' && metaField && metaField.allowedValues) {
       input.innerHTML = '';
+      var labels = scopeDisplayLabels[field];
       metaField.allowedValues.forEach(function (v) {
         var opt = document.createElement('option');
         opt.value = v;
-        opt.textContent = v;
+        opt.textContent = (labels && labels[v]) || v;
         if (v === String(value)) opt.selected = true;
         input.appendChild(opt);
       });
@@ -411,6 +426,7 @@ function initChannelDetail() {
         })
         .then(function (data) {
           previousValue = select.value;
+          syncModeCards(page, fieldKey, select.value);
           showChannelRestartBanner();
           showToast('success', 'Mode updated (restart required)');
 
@@ -418,16 +434,31 @@ function initChannelDetail() {
           if (fieldKey === 'group_access') {
             var mentionSection = page.querySelector('.channel-mention-section');
             if (mentionSection) {
-              mentionSection.classList.toggle('hidden', select.value === 'disabled');
+              mentionSection.classList.toggle('channel-mention-disabled', select.value === 'disabled');
             }
           }
         })
         .catch(function (err) {
           select.value = previousValue;
+          syncModeCards(page, fieldKey, previousValue);
           var msg = (err && err.error && err.error.message) || 'Failed to update mode';
           showToast('error', msg);
         });
     });
+  });
+
+  page.addEventListener('click', function (e) {
+    var card = e.target.closest('.channel-mode-card');
+    if (!card) return;
+
+    var fieldKey = card.dataset.modeSelect;
+    var value = card.dataset.modeValue;
+    var select = page.querySelector('.channel-mode-select[data-field-key="' + fieldKey + '"]');
+    if (!select || select.value === value) return;
+
+    select.value = value;
+    syncModeCards(page, fieldKey, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
   // DM Allowlist add handler
@@ -602,8 +633,14 @@ function renderAllowlistEntries(page, listType, entries, channelType) {
     entries.forEach(function (entry) {
       var row = document.createElement('div');
       row.className = 'allowlist-row';
-      row.innerHTML = '<span class="allowlist-entry">' + escapeHtml(entry) + '</span>' +
-        '<button class="btn-sm btn-danger allowlist-remove" type="button" data-entry="' + escapeHtml(entry) + '">Remove</button>';
+      var stateClass = listType === 'dm' ? 'live' : 'restart';
+      var stateLabel = listType === 'dm' ? 'Live' : 'Restart';
+      row.innerHTML =
+        '<div class="entry-stack">' +
+        '<span class="entry-main">' + escapeHtml(entry) + '</span>' +
+        '</div>' +
+        '<span class="entry-state-badge ' + stateClass + '">' + stateLabel + '</span>' +
+        '<button class="btn btn-sm btn-danger allowlist-remove" type="button" data-entry="' + escapeHtml(entry) + '">Remove</button>';
       table.appendChild(row);
     });
   }
@@ -691,16 +728,15 @@ function renderPairings(container, pairings) {
   var html = '<div class="pairing-list">';
   pairings.forEach(function (p) {
     var remaining = p.remainingSeconds;
-    var label = remaining > 60 ? Math.floor(remaining / 60) + 'm' : '<1m';
+    var label = remaining > 60 ? 'waiting ' + Math.floor(remaining / 60) + 'm' : 'waiting <1m';
 
     html += '<div class="pairing-row">';
-    html += '<div class="pairing-sender">';
-    html += '<span class="pairing-sender-id">' + escapeHtml(p.senderId) + '</span>';
-    if (p.displayName) {
-      html += '<span class="pairing-sender-name">' + escapeHtml(p.displayName) + '</span>';
-    }
+    html += '<div class="entry-stack">';
+    html += '<div class="entry-main">' + escapeHtml(p.senderId) + '</div>';
+    html += '<div class="entry-secondary">';
+    if (p.displayName) html += escapeHtml(p.displayName) + ' • ';
+    html += label + '</div>';
     html += '</div>';
-    html += '<span class="pairing-time">' + label + '</span>';
     html += '<div class="pairing-actions">';
     html += '<button class="btn btn-sm btn-primary pairing-approve" type="button" data-code="' + escapeHtml(p.code) + '">Approve</button>';
     html += '<button class="btn btn-sm btn-danger pairing-reject" type="button" data-code="' + escapeHtml(p.code) + '">Reject</button>';
@@ -751,4 +787,12 @@ function handlePairingAction(channelType, code, action, container) {
       var msg = (err && err.error && err.error.message) || 'Failed to process pairing';
       showToast('error', msg);
     });
+}
+
+function syncModeCards(page, fieldKey, activeValue) {
+  page.querySelectorAll('.channel-mode-card[data-mode-select="' + fieldKey + '"]').forEach(function (card) {
+    var active = card.dataset.modeValue === activeValue;
+    card.classList.toggle('active', active);
+    card.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
 }

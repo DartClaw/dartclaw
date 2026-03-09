@@ -4,6 +4,8 @@ import 'package:dartclaw_models/dartclaw_models.dart';
 import 'channel.dart';
 import 'channel_config.dart';
 import 'message_queue.dart';
+import '../config/live_scope_config.dart';
+import '../config/session_scope_config.dart';
 
 /// Manages channel registration, lifecycle, and inbound message routing.
 class ChannelManager {
@@ -11,9 +13,11 @@ class ChannelManager {
 
   final MessageQueue queue;
   final ChannelConfig config;
+  final LiveScopeConfig liveScopeConfig;
   final List<Channel> _channels = [];
 
-  ChannelManager({required this.queue, required this.config});
+  ChannelManager({required this.queue, required this.config, LiveScopeConfig? liveScopeConfig})
+    : liveScopeConfig = liveScopeConfig ?? LiveScopeConfig(const SessionScopeConfig.defaults());
 
   List<Channel> get channels => List.unmodifiable(_channels);
 
@@ -38,15 +42,31 @@ class ChannelManager {
   }
 
   /// Derive a deterministic session key from a channel message.
-  static String deriveSessionKey(ChannelMessage message) {
+  ///
+  /// Uses the current live scope config to select the appropriate [SessionKey] factory.
+  /// Per-channel overrides are resolved via [SessionScopeConfig.forChannel].
+  String deriveSessionKey(ChannelMessage message) {
+    final channelType = message.channelType.name;
+    final resolved = liveScopeConfig.current.forChannel(channelType);
+
     if (message.groupJid != null) {
-      return SessionKey.channelPeerSession(
-        channelType: message.channelType.name,
-        channelId: message.groupJid!,
-        peerId: message.senderJid,
-      );
+      // resolved.groupScope is guaranteed non-null by forChannel()'s ?? fallback
+      return switch (resolved.groupScope!) {
+        GroupScope.shared => SessionKey.groupShared(channelType: channelType, groupId: message.groupJid!),
+        GroupScope.perMember => SessionKey.groupPerMember(
+          channelType: channelType,
+          groupId: message.groupJid!,
+          peerId: message.senderJid,
+        ),
+      };
     }
-    return SessionKey.peerSession(agentId: 'main', peerId: message.senderJid);
+
+    // resolved.dmScope is guaranteed non-null by forChannel()'s ?? fallback
+    return switch (resolved.dmScope!) {
+      DmScope.shared => SessionKey.dmShared(),
+      DmScope.perContact => SessionKey.dmPerContact(peerId: message.senderJid),
+      DmScope.perChannelContact => SessionKey.dmPerChannelContact(channelType: channelType, peerId: message.senderJid),
+    };
   }
 
   /// Connect all registered channels.

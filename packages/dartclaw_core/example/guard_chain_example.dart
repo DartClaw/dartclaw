@@ -15,10 +15,11 @@ void main() async {
   final networkGuard = NetworkGuard();
   final sanitizer = InputSanitizer();
 
-  // Compose into a chain with an audit logger.
+  // Compose into a chain with an event bus.
+  final eventBus = EventBus();
   final chain = GuardChain(
     guards: [commandGuard, fileGuard, networkGuard, sanitizer],
-    auditLogger: GuardAuditLogger(),
+    eventBus: eventBus,
   );
 
   // Evaluate an inbound message.

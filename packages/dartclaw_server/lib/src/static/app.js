@@ -127,6 +127,43 @@ function initSidebar() {
       }
     });
   }
+
+  initArchiveCollapse();
+}
+
+// === Archive collapse toggle with localStorage persistence ===
+
+function initArchiveCollapse() {
+  const section = document.querySelector('.sidebar-archive-section');
+  if (!section) return;
+
+  const toggle = section.querySelector('.sidebar-archive-toggle');
+  const list = section.querySelector('.sidebar-archive-list');
+  if (!toggle || !list) return;
+
+  // Force-expand if an archived session is active
+  const forceExpand = section.classList.contains('force-expanded');
+
+  // Read stored state (default: collapsed)
+  const storageKey = 'dartclaw-sidebar-archived-collapsed';
+  const isCollapsed = forceExpand ? false : (localStorage.getItem(storageKey) !== 'false');
+
+  // Apply initial state
+  list.style.display = isCollapsed ? 'none' : '';
+  toggle.setAttribute('aria-expanded', String(!isCollapsed));
+  section.classList.toggle('expanded', !isCollapsed);
+
+  // Bind toggle (idempotent via dataset flag)
+  if (!toggle.dataset.archiveInit) {
+    toggle.dataset.archiveInit = '1';
+    toggle.addEventListener('click', () => {
+      const wasExpanded = section.classList.contains('expanded');
+      list.style.display = wasExpanded ? 'none' : '';
+      section.classList.toggle('expanded', !wasExpanded);
+      toggle.setAttribute('aria-expanded', String(!wasExpanded));
+      localStorage.setItem(storageKey, String(wasExpanded));
+    });
+  }
 }
 
 // === Textarea auto-resize ===

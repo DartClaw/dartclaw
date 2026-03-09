@@ -10,7 +10,7 @@ function initMemoryDefaultTab() {
   var panel = document.getElementById(tabId);
   if (!panel) return;
   var preview = panel.querySelector('.memory-preview');
-  if (preview && !preview.dataset.loaded) {
+  if (preview && !preview.dataset.loaded && !preview.dataset.loading) {
     switchMemoryTab(activeTab, tabId);
   }
 }
@@ -32,18 +32,23 @@ function switchMemoryTab(btn, tabId) {
   // Lazy load file content if not already loaded
   if (!panel) return;
   var preview = panel.querySelector('.memory-preview');
-  if (preview && !preview.dataset.loaded) {
+  if (preview && !preview.dataset.loaded && !preview.dataset.loading) {
     var fileName = preview.dataset.file;
     if (fileName) {
+      preview.dataset.loading = '1';
       preview.textContent = 'Loading...';
       fetch('/api/memory/files/' + encodeURIComponent(fileName))
         .then(function (r) { return r.ok ? r.text() : Promise.reject('Not found'); })
         .then(function (text) {
           preview.dataset.rawContent = text;
           preview.dataset.loaded = '1';
+          delete preview.dataset.loading;
           applyMemoryViewMode(preview);
         })
-        .catch(function () { preview.textContent = 'Failed to load file content.'; });
+        .catch(function () {
+          delete preview.dataset.loading;
+          preview.textContent = 'Failed to load file content.';
+        });
     }
   }
 }

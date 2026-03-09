@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import '../bridge/bridge_events.dart';
 import '../container/container_manager.dart';
 import '../security/guard.dart';
+import '../security/guard_audit.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'claude_protocol.dart';
@@ -54,6 +55,7 @@ class ClaudeCodeHarness implements AgentHarness {
   final Map<String, String> _environment;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
+  final GuardAuditLogger? auditLogger;
   final HarnessConfig harnessConfig;
   final ContainerManager? containerManager;
 
@@ -98,6 +100,7 @@ class ClaudeCodeHarness implements AgentHarness {
     Map<String, String>? environment,
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
+    this.auditLogger,
     this.onMemorySave,
     this.onMemorySearch,
     this.onMemoryRead,
@@ -615,7 +618,7 @@ class ClaudeCodeHarness implements AgentHarness {
     final toolResponse = _parseToolResponse(hookInput?['tool_response']);
 
     final success = toolResponse['error'] == null;
-    guardChain?.auditLogger.logPostToolUse(toolName: toolName, success: success, response: toolResponse);
+    auditLogger?.logPostToolUse(toolName: toolName, success: success, response: toolResponse);
 
     _writeLine(buildHookResponse(requestId, allow: true));
   }

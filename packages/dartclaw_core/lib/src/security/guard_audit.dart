@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 
+import '../events/dartclaw_event.dart';
+import '../events/event_bus.dart';
 import 'guard_verdict.dart';
 
 // ---------------------------------------------------------------------------
@@ -201,4 +203,42 @@ class GuardAuditLogger {
     GuardWarn() => 'warn',
     GuardPass() => 'pass',
   };
+}
+
+// ---------------------------------------------------------------------------
+// GuardAuditSubscriber
+// ---------------------------------------------------------------------------
+
+/// Subscribes to [GuardBlockEvent] and logs verdicts via [GuardAuditLogger].
+///
+/// Bridges the event bus to the existing audit infrastructure, preserving
+/// identical stdout and NDJSON output.
+class GuardAuditSubscriber {
+  final GuardAuditLogger _logger;
+  StreamSubscription<GuardBlockEvent>? _subscription;
+
+  GuardAuditSubscriber(this._logger);
+
+  /// Start listening on the given [EventBus].
+  void subscribe(EventBus bus) {
+    _subscription = bus.on<GuardBlockEvent>().listen((event) {
+      _logger.logVerdict(
+        verdict: event.verdict == 'block'
+            ? GuardVerdict.block(event.verdictMessage ?? '')
+            : GuardVerdict.warn(event.verdictMessage ?? ''),
+        guardName: event.guardName,
+        guardCategory: event.guardCategory,
+        hookPoint: event.hookPoint,
+        timestamp: event.timestamp,
+        sessionId: event.sessionId,
+        channel: event.channel,
+        peerId: event.peerId,
+      );
+    });
+  }
+
+  /// Cancel the subscription.
+  Future<void> cancel() async {
+    await _subscription?.cancel();
+  }
 }

@@ -8,11 +8,7 @@ void main() {
   group('ConfigSerializer.toJson', () {
     test('default config produces correct nested camelCase JSON', () {
       final config = const DartclawConfig.defaults();
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-        gitSyncPushEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
 
@@ -42,23 +38,27 @@ void main() {
 
     test('gateway.token masked as "***" when non-null', () {
       final config = const DartclawConfig(gatewayToken: 'super-secret-token');
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], '***');
       expect(gateway['authMode'], 'token');
+      expect(gateway['hsts'], false);
+    });
+
+    test('gateway.hsts is serialized', () {
+      final config = const DartclawConfig(gatewayHsts: true);
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final gateway = json['gateway'] as Map<String, dynamic>;
+      expect(gateway['hsts'], true);
     });
 
     test('gateway.token is null when config has null token', () {
       final config = const DartclawConfig.defaults();
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
@@ -67,16 +67,8 @@ void main() {
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {
       // Config says enabled, but runtime says disabled
-      final config = const DartclawConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-        gitSyncPushEnabled: true,
-      );
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: false,
-        gitSyncEnabled: false,
-        gitSyncPushEnabled: false,
-      );
+      final config = const DartclawConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+      final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
 
       final json = serializer.toJson(config, runtime: runtime);
 
@@ -88,16 +80,104 @@ void main() {
       expect(gitSync['pushEnabled'], false);
     });
 
+    test('default config serializes scope fields with defaults', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      expect(sessions['dmScope'], 'per-contact');
+      expect(sessions['groupScope'], 'shared');
+      expect(sessions['channels'], isEmpty);
+    });
+
+    test('config with channel overrides serializes correctly', () {
+      final config = DartclawConfig(
+        sessionScopeConfig: SessionScopeConfig(
+          dmScope: DmScope.shared,
+          groupScope: GroupScope.perMember,
+          channels: {
+            'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact, groupScope: GroupScope.shared),
+          },
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      expect(sessions['dmScope'], 'shared');
+      expect(sessions['groupScope'], 'per-member');
+      final channels = sessions['channels'] as Map<String, dynamic>;
+      expect(channels, hasLength(1));
+      final signal = channels['signal'] as Map<String, dynamic>;
+      expect(signal['dmScope'], 'per-channel-contact');
+      expect(signal['groupScope'], 'shared');
+    });
+
+    test('channel override with only one field omits the other', () {
+      final config = DartclawConfig(
+        sessionScopeConfig: SessionScopeConfig(
+          dmScope: DmScope.perContact,
+          groupScope: GroupScope.shared,
+          channels: {'whatsapp': const ChannelScopeConfig(groupScope: GroupScope.perMember)},
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      final channels = sessions['channels'] as Map<String, dynamic>;
+      final whatsapp = channels['whatsapp'] as Map<String, dynamic>;
+      expect(whatsapp.containsKey('dmScope'), isFalse);
+      expect(whatsapp['groupScope'], 'per-member');
+    });
+
+    test('default config serializes maintenance fields with defaults', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      final maintenance = sessions['maintenance'] as Map<String, dynamic>;
+      expect(maintenance['mode'], 'warn');
+      expect(maintenance['pruneAfterDays'], 30);
+      expect(maintenance['maxSessions'], 500);
+      expect(maintenance['maxDiskMb'], 0);
+      expect(maintenance['cronRetentionHours'], 24);
+      expect(maintenance['schedule'], '0 3 * * *');
+    });
+
+    test('config with custom maintenance values serializes correctly', () {
+      final config = DartclawConfig(
+        sessionMaintenanceConfig: const SessionMaintenanceConfig(
+          mode: MaintenanceMode.enforce,
+          pruneAfterDays: 7,
+          maxSessions: 100,
+          maxDiskMb: 512,
+          cronRetentionHours: 48,
+          schedule: '0 4 * * *',
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      final maintenance = sessions['maintenance'] as Map<String, dynamic>;
+      expect(maintenance['mode'], 'enforce');
+      expect(maintenance['pruneAfterDays'], 7);
+      expect(maintenance['maxSessions'], 100);
+      expect(maintenance['maxDiskMb'], 512);
+      expect(maintenance['cronRetentionHours'], 48);
+      expect(maintenance['schedule'], '0 4 * * *');
+    });
+
     test('scheduling.jobs included from config', () {
       final config = DartclawConfig(
         schedulingJobs: [
           {'name': 'test-job', 'schedule': '0 7 * * *', 'prompt': 'hello', 'delivery': 'announce'},
         ],
       );
-      final runtime = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
       final scheduling = json['scheduling'] as Map<String, dynamic>;

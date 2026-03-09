@@ -9,6 +9,8 @@ import '../container/container_config.dart';
 import '../security/env_substitute.dart';
 import '../security/guard_config.dart';
 import '../utils/path_utils.dart';
+import 'session_maintenance_config.dart';
+import 'session_scope_config.dart';
 
 /// Immutable configuration for DartClaw runtime.
 class DartclawConfig {
@@ -33,6 +35,7 @@ class DartclawConfig {
   final Map<String, dynamic>? agentAgents;
   final String gatewayAuthMode;
   final String? gatewayToken;
+  final bool gatewayHsts;
   final int maxParallelTurns;
   final int sessionResetHour;
   final int sessionIdleTimeoutMinutes;
@@ -63,6 +66,8 @@ class DartclawConfig {
   final int memoryArchiveAfterDays;
   final String memoryPruningSchedule;
   final Map<String, SearchProviderEntry> searchProviders;
+  final SessionScopeConfig sessionScopeConfig;
+  final SessionMaintenanceConfig sessionMaintenanceConfig;
 
   /// Raw guards YAML map for per-guard config (command, file, network sections).
   final Map<String, dynamic> guardsYaml;
@@ -99,6 +104,7 @@ class DartclawConfig {
     this.agentAgents,
     this.gatewayAuthMode = 'token',
     this.gatewayToken,
+    this.gatewayHsts = false,
     this.maxParallelTurns = 3,
     this.sessionResetHour = 4,
     this.sessionIdleTimeoutMinutes = 0,
@@ -129,6 +135,8 @@ class DartclawConfig {
     this.memoryArchiveAfterDays = 90,
     this.memoryPruningSchedule = '0 3 * * *',
     this.searchProviders = const {},
+    this.sessionScopeConfig = const SessionScopeConfig.defaults(),
+    this.sessionMaintenanceConfig = const SessionMaintenanceConfig.defaults(),
     this.guardsYaml = const {},
     this.warnings = const [],
   });
@@ -202,9 +210,12 @@ class DartclawConfig {
       devMode: top.devMode,
       gatewayAuthMode: gateway.authMode,
       gatewayToken: gateway.token,
+      gatewayHsts: gateway.hsts,
       maxParallelTurns: concurrency.maxParallelTurns,
       sessionResetHour: sessions.resetHour,
       sessionIdleTimeoutMinutes: sessions.idleTimeoutMinutes,
+      sessionScopeConfig: sessions.scopeConfig,
+      sessionMaintenanceConfig: sessions.maintenanceConfig,
       schedulingJobs: scheduling.jobs,
       heartbeatEnabled: scheduling.heartbeatEnabled,
       heartbeatIntervalMinutes: scheduling.heartbeatIntervalMinutes,
@@ -249,7 +260,8 @@ class DartclawConfig {
     String templatesDir,
     int memoryMaxBytes,
     bool devMode,
-  }) _parseTopLevel(
+  })
+  _parseTopLevel(
     Map<String, dynamic> yaml,
     Map<String, String> cli,
     Map<String, String> env,
@@ -268,8 +280,7 @@ class DartclawConfig {
     );
 
     // dataDir: CLI > YAML > default, with ~ expansion
-    final rawDataDir =
-        cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
+    final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
     final dataDir = expandHome(rawDataDir, env: env);
 
     final memoryMaxBytes = _parseInt(
@@ -346,11 +357,8 @@ class DartclawConfig {
     bool context1m,
     Map<String, dynamic>? agents,
     List<AgentDefinition> definitions,
-  }) _parseAgent(
-    Map<String, dynamic> yaml,
-    DartclawConfig defaults,
-    List<String> warns,
-  ) {
+  })
+  _parseAgent(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
     var disallowedTools = defaults.agentDisallowedTools;
     int? maxTurns = defaults.agentMaxTurns;
     String? model = defaults.agentModel;
@@ -412,7 +420,7 @@ class DartclawConfig {
     );
   }
 
-  static ({String authMode, String? token}) _parseGateway(
+  static ({String authMode, String? token, bool hsts}) _parseGateway(
     Map<String, dynamic> yaml,
     Map<String, String> env,
     DartclawConfig defaults,
@@ -420,6 +428,7 @@ class DartclawConfig {
   ) {
     var authMode = defaults.gatewayAuthMode;
     String? token = defaults.gatewayToken;
+    var hsts = defaults.gatewayHsts;
 
     final gatewayRaw = yaml['gateway'];
     if (gatewayRaw != null) {
@@ -441,31 +450,35 @@ class DartclawConfig {
         } else if (tokenVal != null && tokenVal is! String) {
           warns.add('Invalid type for gateway.token: "${tokenVal.runtimeType}" — ignoring');
         }
+        final hstsVal = gMap['hsts'];
+        if (hstsVal is bool) {
+          hsts = hstsVal;
+        } else if (hstsVal != null) {
+          warns.add('Invalid type for gateway.hsts: "${hstsVal.runtimeType}" — using default');
+        }
       } else {
         warns.add('Invalid type for gateway: "${gatewayRaw.runtimeType}" — using defaults');
       }
     }
 
-    return (authMode: authMode, token: token);
+    return (authMode: authMode, token: token, hsts: hsts);
   }
 
-  static ({int resetHour, int idleTimeoutMinutes}) _parseSessions(
-    Map<String, dynamic> yaml,
-    DartclawConfig defaults,
-    List<String> warns,
-  ) {
+  static ({
+    int resetHour,
+    int idleTimeoutMinutes,
+    SessionScopeConfig scopeConfig,
+    SessionMaintenanceConfig maintenanceConfig,
+  })
+  _parseSessions(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
     var resetHour = defaults.sessionResetHour;
     var idleTimeoutMinutes = defaults.sessionIdleTimeoutMinutes;
+    var scopeConfig = defaults.sessionScopeConfig;
+    var maintenanceConfig = defaults.sessionMaintenanceConfig;
 
     final sessionsRaw = yaml['sessions'];
     if (sessionsRaw is Map) {
-      resetHour = _parseInt(
-        'sessions.reset_hour',
-        null,
-        sessionsRaw['reset_hour'],
-        defaults.sessionResetHour,
-        warns,
-      );
+      resetHour = _parseInt('sessions.reset_hour', null, sessionsRaw['reset_hour'], defaults.sessionResetHour, warns);
       idleTimeoutMinutes = _parseInt(
         'sessions.idle_timeout_minutes',
         null,
@@ -473,11 +486,172 @@ class DartclawConfig {
         defaults.sessionIdleTimeoutMinutes,
         warns,
       );
+      scopeConfig = _parseSessionScope(sessionsRaw, defaults, warns);
+      maintenanceConfig = _parseSessionMaintenance(sessionsRaw, defaults, warns);
     } else if (sessionsRaw != null) {
       warns.add('Invalid type for sessions: "${sessionsRaw.runtimeType}" — using defaults');
     }
 
-    return (resetHour: resetHour, idleTimeoutMinutes: idleTimeoutMinutes);
+    return (
+      resetHour: resetHour,
+      idleTimeoutMinutes: idleTimeoutMinutes,
+      scopeConfig: scopeConfig,
+      maintenanceConfig: maintenanceConfig,
+    );
+  }
+
+  static SessionScopeConfig _parseSessionScope(
+    Map<dynamic, dynamic> sessionsRaw,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final defaultScope = defaults.sessionScopeConfig;
+
+    // Parse global dm_scope
+    var dmScope = defaultScope.dmScope;
+    final dmScopeRaw = sessionsRaw['dm_scope'];
+    if (dmScopeRaw is String) {
+      final parsed = DmScope.fromYaml(dmScopeRaw);
+      if (parsed != null) {
+        dmScope = parsed;
+      } else {
+        warns.add('Invalid value for sessions.dm_scope: "$dmScopeRaw" — using default');
+      }
+    } else if (dmScopeRaw != null) {
+      warns.add('Invalid type for sessions.dm_scope: "${dmScopeRaw.runtimeType}" — using default');
+    }
+
+    // Parse global group_scope
+    var groupScope = defaultScope.groupScope;
+    final groupScopeRaw = sessionsRaw['group_scope'];
+    if (groupScopeRaw is String) {
+      final parsed = GroupScope.fromYaml(groupScopeRaw);
+      if (parsed != null) {
+        groupScope = parsed;
+      } else {
+        warns.add('Invalid value for sessions.group_scope: "$groupScopeRaw" — using default');
+      }
+    } else if (groupScopeRaw != null) {
+      warns.add('Invalid type for sessions.group_scope: "${groupScopeRaw.runtimeType}" — using default');
+    }
+
+    // Parse per-channel overrides
+    final channelOverrides = <String, ChannelScopeConfig>{};
+    final channelsRaw = sessionsRaw['channels'];
+    if (channelsRaw is Map) {
+      for (final entry in channelsRaw.entries) {
+        final channelName = entry.key;
+        if (channelName is! String) continue;
+        final channelMap = entry.value;
+        if (channelMap is! Map) {
+          warns.add('Invalid type for sessions.channels.$channelName: "${channelMap.runtimeType}" — skipping');
+          continue;
+        }
+
+        DmScope? chDmScope;
+        final chDmRaw = channelMap['dm_scope'];
+        if (chDmRaw is String) {
+          chDmScope = DmScope.fromYaml(chDmRaw);
+          if (chDmScope == null) {
+            warns.add('Invalid value for sessions.channels.$channelName.dm_scope: "$chDmRaw" — ignoring');
+          }
+        }
+
+        GroupScope? chGroupScope;
+        final chGroupRaw = channelMap['group_scope'];
+        if (chGroupRaw is String) {
+          chGroupScope = GroupScope.fromYaml(chGroupRaw);
+          if (chGroupScope == null) {
+            warns.add('Invalid value for sessions.channels.$channelName.group_scope: "$chGroupRaw" — ignoring');
+          }
+        }
+
+        if (chDmScope != null || chGroupScope != null) {
+          channelOverrides[channelName] = ChannelScopeConfig(dmScope: chDmScope, groupScope: chGroupScope);
+        }
+      }
+    } else if (channelsRaw != null) {
+      warns.add('Invalid type for sessions.channels: "${channelsRaw.runtimeType}" — skipping overrides');
+    }
+
+    return SessionScopeConfig(dmScope: dmScope, groupScope: groupScope, channels: channelOverrides);
+  }
+
+  static SessionMaintenanceConfig _parseSessionMaintenance(
+    Map<dynamic, dynamic> sessionsRaw,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final defaultMaint = defaults.sessionMaintenanceConfig;
+
+    final maintRaw = sessionsRaw['maintenance'];
+    if (maintRaw is! Map) {
+      if (maintRaw != null) {
+        warns.add('Invalid type for sessions.maintenance: "${maintRaw.runtimeType}" — using defaults');
+      }
+      return defaultMaint;
+    }
+
+    // Parse mode
+    var mode = defaultMaint.mode;
+    final modeRaw = maintRaw['mode'];
+    if (modeRaw is String) {
+      final parsed = MaintenanceMode.fromYaml(modeRaw);
+      if (parsed != null) {
+        mode = parsed;
+      } else {
+        warns.add('Invalid value for sessions.maintenance.mode: "$modeRaw" — using default');
+      }
+    } else if (modeRaw != null) {
+      warns.add('Invalid type for sessions.maintenance.mode: "${modeRaw.runtimeType}" — using default');
+    }
+
+    final pruneAfterDays = _parseInt(
+      'sessions.maintenance.prune_after_days',
+      null,
+      maintRaw['prune_after_days'],
+      defaultMaint.pruneAfterDays,
+      warns,
+    );
+    final maxSessions = _parseInt(
+      'sessions.maintenance.max_sessions',
+      null,
+      maintRaw['max_sessions'],
+      defaultMaint.maxSessions,
+      warns,
+    );
+    final maxDiskMb = _parseInt(
+      'sessions.maintenance.max_disk_mb',
+      null,
+      maintRaw['max_disk_mb'],
+      defaultMaint.maxDiskMb,
+      warns,
+    );
+    final cronRetentionHours = _parseInt(
+      'sessions.maintenance.cron_retention_hours',
+      null,
+      maintRaw['cron_retention_hours'],
+      defaultMaint.cronRetentionHours,
+      warns,
+    );
+
+    // Parse schedule
+    var schedule = defaultMaint.schedule;
+    final schedRaw = maintRaw['schedule'];
+    if (schedRaw is String && schedRaw.isNotEmpty) {
+      schedule = schedRaw;
+    } else if (schedRaw != null && schedRaw is! String) {
+      warns.add('Invalid type for sessions.maintenance.schedule: "${schedRaw.runtimeType}" — using default');
+    }
+
+    return SessionMaintenanceConfig(
+      mode: mode,
+      pruneAfterDays: pruneAfterDays,
+      maxSessions: maxSessions,
+      maxDiskMb: maxDiskMb,
+      cronRetentionHours: cronRetentionHours,
+      schedule: schedule,
+    );
   }
 
   static ({int reserveTokens, int maxResultBytes}) _parseContext(
@@ -535,11 +709,7 @@ class DartclawConfig {
     return (gitSyncEnabled: gitSyncEnabled, gitSyncPushEnabled: gitSyncPushEnabled);
   }
 
-  static ({
-    List<Map<String, dynamic>> jobs,
-    bool heartbeatEnabled,
-    int heartbeatIntervalMinutes,
-  }) _parseScheduling(
+  static ({List<Map<String, dynamic>> jobs, bool heartbeatEnabled, int heartbeatIntervalMinutes}) _parseScheduling(
     Map<String, dynamic> yaml,
     DartclawConfig defaults,
     List<String> warns,
@@ -580,11 +750,7 @@ class DartclawConfig {
       warns.add('Invalid type for scheduling: "${schedulingRaw.runtimeType}" — using defaults');
     }
 
-    return (
-      jobs: jobs,
-      heartbeatEnabled: heartbeatEnabled,
-      heartbeatIntervalMinutes: heartbeatIntervalMinutes,
-    );
+    return (jobs: jobs, heartbeatEnabled: heartbeatEnabled, heartbeatIntervalMinutes: heartbeatIntervalMinutes);
   }
 
   static ({
@@ -593,12 +759,8 @@ class DartclawConfig {
     int qmdPort,
     String defaultDepth,
     Map<String, SearchProviderEntry> providers,
-  }) _parseSearch(
-    Map<String, dynamic> yaml,
-    Map<String, String> env,
-    DartclawConfig defaults,
-    List<String> warns,
-  ) {
+  })
+  _parseSearch(Map<String, dynamic> yaml, Map<String, String> env, DartclawConfig defaults, List<String> warns) {
     final providers = <String, SearchProviderEntry>{};
     var backend = defaults.searchBackend;
     var qmdHost = defaults.searchQmdHost;
@@ -652,13 +814,7 @@ class DartclawConfig {
       warns.add('Invalid type for search: "${searchRaw.runtimeType}" — using defaults');
     }
 
-    return (
-      backend: backend,
-      qmdHost: qmdHost,
-      qmdPort: qmdPort,
-      defaultDepth: defaultDepth,
-      providers: providers,
-    );
+    return (backend: backend, qmdHost: qmdHost, qmdPort: qmdPort, defaultDepth: defaultDepth, providers: providers);
   }
 
   static ({GuardConfig config, Map<String, dynamic> yaml}) _parseGuards(
@@ -804,17 +960,10 @@ class DartclawConfig {
       warns.add('Invalid type for memory: "${memoryRaw.runtimeType}" — using defaults');
     }
 
-    return (
-      pruningEnabled: pruningEnabled,
-      archiveAfterDays: archiveAfterDays,
-      pruningSchedule: pruningSchedule,
-    );
+    return (pruningEnabled: pruningEnabled, archiveAfterDays: archiveAfterDays, pruningSchedule: pruningSchedule);
   }
 
-  static ContainerConfig _parseContainer(
-    Map<String, dynamic> yaml,
-    List<String> warns,
-  ) {
+  static ContainerConfig _parseContainer(Map<String, dynamic> yaml, List<String> warns) {
     final containerRaw = yaml['container'];
     final config = containerRaw is Map
         ? ContainerConfig.fromYaml(Map<String, dynamic>.from(containerRaw), warns)
@@ -825,10 +974,7 @@ class DartclawConfig {
     return config;
   }
 
-  static ChannelConfig _parseChannels(
-    Map<String, dynamic> yaml,
-    List<String> warns,
-  ) {
+  static ChannelConfig _parseChannels(Map<String, dynamic> yaml, List<String> warns) {
     final channelsRaw = yaml['channels'];
     final config = channelsRaw is Map
         ? ChannelConfig.fromYaml(Map<String, dynamic>.from(channelsRaw), warns)

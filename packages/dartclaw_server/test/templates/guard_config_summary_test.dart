@@ -3,9 +3,6 @@ import 'package:dartclaw_server/dartclaw_server.dart' show ContentGuardDisplayPa
 import 'package:dartclaw_server/src/templates/guard_config_summary.dart';
 import 'package:test/test.dart';
 
-/// Stdout-only audit logger for tests (no file sink).
-GuardAuditLogger _testLogger() => GuardAuditLogger();
-
 void main() {
   group('extractGuardConfigs', () {
     test('returns empty list when guardChain is null', () {
@@ -15,7 +12,7 @@ void main() {
 
     test('extracts all 5 guard types, skipping ToolPolicyGuard', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [
           InputSanitizer(config: InputSanitizerConfig.defaults()),
           CommandGuard(config: CommandGuardConfig.defaults()),
@@ -48,7 +45,7 @@ void main() {
   group('CommandGuard extraction', () {
     test('shows pattern counts and pipe targets', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [CommandGuard(config: CommandGuardConfig.defaults())],
       );
 
@@ -73,7 +70,7 @@ void main() {
   group('FileGuard extraction', () {
     test('groups rules by access level', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [FileGuard(config: FileGuardConfig.defaults())],
       );
 
@@ -91,7 +88,7 @@ void main() {
   group('NetworkGuard extraction', () {
     test('shows domains and truncates at 15', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [NetworkGuard(config: NetworkGuardConfig.defaults())],
       );
 
@@ -105,7 +102,7 @@ void main() {
 
     test('includes agent overrides section when present', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [
           NetworkGuard(
             config: NetworkGuardConfig(
@@ -130,7 +127,7 @@ void main() {
   group('InputSanitizer extraction', () {
     test('shows enabled/channelsOnly badges and pattern categories', () {
       final chain = GuardChain(
-        auditLogger: _testLogger(),
+        eventBus: EventBus(),
         guards: [
           InputSanitizer(
             config: InputSanitizerConfig(
@@ -162,7 +159,7 @@ void main() {
   group('ContentGuard extraction', () {
     test('claude_binary classifier shows N/A for API key', () {
       final configs = extractGuardConfigs(
-        GuardChain(auditLogger: _testLogger(), guards: []),
+        GuardChain(eventBus: EventBus(), guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'claude_binary',
@@ -186,7 +183,7 @@ void main() {
 
     test('anthropic_api classifier with no key shows Not configured', () {
       final configs = extractGuardConfigs(
-        GuardChain(auditLogger: _testLogger(), guards: []),
+        GuardChain(eventBus: EventBus(), guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'anthropic_api',
@@ -202,7 +199,7 @@ void main() {
 
     test('anthropic_api classifier with key shows Configured', () {
       final configs = extractGuardConfigs(
-        GuardChain(auditLogger: _testLogger(), guards: []),
+        GuardChain(eventBus: EventBus(), guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'anthropic_api',
@@ -219,7 +216,7 @@ void main() {
 
     test('disabled content guard shows No', () {
       final configs = extractGuardConfigs(
-        GuardChain(auditLogger: _testLogger(), guards: []),
+        GuardChain(eventBus: EventBus(), guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: false,
         ),
@@ -234,7 +231,7 @@ void main() {
 
     test('fail behavior displays correctly', () {
       final configs = extractGuardConfigs(
-        GuardChain(auditLogger: _testLogger(), guards: []),
+        GuardChain(eventBus: EventBus(), guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           failOpen: true,

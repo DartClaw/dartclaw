@@ -204,6 +204,48 @@ void main() {
       });
     });
 
+    group('session scope enum fields — valid', () {
+      test('sessions.dm_scope per-contact', () {
+        expect(validator.validate({'sessions.dm_scope': 'per-contact'}), isEmpty);
+      });
+
+      test('sessions.dm_scope shared', () {
+        expect(validator.validate({'sessions.dm_scope': 'shared'}), isEmpty);
+      });
+
+      test('sessions.dm_scope per-channel-contact', () {
+        expect(validator.validate({'sessions.dm_scope': 'per-channel-contact'}), isEmpty);
+      });
+
+      test('sessions.group_scope shared', () {
+        expect(validator.validate({'sessions.group_scope': 'shared'}), isEmpty);
+      });
+
+      test('sessions.group_scope per-member', () {
+        expect(validator.validate({'sessions.group_scope': 'per-member'}), isEmpty);
+      });
+    });
+
+    group('session scope enum fields — invalid', () {
+      test('sessions.dm_scope invalid value', () {
+        final errors = validator.validate({'sessions.dm_scope': 'invalid'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be one of'));
+      });
+
+      test('sessions.group_scope invalid value', () {
+        final errors = validator.validate({'sessions.group_scope': 'invalid'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be one of'));
+      });
+
+      test('sessions.dm_scope camelCase rejected', () {
+        final errors = validator.validate({'sessions.dm_scope': 'perContact'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be one of'));
+      });
+    });
+
     group('enum fields — valid', () {
       test('logging.level INFO', () {
         expect(validator.validate({'logging.level': 'INFO'}), isEmpty);
@@ -338,6 +380,81 @@ void main() {
         final errors = validator.validate({'host': null});
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('cannot be null'));
+      });
+    });
+
+    group('session maintenance fields', () {
+      test('sessions.maintenance.mode: warn passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.mode': 'warn'}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.mode: enforce passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.mode': 'enforce'}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.mode: invalid fails', () {
+        final errors = validator.validate({'sessions.maintenance.mode': 'invalid'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be one of'));
+      });
+
+      test('sessions.maintenance.prune_after_days: 0 passes (min boundary)', () {
+        expect(
+          validator.validate({'sessions.maintenance.prune_after_days': 0}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.prune_after_days: -1 fails', () {
+        final errors = validator.validate({'sessions.maintenance.prune_after_days': -1});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be >='));
+      });
+
+      test('sessions.maintenance.max_sessions: 0 passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.max_sessions': 0}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.max_disk_mb: 0 passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.max_disk_mb': 0}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.cron_retention_hours: 0 passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.cron_retention_hours': 0}),
+          isEmpty,
+        );
+      });
+
+      test('sessions.maintenance.schedule: valid string passes', () {
+        expect(
+          validator.validate({'sessions.maintenance.schedule': '0 4 * * *'}),
+          isEmpty,
+        );
+      });
+
+      test('all int fields with valid values pass', () {
+        expect(
+          validator.validate({
+            'sessions.maintenance.prune_after_days': 30,
+            'sessions.maintenance.max_sessions': 500,
+            'sessions.maintenance.max_disk_mb': 1024,
+            'sessions.maintenance.cron_retention_hours': 24,
+          }),
+          isEmpty,
+        );
       });
     });
   });

@@ -6,6 +6,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../runtime_config.dart';
 import '../scheduling/schedule_service.dart';
+import 'api_helpers.dart';
 
 /// Toggle API endpoints for runtime service control.
 ///
@@ -23,17 +24,17 @@ Router configRoutes({
   // POST /api/settings/heartbeat/toggle
   router.post('/api/settings/heartbeat/toggle', (Request request) async {
     if (heartbeat == null) {
-      return _errorResponse(404, 'NOT_AVAILABLE', 'Heartbeat service not configured');
+      return errorResponse(404, 'NOT_AVAILABLE', 'Heartbeat service not configured');
     }
 
     final body = await _parseBody(request);
     if (body == null) {
-      return _errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
+      return errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
     }
 
     final enabled = body['enabled'];
     if (enabled is! bool) {
-      return _errorResponse(400, 'INVALID_INPUT', '"enabled" must be a boolean');
+      return errorResponse(400, 'INVALID_INPUT', '"enabled" must be a boolean');
     }
 
     if (enabled) {
@@ -43,7 +44,7 @@ Router configRoutes({
     }
     runtimeConfig.heartbeatEnabled = enabled;
 
-    return _jsonResponse(200, {
+    return jsonResponse(200, {
       'enabled': enabled,
       'intervalMinutes': heartbeatIntervalMinutes,
     });
@@ -52,12 +53,12 @@ Router configRoutes({
   // POST /api/settings/git-sync/toggle
   router.post('/api/settings/git-sync/toggle', (Request request) async {
     if (gitSync == null) {
-      return _errorResponse(404, 'NOT_AVAILABLE', 'Git sync not configured');
+      return errorResponse(404, 'NOT_AVAILABLE', 'Git sync not configured');
     }
 
     final body = await _parseBody(request);
     if (body == null) {
-      return _errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
+      return errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
     }
 
     final enabled = body['enabled'];
@@ -65,19 +66,19 @@ Router configRoutes({
 
     if (enabled != null) {
       if (enabled is! bool) {
-        return _errorResponse(400, 'INVALID_INPUT', '"enabled" must be a boolean');
+        return errorResponse(400, 'INVALID_INPUT', '"enabled" must be a boolean');
       }
       runtimeConfig.gitSyncEnabled = enabled;
     }
     if (pushEnabled != null) {
       if (pushEnabled is! bool) {
-        return _errorResponse(400, 'INVALID_INPUT', '"pushEnabled" must be a boolean');
+        return errorResponse(400, 'INVALID_INPUT', '"pushEnabled" must be a boolean');
       }
       runtimeConfig.gitSyncPushEnabled = pushEnabled;
       gitSync.pushEnabled = pushEnabled;
     }
 
-    return _jsonResponse(200, {
+    return jsonResponse(200, {
       'enabled': runtimeConfig.gitSyncEnabled,
       'pushEnabled': runtimeConfig.gitSyncPushEnabled,
     });
@@ -86,23 +87,23 @@ Router configRoutes({
   // POST /api/scheduling/jobs/<name>/toggle
   router.post('/api/scheduling/jobs/<name>/toggle', (Request request, String name) async {
     if (scheduleService == null) {
-      return _errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
+      return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
     }
 
     // Find job in configured jobs list
     final jobExists = scheduledJobs.any((j) => j['name'] == name);
     if (!jobExists) {
-      return _errorResponse(404, 'NOT_FOUND', 'Job "$name" not found');
+      return errorResponse(404, 'NOT_FOUND', 'Job "$name" not found');
     }
 
     final body = await _parseBody(request);
     if (body == null) {
-      return _errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
+      return errorResponse(400, 'INVALID_INPUT', 'Invalid request body');
     }
 
     final status = body['status'];
     if (status != 'active' && status != 'paused') {
-      return _errorResponse(400, 'INVALID_INPUT', '"status" must be "active" or "paused"');
+      return errorResponse(400, 'INVALID_INPUT', '"status" must be "active" or "paused"');
     }
 
     if (status == 'paused') {
@@ -119,7 +120,7 @@ Router configRoutes({
       }
     }
 
-    return _jsonResponse(200, {'name': name, 'status': status});
+    return jsonResponse(200, {'name': name, 'status': status});
   });
 
   // GET /api/settings/runtime
@@ -139,7 +140,7 @@ Router configRoutes({
       'jobs': jobStatuses,
     };
 
-    return _jsonResponse(200, result);
+    return jsonResponse(200, result);
   });
 
   return router;
@@ -174,10 +175,3 @@ dynamic _coerceBool(String v) {
   return v;
 }
 
-Response _jsonResponse(int status, Object body) {
-  return Response(status, body: jsonEncode(body), headers: {'content-type': 'application/json; charset=utf-8'});
-}
-
-Response _errorResponse(int status, String code, String message) {
-  return _jsonResponse(status, {'error': {'code': code, 'message': message}});
-}

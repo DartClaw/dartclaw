@@ -12,10 +12,11 @@ import 'package:test/test.dart';
 class FakeGowaManager extends GowaManager {
   bool started = false;
   bool stopped = false;
+  bool wasReset = false;
   final List<(String, String)> sentTexts = [];
   final List<(String, String)> sentMedia = [];
   GowaStatus statusResult = (isConnected: false, isLoggedIn: false, deviceId: null);
-  String? loginQrResult;
+  GowaLoginQr loginQrResult = (url: null, durationSeconds: 60);
 
   FakeGowaManager()
       : super(
@@ -36,6 +37,11 @@ class FakeGowaManager extends GowaManager {
   }
 
   @override
+  Future<void> reset() async {
+    wasReset = true;
+  }
+
+  @override
   Future<void> sendText(String jid, String text) async {
     sentTexts.add((jid, text));
   }
@@ -49,7 +55,7 @@ class FakeGowaManager extends GowaManager {
   Future<GowaStatus> getStatus() async => statusResult;
 
   @override
-  Future<String?> getLoginQr() async => loginQrResult;
+  Future<GowaLoginQr> getLoginQr() async => loginQrResult;
 }
 
 class FakeChannelManager extends ChannelManager {
@@ -150,9 +156,9 @@ void main() {
       expect(gowa.started, isTrue);
     });
 
-    test('disconnect stops GOWA', () async {
+    test('disconnect resets GOWA for re-pairing', () async {
       await channel.disconnect();
-      expect(gowa.stopped, isTrue);
+      expect(gowa.wasReset, isTrue);
     });
 
     test('sendMessage sends text via GOWA', () async {
@@ -364,6 +370,85 @@ void main() {
       );
       await ch.connect();
       expect(mg.ownJid, ''); // Stays empty, no crash
+    });
+
+    // ---- DM pairing mode wiring ----
+
+    test('pairing mode: unknown sender triggers createPairing, message NOT forwarded', () {
+      final dmAccess = DmAccessController(mode: DmAccessMode.pairing);
+      final pairingChannel = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(enabled: true),
+        dmAccess: dmAccess,
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+
+      pairingChannel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': 'unknown@s.whatsapp.net',
+          'body': 'Hello',
+          'chat_id': 'unknown@s.whatsapp.net',
+          'from_name': 'Alice',
+        },
+      ));
+
+      // Message not forwarded
+      expect(channelManager.received, isEmpty);
+      // Pairing created
+      expect(dmAccess.pendingPairings, hasLength(1));
+      expect(dmAccess.pendingPairings.first.jid, 'unknown@s.whatsapp.net');
+      expect(dmAccess.pendingPairings.first.displayName, 'Alice');
+    });
+
+    test('pairing mode: known sender (in allowlist) message forwarded normally', () {
+      final dmAccess = DmAccessController(
+        mode: DmAccessMode.pairing,
+        allowlist: {'known@s.whatsapp.net'},
+      );
+      final pairingChannel = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(enabled: true),
+        dmAccess: dmAccess,
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+
+      pairingChannel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': 'known@s.whatsapp.net',
+          'body': 'Hello',
+          'chat_id': 'known@s.whatsapp.net',
+        },
+      ));
+
+      expect(channelManager.received, hasLength(1));
+      expect(dmAccess.pendingPairings, isEmpty);
+    });
+
+    test('allowlist mode: unknown sender drops without createPairing', () {
+      final dmAccess = DmAccessController(mode: DmAccessMode.allowlist);
+      final allowlistChannel = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(enabled: true),
+        dmAccess: dmAccess,
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+
+      allowlistChannel.handleWebhook(_v8Envelope(
+        payload: {
+          'from': 'unknown@s.whatsapp.net',
+          'body': 'Hello',
+          'chat_id': 'unknown@s.whatsapp.net',
+        },
+      ));
+
+      expect(channelManager.received, isEmpty);
+      expect(dmAccess.pendingPairings, isEmpty);
     });
   });
 }

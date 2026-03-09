@@ -5,7 +5,7 @@ import 'dart:math';
 
 import 'package:logging/logging.dart';
 
-import '../../harness/claude_code_harness.dart' show ProcessFactory, DelayFactory;
+import '../../harness/process_types.dart';
 
 /// Manages signal-cli as a subprocess in daemon HTTP mode.
 ///
@@ -20,11 +20,16 @@ class SignalCliManager {
   final int port;
   final String phoneNumber;
   final int maxRestartAttempts;
+  final void Function(String phone)? onRegistered;
   final ProcessFactory _processFactory;
   final DelayFactory _delay;
+  final HealthProbe? _healthProbe;
 
   /// Timeout for standard API calls.
   static const _apiTimeout = Duration(seconds: 10);
+
+  /// Timeout for finishLink — must stay open until user scans QR on phone.
+  static const _linkTimeout = Duration(minutes: 5);
 
   /// Timeout for signal-cli to become reachable during startup.
   static const _startupTimeout = Duration(seconds: 30);
@@ -33,8 +38,11 @@ class SignalCliManager {
   int _generation = 0;
   int _restartCount = 0;
   bool _stopped = false;
+  bool _wasPaired = false;
+  String? _pendingLinkUri;
+  String? _registeredPhone;
 
-  final StreamController<Map<String, dynamic>> _eventController = StreamController<Map<String, dynamic>>.broadcast();
+  StreamController<Map<String, dynamic>> _eventController = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription<String>? _sseSub;
   HttpClient? _sseClient;
   bool _reconnecting = false;
@@ -46,12 +54,23 @@ class SignalCliManager {
     this.port = 8080,
     required this.phoneNumber,
     this.maxRestartAttempts = 5,
+    this.onRegistered,
     ProcessFactory? processFactory,
     DelayFactory? delay,
+    HealthProbe? healthProbe,
   }) : _processFactory = processFactory ?? Process.start,
-       _delay = delay ?? Future.delayed;
+       _delay = delay ?? Future.delayed,
+       _healthProbe = healthProbe;
 
   bool get isRunning => _process != null && !_stopped;
+
+  bool get wasPaired => _wasPaired;
+
+  int get restartCount => _restartCount;
+
+  /// The phone number confirmed by signal-cli after linking or account list.
+  /// Null until first successful registration check.
+  String? get registeredPhone => _registeredPhone;
 
   String get baseUrl => 'http://$host:$port';
 
@@ -97,7 +116,10 @@ class SignalCliManager {
     _restartCount = 0;
     _log.info('signal-cli started successfully (gen $gen)');
 
-    // Connect SSE event stream
+    // Restore registered account state (phone number may differ from config placeholder).
+    unawaited(isAccountRegistered());
+
+    // Connect SSE stream — relays inbound message events from signal-cli daemon.
     unawaited(_connectSse());
   }
 
@@ -132,6 +154,42 @@ class SignalCliManager {
   /// Dispose resources. Alias for [stop].
   Future<void> dispose() => stop();
 
+  /// Stop the process and reset state so [start] can be called again.
+  ///
+  /// Unlike [stop] (which is a permanent teardown), this prepares the manager
+  /// for a fresh pairing cycle without recreating the object.
+  Future<void> reset() async {
+    final proc = _process;
+    _process = null;
+
+    await _sseSub?.cancel();
+    _sseSub = null;
+    _sseClient?.close(force: true);
+    _sseClient = null;
+
+    if (!_eventController.isClosed) await _eventController.close();
+    _eventController = StreamController<Map<String, dynamic>>.broadcast();
+
+    _stopped = false;
+    _wasPaired = false;
+    _pendingLinkUri = null;
+    _registeredPhone = null;
+    _restartCount = 0;
+    _reconnecting = false;
+
+    if (proc != null) {
+      _log.info('Resetting signal-cli');
+      proc.kill(ProcessSignal.sigterm);
+      await proc.exitCode.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          proc.kill(ProcessSignal.sigkill);
+          return proc.exitCode;
+        },
+      );
+    }
+  }
+
   // ---- JSON-RPC client methods ----
 
   /// Send a text message via signal-cli JSON-RPC.
@@ -143,14 +201,33 @@ class SignalCliManager {
     });
   }
 
-  /// Returns true if [phoneNumber] is registered/linked in signal-cli.
+  /// Returns true if any Signal account is registered in signal-cli.
+  ///
+  /// Short-circuits to true if [_wasPaired] is already set (e.g. finishLink
+  /// just completed), since signal-cli may not reflect the new account in
+  /// listAccounts until after finishLink's HTTP response is fully processed.
+  ///
+  /// Also caches the registered phone number in [_registeredPhone] — this
+  /// handles the case where [phoneNumber] is a config placeholder.
   Future<bool> isAccountRegistered() async {
+    if (_wasPaired) return true;
     try {
       final result = await _rpc('listAccounts', {});
-      if (result is List) {
-        return result.any(
-          (e) => e == phoneNumber || (e is Map && (e['number'] == phoneNumber || e['account'] == phoneNumber)),
-        );
+      if (result is List && result.isNotEmpty) {
+        for (final e in result) {
+          final num = e is String
+              ? e
+              : (e is Map ? (e['number'] ?? e['account'])?.toString() : null);
+          if (num != null && num.isNotEmpty) {
+            _registeredPhone ??= num;
+            break;
+          }
+        }
+        if (_registeredPhone != null) {
+          _wasPaired = true;
+          _notifyRegistered(_registeredPhone!);
+          return true;
+        }
       }
       return false;
     } catch (_) {
@@ -158,11 +235,26 @@ class SignalCliManager {
     }
   }
 
+  /// Fires [onRegistered] the first time a phone number is confirmed.
+  ///
+  /// Only fires when the discovered number differs from [phoneNumber] (the
+  /// config value), so it's a no-op when the config is already correct.
+  void _notifyRegistered(String phone) {
+    if (phone != phoneNumber) onRegistered?.call(phone);
+  }
+
   /// Returns the `sgnl://...` URI for device-linking registration.
   ///
-  /// Calls `startLink` to get the URI, then fires off `finishLink` in the
-  /// background (blocks until user confirms on phone).
+  /// Calls `startLink` once and caches the URI. Subsequent calls return the
+  /// cached URI while the link is in progress, avoiding duplicate startLink /
+  /// finishLink calls on each polling request.
+  ///
+  /// `finishLink` is long-polled with a 5-minute timeout — signal-cli holds
+  /// the connection open until the user confirms on the phone.
   Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) async {
+    // Return cached URI while a link session is already in progress.
+    if (_pendingLinkUri != null) return _pendingLinkUri;
+
     try {
       final result = await _rpc('startLink', {});
       final uri = result is Map
@@ -170,11 +262,33 @@ class SignalCliManager {
           : (result is String ? result : null);
       if (uri == null) return null;
 
-      // Fire-and-forget: finishLink blocks until user confirms on phone
+      _pendingLinkUri = uri;
+
+      // finishLink is a long-poll: stays open until phone confirms or times out.
       unawaited(
-        _rpc('finishLink', {'deviceLinkUri': uri, 'deviceName': deviceName}).catchError((e) {
-          _log.warning('finishLink failed', e);
-        }),
+        _rpc('finishLink', {'deviceLinkUri': uri, 'deviceName': deviceName}, timeout: _linkTimeout)
+            .then((result) {
+              _pendingLinkUri = null;
+              _wasPaired = true; // Account is now registered — unblock isAccountRegistered()
+              if (result is Map) {
+                _registeredPhone = result['number'] as String? ?? result['account'] as String?;
+              }
+              _log.info('finishLink completed: $result');
+              if (_registeredPhone != null) _notifyRegistered(_registeredPhone!);
+              // Reconnect SSE so signal-cli routes events for the newly linked account.
+              unawaited(_reconnectSse());
+            })
+            .catchError((Object e) {
+              // Connection close is expected when user disconnects or
+              // signal-cli restarts — log at fine, not warning.
+              final msg = e.toString();
+              if (msg.contains('Connection closed') || msg.contains('IOException')) {
+                _log.fine('finishLink cancelled (connection closed)');
+              } else {
+                _log.warning('finishLink failed', e);
+              }
+              _pendingLinkUri = null;
+            }),
       );
 
       return uri;
@@ -184,19 +298,29 @@ class SignalCliManager {
     }
   }
 
-  /// Sends an SMS verification code to [phoneNumber].
-  Future<void> requestSmsVerification() async {
-    await _rpc('register', {'account': phoneNumber});
+  /// Sends an SMS verification code to [phone] (defaults to [phoneNumber]).
+  ///
+  /// If Signal requires a captcha, pass [captcha] with the token from
+  /// https://signalcaptchas.org/registration/generate.html
+  Future<void> requestSmsVerification({String? phone, String? captcha}) async {
+    final params = <String, dynamic>{'account': phone ?? phoneNumber};
+    if (captcha != null) params['captcha'] = captcha;
+    await _rpc('register', params);
   }
 
-  /// Requests a voice call verification to [phoneNumber].
-  Future<void> requestVoiceVerification() async {
-    await _rpc('register', {'account': phoneNumber, 'voice': true});
+  /// Requests a voice call verification to [phone] (defaults to [phoneNumber]).
+  Future<void> requestVoiceVerification({String? phone, String? captcha}) async {
+    final params = <String, dynamic>{
+      'account': phone ?? phoneNumber,
+      'voice': true,
+    };
+    if (captcha != null) params['captcha'] = captcha;
+    await _rpc('register', params);
   }
 
   /// Verifies [code] received via SMS and completes registration.
-  Future<void> verifySmsCode(String code) async {
-    await _rpc('verify', {'account': phoneNumber, 'verificationCode': code});
+  Future<void> verifySmsCode(String code, {String? phone}) async {
+    await _rpc('verify', {'account': phone ?? phoneNumber, 'verificationCode': code});
   }
 
   // ---- Health check ----
@@ -219,10 +343,11 @@ class SignalCliManager {
   }
 
   Future<bool> _waitForHealth() async {
+    final probe = _healthProbe ?? healthCheck;
     final maxAttempts = _startupTimeout.inSeconds;
     for (var i = 0; i < maxAttempts; i++) {
       if (_stopped) return false;
-      if (await healthCheck()) return true;
+      if (await probe()) return true;
       await _delay(const Duration(seconds: 1));
     }
     return false;
@@ -255,6 +380,7 @@ class SignalCliManager {
                   final params = parsed['params'] as Map<String, dynamic>?;
                   final envelope = params?['envelope'] as Map<String, dynamic>?;
                   if (envelope != null) {
+                    _log.fine('SSE envelope received, dispatching to channel');
                     _eventController.add({'envelope': envelope});
                   } else {
                     // Pass through as-is if no envelope wrapper
@@ -332,13 +458,15 @@ class SignalCliManager {
   // ---- JSON-RPC helper ----
 
   /// Send a JSON-RPC 2.0 request to signal-cli daemon.
-  Future<dynamic> _rpc(String method, Map<String, dynamic> params) async {
+  ///
+  /// [timeout] overrides [_apiTimeout] for long-poll calls like `finishLink`.
+  Future<dynamic> _rpc(String method, Map<String, dynamic> params, {Duration? timeout}) async {
     final client = HttpClient();
     try {
       final request = await client.postUrl(Uri.parse('$baseUrl/api/v1/rpc'));
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode({'jsonrpc': '2.0', 'id': (++_rpcId).toString(), 'method': method, 'params': params}));
-      final response = await request.close().timeout(_apiTimeout);
+      final response = await request.close().timeout(timeout ?? _apiTimeout);
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 400) {
         throw HttpException('signal-cli RPC $method returned ${response.statusCode}: $body');

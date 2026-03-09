@@ -9,11 +9,11 @@
   <p>Send a message to start the conversation.</p>
 </div>
 
-<main tl:fragment="emptyAppState" id="main-content" hx-history-elt class="chat-area">
-  <div class="empty-state" style="flex: 1;">
+<main tl:fragment="emptyAppState" id="main-content" tabindex="-1" hx-history-elt class="chat-area">
+  <div class="empty-state flex-fill">
     <div class="icon">&#10095;_</div>
     <p><strong>No sessions yet</strong></p>
-    <p>Create a new session to start chatting with DartClaw.</p>
+    <p tl:text="'Create a new session to start chatting with ' + ${appName} + '.'">Create a new session to start chatting with DartClaw.</p>
     <button class="btn btn-primary" data-action="create-session">+ New Session</button>
   </div>
 </main>

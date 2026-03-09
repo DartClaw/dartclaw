@@ -2,38 +2,6 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('SignalDmAccessController', () {
-    group('open mode', () {
-      test('allows everyone', () {
-        final ctrl = SignalDmAccessController(mode: SignalDmAccessMode.open);
-        expect(ctrl.isAllowed('+1234567890'), isTrue);
-        expect(ctrl.isAllowed('+9999999999'), isTrue);
-      });
-    });
-
-    group('disabled mode', () {
-      test('denies everyone', () {
-        final ctrl = SignalDmAccessController(mode: SignalDmAccessMode.disabled);
-        expect(ctrl.isAllowed('+1234567890'), isFalse);
-      });
-    });
-
-    group('allowlist mode', () {
-      test('allows listed numbers', () {
-        final ctrl = SignalDmAccessController(mode: SignalDmAccessMode.allowlist, allowlist: {'+1111111111'});
-        expect(ctrl.isAllowed('+1111111111'), isTrue);
-        expect(ctrl.isAllowed('+2222222222'), isFalse);
-      });
-
-      test('addToAllowlist adds number', () {
-        final ctrl = SignalDmAccessController(mode: SignalDmAccessMode.allowlist);
-        expect(ctrl.isAllowed('+3333333333'), isFalse);
-        ctrl.addToAllowlist('+3333333333');
-        expect(ctrl.isAllowed('+3333333333'), isTrue);
-      });
-    });
-  });
-
   group('SignalMentionGating', () {
     const ownNumber = '+0000000000';
 

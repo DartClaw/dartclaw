@@ -2,6 +2,7 @@
 # Usage: dartclaw --config examples/personal-assistant.yaml serve
 # Long-running knowledge companion with journaling and git backup.
 
+name: Jarvis
 data_dir: ~/.dartclaw-assistant
 
 agent:

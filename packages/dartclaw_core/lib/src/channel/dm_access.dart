@@ -1,14 +1,21 @@
 import 'dart:math';
 
-import 'whatsapp_config.dart';
+/// Access control mode for direct messages — shared across all channels.
+enum DmAccessMode { pairing, allowlist, open, disabled }
 
 /// A pending pairing code for DM access control.
 class PairingCode {
   final String code;
   final String jid;
   final DateTime expiresAt;
+  final String? displayName;
 
-  PairingCode({required this.code, required this.jid, required this.expiresAt});
+  PairingCode({
+    required this.code,
+    required this.jid,
+    required this.expiresAt,
+    this.displayName,
+  });
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
@@ -31,6 +38,12 @@ class DmAccessController {
   Set<String> get allowlist => Set.unmodifiable(_allowlist);
   int get pendingCount => _pendingPairings.length;
 
+  /// Returns non-expired pending pairings (evicts expired first).
+  List<PairingCode> get pendingPairings {
+    _evictExpired();
+    return _pendingPairings.values.where((p) => !p.isExpired).toList();
+  }
+
   /// Whether the given sender JID is allowed to message the bot.
   bool isAllowed(String senderJid) {
     switch (mode) {
@@ -47,7 +60,7 @@ class DmAccessController {
   /// Create a pairing code for a new sender.
   ///
   /// Returns null if max pending pairings reached or mode is not `pairing`.
-  PairingCode? createPairing(String senderJid) {
+  PairingCode? createPairing(String senderJid, {String? displayName}) {
     if (mode != DmAccessMode.pairing) return null;
 
     _evictExpired();
@@ -58,10 +71,21 @@ class DmAccessController {
     if (existing != null) return existing;
 
     final code = _generateCode();
-    final pairing = PairingCode(code: code, jid: senderJid, expiresAt: DateTime.now().add(_codeExpiry));
+    final pairing = PairingCode(
+      code: code,
+      jid: senderJid,
+      expiresAt: DateTime.now().add(_codeExpiry),
+      displayName: displayName,
+    );
     _pendingPairings[code] = pairing;
     return pairing;
   }
+
+  /// Add an entry to the allowlist.
+  void addToAllowlist(String entry) => _allowlist.add(entry);
+
+  /// Remove an entry from the allowlist. Returns true if the entry was present.
+  bool removeFromAllowlist(String entry) => _allowlist.remove(entry);
 
   /// Confirm a pairing code. Returns true if valid, adds JID to allowlist.
   bool confirmPairing(String code) {
@@ -70,6 +94,11 @@ class DmAccessController {
     if (pairing == null || pairing.isExpired) return false;
     _allowlist.add(pairing.jid);
     return true;
+  }
+
+  /// Reject a pairing code. Returns true if found, removes without adding to allowlist.
+  bool rejectPairing(String code) {
+    return _pendingPairings.remove(code) != null;
   }
 
   String _generateCode() {

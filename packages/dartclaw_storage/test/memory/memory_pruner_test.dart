@@ -44,7 +44,7 @@ void main() {
 
   group('parseMemoryEntries', () {
     test('parses simple single-line entries with timestamps', () {
-      final entries = pruner.parseMemoryEntries(
+      final entries = parseMemoryEntries(
         '## general\n'
         '- [2026-01-15 10:30] User likes Dart\n'
         '- [2026-02-20 14:00] Prefer short responses\n',
@@ -59,7 +59,7 @@ void main() {
     });
 
     test('parses multi-line entries (continuation lines)', () {
-      final entries = pruner.parseMemoryEntries(
+      final entries = parseMemoryEntries(
         '## preferences\n'
         '- [2026-01-15 10:30] User likes Dart\n'
         '  and prefers AOT compilation\n'
@@ -74,7 +74,7 @@ void main() {
     });
 
     test('handles multiple categories', () {
-      final entries = pruner.parseMemoryEntries(
+      final entries = parseMemoryEntries(
         '## preferences\n'
         '- [2026-01-15 10:30] Likes Dart\n'
         '## workflow\n'
@@ -87,7 +87,7 @@ void main() {
     });
 
     test('handles entries without timestamps as undated', () {
-      final entries = pruner.parseMemoryEntries(
+      final entries = parseMemoryEntries(
         '## general\n'
         '- [2026-01-15 10:30] Dated entry\n'
         '- [unknown] Undated entry\n',
@@ -99,12 +99,12 @@ void main() {
     });
 
     test('returns empty list for empty content', () {
-      expect(pruner.parseMemoryEntries(''), isEmpty);
-      expect(pruner.parseMemoryEntries('   '), isEmpty);
+      expect(parseMemoryEntries(''), isEmpty);
+      expect(parseMemoryEntries('   '), isEmpty);
     });
 
     test('returns empty list for file with only headers', () {
-      final entries = pruner.parseMemoryEntries(
+      final entries = parseMemoryEntries(
         '## preferences\n'
         '## workflow\n',
       );

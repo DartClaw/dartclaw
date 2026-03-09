@@ -34,8 +34,8 @@ class SessionsSpawnTool implements McpTool {
       };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _delegate.handleSessionsSpawn(args);
-    return extractMcpText(result);
+    return ToolResult.text(extractMcpText(result));
   }
 }

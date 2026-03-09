@@ -2,22 +2,32 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../api/config_api_routes.dart' show readRestartPending;
 import '../auth/session_token.dart';
 import '../auth/token_service.dart';
 import '../health/health_service.dart';
+import '../params/display_params.dart';
+import '../templates/channel_detail.dart';
 import '../templates/chat.dart';
 import '../templates/components.dart';
 import '../templates/error_page.dart';
+import '../audit/audit_log_reader.dart';
+import '../templates/audit_table.dart';
 import '../templates/health_dashboard.dart';
 import '../templates/layout.dart';
 import '../templates/login.dart';
+import '../templates/memory_dashboard.dart';
+import '../memory/memory_status_service.dart';
+import '../templates/restart_banner.dart';
 import '../templates/scheduling.dart';
 import '../templates/session_info.dart';
+import '../templates/guard_config_summary.dart';
 import '../templates/settings.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
 import '../turn_manager.dart';
+import 'channel_status.dart';
 import 'web_utils.dart';
 
 /// HTML page routes for the web UI.
@@ -42,21 +52,23 @@ Router webRoutes(
   GuardChain? guardChain,
   TurnManager? turns,
   RuntimeConfig? runtimeConfig,
-  bool heartbeatEnabled = false,
-  int heartbeatIntervalMinutes = 30,
-  List<Map<String, dynamic>> scheduledJobs = const [],
-  String? workspacePath,
-  bool gitSyncEnabled = false,
+  MemoryStatusService? memoryStatusService,
+  ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
+  HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
+  SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
+  WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
+  AppDisplayParams appDisplay = const AppDisplayParams(),
 }) {
   final router = Router();
   final signalEnabled = signalChannel != null;
-  final systemNav = buildSystemNavItems(activePage: '', signalEnabled: signalEnabled);
+  final systemNav = buildSystemNavItems(activePage: '');
+  final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
 
   // GET /login — render login page.
   router.get('/login', (Request request) {
     return Response.ok(
-      loginPageTemplate(),
-      headers: {'content-type': 'text/html; charset=utf-8'},
+      loginPageTemplate(appName: appDisplay.name),
+      headers: htmlHeaders,
     );
   });
 
@@ -74,8 +86,8 @@ Router webRoutes(
 
     if (!ts.validateToken(candidate)) {
       return Response.ok(
-        loginPageTemplate(error: 'Invalid token'),
-        headers: {'content-type': 'text/html; charset=utf-8'},
+        loginPageTemplate(error: 'Invalid token', appName: appDisplay.name),
+        headers: htmlHeaders,
       );
     }
 
@@ -103,13 +115,14 @@ Router webRoutes(
       channelSessions: sidebarData.channels,
       sessionEntries: sidebarData.entries,
       navItems: systemNav,
+      appName: appDisplay.name,
     );
-    final topbar = topbarTemplate();
-    final main = emptyAppStateTemplate();
+    final topbar = topbarTemplate(appName: appDisplay.name);
+    final main = emptyAppStateTemplate(appName: appDisplay.name);
     final bodyHtml = '<div class="shell">$sidebar$topbar$main</div>';
-    final page = layoutTemplate(title: 'DartClaw', body: bodyHtml);
+    final page = layoutTemplate(title: appDisplay.name, body: bodyHtml, appName: appDisplay.name);
 
-    return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+    return Response.ok(page, headers: htmlHeaders);
   });
 
   // GET /sessions/<id> — full page or SPA fragment.
@@ -128,10 +141,11 @@ Router webRoutes(
         sessionEntries: sidebarData.entries,
         activeSessionId: id,
         navItems: systemNav,
+        appName: appDisplay.name,
       );
-      final topbar = topbarTemplate(title: session.title, sessionId: id, sessionType: session.type);
+      final topbar = topbarTemplate(title: session.title, sessionId: id, sessionType: session.type, appName: appDisplay.name);
       final msgsHtml = messagesHtmlFragment(messageList);
-      final bannerHtml = StringBuffer();
+      final bannerHtml = StringBuffer(_restartBannerHtml(appDisplay.dataDir));
       if (workerStateGetter?.call() == WorkerState.crashed) {
         bannerHtml.write(
           '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. '
@@ -160,8 +174,8 @@ Router webRoutes(
       }
 
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
-      final page = layoutTemplate(title: session.title ?? 'New Session', body: bodyHtml);
-      return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+      final page = layoutTemplate(title: session.title ?? 'New Session', body: bodyHtml, appName: appDisplay.name);
+      return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session: $e');
     }
@@ -176,7 +190,7 @@ Router webRoutes(
       final msgs = await messages.getMessages(id);
       final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
 
-      return Response.ok(messagesHtmlFragment(messageList), headers: {'content-type': 'text/html; charset=utf-8'});
+      return Response.ok(messagesHtmlFragment(messageList), headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load messages: $e');
     }
@@ -188,19 +202,35 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final sidebarData = await buildSidebarData(sessions);
       final msgs = await messages.getMessages(id);
+
+      final recentTurns = msgs.reversed.take(8).map((m) {
+        final text = m.content.replaceAll('\n', ' ');
+        final excerpt = text.length > 80 ? '${text.substring(0, 80)}\u2026' : text;
+        final h = m.createdAt.hour.toString().padLeft(2, '0');
+        final min = m.createdAt.minute.toString().padLeft(2, '0');
+        final isUser = m.role == 'user';
+        return <String, String>{
+          'time': '$h:$min',
+          'roleLabel': isUser ? 'You' : 'Assistant',
+          'roleClass': isUser ? 'turn-role-user' : 'turn-role-assistant',
+          'excerpt': excerpt,
+        };
+      }).toList().reversed.toList();
 
       final page = sessionInfoTemplate(
         sessionId: id,
         sessionTitle: session.title ?? '',
         messageCount: msgs.length,
-        sidebarData: sidebarData,
+        sidebarData: await buildSidebarData(sessions),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
+        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        recentTurns: recentTurns,
+        appName: appDisplay.name,
       );
 
-      return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+      return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session info: $e');
     }
@@ -209,10 +239,20 @@ Router webRoutes(
   // GET /health-dashboard — HTML health dashboard.
   router.get('/health-dashboard', (Request request) async {
     try {
+      final params = request.url.queryParameters;
+      final verdictFilter = params['verdict'];
+      final guardFilter = params['guard'];
+
       final allSessions = await sessions.listSessions();
       final sidebarData = await buildSidebarData(sessions);
 
       final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
+
+      final auditPage = await auditReader?.read(
+            verdictFilter: verdictFilter,
+            guardFilter: guardFilter,
+          ) ??
+          AuditPage.empty;
 
       final page = healthDashboardTemplate(
         status: status['status'] as String? ?? 'healthy',
@@ -222,12 +262,46 @@ Router webRoutes(
         dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
         version: status['version'] as String? ?? 'unknown',
         sidebarData: sidebarData,
-        signalEnabled: signalEnabled,
+        auditPage: auditPage,
+        verdictFilter: verdictFilter,
+        guardFilter: guardFilter,
+        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        appName: appDisplay.name,
       );
 
-      return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+      return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load health dashboard: $e');
+    }
+  });
+
+  // GET /health-dashboard/audit — HTMX fragment for audit table polling.
+  router.get('/health-dashboard/audit', (Request request) async {
+    try {
+      final params = request.url.queryParameters;
+      final page = int.tryParse(params['page'] ?? '') ?? 1;
+      final verdict = params['verdict'];
+      final guard = params['guard'];
+
+      final auditPage = await auditReader?.read(
+            page: page,
+            verdictFilter: verdict,
+            guardFilter: guard,
+          ) ??
+          AuditPage.empty;
+
+      final html = auditTableFragment(
+        auditPage: auditPage,
+        verdictFilter: verdict,
+        guardFilter: guard,
+      );
+
+      return Response.ok(html, headers: {
+        ...htmlHeaders,
+        'vary': 'HX-Request',
+      });
+    } catch (e) {
+      return _htmlError('Failed to load audit table: $e');
     }
   });
 
@@ -241,40 +315,110 @@ Router webRoutes(
 
       final gc = guardChain;
       final guardsEnabled = gc != null;
-      final activeGuards = gc != null
-          ? gc.guards.map((g) => g.runtimeType.toString().replaceAll('Guard', '-Guard')).toList()
-          : <String>[];
+      final guardConfigs = extractGuardConfigs(
+        gc,
+        contentGuardDisplay: contentGuardDisplay,
+      );
 
-      // Use RuntimeConfig for live state when available, fall back to startup config.
-      final rc = runtimeConfig;
-      final liveHeartbeatEnabled = rc?.heartbeatEnabled ?? heartbeatEnabled;
-      final liveGitSyncEnabled = rc?.gitSyncEnabled ?? gitSyncEnabled;
+      final waStatus = await _whatsAppChannelStatus(whatsAppChannel);
+      final sigStatus = await _signalChannelStatus(signalChannel);
 
       final page = settingsTemplate(
         sidebarData: sidebarData,
         uptimeSeconds: status['uptime_s'] as int? ?? 0,
         sessionCount: status['session_count'] as int? ?? 0,
-        dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
         workerState: status['worker_state'] as String? ?? 'unknown',
         version: status['version'] as String? ?? 'unknown',
         whatsAppEnabled: whatsAppChannel != null,
+        whatsAppStatusLabel: waStatus.label,
+        whatsAppStatusClass: waStatus.badgeClass,
+        whatsAppPhone: jidToPhone(whatsAppChannel?.gowa.pairedJid),
+        whatsAppPendingCount: whatsAppChannel?.dmAccess.pendingPairings.length ?? 0,
         signalEnabled: signalEnabled,
-        signalPhone: signalChannel?.config.phoneNumber,
-        signalStatus: signalChannel != null
-            ? (signalChannel.sidecar.isRunning ? 'connected' : 'disconnected')
-            : 'not configured',
+        signalPhone: signalChannel?.sidecar.registeredPhone,
+        signalStatusLabel: sigStatus.label,
+        signalStatusClass: sigStatus.badgeClass,
+        signalPendingCount: signalChannel?.dmAccess.pendingPairings.length ?? 0,
         guardsEnabled: guardsEnabled,
-        activeGuards: activeGuards,
-        scheduledJobsCount: scheduledJobs.length,
-        heartbeatEnabled: liveHeartbeatEnabled,
-        heartbeatIntervalMinutes: heartbeatIntervalMinutes,
-        workspacePath: workspacePath,
-        gitSyncEnabled: liveGitSyncEnabled,
+        guardFailOpen: gc?.failOpen ?? false,
+        guardConfigs: guardConfigs,
+        workspacePath: workspaceDisplay.path,
+        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        appName: appDisplay.name,
       );
 
-      return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+      return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load settings: $e');
+    }
+  });
+
+  // GET /settings/channels/<type> — channel detail page.
+  router.get('/settings/channels/<type>', (Request request, String type) async {
+    try {
+      if (type != 'whatsapp' && type != 'signal') {
+        return _htmlNotFound('Unknown channel type: $type');
+      }
+
+      final sidebarData = await buildSidebarData(sessions);
+
+      if (type == 'whatsapp') {
+        final channel = whatsAppChannel;
+        if (channel == null) {
+          return _htmlNotFound('WhatsApp channel is not configured');
+        }
+        final status = await _whatsAppChannelStatus(channel);
+        final page = channelDetailTemplate(
+          channelType: 'whatsapp',
+          channelLabel: 'WhatsApp',
+          statusLabel: status.label,
+          statusClass: status.badgeClass,
+          phone: jidToPhone(channel.gowa.pairedJid),
+          dmAccessMode: channel.dmAccess.mode.name,
+          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
+          dmAllowlist: channel.dmAccess.allowlist.toList(),
+          groupAccessMode: channel.config.groupAccess.name,
+          groupAccessModes: ['open', 'disabled', 'allowlist'],
+          groupAllowlist: channel.config.groupAllowlist.toList(),
+          requireMention: channel.config.requireMention,
+          entryPlaceholder: '15551234567@s.whatsapp.net',
+          groupPlaceholder: '12345678@g.us',
+          sidebarData: sidebarData,
+          pendingPairings: _pendingPairingsData(channel.dmAccess),
+          bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+          appName: appDisplay.name,
+        );
+        return Response.ok(page, headers: htmlHeaders);
+      } else {
+        final channel = signalChannel;
+        if (channel == null) {
+          return _htmlNotFound('Signal channel is not configured');
+        }
+        final status = await _signalChannelStatus(channel);
+        final page = channelDetailTemplate(
+          channelType: 'signal',
+          channelLabel: 'Signal',
+          statusLabel: status.label,
+          statusClass: status.badgeClass,
+          phone: channel.sidecar.registeredPhone,
+          dmAccessMode: channel.dmAccess.mode.name,
+          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
+          dmAllowlist: channel.dmAccess.allowlist.toList(),
+          groupAccessMode: channel.config.groupAccess.name,
+          groupAccessModes: ['open', 'disabled', 'allowlist'],
+          groupAllowlist: channel.config.groupAllowlist.toList(),
+          requireMention: channel.config.requireMention,
+          entryPlaceholder: '+15551234567 or UUID',
+          groupPlaceholder: 'base64-group-id',
+          sidebarData: sidebarData,
+          pendingPairings: _pendingPairingsData(channel.dmAccess),
+          bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+          appName: appDisplay.name,
+        );
+        return Response.ok(page, headers: htmlHeaders);
+      }
+    } catch (e) {
+      return _htmlError('Failed to load channel detail: $e');
     }
   });
 
@@ -283,19 +427,63 @@ Router webRoutes(
     try {
       final sidebarData = await buildSidebarData(sessions);
 
-      final liveHb = runtimeConfig?.heartbeatEnabled ?? heartbeatEnabled;
+      final liveHb = runtimeConfig?.heartbeatEnabled ?? heartbeatDisplay.enabled;
 
       final page = schedulingTemplate(
         sidebarData: sidebarData,
         heartbeatEnabled: liveHb,
-        heartbeatIntervalMinutes: heartbeatIntervalMinutes,
-        jobs: scheduledJobs,
-        signalEnabled: signalEnabled,
+        heartbeatIntervalMinutes: heartbeatDisplay.intervalMinutes,
+        jobs: schedulingDisplay.jobs,
+        systemJobNames: schedulingDisplay.systemJobNames,
+        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        appName: appDisplay.name,
       );
 
-      return Response.ok(page, headers: {'content-type': 'text/html; charset=utf-8'});
+      return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load scheduling page: $e');
+    }
+  });
+
+  // GET /memory — memory dashboard page.
+  router.get('/memory', (Request request) async {
+    try {
+      final memService = memoryStatusService;
+      if (memService == null) {
+        return _htmlError('Memory dashboard not available — workspace not configured');
+      }
+
+      final sidebarData = await buildSidebarData(sessions);
+      final status = await memService.getStatus();
+
+      final page = memoryDashboardTemplate(
+        status: status,
+        sidebarData: sidebarData,
+        workspacePath: workspaceDisplay.path ?? '~/.dartclaw/workspace/',
+        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        appName: appDisplay.name,
+      );
+
+      return Response.ok(page, headers: htmlHeaders);
+    } catch (e) {
+      return _htmlError('Failed to load memory dashboard: $e');
+    }
+  });
+
+  // GET /memory/content — HTMX fragment for 30s polling refresh.
+  router.get('/memory/content', (Request request) async {
+    try {
+      final memService = memoryStatusService;
+      if (memService == null) return _htmlError('Memory not configured');
+
+      final status = await memService.getStatus();
+      final fragment = memoryDashboardContentFragment(
+        status: status,
+        workspacePath: workspaceDisplay.path ?? '',
+      );
+      return htmlFragment(fragment);
+    } catch (e) {
+      return _htmlError('Failed to refresh memory data: $e');
     }
   });
 
@@ -348,6 +536,36 @@ Future<Map<String, dynamic>> _getStatus(
   };
 }
 
+Future<ChannelStatus> _whatsAppChannelStatus(WhatsAppChannel? channel) async {
+  if (channel == null) return ChannelStatus.disabled;
+  final gowa = channel.gowa;
+  if (!gowa.isRunning) {
+    if (gowa.restartCount > 0) return ChannelStatus.reconnecting;
+    return gowa.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
+  }
+  try {
+    final status = await gowa.getStatus();
+    return status.isLoggedIn ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
+  } catch (_) {
+    return ChannelStatus.pairingNeeded;
+  }
+}
+
+Future<ChannelStatus> _signalChannelStatus(SignalChannel? channel) async {
+  if (channel == null) return ChannelStatus.disabled;
+  final sidecar = channel.sidecar;
+  if (!sidecar.isRunning) {
+    if (sidecar.restartCount > 0) return ChannelStatus.reconnecting;
+    return sidecar.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
+  }
+  try {
+    final registered = await sidecar.isAccountRegistered();
+    return registered ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
+  } catch (_) {
+    return ChannelStatus.pairingNeeded;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HTMX SPA helpers
 // ---------------------------------------------------------------------------
@@ -365,10 +583,33 @@ Response _redirect(Request request, String path, {Map<String, String>? extraHead
 
 Response _htmlNotFound(String message) => Response.notFound(
   errorPageTemplate(404, 'Page Not Found', message),
-  headers: {'content-type': 'text/html; charset=utf-8'},
+  headers: htmlHeaders,
 );
 
 Response _htmlError(String message) => Response.internalServerError(
   body: errorPageTemplate(500, 'Internal Server Error', message),
-  headers: {'content-type': 'text/html; charset=utf-8'},
+  headers: htmlHeaders,
 );
+
+List<Map<String, dynamic>> _pendingPairingsData(DmAccessController controller) {
+  final now = DateTime.now();
+  return controller.pendingPairings.map((p) {
+    final remaining = p.expiresAt.difference(now).inMinutes;
+    return {
+      'code': p.code,
+      'senderId': p.jid,
+      'displayName': p.displayName,
+      'remainingLabel': remaining > 0 ? '${remaining}m' : '<1m',
+    };
+  }).toList();
+}
+
+String _restartBannerHtml(String? dataDir) {
+  if (dataDir == null) return '';
+  final pending = readRestartPending(dataDir);
+  if (pending == null) return '';
+  final fields =
+      (pending['fields'] as List<dynamic>?)?.whereType<String>().toList() ??
+          [];
+  return restartBannerTemplate(pendingFields: fields);
+}

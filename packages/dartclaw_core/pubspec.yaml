@@ -1,7 +1,7 @@
 name: dartclaw_core
 description: Shared library for DartClaw — DB, bridge protocol, models, services.
 publish_to: none
-version: 0.5.0
+version: 0.6.0
 
 environment:
   sdk: ^3.11.0
@@ -9,6 +9,8 @@ environment:
 resolution: workspace
 
 dependencies:
+  dartclaw_models:
+    path: ../dartclaw_models
   stream_channel: ^2.1.4
   uuid: ^4.5.2
   collection: ^1.19.0

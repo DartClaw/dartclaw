@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import '../models/models.dart';
+import 'package:dartclaw_models/dartclaw_models.dart';
 import 'atomic_write.dart';
 import 'uuid_validation.dart';
 
@@ -140,7 +140,7 @@ class SessionService {
   }
 
   /// Types that cannot be deleted (system-managed sessions).
-  static const _protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron};
+  static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron};
 
   Future<int> deleteSession(String id) async {
     if (!isValidUuid(id)) return 0;
@@ -149,7 +149,7 @@ class SessionService {
     try {
       final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
       final session = Session.fromJson(json);
-      if (_protectedTypes.contains(session.type)) {
+      if (protectedTypes.contains(session.type)) {
         throw StateError('Cannot delete ${session.type.name} session');
       }
     } catch (e) {

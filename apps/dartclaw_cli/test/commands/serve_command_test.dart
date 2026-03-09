@@ -160,7 +160,16 @@ void main() {
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory:
-            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+            (
+              cwd, {
+              claudeExecutable,
+              turnTimeout,
+              onMemorySave,
+              onMemorySearch,
+              onMemoryRead,
+              harnessConfig,
+              containerManager,
+            }) => worker,
         serverFactory:
             ({
               required sessions,
@@ -187,11 +196,11 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
-              heartbeatEnabled = false,
-              heartbeatIntervalMinutes = 30,
-              scheduledJobs = const [],
-              workspacePath,
-              gitSyncEnabled = false,
+              contentGuardDisplay = const ContentGuardDisplayParams(),
+              heartbeatDisplay = const HeartbeatDisplayParams(),
+              schedulingDisplay = const SchedulingDisplayParams(),
+              workspaceDisplay = const WorkspaceDisplayParams(),
+              appDisplay = const AppDisplayParams(),
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -212,7 +221,6 @@ void main() {
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stdoutLine: (_) {},
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
       );
@@ -226,6 +234,13 @@ void main() {
 
     test('port-in-use path prints clear bind error', () async {
       final stderrLines = <String>[];
+      final logs = <LogRecord>[];
+      Logger.root.level = Level.ALL;
+      final logSub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() {
+        logSub.cancel();
+        Logger.root.level = Level.INFO;
+      });
       final worker = _FakeWorkerService();
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
@@ -243,7 +258,16 @@ void main() {
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory:
-            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+            (
+              cwd, {
+              claudeExecutable,
+              turnTimeout,
+              onMemorySave,
+              onMemorySearch,
+              onMemoryRead,
+              harnessConfig,
+              containerManager,
+            }) => worker,
         serverFactory:
             ({
               required sessions,
@@ -270,11 +294,11 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
-              heartbeatEnabled = false,
-              heartbeatIntervalMinutes = 30,
-              scheduledJobs = const [],
-              workspacePath,
-              gitSyncEnabled = false,
+              contentGuardDisplay = const ContentGuardDisplayParams(),
+              heartbeatDisplay = const HeartbeatDisplayParams(),
+              schedulingDisplay = const SchedulingDisplayParams(),
+              workspaceDisplay = const WorkspaceDisplayParams(),
+              appDisplay = const AppDisplayParams(),
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -295,18 +319,27 @@ void main() {
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stdoutLine: (_) {},
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
-      expect(stderrLines.join('\n'), contains('Error: Cannot bind to localhost:3000'));
+      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot bind to localhost:3000')), isTrue);
+      expect(
+        logs.any((r) => r.level == Level.SEVERE && r.message.contains('is another process already using this port?')),
+        isTrue,
+      );
     });
 
     test('search database open failure prints clear startup error', () async {
-      final stderrLines = <String>[];
+      final logs = <LogRecord>[];
+      Logger.root.level = Level.ALL;
+      final logSub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() {
+        logSub.cancel();
+        Logger.root.level = Level.INFO;
+      });
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
 
       addTearDown(() {
@@ -318,14 +351,13 @@ void main() {
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => throw FileSystemException('open failed'),
-        stdoutLine: (_) {},
-        stderrLine: stderrLines.add,
+        stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
-      expect(stderrLines.join('\n'), contains('Error: Cannot open search database'));
+      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
     });
 
     test('content guard with default claude_binary classifier needs no ANTHROPIC_API_KEY', () async {
@@ -358,7 +390,16 @@ void main() {
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory:
-            (cwd, {claudeExecutable, turnTimeout, onMemorySave, onMemorySearch, onMemoryRead, harnessConfig}) => worker,
+            (
+              cwd, {
+              claudeExecutable,
+              turnTimeout,
+              onMemorySave,
+              onMemorySearch,
+              onMemoryRead,
+              harnessConfig,
+              containerManager,
+            }) => worker,
         serverFactory:
             ({
               required sessions,
@@ -385,11 +426,11 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
-              heartbeatEnabled = false,
-              heartbeatIntervalMinutes = 30,
-              scheduledJobs = const [],
-              workspacePath,
-              gitSyncEnabled = false,
+              contentGuardDisplay = const ContentGuardDisplayParams(),
+              heartbeatDisplay = const HeartbeatDisplayParams(),
+              schedulingDisplay = const SchedulingDisplayParams(),
+              workspaceDisplay = const WorkspaceDisplayParams(),
+              appDisplay = const AppDisplayParams(),
             }) => DartclawServer(
               sessions: sessions,
               messages: messages,
@@ -410,7 +451,6 @@ void main() {
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
-        stdoutLine: (_) {},
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
       );

@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:test/test.dart';
 
 void main() {

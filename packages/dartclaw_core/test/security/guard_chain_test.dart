@@ -50,6 +50,9 @@ class StubAuditLogger extends GuardAuditLogger {
     required String guardCategory,
     required String hookPoint,
     required DateTime timestamp,
+    String? sessionId,
+    String? channel,
+    String? peerId,
   }) {
     verdicts.add((guardName: guardName, hookPoint: hookPoint, isBlock: verdict.isBlock, isWarn: verdict.isWarn));
   }

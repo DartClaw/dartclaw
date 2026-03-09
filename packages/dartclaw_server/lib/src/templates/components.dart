@@ -21,10 +21,12 @@ String emptyStateTemplate() {
 }
 
 /// Empty app state shown when no sessions exist yet.
-String emptyAppStateTemplate() {
+///
+/// [appName] is the configurable instance name shown in the call-to-action text.
+String emptyAppStateTemplate({String appName = 'DartClaw'}) {
   return templateLoader.trellis.renderFragment(
     templateLoader.source('components'),
     fragment: 'emptyAppState',
-    context: const {},
+    context: {'appName': appName},
   );
 }

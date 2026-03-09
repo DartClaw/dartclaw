@@ -1,7 +1,8 @@
 <div tl:fragment="sessionInfo" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" hx-history-elt class="info-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="info-content">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="info-inner">
 
       <div>
@@ -42,6 +43,19 @@
         <div class="meta-row">
           <span class="meta-label">Session ID</span>
           <span class="meta-value meta-value-mono" tl:text="${sessionId}">session-id</span>
+        </div>
+      </div>
+
+      <div tl:if="${hasRecentTurns}">
+        <h2 class="section-label">Recent Turns</h2>
+        <div class="card card-compact">
+          <div class="turns-list">
+            <div tl:each="turn : ${recentTurns}" class="turn-row">
+              <span class="turn-time" tl:text="${turn.time}">00:00</span>
+              <span class="turn-role" tl:classappend="${turn.roleClass}" tl:text="${turn.roleLabel}">Role</span>
+              <span class="turn-excerpt" tl:text="${turn.excerpt}">...</span>
+            </div>
+          </div>
         </div>
       </div>
 

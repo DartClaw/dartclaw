@@ -1,12 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-**DartClaw** — Security-hardened agent runtime. Dart orchestrator (AOT-compiled, zero npm) + native Claude Code CLI (Bun standalone binary, zero Node.js). Lineage: openclaw → nanoclaw → dartclaw.
-
-Architecture: 2-layer model — Dart host (state/API/security) → native `claude` binary (agent harness via JSONL control protocol). Dart spawns the `claude` binary as a subprocess, communicating via bidirectional JSONL over stdin/stdout.
+# CLAUDE.md — DartClaw Public (Application Code)
 
 ## Design Philosophy
 
@@ -20,13 +12,14 @@ Architecture: 2-layer model — Dart host (state/API/security) → native `claud
 
 ```
 packages/
-  dartclaw/            # Published umbrella — re-exports dartclaw_core + dartclaw_storage
-  dartclaw_core/       # Shared lib: models, security, bridge, harness, channels, config.
+  dartclaw/            # Published umbrella — re-exports dartclaw_core + dartclaw_models + dartclaw_storage
+  dartclaw_core/       # Shared lib: security, bridge, harness, channels, config, memory, behavior
                        # NO sqlite3 — shareable with future Flutter app
+  dartclaw_models/     # Pure data classes: Session, Message, MemoryChunk, SessionKey. Zero deps
   dartclaw_storage/    # SQLite3-backed services: memory storage, search index, memory pruning
   dartclaw_server/     # HTTP API + HTMX web UI (shelf). Server-only, not Flutter-compatible
 apps/
-  dartclaw_cli/        # CLI app (AOT-compilable): chat REPL, serve, status commands
+  dartclaw_cli/        # CLI app (AOT-compilable): serve, status, deploy, rebuild-index commands
 ```
 
 ## Key Architecture Patterns
@@ -77,38 +70,6 @@ Deferred issues, tech debt, and improvement items: see `docs/TECH-DEBT-BACKLOG.m
 - **HTMX** — https://htmx.org/docs/ — Web UI attribute reference
 
 **IMPORTANT**: When lookup of documentation (such as API documentation, user guides, language references, etc.) is needed, or when user asks to lookup documentation directly, _always_ execute the documentation lookup in a separate background sub task (use the _`cc-workflows:documentation-lookup`_ agent). This is **CRITICAL** to reduce the load on the main context window and ensure that the main agent can continue working without interruptions.
-
-
----
-
-
-## Useful Tools and MCP Servers
-
-### Command line file search and code exploration tools
-- **ripgrep (rg)**: Fast recursive search. Example: `rg "createServerSupabaseClient"`. _Use instead of grep_ for better search performance.
-- **ast-grep**: Search by AST node types. Example: `ast-grep 'import { $X } from "supabase"' routes/`
-- **tree**: Directory structure visualization. Example: `tree -L 2 routes/`
-
-### Context7 MCP - Library and Framework Documentation Lookup (https://github.com/upstash/context7)
-Context7 MCP pulls up-to-date, version-specific documentation and code examples straight from the source.
-**Only** use Context7 MCP via the _`cc-workflows:documentation-lookup`_ sub-agent for documentation retrieval tasks.
-
-### Fetch (https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
-Retrieves and processes content from web pages, converting HTML to markdown for easier consumption.
-**Only** use Fetch MCP via the _`cc-workflows:documentation-lookup`_ sub-agent for documentation retrieval tasks.
-
-### Dart and Flutter MCP Server (https://github.com/dart-lang/ai/tree/main/pkgs/dart_mcp_server)
-The Dart Tooling MCP Server exposes Dart and Flutter development tool actions to compatible AI-assistant clients.
-Contains tools such as `pub`, `run_tests`, `dart_format`, `dart_fix` etc.
-
-### Dart LSP Plugin (`.claude/plugins/dart-lsp/`)
-
-Project-scoped LSP plugin that spawns `dart language-server` (Dart analysis server). Provides real-time code intelligence **complementing** the Dart MCP server (`mcp__dart__*` tools). Instant diagnostics after edits, hover/type info, goToDefinition, findReferences, call hierarchy — resolves symbols across pub workspace package boundaries.
-
-**Analyzer hygiene**: When the LSP reports diagnostics (errors, warnings, lints) on files you're editing, fix them immediately — don't leave analyzer issues behind. Run `dart analyze` on affected packages to verify clean output before declaring work done.
-
-### MCP Servers for visual validation and UI testing/exploration
-Use the `chrome-devtools` for visual validation and UI testing/exploration.
 
 
 ---

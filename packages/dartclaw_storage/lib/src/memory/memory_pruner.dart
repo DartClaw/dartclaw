@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show MemoryEntry;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemoryEntry, parseMemoryEntries;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -22,8 +23,6 @@ typedef PruneResult = ({
 class MemoryPruner {
   static final _log = Logger('MemoryPruner');
   static const _emptyResult = (entriesArchived: 0, duplicatesRemoved: 0, entriesRemaining: 0, finalSizeBytes: 0);
-
-  static final _timestampRe = RegExp(r'^\- \[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]');
 
   final String workspaceDir;
   final MemoryService memoryService;
@@ -106,80 +105,6 @@ class MemoryPruner {
       entriesRemaining: keep.length,
       finalSizeBytes: newContent.length,
     );
-  }
-
-  /// Parses MEMORY.md content into structured entries preserving timestamps.
-  List<MemoryEntry> parseMemoryEntries(String content) {
-    final lines = content.split('\n');
-    final entries = <MemoryEntry>[];
-    var currentCategory = 'general';
-    final blockLines = <String>[];
-    DateTime? currentTimestamp;
-    StringBuffer? currentText;
-
-    void flushEntry() {
-      if (currentText != null && blockLines.isNotEmpty) {
-        final rawBlock = blockLines.join('\n');
-        final rawText = currentText.toString().trim();
-        if (rawText.isNotEmpty) {
-          entries.add(MemoryEntry(
-            timestamp: currentTimestamp,
-            category: currentCategory,
-            rawText: rawText,
-            rawBlock: rawBlock,
-          ));
-        }
-      }
-      blockLines.clear();
-      currentText = null;
-      currentTimestamp = null;
-    }
-
-    for (final line in lines) {
-      if (line.startsWith('## ')) {
-        flushEntry();
-        currentCategory = line.substring(3).trim();
-        continue;
-      }
-
-      if (line.startsWith('- [')) {
-        flushEntry();
-        final match = _timestampRe.firstMatch(line);
-        if (match != null) {
-          final datePart = match.group(1)!;
-          final timePart = match.group(2)!;
-          try {
-            currentTimestamp = DateTime.parse('${datePart}T$timePart:00');
-          } catch (_) {
-            currentTimestamp = null;
-            _log.warning('Failed to parse timestamp from line: $line');
-          }
-          // Extract text after "] "
-          final closeBracket = line.indexOf('] ', 2);
-          if (closeBracket != -1) {
-            currentText = StringBuffer(line.substring(closeBracket + 2).trim());
-          } else {
-            currentText = StringBuffer();
-          }
-        } else {
-          // Entry starts with "- [" but doesn't match timestamp pattern
-          currentTimestamp = null;
-          currentText = StringBuffer(line.substring(2).trim());
-        }
-        blockLines.add(line);
-        continue;
-      }
-
-      // Continuation line
-      if (currentText != null && line.trim().isNotEmpty) {
-        currentText!.write('\n');
-        currentText!.write(line.trim());
-        blockLines.add(line);
-      }
-    }
-    flushEntry();
-
-    return entries;
   }
 
   /// Removes exact duplicates by normalized text, keeping the newest entry.

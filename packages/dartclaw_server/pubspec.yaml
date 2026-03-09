@@ -1,7 +1,7 @@
 name: dartclaw_server
 description: HTTP API and HTMX web UI for DartClaw.
 publish_to: none
-version: 0.5.0
+version: 0.6.0
 
 environment:
   sdk: ^3.11.0
@@ -12,6 +12,7 @@ dependencies:
   crypto: ^3.0.6
   dartclaw_core:
     path: ../dartclaw_core
+  html2md: ^1.3.2
   dartclaw_storage:
     path: ../dartclaw_storage
   meta: ^1.16.0
@@ -20,8 +21,10 @@ dependencies:
   shelf_static: ^1.1.3
   logging: ^1.3.0
   path: ^1.9.1
-  trellis: ^0.2.0
+  qr: ^3.0.2
+  trellis: ^0.5.0
   uuid: ^4.5.2
+  yaml_edit: ^2.2.0
 
 dev_dependencies:
   sqlite3: ^3.1.6

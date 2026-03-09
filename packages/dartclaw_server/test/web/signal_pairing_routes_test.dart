@@ -41,19 +41,19 @@ class _FakeSignalCliManager extends SignalCliManager {
       fakeLinkUri;
 
   @override
-  Future<void> requestSmsVerification() async {
+  Future<void> requestSmsVerification({String? phone, String? captcha}) async {
     if (smsThrows) throw Exception('SMS send failed');
     smsRequested = true;
   }
 
   @override
-  Future<void> requestVoiceVerification() async {
+  Future<void> requestVoiceVerification({String? phone, String? captcha}) async {
     if (voiceThrows) throw Exception('Voice call failed');
     voiceRequested = true;
   }
 
   @override
-  Future<void> verifySmsCode(String code) async {
+  Future<void> verifySmsCode(String code, {String? phone}) async {
     lastVerifyCode = code;
     if (verifyThrows) throw Exception('Invalid code');
   }
@@ -63,6 +63,9 @@ class _FakeSignalCliManager extends SignalCliManager {
 
   @override
   Future<void> stop() async {}
+
+  @override
+  Future<void> reset() async {}
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +95,7 @@ void main() {
         enabled: true,
         phoneNumber: '+15551234567',
       ),
-      dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+      dmAccess: DmAccessController(mode: DmAccessMode.open),
       mentionGating: SignalMentionGating(
         requireMention: false,
         mentionPatterns: [],
@@ -122,15 +125,14 @@ void main() {
       expect(body, contains('Signal Connected'));
     });
 
-    test('sidecar healthy + not registered shows link device and registration options', () async {
+    test('sidecar healthy + not registered shows link device QR', () async {
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/pairing')),
       );
       expect(res.statusCode, 200);
       final body = await res.readAsString();
       expect(body, contains('sgnl://linkdevice'));
-      expect(body, contains('Register via SMS'));
-      expect(body, contains('Register via Voice Call'));
+      expect(body, contains('Connect Signal'));
     });
 
     test('sidecar not reachable shows setup instructions', () async {
@@ -143,13 +145,15 @@ void main() {
       expect(body, contains('signal-cli Not Reachable'));
     });
 
-    test('step=verify shows verification code form', () async {
+    // TD-035: step=verify UI is hidden — route still works but GET /pairing
+    // ignores the step param and shows the default link-device state.
+    test('step=verify param is ignored (SMS UI hidden, TD-035)', () async {
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/pairing?step=verify')),
       );
       expect(res.statusCode, 200);
       final body = await res.readAsString();
-      expect(body, contains('Enter Verification Code'));
+      expect(body, contains('Connect Signal'));
     });
 
     test('error query param shows error banner', () async {
@@ -166,17 +170,27 @@ void main() {
   group('POST /pairing/register', () {
     test('success redirects to verify step', () async {
       final res = await handler(
-        Request('POST', Uri.parse('http://localhost/pairing/register')),
+        Request('POST', Uri.parse('http://localhost/pairing/register'),
+            body: 'phone=%2B15551234567'),
       );
       expect(res.statusCode, 302);
       expect(res.headers['location'], '/signal/pairing?step=verify');
       expect(fakeSidecar.smsRequested, isTrue);
     });
 
+    test('missing phone redirects with error', () async {
+      final res = await handler(
+        Request('POST', Uri.parse('http://localhost/pairing/register')),
+      );
+      expect(res.statusCode, 302);
+      expect(res.headers['location'], contains('Phone+number+is+required'));
+    });
+
     test('failure redirects with error', () async {
       fakeSidecar.smsThrows = true;
       final res = await handler(
-        Request('POST', Uri.parse('http://localhost/pairing/register')),
+        Request('POST', Uri.parse('http://localhost/pairing/register'),
+            body: 'phone=%2B15551234567'),
       );
       expect(res.statusCode, 302);
       expect(res.headers['location'], contains('/signal/pairing?error='));
@@ -188,7 +202,8 @@ void main() {
   group('POST /pairing/register-voice', () {
     test('success redirects to verify step', () async {
       final res = await handler(
-        Request('POST', Uri.parse('http://localhost/pairing/register-voice')),
+        Request('POST', Uri.parse('http://localhost/pairing/register-voice'),
+            body: 'phone=%2B15551234567'),
       );
       expect(res.statusCode, 302);
       expect(res.headers['location'], '/signal/pairing?step=verify');
@@ -198,7 +213,8 @@ void main() {
     test('failure redirects with error', () async {
       fakeSidecar.voiceThrows = true;
       final res = await handler(
-        Request('POST', Uri.parse('http://localhost/pairing/register-voice')),
+        Request('POST', Uri.parse('http://localhost/pairing/register-voice'),
+            body: 'phone=%2B15551234567'),
       );
       expect(res.statusCode, 302);
       expect(res.headers['location'], contains('/signal/pairing?error='));
@@ -208,9 +224,21 @@ void main() {
     test('sets voiceRequested flag on fake manager', () async {
       expect(fakeSidecar.voiceRequested, isFalse);
       await handler(
-        Request('POST', Uri.parse('http://localhost/pairing/register-voice')),
+        Request('POST', Uri.parse('http://localhost/pairing/register-voice'),
+            body: 'phone=%2B15551234567'),
       );
       expect(fakeSidecar.voiceRequested, isTrue);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('POST /pairing/disconnect', () {
+    test('redirects to pairing page', () async {
+      final res = await handler(
+        Request('POST', Uri.parse('http://localhost/pairing/disconnect')),
+      );
+      expect(res.statusCode, 302);
+      expect(res.headers['location'], '/signal/pairing');
     });
   });
 

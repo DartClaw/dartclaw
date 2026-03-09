@@ -1,6 +1,7 @@
 import 'cron_parser.dart';
 import 'delivery.dart';
 
+/// Scheduling strategy for a job.
 enum ScheduleType { cron, interval, once }
 
 /// Callback for built-in jobs that execute directly without an agent turn.

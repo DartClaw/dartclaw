@@ -6,10 +6,13 @@ import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 
-import '../../harness/claude_code_harness.dart' show ProcessFactory, DelayFactory;
+import '../../harness/process_types.dart';
 
 /// Status record returned by [GowaManager.getStatus].
 typedef GowaStatus = ({bool isConnected, bool isLoggedIn, String? deviceId});
+
+/// QR login data returned by [GowaManager.getLoginQr].
+typedef GowaLoginQr = ({String? url, int durationSeconds});
 
 /// Manages the GOWA (Go WhatsApp) sidecar binary as a subprocess.
 ///
@@ -25,9 +28,11 @@ class GowaManager {
   final int port;
   final String? dbUri;
   final String? webhookUrl;
+  final String osName;
   final int maxRestartAttempts;
   final ProcessFactory _processFactory;
   final DelayFactory _delay;
+  final HealthProbe? _healthProbe;
 
   /// Timeout for standard API calls (sendText, getStatus, getLoginQr, requestPairingCode).
   static const _apiTimeout = Duration(seconds: 10);
@@ -38,10 +43,18 @@ class GowaManager {
   /// Timeout for GOWA to become reachable during startup.
   static const _startupTimeout = Duration(seconds: 30);
 
+  /// Regex to extract the WhatsApp JID from GOWA's LOGIN_SUCCESS stderr line.
+  ///
+  /// Example: `msg="message received: {LOGIN_SUCCESS Successfully pair with 46725619417:4@s.whatsapp.net <nil>}"`
+  static final _loginSuccessRe = RegExp(r'LOGIN_SUCCESS\b.*?\b(\d[\d]+:\d+@s\.whatsapp\.net)\b');
+
   Process? _process;
   int _generation = 0;
   int _restartCount = 0;
   bool _stopped = false;
+  bool _wasPaired = false;
+  String? _deviceId;
+  String? _pairedJid;
 
   GowaManager({
     required this.executable,
@@ -49,13 +62,27 @@ class GowaManager {
     this.port = 3000,
     this.dbUri,
     this.webhookUrl,
+    this.osName = 'DartClaw',
     this.maxRestartAttempts = 5,
     ProcessFactory? processFactory,
     DelayFactory? delay,
+    HealthProbe? healthProbe,
   }) : _processFactory = processFactory ?? Process.start,
-       _delay = delay ?? Future.delayed;
+       _delay = delay ?? Future.delayed,
+       _healthProbe = healthProbe;
 
   bool get isRunning => _process != null && !_stopped;
+
+  bool get wasPaired => _wasPaired;
+
+  /// The WhatsApp JID captured from the LOGIN_SUCCESS event, if available.
+  ///
+  /// Format: `PHONENUMBER:DEVICE@s.whatsapp.net` (e.g. `46725619417:4@s.whatsapp.net`).
+  /// This is the actual paired identity — distinct from [_deviceId] which is
+  /// GOWA's internal device UUID.
+  String? get pairedJid => _pairedJid;
+
+  int get restartCount => _restartCount;
 
   String get baseUrl => 'http://$host:$port';
 
@@ -66,7 +93,7 @@ class GowaManager {
     final gen = ++_generation;
     _log.info('Starting GOWA (gen $gen): $executable on $host:$port');
 
-    final args = ['rest', '--host', host, '--port', port.toString()];
+    final args = ['rest', '--host', host, '--port', port.toString(), '--os', osName];
     if (dbUri != null) args.addAll(['--db-uri', dbUri!]);
     if (webhookUrl != null) args.add('--webhook=$webhookUrl');
 
@@ -85,18 +112,29 @@ class GowaManager {
     _process!.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen((line) => _log.warning('[GOWA stderr] $line'));
+        .listen((line) {
+      _log.warning('[GOWA stderr] $line');
+      // Capture the WhatsApp JID from LOGIN_SUCCESS events.
+      final m = _loginSuccessRe.firstMatch(line);
+      if (m != null) {
+        _pairedJid = m.group(1);
+        _wasPaired = true;
+        _log.info('Captured paired JID: $_pairedJid');
+      }
+    });
 
     // Monitor for unexpected exit
     unawaited(_process!.exitCode.then((code) => _onExit(code, gen)));
 
-    // Wait for GOWA server to become reachable (HTTP 200 on /app/status)
+    // Wait for GOWA server to become reachable
     if (!await _waitForHealth()) {
-      // Kill the orphaned process before throwing
       _process?.kill(ProcessSignal.sigterm);
       _process = null;
       throw StateError('GOWA failed to respond within ${_startupTimeout.inSeconds}s');
     }
+
+    // Ensure a device exists (GOWA v8 multi-device requires X-Device-Id).
+    await _ensureDevice();
 
     _restartCount = 0;
     _log.info('GOWA started successfully (gen $gen)');
@@ -127,6 +165,33 @@ class GowaManager {
   /// Dispose resources. Alias for [stop].
   Future<void> dispose() => stop();
 
+  /// Stop the process and reset state so [start] can be called again.
+  ///
+  /// Unlike [stop] (which is a permanent teardown), this prepares the manager
+  /// for a fresh pairing cycle without recreating the object.
+  Future<void> reset() async {
+    final proc = _process;
+    _process = null;
+
+    _stopped = false;
+    _wasPaired = false;
+    _deviceId = null;
+    _pairedJid = null;
+    _restartCount = 0;
+
+    if (proc != null) {
+      _log.info('Resetting GOWA');
+      proc.kill(ProcessSignal.sigterm);
+      await proc.exitCode.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          proc.kill(ProcessSignal.sigkill);
+          return proc.exitCode;
+        },
+      );
+    }
+  }
+
   // ---- REST client methods ----
 
   /// Send a text message via GOWA.
@@ -155,20 +220,50 @@ class GowaManager {
 
   /// Get QR code link for WhatsApp pairing.
   ///
-  /// Returns the QR image URL from `results.qr_link`, or null if not available.
-  Future<String?> getLoginQr() async {
+  /// Returns [GowaLoginQr] with the QR image URL and expiry duration in seconds.
+  /// URL is null when no QR is available. Duration defaults to 60s if not
+  /// provided by GOWA.
+  Future<GowaLoginQr> getLoginQr() async {
     final results = await _get('/app/login');
-    return results['qr_link'] as String?;
+    return (
+      url: results['qr_link'] as String?,
+      durationSeconds: (results['qr_duration'] as num?)?.toInt() ?? 60,
+    );
   }
 
   /// Get GOWA connection/login status.
+  ///
+  /// When no device is registered (pre-pairing), GOWA returns 400 with
+  /// `DEVICE_ID_REQUIRED` — treated as not-logged-in rather than an error.
+  /// When the stored device ID is stale (e.g. GOWA restarted with in-memory
+  /// storage), GOWA returns 404 with `DEVICE_NOT_FOUND` — re-provision and
+  /// return not-connected so the pairing flow can proceed.
   Future<GowaStatus> getStatus() async {
-    final results = await _get('/app/status');
-    return (
-      isConnected: results['is_connected'] as bool? ?? false,
-      isLoggedIn: results['is_logged_in'] as bool? ?? false,
-      deviceId: results['device_id'] as String?,
-    );
+    try {
+      final results = await _get('/app/status');
+      final loggedIn = results['is_logged_in'] as bool? ?? false;
+      if (loggedIn) {
+        _wasPaired = true;
+        // Lazily resolve the paired JID from /devices when first needed.
+        if (_pairedJid == null) await _resolveJidFromDevices();
+      }
+      return (
+        isConnected: results['is_connected'] as bool? ?? false,
+        isLoggedIn: loggedIn,
+        deviceId: results['device_id'] as String?,
+      );
+    } on HttpException catch (e) {
+      if (e.message.contains('DEVICE_ID_REQUIRED')) {
+        return (isConnected: false, isLoggedIn: false, deviceId: null);
+      }
+      if (e.message.contains('DEVICE_NOT_FOUND')) {
+        // Stale device ID — clear and re-provision so subsequent calls work.
+        _deviceId = null;
+        await _ensureDevice();
+        return (isConnected: false, isLoggedIn: false, deviceId: null);
+      }
+      rethrow;
+    }
   }
 
   /// Request a pairing code for a phone number.
@@ -183,12 +278,20 @@ class GowaManager {
     final maxAttempts = _startupTimeout.inSeconds;
     for (var i = 0; i < maxAttempts; i++) {
       if (_stopped) return false;
-      try {
-        await _getRaw('/app/status');
-        return true;
-      } catch (_) {
-        await _delay(const Duration(seconds: 1));
+      if (_healthProbe != null) {
+        if (await _healthProbe()) return true;
+      } else {
+        try {
+          await _getRaw('/app/status');
+          return true;
+        } on HttpException {
+          // Any HTTP error (e.g. DEVICE_ID_REQUIRED, DEVICE_NOT_FOUND) means GOWA is up.
+          return true;
+        } catch (_) {
+          // Connection failed — retry after delay
+        }
       }
+      await _delay(const Duration(seconds: 1));
     }
     return false;
   }
@@ -234,7 +337,84 @@ class GowaManager {
     );
   }
 
+  // ---- Device provisioning (GOWA v8 multi-device) ----
+
+  /// Fetches the WhatsApp JID from the `/devices` list.
+  ///
+  /// Called lazily from [getStatus] when `_pairedJid` is still null after
+  /// login is confirmed. This handles the race where GOWA wasn't fully
+  /// logged in yet during [_ensureDevice] at startup.
+  Future<void> _resolveJidFromDevices() async {
+    try {
+      final raw = await _getRaw('/devices');
+      final results = raw['results'];
+      if (results is List) {
+        for (final entry in results) {
+          if (entry is Map<String, dynamic>) {
+            final jid = entry['jid']?.toString();
+            if (jid != null && jid.contains('@')) {
+              _pairedJid = jid;
+              _log.info('Resolved paired JID from /devices: $_pairedJid');
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      _log.fine('Could not resolve JID from /devices: $e');
+    }
+  }
+
+
+  /// Ensures a GOWA device exists, reusing the first existing device or
+  /// creating one. Sets [_deviceId] for all subsequent API calls.
+  Future<void> _ensureDevice() async {
+    // Try listing existing devices first.
+    try {
+      final raw = await _getRaw('/devices');
+      final results = raw['results'];
+      if (results is List && results.isNotEmpty) {
+        final first = results[0] as Map<String, dynamic>;
+        _deviceId = (first['id'] ?? first['device_id'])?.toString();
+        if (_deviceId != null) {
+          // Check if any device indicates a previously paired session
+          // and capture the WhatsApp JID from the device record.
+          for (final entry in results) {
+            if (entry is Map<String, dynamic>) {
+              final state = entry['state']?.toString();
+              if (state == 'connected' || state == 'logged_in') {
+                _wasPaired = true;
+                _pairedJid ??= entry['jid']?.toString();
+                break;
+              }
+            }
+          }
+          _log.fine('Using existing GOWA device: $_deviceId (jid: $_pairedJid)');
+          return;
+        }
+      }
+    } catch (e) {
+      _log.fine('Could not list devices: $e');
+    }
+
+    // No device found — create one.
+    try {
+      final raw = await _postRaw('/devices', {});
+      final results = raw['results'] as Map<String, dynamic>?;
+      _deviceId = (results?['id'] ?? results?['device_id'])?.toString();
+      _log.info('Created GOWA device: $_deviceId');
+    } catch (e) {
+      _log.warning('Failed to create GOWA device: $e');
+    }
+  }
+
   // ---- HTTP helpers ----
+
+  void _addDeviceHeader(HttpClientRequest request) {
+    if (_deviceId != null) {
+      request.headers.set('X-Device-Id', _deviceId!);
+    }
+  }
 
   /// GET request that unwraps GOWA v8 response envelope, returning `results`.
   Future<Map<String, dynamic>> _get(String path) async {
@@ -247,6 +427,26 @@ class GowaManager {
     final client = HttpClient();
     try {
       final request = await client.getUrl(Uri.parse('$baseUrl$path'));
+      _addDeviceHeader(request);
+      final response = await request.close().timeout(_apiTimeout);
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 400) {
+        throw HttpException('GOWA $path returned ${response.statusCode}: $body');
+      }
+      if (body.isEmpty) return {};
+      return jsonDecode(body) as Map<String, dynamic>;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Raw POST request (no envelope unwrapping). Used by device provisioning.
+  Future<Map<String, dynamic>> _postRaw(String path, Map<String, dynamic> payload) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
       final response = await request.close().timeout(_apiTimeout);
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 400) {
@@ -264,6 +464,7 @@ class GowaManager {
     final client = HttpClient();
     try {
       final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+      _addDeviceHeader(request);
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
       final response = await request.close().timeout(_apiTimeout);
@@ -289,6 +490,7 @@ class GowaManager {
     try {
       final boundary = 'dartclaw-${DateTime.now().millisecondsSinceEpoch}';
       final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+      _addDeviceHeader(request);
       request.headers.contentType = ContentType('multipart', 'form-data', parameters: {'boundary': boundary});
 
       final file = File(filePath);

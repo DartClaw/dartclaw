@@ -13,15 +13,54 @@ abstract class LogFormatter {
 /// Human-readable log format for stderr.
 ///
 /// Format: `LEVEL: 2026-02-25T10:30:00 [session=X turn=Y] LoggerName: message`
+///
+/// When [colorize] is true, the level prefix is wrapped in ANSI color codes:
+/// SEVERE → red, WARNING → yellow, INFO → cyan, FINE/FINER/FINEST → dim.
 class HumanFormatter implements LogFormatter {
   final LogRedactor _redactor;
+  final bool colorize;
 
-  HumanFormatter({LogRedactor? redactor}) : _redactor = redactor ?? LogRedactor();
+  HumanFormatter({LogRedactor? redactor, this.colorize = false})
+      : _redactor = redactor ?? LogRedactor();
+
+  static const _reset = '\x1B[0m';
+  static const _red = '\x1B[31m';
+  static const _yellow = '\x1B[33m';
+  static const _cyan = '\x1B[36m';
+  static const _dim = '\x1B[2m';
+
+  /// Palette for logger name coloring — avoids red (SEVERE), yellow (WARNING),
+  /// cyan (INFO), and dim (FINE) to prevent confusion with level indicators.
+  static const _loggerColors = [
+    '\x1B[32m', // green
+    '\x1B[34m', // blue
+    '\x1B[35m', // magenta
+    '\x1B[92m', // bright green
+    '\x1B[94m', // bright blue
+    '\x1B[95m', // bright magenta
+    '\x1B[97m', // bright white
+  ];
+
+  String _coloredLevel(Level level) {
+    final name = level.name;
+    if (!colorize) return name;
+    if (level >= Level.SEVERE) return '$_red$name$_reset';
+    if (level >= Level.WARNING) return '$_yellow$name$_reset';
+    if (level >= Level.INFO) return '$_cyan$name$_reset';
+    return '$_dim$name$_reset';
+  }
+
+  /// Returns a stable color for a logger name based on its hash code.
+  String _coloredLogger(String name) {
+    if (!colorize) return name;
+    final color = _loggerColors[name.hashCode.abs() % _loggerColors.length];
+    return '$color$name$_reset';
+  }
 
   @override
   String format(LogRecord record) {
     final buf = StringBuffer()
-      ..write(record.level.name)
+      ..write(_coloredLevel(record.level))
       ..write(': ')
       ..write(record.time.toIso8601String());
 
@@ -37,7 +76,7 @@ class HumanFormatter implements LogFormatter {
 
     buf
       ..write(' ')
-      ..write(record.loggerName)
+      ..write(_coloredLogger(record.loggerName))
       ..write(': ')
       ..write(record.message);
 

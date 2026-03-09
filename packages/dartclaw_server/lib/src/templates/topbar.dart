@@ -11,11 +11,18 @@ import 'loader.dart';
 /// - archive: resume button, read-only
 ///
 /// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
-String topbarTemplate({String? title, String? sessionId, SessionType? sessionType}) {
+String topbarTemplate({
+  String? title,
+  String? sessionId,
+  SessionType? sessionType,
+  String appName = 'DartClaw',
+}) {
   final src = templateLoader.source('topbar');
 
   if (sessionId == null) {
-    return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: const {});
+    return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: {
+      'appName': appName,
+    });
   }
 
   final displayTitle = (title == null || title.trim().isEmpty) ? 'New Session' : title;

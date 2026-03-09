@@ -1,19 +1,24 @@
 FROM debian:bookworm-slim
 
+ARG CLAUDE_VERSION=latest
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
-# Install claude CLI (Bun standalone binary)
-RUN curl -fsSL https://claude.ai/install.sh | sh || true
-
-# Non-root user
 RUN groupadd -g 1000 dartclaw && \
     useradd -m -u 1000 -g dartclaw dartclaw
 
-WORKDIR /workspace
 USER dartclaw
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_VERSION}"
 
-# No ENTRYPOINT — managed by docker exec
+ENV PATH="/home/dartclaw/.local/bin:${PATH}"
+
+COPY --chown=dartclaw:dartclaw .claude/ /home/dartclaw/.claude/
+
+WORKDIR /workspace
+
 CMD ["sleep", "infinity"]

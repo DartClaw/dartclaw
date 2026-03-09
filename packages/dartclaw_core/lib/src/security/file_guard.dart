@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../utils/path_utils.dart';
 import 'guard.dart';
 import 'guard_verdict.dart';
 
@@ -234,7 +235,7 @@ class FileGuard extends Guard {
   // -------------------------------------------------------------------------
 
   String _resolvePath(String path) {
-    final expanded = _expandHome(path);
+    final expanded = expandHome(path);
     final normalized = p.normalize(expanded);
     // Resolve all symlinks in the path (including parent dirs like /var -> /private/var)
     try {
@@ -246,15 +247,6 @@ class FileGuard extends Guard {
       // Non-existent path or permission error — use as-is
     }
     return normalized;
-  }
-
-  static String _expandHome(String path) {
-    if (path.startsWith('~/') || path == '~') {
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
-      if (home.isEmpty) return path;
-      return path == '~' ? home : p.join(home, path.substring(2));
-    }
-    return path;
   }
 
   GuardVerdict? _checkAccess(String path, FileOperation operation) {

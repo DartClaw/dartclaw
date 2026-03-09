@@ -179,8 +179,7 @@ void main() {
       final deltaFrame = frames.firstWhere((f) => f.contains('event: delta'), orElse: () => '');
       expect(deltaFrame, isNotEmpty);
       final dataLine = deltaFrame.split('\n').firstWhere((l) => l.startsWith('data:'));
-      final data = jsonDecode(dataLine.substring('data:'.length).trim()) as Map<String, dynamic>;
-      expect(data['text'], equals('Hello World'));
+      expect(dataLine, contains('<span>Hello World</span>'));
     });
 
     test('forwards tool_use event as SSE frame', () async {
@@ -199,9 +198,7 @@ void main() {
       final frame = frames.firstWhere((f) => f.contains('event: tool_use'), orElse: () => '');
       expect(frame, isNotEmpty);
       final dataLine = frame.split('\n').firstWhere((l) => l.startsWith('data:'));
-      final data = jsonDecode(dataLine.substring('data:'.length).trim()) as Map<String, dynamic>;
-      expect(data['tool_name'], equals('bash'));
-      expect(data['tool_id'], equals('tool-1'));
+      expect(dataLine, contains('<div id="tool-tool1" class="tool-indicator pending">bash</div>'));
     });
 
     test('forwards tool_result event as SSE frame', () async {
@@ -220,9 +217,8 @@ void main() {
       final frame = frames.firstWhere((f) => f.contains('event: tool_result'), orElse: () => '');
       expect(frame, isNotEmpty);
       final dataLine = frame.split('\n').firstWhere((l) => l.startsWith('data:'));
-      final data = jsonDecode(dataLine.substring('data:'.length).trim()) as Map<String, dynamic>;
-      expect(data['tool_id'], equals('tool-1'));
-      expect(data['is_error'], isFalse);
+      expect(dataLine, contains('hx-swap-oob="outerHTML:#tool-tool1"'));
+      expect(dataLine, contains('class="tool-indicator success"'));
     });
   });
 
@@ -242,11 +238,11 @@ void main() {
       final doneFrame = frames.firstWhere((f) => f.contains('event: done'), orElse: () => '');
       expect(doneFrame, isNotEmpty);
       final dataLine = doneFrame.split('\n').firstWhere((l) => l.startsWith('data:'));
-      final data = jsonDecode(dataLine.substring('data:'.length).trim()) as Map<String, dynamic>;
-      expect(data['turn_id'], equals(turnId));
+      final dataContent = dataLine.substring('data:'.length).trim();
+      expect(dataContent, isEmpty);
     });
 
-    test('emits error frame when turn fails', () async {
+    test('emits turn_error frame when turn fails', () async {
       final res = sseStreamResponse(worker, turns, sessionId, turnId);
 
       final frames = await _collectFrames(() async {
@@ -263,13 +259,10 @@ void main() {
         await Future<void>.delayed(Duration.zero);
       }, res.read());
 
-      final errorFrame = frames.firstWhere((f) => f.contains('event: error'), orElse: () => '');
+      final errorFrame = frames.firstWhere((f) => f.contains('event: turn_error'), orElse: () => '');
       expect(errorFrame, isNotEmpty);
       final dataLine = errorFrame.split('\n').firstWhere((l) => l.startsWith('data:'));
-      final data = jsonDecode(dataLine.substring('data:'.length).trim()) as Map<String, dynamic>;
-      expect(data['turn_id'], equals(turnId));
-      expect(data['error'], equals('Worker crashed'));
-      expect(data['message'], equals('Worker crashed'));
+      expect(dataLine, contains('<div class="turn-error">Worker crashed</div>'));
     });
 
     test('terminal done comes after all delta frames', () async {
@@ -298,6 +291,72 @@ void main() {
       expect(eventTypes, contains('delta'));
       expect(eventTypes, contains('done'));
       expect(eventTypes.last, equals('done'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('sseStreamResponse — security & edge cases', () {
+    test('HTML-escapes XSS payloads in delta text', () async {
+      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+
+      final frames = await _collectFrames(() async {
+        await Future<void>.delayed(Duration.zero);
+        worker.emit(DeltaEvent('<script>alert(1)</script>'));
+        await Future<void>.delayed(Duration.zero);
+        turns.complete(
+          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
+        );
+        await Future<void>.delayed(Duration.zero);
+      }, res.read());
+
+      final deltaFrame = frames.firstWhere((f) => f.contains('event: delta'), orElse: () => '');
+      expect(deltaFrame, contains('&lt;script&gt;'));
+      expect(deltaFrame, isNot(contains('<script>')));
+    });
+
+    test('falls back to "Tool" name when tool_result has no prior tool_use', () async {
+      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+
+      final frames = await _collectFrames(() async {
+        await Future<void>.delayed(Duration.zero);
+        // Emit tool_result without preceding tool_use
+        worker.emit(ToolResultEvent(toolId: 'unknown-tool', output: 'ok', isError: false));
+        await Future<void>.delayed(Duration.zero);
+        turns.complete(
+          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
+        );
+        await Future<void>.delayed(Duration.zero);
+      }, res.read());
+
+      final frame = frames.firstWhere((f) => f.contains('event: tool_result'), orElse: () => '');
+      expect(frame, contains('>Tool</div>'));
+    });
+
+    test('sanitizes tool IDs with special characters', () async {
+      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+
+      final frames = await _collectFrames(() async {
+        await Future<void>.delayed(Duration.zero);
+        worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'toolu_01XyZ-abc', input: {}));
+        await Future<void>.delayed(Duration.zero);
+        turns.complete(
+          TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
+        );
+        await Future<void>.delayed(Duration.zero);
+      }, res.read());
+
+      final frame = frames.firstWhere((f) => f.contains('event: tool_use'), orElse: () => '');
+      expect(frame, contains('id="tool-toolu01XyZabc"'));
+      expect(frame, isNot(contains('toolu_01XyZ-abc')));
+    });
+
+    test('includes X-Accel-Buffering header', () {
+      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      expect(res.headers['x-accel-buffering'], equals('no'));
+
+      turns.complete(
+        TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now()),
+      );
     });
   });
 }

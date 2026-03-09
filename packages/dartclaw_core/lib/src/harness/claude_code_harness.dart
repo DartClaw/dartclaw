@@ -12,20 +12,8 @@ import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'claude_protocol.dart';
 import 'harness_config.dart';
+import 'process_types.dart';
 import 'tool_policy.dart';
-
-typedef ProcessFactory =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-      bool includeParentEnvironment,
-    });
-
-typedef CommandProbe = Future<ProcessResult> Function(String executable, List<String> arguments);
-
-typedef DelayFactory = Future<void> Function(Duration duration);
 
 // ---------------------------------------------------------------------------
 // Claude CLI configuration
@@ -271,14 +259,17 @@ class ClaudeCodeHarness implements AgentHarness {
   // -------------------------------------------------------------------------
 
   Future<void> _startInternal() async {
-    // Check claude binary.
-    final claudeResult = await _commandProbe(claudeExecutable, ['--version']);
-    if (claudeResult.exitCode != 0) {
-      throw StateError('claude binary not found at $claudeExecutable');
-    }
+    final cm = containerManager;
+    if (cm == null) {
+      // Check claude binary.
+      final claudeResult = await _commandProbe(claudeExecutable, ['--version']);
+      if (claudeResult.exitCode != 0) {
+        throw StateError('claude binary not found at $claudeExecutable');
+      }
 
-    // Verify authentication.
-    await _verifyAuth();
+      // Verify authentication.
+      await _verifyAuth();
+    }
 
     // Build clean env: inherit parent env, strip nesting-detection vars.
     final env = Map<String, String>.from(_environment);
@@ -290,9 +281,12 @@ class ClaudeCodeHarness implements AgentHarness {
     final mcpUrl = harnessConfig.mcpServerUrl;
     final mcpToken = harnessConfig.mcpGatewayToken;
     String? mcpConfigPath;
+    String? mcpConfigArgPath;
     if (mcpUrl != null && mcpToken != null) {
-      final tmpDir = Directory.systemTemp;
-      final configFile = File('${tmpDir.path}/dartclaw-mcp-config-$pid.json');
+      final hostConfigPath = cm != null
+          ? '${cm.workspaceDir}/dartclaw-mcp-config-$pid.json'
+          : '${Directory.systemTemp.path}/dartclaw-mcp-config-$pid.json';
+      final configFile = File(hostConfigPath);
       final configJson = jsonEncode({
         'mcpServers': {
           'dartclaw': {
@@ -306,6 +300,7 @@ class ClaudeCodeHarness implements AgentHarness {
       // Set 0600 permissions (owner read/write only).
       await Process.run('chmod', ['600', configFile.path]);
       mcpConfigPath = configFile.path;
+      mcpConfigArgPath = cm != null ? '/workspace/${configFile.uri.pathSegments.last}' : configFile.path;
       _mcpConfigPath = mcpConfigPath;
       _log.fine('Wrote MCP config to $mcpConfigPath');
     }
@@ -314,13 +309,15 @@ class ClaudeCodeHarness implements AgentHarness {
     final args = _buildClaudeArgs(
       model: harnessConfig.model,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
-      mcpConfigPath: mcpConfigPath,
+      mcpConfigPath: mcpConfigArgPath,
     );
     final Process process;
-    final cm = containerManager;
     if (cm != null) {
       await cm.start();
-      process = await cm.exec([claudeExecutable, ...args]);
+      final containerExecutable = claudeExecutable.contains('/')
+          ? claudeExecutable
+          : ContainerManager.containerClaudeExecutable;
+      process = await cm.exec([containerExecutable, ...args]);
     } else {
       process = await _processFactory(
         claudeExecutable,
@@ -583,7 +580,7 @@ class ClaudeCodeHarness implements AgentHarness {
     // Guard evaluation
     final chain = guardChain;
     if (chain != null) {
-      final verdict = await chain.evaluateBeforeToolCall(toolName, toolInput);
+      final verdict = await chain.evaluateBeforeToolCall(toolName, toolInput, sessionId: _sessionId);
       if (verdict.isBlock) {
         _writeLine(buildHookResponse(requestId, allow: false));
         return;

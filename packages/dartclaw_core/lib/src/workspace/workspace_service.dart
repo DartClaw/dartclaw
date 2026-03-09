@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import 'workspace_git_sync.dart';
 
+/// Thrown when a workspace directory migration fails.
 class WorkspaceMigrationException implements Exception {
   final String message;
   WorkspaceMigrationException(this.message);
@@ -25,7 +26,7 @@ class WorkspaceService {
   String get logsDir => p.join(dataDir, 'logs');
   String get sessionsDir => p.join(dataDir, 'sessions');
 
-  /// Detects MVP layout and migrates files to 1.0 workspace/ layout.
+  /// Detects MVP layout and migrates files to 0.2 workspace/ layout.
   /// Idempotent: no-op if workspace/ already exists.
   /// On failure: leaves originals intact and throws [WorkspaceMigrationException].
   Future<void> migrate() async {
@@ -55,7 +56,7 @@ class WorkspaceService {
       return;
     }
 
-    _log.info('Migrating MVP layout to 1.0: ${[...filesToMigrate, ...dirsToMigrate].join(', ')}');
+    _log.info('Migrating MVP layout to 0.2: ${[...filesToMigrate, ...dirsToMigrate].join(', ')}');
 
     // Create workspace dir
     try {

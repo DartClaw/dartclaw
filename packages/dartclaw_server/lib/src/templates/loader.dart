@@ -18,16 +18,19 @@ const expectedTemplates = [
   'chat',
   'whatsapp_pairing',
   'signal_pairing',
+  'memory_dashboard',
+  'restart_banner',
+  'channel_detail',
 ];
 
-TemplateLoader? _templateLoader;
+TemplateLoaderService? _templateLoader;
 
 /// Global template loader, initialized at startup via [initTemplates].
 ///
 /// Reads all `.html` template files once at init, then serves them as
 /// in-memory source strings for synchronous Trellis rendering.
 /// Throws [StateError] if accessed before [initTemplates] is called.
-TemplateLoader get templateLoader {
+TemplateLoaderService get templateLoader {
   final loader = _templateLoader;
   if (loader == null) {
     throw StateError('templateLoader not initialized — call initTemplates() first');
@@ -38,9 +41,11 @@ TemplateLoader get templateLoader {
 /// Initializes the global [templateLoader] from `.html` files in [basePath].
 ///
 /// Must be called once before any template rendering (typically in
-/// `ServeCommand.run`). Throws [StateError] on missing or empty templates.
-void initTemplates(String basePath) {
-  _templateLoader = TemplateLoader(basePath);
+/// `ServeCommand.run`). When [devMode] is true, templates are re-read from
+/// disk on each render so changes take effect without a server restart.
+/// Throws [StateError] on missing or empty templates.
+void initTemplates(String basePath, {bool devMode = false}) {
+  _templateLoader = TemplateLoaderService(basePath, devMode: devMode);
   _templateLoader!.validate();
 }
 
@@ -58,25 +63,45 @@ void resetTemplates() {
 /// engine uses a [MapLoader] for DOM caching. All rendering is synchronous —
 /// callers use [source] to get the raw template string, then call
 /// `trellis.render()` / `trellis.renderFragment()` directly.
-class TemplateLoader {
+///
+/// In [devMode], templates are re-read from disk on each [source] call and
+/// the Trellis engine watches for file changes to clear its DOM cache.
+class TemplateLoaderService {
   final String _basePath;
+  final bool devMode;
   final Map<String, String> _sources = {};
   late final Trellis trellis;
 
-  TemplateLoader(this._basePath) {
+  TemplateLoaderService(this._basePath, {this.devMode = false}) {
     for (final name in expectedTemplates) {
       final file = File('$_basePath/$name.html');
       if (file.existsSync()) {
         _sources[name] = file.readAsStringSync();
       }
     }
-    trellis = Trellis(loader: MapLoader(_sources));
+    if (devMode) {
+      trellis = Trellis(
+        loader: FileSystemLoader(_basePath, devMode: true),
+        devMode: true,
+      );
+    } else {
+      trellis = Trellis(loader: MapLoader(_sources));
+    }
   }
 
   /// Returns the raw source string for a named template.
   ///
+  /// In dev mode, re-reads from disk so edits take effect immediately.
   /// Throws [StateError] if the template was not loaded at init time.
   String source(String name) {
+    if (devMode) {
+      final file = File('$_basePath/$name.html');
+      if (file.existsSync()) {
+        final content = file.readAsStringSync();
+        _sources[name] = content;
+        return content;
+      }
+    }
     final s = _sources[name];
     if (s == null) {
       throw StateError('Template "$name" not loaded — was it in expectedTemplates?');

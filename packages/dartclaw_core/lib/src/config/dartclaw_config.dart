@@ -8,11 +8,13 @@ import '../channel/channel_config.dart';
 import '../container/container_config.dart';
 import '../security/env_substitute.dart';
 import '../security/guard_config.dart';
+import '../utils/path_utils.dart';
 
 /// Immutable configuration for DartClaw runtime.
 class DartclawConfig {
   final int port;
   final String host;
+  final String name;
   final String dataDir;
   final int workerTimeout;
   final String claudeExecutable;
@@ -44,6 +46,7 @@ class DartclawConfig {
   final bool gitSyncEnabled;
   final bool gitSyncPushEnabled;
   final List<AgentDefinition> agentDefinitions;
+  final bool devMode;
   final String searchBackend;
   final String searchQmdHost;
   final int searchQmdPort;
@@ -59,6 +62,7 @@ class DartclawConfig {
   final bool memoryPruningEnabled;
   final int memoryArchiveAfterDays;
   final String memoryPruningSchedule;
+  final Map<String, SearchProviderEntry> searchProviders;
 
   /// Raw guards YAML map for per-guard config (command, file, network sections).
   final Map<String, dynamic> guardsYaml;
@@ -76,6 +80,7 @@ class DartclawConfig {
   const DartclawConfig({
     this.port = 3000,
     this.host = 'localhost',
+    this.name = 'DartClaw',
     this.dataDir = '~/.dartclaw',
     this.workerTimeout = 600,
     this.claudeExecutable = 'claude',
@@ -107,6 +112,7 @@ class DartclawConfig {
     this.gitSyncEnabled = true,
     this.gitSyncPushEnabled = true,
     this.agentDefinitions = const [],
+    this.devMode = false,
     this.searchBackend = 'fts5',
     this.searchQmdHost = '127.0.0.1',
     this.searchQmdPort = 8181,
@@ -122,6 +128,7 @@ class DartclawConfig {
     this.memoryPruningEnabled = true,
     this.memoryArchiveAfterDays = 90,
     this.memoryPruningSchedule = '0 3 * * *',
+    this.searchProviders = const {},
     this.guardsYaml = const {},
     this.warnings = const [],
   });
@@ -146,32 +153,129 @@ class DartclawConfig {
     final reader = fileReader ?? _defaultFileReader;
     final cli = cliOverrides ?? {};
     final warns = <String>[];
-
-    // Find & read config file
-    final yamlValues = _loadYaml(environment, reader, warns, configPath: configPath);
-
-    // Merge: CLI > YAML > defaults (for YAML-allowed keys only)
     final defaults = const DartclawConfig.defaults();
 
-    final port = _parseInt('port', cli['port'], yamlValues['port'], defaults.port, warns);
-    final host = _parseString('host', cli['host'], yamlValues['host'], defaults.host, environment, warns);
+    // Find & read config file
+    final yaml = _loadYaml(environment, reader, warns, configPath: configPath);
+
+    // Parse each section
+    final top = _parseTopLevel(yaml, cli, environment, defaults, warns);
+    final logging = _parseLogging(yaml, cli, environment, defaults, warns);
+    final agent = _parseAgent(yaml, defaults, warns);
+    final gateway = _parseGateway(yaml, environment, defaults, warns);
+    final sessions = _parseSessions(yaml, defaults, warns);
+    final context = _parseContext(yaml, defaults, warns);
+    final workspace = _parseWorkspace(yaml, defaults, warns);
+    final scheduling = _parseScheduling(yaml, defaults, warns);
+    final search = _parseSearch(yaml, environment, defaults, warns);
+    final guards = _parseGuards(yaml, warns);
+    final contentGuard = _parseContentGuard(yaml, defaults, warns);
+    final inputSanitizer = _parseInputSanitizer(yaml, defaults, warns);
+    final usage = _parseUsage(yaml, defaults, warns);
+    final memory = _parseMemory(yaml, defaults, warns);
+    final container = _parseContainer(yaml, warns);
+    final channels = _parseChannels(yaml, warns);
+    final concurrency = _parseConcurrency(yaml, defaults, warns);
+
+    return DartclawConfig(
+      port: top.port,
+      host: top.host,
+      name: top.name,
+      dataDir: top.dataDir,
+      workerTimeout: top.workerTimeout,
+      claudeExecutable: top.claudeExecutable,
+      staticDir: top.staticDir,
+      templatesDir: top.templatesDir,
+      memoryMaxBytes: top.memoryMaxBytes,
+      guards: guards.config,
+      guardsYaml: guards.yaml,
+      logFormat: logging.logFormat,
+      logFile: logging.logFile,
+      logLevel: logging.logLevel,
+      redactPatterns: logging.redactPatterns,
+      agentDisallowedTools: agent.disallowedTools,
+      agentMaxTurns: agent.maxTurns,
+      agentModel: agent.model,
+      agentContext1m: agent.context1m,
+      agentAgents: agent.agents,
+      agentDefinitions: agent.definitions,
+      devMode: top.devMode,
+      gatewayAuthMode: gateway.authMode,
+      gatewayToken: gateway.token,
+      maxParallelTurns: concurrency.maxParallelTurns,
+      sessionResetHour: sessions.resetHour,
+      sessionIdleTimeoutMinutes: sessions.idleTimeoutMinutes,
+      schedulingJobs: scheduling.jobs,
+      heartbeatEnabled: scheduling.heartbeatEnabled,
+      heartbeatIntervalMinutes: scheduling.heartbeatIntervalMinutes,
+      contextReserveTokens: context.reserveTokens,
+      contextMaxResultBytes: context.maxResultBytes,
+      containerConfig: container,
+      channelConfig: channels,
+      gitSyncEnabled: workspace.gitSyncEnabled,
+      gitSyncPushEnabled: workspace.gitSyncPushEnabled,
+      searchBackend: search.backend,
+      searchQmdHost: search.qmdHost,
+      searchQmdPort: search.qmdPort,
+      searchDefaultDepth: search.defaultDepth,
+      searchProviders: search.providers,
+      contentGuardEnabled: contentGuard.enabled,
+      contentGuardClassifier: contentGuard.classifier,
+      contentGuardModel: contentGuard.model,
+      contentGuardMaxBytes: contentGuard.maxBytes,
+      inputSanitizerEnabled: inputSanitizer.enabled,
+      inputSanitizerChannelsOnly: inputSanitizer.channelsOnly,
+      usageBudgetWarningTokens: usage.budgetWarningTokens,
+      usageMaxFileSizeBytes: usage.maxFileSizeBytes,
+      memoryPruningEnabled: memory.pruningEnabled,
+      memoryArchiveAfterDays: memory.archiveAfterDays,
+      memoryPruningSchedule: memory.pruningSchedule,
+      warnings: List.unmodifiable(warns),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section parse methods — each returns a named record
+  // ---------------------------------------------------------------------------
+
+  static ({
+    int port,
+    String host,
+    String name,
+    String dataDir,
+    int workerTimeout,
+    String claudeExecutable,
+    String staticDir,
+    String templatesDir,
+    int memoryMaxBytes,
+    bool devMode,
+  }) _parseTopLevel(
+    Map<String, dynamic> yaml,
+    Map<String, String> cli,
+    Map<String, String> env,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final port = _parseInt('port', cli['port'], yaml['port'], defaults.port, warns);
+    final host = _parseString('host', cli['host'], yaml['host'], defaults.host, env, warns);
+    final name = _parseString('name', cli['name'], yaml['name'], defaults.name, env, warns);
     final workerTimeout = _parseInt(
       'worker_timeout',
       cli['worker_timeout'],
-      yamlValues['worker_timeout'],
+      yaml['worker_timeout'],
       defaults.workerTimeout,
       warns,
     );
 
     // dataDir: CLI > YAML > default, with ~ expansion
     final rawDataDir =
-        cli['data_dir'] ?? _yamlString('data_dir', yamlValues['data_dir'], defaults.dataDir, environment, warns);
-    final dataDir = _expandHome(rawDataDir, environment);
+        cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
+    final dataDir = expandHome(rawDataDir, env: env);
 
     final memoryMaxBytes = _parseInt(
       'memory_max_bytes',
       cli['memory_max_bytes'],
-      yamlValues['memory_max_bytes'],
+      yaml['memory_max_bytes'],
       defaults.memoryMaxBytes,
       warns,
     );
@@ -181,31 +285,36 @@ class DartclawConfig {
     final staticDir = cli['static_dir'] ?? defaults.staticDir;
     final templatesDir = cli['templates_dir'] ?? defaults.templatesDir;
 
-    // Guards config: nested map from YAML
-    final guardsRaw = yamlValues['guards'];
-    final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
-    late final GuardConfig guards;
-    if (guardsRaw is Map) {
-      try {
-        guards = GuardConfig.fromYaml(Map<String, dynamic>.from(guardsRaw), warns);
-      } catch (e) {
-        warns.add('Error parsing guards config: $e — using defaults');
-        guards = const GuardConfig.defaults();
-      }
-    } else {
-      if (guardsRaw != null) {
-        warns.add('Invalid type for guards: "${guardsRaw.runtimeType}" — using defaults');
-      }
-      guards = const GuardConfig.defaults();
-    }
+    // dev_mode: enables template hot-reload, etc.
+    final devMode = yaml['dev_mode'] == true || cli['dev_mode'] == 'true';
 
-    // Logging config: nested map from YAML, CLI overrides
+    return (
+      port: port,
+      host: host,
+      name: name,
+      dataDir: dataDir,
+      workerTimeout: workerTimeout,
+      claudeExecutable: claudeExecutable,
+      staticDir: staticDir,
+      templatesDir: templatesDir,
+      memoryMaxBytes: memoryMaxBytes,
+      devMode: devMode,
+    );
+  }
+
+  static ({String logFormat, String? logFile, String logLevel, List<String> redactPatterns}) _parseLogging(
+    Map<String, dynamic> yaml,
+    Map<String, String> cli,
+    Map<String, String> env,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
     var logFormat = cli['log_format'] ?? defaults.logFormat;
     String? logFile = cli['log_file'];
     var logLevel = cli['log_level'] ?? defaults.logLevel;
     var redactPatterns = defaults.redactPatterns;
 
-    final loggingRaw = yamlValues['logging'];
+    final loggingRaw = yaml['logging'];
     if (loggingRaw != null) {
       if (loggingRaw is Map) {
         final logMap = Map<String, dynamic>.from(loggingRaw);
@@ -213,7 +322,7 @@ class DartclawConfig {
           logFormat = logMap['format'] as String;
         }
         if (cli['log_file'] == null && logMap['file'] is String) {
-          logFile = envSubstitute(logMap['file'] as String, env: environment);
+          logFile = envSubstitute(logMap['file'] as String, env: env);
         }
         if (cli['log_level'] == null && logMap['level'] is String) {
           logLevel = logMap['level'] as String;
@@ -227,40 +336,54 @@ class DartclawConfig {
       }
     }
 
-    // Agent config: nested map from YAML
-    var agentDisallowedTools = defaults.agentDisallowedTools;
-    int? agentMaxTurns = defaults.agentMaxTurns;
-    String? agentModel = defaults.agentModel;
-    var agentContext1m = defaults.agentContext1m;
-    Map<String, dynamic>? agentAgents = defaults.agentAgents;
+    return (logFormat: logFormat, logFile: logFile, logLevel: logLevel, redactPatterns: redactPatterns);
+  }
 
-    final agentRaw = yamlValues['agent'];
+  static ({
+    List<String> disallowedTools,
+    int? maxTurns,
+    String? model,
+    bool context1m,
+    Map<String, dynamic>? agents,
+    List<AgentDefinition> definitions,
+  }) _parseAgent(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var disallowedTools = defaults.agentDisallowedTools;
+    int? maxTurns = defaults.agentMaxTurns;
+    String? model = defaults.agentModel;
+    var context1m = defaults.agentContext1m;
+    Map<String, dynamic>? agents = defaults.agentAgents;
+
+    final agentRaw = yaml['agent'];
     if (agentRaw != null) {
       if (agentRaw is Map) {
         final agentMap = Map<String, dynamic>.from(agentRaw);
         final disallowed = agentMap['disallowed_tools'];
         if (disallowed is List) {
-          agentDisallowedTools = disallowed.whereType<String>().toList();
+          disallowedTools = disallowed.whereType<String>().toList();
         }
         final mt = agentMap['max_turns'];
         if (mt is int) {
-          agentMaxTurns = mt;
+          maxTurns = mt;
         } else if (mt != null) {
           warns.add('Invalid type for agent.max_turns: "${mt.runtimeType}" — ignoring');
         }
-        final model = agentMap['model'];
-        if (model is String) {
-          agentModel = model;
-        } else if (model != null) {
-          warns.add('Invalid type for agent.model: "${model.runtimeType}" — ignoring');
+        final modelVal = agentMap['model'];
+        if (modelVal is String) {
+          model = modelVal;
+        } else if (modelVal != null) {
+          warns.add('Invalid type for agent.model: "${modelVal.runtimeType}" — ignoring');
         }
         final ctx = agentMap['context_1m'];
         if (ctx is bool) {
-          agentContext1m = ctx;
+          context1m = ctx;
         }
-        final agents = agentMap['agents'];
-        if (agents is Map) {
-          agentAgents = Map<String, dynamic>.from(agents);
+        final agentsVal = agentMap['agents'];
+        if (agentsVal is Map) {
+          agents = Map<String, dynamic>.from(agentsVal);
         }
       } else {
         warns.add('Invalid type for agent: "${agentRaw.runtimeType}" — using defaults');
@@ -268,68 +391,82 @@ class DartclawConfig {
     }
 
     // Parse structured agent definitions from agent.agents
-    final agentDefinitions = <AgentDefinition>[];
-    if (agentAgents != null) {
-      for (final entry in agentAgents.entries) {
+    final definitions = <AgentDefinition>[];
+    if (agents != null) {
+      for (final entry in agents.entries) {
         final id = entry.key;
         final value = entry.value;
         if (value is Map) {
-          agentDefinitions.add(AgentDefinition.fromYaml(id, Map<String, dynamic>.from(value), warns));
+          definitions.add(AgentDefinition.fromYaml(id, Map<String, dynamic>.from(value), warns));
         }
       }
     }
 
-    // Gateway config: nested map from YAML
-    var gatewayAuthMode = defaults.gatewayAuthMode;
-    String? gatewayToken = defaults.gatewayToken;
+    return (
+      disallowedTools: disallowedTools,
+      maxTurns: maxTurns,
+      model: model,
+      context1m: context1m,
+      agents: agents,
+      definitions: definitions,
+    );
+  }
 
-    final gatewayRaw = yamlValues['gateway'];
+  static ({String authMode, String? token}) _parseGateway(
+    Map<String, dynamic> yaml,
+    Map<String, String> env,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var authMode = defaults.gatewayAuthMode;
+    String? token = defaults.gatewayToken;
+
+    final gatewayRaw = yaml['gateway'];
     if (gatewayRaw != null) {
       if (gatewayRaw is Map) {
         final gMap = Map<String, dynamic>.from(gatewayRaw);
         final mode = gMap['auth_mode'];
         if (mode is String) {
           if (mode == 'token' || mode == 'none') {
-            gatewayAuthMode = mode;
+            authMode = mode;
           } else {
             warns.add('Invalid gateway.auth_mode: "$mode" — using default');
           }
         } else if (mode != null) {
           warns.add('Invalid type for gateway.auth_mode: "${mode.runtimeType}" — using default');
         }
-        final token = gMap['token'];
-        if (token is String && token.isNotEmpty) {
-          gatewayToken = envSubstitute(token, env: environment);
-        } else if (token != null && token is! String) {
-          warns.add('Invalid type for gateway.token: "${token.runtimeType}" — ignoring');
+        final tokenVal = gMap['token'];
+        if (tokenVal is String && tokenVal.isNotEmpty) {
+          token = envSubstitute(tokenVal, env: env);
+        } else if (tokenVal != null && tokenVal is! String) {
+          warns.add('Invalid type for gateway.token: "${tokenVal.runtimeType}" — ignoring');
         }
       } else {
         warns.add('Invalid type for gateway: "${gatewayRaw.runtimeType}" — using defaults');
       }
     }
 
-    // Concurrency config
-    final maxParallelTurns = _parseInt(
-      'concurrency.max_parallel_turns',
-      null,
-      (yamlValues['concurrency'] is Map) ? (yamlValues['concurrency'] as Map)['max_parallel_turns'] : null,
-      defaults.maxParallelTurns,
-      warns,
-    );
+    return (authMode: authMode, token: token);
+  }
 
-    // Sessions config
-    var sessionResetHour = defaults.sessionResetHour;
-    var sessionIdleTimeoutMinutes = defaults.sessionIdleTimeoutMinutes;
-    final sessionsRaw = yamlValues['sessions'];
+  static ({int resetHour, int idleTimeoutMinutes}) _parseSessions(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var resetHour = defaults.sessionResetHour;
+    var idleTimeoutMinutes = defaults.sessionIdleTimeoutMinutes;
+
+    final sessionsRaw = yaml['sessions'];
     if (sessionsRaw is Map) {
-      sessionResetHour = _parseInt(
+      resetHour = _parseInt(
         'sessions.reset_hour',
         null,
         sessionsRaw['reset_hour'],
         defaults.sessionResetHour,
         warns,
       );
-      sessionIdleTimeoutMinutes = _parseInt(
+      idleTimeoutMinutes = _parseInt(
         'sessions.idle_timeout_minutes',
         null,
         sessionsRaw['idle_timeout_minutes'],
@@ -340,19 +477,27 @@ class DartclawConfig {
       warns.add('Invalid type for sessions: "${sessionsRaw.runtimeType}" — using defaults');
     }
 
-    // Context config
-    var contextReserveTokens = defaults.contextReserveTokens;
-    var contextMaxResultBytes = defaults.contextMaxResultBytes;
-    final contextRaw = yamlValues['context'];
+    return (resetHour: resetHour, idleTimeoutMinutes: idleTimeoutMinutes);
+  }
+
+  static ({int reserveTokens, int maxResultBytes}) _parseContext(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var reserveTokens = defaults.contextReserveTokens;
+    var maxResultBytes = defaults.contextMaxResultBytes;
+
+    final contextRaw = yaml['context'];
     if (contextRaw is Map) {
-      contextReserveTokens = _parseInt(
+      reserveTokens = _parseInt(
         'context.reserve_tokens',
         null,
         contextRaw['reserve_tokens'],
         defaults.contextReserveTokens,
         warns,
       );
-      contextMaxResultBytes = _parseInt(
+      maxResultBytes = _parseInt(
         'context.max_result_bytes',
         null,
         contextRaw['max_result_bytes'],
@@ -363,28 +508,18 @@ class DartclawConfig {
       warns.add('Invalid type for context: "${contextRaw.runtimeType}" — using defaults');
     }
 
-    // Container config
-    final containerRaw = yamlValues['container'];
-    final containerConfig = containerRaw is Map
-        ? ContainerConfig.fromYaml(Map<String, dynamic>.from(containerRaw), warns)
-        : const ContainerConfig.disabled();
-    if (containerRaw != null && containerRaw is! Map) {
-      warns.add('Invalid type for container: "${containerRaw.runtimeType}" — using defaults');
-    }
+    return (reserveTokens: reserveTokens, maxResultBytes: maxResultBytes);
+  }
 
-    // Channels config
-    final channelsRaw = yamlValues['channels'];
-    final channelConfig = channelsRaw is Map
-        ? ChannelConfig.fromYaml(Map<String, dynamic>.from(channelsRaw), warns)
-        : const ChannelConfig.defaults();
-    if (channelsRaw != null && channelsRaw is! Map) {
-      warns.add('Invalid type for channels: "${channelsRaw.runtimeType}" — using defaults');
-    }
-
-    // Workspace config (git sync)
+  static ({bool gitSyncEnabled, bool gitSyncPushEnabled}) _parseWorkspace(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
     var gitSyncEnabled = defaults.gitSyncEnabled;
     var gitSyncPushEnabled = defaults.gitSyncPushEnabled;
-    final workspaceRaw = yamlValues['workspace'];
+
+    final workspaceRaw = yaml['workspace'];
     if (workspaceRaw is Map) {
       final gsRaw = workspaceRaw['git_sync'];
       if (gsRaw is Map) {
@@ -397,15 +532,29 @@ class DartclawConfig {
       warns.add('Invalid type for workspace: "${workspaceRaw.runtimeType}" — using defaults');
     }
 
-    // Scheduling config: list of job maps
-    var schedulingJobs = <Map<String, dynamic>>[];
-    final schedulingRaw = yamlValues['scheduling'];
+    return (gitSyncEnabled: gitSyncEnabled, gitSyncPushEnabled: gitSyncPushEnabled);
+  }
+
+  static ({
+    List<Map<String, dynamic>> jobs,
+    bool heartbeatEnabled,
+    int heartbeatIntervalMinutes,
+  }) _parseScheduling(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var jobs = <Map<String, dynamic>>[];
+    var heartbeatEnabled = defaults.heartbeatEnabled;
+    var heartbeatIntervalMinutes = defaults.heartbeatIntervalMinutes;
+
+    final schedulingRaw = yaml['scheduling'];
     if (schedulingRaw is Map) {
       final jobsRaw = schedulingRaw['jobs'];
       if (jobsRaw is List) {
         for (final entry in jobsRaw) {
           if (entry is Map) {
-            schedulingJobs.add(Map<String, dynamic>.from(entry));
+            jobs.add(Map<String, dynamic>.from(entry));
           } else {
             warns.add('Invalid scheduling job entry: "${entry.runtimeType}" — skipping');
           }
@@ -413,14 +562,8 @@ class DartclawConfig {
       } else if (jobsRaw != null) {
         warns.add('Invalid type for scheduling.jobs: "${jobsRaw.runtimeType}" — expected list');
       }
-    } else if (schedulingRaw != null) {
-      warns.add('Invalid type for scheduling: "${schedulingRaw.runtimeType}" — using defaults');
-    }
 
-    // Heartbeat config (under scheduling.heartbeat)
-    var heartbeatEnabled = defaults.heartbeatEnabled;
-    var heartbeatIntervalMinutes = defaults.heartbeatIntervalMinutes;
-    if (schedulingRaw is Map) {
+      // Heartbeat config (under scheduling.heartbeat)
       final hbRaw = schedulingRaw['heartbeat'];
       if (hbRaw is Map) {
         final en = hbRaw['enabled'];
@@ -433,54 +576,141 @@ class DartclawConfig {
           warns,
         );
       }
+    } else if (schedulingRaw != null) {
+      warns.add('Invalid type for scheduling: "${schedulingRaw.runtimeType}" — using defaults');
     }
 
-    // Search config
-    var searchBackend = defaults.searchBackend;
-    var searchQmdHost = defaults.searchQmdHost;
-    var searchQmdPort = defaults.searchQmdPort;
-    var searchDefaultDepth = defaults.searchDefaultDepth;
-    final searchRaw = yamlValues['search'];
+    return (
+      jobs: jobs,
+      heartbeatEnabled: heartbeatEnabled,
+      heartbeatIntervalMinutes: heartbeatIntervalMinutes,
+    );
+  }
+
+  static ({
+    String backend,
+    String qmdHost,
+    int qmdPort,
+    String defaultDepth,
+    Map<String, SearchProviderEntry> providers,
+  }) _parseSearch(
+    Map<String, dynamic> yaml,
+    Map<String, String> env,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final providers = <String, SearchProviderEntry>{};
+    var backend = defaults.searchBackend;
+    var qmdHost = defaults.searchQmdHost;
+    var qmdPort = defaults.searchQmdPort;
+    var defaultDepth = defaults.searchDefaultDepth;
+
+    final searchRaw = yaml['search'];
     if (searchRaw is Map) {
-      final backend = searchRaw['backend'];
-      if (backend is String && (backend == 'fts5' || backend == 'qmd')) {
-        searchBackend = backend;
-      } else if (backend != null) {
-        warns.add('Invalid search.backend: "$backend" — using default');
+      final backendVal = searchRaw['backend'];
+      if (backendVal is String && (backendVal == 'fts5' || backendVal == 'qmd')) {
+        backend = backendVal;
+      } else if (backendVal != null) {
+        warns.add('Invalid search.backend: "$backendVal" — using default');
       }
       final qmdRaw = searchRaw['qmd'];
       if (qmdRaw is Map) {
         final h = qmdRaw['host'];
-        if (h is String) searchQmdHost = h;
-        searchQmdPort = _parseInt('search.qmd.port', null, qmdRaw['port'], defaults.searchQmdPort, warns);
+        if (h is String) qmdHost = h;
+        qmdPort = _parseInt('search.qmd.port', null, qmdRaw['port'], defaults.searchQmdPort, warns);
       }
       final depth = searchRaw['default_depth'];
-      if (depth is String) searchDefaultDepth = depth;
+      if (depth is String) defaultDepth = depth;
+
+      // Search providers (brave, tavily, etc.)
+      final providersRaw = searchRaw['providers'];
+      if (providersRaw is Map) {
+        for (final entry in providersRaw.entries) {
+          final name = entry.key.toString();
+          final value = entry.value;
+          if (value is! Map) {
+            warns.add('Invalid type for search.providers.$name: "${value.runtimeType}" — skipping');
+            continue;
+          }
+          final enabled = value['enabled'];
+          if (enabled is! bool) {
+            warns.add('search.providers.$name missing or invalid "enabled" — skipping');
+            continue;
+          }
+          final rawKey = value['api_key'];
+          if (rawKey == null || rawKey is! String || rawKey.isEmpty) {
+            warns.add('search.providers.$name missing "api_key" — skipping');
+            continue;
+          }
+          final apiKey = envSubstitute(rawKey, env: env);
+          providers[name] = SearchProviderEntry(enabled: enabled, apiKey: apiKey);
+        }
+      } else if (providersRaw != null) {
+        warns.add('Invalid type for search.providers: "${providersRaw.runtimeType}" — skipping');
+      }
     } else if (searchRaw != null) {
       warns.add('Invalid type for search: "${searchRaw.runtimeType}" — using defaults');
     }
 
-    // Content-guard config (under guards.content)
-    var contentGuardEnabled = defaults.contentGuardEnabled;
-    var contentGuardClassifier = defaults.contentGuardClassifier;
-    var contentGuardModel = defaults.contentGuardModel;
-    var contentGuardMaxBytes = defaults.contentGuardMaxBytes;
+    return (
+      backend: backend,
+      qmdHost: qmdHost,
+      qmdPort: qmdPort,
+      defaultDepth: defaultDepth,
+      providers: providers,
+    );
+  }
+
+  static ({GuardConfig config, Map<String, dynamic> yaml}) _parseGuards(
+    Map<String, dynamic> yamlValues,
+    List<String> warns,
+  ) {
+    final guardsRaw = yamlValues['guards'];
+    final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
+    GuardConfig config;
+    if (guardsRaw is Map) {
+      try {
+        config = GuardConfig.fromYaml(Map<String, dynamic>.from(guardsRaw), warns);
+      } catch (e) {
+        warns.add('Error parsing guards config: $e — using defaults');
+        config = const GuardConfig.defaults();
+      }
+    } else {
+      if (guardsRaw != null) {
+        warns.add('Invalid type for guards: "${guardsRaw.runtimeType}" — using defaults');
+      }
+      config = const GuardConfig.defaults();
+    }
+    return (config: config, yaml: guardsYaml);
+  }
+
+  static ({bool enabled, String classifier, String model, int maxBytes}) _parseContentGuard(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var enabled = defaults.contentGuardEnabled;
+    var classifier = defaults.contentGuardClassifier;
+    var model = defaults.contentGuardModel;
+    var maxBytes = defaults.contentGuardMaxBytes;
+
+    final guardsRaw = yaml['guards'];
     if (guardsRaw is Map) {
       final contentRaw = guardsRaw['content'];
       if (contentRaw is Map) {
         final en = contentRaw['enabled'];
-        if (en is bool) contentGuardEnabled = en;
-        final classifier = contentRaw['classifier'];
-        if (classifier is String) {
-          if (classifier == 'claude_binary' || classifier == 'anthropic_api') {
-            contentGuardClassifier = classifier;
+        if (en is bool) enabled = en;
+        final classifierVal = contentRaw['classifier'];
+        if (classifierVal is String) {
+          if (classifierVal == 'claude_binary' || classifierVal == 'anthropic_api') {
+            classifier = classifierVal;
           } else {
-            warns.add('Invalid guards.content.classifier: "$classifier" — using default');
+            warns.add('Invalid guards.content.classifier: "$classifierVal" — using default');
           }
         }
-        final model = contentRaw['model'];
-        if (model is String) contentGuardModel = model;
-        contentGuardMaxBytes = _parseInt(
+        final modelVal = contentRaw['model'];
+        if (modelVal is String) model = modelVal;
+        maxBytes = _parseInt(
           'guards.content.max_bytes',
           null,
           contentRaw['max_bytes'],
@@ -490,31 +720,48 @@ class DartclawConfig {
       }
     }
 
-    // Input-sanitizer config (under guards.input_sanitizer)
-    var inputSanitizerEnabled = defaults.inputSanitizerEnabled;
-    var inputSanitizerChannelsOnly = defaults.inputSanitizerChannelsOnly;
+    return (enabled: enabled, classifier: classifier, model: model, maxBytes: maxBytes);
+  }
+
+  static ({bool enabled, bool channelsOnly}) _parseInputSanitizer(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var enabled = defaults.inputSanitizerEnabled;
+    var channelsOnly = defaults.inputSanitizerChannelsOnly;
+
+    final guardsRaw = yaml['guards'];
     if (guardsRaw is Map) {
       final isRaw = guardsRaw['input_sanitizer'];
       if (isRaw is Map) {
         final en = isRaw['enabled'];
-        if (en is bool) inputSanitizerEnabled = en;
+        if (en is bool) enabled = en;
         final co = isRaw['channels_only'];
-        if (co is bool) inputSanitizerChannelsOnly = co;
+        if (co is bool) channelsOnly = co;
       }
     }
 
-    // Usage tracking config
-    int? usageBudgetWarningTokens = defaults.usageBudgetWarningTokens;
-    var usageMaxFileSizeBytes = defaults.usageMaxFileSizeBytes;
-    final usageRaw = yamlValues['usage'];
+    return (enabled: enabled, channelsOnly: channelsOnly);
+  }
+
+  static ({int? budgetWarningTokens, int maxFileSizeBytes}) _parseUsage(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    int? budgetWarningTokens = defaults.usageBudgetWarningTokens;
+    var maxFileSizeBytes = defaults.usageMaxFileSizeBytes;
+
+    final usageRaw = yaml['usage'];
     if (usageRaw is Map) {
       final bwt = usageRaw['budget_warning_tokens'];
       if (bwt is int) {
-        usageBudgetWarningTokens = bwt;
+        budgetWarningTokens = bwt;
       } else if (bwt != null) {
         warns.add('Invalid type for usage.budget_warning_tokens: "${bwt.runtimeType}" — ignoring');
       }
-      usageMaxFileSizeBytes = _parseInt(
+      maxFileSizeBytes = _parseInt(
         'usage.max_file_size_bytes',
         null,
         usageRaw['max_file_size_bytes'],
@@ -525,17 +772,25 @@ class DartclawConfig {
       warns.add('Invalid type for usage: "${usageRaw.runtimeType}" — using defaults');
     }
 
-    // Memory pruning config (under memory.pruning)
-    var memoryPruningEnabled = defaults.memoryPruningEnabled;
-    var memoryArchiveAfterDays = defaults.memoryArchiveAfterDays;
-    var memoryPruningSchedule = defaults.memoryPruningSchedule;
-    final memoryRaw = yamlValues['memory'];
+    return (budgetWarningTokens: budgetWarningTokens, maxFileSizeBytes: maxFileSizeBytes);
+  }
+
+  static ({bool pruningEnabled, int archiveAfterDays, String pruningSchedule}) _parseMemory(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var pruningEnabled = defaults.memoryPruningEnabled;
+    var archiveAfterDays = defaults.memoryArchiveAfterDays;
+    var pruningSchedule = defaults.memoryPruningSchedule;
+
+    final memoryRaw = yaml['memory'];
     if (memoryRaw is Map) {
       final pruningRaw = memoryRaw['pruning'];
       if (pruningRaw is Map) {
         final en = pruningRaw['enabled'];
-        if (en is bool) memoryPruningEnabled = en;
-        memoryArchiveAfterDays = _parseInt(
+        if (en is bool) pruningEnabled = en;
+        archiveAfterDays = _parseInt(
           'memory.pruning.archive_after_days',
           null,
           pruningRaw['archive_after_days'],
@@ -543,64 +798,60 @@ class DartclawConfig {
           warns,
         );
         final sched = pruningRaw['schedule'];
-        if (sched is String) memoryPruningSchedule = sched;
+        if (sched is String) pruningSchedule = sched;
       }
     } else if (memoryRaw != null) {
       warns.add('Invalid type for memory: "${memoryRaw.runtimeType}" — using defaults');
     }
 
-    return DartclawConfig(
-      port: port,
-      host: host,
-      dataDir: dataDir,
-      workerTimeout: workerTimeout,
-      claudeExecutable: claudeExecutable,
-      staticDir: staticDir,
-      templatesDir: templatesDir,
-      memoryMaxBytes: memoryMaxBytes,
-      guards: guards,
-      logFormat: logFormat,
-      logFile: logFile,
-      logLevel: logLevel,
-      redactPatterns: redactPatterns,
-      agentDisallowedTools: agentDisallowedTools,
-      agentMaxTurns: agentMaxTurns,
-      agentModel: agentModel,
-      agentContext1m: agentContext1m,
-      agentAgents: agentAgents,
-      gatewayAuthMode: gatewayAuthMode,
-      gatewayToken: gatewayToken,
-      maxParallelTurns: maxParallelTurns,
-      sessionResetHour: sessionResetHour,
-      sessionIdleTimeoutMinutes: sessionIdleTimeoutMinutes,
-      schedulingJobs: schedulingJobs,
-      contextReserveTokens: contextReserveTokens,
-      contextMaxResultBytes: contextMaxResultBytes,
-      containerConfig: containerConfig,
-      channelConfig: channelConfig,
-      heartbeatEnabled: heartbeatEnabled,
-      heartbeatIntervalMinutes: heartbeatIntervalMinutes,
-      gitSyncEnabled: gitSyncEnabled,
-      gitSyncPushEnabled: gitSyncPushEnabled,
-      agentDefinitions: agentDefinitions,
-      searchBackend: searchBackend,
-      searchQmdHost: searchQmdHost,
-      searchQmdPort: searchQmdPort,
-      searchDefaultDepth: searchDefaultDepth,
-      contentGuardEnabled: contentGuardEnabled,
-      contentGuardClassifier: contentGuardClassifier,
-      contentGuardModel: contentGuardModel,
-      contentGuardMaxBytes: contentGuardMaxBytes,
-      inputSanitizerEnabled: inputSanitizerEnabled,
-      inputSanitizerChannelsOnly: inputSanitizerChannelsOnly,
-      usageBudgetWarningTokens: usageBudgetWarningTokens,
-      usageMaxFileSizeBytes: usageMaxFileSizeBytes,
-      memoryPruningEnabled: memoryPruningEnabled,
-      memoryArchiveAfterDays: memoryArchiveAfterDays,
-      memoryPruningSchedule: memoryPruningSchedule,
-      guardsYaml: guardsYaml,
-      warnings: List.unmodifiable(warns),
+    return (
+      pruningEnabled: pruningEnabled,
+      archiveAfterDays: archiveAfterDays,
+      pruningSchedule: pruningSchedule,
     );
+  }
+
+  static ContainerConfig _parseContainer(
+    Map<String, dynamic> yaml,
+    List<String> warns,
+  ) {
+    final containerRaw = yaml['container'];
+    final config = containerRaw is Map
+        ? ContainerConfig.fromYaml(Map<String, dynamic>.from(containerRaw), warns)
+        : const ContainerConfig.disabled();
+    if (containerRaw != null && containerRaw is! Map) {
+      warns.add('Invalid type for container: "${containerRaw.runtimeType}" — using defaults');
+    }
+    return config;
+  }
+
+  static ChannelConfig _parseChannels(
+    Map<String, dynamic> yaml,
+    List<String> warns,
+  ) {
+    final channelsRaw = yaml['channels'];
+    final config = channelsRaw is Map
+        ? ChannelConfig.fromYaml(Map<String, dynamic>.from(channelsRaw), warns)
+        : const ChannelConfig.defaults();
+    if (channelsRaw != null && channelsRaw is! Map) {
+      warns.add('Invalid type for channels: "${channelsRaw.runtimeType}" — using defaults');
+    }
+    return config;
+  }
+
+  static ({int maxParallelTurns}) _parseConcurrency(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final maxParallelTurns = _parseInt(
+      'concurrency.max_parallel_turns',
+      null,
+      (yaml['concurrency'] is Map) ? (yaml['concurrency'] as Map)['max_parallel_turns'] : null,
+      defaults.maxParallelTurns,
+      warns,
+    );
+    return (maxParallelTurns: maxParallelTurns);
   }
 
   // --- Private helpers ---
@@ -614,19 +865,14 @@ class DartclawConfig {
     return env['HOME'] ?? env['USERPROFILE'] ?? '.';
   }
 
-  static String _expandHome(String value, Map<String, String> env) {
-    if (value.startsWith('~/') || value == '~') {
-      return p.join(_homeDir(env), value.substring(value.length == 1 ? 1 : 2));
-    }
-    return value;
-  }
-
   static const _knownKeys = {
     'port',
     'host',
+    'name',
     'data_dir',
     'worker_timeout',
     'memory_max_bytes',
+    'dev_mode',
     'guards',
     'logging',
     'agent',
@@ -752,4 +998,12 @@ class DartclawConfig {
     }
     return envSubstitute(yamlValue, env: env);
   }
+}
+
+/// Configuration for a single search provider (e.g. Brave, Tavily).
+class SearchProviderEntry {
+  final bool enabled;
+  final String apiKey;
+
+  const SearchProviderEntry({required this.enabled, required this.apiKey});
 }

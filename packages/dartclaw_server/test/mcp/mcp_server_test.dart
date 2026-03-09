@@ -19,7 +19,8 @@ class _EchoTool implements McpTool {
   };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async => args['text'] as String;
+  Future<ToolResult> call(Map<String, dynamic> args) async =>
+      ToolResult.text(args['text'] as String);
 }
 
 class _FailTool implements McpTool {
@@ -31,8 +32,41 @@ class _FailTool implements McpTool {
   Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': {}};
 
   @override
-  Future<String> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async {
     throw StateError('intentional failure');
+  }
+}
+
+class _ErrorTool implements McpTool {
+  @override
+  String get name => 'error_tool';
+  @override
+  String get description => 'Returns ToolResult.error';
+  @override
+  Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': {}};
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) async =>
+      ToolResult.error('something went wrong');
+}
+
+class _SlowTool implements McpTool {
+  @override
+  String get name => 'slow';
+  @override
+  String get description => 'Waits briefly before returning';
+  @override
+  Map<String, dynamic> get inputSchema => {
+    'type': 'object',
+    'properties': {
+      'id': {'type': 'string'},
+    },
+  };
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return ToolResult.text('done-${args['id']}');
   }
 }
 
@@ -106,14 +140,15 @@ void main() {
       expect((response['error'] as Map)['code'], -32602);
     });
 
-    test('tools/call with tool failure returns error', () async {
+    test('tools/call with tool failure returns isError result', () async {
       handler.registerTool(_FailTool());
       final response = decode(await handler.handleRequest(
         request('tools/call', id: 6, params: {'name': 'fail'}),
       ));
-      expect(response['error'], isNotNull);
-      expect((response['error'] as Map)['code'], -32000);
-      expect((response['error'] as Map)['message'], contains('Tool execution failed'));
+      final result = response['result'] as Map<String, dynamic>;
+      expect(result['isError'], isTrue);
+      final content = result['content'] as List;
+      expect(content[0]['text'], contains('Tool execution failed'));
     });
 
     test('unknown method returns method not found error', () async {
@@ -160,6 +195,35 @@ void main() {
       // First echo already registered in setUp
       handler.registerTool(_EchoTool()); // should not throw
       expect(handler.toolNames, hasLength(1));
+    });
+
+    test('tool returning ToolResult.error produces isError response', () async {
+      handler.registerTool(_ErrorTool());
+      final response = decode(await handler.handleRequest(
+        request('tools/call', id: 8, params: {'name': 'error_tool'}),
+      ));
+      expect(response['error'], isNull);
+      final result = response['result'] as Map<String, dynamic>;
+      expect(result['isError'], isTrue);
+      final content = result['content'] as List;
+      expect(content[0]['text'], 'something went wrong');
+    });
+
+    test('concurrent tool calls both complete', () async {
+      handler.registerTool(_SlowTool());
+      final futures = [
+        handler.handleRequest(
+          request('tools/call', id: 9, params: {'name': 'slow', 'arguments': {'id': 'a'}}),
+        ),
+        handler.handleRequest(
+          request('tools/call', id: 10, params: {'name': 'slow', 'arguments': {'id': 'b'}}),
+        ),
+      ];
+      final responses = await Future.wait(futures);
+      final resultA = (jsonDecode(responses[0]!) as Map<String, dynamic>)['result'] as Map;
+      final resultB = (jsonDecode(responses[1]!) as Map<String, dynamic>)['result'] as Map;
+      expect((resultA['content'] as List)[0]['text'], 'done-a');
+      expect((resultB['content'] as List)[0]['text'], 'done-b');
     });
   });
 }

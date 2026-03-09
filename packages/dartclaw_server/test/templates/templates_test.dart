@@ -75,7 +75,7 @@ void main() {
         mainSession: (id: 'm1', title: 'Main', type: SessionType.main),
       );
       expect(html, contains('session-item-main'));
-      expect(html, contains('Main'));
+      expect(html, contains('Agent'));
     });
 
     test('renders channel sessions with icon', () {
@@ -317,9 +317,15 @@ void main() {
       expect(html, contains('id="messages"'));
     });
 
-    test('contains id="sse-container"', () {
+    test('does not contain sse-container (removed in HTMX SSE migration)', () {
       final html = chatAreaTemplate(sessionId: 's1', messagesHtml: '');
-      expect(html, contains('id="sse-container"'));
+      expect(html, isNot(contains('sse-container')));
+    });
+
+    test('form targets #messages with beforeend swap', () {
+      final html = chatAreaTemplate(sessionId: 's1', messagesHtml: '');
+      expect(html, contains('hx-target="#messages"'));
+      expect(html, contains('hx-swap="beforeend"'));
     });
 
     test('contains accessible label for message input', () {

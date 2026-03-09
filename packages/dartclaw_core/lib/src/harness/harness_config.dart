@@ -11,12 +11,31 @@ class HarnessConfig {
   final String? appendSystemPrompt;
 
   /// URL of the internal MCP server (e.g. `http://127.0.0.1:8080/mcp`).
-  /// When non-null, the harness writes an `--mcp-config` temp file pointing
-  /// the claude binary at this endpoint.
+  ///
+  /// When non-null, the harness writes an ephemeral `--mcp-config` temp file
+  /// pointing the `claude` binary at this endpoint. The temp file:
+  /// - Uses `chmod 600` (owner read/write only) for credential protection
+  /// - Is created in the system temp directory (NOT the workspace)
+  /// - Is automatically deleted when the harness stops or is disposed
+  ///
+  /// The agent then discovers all tools registered on the MCP server
+  /// (memory, sessions, web_fetch, search, custom) via the standard
+  /// MCP `tools/list` protocol — no manual configuration needed.
+  ///
+  /// When null, the harness falls back to `sdkMcpServers` in the
+  /// initialize handshake for memory tools (chat mode without MCP server).
+  ///
+  /// **Security**: Never write MCP credentials to persistent files in the
+  /// workspace directory — bearer tokens would be exposed in potentially
+  /// version-controlled directories.
   final String? mcpServerUrl;
 
   /// Gateway token used for MCP bearer auth.
-  /// Written into the `--mcp-config` temp file alongside [mcpServerUrl].
+  ///
+  /// Written into the ephemeral `--mcp-config` temp file as
+  /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is
+  /// non-null. The same token authenticates both the web UI and MCP
+  /// endpoint via the gateway middleware.
   final String? mcpGatewayToken;
 
   const HarnessConfig({

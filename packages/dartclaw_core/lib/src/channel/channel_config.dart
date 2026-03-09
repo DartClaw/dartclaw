@@ -80,19 +80,18 @@ class ChannelConfig {
       warns.add('Invalid type for channels.retry_policy: "${rpRaw.runtimeType}" — using default');
     }
 
+    // Channel configs: any Map-valued key that isn't a known config key
+    // is treated as a channel definition (e.g. whatsapp, signal).
+    const knownKeys = {'debounce_window_ms', 'max_queue_depth', 'retry_policy'};
     final channelConfigs = <String, Map<String, dynamic>>{};
-    final ccRaw = yaml['channels'];
-    if (ccRaw is Map) {
-      for (final entry in ccRaw.entries) {
-        final key = entry.key.toString();
-        if (entry.value is Map) {
-          channelConfigs[key] = Map<String, dynamic>.from(entry.value as Map);
-        } else {
-          warns.add('Invalid channel config for "$key": "${entry.value.runtimeType}" — skipping');
-        }
+    for (final entry in yaml.entries) {
+      final key = entry.key.toString();
+      if (knownKeys.contains(key)) continue;
+      if (entry.value is Map) {
+        channelConfigs[key] = Map<String, dynamic>.from(entry.value as Map);
+      } else {
+        warns.add('Invalid channel config for "$key": "${entry.value.runtimeType}" — skipping');
       }
-    } else if (ccRaw != null) {
-      warns.add('Invalid type for channels.channels: "${ccRaw.runtimeType}" — ignoring');
     }
 
     return ChannelConfig(

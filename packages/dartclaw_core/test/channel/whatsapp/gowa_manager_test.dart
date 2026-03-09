@@ -106,6 +106,7 @@ void main() {
           return FakeProcess();
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       try {
@@ -119,6 +120,7 @@ void main() {
         'rest',
         '--host', '0.0.0.0',
         '--port', '5000',
+        '--os', 'DartClaw',
         '--db-uri', '/data/wa.db',
         '--webhook=http://localhost:3333/webhook/whatsapp?secret=abc',
       ]);
@@ -134,6 +136,7 @@ void main() {
           return FakeProcess();
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       try {
@@ -157,6 +160,7 @@ void main() {
           return FakeProcess();
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       try {
@@ -193,6 +197,7 @@ void main() {
           return proc;
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       // Start will fail health check, but process is still assigned
@@ -229,6 +234,7 @@ void main() {
           return proc;
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       expect(proc.killed, isFalse);

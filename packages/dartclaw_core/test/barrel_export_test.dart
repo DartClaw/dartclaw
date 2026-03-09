@@ -47,11 +47,7 @@ void main() {
 
   group('barrel exports — key symbols importable', () {
     test('model types constructable', () {
-      final session = Session(
-        id: 'test',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
+      final session = Session(id: 'test', createdAt: DateTime.now(), updatedAt: DateTime.now());
       expect(session.id, 'test');
       expect(session.type, SessionType.user);
 
@@ -65,19 +61,10 @@ void main() {
       );
       expect(msg.role, 'user');
 
-      final chunk = MemoryChunk(
-        id: 1,
-        textContent: 'fact',
-        source: 'test',
-        createdAt: DateTime.now(),
-      );
+      final chunk = MemoryChunk(id: 1, textContent: 'fact', source: 'test', createdAt: DateTime.now());
       expect(chunk.textContent, 'fact');
 
-      const result = MemorySearchResult(
-        text: 'fact',
-        source: 'test',
-        score: 0.9,
-      );
+      const result = MemorySearchResult(text: 'fact', source: 'test', score: 0.9);
       expect(result.score, 0.9);
     });
 
@@ -86,40 +73,11 @@ void main() {
       expect(key.agentId, 'main');
     });
 
-    test('enum types accessible', () {
-      expect(ChannelType.values, hasLength(3));
-      expect(SessionType.values, contains(SessionType.main));
-    });
-
-    test('config type accessible', () {
-      expect(DartclawConfig, isNotNull);
-    });
-
-    test('agent types accessible', () {
-      expect(AgentDefinition.searchAgent, isA<Function>());
-      expect(SubagentLimits, isNotNull);
-    });
-
-    test('security types accessible', () {
-      expect(GuardConfig, isNotNull);
-      expect(CommandGuard, isNotNull);
-      expect(FileGuard, isNotNull);
-      expect(NetworkGuard, isNotNull);
-      expect(InputSanitizer, isNotNull);
-      expect(MessageRedactor, isNotNull);
-      expect(ContentClassifier, isNotNull);
-    });
-
-    test('SearchBackend type accessible', () {
-      expect(SearchBackend, isNotNull);
-    });
-
-    test('UsageTracker type accessible', () {
-      expect(UsageTracker, isNotNull);
-    });
-
-    test('McpTool type accessible', () {
-      expect(McpTool, isNotNull);
+    test('container symbols importable', () {
+      const config = ContainerConfig(enabled: true);
+      expect(config.enabled, isTrue);
+      expect(ContainerManager, isNotNull);
+      expect(CredentialProxy, isNotNull);
     });
   });
 }

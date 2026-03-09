@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 
+/// How a scheduled job's output is delivered after execution.
 enum DeliveryMode { announce, webhook, none }
 
 final _log = Logger('Delivery');

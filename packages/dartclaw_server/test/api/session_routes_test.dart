@@ -319,7 +319,7 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('POST /api/sessions/<id>/send', () {
-    test('returns 200 HTML fragment with data-sse-url', () async {
+    test('returns 200 HTML fragment with sse-connect', () async {
       final session = await sessions.createSession();
       final res = await handler(
         Request(
@@ -332,7 +332,7 @@ void main() {
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/html'));
       final html = await res.readAsString();
-      expect(html, contains('data-sse-url="/api/sessions/'));
+      expect(html, contains('sse-connect="/api/sessions/'));
       expect(html, contains('id="streaming-content"'));
       expect(html, contains('class="msg msg-user"'));
       expect(html, contains('class="msg msg-assistant"'));

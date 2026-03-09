@@ -1,7 +1,7 @@
 <div tl:fragment="whatsappPairing" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" hx-history-elt class="wa-main">
+  <main id="main-content" tabindex="-1" hx-history-elt class="wa-main">
     <div class="wa-inner">
 
       <div tl:if="${error}" class="banner banner-warning">
@@ -21,27 +21,87 @@
           <div class="wa-detail" style="color:var(--fg-overlay);font-size:var(--text-sm);">
             Messages will be delivered to your WhatsApp number.
           </div>
+          <div class="wa-connected-actions">
+            <form hx-post="/whatsapp/pairing/disconnect" hx-target="#main-content" hx-swap="outerHTML show:none" hx-select="#main-content">
+              <button type="submit" class="btn btn-danger btn-sm">Disconnect</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Connection lost / reconnecting state -->
+        <div tl:if="${showReconnecting}" class="wa-section">
+          <div class="wa-connected-header">
+            <span style="color:var(--warning);font-size:var(--text-xl);">&#9888;</span>
+            Connection Lost
+          </div>
+          <div class="wa-status-row">
+            <span class="wa-spinner" style="border-top-color:var(--warning);"></span>
+            <span style="color:var(--fg-sub0);font-size:var(--text-sm);">Reconnecting&hellip;</span>
+            <span tl:if="${restartAttempt}" style="font-size:var(--text-xs);color:var(--fg-overlay);">Attempt <span tl:text="${restartAttempt}">1 of 5</span></span>
+          </div>
+          <div class="wa-connected-actions">
+            <a href="/whatsapp/pairing" class="btn btn-sm">Re-scan QR</a>
+          </div>
         </div>
 
         <!-- QR code state -->
-        <div tl:if="${showQr}" class="wa-section">
-          <div class="section-label">Connect WhatsApp</div>
-          <div class="wa-qr-wrapper">
-            <img tl:attr="src=${qrImageUrl}" alt="WhatsApp QR Code" class="wa-qr-img">
+        <div tl:if="${showQr}" class="wa-section wa-qr-section" tl:attr="data-qr-duration=${qrDuration}">
+          <div class="wa-section-title">Connect WhatsApp</div>
+
+          <!-- Active QR (hidden when expired by JS). -->
+          <div class="wa-qr-active">
+            <div class="wa-qr-wrapper">
+              <div class="wa-qr-frame">
+                <img tl:attr="src=${qrImageUrl}" alt="QR Code" class="wa-qr-img">
+                <div class="wa-qr-placeholder">[ QR Code ]</div>
+              </div>
+              <p class="wa-hint">Scan this QR code with WhatsApp on your phone</p>
+            </div>
+
+            <!-- Pairing code entry (hidden — TD-035: phone-number pairing not tested yet) -->
+            <div tl:if="${showPairingCode}">
+              <div class="wa-or-divider">or</div>
+              <div class="wa-qr-wrapper">
+                <form method="post" action="/whatsapp/pairing/code" class="wa-pairing-code-form">
+                  <div class="wa-pairing-code-row">
+                    <label class="sr-only" for="wa-phone">Phone number</label>
+                    <input type="tel" name="phone" class="wa-pairing-input" placeholder="+1234567890" required="">
+                    <button type="submit" class="btn btn-primary">Link with Phone Number</button>
+                  </div>
+                </form>
+                <p class="wa-pairing-hint">Enter your phone number to get a pairing code, then enter the code in WhatsApp &gt; Linked Devices &gt; Link a Device.</p>
+
+                <div tl:if="${pairingCode}" class="wa-pairing-display">
+                  Pairing code:
+                  <code tl:text="${pairingCode}">XXXX-XXXX</code>
+                  <span style="font-size:var(--text-xs);color:var(--fg-overlay);margin-left:var(--sp-2);">Enter this code in WhatsApp</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="wa-expiry-timer">Expires in <span class="wa-countdown">--:--</span></div>
+
+            <!-- Lightweight poll: 204 while waiting, full page swap on connect. -->
+            <div class="wa-status-row"
+                 hx-get="/whatsapp/pairing/poll" hx-trigger="every 10s"
+                 hx-target="#main-content" hx-swap="outerHTML show:none" hx-select="#main-content">
+              <span class="wa-spinner"></span>
+              <span style="color:var(--fg-sub0);font-size:var(--text-sm);">Waiting for connection...</span>
+            </div>
           </div>
-          <p class="wa-hint">Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device, then scan this QR code.</p>
-          <p style="font-size:var(--text-xs);color:var(--fg-overlay);">
-            QR code refreshes automatically. <a href="/whatsapp/pairing">Reload page</a> if expired.
-          </p>
-          <div class="wa-status-row">
-            <span class="wa-spinner"></span>
-            <span style="color:var(--fg-sub0);font-size:var(--text-sm);">Waiting for connection...</span>
+
+          <!-- Expired state (shown by JS when countdown reaches 0) -->
+          <div class="wa-qr-expired" style="display:none;">
+            <div class="wa-expired-icon">&#9203;</div>
+            <div class="wa-expired-title">QR Code Expired</div>
+            <p class="wa-expired-text">The QR code has expired. Generate a new one to continue pairing.</p>
+            <a href="/whatsapp/pairing" class="btn btn-primary">Generate New QR Code</a>
           </div>
         </div>
 
-        <!-- Not connected / no QR state -->
+        <!-- Not connected / sidecar not running -->
         <div tl:if="${showSetup}" class="wa-section">
-          <div class="section-label">Not Connected</div>
+          <div class="wa-section-title">Not Connected</div>
           <p style="color:var(--fg-sub0);font-size:var(--text-sm);">GOWA sidecar is not running or not ready.</p>
           <p style="font-size:var(--text-sm);color:var(--fg-sub0);margin-top:var(--sp-2);">
             Ensure GOWA is installed and configured in <code>dartclaw.yaml</code>:
@@ -50,6 +110,9 @@
   whatsapp:
     enabled: true
     gowa_executable: whatsapp</pre>
+          <p style="margin-top:var(--sp-4);font-size:var(--text-sm);color:var(--fg-overlay);">
+            Once GOWA is installed, <a href="/whatsapp/pairing">refresh this page</a> to begin pairing.
+          </p>
         </div>
 
       </div>

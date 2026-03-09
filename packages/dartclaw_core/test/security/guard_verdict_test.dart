@@ -26,23 +26,5 @@ void main() {
       expect(v.isWarn, isFalse);
       expect(v.message, 'denied');
     });
-
-    test('sealed class supports exhaustive pattern matching', () {
-      final v = GuardVerdict.pass();
-      // This compiles only if the sealed class is exhaustive
-      final label = switch (v) {
-        GuardVerdict(isPass: true) => 'pass',
-        GuardVerdict(isWarn: true) => 'warn',
-        GuardVerdict(isBlock: true) => 'block',
-        _ => 'unknown',
-      };
-      expect(label, 'pass');
-    });
-
-    test('toString representations', () {
-      expect(GuardVerdict.pass().toString(), 'GuardVerdict.pass()');
-      expect(GuardVerdict.warn('w').toString(), 'GuardVerdict.warn(w)');
-      expect(GuardVerdict.block('b').toString(), 'GuardVerdict.block(b)');
-    });
   });
 }

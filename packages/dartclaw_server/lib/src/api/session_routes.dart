@@ -8,6 +8,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../session/session_reset_service.dart';
 import '../templates/loader.dart';
+import 'api_helpers.dart';
 import '../turn_manager.dart';
 import 'stream_handler.dart';
 
@@ -17,6 +18,7 @@ final _log = Logger('SessionRoutes');
 // Public route factory
 // ---------------------------------------------------------------------------
 
+/// Creates a [Router] exposing session CRUD and turn execution API endpoints.
 Router sessionRoutes(
   SessionService sessions,
   MessageService messages,
@@ -33,10 +35,10 @@ Router sessionRoutes(
       final typeParam = request.url.queryParameters['type'];
       final typeFilter = typeParam != null ? SessionType.values.asNameMap()[typeParam] : null;
       final list = await sessions.listSessions(type: typeFilter);
-      return _jsonResponse(200, list.map((s) => s.toJson()).toList());
+      return jsonResponse(200, list.map((s) => s.toJson()).toList());
     } catch (e) {
       _log.warning('Failed to list sessions: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to list sessions');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list sessions');
     }
   });
 
@@ -44,10 +46,10 @@ Router sessionRoutes(
   router.post('/api/sessions', (Request request) async {
     try {
       final session = await sessions.createSession();
-      return _jsonResponse(201, session.toJson());
+      return jsonResponse(201, session.toJson());
     } catch (e) {
       _log.warning('Failed to create session: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to create session');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to create session');
     }
   });
 
@@ -56,7 +58,7 @@ Router sessionRoutes(
     try {
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
 
       final parsed = await _parseField(request, 'title');
@@ -70,12 +72,12 @@ Router sessionRoutes(
       await sessions.updateTitle(id, trimmed);
       final updated = await sessions.getSession(id);
       if (updated == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
-      return _jsonResponse(200, updated.toJson());
+      return jsonResponse(200, updated.toJson());
     } catch (e) {
       _log.warning('Failed to update session $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session');
     }
   });
 
@@ -84,10 +86,10 @@ Router sessionRoutes(
     try {
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
-      if (_undeletableTypes.contains(session.type)) {
-        return _errorResponse(403, 'FORBIDDEN', 'Cannot delete ${session.type.name} session');
+      if (SessionService.protectedTypes.contains(session.type)) {
+        return errorResponse(403, 'FORBIDDEN', 'Cannot delete ${session.type.name} session');
       }
 
       await turns.cancelTurn(id);
@@ -101,7 +103,7 @@ Router sessionRoutes(
       return Response(204);
     } catch (e) {
       _log.warning('Failed to delete session $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to delete session');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to delete session');
     }
   });
 
@@ -110,14 +112,14 @@ Router sessionRoutes(
     try {
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
 
       final list = await messages.getMessages(id);
-      return _jsonResponse(200, list.map(_messageToJson).toList());
+      return jsonResponse(200, list.map(_messageToJson).toList());
     } catch (e) {
       _log.warning('Failed to get messages for $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to get messages');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get messages');
     }
   });
 
@@ -127,10 +129,10 @@ Router sessionRoutes(
       // 1. Look up session
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
       if (session.type == SessionType.archive) {
-        return _errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
+        return errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
       }
 
       // 2. Parse + validate message
@@ -148,7 +150,7 @@ Router sessionRoutes(
       try {
         turnId = await turns.reserveTurn(id);
       } on BusyTurnException {
-        return _errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
+        return errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
       }
 
       // 4. Persist + fetch messages; release reservation on failure.
@@ -176,7 +178,7 @@ Router sessionRoutes(
       return Response(200, body: html, headers: {'content-type': 'text/html; charset=utf-8'});
     } catch (e) {
       _log.warning('Failed to send message for $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to send message');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to send message');
     }
   });
 
@@ -184,14 +186,14 @@ Router sessionRoutes(
   router.get('/api/sessions/<id>/stream', (Request request, String id) async {
     final turnId = request.url.queryParameters['turn'];
     if (turnId == null || turnId.isEmpty) {
-      return _errorResponse(404, 'TURN_NOT_FOUND', 'turn query parameter is required');
+      return errorResponse(404, 'TURN_NOT_FOUND', 'turn query parameter is required');
     }
 
     final isActive = turns.isActiveTurn(id, turnId);
     final outcome = turns.recentOutcome(id, turnId);
 
     if (!isActive && outcome == null) {
-      return _errorResponse(404, 'TURN_NOT_FOUND', 'Turn not found or expired');
+      return errorResponse(404, 'TURN_NOT_FOUND', 'Turn not found or expired');
     }
 
     return sseStreamResponse(worker, turns, id, turnId, redactor: redactor);
@@ -202,19 +204,19 @@ Router sessionRoutes(
     try {
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
       if (session.type != SessionType.archive) {
-        return _errorResponse(400, 'INVALID_STATE', 'Only archive sessions can be resumed');
+        return errorResponse(400, 'INVALID_STATE', 'Only archive sessions can be resumed');
       }
       final updated = await sessions.updateSessionType(id, SessionType.user);
       if (updated == null) {
-        return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session type');
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session type');
       }
-      return _jsonResponse(200, updated.toJson());
+      return jsonResponse(200, updated.toJson());
     } catch (e) {
       _log.warning('Failed to resume session $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume session');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume session');
     }
   });
 
@@ -223,23 +225,23 @@ Router sessionRoutes(
     try {
       final session = await sessions.getSession(id);
       if (session == null) {
-        return _errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
       if (session.type == SessionType.archive) {
-        return _errorResponse(403, 'FORBIDDEN', 'Cannot reset archived session');
+        return errorResponse(403, 'FORBIDDEN', 'Cannot reset archived session');
       }
       if (turns.isActive(id)) {
-        return _errorResponse(409, 'SESSION_BUSY', 'Cannot reset: turn in progress');
+        return errorResponse(409, 'SESSION_BUSY', 'Cannot reset: turn in progress');
       }
       final rs = resetService;
       if (rs == null) {
-        return _errorResponse(501, 'NOT_IMPLEMENTED', 'Reset service not available');
+        return errorResponse(501, 'NOT_IMPLEMENTED', 'Reset service not available');
       }
       await rs.resetSession(id);
-      return _jsonResponse(200, {'status': 'reset'});
+      return jsonResponse(200, {'status': 'reset'});
     } catch (e) {
       _log.warning('Failed to reset session $id: $e', e);
-      return _errorResponse(500, 'INTERNAL_ERROR', 'Failed to reset session');
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to reset session');
     }
   });
 
@@ -250,7 +252,6 @@ Router sessionRoutes(
 // Serialization helpers
 // ---------------------------------------------------------------------------
 
-const _undeletableTypes = {SessionType.main, SessionType.channel, SessionType.cron};
 
 Map<String, dynamic> _messageToJson(Message m) => {
   'id': m.id,
@@ -271,20 +272,6 @@ dynamic _tryParseJson(String s) {
 }
 
 // ---------------------------------------------------------------------------
-// Response helpers
-// ---------------------------------------------------------------------------
-
-Response _jsonResponse(int status, Object body) {
-  return Response(status, body: jsonEncode(body), headers: {'content-type': 'application/json; charset=utf-8'});
-}
-
-Response _errorResponse(int status, String code, String message, [Map<String, dynamic>? details]) {
-  final error = <String, dynamic>{'code': code, 'message': message};
-  if (details != null) error['details'] = details;
-  return _jsonResponse(status, {'error': error});
-}
-
-// ---------------------------------------------------------------------------
 // Body parsing
 // ---------------------------------------------------------------------------
 
@@ -302,12 +289,12 @@ Future<({String? value, Response? error})> _parseField(Request request, String f
       final json = jsonDecode(body) as Map<String, dynamic>;
       return (value: json[field] as String?, error: null);
     } on FormatException {
-      return (value: null, error: _errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
+      return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
     } on TypeError {
-      return (value: null, error: _errorResponse(400, 'INVALID_INPUT', 'Invalid JSON structure'));
+      return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON structure'));
     }
   }
-  return (value: null, error: _errorResponse(415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported content type'));
+  return (value: null, error: errorResponse(415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported content type'));
 }
 
 // ---------------------------------------------------------------------------
@@ -317,10 +304,10 @@ Future<({String? value, Response? error})> _parseField(Request request, String f
 /// Returns an error [Response] if [message] is invalid, otherwise null.
 Response? _validateMessage(String? message) {
   if (message == null || message.trim().isEmpty) {
-    return _errorResponse(400, 'INVALID_INPUT', 'message must not be empty', {'field': 'message'});
+    return errorResponse(400, 'INVALID_INPUT', 'message must not be empty', {'field': 'message'});
   }
   if (message.trim().length > 20000) {
-    return _errorResponse(400, 'INVALID_INPUT', 'message must not exceed 20000 characters', {'field': 'message'});
+    return errorResponse(400, 'INVALID_INPUT', 'message must not exceed 20000 characters', {'field': 'message'});
   }
   return null;
 }
@@ -328,10 +315,10 @@ Response? _validateMessage(String? message) {
 /// Returns an error [Response] if [title] is invalid, otherwise null.
 Response? _validateTitle(String? title) {
   if (title == null || title.trim().isEmpty) {
-    return _errorResponse(400, 'INVALID_INPUT', 'title must not be empty', {'field': 'title'});
+    return errorResponse(400, 'INVALID_INPUT', 'title must not be empty', {'field': 'title'});
   }
   if (title.trim().length > 120) {
-    return _errorResponse(400, 'INVALID_INPUT', 'title must not exceed 120 characters', {'field': 'title'});
+    return errorResponse(400, 'INVALID_INPUT', 'title must not exceed 120 characters', {'field': 'title'});
   }
   return null;
 }

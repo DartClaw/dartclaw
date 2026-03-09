@@ -21,7 +21,7 @@
 
 <header tl:fragment="plainTopbar" class="topbar" id="topbar">
   <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
-  <span class="session-title">DartClaw</span>
+  <span class="session-title" tl:text="${appName}">DartClaw</span>
   <div class="topbar-actions">
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>
@@ -29,12 +29,11 @@
 
 <header tl:fragment="pageTopbar" class="topbar" id="topbar">
   <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar">&#9776;</button>
+  <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="topbar-back"
+    hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+    hx-select-oob="#topbar,#sidebar">&larr; <span tl:text="${backLabel}">Back</span></a>
   <span class="session-title-static" tl:text="${title}">Page Title</span>
   <div class="topbar-actions">
-    <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="btn btn-ghost"
-      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#sidebar"
-      style="font-size:var(--text-sm);">&larr; <span tl:text="${backLabel}">Back</span></a>
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>
 </header>

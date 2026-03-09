@@ -86,6 +86,52 @@ void main() {
     });
   });
 
+  group('CronExpression.describe', () {
+    test('every minute', () {
+      expect(CronExpression.parse('* * * * *').describe(), 'Every minute');
+    });
+
+    test('every N minutes', () {
+      expect(CronExpression.parse('*/15 * * * *').describe(), 'Every 15 minutes');
+      expect(CronExpression.parse('*/5 * * * *').describe(), 'Every 5 minutes');
+    });
+
+    test('every hour', () {
+      expect(CronExpression.parse('0 * * * *').describe(), 'Every hour');
+    });
+
+    test('every N hours', () {
+      expect(CronExpression.parse('0 */6 * * *').describe(), 'Every 6 hours');
+      expect(CronExpression.parse('0 */2 * * *').describe(), 'Every 2 hours');
+    });
+
+    test('daily at specific time', () {
+      expect(CronExpression.parse('0 7 * * *').describe(), 'Daily at 7:00 AM');
+      expect(CronExpression.parse('30 18 * * *').describe(), 'Daily at 6:30 PM');
+      expect(CronExpression.parse('0 0 * * *').describe(), 'Daily at 12:00 AM');
+      expect(CronExpression.parse('0 12 * * *').describe(), 'Daily at 12:00 PM');
+    });
+
+    test('weekly on specific day', () {
+      expect(CronExpression.parse('0 9 * * 1').describe(), 'Weekly on Mon at 9:00 AM');
+      expect(CronExpression.parse('0 3 * * 0').describe(), 'Weekly on Sun at 3:00 AM');
+      expect(CronExpression.parse('30 17 * * 5').describe(), 'Weekly on Fri at 5:30 PM');
+    });
+
+    test('monthly on specific date', () {
+      expect(CronExpression.parse('0 9 1 * *').describe(), 'Monthly on the 1st at 9:00 AM');
+      expect(CronExpression.parse('0 9 2 * *').describe(), 'Monthly on the 2nd at 9:00 AM');
+      expect(CronExpression.parse('0 9 3 * *').describe(), 'Monthly on the 3rd at 9:00 AM');
+      expect(CronExpression.parse('0 9 15 * *').describe(), 'Monthly on the 15th at 9:00 AM');
+      expect(CronExpression.parse('0 9 11 * *').describe(), 'Monthly on the 11th at 9:00 AM');
+    });
+
+    test('complex expression falls back to raw string', () {
+      expect(CronExpression.parse('0 9 1-15 * 1-5').describe(), '0 9 1-15 * 1-5');
+      expect(CronExpression.parse('0,30 9 * * 1-5').describe(), '0,30 9 * * 1-5');
+    });
+  });
+
   group('CronExpression.matches weekday mapping', () {
     test('Sunday is 0 in cron notation', () {
       final cron = CronExpression.parse('* * * * 0');

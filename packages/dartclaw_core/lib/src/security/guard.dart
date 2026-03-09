@@ -27,6 +27,12 @@ class GuardContext {
   /// Message origin: 'channel', 'web', 'cron', 'heartbeat', or null.
   final String? source;
 
+  /// Active session ID for audit correlation.
+  final String? sessionId;
+
+  /// Peer identifier (phone number, username, etc.) for channel messages.
+  final String? peerId;
+
   final DateTime timestamp;
 
   const GuardContext({
@@ -36,6 +42,8 @@ class GuardContext {
     this.messageContent,
     this.agentId,
     this.source,
+    this.sessionId,
+    this.peerId,
     required this.timestamp,
   });
 }
@@ -71,32 +79,48 @@ class GuardChain {
   GuardChain({required this.guards, required this.auditLogger, this.failOpen = false});
 
   /// Evaluates all guards for a 'beforeToolCall' hook point.
-  Future<GuardVerdict> evaluateBeforeToolCall(String toolName, Map<String, dynamic> toolInput) {
+  Future<GuardVerdict> evaluateBeforeToolCall(
+    String toolName,
+    Map<String, dynamic> toolInput, {
+    String? sessionId,
+  }) {
     final context = GuardContext(
       hookPoint: 'beforeToolCall',
       toolName: toolName,
       toolInput: toolInput,
+      sessionId: sessionId,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);
   }
 
   /// Evaluates all guards for a 'messageReceived' hook point.
-  Future<GuardVerdict> evaluateMessageReceived(String content, {String? source}) {
+  Future<GuardVerdict> evaluateMessageReceived(
+    String content, {
+    String? source,
+    String? sessionId,
+    String? peerId,
+  }) {
     final context = GuardContext(
       hookPoint: 'messageReceived',
       messageContent: content,
       source: source,
+      sessionId: sessionId,
+      peerId: peerId,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);
   }
 
   /// Evaluates all guards for a 'beforeAgentSend' hook point.
-  Future<GuardVerdict> evaluateBeforeAgentSend(String content) {
+  Future<GuardVerdict> evaluateBeforeAgentSend(
+    String content, {
+    String? sessionId,
+  }) {
     final context = GuardContext(
       hookPoint: 'beforeAgentSend',
       messageContent: content,
+      sessionId: sessionId,
       timestamp: DateTime.now(),
     );
     return _evaluate(context);
@@ -122,6 +146,9 @@ class GuardChain {
         guardCategory: guard.category,
         hookPoint: context.hookPoint,
         timestamp: context.timestamp,
+        sessionId: context.sessionId,
+        channel: context.source,
+        peerId: context.peerId,
       );
 
       if (verdict.isBlock) return verdict;

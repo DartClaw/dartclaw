@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <link rel="icon" href="data:,">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title tl:text="${title} + ' - DartClaw'">DartClaw</title>
+  <title tl:text="${title} + ' - ' + ${appName}">DartClaw</title>
   <script>(function(){var t=localStorage.getItem('dartclaw-theme');if(t==='light')document.documentElement.dataset.theme='light';})()</script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&amp;display=swap"
         rel="stylesheet">
@@ -14,6 +14,7 @@
   <script defer="defer" src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
           integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
           crossorigin="anonymous"></script>
+  <script defer="defer" src="/static/sse.js"></script>
   <script defer="defer" src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"
           integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+"
           crossorigin="anonymous"></script>
@@ -21,9 +22,13 @@
   <script defer="defer" src="/static/hljs-dart.min.js"></script>
   <script defer="defer" src="/static/purify.min.js"></script>
 </head>
-<body>
+<body tl:attr="data-app-name=${appName}">
 <tl:block tl:utext="${body}"></tl:block>
 <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 <script defer="defer" src="/static/app.js"></script>
+<script defer="defer" src="/static/settings.js"></script>
+<script defer="defer" src="/static/scheduling.js"></script>
+<script defer="defer" src="/static/memory.js"></script>
+<script defer="defer" src="/static/whatsapp.js"></script>
 </body>
 </html>

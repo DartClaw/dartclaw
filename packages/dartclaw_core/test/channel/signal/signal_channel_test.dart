@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 class FakeSignalCliManager extends SignalCliManager {
   bool started = false;
   bool stopped = false;
+  bool wasReset = false;
   final List<(String, String)> sentMessages = [];
   bool fakeHealthy = true;
 
@@ -42,6 +43,11 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 
   @override
+  Future<void> reset() async {
+    wasReset = true;
+  }
+
+  @override
   Future<void> sendMessage(String recipient, String text) async {
     sentMessages.add((recipient, text));
   }
@@ -68,20 +74,30 @@ class FakeChannelManager extends ChannelManager {
 }
 
 /// Build a signal-cli envelope for testing.
-Map<String, dynamic> _signalEnvelope({required String source, String? sourceName, String? message, String? groupId}) =>
-    {
-      'envelope': {
-        'source': source,
+Map<String, dynamic> _signalEnvelope({
+  required String source,
+  String? sourceNumber,
+  String? sourceUuid,
+  String? sourceName,
+  String? message,
+  String? groupId,
+}) => {
+  'envelope': {
+    'source': source,
+    // ignore: use_null_aware_elements
+    if (sourceNumber != null) 'sourceNumber': sourceNumber,
+    // ignore: use_null_aware_elements
+    if (sourceUuid != null) 'sourceUuid': sourceUuid,
+    // ignore: use_null_aware_elements
+    if (sourceName != null) 'sourceName': sourceName,
+    if (message != null || groupId != null)
+      'dataMessage': {
         // ignore: use_null_aware_elements
-        if (sourceName != null) 'sourceName': sourceName,
-        if (message != null || groupId != null)
-          'dataMessage': {
-            // ignore: use_null_aware_elements
-            if (message != null) 'message': message,
-            if (groupId != null) 'groupInfo': {'groupId': groupId},
-          },
+        if (message != null) 'message': message,
+        if (groupId != null) 'groupInfo': {'groupId': groupId},
       },
-    };
+  },
+};
 
 void main() {
   late FakeSignalCliManager sidecar;
@@ -94,7 +110,7 @@ void main() {
     channel = SignalChannel(
       sidecar: sidecar,
       config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-      dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+      dmAccess: DmAccessController(mode: DmAccessMode.open),
       mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
       channelManager: channelManager,
     );
@@ -119,10 +135,10 @@ void main() {
       expect(sidecar.started, isTrue);
     });
 
-    test('disconnect stops sidecar', () async {
+    test('disconnect resets sidecar for re-pairing', () async {
       await channel.connect();
       await channel.disconnect();
-      expect(sidecar.stopped, isTrue);
+      expect(sidecar.wasReset, isTrue);
     });
 
     test('sendMessage sends text via sidecar', () async {
@@ -204,7 +220,7 @@ void main() {
       final restrictedChannel = SignalChannel(
         sidecar: sidecar,
         config: const SignalConfig(enabled: true),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.disabled),
+        dmAccess: DmAccessController(mode: DmAccessMode.disabled),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -219,7 +235,7 @@ void main() {
       final allowlistChannel = SignalChannel(
         sidecar: sidecar,
         config: const SignalConfig(enabled: true),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.allowlist, allowlist: {'+9999999999'}),
+        dmAccess: DmAccessController(mode: DmAccessMode.allowlist, allowlist: {'+9999999999'}),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -241,7 +257,7 @@ void main() {
       final gatedChannel = SignalChannel(
         sidecar: sidecar,
         config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: true, mentionPatterns: [r'@bot'], ownNumber: '+0000'),
         channelManager: channelManager,
       );
@@ -272,7 +288,7 @@ void main() {
       final smallChunkChannel = SignalChannel(
         sidecar: sidecar,
         config: const SignalConfig(enabled: true, maxChunkSize: 50),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -302,7 +318,7 @@ void main() {
           enabled: true,
           groupAccess: SignalGroupAccessMode.disabled,
         ),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -320,7 +336,7 @@ void main() {
           enabled: true,
           groupAccess: SignalGroupAccessMode.open,
         ),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -339,7 +355,7 @@ void main() {
           groupAccess: SignalGroupAccessMode.allowlist,
           groupAllowlist: ['grp-allowed'],
         ),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -364,7 +380,7 @@ void main() {
           enabled: true,
           groupAccess: SignalGroupAccessMode.disabled,
         ),
-        dmAccess: SignalDmAccessController(mode: SignalDmAccessMode.open),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
         channelManager: channelManager,
       );
@@ -392,7 +408,7 @@ void main() {
         'mention_patterns': [r'@bot'],
       }, warns);
       expect(warns, isEmpty);
-      expect(config.dmAccess, SignalDmAccessMode.open);
+      expect(config.dmAccess, DmAccessMode.open);
       expect(config.groupAccess, SignalGroupAccessMode.allowlist);
       expect(config.dmAllowlist, ['+9999999999']);
       expect(config.groupAllowlist, ['grp-abc']);
@@ -404,7 +420,7 @@ void main() {
       final warns = <String>[];
       final config = SignalConfig.fromYaml({'enabled': true}, warns);
       expect(warns, isEmpty);
-      expect(config.dmAccess, SignalDmAccessMode.allowlist);
+      expect(config.dmAccess, DmAccessMode.allowlist);
       expect(config.groupAccess, SignalGroupAccessMode.disabled);
       expect(config.dmAllowlist, isEmpty);
       expect(config.groupAllowlist, isEmpty);
@@ -412,14 +428,23 @@ void main() {
       expect(config.mentionPatterns, isEmpty);
     });
 
+    test('accepts pairing as valid dm_access value', () {
+      final warns = <String>[];
+      final config = SignalConfig.fromYaml({
+        'dm_access': 'pairing',
+      }, warns);
+      expect(warns, isEmpty);
+      expect(config.dmAccess, DmAccessMode.pairing);
+    });
+
     test('warns on invalid dm_access value', () {
       final warns = <String>[];
       final config = SignalConfig.fromYaml({
-        'dm_access': 'pairing', // not valid for Signal
+        'dm_access': 'invite', // not a valid mode
       }, warns);
       expect(warns, hasLength(1));
       expect(warns.first, contains('dm_access'));
-      expect(config.dmAccess, SignalDmAccessMode.allowlist); // default
+      expect(config.dmAccess, DmAccessMode.allowlist); // default
     });
 
     test('warns on invalid group_access value', () {
@@ -430,6 +455,141 @@ void main() {
       expect(warns, hasLength(1));
       expect(warns.first, contains('group_access'));
       expect(config.groupAccess, SignalGroupAccessMode.disabled); // default
+    });
+  });
+
+  // ---- DM pairing mode wiring ----
+  group('SignalChannel DM pairing wiring', () {
+    late FakeSignalCliManager pairingSidecar;
+    late FakeChannelManager pairingManager;
+
+    setUp(() {
+      pairingSidecar = FakeSignalCliManager();
+      pairingManager = FakeChannelManager();
+    });
+
+    test('pairing mode: unknown sender triggers createPairing, message NOT forwarded', () async {
+      final dmAccess = DmAccessController(mode: DmAccessMode.pairing);
+      final ch = SignalChannel(
+        sidecar: pairingSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: dmAccess,
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: pairingManager,
+      );
+
+      await ch.connect();
+      pairingSidecar.emitEvent(_signalEnvelope(
+        source: '+9876543210',
+        sourceName: 'Bob',
+        message: 'Hello',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pairingManager.received, isEmpty);
+      expect(dmAccess.pendingPairings, hasLength(1));
+      expect(dmAccess.pendingPairings.first.jid, '+9876543210');
+      expect(dmAccess.pendingPairings.first.displayName, 'Bob');
+    });
+
+    test('pairing mode: known sender (in allowlist) message forwarded normally', () async {
+      final dmAccess = DmAccessController(
+        mode: DmAccessMode.pairing,
+        allowlist: {'+9876543210'},
+      );
+      final ch = SignalChannel(
+        sidecar: pairingSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: dmAccess,
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: pairingManager,
+      );
+
+      await ch.connect();
+      pairingSidecar.emitEvent(_signalEnvelope(source: '+9876543210', message: 'Hello'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pairingManager.received, hasLength(1));
+      expect(dmAccess.pendingPairings, isEmpty);
+    });
+
+    test('allowlist mode: unknown sender drops without createPairing', () async {
+      final dmAccess = DmAccessController(mode: DmAccessMode.allowlist);
+      final ch = SignalChannel(
+        sidecar: pairingSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: dmAccess,
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: pairingManager,
+      );
+
+      await ch.connect();
+      pairingSidecar.emitEvent(_signalEnvelope(source: '+9876543210', message: 'Hello'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pairingManager.received, isEmpty);
+      expect(dmAccess.pendingPairings, isEmpty);
+    });
+
+    // ---- Sealed-sender dual-form allowlist ----
+
+    test('sealed-sender: phone message allowed when allowlist holds UUID, allowlist normalized', () async {
+      const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      const phone = '+46701234567';
+      final dmAccess = DmAccessController(
+        mode: DmAccessMode.allowlist,
+        allowlist: {uuid},
+      );
+      final ch = SignalChannel(
+        sidecar: pairingSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: dmAccess,
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: pairingManager,
+      );
+
+      await ch.connect();
+      // sourceNumber present → senderJid = phone, but allowlist holds UUID
+      pairingSidecar.emitEvent(_signalEnvelope(
+        source: uuid,
+        sourceNumber: phone,
+        sourceUuid: uuid,
+        message: 'Hello',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pairingManager.received, hasLength(1));
+      expect(pairingManager.received.first.senderJid, phone);
+      // Phone form should now be in allowlist (self-healing normalization)
+      expect(dmAccess.allowlist, containsAll([uuid, phone]));
+    });
+
+    test('sealed-sender: UUID message NOT resolved when allowlist holds phone (documented limitation)', () async {
+      const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      const phone = '+46701234567';
+      final dmAccess = DmAccessController(
+        mode: DmAccessMode.allowlist,
+        allowlist: {phone},
+      );
+      final ch = SignalChannel(
+        sidecar: pairingSidecar,
+        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+        dmAccess: dmAccess,
+        mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+        channelManager: pairingManager,
+      );
+
+      await ch.connect();
+      // No sourceNumber → senderJid = UUID, but allowlist holds phone (no reverse lookup)
+      pairingSidecar.emitEvent(_signalEnvelope(
+        source: uuid,
+        sourceUuid: uuid,
+        message: 'Hello',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Expected: dropped — UUID→phone resolution requires contact_aliases (deferred to 0.8)
+      expect(pairingManager.received, isEmpty);
     });
   });
 }

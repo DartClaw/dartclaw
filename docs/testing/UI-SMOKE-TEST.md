@@ -289,6 +289,77 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 
 ---
 
+### TC-19: Memory Dashboard
+**Steps:**
+1. Navigate to `/memory`
+
+**Pass:**
+- Overview section: 5 metric cards (Memory Size with budget bar, Active Entries, Archived Entries, Errors, Learnings)
+- Pruning section: Pruner card with config, next run, undated entries; "Prune Now" button
+- Search & Index section: backend, depth, index entries, DB size
+- Memory Files section: 4 tabs (MEMORY.md, errors.md, learnings.md, Archive) with Raw/Rendered toggle
+- MEMORY.md tab content loads automatically on page load (no click needed)
+- Daily Logs section at bottom
+- Sidebar SYSTEM nav present
+
+**Fail:** MEMORY.md tab shows "Click to load content..." on first render; overview metrics missing; tabs non-functional
+
+---
+
+### TC-20: Memory Dashboard — Prune Action
+**Steps:**
+1. Navigate to `/memory`
+2. Click "Prune Now"
+3. Click "Confirm Prune?" within 4 seconds
+
+**Pass:**
+- First click changes button to "Confirm Prune?" (amber)
+- Confirm click changes to "Pruning..." (disabled)
+- On success: "Done!" (green), then resets to "Prune Now" after 2s
+- Overview metrics and pruner history refresh immediately after prune (not after 30s poll)
+
+**Fail:** No confirmation step; metrics stale after prune; button stuck in disabled state
+
+---
+
+### TC-21: Scheduling — Job CRUD
+**Steps:**
+1. Navigate to `/scheduling`
+2. Click "Add Job" to open the form
+3. Fill in name, schedule (`0 9 * * *`), prompt, delivery
+4. Click "Save Job"
+5. Click "Edit" on the new job, change schedule, click "Update Job"
+6. Click "Delete" on the job, confirm
+
+**Pass:**
+- Form opens/closes with "Add Job" toggle
+- Cron preview shows human-readable description (e.g., "Daily at 9:00 AM")
+- Job appears in table after save; page refreshes via HTMX
+- Edit pre-populates fields; name field disabled during edit
+- Delete shows confirmation row with "Confirm Delete" / "Cancel"
+- Job names with special characters (`"`, `'`, `<`, `&`) render safely in confirmation
+
+**Fail:** Form doesn't open; cron preview missing; delete confirmation shows raw HTML; special characters break layout
+
+---
+
+### TC-22: Restart Banner
+**Steps:**
+1. Change a restart-requiring setting (e.g., server port) on `/settings`
+2. Observe restart banner appearance
+3. Click dismiss
+4. Reload page
+
+**Pass:**
+- Yellow restart banner appears listing changed fields
+- "Restart" and "Dismiss" buttons functional
+- Dismiss hides banner for current page session
+- Banner reappears after page reload (if restart still pending)
+
+**Fail:** No banner on restart-pending config change; dismiss permanently hides banner
+
+---
+
 ## Regression Checks
 
 These are previously fixed issues. Flag immediately if any regress.

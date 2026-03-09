@@ -1,37 +1,7 @@
 import '../channel.dart';
 
-/// DM access mode for Signal channel.
-enum SignalDmAccessMode { allowlist, open, disabled }
-
 /// Group access mode for Signal channel.
 enum SignalGroupAccessMode { allowlist, open, disabled }
-
-/// Controls which senders are allowed to DM the bot via Signal.
-class SignalDmAccessController {
-  final SignalDmAccessMode mode;
-  final Set<String> _allowlist;
-
-  SignalDmAccessController({required this.mode, Set<String>? allowlist}) : _allowlist = allowlist ?? {};
-
-  Set<String> get allowlist => Set.unmodifiable(_allowlist);
-
-  /// Whether the given sender phone number is allowed to message the bot.
-  bool isAllowed(String senderId) {
-    switch (mode) {
-      case SignalDmAccessMode.open:
-        return true;
-      case SignalDmAccessMode.disabled:
-        return false;
-      case SignalDmAccessMode.allowlist:
-        return _allowlist.contains(senderId);
-    }
-  }
-
-  /// Add a phone number to the allowlist.
-  void addToAllowlist(String phoneNumber) {
-    _allowlist.add(phoneNumber);
-  }
-}
 
 /// Controls whether a group message should be processed based on mention status.
 class SignalMentionGating {

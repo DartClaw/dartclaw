@@ -8,14 +8,16 @@ class CronExpression {
   final Set<int> daysOfMonth;
   final Set<int> months;
   final Set<int> daysOfWeek;
+  final String _expression;
 
   CronExpression._({
+    required String expression,
     required this.minutes,
     required this.hours,
     required this.daysOfMonth,
     required this.months,
     required this.daysOfWeek,
-  });
+  }) : _expression = expression;
 
   /// Parses a 5-field cron expression string.
   factory CronExpression.parse(String expression) {
@@ -24,6 +26,7 @@ class CronExpression {
       throw FormatException('Cron expression must have 5 fields, got ${parts.length}: "$expression"');
     }
     return CronExpression._(
+      expression: expression.trim(),
       minutes: _parseField(parts[0], 0, 59, 'minute'),
       hours: _parseField(parts[1], 0, 23, 'hour'),
       daysOfMonth: _parseField(parts[2], 1, 31, 'day-of-month'),
@@ -70,6 +73,95 @@ class CronExpression {
     }
 
     throw StateError('No matching time found within 2 years for cron expression');
+  }
+
+  /// Returns a human-readable description of this cron expression.
+  ///
+  /// Covers common patterns:
+  /// - `* * * * *` -> "Every minute"
+  /// - `0 * * * *` -> "Every hour"
+  /// - `0 7 * * *` -> "Daily at 7:00 AM"
+  /// - `*/15 * * * *` -> "Every 15 minutes"
+  /// - `0 */6 * * *` -> "Every 6 hours"
+  /// - `0 3 * * 1` -> "Weekly on Monday at 3:00 AM"
+  /// - `0 9 1 * *` -> "Monthly on the 1st at 9:00 AM"
+  /// - Fallback: returns the raw cron expression string
+  String describe() {
+    final parts = _expression.trim().split(RegExp(r'\s+'));
+    if (parts.length != 5) return _expression;
+    final [min, hour, dom, mon, dow] = parts;
+
+    final allMin = min == '*';
+    final allHour = hour == '*';
+    final allDom = dom == '*';
+    final allMon = mon == '*';
+    final allDow = dow == '*';
+
+    // Every minute
+    if (allMin && allHour && allDom && allMon && allDow) return 'Every minute';
+
+    // Every N minutes: */N * * * *
+    final minStep = RegExp(r'^\*/(\d+)$').firstMatch(min);
+    if (minStep != null && allHour && allDom && allMon && allDow) {
+      return 'Every ${minStep.group(1)} minutes';
+    }
+
+    // Every hour: 0 * * * *
+    if (min == '0' && allHour && allDom && allMon && allDow) return 'Every hour';
+
+    // Every N hours: 0 */N * * *
+    final hourStep = RegExp(r'^\*/(\d+)$').firstMatch(hour);
+    if (min == '0' && hourStep != null && allDom && allMon && allDow) {
+      return 'Every ${hourStep.group(1)} hours';
+    }
+
+    // Single minute + single hour patterns
+    if (_isSingleInt(min) && _isSingleInt(hour)) {
+      final h = int.parse(hour);
+      final m = int.parse(min);
+      final time = _formatTime(h, m);
+
+      // Daily: M H * * *
+      if (allDom && allMon && allDow) return 'Daily at $time';
+
+      // Weekly: M H * * D
+      if (allDom && allMon && _isSingleInt(dow)) {
+        final dayName = _dayName(int.parse(dow));
+        return 'Weekly on $dayName at $time';
+      }
+
+      // Monthly: M H D * *
+      if (_isSingleInt(dom) && allMon && allDow) {
+        final ordinal = _ordinal(int.parse(dom));
+        return 'Monthly on the $ordinal at $time';
+      }
+    }
+
+    // Complex or unrecognized — return raw expression
+    return _expression;
+  }
+
+  static bool _isSingleInt(String s) => RegExp(r'^\d+$').hasMatch(s);
+
+  static String _formatTime(int h, int m) {
+    final ampm = h >= 12 ? 'PM' : 'AM';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    return '$h12:${m.toString().padLeft(2, '0')} $ampm';
+  }
+
+  static String _dayName(int dow) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return (dow >= 0 && dow < 7) ? days[dow] : '$dow';
+  }
+
+  static String _ordinal(int n) {
+    if (n >= 11 && n <= 13) return '${n}th';
+    return switch (n % 10) {
+      1 => '${n}st',
+      2 => '${n}nd',
+      3 => '${n}rd',
+      _ => '${n}th',
+    };
   }
 
   static Set<int> _parseField(String field, int min, int max, String name) {

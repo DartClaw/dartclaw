@@ -19,14 +19,12 @@ typedef SidebarData = ({
 ///
 /// [activePage] determines which item gets `active: true` — must match
 /// one of the label values exactly (e.g. `'Health'`, `'Settings'`,
-/// `'Scheduling'`, `'Signal'`).
-///
-/// When [signalEnabled] is `true`, a Signal entry is appended.
-List<NavItem> buildSystemNavItems({required String activePage, bool signalEnabled = false}) => [
+/// `'Scheduling'`).
+List<NavItem> buildSystemNavItems({required String activePage}) => [
       (label: 'Health', href: '/health-dashboard', active: activePage == 'Health'),
       (label: 'Settings', href: '/settings', active: activePage == 'Settings'),
+      (label: 'Memory', href: '/memory', active: activePage == 'Memory'),
       (label: 'Scheduling', href: '/scheduling', active: activePage == 'Scheduling'),
-      if (signalEnabled) (label: 'Signal', href: '/signal/pairing', active: activePage == 'Signal'),
     ];
 
 /// Sidebar with typed session sections.
@@ -44,6 +42,7 @@ String sidebarTemplate({
   List<SidebarSession> sessionEntries = const [],
   String? activeSessionId,
   List<NavItem> navItems = const [],
+  String appName = 'DartClaw',
 }) {
   final channels = channelSessions.map((ch) {
     final trimmed = ch.title.trim();
@@ -81,6 +80,7 @@ String sidebarTemplate({
     templateLoader.source('sidebar'),
     fragment: 'sidebar',
     context: {
+      'appName': appName,
       'mainSession': mainSession != null,
       'mainHref': mainSession != null ? '/sessions/${mainSession.id}' : '',
       'mainActive': mainSession != null && mainSession.id == activeSessionId,
@@ -98,5 +98,23 @@ String sidebarTemplate({
         };
       }).toList(),
     },
+  );
+}
+
+/// Builds the unified sidebar from [SidebarData] and system nav items.
+///
+/// Used by system/admin pages (Settings, Health, etc.) that show the
+/// full sidebar with sessions but no active session highlighted.
+String buildSidebar({
+  required SidebarData sidebarData,
+  required List<NavItem> navItems,
+  String appName = 'DartClaw',
+}) {
+  return sidebarTemplate(
+    mainSession: sidebarData.main,
+    channelSessions: sidebarData.channels,
+    sessionEntries: sidebarData.entries,
+    navItems: navItems,
+    appName: appName,
   );
 }

@@ -15,8 +15,10 @@ import 'session/session_reset_service.dart';
 // Data types
 // ---------------------------------------------------------------------------
 
+/// Outcome status of a completed turn.
 enum TurnStatus { completed, failed, cancelled }
 
+/// Metadata for an in-flight agent turn.
 class TurnContext {
   final String turnId;
   final String sessionId;
@@ -26,11 +28,13 @@ class TurnContext {
   TurnContext({required this.turnId, required this.sessionId, this.agentName = 'main', required this.startedAt});
 }
 
+/// Result of a completed turn including status and optional error.
 class TurnOutcome {
   final String turnId;
   final String sessionId;
   final TurnStatus status;
   final String? errorMessage; // non-null when failed
+  final String? responseText; // non-null when completed
   final DateTime completedAt;
 
   TurnOutcome({
@@ -38,10 +42,12 @@ class TurnOutcome {
     required this.sessionId,
     required this.status,
     this.errorMessage,
+    this.responseText,
     required this.completedAt,
   });
 }
 
+/// Thrown when a turn cannot start because the agent is already busy.
 class BusyTurnException implements Exception {
   final String message;
   final bool isSameSession; // true = same session busy, false = global busy (different session)
@@ -56,6 +62,7 @@ class BusyTurnException implements Exception {
 // TurnManager
 // ---------------------------------------------------------------------------
 
+/// Manages agent turn lifecycle: start, stream, cancel, and drain.
 class TurnManager {
   static final _log = Logger('TurnManager');
   static const _uuid = Uuid();
@@ -328,7 +335,11 @@ class TurnManager {
         // Guard: messageReceived — evaluate full content before sending to agent
         final chain = _guardChain;
         if (chain != null && userMessageFull != null && userMessageFull.isNotEmpty) {
-          final msgVerdict = await chain.evaluateMessageReceived(userMessageFull, source: source);
+          final msgVerdict = await chain.evaluateMessageReceived(
+            userMessageFull,
+            source: source,
+            sessionId: sessionId,
+          );
           if (msgVerdict.isBlock) {
             await _messages.insertMessage(
               sessionId: sessionId,
@@ -387,7 +398,10 @@ class TurnManager {
 
         // Guard: beforeAgentSend — evaluate before persisting response
         if (chain != null && accumulated.isNotEmpty) {
-          final sendVerdict = await chain.evaluateBeforeAgentSend(accumulated);
+          final sendVerdict = await chain.evaluateBeforeAgentSend(
+            accumulated,
+            sessionId: sessionId,
+          );
           if (sendVerdict.isBlock) {
             await _messages.insertMessage(
               sessionId: sessionId,
@@ -419,6 +433,7 @@ class TurnManager {
           turnId: turnId,
           sessionId: sessionId,
           status: TurnStatus.completed,
+          responseText: trimmed,
           completedAt: DateTime.now(),
         );
 

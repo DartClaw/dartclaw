@@ -2,13 +2,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner;
+import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
+import 'api/config_api_routes.dart';
 import 'api/config_routes.dart';
+import 'api/memory_routes.dart';
 import 'api/session_routes.dart';
+import 'api/sse_broadcast.dart';
 import 'api/webhook_routes.dart';
+import 'restart_service.dart';
+import 'config/config_validator.dart';
+import 'config/config_writer.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
@@ -16,6 +24,7 @@ import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
 import 'health/health_service.dart';
+import 'memory/memory_status_service.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'runtime_config.dart';
@@ -26,10 +35,10 @@ import 'turn_manager.dart';
 import 'web/signal_pairing_routes.dart';
 import 'web/web_routes.dart';
 import 'web/web_utils.dart';
+import 'params/display_params.dart';
 import 'web/whatsapp_pairing.dart';
 
-const _htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
-
+/// Shelf-based HTTP server composing all DartClaw routes and middleware.
 class DartclawServer {
   final SessionService _sessions;
   final MessageService _messages;
@@ -56,6 +65,13 @@ class DartclawServer {
   HeartbeatScheduler? _heartbeat;
   ScheduleService? _scheduleService;
   WorkspaceGitSync? _gitSync;
+  MemoryStatusService? _memoryStatusService;
+  MemoryPruner? _memoryPruner;
+  KvService? _kvService;
+  ConfigWriter? _configWriter;
+  DartclawConfig? _config;
+  RestartService? _restartService;
+  SseBroadcast? _sseBroadcast;
 
   /// Inject runtime services for toggle control. Must be called after
   /// service creation in serve_command.dart.
@@ -64,19 +80,33 @@ class DartclawServer {
     ScheduleService? scheduleService,
     WorkspaceGitSync? gitSync,
     RuntimeConfig? runtimeConfig,
+    MemoryStatusService? memoryStatusService,
+    MemoryPruner? memoryPruner,
+    KvService? kvService,
+    ConfigWriter? configWriter,
+    DartclawConfig? config,
+    RestartService? restartService,
+    SseBroadcast? sseBroadcast,
   }) {
     _heartbeat = heartbeat;
     _scheduleService = scheduleService;
     _gitSync = gitSync;
     _runtimeConfig = runtimeConfig;
+    _memoryStatusService = memoryStatusService;
+    _memoryPruner = memoryPruner;
+    _kvService = kvService;
+    _configWriter = configWriter;
+    _config = config;
+    _restartService = restartService;
+    _sseBroadcast = sseBroadcast;
   }
 
   // Config values forwarded to webRoutes for accurate page rendering.
-  final bool _heartbeatEnabled;
-  final int _heartbeatIntervalMinutes;
-  final List<Map<String, dynamic>> _scheduledJobs;
-  final String? _workspacePath;
-  final bool _gitSyncEnabled;
+  final ContentGuardDisplayParams _contentGuardDisplay;
+  final HeartbeatDisplayParams _heartbeatDisplay;
+  final SchedulingDisplayParams _schedulingDisplay;
+  final WorkspaceDisplayParams _workspaceDisplay;
+  final AppDisplayParams _appDisplay;
 
   DartclawServer._(
     this._sessions,
@@ -97,11 +127,11 @@ class DartclawServer {
     this._redactor,
     this._mcpHandler,
     this._gatewayToken,
-    this._heartbeatEnabled,
-    this._heartbeatIntervalMinutes,
-    this._scheduledJobs,
-    this._workspacePath,
-    this._gitSyncEnabled,
+    this._contentGuardDisplay,
+    this._heartbeatDisplay,
+    this._schedulingDisplay,
+    this._workspaceDisplay,
+    this._appDisplay,
   );
 
   factory DartclawServer({
@@ -129,11 +159,11 @@ class DartclawServer {
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
     bool authEnabled = true,
-    bool heartbeatEnabled = false,
-    int heartbeatIntervalMinutes = 30,
-    List<Map<String, dynamic>> scheduledJobs = const [],
-    String? workspacePath,
-    bool gitSyncEnabled = false,
+    ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
+    HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
+    SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
+    WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
+    AppDisplayParams appDisplay = const AppDisplayParams(),
   }) {
     return DartclawServer._(
       sessions,
@@ -169,15 +199,22 @@ class DartclawServer {
       redactor,
       McpProtocolHandler(),
       gatewayToken,
-      heartbeatEnabled,
-      heartbeatIntervalMinutes,
-      scheduledJobs,
-      workspacePath,
-      gitSyncEnabled,
+      contentGuardDisplay,
+      heartbeatDisplay,
+      schedulingDisplay,
+      workspaceDisplay,
+      appDisplay,
     );
   }
 
-  /// Register an MCP tool. Must be called before the server starts handling requests.
+  /// Register an MCP tool that will be exposed to agents via the MCP endpoint.
+  ///
+  /// Must be called before the server starts handling requests. Throws
+  /// [StateError] if called after the first MCP request has been processed.
+  ///
+  /// Duplicate tool names are silently skipped (first registration wins) with
+  /// a warning logged. Registered tools appear in the MCP `tools/list`
+  /// response and are dispatched via `tools/call`.
   void registerTool(McpTool tool) => _mcpHandler.registerTool(tool);
 
   /// The MCP protocol handler, exposed for testing.
@@ -187,10 +224,12 @@ class DartclawServer {
     for (final sessionId in _turns.activeSessionIds.toList()) {
       await _turns.cancelTurn(sessionId);
     }
+    await _sseBroadcast?.dispose();
     await _channelManager?.dispose();
     await _worker.dispose();
     await _messages.dispose();
     await _memoryFile?.dispose();
+    await _configWriter?.dispose();
   }
 
   Handler get handler {
@@ -221,46 +260,142 @@ class DartclawServer {
 
     // WhatsApp pairing page.
     final waChannel = _whatsAppChannel;
-    final sigEnabled = _signalChannel != null;
+
     if (waChannel != null) {
       router.get('/whatsapp/pairing', (Request request) async {
         final sidebarData = await buildSidebarData(_sessions);
         final fragment = wantsFragment(request);
+        final pairingCode = request.requestedUri.queryParameters['code'];
+
+        // Sidecar crashed / restarting
+        if (!waChannel.gowa.isRunning && waChannel.gowa.restartCount > 0) {
+          return Response.ok(
+            whatsappPairingTemplate(
+              showReconnecting: true,
+              restartAttempt: waChannel.gowa.restartCount,
+              maxRestartAttempts: waChannel.gowa.maxRestartAttempts,
+              sidebarData: sidebarData,
+              fragmentOnly: fragment,
+              appName: _appDisplay.name,
+            ),
+            headers: htmlHeaders,
+          );
+        }
+
         try {
           final status = await waChannel.gowa.getStatus();
           if (status.isLoggedIn) {
             return Response.ok(
               whatsappPairingTemplate(
                 isConnected: true,
-                connectedPhone: status.deviceId,
+                connectedPhone: jidToPhone(waChannel.gowa.pairedJid ?? status.deviceId),
                 sidebarData: sidebarData,
-                signalEnabled: sigEnabled,
                 fragmentOnly: fragment,
               ),
-              headers: _htmlHeaders,
+              headers: htmlHeaders,
             );
           }
-          // GOWA reachable but not logged in — show QR
-          final qrUrl = await waChannel.gowa.getLoginQr();
+          // GOWA reachable but not logged in — show QR + pairing code
+          final loginQr = await waChannel.gowa.getLoginQr();
+          // Use local proxy URL to avoid CSP img-src blocking.
+          final proxyUrl = loginQr.url != null ? '/whatsapp/pairing/qr' : null;
           return Response.ok(
             whatsappPairingTemplate(
-              qrImageUrl: qrUrl,
+              qrImageUrl: proxyUrl,
+              qrDuration: loginQr.durationSeconds,
+              pairingCode: pairingCode,
               sidebarData: sidebarData,
-              signalEnabled: sigEnabled,
               fragmentOnly: fragment,
+              appName: _appDisplay.name,
             ),
-            headers: _htmlHeaders,
+            headers: htmlHeaders,
           );
         } catch (e) {
           return Response.ok(
             whatsappPairingTemplate(
               error: 'Failed to check GOWA status: $e',
               sidebarData: sidebarData,
-              signalEnabled: sigEnabled,
               fragmentOnly: fragment,
+              appName: _appDisplay.name,
             ),
-            headers: _htmlHeaders,
+            headers: htmlHeaders,
           );
+        }
+      });
+
+      // GET /whatsapp/pairing/qr — proxy QR image from GOWA to avoid CSP issues.
+      router.get('/whatsapp/pairing/qr', (Request request) async {
+        try {
+          final loginQr = await waChannel.gowa.getLoginQr();
+          if (loginQr.url == null) return Response.notFound('No QR available');
+          final client = HttpClient();
+          try {
+            final req = await client.getUrl(Uri.parse(loginQr.url!));
+            final resp = await req.close().timeout(const Duration(seconds: 10));
+            final bytes = await resp.fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+            return Response.ok(bytes, headers: {'content-type': 'image/png', 'cache-control': 'no-store'});
+          } finally {
+            client.close();
+          }
+        } catch (_) {
+          return Response.internalServerError(body: 'Failed to fetch QR');
+        }
+      });
+
+      // GET /whatsapp/pairing/poll — lightweight status check for HTMX polling.
+      // Returns 204 while waiting (HTMX skips swap), or renders full page
+      // when pairing completes.
+      router.get('/whatsapp/pairing/poll', (Request request) async {
+        try {
+          final status = await waChannel.gowa.getStatus();
+          if (!status.isLoggedIn) return Response(204);
+          // Connected — render full page.
+          final sidebarData = await buildSidebarData(_sessions);
+          return Response.ok(
+            whatsappPairingTemplate(
+              isConnected: true,
+              connectedPhone: jidToPhone(waChannel.gowa.pairedJid ?? status.deviceId),
+              sidebarData: sidebarData,
+              fragmentOnly: wantsFragment(request),
+              appName: _appDisplay.name,
+            ),
+            headers: htmlHeaders,
+          );
+        } catch (_) {
+          return Response(204);
+        }
+      });
+
+      // POST /whatsapp/pairing/disconnect — reset GOWA and restart for re-pairing.
+      router.post('/whatsapp/pairing/disconnect', (Request request) async {
+        try {
+          await waChannel.disconnect();
+          await waChannel.connect();
+          return Response.found('/whatsapp/pairing');
+        } catch (e) {
+          final msg = Uri.encodeQueryComponent('Failed to disconnect: $e');
+          return Response.found('/whatsapp/pairing?error=$msg');
+        }
+      });
+
+      // POST /whatsapp/pairing/code — request pairing code for a phone number.
+      router.post('/whatsapp/pairing/code', (Request request) async {
+        try {
+          final body = await request.readAsString();
+          final params = Uri.splitQueryString(body);
+          final phone = params['phone'] ?? '';
+          if (phone.isEmpty) {
+            return Response.found('/whatsapp/pairing?error=${Uri.encodeQueryComponent('Phone number is required')}');
+          }
+          final result = await waChannel.gowa.requestPairingCode(phone);
+          final code = result['code']?.toString() ?? result['pairing_code']?.toString();
+          if (code != null) {
+            return Response.found('/whatsapp/pairing?code=${Uri.encodeQueryComponent(code)}');
+          }
+          return Response.found('/whatsapp/pairing?error=${Uri.encodeQueryComponent('No pairing code returned')}');
+        } catch (e) {
+          final msg = Uri.encodeQueryComponent('Failed to get pairing code: $e');
+          return Response.found('/whatsapp/pairing?error=$msg');
         }
       });
     }
@@ -271,6 +406,7 @@ class DartclawServer {
       final sigRouter = signalPairingRoutes(
         signalChannel: sigChannel,
         sessions: _sessions,
+        appName: _appDisplay.name,
       );
       router.mount('/signal', sigRouter.call);
     }
@@ -283,10 +419,45 @@ class DartclawServer {
         heartbeat: _heartbeat,
         scheduleService: _scheduleService,
         gitSync: _gitSync,
-        heartbeatIntervalMinutes: _heartbeatIntervalMinutes,
-        scheduledJobs: _scheduledJobs,
+        heartbeatIntervalMinutes: _heartbeatDisplay.intervalMinutes,
+        scheduledJobs: _schedulingDisplay.jobs,
       );
       router.mount('/', cfgRouter.call);
+    }
+
+    // Config API routes (persistent config editing — after toggle routes).
+    final cw = _configWriter;
+    final cfg = _config;
+    final dd = _appDisplay.dataDir;
+    if (cw != null && cfg != null && rc != null && dd != null) {
+      final cfgApiRouter = configApiRoutes(
+        config: cfg,
+        writer: cw,
+        validator: const ConfigValidator(),
+        runtimeConfig: rc,
+        dataDir: dd,
+        restartService: _restartService,
+        sseBroadcast: _sseBroadcast,
+        heartbeat: _heartbeat,
+        gitSync: _gitSync,
+        scheduleService: _scheduleService,
+        whatsAppChannel: _whatsAppChannel,
+        signalChannel: _signalChannel,
+      );
+      router.mount('/', cfgApiRouter.call);
+    }
+
+    // Memory API routes (prefixed /api/memory/).
+    final memStatus = _memoryStatusService;
+    final wp = _workspaceDisplay.path;
+    if (memStatus != null && wp != null) {
+      final memRouter = memoryRoutes(
+        statusService: memStatus,
+        workspaceDir: wp,
+        pruner: _memoryPruner,
+        kvService: _kvService,
+      );
+      router.mount('/', memRouter.call);
     }
 
     // API routes (prefixed /api/ — no collision with web routes).
@@ -306,11 +477,12 @@ class DartclawServer {
       guardChain: _guardChain,
       turns: _turns,
       runtimeConfig: _runtimeConfig,
-      heartbeatEnabled: _heartbeatEnabled,
-      heartbeatIntervalMinutes: _heartbeatIntervalMinutes,
-      scheduledJobs: _scheduledJobs,
-      workspacePath: _workspacePath,
-      gitSyncEnabled: _gitSyncEnabled,
+      memoryStatusService: _memoryStatusService,
+      contentGuardDisplay: _contentGuardDisplay,
+      heartbeatDisplay: _heartbeatDisplay,
+      schedulingDisplay: _schedulingDisplay,
+      workspaceDisplay: _workspaceDisplay,
+      appDisplay: _appDisplay,
     );
     router.mount('/', webRouter.call);
 
@@ -329,7 +501,7 @@ class DartclawServer {
         .add(
           (_) => Response.notFound(
             errorPageTemplate(404, 'Page Not Found', 'The requested page does not exist.'),
-            headers: _htmlHeaders,
+            headers: htmlHeaders,
           ),
         );
     return pipeline.addHandler(cascade.handler);
@@ -340,13 +512,16 @@ class DartclawServer {
 ///
 /// Shelf's default `logRequests()` logs the full URI including query strings,
 /// which would expose webhook secrets in plaintext. This logger strips the
-/// `secret` parameter value before logging.
+/// `secret` parameter value before logging. Output goes through the standard
+/// [Logger] so it gets colorized level/name and structured formatting.
+final _httpLog = Logger('HTTP');
+
 void _sanitizedLogger(String msg, bool isError) {
   final sanitized = msg.replaceAll(RegExp(r'([?&])secret=[^&\s]*'), r'$1secret=REDACTED');
   if (isError) {
-    stderr.writeln('[ERROR] $sanitized');
+    _httpLog.severe(sanitized);
   } else {
-    print(sanitized);
+    _httpLog.info(sanitized);
   }
 }
 

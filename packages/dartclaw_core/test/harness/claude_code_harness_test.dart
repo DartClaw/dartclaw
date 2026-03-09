@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
+import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
 import 'package:test/test.dart';

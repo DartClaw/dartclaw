@@ -133,8 +133,8 @@ Docker provides kernel-level namespaces: separate PID, network, mount, and user 
 
 The web UI avoids JavaScript build toolchains entirely:
 
-- **Server-side**: HTML templates are Dart functions that return strings via interpolation. No template engine.
-- **Client-side**: HTMX for form submission, SSE (EventSource) for streaming, marked.js for markdown, highlight.js for syntax highlighting. All loaded from CDN.
+- **Server-side**: Trellis template engine with HTML fragment rendering. Templates are `.html` files with `tl:` attributes.
+- **Client-side**: HTMX for navigation and form submission, HTMX SSE extension (`htmx-ext-sse`) for streaming, marked.js for markdown, highlight.js for syntax highlighting. HTMX and marked loaded from CDN; SSE extension, highlight.js, and DOMPurify vendored locally.
 - **Styling**: Custom CSS with design tokens (variables for colors, spacing, typography). Light/dark theme toggle.
 
 ### SSE Streaming Flow
@@ -142,12 +142,12 @@ The web UI avoids JavaScript build toolchains entirely:
 When you send a message:
 
 1. HTMX POSTs the form to `/api/sessions/:id/send`
-2. Server starts the turn and returns an HTML fragment with a `data-sse-url` attribute
-3. Client JavaScript opens an `EventSource` to that URL
-4. Server pushes events: `delta` (text chunks), `tool_use` (tool invocations), `tool_result` (outputs), `done` (completion)
-5. Client renders each event incrementally — text is appended, tool indicators appear/resolve
+2. Server starts the turn and returns an HTML fragment with `hx-ext="sse"` and `sse-connect` attributes pointing to the SSE endpoint
+3. The HTMX SSE extension automatically opens an EventSource to that URL and handles reconnection
+4. Server pushes HTML fragment events: `delta` (`<span>` text chunks), `tool_use` (tool indicator `<div>`s), `tool_result` (OOB swap updates), `done` (empty, triggers close)
+5. HTMX swaps each fragment into the DOM declaratively — text appended, tool indicators updated via OOB swap
 
-This architecture means zero JavaScript bundling, zero WebSocket complexity, and the streaming "just works" with browser-native EventSource.
+This architecture means zero JavaScript bundling, zero WebSocket complexity, and declarative streaming via HTMX attributes.
 
 ## Lineage
 

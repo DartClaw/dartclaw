@@ -1,3 +1,4 @@
+import '../scheduling/cron_parser.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -9,22 +10,28 @@ String schedulingTemplate({
   bool heartbeatEnabled = false,
   int heartbeatIntervalMinutes = 30,
   List<Map<String, dynamic>> jobs = const [],
-  bool signalEnabled = false,
+  List<String> systemJobNames = const [],
+  String bannerHtml = '',
+  String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Scheduling', signalEnabled: signalEnabled);
+  final navItems = buildSystemNavItems(activePage: 'Scheduling');
 
-  final sidebar = sidebarTemplate(
-    mainSession: sidebarData.main,
-    channelSessions: sidebarData.channels,
-    sessionEntries: sidebarData.entries,
-    navItems: navItems,
-  );
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(title: 'Scheduling Status');
 
   final jobRows = jobs.map((job) {
+    final name = job['name']?.toString() ?? '';
+    final schedule = job['schedule']?.toString() ?? '';
     final delivery = job['delivery']?.toString() ?? 'none';
     final jobStatus = job['status']?.toString() ?? 'active';
+    final isSystem = systemJobNames.contains(name);
+
+    // Cron human-readable description
+    String cronHuman = '';
+    try {
+      cronHuman = CronExpression.parse(schedule).describe();
+    } catch (_) {}
 
     final deliveryBadgeClass = switch (delivery) {
       'announce' => 'announce',
@@ -40,14 +47,17 @@ String schedulingTemplate({
     };
 
     return <String, dynamic>{
-      'name': job['name']?.toString() ?? '',
-      'schedule': job['schedule']?.toString() ?? '',
+      'name': name,
+      'schedule': schedule,
       'delivery': delivery,
       'status': jobStatus,
       'deliveryBadgeClass': deliveryBadgeClass,
       'statusDotClass': statusDotClass,
-      'rowClass': jobStatus == 'error' ? 'row-error' : '',
+      'rowClass': isSystem ? 'row-system' : (jobStatus == 'error' ? 'row-error' : ''),
       'isActive': jobStatus == 'active',
+      'isSystem': isSystem,
+      'hasActions': !isSystem,
+      'cronHuman': cronHuman,
     };
   }).toList();
 
@@ -60,8 +70,10 @@ String schedulingTemplate({
     'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
     'heartbeatOn': heartbeatEnabled,
     'hasJobs': jobs.isNotEmpty,
+    'hasUserJobs': jobRows.any((j) => j['isSystem'] != true),
     'jobs': jobRows,
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Scheduling', body: body);
+  return layoutTemplate(title: 'Scheduling', body: body, appName: appName);
 }

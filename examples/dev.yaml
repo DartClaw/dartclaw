@@ -1,7 +1,9 @@
 # DartClaw — Local Development Config
 # Usage: dartclaw --config examples/dev.yaml serve
 
+# name: MyAgent  # Custom instance name (shown in banner, browser tab, sidebar)
 data_dir: .dartclaw-dev
+dev_mode: true
 
 port: 3333
 

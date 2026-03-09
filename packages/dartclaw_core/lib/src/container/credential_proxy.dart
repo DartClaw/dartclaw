@@ -11,17 +11,18 @@ class CredentialProxy {
   static final _log = Logger('CredentialProxy');
 
   final String socketPath;
-  final String apiKey;
+  final String? apiKey;
   final String targetHost;
   final int targetPort;
 
   HttpServer? _server;
+  final HttpClient _client = HttpClient();
   int _requestCount = 0;
   int _errorCount = 0;
 
   CredentialProxy({
     required this.socketPath,
-    required this.apiKey,
+    this.apiKey,
     this.targetHost = 'api.anthropic.com',
     this.targetPort = 443,
   });
@@ -41,13 +42,13 @@ class CredentialProxy {
       dir.createSync(recursive: true);
     }
 
-    _server = await HttpServer.bind(
-      InternetAddress(socketPath, type: InternetAddressType.unix),
-      0,
-    );
+    _server = await HttpServer.bind(InternetAddress(socketPath, type: InternetAddressType.unix), 0);
     // Restrict socket to owner-only — prevents other host processes from
     // connecting and injecting credential headers.
-    await Process.run('chmod', ['600', socketPath]);
+    final chmodResult = await Process.run('chmod', ['600', socketPath]);
+    if (chmodResult.exitCode != 0) {
+      _log.warning('Failed to chmod 600 $socketPath: ${chmodResult.stderr}');
+    }
     _log.info('Credential proxy listening on $socketPath');
 
     _server!.listen(_handleRequest);
@@ -57,6 +58,7 @@ class CredentialProxy {
   Future<void> stop() async {
     await _server?.close();
     _server = null;
+    _client.close(force: true);
     _log.info('Credential proxy stopped (requests: $_requestCount, errors: $_errorCount)');
 
     // Clean up socket file
@@ -71,11 +73,11 @@ class CredentialProxy {
     final stopwatch = Stopwatch()..start();
 
     try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 30);
-
-      final targetUrl = Uri.https(targetHost, request.uri.path, request.uri.queryParametersAll);
-      final outbound = await client.openUrl(request.method, targetUrl);
+      final targetUrl = targetPort == 443
+          ? Uri.https(targetHost, request.uri.path, request.uri.queryParametersAll)
+          : Uri.http('$targetHost:$targetPort', request.uri.path, request.uri.queryParametersAll);
+      _client.connectionTimeout = const Duration(seconds: 30);
+      final outbound = await _client.openUrl(request.method, targetUrl);
 
       // Copy headers from original request
       request.headers.forEach((name, values) {
@@ -85,9 +87,13 @@ class CredentialProxy {
         }
       });
 
-      // Inject credentials
-      outbound.headers.set('x-api-key', apiKey);
-      outbound.headers.set('Authorization', 'Bearer $apiKey');
+      // Inject API-key auth when configured. OAuth/setup-token mode forwards
+      // the existing auth headers from the claude CLI unchanged.
+      final key = apiKey;
+      if (key != null && key.isNotEmpty) {
+        outbound.headers.set('x-api-key', key);
+        outbound.headers.set('Authorization', 'Bearer $key');
+      }
 
       // Forward request body
       await for (final chunk in request) {
@@ -105,16 +111,16 @@ class CredentialProxy {
       await response.pipe(request.response);
 
       stopwatch.stop();
-      _log.fine('Proxy ${request.method} ${request.uri.path} -> $targetHost (${response.statusCode}, ${stopwatch.elapsedMilliseconds}ms)');
-
-      client.close();
+      _log.fine(
+        'Proxy ${request.method} ${request.uri.path} -> $targetHost (${response.statusCode}, ${stopwatch.elapsedMilliseconds}ms)',
+      );
     } catch (e) {
       _errorCount++;
       stopwatch.stop();
       _log.warning('Proxy error: ${request.method} ${request.uri.path} (${stopwatch.elapsedMilliseconds}ms): $e');
       try {
         request.response.statusCode = 502;
-        request.response.write('Proxy error: $e');
+        request.response.write('Bad Gateway');
         await request.response.close();
       } catch (_) {}
     }

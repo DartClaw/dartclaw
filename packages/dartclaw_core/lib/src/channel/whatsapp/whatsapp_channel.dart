@@ -2,7 +2,7 @@ import 'package:logging/logging.dart';
 
 import '../channel.dart';
 import '../channel_manager.dart';
-import 'dm_access.dart';
+import '../dm_access.dart';
 import 'gowa_manager.dart';
 import 'mention_gating.dart';
 import 'response_formatter.dart' as fmt;
@@ -96,7 +96,7 @@ class WhatsAppChannel extends Channel {
 
   @override
   Future<void> disconnect() async {
-    await gowa.stop();
+    await gowa.reset();
   }
 
   /// Handle an inbound webhook payload from GOWA.
@@ -112,7 +112,22 @@ class WhatsAppChannel extends Channel {
 
       // DM access control
       if (message.groupJid == null && !dmAccess.isAllowed(message.senderJid)) {
-        _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
+        if (dmAccess.mode == DmAccessMode.pairing) {
+          final displayName = message.metadata['pushname'] as String?;
+          final pairing = dmAccess.createPairing(
+            message.senderJid,
+            displayName: displayName,
+          );
+          if (pairing != null) {
+            _log.info('Pairing request created for ${message.senderJid}');
+          } else {
+            _log.warning(
+              'Max pending pairings reached — dropping message from ${message.senderJid}',
+            );
+          }
+        } else {
+          _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
+        }
         return;
       }
 

@@ -1,92 +1,210 @@
 <div tl:fragment="settings" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
-  <main id="main-content" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
     <div class="page-inner">
+
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
     <div class="settings-header">
       <h1>Settings</h1>
       <p>Configuration and system status</p>
     </div>
+    <nav class="settings-tabs" aria-label="Settings sections">
+      <a href="#agent" class="settings-tab">Agent</a>
+      <a href="#server" class="settings-tab">Server</a>
+      <a href="#sessions" class="settings-tab">Sessions</a>
+      <a href="#memory" class="settings-tab">Memory</a>
+      <a href="#scheduling" class="settings-tab">Scheduling</a>
+      <a href="#channels" class="settings-tab">Channels</a>
+      <a href="#security" class="settings-tab">Security</a>
+    </nav>
     <div class="settings-grid">
 
-      <!-- WhatsApp Channel -->
-      <div class="card settings-card">
+      <!-- Agent Configuration (editable, restart-required) -->
+      <div id="agent" class="card settings-card" data-tab="agent">
         <div class="card-header">
-          <span class="card-title">WhatsApp Channel</span>
-          <span tl:if="${whatsAppEnabled}" class="status-badge status-badge-success">Connected</span>
-          <span tl:unless="${whatsAppEnabled}" class="status-badge status-badge-muted">Disabled</span>
+          <span class="card-title">Agent Configuration</span>
         </div>
-        <div tl:if="${whatsAppEnabled}" class="card-actions">
-          <a href="/whatsapp/pairing" class="card-link">Configure &#8594;</a>
-        </div>
-        <div tl:unless="${whatsAppEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
-      </div>
-
-      <!-- Signal Channel -->
-      <div class="card settings-card">
-        <div class="card-header">
-          <span class="card-title">Signal Channel</span>
-          <span tl:if="${signalConnected}" class="status-badge status-badge-success">Connected</span>
-          <span tl:if="${signalDisconnected}" class="status-badge status-badge-warning">Disconnected</span>
-          <span tl:if="${signalNotConfigured}" class="status-badge status-badge-muted">Not configured</span>
-        </div>
-        <div tl:if="${signalEnabled}" class="card-detail">
-          Phone: <span class="card-detail-value" tl:text="${signalPhone}">-</span>
-        </div>
-        <div tl:if="${signalEnabled}" class="card-actions">
-          <a href="/signal/pairing" class="card-link">Configure &#8594;</a>
-        </div>
-        <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
-      </div>
-
-      <!-- Security & Guards -->
-      <div class="card settings-card">
-        <div class="card-header">
-          <span class="card-title">Security &amp; Guards</span>
-          <span tl:if="${guardsActive}" class="status-badge status-badge-success"
-                tl:text="${activeGuardCount} + ' active'">0 active</span>
-          <span tl:unless="${guardsActive}" class="status-badge status-badge-muted">Disabled</span>
-        </div>
-        <div class="guard-list">
-          <div class="guard-item" tl:each="guard : ${activeGuards}">
-            <span class="guard-check">&#10003;</span> <span tl:text="${guard}">Guard</span>
+        <form class="settings-form" data-section="agent">
+          <div class="form-group" data-field="agent.model">
+            <label class="form-label" for="field-agent-model">Model</label>
+            <input type="text" class="form-input" id="field-agent-model" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
           </div>
-          <div tl:unless="${guardsActive}" class="guard-item card-detail-muted">No guards active</div>
-        </div>
+          <div class="form-group" data-field="agent.max_turns">
+            <label class="form-label" for="field-agent-max-turns">Max Turns</label>
+            <input type="number" class="form-input" id="field-agent-max-turns" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group form-group-checkbox" data-field="agent.context_1m">
+            <input type="checkbox" id="field-agent-context-1m" disabled>
+            <label class="form-label" for="field-agent-context-1m">Context 1M</label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
       </div>
 
-      <!-- Scheduling -->
-      <div class="card settings-card">
+      <!-- Server Configuration (editable, restart-required) -->
+      <div id="server" class="card settings-card" data-tab="server">
+        <div class="card-header">
+          <span class="card-title">Server Configuration</span>
+        </div>
+        <form class="settings-form" data-section="server">
+          <div class="form-group" data-field="port">
+            <label class="form-label" for="field-port">Port</label>
+            <input type="number" class="form-input" id="field-port" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="host">
+            <label class="form-label" for="field-host">Host</label>
+            <input type="text" class="form-input" id="field-host" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="worker_timeout">
+            <label class="form-label" for="field-worker-timeout">Worker Timeout (s)</label>
+            <input type="number" class="form-input" id="field-worker-timeout" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="logging.level">
+            <label class="form-label" for="field-logging-level">Logging Level</label>
+            <select class="form-select" id="field-logging-level" disabled>
+              <option value="">Loading...</option>
+            </select>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="logging.format">
+            <label class="form-label" for="field-logging-format">Logging Format</label>
+            <select class="form-select" id="field-logging-format" disabled>
+              <option value="">Loading...</option>
+            </select>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+      </div>
+
+      <!-- Sessions (editable, restart-required) -->
+      <div id="sessions" class="card settings-card" data-tab="sessions">
+        <div class="card-header">
+          <span class="card-title">Sessions</span>
+        </div>
+        <form class="settings-form" data-section="sessions">
+          <div class="form-group" data-field="sessions.reset_hour">
+            <label class="form-label" for="field-sessions-reset-hour">Reset Hour</label>
+            <input type="number" class="form-input" id="field-sessions-reset-hour" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="sessions.idle_timeout_minutes">
+            <label class="form-label" for="field-sessions-idle-timeout">Idle Timeout (min)</label>
+            <input type="number" class="form-input" id="field-sessions-idle-timeout" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+      </div>
+
+      <!-- Memory Configuration (editable, restart-required) -->
+      <div id="memory" class="card settings-card" data-tab="memory">
+        <div class="card-header">
+          <span class="card-title">Memory Configuration</span>
+        </div>
+        <form class="settings-form" data-section="memory">
+          <div class="form-group" data-field="memory_max_bytes">
+            <label class="form-label" for="field-memory-max-bytes">Max Bytes</label>
+            <input type="number" class="form-input" id="field-memory-max-bytes" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="search.backend">
+            <label class="form-label" for="field-search-backend">Search Backend</label>
+            <select class="form-select" id="field-search-backend" disabled>
+              <option value="">Loading...</option>
+            </select>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+      </div>
+
+      <!-- Scheduling (mixed: live toggles + restart fields) -->
+      <div id="scheduling" class="card settings-card" data-tab="scheduling">
         <div class="card-header">
           <span class="card-title">Scheduling</span>
-          <span tl:if="${schedulingActive}" class="status-badge status-badge-success">Active</span>
-          <span tl:unless="${schedulingActive}" class="status-badge status-badge-muted">Inactive</span>
         </div>
-        <div class="card-detail">
-          Scheduled jobs: <span class="card-detail-value" tl:text="${scheduledJobsCount}">0</span>
-        </div>
-        <div class="card-detail toggle-row" id="heartbeat-toggle">
-          <span>Heartbeat:</span>
-          <span class="card-detail-value" tl:text="${heartbeatDisplay}">disabled</span>
-          <label class="toggle-switch">
-            <input type="checkbox" tl:if="${heartbeatOn}" checked
-                   hx-post="/api/settings/heartbeat/toggle"
-                   hx-swap="none"
-                   hx-vals='js:{"enabled": event.target.checked}'>
-            <input type="checkbox" tl:unless="${heartbeatOn}"
-                   hx-post="/api/settings/heartbeat/toggle"
-                   hx-swap="none"
-                   hx-vals='js:{"enabled": event.target.checked}'>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
+        <form class="settings-form" data-section="scheduling">
+          <div class="form-group form-group-toggle" data-field="scheduling.heartbeat.enabled">
+            <label class="form-label">Heartbeat <span class="live-badge">live</span></label>
+            <label class="toggle-switch">
+              <input type="checkbox" aria-label="Enable heartbeat" disabled>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group" data-field="scheduling.heartbeat.interval_minutes">
+            <label class="form-label" for="field-heartbeat-interval">Heartbeat Interval (min)</label>
+            <input type="number" class="form-input" id="field-heartbeat-interval" placeholder="Loading..." disabled>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Heartbeat Interval changes require a server restart</p>
         <div class="card-actions">
           <a href="/scheduling" class="card-link">View Schedule &#8594;</a>
         </div>
       </div>
 
-      <!-- Authentication -->
-      <div class="card settings-card">
+      <!-- WhatsApp Channel (read-only, server-rendered) -->
+      <div id="channels" class="card settings-card" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title">WhatsApp Channel</span>
+          <span class="status-badge" tl:classappend="${whatsAppStatusClass}" tl:text="${whatsAppStatusLabel}">Disabled</span>
+          <span tl:if="${whatsAppHasPending}" class="pairing-badge" tl:text="${whatsAppPendingCount}">0</span>
+        </div>
+        <div tl:if="${whatsAppPhone}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${whatsAppPhone}">-</span>
+        </div>
+        <div tl:if="${whatsAppEnabled}" class="card-actions">
+          <a href="/settings/channels/whatsapp" class="card-link">Configure &#8594;</a>
+        </div>
+        <div tl:unless="${whatsAppEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Signal Channel (read-only, server-rendered) -->
+      <div class="card settings-card" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title">Signal Channel</span>
+          <span class="status-badge" tl:classappend="${signalStatusClass}" tl:text="${signalStatusLabel}">Disabled</span>
+          <span tl:if="${signalHasPending}" class="pairing-badge" tl:text="${signalPendingCount}">0</span>
+        </div>
+        <div tl:if="${signalPhone}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${signalPhone}">-</span>
+        </div>
+        <div tl:if="${signalEnabled}" class="card-actions">
+          <a href="/settings/channels/signal" class="card-link">Configure &#8594;</a>
+        </div>
+        <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Authentication (read-only, server-rendered) -->
+      <div class="card settings-card" data-tab="server">
         <div class="card-header">
           <span class="card-title">Authentication</span>
           <span class="mode-badge">Token-based</span>
@@ -100,8 +218,8 @@
         </div>
       </div>
 
-      <!-- System Health -->
-      <div class="card settings-card">
+      <!-- System Health (read-only, server-rendered) -->
+      <div class="card settings-card" data-tab="server">
         <div class="card-header">
           <span class="card-title">System Health</span>
           <span class="status-badge" tl:classappend="${healthBadgeClass}" tl:text="${healthLabel}">Healthy</span>
@@ -120,29 +238,71 @@
         </div>
       </div>
 
-      <!-- Workspace -->
-      <div class="card settings-card">
+      <!-- Security & Guards (read-only, server-rendered — unchanged) -->
+      <div id="security" class="guard-detail-section" data-tab="security">
+        <div class="guard-detail-header">
+          <h2>Security &amp; Guards</h2>
+          <span class="mode-badge">View only</span>
+          <span tl:if="${guardsEnabled}" class="status-badge status-badge-success" tl:text="${activeGuardCount} + ' active'">0 active</span>
+          <span tl:unless="${guardsEnabled}" class="status-badge status-badge-muted">Disabled</span>
+        </div>
+        <div tl:unless="${guardsEnabled}" class="card guard-detail-disabled">
+          <div class="card-detail card-detail-muted">
+            Guards are disabled. Enable in dartclaw.yaml under <code>guards.enabled</code>
+          </div>
+        </div>
+        <div tl:if="${guardsEnabled}" class="guard-detail-cards">
+          <details class="card guard-detail-card" tl:each="guard : ${guardConfigs}">
+            <summary class="guard-detail-summary">
+              <span class="guard-detail-name" tl:text="${guard.name}">Guard</span>
+              <span class="guard-detail-chevron">&#9656;</span>
+              <a class="guard-audit-link" tl:href="'/health-dashboard?guard=' + ${guard.guardKey}">View events &#8594;</a>
+            </summary>
+            <div class="guard-detail-body">
+              <div class="guard-config-section" tl:each="section : ${guard.sections}">
+                <div class="guard-config-section-label" tl:text="${section.label}">Section</div>
+                <div class="guard-config-items">
+                  <div class="guard-config-item" tl:each="item : ${section.items}">
+                    <span class="guard-config-item-label" tl:text="${item.label}">Label</span>
+                    <span class="guard-config-item-value" tl:classappend="${item.style}" tl:text="${item.value}">Value</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Workspace (path + git sync toggles) -->
+      <div class="card settings-card" data-tab="server">
         <div class="card-header">
           <span class="card-title">Workspace</span>
-          <span tl:if="${gitSyncEnabled}" class="status-badge status-badge-success">Synced</span>
-          <span tl:unless="${gitSyncEnabled}" class="status-badge status-badge-muted">No sync</span>
         </div>
         <div class="card-detail card-detail-mono" tl:text="${workspacePathDisplay}">~/.dartclaw/workspace/</div>
-        <div class="card-detail toggle-row" id="git-sync-toggle">
-          <span>Git sync:</span>
-          <span class="card-detail-value" tl:text="${gitSyncDisplay}">Disabled</span>
-          <label class="toggle-switch">
-            <input type="checkbox" tl:if="${gitSyncEnabled}" checked
-                   hx-post="/api/settings/git-sync/toggle"
-                   hx-swap="none"
-                   hx-vals='js:{"enabled": event.target.checked}'>
-            <input type="checkbox" tl:unless="${gitSyncEnabled}"
-                   hx-post="/api/settings/git-sync/toggle"
-                   hx-swap="none"
-                   hx-vals='js:{"enabled": event.target.checked}'>
-            <span class="toggle-slider"></span>
-          </label>
+        <div class="file-tags">
+          <span class="file-tag">SOUL.md</span>
+          <span class="file-tag">AGENTS.md</span>
+          <span class="file-tag">MEMORY.md</span>
+          <span class="file-tag">USER.md</span>
+          <span class="file-tag">TOOLS.md</span>
+          <span class="file-tag">HEARTBEAT.md</span>
         </div>
+        <form class="settings-form" data-section="workspace">
+          <div class="form-group form-group-toggle" data-field="workspace.git_sync.enabled">
+            <label class="form-label">Git Sync <span class="live-badge">live</span></label>
+            <label class="toggle-switch">
+              <input type="checkbox" aria-label="Enable git sync" disabled>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group form-group-toggle" data-field="workspace.git_sync.push_enabled">
+            <label class="form-label">Git Sync Push <span class="live-badge">live</span></label>
+            <label class="toggle-switch">
+              <input type="checkbox" aria-label="Enable git sync push" disabled>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </form>
       </div>
 
     </div>

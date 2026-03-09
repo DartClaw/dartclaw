@@ -38,7 +38,10 @@ class LogService {
     final effectiveRedactor = redactor ?? LogRedactor();
     final formatter = switch (format) {
       'json' => JsonFormatter(redactor: effectiveRedactor),
-      _ => HumanFormatter(redactor: effectiveRedactor),
+      _ => HumanFormatter(
+          redactor: effectiveRedactor,
+          colorize: stderr.hasTerminal,
+        ),
     };
 
     IOSink? fileSink;

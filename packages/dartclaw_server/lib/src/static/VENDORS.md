@@ -36,3 +36,19 @@ Themes from https://github.com/catppuccin/highlightjs.
 ### Upgrading
 
 Download latest from `https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js` and strip the trailing `//# sourceMappingURL=...` line to avoid CSP console warnings.
+
+## htmx-ext-sse
+
+- **Version**: 2.2.2
+- **License**: BSD-2-Clause
+- **Source**: https://github.com/bigskysoftware/htmx-extensions/tree/main/src/sse
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `sse.js` | HTMX SSE extension (declarative EventSource + DOM swapping) |
+
+### Upgrading
+
+Download latest from `https://unpkg.com/htmx-ext-sse@{version}/sse.js`.

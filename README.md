@@ -7,7 +7,7 @@ DartClaw is a security-focused agent runtime — a single AOT-compiled Dart bina
 _**Opinionated (Claude Code), but pluggable.**_
 The harness architecture currently drives Claude's native CLI binary via JSONL control protocol, but is designed to leash any agent runtime — Pi, local models, that hot new AI your timeline won't shut up about. Swap the brain, keep the cage.
 
-> **Status**: v0.2 in progress — module implementation complete, runtime integration wiring underway.
+> **Status**: v0.6 — config editing, guard audit UI, memory dashboard, MCP tool extensions, SDK prep complete.
 
 ## Architecture
 
@@ -69,6 +69,7 @@ dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
 apps/dartclaw_cli/          CLI app (serve, status, deploy, token commands)
 packages/dartclaw_core/     Shared lib: harness, protocol, guards, channels,
                             agents, security, scheduling (sqlite3-free)
+packages/dartclaw_models/   Shared models: session types, SessionKey (no heavy deps)
 packages/dartclaw_storage/  SQLite3-backed storage: MemoryService, SearchDb,
                             FTS5/QMD backends, MemoryPruner
 packages/dartclaw_server/   HTTP API (Shelf), web UI templates, SSE streaming,

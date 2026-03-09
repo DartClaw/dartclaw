@@ -2,20 +2,20 @@
 sealed class GuardVerdict {
   const GuardVerdict();
 
-  factory GuardVerdict.pass() = _Pass;
-  factory GuardVerdict.warn(String message) = _Warn;
-  factory GuardVerdict.block(String reason) = _Block;
+  factory GuardVerdict.pass() = GuardPass;
+  factory GuardVerdict.warn(String message) = GuardWarn;
+  factory GuardVerdict.block(String reason) = GuardBlock;
 
-  bool get isPass => this is _Pass;
-  bool get isWarn => this is _Warn;
-  bool get isBlock => this is _Block;
+  bool get isPass => this is GuardPass;
+  bool get isWarn => this is GuardWarn;
+  bool get isBlock => this is GuardBlock;
 
   /// Non-null for [warn] and [block]; null for [pass].
   String? get message;
 }
 
-final class _Pass extends GuardVerdict {
-  const _Pass();
+final class GuardPass extends GuardVerdict {
+  const GuardPass();
 
   @override
   String? get message => null;
@@ -24,21 +24,21 @@ final class _Pass extends GuardVerdict {
   String toString() => 'GuardVerdict.pass()';
 }
 
-final class _Warn extends GuardVerdict {
+final class GuardWarn extends GuardVerdict {
   @override
   final String message;
 
-  const _Warn(this.message);
+  const GuardWarn(this.message);
 
   @override
   String toString() => 'GuardVerdict.warn($message)';
 }
 
-final class _Block extends GuardVerdict {
+final class GuardBlock extends GuardVerdict {
   @override
   final String message;
 
-  const _Block(this.message);
+  const GuardBlock(this.message);
 
   @override
   String toString() => 'GuardVerdict.block($message)';

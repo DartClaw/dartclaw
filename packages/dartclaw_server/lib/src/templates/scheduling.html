@@ -1,9 +1,10 @@
 <div tl:fragment="scheduling" class="shell">
   <div tl:utext="${sidebar}">sidebar</div>
   <div tl:utext="${topbar}">topbar</div>
-  <main id="main-content" hx-history-elt class="page-content">
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
     <div class="page-inner">
 
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
       <div class="heartbeat-card" id="heartbeat-section">
         <div class="heartbeat-header">
           <span tl:classappend="${pulseClass}" class="pulse-icon"></span>
@@ -33,7 +34,46 @@
         </div>
       </div>
 
-      <h2 class="section-header">Scheduled Jobs</h2>
+      <div class="section-toolbar">
+        <h2 class="section-header">Scheduled Jobs</h2>
+        <button class="btn btn-primary btn-sm" data-action="toggle-job-form">+ Add Job</button>
+      </div>
+
+      <div class="job-form-card" id="job-form" style="display: none;">
+        <div class="form-title">Add New Job</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="job-name">Name</label>
+            <input type="text" id="job-name" placeholder="e.g. code-review">
+          </div>
+          <div class="form-row">
+            <label for="job-schedule">Schedule</label>
+            <div class="schedule-row">
+              <input type="text" id="job-schedule" placeholder="0 7 * * *">
+              <span class="cron-preview" id="cron-preview"></span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="job-prompt">Prompt</label>
+            <textarea id="job-prompt" rows="3" placeholder="Describe the task for the agent..."></textarea>
+          </div>
+          <div class="form-row">
+            <label>Delivery</label>
+            <div class="radio-group">
+              <label><input type="radio" name="delivery" value="announce" checked> announce</label>
+              <label><input type="radio" name="delivery" value="webhook"> webhook</label>
+              <label><input type="radio" name="delivery" value="none"> none</label>
+            </div>
+          </div>
+          <div><span class="restart-badge">&#9888; restart required</span></div>
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm" data-action="submit-job-form">Save Job</button>
+            <button class="btn btn-ghost btn-sm" data-action="toggle-job-form">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-fade-wrap">
       <div class="table-wrap">
         <table class="data-table">
           <caption class="sr-only">Scheduled jobs overview</caption>
@@ -43,37 +83,46 @@
               <th>Schedule</th>
               <th>Delivery</th>
               <th>Status</th>
-              <th>Action</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr tl:if="${hasJobs}" tl:each="job : ${jobs}" tl:classappend="${job.rowClass}">
-              <td tl:text="${job.name}">Job name</td>
-              <td><span class="cron-expr" tl:text="${job.schedule}">* * * * *</span></td>
+              <td>
+                <span tl:if="${job.isSystem}" class="system-badge">SYSTEM</span>
+                <span tl:text="${job.name}">Job name</span>
+              </td>
+              <td>
+                <span class="cron-expr" tl:text="${job.schedule}">* * * * *</span>
+                <span class="cron-human" tl:text="${job.cronHuman}"></span>
+              </td>
               <td><span tl:classappend="${job.deliveryBadgeClass}" class="delivery-badge" tl:text="${job.delivery}">none</span></td>
               <td><span tl:classappend="${job.statusDotClass}" class="status-dot" tl:text="${job.status}">active</span></td>
-              <td>
-                <button class="btn-icon" tl:if="${job.isActive}"
-                        tl:attr="hx-post='/api/scheduling/jobs/' + ${job.name} + '/toggle'"
-                        hx-vals='{"status": "paused"}'
-                        hx-swap="none"
-                        title="Pause job">&#9646;&#9646;</button>
-                <button class="btn-icon" tl:unless="${job.isActive}"
-                        tl:attr="hx-post='/api/scheduling/jobs/' + ${job.name} + '/toggle'"
-                        hx-vals='{"status": "active"}'
-                        hx-swap="none"
-                        title="Resume job">&#9654;</button>
+              <td tl:if="${job.hasActions}">
+                <div class="action-btns">
+                  <button class="btn-icon-sm"
+                          data-action="edit-job" tl:attr="data-job-name=${job.name}"
+                          title="Edit">&#9998;</button>
+                  <button class="btn-icon-sm"
+                          data-action="confirm-delete-job" tl:attr="data-job-name=${job.name}"
+                          title="Delete">&times;</button>
+                </div>
+              </td>
+              <td tl:unless="${job.hasActions}">
+                <!-- System jobs: no actions -->
               </td>
             </tr>
             <tr tl:unless="${hasJobs}">
-              <td colspan="4" style="text-align:center;color:var(--fg-overlay);padding:var(--sp-6);">No scheduled jobs configured</td>
+              <td colspan="5" class="table-empty-cell">No scheduled jobs configured</td>
             </tr>
           </tbody>
         </table>
       </div>
+      </div>
 
       <div class="info-footer">
-        Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code>. This is a read-only status view.
+        Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code>.
+        Job changes require a restart to take effect.
       </div>
 
     </div>

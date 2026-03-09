@@ -1,0 +1,10 @@
+<div tl:fragment="restartBanner" class="banner banner-restart" id="restart-banner">
+  <span>
+    Pending changes require restart:
+    <strong id="restart-banner-fields" tl:text="${fieldList}">field names</strong>
+  </span>
+  <span class="banner-actions">
+    <button class="btn-sm btn-primary" data-action="confirm-restart">Restart Now</button>
+    <button class="btn-sm btn-ghost dismiss" data-action="dismiss-restart-banner">Dismiss</button>
+  </span>
+</div>

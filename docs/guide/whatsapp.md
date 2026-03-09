@@ -10,16 +10,15 @@ DartClaw connects to WhatsApp via GOWA (Go WhatsApp), a sidecar binary that wrap
 
 ## Installing GOWA
 
+The installer script downloads the correct pre-built binary for your platform and adds it to PATH:
+
 ```bash
-# Build from source (requires Go 1.21+)
-git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice
-cd go-whatsapp-web-multidevice
-git checkout v8.3.2
-go build -o whatsapp .
-sudo mv whatsapp /usr/local/bin/
+bash scripts/install-gowa.sh
 ```
 
-Verify: `./whatsapp --help`
+Then open a new terminal (or `source ~/.zshrc`).
+
+Alternatively, download manually from [GitHub releases](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases) — pick the zip for your OS/arch, extract, and place the binary on PATH as `whatsapp`.
 
 ## Setup
 

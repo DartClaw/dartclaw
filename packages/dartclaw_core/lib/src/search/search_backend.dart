@@ -1,4 +1,4 @@
-import '../models/models.dart';
+import 'package:dartclaw_models/dartclaw_models.dart';
 
 /// Abstract interface for memory search backends.
 ///

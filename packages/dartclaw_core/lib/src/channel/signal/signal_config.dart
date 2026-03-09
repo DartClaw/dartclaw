@@ -1,4 +1,5 @@
 import '../channel_config.dart';
+import '../dm_access.dart';
 import 'signal_dm_access.dart';
 
 /// Configuration for the Signal channel via signal-cli subprocess.
@@ -9,7 +10,7 @@ class SignalConfig {
   final String host;
   final int port;
   final int maxChunkSize;
-  final SignalDmAccessMode dmAccess;
+  final DmAccessMode dmAccess;
   final SignalGroupAccessMode groupAccess;
   final List<String> dmAllowlist;
   final List<String> groupAllowlist;
@@ -24,7 +25,7 @@ class SignalConfig {
     this.host = '127.0.0.1',
     this.port = 8080,
     this.maxChunkSize = 4000,
-    this.dmAccess = SignalDmAccessMode.allowlist,
+    this.dmAccess = DmAccessMode.allowlist,
     this.groupAccess = SignalGroupAccessMode.disabled,
     this.dmAllowlist = const [],
     this.groupAllowlist = const [],
@@ -76,10 +77,10 @@ class SignalConfig {
       warns.add('Invalid type for signal.max_chunk_size: "${mcs.runtimeType}" — using default');
     }
 
-    var dmAccessMode = SignalDmAccessMode.allowlist;
+    var dmAccessMode = DmAccessMode.allowlist;
     final dm = yaml['dm_access'];
     if (dm is String) {
-      final parsed = SignalDmAccessMode.values.where((v) => v.name == dm).firstOrNull;
+      final parsed = DmAccessMode.values.where((v) => v.name == dm).firstOrNull;
       if (parsed != null) {
         dmAccessMode = parsed;
       } else {

@@ -2,9 +2,10 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import '../version.dart';
+
 /// Collects runtime health metrics: uptime, worker state, session count, DB size.
 class HealthService {
-  static const _version = '0.5.0';
   static const _cacheTtl = Duration(seconds: 60);
 
   final AgentHarness _worker;
@@ -44,7 +45,7 @@ class HealthService {
       'worker_state': _worker.state.name,
       'session_count': _cachedSessionCount,
       'db_size_bytes': _cachedDbSizeBytes,
-      'version': _version,
+      'version': dartclawVersion,
     };
 
     final tracker = _usageTracker;

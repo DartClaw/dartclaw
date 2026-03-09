@@ -11,35 +11,40 @@ import '../templates/topbar.dart';
 ///
 /// States (checked in order via template conditionals):
 /// - [isConnected] — account registered and sidecar healthy
+/// - [captchaPending] — Signal requires captcha before SMS registration
 /// - [verificationPending] — SMS code sent, waiting for user to enter it
 /// - [linkDeviceUri] set — sidecar reachable, show link-device + SMS options
 /// - default — sidecar not reachable, show setup instructions
+///
+/// Note: SMS registration UI is currently hidden (TD-035). The captcha,
+/// verify, and SMS register routes still exist for future use.
 String signalPairingTemplate({
   bool isConnected = false,
+  bool showReconnecting = false,
   String? connectedPhone,
   String? linkDeviceUri,
   bool verificationPending = false,
+  bool captchaPending = false,
+  String? captchaPhone,
   String? configuredPhone,
   String? error,
+  int restartAttempt = 0,
+  int maxRestartAttempts = 5,
   SidebarData sidebarData = const (main: null, channels: [], entries: []),
-  bool signalEnabled = false,
   bool fragmentOnly = false,
+  String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Settings', signalEnabled: signalEnabled);
-  final sidebar = sidebarTemplate(
-    mainSession: sidebarData.main,
-    channelSessions: sidebarData.channels,
-    sessionEntries: sidebarData.entries,
-    navItems: navItems,
-  );
+  final navItems = buildSystemNavItems(activePage: 'Settings');
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(
     title: 'Signal Channel',
-    backHref: '/settings',
+    backHref: '/settings#channels',
     backLabel: 'Settings',
   );
 
-  final showLinkDevice = !isConnected && !verificationPending && linkDeviceUri != null;
+  final showLinkDevice = !isConnected && !showReconnecting &&
+      !verificationPending && !captchaPending && linkDeviceUri != null;
 
   final body = templateLoader.trellis.renderFragment(
     templateLoader.source('signal_pairing'),
@@ -50,17 +55,23 @@ String signalPairingTemplate({
       'error': error,
       'isConnected': isConnected,
       'phoneDisplay': connectedPhone ?? 'Connected',
-      'verificationPending': !isConnected && verificationPending,
+      'showReconnecting': showReconnecting,
+      'captchaPending': !isConnected && !showReconnecting && captchaPending,
+      'captchaPhone': captchaPhone ?? '',
+      'verificationPending': !isConnected && !showReconnecting &&
+          !captchaPending && verificationPending,
       'verifyPhone': configuredPhone ?? 'your number',
       'showLinkDevice': showLinkDevice,
       'linkDeviceUri': linkDeviceUri ?? '',
       'smsPhoneDisplay': configuredPhone != null && configuredPhone.isNotEmpty
           ? configuredPhone
-          : 'the configured number',
-      'showSetup': !isConnected && !verificationPending && linkDeviceUri == null,
+          : '',
+      'showSetup': !isConnected && !showReconnecting &&
+          !verificationPending && !captchaPending && linkDeviceUri == null,
+      'restartAttempt': showReconnecting ? '$restartAttempt of $maxRestartAttempts' : null,
     },
   );
 
   if (fragmentOnly) return '$body$topbar$sidebar';
-  return layoutTemplate(title: 'Signal Setup', body: body);
+  return layoutTemplate(title: 'Signal Setup', body: body, appName: appName);
 }

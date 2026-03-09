@@ -16,7 +16,7 @@ void main() {
 
   group('TemplateLoader', () {
     test('validate() succeeds when all templates exist', () {
-      final loader = server.TemplateLoader(templatesDir);
+      final loader = server.TemplateLoaderService(templatesDir);
       // Should not throw.
       loader.validate();
     });
@@ -25,7 +25,7 @@ void main() {
       final tmpDir = Directory.systemTemp.createTempSync('tpl_test_');
       addTearDown(() => tmpDir.deleteSync(recursive: true));
 
-      final loader = server.TemplateLoader(tmpDir.path);
+      final loader = server.TemplateLoaderService(tmpDir.path);
       expect(() => loader.validate(), throwsA(isA<StateError>()));
     });
 
@@ -33,7 +33,7 @@ void main() {
       final tmpDir = Directory.systemTemp.createTempSync('tpl_test_');
       addTearDown(() => tmpDir.deleteSync(recursive: true));
 
-      final loader = server.TemplateLoader(tmpDir.path);
+      final loader = server.TemplateLoaderService(tmpDir.path);
       try {
         loader.validate();
         fail('Expected StateError');
@@ -45,7 +45,7 @@ void main() {
     });
 
     test('source() returns template content and trellis renders it', () {
-      final loader = server.TemplateLoader(templatesDir);
+      final loader = server.TemplateLoaderService(templatesDir);
       final html = loader.trellis.render(
         loader.source('error_page'),
         {'code': 404, 'title': 'Not Found', 'detail': 'Gone'},
@@ -55,7 +55,7 @@ void main() {
     });
 
     test('source() throws for unknown template', () {
-      final loader = server.TemplateLoader(templatesDir);
+      final loader = server.TemplateLoaderService(templatesDir);
       expect(() => loader.source('nonexistent'), throwsA(isA<StateError>()));
     });
   });
@@ -128,7 +128,7 @@ void main() {
       final html = await engine.renderFileFragment(
         'login',
         fragment: 'loginPage',
-        context: {'error': null},
+        context: {'error': null, 'appName': 'DartClaw'},
       );
       expect(html, contains('DartClaw'));
     });
@@ -189,6 +189,7 @@ void main() {
       final html = await engine.renderFile('layout', {
         'title': 'Test Page',
         'body': '<p>Hello</p>',
+        'appName': 'DartClaw',
       });
       expect(html, contains('<!DOCTYPE html>'));
       expect(html, contains('Test Page - DartClaw'));
@@ -265,7 +266,7 @@ void main() {
       final html = await engine.renderFileFragment(
         'topbar',
         fragment: 'plainTopbar',
-        context: const {},
+        context: const {'appName': 'DartClaw'},
       );
       expect(html, contains('DartClaw'));
       expect(html, contains('theme-toggle'));
@@ -587,7 +588,7 @@ void main() {
           'topbar': '',
         },
       );
-      expect(html, contains('/whatsapp/pairing'));
+      expect(html, contains('/settings/channels/whatsapp'));
       expect(html, contains('Configure'));
     });
   });
@@ -663,6 +664,9 @@ void main() {
       expect(html, contains('data-session-id="abc-123"'));
       expect(html, contains('class="msg">test'));
       expect(html, contains('hx-post="/api/sessions/abc-123/send"'));
+      expect(html, isNot(contains('sse-container')));
+      expect(html, contains('hx-target="#messages"'));
+      expect(html, contains('hx-swap="beforeend"'));
     });
 
     test('sendResponse renders user message and SSE connector', () async {
@@ -677,7 +681,10 @@ void main() {
       expect(html, contains('msg-user'));
       expect(html, contains('Hello &lt;world&gt;'));
       expect(html, contains('streaming-msg'));
-      expect(html, contains('data-sse-url="/api/sessions/s1/stream?turn=t1"'));
+      expect(html, contains('sse-connect="/api/sessions/s1/stream?turn=t1"'));
+      expect(html, contains('hx-ext="sse"'));
+      expect(html, contains('sse-close="done"'));
+      expect(html, contains('sse-swap="delta"'));
     });
   });
 

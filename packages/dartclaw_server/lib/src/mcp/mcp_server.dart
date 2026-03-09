@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+import '../version.dart';
+
 /// MCP protocol handler implementing JSON-RPC 2.0 over Streamable HTTP.
 ///
 /// Handles `initialize`, `notifications/initialized`, `tools/list`, and
@@ -13,7 +15,6 @@ class McpProtocolHandler {
 
   static const _protocolVersion = '2025-03-26';
   static const _serverName = 'dartclaw';
-  static const _serverVersion = '0.5.0';
 
   final Map<String, McpTool> _tools = {};
   bool _started = false;
@@ -106,7 +107,7 @@ class McpProtocolHandler {
       },
       'serverInfo': {
         'name': _serverName,
-        'version': _serverVersion,
+        'version': dartclawVersion,
       },
     };
     return _successResponse(id, result);
@@ -134,20 +135,30 @@ class McpProtocolHandler {
 
     final args = params['arguments'] as Map<String, dynamic>? ?? {};
 
+    ToolResult result;
     try {
-      final result = await tool.call(args).timeout(const Duration(seconds: 120));
-      return _successResponse(id, {
-        'content': [
-          {'type': 'text', 'text': result},
-        ],
-      });
+      result = await tool.call(args).timeout(const Duration(seconds: 120));
     } on TimeoutException {
       _log.warning('Tool "$name" timed out');
-      return _errorResponse(id, -32000, 'Tool "$name" timed out');
+      result = ToolResult.error('Tool "$name" timed out after 120 seconds');
     } catch (e) {
-      _log.warning('Tool "$name" failed: $e');
-      return _errorResponse(id, -32000, 'Tool execution failed: $e');
+      _log.warning('Tool "$name" threw exception: $e');
+      result = ToolResult.error('Tool execution failed: $e');
     }
+
+    return switch (result) {
+      ToolResultText(:final content) => _successResponse(id, {
+          'content': [
+            {'type': 'text', 'text': content},
+          ],
+        }),
+      ToolResultError(:final message) => _successResponse(id, {
+          'content': [
+            {'type': 'text', 'text': message},
+          ],
+          'isError': true,
+        }),
+    };
   }
 
   static String _successResponse(Object id, Object result) {

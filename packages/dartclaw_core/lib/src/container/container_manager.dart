@@ -1,17 +1,19 @@
 import 'dart:io';
 
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import 'container_config.dart';
 
 typedef RunCommand = Future<ProcessResult> Function(String executable, List<String> arguments);
-typedef StartCommand = Future<Process> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-  Map<String, String>? environment,
-  bool includeParentEnvironment,
-});
+typedef StartCommand =
+    Future<Process> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+      bool includeParentEnvironment,
+    });
 
 /// Manages Docker container lifecycle for agent isolation.
 ///
@@ -19,21 +21,24 @@ typedef StartCommand = Future<Process> Function(
 /// and `docker exec` for each turn to avoid per-turn container startup.
 class ContainerManager {
   static final _log = Logger('ContainerManager');
+  static const _containerName = 'dartclaw-agent';
+  static const _proxyPort = 8080;
+  static const containerClaudeExecutable = '/home/dartclaw/.local/bin/claude';
 
   final ContainerConfig config;
   final String workspaceDir;
   final String projectDir;
   final String proxySocketDir;
+  final String? hostClaudeJsonPath;
   final RunCommand _run;
   final StartCommand _start;
-
-  static const _containerName = 'dartclaw-agent';
 
   ContainerManager({
     required this.config,
     required this.workspaceDir,
     required this.projectDir,
     required this.proxySocketDir,
+    this.hostClaudeJsonPath,
     RunCommand? runCommand,
     StartCommand? startCommand,
   }) : _run = runCommand ?? Process.run,
@@ -57,7 +62,8 @@ class ContainerManager {
       return;
     }
     _log.info('Building container image ${config.image}...');
-    final buildResult = await _run('docker', ['build', '-t', config.image, 'docker/']);
+    final dockerContextDir = p.join(projectDir, 'docker');
+    final buildResult = await _run('docker', ['build', '-t', config.image, dockerContextDir]);
     if (buildResult.exitCode != 0) {
       throw StateError('Failed to build Docker image: ${buildResult.stderr}');
     }
@@ -65,6 +71,11 @@ class ContainerManager {
 
   /// Create and start the container with security flags.
   Future<void> start() async {
+    if (await isHealthy()) {
+      _log.info('Container $_containerName already running');
+      return;
+    }
+
     // Remove stale container if exists
     await _run('docker', ['rm', '-f', _containerName]);
 
@@ -79,7 +90,8 @@ class ContainerManager {
       '-v', '$workspaceDir:/workspace:rw',
       '-v', '$projectDir:/project:ro',
       '-v', '$proxySocketDir:/var/run/dartclaw',
-      '-e', 'ANTHROPIC_BASE_URL=http+unix:///var/run/dartclaw/proxy.sock',
+      if (hostClaudeJsonPath != null) ...['-v', '$hostClaudeJsonPath:/home/dartclaw/.claude.json:ro'],
+      '-e', 'ANTHROPIC_BASE_URL=http://localhost:$_proxyPort',
       ...config.extraMounts.expand((m) => ['-v', m]),
       ...config.extraArgs,
       config.image,
@@ -96,7 +108,23 @@ class ContainerManager {
       throw StateError('Failed to start container: ${startResult.stderr}');
     }
 
+    await startSocatBridge();
     _log.info('Container $_containerName started');
+  }
+
+  /// Start the in-container TCP-to-Unix-socket bridge for Claude API requests.
+  Future<void> startSocatBridge() async {
+    final result = await _run('docker', [
+      'exec',
+      '-d',
+      _containerName,
+      'socat',
+      'TCP-LISTEN:$_proxyPort,fork,reuseaddr',
+      'UNIX-CLIENT:/var/run/dartclaw/proxy.sock',
+    ]);
+    if (result.exitCode != 0) {
+      throw StateError('Failed to start socat bridge: ${result.stderr}');
+    }
   }
 
   /// Stop and remove the container.
@@ -108,10 +136,7 @@ class ContainerManager {
 
   /// Execute a command inside the running container, returning a Process
   /// for JSONL communication.
-  Future<Process> exec(
-    List<String> command, {
-    Map<String, String>? env,
-  }) async {
+  Future<Process> exec(List<String> command, {Map<String, String>? env}) async {
     final envArgs = <String>[];
     if (env != null) {
       for (final entry in env.entries) {
@@ -119,11 +144,17 @@ class ContainerManager {
       }
     }
 
-    return _start(
-      'docker',
-      ['exec', '-i', ...envArgs, _containerName, ...command],
-      includeParentEnvironment: false,
-    );
+    // Keep the host PATH so the parent process can resolve `docker`; this does
+    // not affect the environment inside the container.
+    return _start('docker', [
+      'exec',
+      '-i',
+      '-w',
+      '/project',
+      ...envArgs,
+      _containerName,
+      ...command,
+    ], includeParentEnvironment: true);
   }
 
   /// Check if the container is running.

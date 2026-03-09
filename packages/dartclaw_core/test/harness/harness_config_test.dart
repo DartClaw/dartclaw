@@ -43,5 +43,24 @@ void main() {
       const config = HarnessConfig(context1m: false);
       expect(config.toInitializeFields().containsKey('context1m'), isFalse);
     });
+
+    test('mcpServerUrl and mcpGatewayToken excluded from toInitializeFields', () {
+      const config = HarnessConfig(
+        mcpServerUrl: 'http://127.0.0.1:3000/mcp',
+        mcpGatewayToken: 'test-token',
+        maxTurns: 10,
+      );
+      final fields = config.toInitializeFields();
+      expect(fields.containsKey('mcpServerUrl'), isFalse);
+      expect(fields.containsKey('mcpGatewayToken'), isFalse);
+      // Other fields still present.
+      expect(fields['maxTurns'], 10);
+    });
+
+    test('default config has null MCP fields', () {
+      const config = HarnessConfig();
+      expect(config.mcpServerUrl, isNull);
+      expect(config.mcpGatewayToken, isNull);
+    });
   });
 }

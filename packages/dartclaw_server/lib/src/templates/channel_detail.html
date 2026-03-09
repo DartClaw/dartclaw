@@ -1,0 +1,125 @@
+<div tl:fragment="channel_detail" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner">
+
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+    <div class="channel-detail-page" tl:attr="data-channel-type=${channelType}">
+      <!-- Header -->
+      <div class="card channel-detail-header">
+        <div class="channel-detail-header-row">
+          <span class="channel-detail-label" tl:text="${channelLabel}">Channel</span>
+          <span class="status-badge" tl:classappend="${statusClass}" tl:text="${statusLabel}">Status</span>
+        </div>
+        <div tl:if="${phone}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${phone}">-</span>
+        </div>
+        <div class="channel-detail-links">
+          <a tl:attr="href=${pairingHref}" class="card-link">Pairing / Registration &#8594;</a>
+        </div>
+      </div>
+
+      <!-- DM Access -->
+      <div class="card channel-detail-section" data-section="dm">
+        <h3 class="section-label">DM Access</h3>
+
+        <div class="form-group">
+          <label class="form-label">Mode</label>
+          <select class="form-select channel-mode-select" data-field-key="dm_access">
+            <option tl:each="mode : ${dmAccessModes}" tl:attr="value=${mode},selected=${mode == dmAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
+          </select>
+        </div>
+
+        <div class="allowlist-section" data-allowlist="dm">
+          <div class="allowlist-header">
+            <span class="allowlist-count">Allowlist (<span class="allowlist-count-num" tl:text="${dmAllowlistCount}">0</span> entries)</span>
+          </div>
+          <div class="allowlist-table">
+            <div tl:each="entry : ${dmAllowlist}" class="allowlist-row">
+              <span class="allowlist-entry" tl:text="${entry}">entry</span>
+              <button class="btn btn-sm btn-danger allowlist-remove" type="button" tl:attr="data-entry=${entry}">Remove</button>
+            </div>
+            <div tl:unless="${dmAllowlist}" class="allowlist-empty">No entries</div>
+          </div>
+          <form class="allowlist-add-form" data-allowlist-type="dm">
+            <input type="text" class="form-input allowlist-add-input" tl:attr="placeholder=${entryPlaceholder}" required>
+            <button type="submit" class="btn btn-sm btn-primary">Add</button>
+          </form>
+          <div class="allowlist-add-error"></div>
+          <div class="card-detail card-detail-hint">Allowlist changes take effect immediately (no restart required)</div>
+        </div>
+      </div>
+
+      <!-- Pending Pairing Requests (shown only in pairing mode) -->
+      <div tl:if="${showPairingSection}" class="card channel-detail-section" data-section="pairing">
+        <h3 class="section-label">Pending Pairing Requests</h3>
+        <div id="pairing-requests-container" class="pairing-requests">
+          <div tl:if="${pendingPairings}" class="pairing-list">
+            <div tl:each="pairing : ${pendingPairings}" class="pairing-row">
+              <div class="pairing-sender">
+                <span class="pairing-sender-id" tl:text="${pairing.senderId}">+1234567890</span>
+                <span tl:if="${pairing.displayName}" class="pairing-sender-name" tl:text="${pairing.displayName}">Name</span>
+              </div>
+              <span class="pairing-time" tl:text="${pairing.remainingLabel}">59m</span>
+              <div class="pairing-actions">
+                <button class="btn btn-sm btn-primary pairing-approve" type="button" tl:attr="data-code=${pairing.code}">Approve</button>
+                <button class="btn btn-sm btn-danger pairing-reject" type="button" tl:attr="data-code=${pairing.code}">Reject</button>
+              </div>
+            </div>
+          </div>
+          <div tl:unless="${pendingPairings}" class="pairing-empty">No pending pairing requests</div>
+        </div>
+        <div class="card-detail card-detail-hint">Pairing requests update automatically every 5 seconds</div>
+      </div>
+
+      <!-- Group Access -->
+      <div class="card channel-detail-section" data-section="group">
+        <h3 class="section-label">Group Access</h3>
+
+        <div class="form-group">
+          <label class="form-label">Mode</label>
+          <select class="form-select channel-mode-select" data-field-key="group_access">
+            <option tl:each="mode : ${groupAccessModes}" tl:attr="value=${mode},selected=${mode == groupAccessMode ? 'selected' : null}" tl:text="${mode}">mode</option>
+          </select>
+        </div>
+
+        <div class="allowlist-section" data-allowlist="group">
+          <div class="allowlist-header">
+            <span class="allowlist-count">Allowlist (<span class="allowlist-count-num" tl:text="${groupAllowlistCount}">0</span> entries)</span>
+          </div>
+          <div class="allowlist-table">
+            <div tl:each="entry : ${groupAllowlist}" class="allowlist-row">
+              <span class="allowlist-entry" tl:text="${entry}">entry</span>
+              <button class="btn btn-sm btn-danger allowlist-remove" type="button" tl:attr="data-entry=${entry}">Remove</button>
+            </div>
+            <div tl:unless="${groupAllowlist}" class="allowlist-empty">No entries</div>
+          </div>
+          <form class="allowlist-add-form" data-allowlist-type="group">
+            <input type="text" class="form-input allowlist-add-input" tl:attr="placeholder=${groupPlaceholder}" required>
+            <button type="submit" class="btn btn-sm btn-primary">Add</button>
+          </form>
+          <div class="allowlist-add-error"></div>
+          <div class="card-detail card-detail-hint">Group allowlist changes require a restart</div>
+        </div>
+      </div>
+
+      <!-- Mention Gating -->
+      <div class="card channel-detail-section channel-mention-section" data-section="mention" tl:classappend="${groupAccessMode == 'disabled' ? 'hidden' : ''}">
+        <h3 class="section-label">Mention Gating</h3>
+        <div class="form-group form-group-checkbox">
+          <input type="checkbox" id="require-mention" class="form-checkbox" tl:attr="checked=${requireMention ? 'checked' : null}">
+          <label for="require-mention" class="form-label">Require @mention in groups</label>
+        </div>
+        <div class="card-detail card-detail-hint">Changes require a restart</div>
+      </div>
+
+      <!-- Restart banner (shown by JS) -->
+      <div id="channel-restart-banner" class="banner banner-warning" style="display: none;">
+        &#9888; Configuration changed. Restart required for changes to take effect.
+      </div>
+    </div>
+    </div>
+  </main>
+</div>

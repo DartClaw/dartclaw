@@ -1,7 +1,26 @@
+/// HTTP server, API routes, and web UI for DartClaw.
+///
+/// Provides the shelf-based HTTP server ([DartclawServer]), turn management
+/// ([TurnManager]), MCP protocol handler ([McpProtocolHandler]), and all
+/// API/web routes. This is the composition layer -- it depends on
+/// `dartclaw_core` for abstractions and `dartclaw_storage` for persistence.
+///
+/// Not intended for direct SDK use. Consumers should use the `dartclaw`
+/// umbrella package or `dartclaw_core` for the harness interface.
 library;
 
 // API routes
+export 'src/api/config_api_routes.dart'
+    show configApiRoutes, writeRestartPending, readRestartPending;
 export 'src/api/config_routes.dart' show configRoutes;
+export 'src/api/sse_broadcast.dart' show SseBroadcast;
+
+// Config
+export 'src/config/config_meta.dart'
+    show ConfigMeta, ConfigMutability, ConfigFieldType, FieldMeta;
+export 'src/config/config_serializer.dart' show ConfigSerializer;
+export 'src/config/config_validator.dart' show ConfigValidator, ValidationError;
+export 'src/config/config_writer.dart' show ConfigWriter;
 export 'src/api/session_routes.dart' show sessionRoutes;
 export 'src/api/stream_handler.dart' show sseStreamResponse;
 export 'src/api/webhook_routes.dart' show webhookRoutes;
@@ -31,6 +50,11 @@ export 'src/logging/log_formatter.dart'
 export 'src/logging/log_redactor.dart' show LogRedactor;
 export 'src/logging/log_service.dart' show LogService;
 
+// Memory
+export 'src/api/memory_routes.dart' show memoryRoutes;
+export 'src/memory/memory_status_service.dart'
+    show MemoryStatusService, SearchIndexCounter;
+
 // Memory handlers
 export 'src/memory_handlers.dart' show createMemoryHandlers;
 
@@ -50,6 +74,25 @@ export 'src/mcp/memory_tools.dart'
     show MemoryHandler, MemorySaveTool, MemorySearchTool, MemoryReadTool;
 export 'src/mcp/sessions_send_tool.dart' show SessionsSendTool;
 export 'src/mcp/sessions_spawn_tool.dart' show SessionsSpawnTool;
+export 'src/mcp/web_fetch_tool.dart' show WebFetchTool;
+export 'src/mcp/search_provider.dart' show SearchProvider, SearchResult;
+export 'src/mcp/brave_search_tool.dart' show BraveSearchProvider, BraveSearchTool;
+export 'src/mcp/tavily_search_tool.dart' show TavilySearchProvider, TavilySearchTool;
+
+// Params
+export 'src/params/display_params.dart'
+    show
+        AppDisplayParams,
+        ContentGuardDisplayParams,
+        HeartbeatDisplayParams,
+        SchedulingDisplayParams,
+        WorkspaceDisplayParams;
+
+// Audit
+export 'src/audit/audit_log_reader.dart' show AuditLogReader, AuditPage;
+
+// Restart
+export 'src/restart_service.dart' show RestartService;
 
 // Server
 export 'src/server.dart' show DartclawServer;
@@ -58,6 +101,9 @@ export 'src/server.dart' show DartclawServer;
 export 'src/session/session_reset_service.dart' show SessionResetService;
 
 // Templates
+// Show clause review: formatUptime, formatBytes are template helpers used only
+// within this package. initTemplates/resetTemplates are startup/test utilities.
+// Retained because dartclaw_server is publish_to:none (not part of public SDK).
 export 'src/templates/helpers.dart' show formatUptime, formatBytes;
 export 'src/templates/loader.dart' show initTemplates, resetTemplates;
 
@@ -65,7 +111,10 @@ export 'src/templates/loader.dart' show initTemplates, resetTemplates;
 export 'src/turn_manager.dart'
     show TurnStatus, TurnContext, TurnOutcome, BusyTurnException, TurnManager;
 
+// Version & startup
+export 'src/version.dart' show dartclawVersion;
+export 'src/startup_banner.dart' show startupBanner;
+
 // Web routes
 export 'src/web/signal_pairing_routes.dart' show signalPairingRoutes;
-export 'src/web/web_routes.dart' show webRoutes, buildSidebarData;
-export 'src/web/web_utils.dart' show wantsFragment, htmlFragment;
+export 'src/web/web_routes.dart' show webRoutes;

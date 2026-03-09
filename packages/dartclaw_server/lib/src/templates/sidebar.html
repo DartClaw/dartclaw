@@ -1,15 +1,16 @@
 <aside tl:fragment="sidebar" class="sidebar" id="sidebar">
   <div class="sidebar-header">
-    <span class="logo">&#10095; DartClaw</span>
+    <span class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</span>
     <button class="btn btn-icon btn-ghost sidebar-close" aria-label="Close sidebar">&#215;</button>
   </div>
 
+  <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
   <div tl:if="${mainSession}" class="session-item session-item-main"
     tl:classappend="${mainActive} ? 'active' : ''">
     <a tl:attr="href=${mainHref},hx-get=${mainHref}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
-      <span class="session-item-title">Main</span></a>
+      <span class="session-item-title">Agent</span></a>
   </div>
 
   <hr class="sidebar-divider">

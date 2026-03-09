@@ -1,7 +1,7 @@
 import '../channel_config.dart';
+import '../dm_access.dart';
 
-enum DmAccessMode { pairing, allowlist, open, disabled }
-
+/// Access control mode for WhatsApp group messages.
 enum GroupAccessMode { allowlist, open, disabled }
 
 /// Configuration for the WhatsApp channel.

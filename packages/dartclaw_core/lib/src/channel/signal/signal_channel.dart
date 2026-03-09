@@ -6,6 +6,7 @@ import '../channel.dart';
 import '../channel_manager.dart';
 import '../whatsapp/text_chunking.dart';
 import 'signal_cli_manager.dart';
+import '../dm_access.dart';
 import 'signal_config.dart';
 import 'signal_dm_access.dart';
 
@@ -20,7 +21,7 @@ class SignalChannel extends Channel {
 
   final SignalCliManager sidecar;
   final SignalConfig config;
-  final SignalDmAccessController dmAccess;
+  final DmAccessController dmAccess;
   final SignalMentionGating mentionGating;
   final ChannelManager? _channelManager;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
@@ -35,9 +36,10 @@ class SignalChannel extends Channel {
 
   @override
   Future<void> connect() async {
+    _log.info('Starting Signal channel');
     await sidecar.start();
-    // Subscribe to SSE events from signal-cli daemon
     _eventSub = sidecar.events.listen(_handleEvent);
+    _log.info('Signal channel connected');
   }
 
   @override
@@ -56,8 +58,13 @@ class SignalChannel extends Channel {
 
   @override
   bool ownsJid(String jid) {
-    // Signal identifiers are phone numbers (E.164 format, starting with +)
-    return jid.startsWith('+') && !jid.contains('@');
+    // Signal identifiers are either E.164 phone numbers (+...) or ACI UUIDs
+    // (sealed-sender). Both lack the '@' present in WhatsApp JIDs.
+    if (jid.contains('@')) return false;
+    if (jid.startsWith('+')) return true;
+    // UUID v4 pattern (signal-cli ACI): 8-4-4-4-12 hex
+    return RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+        .hasMatch(jid);
   }
 
   @override
@@ -68,9 +75,11 @@ class SignalChannel extends Channel {
 
   @override
   Future<void> disconnect() async {
+    _log.info('Disconnecting Signal channel');
     await _eventSub?.cancel();
     _eventSub = null;
-    await sidecar.stop();
+    await sidecar.reset();
+    _log.info('Signal channel disconnected');
   }
 
   /// Handle an inbound SSE event from signal-cli daemon.
@@ -81,8 +90,32 @@ class SignalChannel extends Channel {
 
       // DM access control
       if (message.groupJid == null && !dmAccess.isAllowed(message.senderJid)) {
-        _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
-        return;
+        // Sealed-sender: senderJid may be phone while allowlist holds UUID (or vice versa).
+        // Check the alternate UUID form stored in metadata.
+        final altId = message.metadata['sourceUuid'] as String?;
+        if (altId != null && altId != message.senderJid && dmAccess.isAllowed(altId)) {
+          // Resolved via alternate. Normalize: add senderJid so future lookups skip the fallback.
+          dmAccess.addToAllowlist(message.senderJid);
+          // fall through — message is allowed
+        } else {
+          if (dmAccess.mode == DmAccessMode.pairing) {
+            final displayName = message.metadata['sourceName'] as String?;
+            final pairing = dmAccess.createPairing(
+              message.senderJid,
+              displayName: displayName,
+            );
+            if (pairing != null) {
+              _log.info('Pairing request created for ${message.senderJid}');
+            } else {
+              _log.warning(
+                'Max pending pairings reached — dropping message from ${message.senderJid}',
+              );
+            }
+          } else {
+            _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
+          }
+          return;
+        }
       }
 
       // Group access control
@@ -132,7 +165,16 @@ class SignalChannel extends Channel {
     final envelope = raw['envelope'] as Map<String, dynamic>?;
     if (envelope == null) return null;
 
-    final source = envelope['source'] as String?;
+    // signal-cli provides multiple sender fields:
+    // - 'sourceNumber': E.164 phone (e.g. "+1234567890") — preferred
+    // - 'sourceUuid': ACI UUID (e.g. "12bfcd5a-...") — sealed-sender fallback
+    // - 'source': may be either phone or UUID depending on signal-cli version
+    // Prefer phone number for consistency, fall back to UUID.
+    final source = (envelope['sourceNumber'] as String?)?.isNotEmpty == true
+        ? envelope['sourceNumber'] as String
+        : (envelope['source'] as String?)?.isNotEmpty == true
+            ? envelope['source'] as String
+            : envelope['sourceUuid'] as String?;
     if (source == null || source.isEmpty) return null;
 
     final dataMessage = envelope['dataMessage'] as Map<String, dynamic>?;
@@ -154,7 +196,10 @@ class SignalChannel extends Channel {
       groupJid: groupId,
       text: text,
       mentionedJids: const [],
-      metadata: {if (envelope['sourceName'] != null) 'sourceName': envelope['sourceName']},
+      metadata: {
+        if (envelope['sourceName'] != null) 'sourceName': envelope['sourceName'],
+        if (envelope['sourceUuid'] != null) 'sourceUuid': envelope['sourceUuid'],
+      },
     );
   }
 }

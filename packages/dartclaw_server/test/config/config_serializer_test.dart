@@ -1,0 +1,160 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:test/test.dart';
+
+void main() {
+  const serializer = ConfigSerializer();
+
+  group('ConfigSerializer.toJson', () {
+    test('default config produces correct nested camelCase JSON', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: true,
+        gitSyncPushEnabled: true,
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+
+      expect(json['port'], 3000);
+      expect(json['host'], 'localhost');
+      expect(json['dataDir'], '~/.dartclaw');
+      expect(json['workerTimeout'], 600);
+      expect(json['memoryMaxBytes'], 32 * 1024);
+
+      // Nested sections
+      final agent = json['agent'] as Map<String, dynamic>;
+      expect(agent['model'], isNull);
+      expect(agent['maxTurns'], isNull);
+      expect(agent['context1m'], false);
+
+      final concurrency = json['concurrency'] as Map<String, dynamic>;
+      expect(concurrency['maxParallelTurns'], 3);
+
+      final sessions = json['sessions'] as Map<String, dynamic>;
+      expect(sessions['resetHour'], 4);
+      expect(sessions['idleTimeoutMinutes'], 0);
+
+      final logging = json['logging'] as Map<String, dynamic>;
+      expect(logging['level'], 'INFO');
+      expect(logging['format'], 'human');
+    });
+
+    test('gateway.token masked as "***" when non-null', () {
+      final config = const DartclawConfig(gatewayToken: 'super-secret-token');
+      final runtime = RuntimeConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: true,
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final gateway = json['gateway'] as Map<String, dynamic>;
+      expect(gateway['token'], '***');
+      expect(gateway['authMode'], 'token');
+    });
+
+    test('gateway.token is null when config has null token', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: true,
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final gateway = json['gateway'] as Map<String, dynamic>;
+      expect(gateway['token'], isNull);
+    });
+
+    test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {
+      // Config says enabled, but runtime says disabled
+      final config = const DartclawConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: true,
+        gitSyncPushEnabled: true,
+      );
+      final runtime = RuntimeConfig(
+        heartbeatEnabled: false,
+        gitSyncEnabled: false,
+        gitSyncPushEnabled: false,
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+
+      final heartbeat = (json['scheduling'] as Map)['heartbeat'] as Map;
+      expect(heartbeat['enabled'], false);
+
+      final gitSync = (json['workspace'] as Map)['gitSync'] as Map;
+      expect(gitSync['enabled'], false);
+      expect(gitSync['pushEnabled'], false);
+    });
+
+    test('scheduling.jobs included from config', () {
+      final config = DartclawConfig(
+        schedulingJobs: [
+          {'name': 'test-job', 'schedule': '0 7 * * *', 'prompt': 'hello', 'delivery': 'announce'},
+        ],
+      );
+      final runtime = RuntimeConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: true,
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final scheduling = json['scheduling'] as Map<String, dynamic>;
+      final jobs = scheduling['jobs'] as List;
+      expect(jobs, hasLength(1));
+      expect((jobs[0] as Map)['name'], 'test-job');
+    });
+  });
+
+  group('ConfigSerializer.metaJson', () {
+    test('contains all ConfigMeta entries', () {
+      final meta = serializer.metaJson();
+      expect(meta.length, ConfigMeta.fields.length);
+      for (final path in ConfigMeta.fields.keys) {
+        expect(meta.containsKey(path), isTrue, reason: 'Missing field: $path');
+      }
+    });
+
+    test('int entries have min/max when defined', () {
+      final meta = serializer.metaJson();
+      final port = meta['port'] as Map<String, dynamic>;
+      expect(port['type'], 'int');
+      expect(port['mutable'], 'restart');
+      expect(port['min'], 1);
+      expect(port['max'], 65535);
+    });
+
+    test('enum entries have allowedValues', () {
+      final meta = serializer.metaJson();
+      final level = meta['logging.level'] as Map<String, dynamic>;
+      expect(level['type'], 'enum');
+      expect(level['allowedValues'], ['FINE', 'INFO', 'WARNING', 'SEVERE']);
+    });
+
+    test('live-mutable fields have mutable: "live"', () {
+      final meta = serializer.metaJson();
+      final hb = meta['scheduling.heartbeat.enabled'] as Map<String, dynamic>;
+      expect(hb['mutable'], 'live');
+      expect(hb['type'], 'bool');
+    });
+
+    test('nullable fields have nullable: true', () {
+      final meta = serializer.metaJson();
+      final model = meta['agent.model'] as Map<String, dynamic>;
+      expect(model['nullable'], true);
+    });
+
+    test('non-nullable fields omit nullable key', () {
+      final meta = serializer.metaJson();
+      final port = meta['port'] as Map<String, dynamic>;
+      expect(port.containsKey('nullable'), isFalse);
+    });
+
+    test('readonly fields have mutable: "readonly"', () {
+      final meta = serializer.metaJson();
+      final authMode = meta['gateway.auth_mode'] as Map<String, dynamic>;
+      expect(authMode['mutable'], 'readonly');
+    });
+  });
+}

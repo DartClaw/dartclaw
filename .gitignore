@@ -14,3 +14,8 @@ pubspec.lock
 
 # OS
 .DS_Store
+
+# Runtime data dirs (created by example/test configs)
+.dartclaw-dev/
+storages
+statics

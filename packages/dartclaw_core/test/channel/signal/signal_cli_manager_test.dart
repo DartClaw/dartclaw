@@ -105,6 +105,7 @@ void main() {
           return FakeProcess();
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       try {
@@ -144,6 +145,7 @@ void main() {
           return proc;
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       // Start will fail health check, but process is still assigned
@@ -180,6 +182,7 @@ void main() {
           return proc;
         },
         delay: (d) => Future.value(),
+        healthProbe: () async => false,
       );
 
       expect(proc.killed, isFalse);

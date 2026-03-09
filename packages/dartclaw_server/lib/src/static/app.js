@@ -1,13 +1,8 @@
-// app.js - DartClaw client-side logic
+// app.js - DartClaw client-side logic (core)
 'use strict';
 
 // Enable View Transitions API for SPA navigation swaps.
 htmx.config.globalViewTransitions = true;
-
-let activeSource = null;
-let activeStreamUrl = null;
-let reconnectAttempts = 0;
-let reconnectTimer = null;
 
 // === Toast notifications ===
 
@@ -20,6 +15,8 @@ function getOrCreateToastContainer() {
     container = document.createElement('div');
     container.id = 'toast-container';
     container.className = 'toast-container';
+    container.setAttribute('role', 'status');
+    container.setAttribute('aria-live', 'polite');
     document.body.appendChild(container);
   }
   return container;
@@ -79,7 +76,8 @@ function applyHljsTheme(isLight) {
 
 function initThemeToggle() {
   const btn = document.querySelector('.theme-toggle');
-  if (!btn) return;
+  if (!btn || btn.dataset.themeInit) return;
+  btn.dataset.themeInit = '1';
 
   btn.addEventListener('click', () => {
     const html = document.documentElement;
@@ -105,32 +103,38 @@ function initSidebar() {
   if (!sidebar) return;
 
   const menuToggle = document.querySelector('.menu-toggle');
-  if (menuToggle) {
+  if (menuToggle && !menuToggle.dataset.sidebarInit) {
+    menuToggle.dataset.sidebarInit = '1';
     menuToggle.addEventListener('click', () => setSidebarOpen(!sidebar.classList.contains('open')));
   }
 
   const closeBtn = document.querySelector('.sidebar-close');
-  if (closeBtn) {
+  if (closeBtn && !closeBtn.dataset.sidebarInit) {
+    closeBtn.dataset.sidebarInit = '1';
     closeBtn.addEventListener('click', () => setSidebarOpen(false));
   }
 
   // Click outside (overlay/backdrop) closes sidebar on mobile.
-  document.addEventListener('click', (event) => {
-    if (
-      sidebar.classList.contains('open') &&
-      !sidebar.contains(event.target) &&
-      !event.target.closest('.menu-toggle')
-    ) {
-      setSidebarOpen(false);
-    }
-  });
+  if (!document._dartclawSidebarClickBound) {
+    document._dartclawSidebarClickBound = true;
+    document.addEventListener('click', (event) => {
+      if (
+        sidebar.classList.contains('open') &&
+        !sidebar.contains(event.target) &&
+        !event.target.closest('.menu-toggle')
+      ) {
+        setSidebarOpen(false);
+      }
+    });
+  }
 }
 
 // === Textarea auto-resize ===
 
 function initTextareaResize() {
   const textarea = document.getElementById('message-input');
-  if (!textarea) return;
+  if (!textarea || textarea.dataset.resizeInit) return;
+  textarea.dataset.resizeInit = '1';
 
   textarea.addEventListener('input', () => {
     textarea.style.height = 'auto';
@@ -144,6 +148,8 @@ function initKeyboardSubmit() {
   const textarea = document.getElementById('message-input');
   const form = document.getElementById('chat-form');
   if (!textarea || !form) return;
+  if (textarea.dataset.keyboardInit) return;
+  textarea.dataset.keyboardInit = '1';
 
   textarea.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -210,7 +216,8 @@ function enableInput() {
 function initSendButtonState() {
   const textarea = document.getElementById('message-input');
   const btn = document.getElementById('send-btn');
-  if (!textarea || !btn) return;
+  if (!textarea || !btn || btn.dataset.sendInit) return;
+  btn.dataset.sendInit = '1';
 
   function updateSendState() {
     btn.disabled = !textarea.value.trim();
@@ -256,6 +263,62 @@ document.addEventListener('click', (event) => {
   }
 });
 
+// === Delegated action handler (replaces inline onclick) ===
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-action]');
+  if (!btn) return;
+
+  const action = btn.dataset.action;
+
+  switch (action) {
+    // Scheduling
+    case 'toggle-job-form':
+      typeof toggleJobForm === 'function' && toggleJobForm();
+      break;
+    case 'submit-job-form':
+      typeof submitJobForm === 'function' && submitJobForm(btn.dataset.editName || undefined);
+      break;
+    case 'edit-job':
+      typeof editJob === 'function' && editJob(btn, btn.dataset.jobName);
+      break;
+    case 'confirm-delete-job':
+      typeof confirmDeleteJob === 'function' && confirmDeleteJob(btn, btn.dataset.jobName);
+      break;
+    case 'execute-delete-job':
+      typeof executeDeleteJob === 'function' && executeDeleteJob(btn.dataset.jobName, btn);
+      break;
+    case 'cancel-delete-job':
+      typeof cancelDeleteJob === 'function' && cancelDeleteJob(btn);
+      break;
+
+    // Memory dashboard
+    case 'switch-tab':
+      typeof switchMemoryTab === 'function' && switchMemoryTab(btn, btn.dataset.tab);
+      break;
+    case 'toggle-view':
+      typeof toggleMemoryView === 'function' && toggleMemoryView(btn, btn.dataset.mode);
+      break;
+    case 'confirm-prune':
+      typeof confirmPrune === 'function' && confirmPrune(btn);
+      break;
+
+    // Restart banner
+    case 'confirm-restart':
+      dartclaw.confirmRestart();
+      break;
+    case 'dismiss-restart-banner':
+      dartclaw.dismissRestartBanner();
+      break;
+  }
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'job-schedule') {
+    typeof updateCronPreview === 'function' && updateCronPreview(event.target.value);
+  }
+});
+
 function isChatFormRequest(event) {
   return event.detail && event.detail.elt && event.detail.elt.id === 'chat-form';
 }
@@ -292,187 +355,15 @@ function initHtmxRequestLifecycle() {
       return;
     }
 
-    closeActiveStream();
     enableInput();
     showBanner('error', extractResponseMessage(event.detail.xhr));
   });
-}
-
-function closeActiveStream() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (activeSource) {
-    activeSource.close();
-    activeSource = null;
-    activeStreamUrl = null;
-  }
-  document.body.classList.remove('streaming');
-}
-
-function scheduleReconnect(url) {
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-  reconnectAttempts++;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    // Guard: only reconnect if URL still matches (prevents stale reconnects after session switch)
-    if (activeStreamUrl !== url && activeStreamUrl !== null) return;
-    startStream(url);
-  }, delay);
-}
-
-function parseSsePayload(event) {
-  if (!event || typeof event.data !== 'string') return null;
-
-  try {
-    return JSON.parse(event.data);
-  } catch (_) {
-    return null;
-  }
 }
 
 function loadMessages(sessionId) {
   return htmx.ajax('GET', '/sessions/' + sessionId + '/messages-html', {
     target: '#messages',
     swap: 'innerHTML',
-  });
-}
-
-function startStream(url) {
-  if (!url) return;
-  if (activeSource && activeStreamUrl === url) return;
-
-  closeActiveStream();
-
-  const source = new EventSource(url);
-  activeSource = source;
-  activeStreamUrl = url;
-  document.body.classList.add('streaming');
-
-  source.addEventListener('delta', (event) => {
-    reconnectAttempts = 0;
-    // Dismiss reconnect banner if present
-    const reconnectBanner = document.querySelector('.banner-warning');
-    if (reconnectBanner && reconnectBanner.textContent.includes('Reconnecting')) {
-      reconnectBanner.remove();
-    }
-
-    const data = parseSsePayload(event) || {};
-    const el = document.getElementById('streaming-content');
-    if (!el) return;
-
-    el.appendChild(document.createTextNode(data.text || ''));
-    scrollToBottom();
-  });
-
-  source.addEventListener('tool_use', (event) => {
-    const data = parseSsePayload(event) || {};
-    const el = document.getElementById('streaming-content');
-    if (!el) return;
-
-    const indicator = document.createElement('div');
-    indicator.className = 'tool-indicator pending';
-    indicator.dataset.toolId = data.tool_id || '';
-    indicator.textContent = data.tool_name || 'Tool';
-    el.appendChild(indicator);
-    scrollToBottom();
-  });
-
-  source.addEventListener('tool_result', (event) => {
-    const data = parseSsePayload(event) || {};
-    if (!data.tool_id) return;
-
-    const indicator = document.querySelector(
-      '.tool-indicator[data-tool-id="' + CSS.escape(data.tool_id) + '"]',
-    );
-
-    if (!indicator) return;
-    indicator.classList.remove('pending');
-    indicator.classList.add(data.is_error ? 'error' : 'success');
-  });
-
-  source.addEventListener('done', () => {
-    closeActiveStream();
-
-    const content = document.getElementById('streaming-content');
-    if (content) {
-      content.classList.remove('streaming');
-    }
-
-    // Clear and reset textarea after successful stream completion.
-    const textarea = document.getElementById('message-input');
-    if (textarea) {
-      textarea.value = '';
-      textarea.style.height = 'auto';
-    }
-
-    enableInput();
-
-    const chatArea = document.querySelector('.chat-area');
-    const sessionId = chatArea && chatArea.dataset.sessionId;
-    if (!sessionId) return;
-
-    loadMessages(sessionId)
-      .then(() => {
-        renderMarkdown();
-        scrollToBottom();
-
-        // Auto-title untitled sessions from first user message
-        if (chatArea && chatArea.dataset.hasTitle !== 'true') {
-          const firstUserMsg = document.querySelector('#messages .msg-user .msg-content');
-          if (firstUserMsg) {
-            let title = (firstUserMsg.textContent || '').trim();
-            if (title.length > 50) {
-              title = title.substring(0, 50).replace(/\s+\S*$/, '');
-            }
-            if (title) {
-              fetch('/api/sessions/' + encodeURIComponent(sessionId), {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: title }),
-              })
-                .then((res) => {
-                  if (!res.ok) return;
-                  chatArea.dataset.hasTitle = 'true';
-                  // Update topbar input
-                  const titleInput = document.querySelector('.topbar .session-title[type="text"]');
-                  if (titleInput) {
-                    titleInput.value = title;
-                    titleInput.dataset.originalTitle = title;
-                  }
-                  // Update sidebar item
-                  const sidebarItem = document.querySelector('.session-item.active .session-item-title');
-                  if (sidebarItem) sidebarItem.textContent = title;
-                })
-                .catch(() => {}); // silent fail for auto-title
-            }
-          }
-        }
-      })
-      .catch(() => {
-        showToast('error', 'Failed to refresh messages');
-      });
-  });
-
-  source.addEventListener('error', (event) => {
-    if (typeof event.data !== 'string') {
-      // Network error — no payload. Reconnect.
-      const url = activeStreamUrl;
-      closeActiveStream();
-      if (url) {
-        showBanner('warning', 'Connection lost. Reconnecting...');
-        scheduleReconnect(url);
-      }
-      return;
-    }
-
-    // Server-sent error event with payload
-    const payload = parseSsePayload(event) || {};
-    const message = payload.message || payload.error || 'Stream error';
-    closeActiveStream();
-    enableInput();
-    showBanner('error', message);
   });
 }
 
@@ -548,7 +439,8 @@ function initResumeArchive() {
 
 function initInlineRename() {
   const input = document.querySelector('.topbar .session-title[type="text"]');
-  if (!input) return;
+  if (!input || input.dataset.renameInit) return;
+  input.dataset.renameInit = '1';
 
   function commitRename() {
     const newTitle = input.value.trim();
@@ -578,7 +470,7 @@ function initInlineRename() {
           '.session-item-link[href*="' + CSS.escape(sessionId) + '"] .session-item-title',
         );
         if (sidebarItem) sidebarItem.textContent = newTitle;
-        document.title = newTitle + ' - DartClaw';
+        document.title = newTitle + ' - ' + (document.body.dataset.appName || 'DartClaw');
         showToast('success', 'Session renamed');
       })
       .catch((err) => {
@@ -600,43 +492,113 @@ function initInlineRename() {
   });
 }
 
-// === SSE streaming startup (scoped to #sse-container swaps) ===
+// === HTMX SSE lifecycle ===
 
-function initSseConnectorHandling() {
+function finalizeTurn() {
+  document.body.classList.remove('streaming');
+
+  const content = document.getElementById('streaming-content');
+  if (content) {
+    content.classList.remove('streaming');
+  }
+
+  // Clear and reset textarea.
+  const textarea = document.getElementById('message-input');
+  if (textarea) {
+    textarea.value = '';
+    textarea.style.height = 'auto';
+  }
+
+  enableInput();
+
+  const chatArea = document.querySelector('.chat-area');
+  const sessionId = chatArea && chatArea.dataset.sessionId;
+  if (!sessionId) return;
+
+  loadMessages(sessionId)
+    .then(() => {
+      renderMarkdown();
+      scrollToBottom();
+
+      // Auto-title untitled sessions from first user message.
+      if (chatArea && chatArea.dataset.hasTitle !== 'true') {
+        const firstUserMsg = document.querySelector('#messages .msg-user .msg-content');
+        if (firstUserMsg) {
+          let title = (firstUserMsg.textContent || '').trim();
+          if (title.length > 50) {
+            title = title.substring(0, 50).replace(/\s+\S*$/, '');
+          }
+          if (title) {
+            fetch('/api/sessions/' + encodeURIComponent(sessionId), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title }),
+            })
+              .then((res) => {
+                if (!res.ok) return;
+                chatArea.dataset.hasTitle = 'true';
+                const titleInput = document.querySelector('.topbar .session-title[type="text"]');
+                if (titleInput) {
+                  titleInput.value = title;
+                  titleInput.dataset.originalTitle = title;
+                }
+                const sidebarItem = document.querySelector('.session-item.active .session-item-title');
+                if (sidebarItem) sidebarItem.textContent = title;
+              })
+              .catch(() => {}); // silent fail for auto-title
+          }
+        }
+      }
+    })
+    .catch(() => {
+      showToast('error', 'Failed to refresh messages');
+    });
+}
+
+function initSseLifecycle() {
+  // Detect streaming start when #streaming-msg appears via form submit swap into #messages.
   document.body.addEventListener('htmx:afterSwap', (event) => {
     const target = event.detail && event.detail.target;
-    if (!target || target.id !== 'sse-container') return;
+    if (!target || target.id !== 'messages') return;
 
-    const connector = target.querySelector('#sse-connector');
-    if (!connector) {
-      closeActiveStream();
-      return;
-    }
+    const streamingMsg = document.getElementById('streaming-msg');
+    if (!streamingMsg) return;
 
-    const url = connector.dataset.sseUrl;
-    if (!url) {
-      closeActiveStream();
-      enableInput();
-      showBanner('error', 'Streaming URL missing');
-      return;
-    }
-
-    startStream(url);
+    document.body.classList.add('streaming');
   });
 
-  window.addEventListener('beforeunload', () => {
-    closeActiveStream();
+  // Auto-scroll on SSE content swaps (delta text and tool indicators).
+  document.body.addEventListener('htmx:sseMessage', () => {
+    scrollToBottom();
   });
+
+  // Full post-done orchestration when HTMX SSE extension closes the EventSource.
+  document.body.addEventListener('htmx:sseClose', () => {
+    finalizeTurn();
+  });
+
 }
+
+// === Namespaced globals for HTMX event handlers ===
+
+window.dartclaw = window.dartclaw || {};
+
+dartclaw.handleTurnError = function(event) {
+  // Extract error text from the hidden swap target before finalizeTurn clears the DOM.
+  const container = document.getElementById('turn-error-target');
+  const turnError = container && container.querySelector('.turn-error');
+  const message = turnError ? turnError.textContent : 'Stream error';
+  if (container) container.innerHTML = '';
+
+  finalizeTurn();
+  showBanner('error', message);
+};
 
 // === SPA content re-initialization after HTMX swap ===
 
 function initAfterSwapReinit() {
   document.body.addEventListener('htmx:afterSwap', (event) => {
     const target = event.detail && event.detail.target;
-    // Skip SSE container swaps — handled by initSseConnectorHandling.
-    if (target && target.id === 'sse-container') return;
-
     renderMarkdown();
     scrollToBottom();
     initThemeToggle();
@@ -645,6 +607,16 @@ function initAfterSwapReinit() {
     initKeyboardSubmit();
     initSendButtonState();
     initInlineRename();
+    typeof initSettingsForm === 'function' && initSettingsForm();
+    typeof initChannelDetail === 'function' && initChannelDetail();
+    typeof initPairingPolling === 'function' && initPairingPolling();
+    typeof initQrFallback === 'function' && initQrFallback();
+    typeof initQrCountdown === 'function' && initQrCountdown();
+    typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
+    typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
+    if (target && target.id === 'main-content') {
+      target.focus({ preventScroll: true });
+    }
   });
 }
 
@@ -665,7 +637,154 @@ function initHistoryRestore() {
     initKeyboardSubmit();
     initSendButtonState();
     initInlineRename();
+    typeof initSettingsForm === 'function' && initSettingsForm();
+    typeof initChannelDetail === 'function' && initChannelDetail();
+    typeof initPairingPolling === 'function' && initPairingPolling();
+    typeof initQrFallback === 'function' && initQrFallback();
+    typeof initQrCountdown === 'function' && initQrCountdown();
+    typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
+    typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
+    const mainContent = document.getElementById('main-content');
+    if (mainContent) {
+      mainContent.focus({ preventScroll: true });
+    }
   });
+}
+
+// === Audit table row expand/collapse ===
+
+document.addEventListener('click', (event) => {
+  const row = event.target.closest('.audit-row');
+  if (!row) return;
+
+  const detailRow = row.nextElementSibling;
+  if (!detailRow || !detailRow.classList.contains('audit-detail-row')) return;
+
+  const isHidden = detailRow.style.display === 'none' || !detailRow.style.display;
+  detailRow.style.display = isHidden ? 'table-row' : 'none';
+  row.classList.toggle('expanded', isHidden);
+  row.setAttribute('aria-expanded', String(isHidden));
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const row = event.target.closest('.audit-row');
+  if (!row) return;
+  event.preventDefault();
+
+  const detailRow = row.nextElementSibling;
+  if (!detailRow || !detailRow.classList.contains('audit-detail-row')) return;
+
+  const isHidden = detailRow.style.display === 'none' || !detailRow.style.display;
+  detailRow.style.display = isHidden ? 'table-row' : 'none';
+  row.classList.toggle('expanded', isHidden);
+  row.setAttribute('aria-expanded', String(isHidden));
+});
+
+// === Graceful Restart ===
+
+let globalEventSource = null;
+let restartPollTimer = null;
+let restartPollStart = null;
+const RESTART_POLL_INTERVAL = 2000;
+const RESTART_POLL_TIMEOUT = 90000;
+
+function connectGlobalEvents() {
+  if (globalEventSource) return;
+  const token = new URLSearchParams(window.location.search).get('token');
+  const url = '/api/events' + (token ? '?token=' + encodeURIComponent(token) : '');
+  globalEventSource = new EventSource(url);
+
+  globalEventSource.addEventListener('server_restart', () => {
+    showRestartOverlay();
+  });
+
+  globalEventSource.onerror = () => {
+    if (document.getElementById('restart-overlay')) {
+      startRestartPolling();
+    }
+  };
+}
+
+function showRestartOverlay() {
+  if (document.getElementById('restart-overlay')) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'restart-overlay';
+  overlay.className = 'restart-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'assertive');
+  overlay.innerHTML = `
+    <div class="restart-overlay-content">
+      <div class="restart-spinner"></div>
+      <h2>Server is restarting...</h2>
+      <p id="restart-status">Waiting for server to come back online</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  startRestartPolling();
+}
+
+function startRestartPolling() {
+  if (restartPollTimer) return;
+  restartPollStart = Date.now();
+
+  restartPollTimer = setInterval(async () => {
+    const elapsed = Date.now() - restartPollStart;
+
+    if (elapsed > RESTART_POLL_TIMEOUT) {
+      clearInterval(restartPollTimer);
+      restartPollTimer = null;
+      const status = document.getElementById('restart-status');
+      if (status) {
+        status.textContent = 'Server did not restart within 90s. Please check the server manually.';
+      }
+      return;
+    }
+
+    try {
+      const resp = await fetch('/health');
+      if (resp.ok) {
+        clearInterval(restartPollTimer);
+        restartPollTimer = null;
+        window.location.reload();
+      }
+    } catch (_) {
+      // Server still down
+    }
+  }, RESTART_POLL_INTERVAL);
+}
+
+window.dartclaw.confirmRestart = function() {
+  if (!confirm('Restart ' + (document.body.dataset.appName || 'DartClaw') + '? Active turns will complete first.')) return;
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  fetch('/api/system/restart' + (token ? '?token=' + encodeURIComponent(token) : ''), {
+    method: 'POST',
+  }).then(resp => {
+    if (resp.ok) {
+      showRestartOverlay();
+    } else {
+      resp.json().then(data => {
+        alert('Restart failed: ' + (data.error?.message || 'Unknown error'));
+      }).catch(() => alert('Restart failed'));
+    }
+  }).catch(() => alert('Failed to reach server'));
+};
+
+// Restart banner dismissed flag — shared via dartclaw namespace for cross-script access.
+dartclaw._restartBannerDismissed = false;
+
+window.dartclaw.dismissRestartBanner = function() {
+  const banner = document.getElementById('restart-banner');
+  if (banner) banner.style.display = 'none';
+  dartclaw._restartBannerDismissed = true;
+};
+
+function initRestartBanner() {
+  // Flag is always false on fresh page load/reload — banner reappears if pending.
+  connectGlobalEvents();
 }
 
 // === Init ===
@@ -677,13 +796,21 @@ document.addEventListener('DOMContentLoaded', () => {
   initKeyboardSubmit();
   initSendButtonState();
   initHtmxRequestLifecycle();
-  initSseConnectorHandling();
+  initSseLifecycle();
   initAfterSwapReinit();
   initHistoryRestore();
   initSessionCreate();
   initSessionDelete();
   initResumeArchive();
   initInlineRename();
+  typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
+  typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
+  typeof initSettingsForm === 'function' && initSettingsForm();
+  typeof initChannelDetail === 'function' && initChannelDetail();
+  typeof initPairingPolling === 'function' && initPairingPolling();
+  initRestartBanner();
+  typeof initQrFallback === 'function' && initQrFallback();
+  typeof initQrCountdown === 'function' && initQrCountdown();
   renderMarkdown();
   scrollToBottom();
 });

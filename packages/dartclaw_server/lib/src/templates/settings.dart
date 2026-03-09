@@ -1,3 +1,4 @@
+import 'guard_config_summary.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -5,24 +6,32 @@ import 'sidebar.dart';
 import 'topbar.dart';
 
 /// Renders the settings hub page.
+///
+/// Editable config fields (Agent, Server, Sessions, Memory, Scheduling) are
+/// populated client-side from `GET /api/config`. Server-rendered sections
+/// (channels, guards, health, auth, workspace) still receive template vars.
 String settingsTemplate({
   required SidebarData sidebarData,
   required int uptimeSeconds,
   required int sessionCount,
-  required int dbSizeBytes,
   required String workerState,
   required String version,
   bool whatsAppEnabled = false,
+  String whatsAppStatusLabel = 'Disabled',
+  String whatsAppStatusClass = 'status-badge-muted',
+  String? whatsAppPhone,
+  int whatsAppPendingCount = 0,
   bool signalEnabled = false,
   String? signalPhone,
-  String signalStatus = 'not configured',
+  String signalStatusLabel = 'Disabled',
+  String signalStatusClass = 'status-badge-muted',
+  int signalPendingCount = 0,
   bool guardsEnabled = false,
-  List<String> activeGuards = const [],
-  int scheduledJobsCount = 0,
-  bool heartbeatEnabled = false,
-  int heartbeatIntervalMinutes = 30,
+  bool guardFailOpen = false,
+  List<GuardConfigSummary> guardConfigs = const [],
   String? workspacePath,
-  bool gitSyncEnabled = false,
+  String bannerHtml = '',
+  String appName = 'DartClaw',
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
 
@@ -32,17 +41,9 @@ String settingsTemplate({
     _ => ('Unhealthy', 'status-badge-error'),
   };
 
-  final guardsActive = guardsEnabled && activeGuards.isNotEmpty;
-  final schedulingActive = scheduledJobsCount > 0 || heartbeatEnabled;
+  final navItems = buildSystemNavItems(activePage: 'Settings');
 
-  final navItems = buildSystemNavItems(activePage: 'Settings', signalEnabled: signalEnabled);
-
-  final sidebar = sidebarTemplate(
-    mainSession: sidebarData.main,
-    channelSessions: sidebarData.channels,
-    sessionEntries: sidebarData.entries,
-    navItems: navItems,
-  );
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(title: 'Settings');
 
@@ -50,27 +51,29 @@ String settingsTemplate({
     'sidebar': sidebar,
     'topbar': topbar,
     'whatsAppEnabled': whatsAppEnabled,
+    'whatsAppStatusLabel': whatsAppStatusLabel,
+    'whatsAppStatusClass': whatsAppStatusClass,
+    'whatsAppPhone': whatsAppPhone,
+    'whatsAppPendingCount': whatsAppPendingCount,
+    'whatsAppHasPending': whatsAppPendingCount > 0,
     'signalEnabled': signalEnabled,
-    'signalConnected': signalStatus == 'connected',
-    'signalDisconnected': signalStatus == 'disconnected',
-    'signalNotConfigured': signalStatus == 'not configured',
-    'signalPhone': signalPhone ?? '-',
-    'guardsActive': guardsActive,
-    'activeGuardCount': activeGuards.length,
-    'activeGuards': activeGuards,
-    'schedulingActive': schedulingActive,
-    'scheduledJobsCount': scheduledJobsCount,
-    'heartbeatDisplay': heartbeatEnabled ? 'every ${heartbeatIntervalMinutes}m' : 'disabled',
+    'signalStatusLabel': signalStatusLabel,
+    'signalStatusClass': signalStatusClass,
+    'signalPhone': signalPhone,
+    'signalPendingCount': signalPendingCount,
+    'signalHasPending': signalPendingCount > 0,
+    'guardsEnabled': guardsEnabled,
+    'activeGuardCount': guardConfigs.where((g) => g.enabled).length,
+    'guardFailOpen': guardFailOpen,
+    'guardConfigs': guardConfigs.map((g) => g.toTemplateMap()).toList(),
     'healthBadgeClass': healthStatus.$2,
     'healthLabel': healthStatus.$1,
     'uptimeStr': uptimeStr,
     'sessionCount': sessionCount,
     'version': version,
-    'heartbeatOn': heartbeatEnabled,
-    'gitSyncEnabled': gitSyncEnabled,
     'workspacePathDisplay': workspacePath ?? '~/.dartclaw/workspace/',
-    'gitSyncDisplay': gitSyncEnabled ? 'Enabled' : 'Disabled',
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Settings', body: body);
+  return layoutTemplate(title: 'Settings', body: body, appName: appName);
 }

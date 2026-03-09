@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/mcp/memory_tools.dart';
 import 'package:test/test.dart';
 
@@ -22,7 +23,8 @@ void main() {
       );
 
       final result = await tool.call({'text': 'hello', 'category': 'test'});
-      expect(result, 'Saved 2 chunk(s) to memory.');
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, 'Saved 2 chunk(s) to memory.');
     });
   });
 
@@ -45,7 +47,8 @@ void main() {
       );
 
       final result = await tool.call({'query': 'test'});
-      expect(result, contains('Some result'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Some result'));
     });
   });
 
@@ -66,7 +69,8 @@ void main() {
       );
 
       final result = await tool.call({});
-      expect(result, contains('Some memory entry'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Some memory entry'));
     });
   });
 }

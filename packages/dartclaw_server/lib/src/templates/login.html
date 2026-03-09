@@ -1,7 +1,7 @@
 <div tl:fragment="loginPage" class="login-container">
   <div class="login-card">
     <div class="login-header">
-      <div class="logo">&#10095; DartClaw</div>
+      <div class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</div>
       <p class="login-subtitle">Enter your gateway token to continue</p>
     </div>
     <div tl:if="${error}" class="login-error" tl:text="${error}">Error message</div>

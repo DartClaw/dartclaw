@@ -1,6 +1,6 @@
 import 'package:logging/logging.dart';
 
-import '../models/session_key.dart';
+import 'package:dartclaw_models/dartclaw_models.dart';
 import 'channel.dart';
 import 'channel_config.dart';
 import 'message_queue.dart';

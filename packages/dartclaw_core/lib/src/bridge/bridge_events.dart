@@ -3,6 +3,7 @@ import 'package:collection/collection.dart' show MapEquality;
 /// Base type for events received from the claude binary over the JSONL bridge.
 sealed class BridgeEvent {}
 
+/// Incremental text output from the agent.
 final class DeltaEvent extends BridgeEvent {
   final String text;
 
@@ -18,6 +19,7 @@ final class DeltaEvent extends BridgeEvent {
   String toString() => 'DeltaEvent(text: $text)';
 }
 
+/// Agent requested a tool invocation.
 final class ToolUseEvent extends BridgeEvent {
   final String toolName;
   final String toolId;
@@ -42,6 +44,7 @@ final class ToolUseEvent extends BridgeEvent {
   String toString() => 'ToolUseEvent(toolName: $toolName, toolId: $toolId, input: $input)';
 }
 
+/// Result returned from a tool invocation.
 final class ToolResultEvent extends BridgeEvent {
   final String toolId;
   final String output;
@@ -61,6 +64,7 @@ final class ToolResultEvent extends BridgeEvent {
   String toString() => 'ToolResultEvent(toolId: $toolId, output: $output, isError: $isError)';
 }
 
+/// Initialization metadata from the agent subprocess.
 final class SystemInitEvent extends BridgeEvent {
   final int contextWindow;
 

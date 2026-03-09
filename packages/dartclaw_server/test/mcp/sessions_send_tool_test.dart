@@ -28,7 +28,7 @@ void main() {
       expect(required, contains('message'));
     });
 
-    test('successful delegation returns text', () async {
+    test('successful delegation returns ToolResultText', () async {
       final delegate = SessionDelegate(
         dispatch: ({required sessionId, required message, required agentId}) async {
           return 'Search result for: $message';
@@ -39,10 +39,11 @@ void main() {
       final tool = SessionsSendTool(delegate: delegate);
 
       final result = await tool.call({'agent': 'search', 'message': 'What is Dart?'});
-      expect(result, 'Search result for: What is Dart?');
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, 'Search result for: What is Dart?');
     });
 
-    test('error result (unknown agent) returns error text', () async {
+    test('error result (unknown agent) returns text with error', () async {
       final delegate = SessionDelegate(
         dispatch: ({required sessionId, required message, required agentId}) async => '',
         limits: limits,
@@ -51,10 +52,11 @@ void main() {
       final tool = SessionsSendTool(delegate: delegate);
 
       final result = await tool.call({'agent': 'nonexistent', 'message': 'test'});
-      expect(result, contains('Unknown agent'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Unknown agent'));
     });
 
-    test('missing params returns error text', () async {
+    test('missing params returns text with error', () async {
       final delegate = SessionDelegate(
         dispatch: ({required sessionId, required message, required agentId}) async => '',
         limits: limits,
@@ -63,7 +65,8 @@ void main() {
       final tool = SessionsSendTool(delegate: delegate);
 
       final result = await tool.call({'agent': 'search'});
-      expect(result, contains('Missing required params'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Missing required params'));
     });
   });
 }

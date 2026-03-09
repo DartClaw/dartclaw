@@ -19,4 +19,4 @@ export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
 export 'src/search/qmd_manager.dart' show QmdManager;
 
 // Memory
-export 'src/memory/memory_pruner.dart' show MemoryPruner;
+export 'src/memory/memory_pruner.dart' show MemoryPruner, PruneResult;

@@ -1,0 +1,295 @@
+<div tl:fragment="memoryDashboard" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div tl:utext="${topbar}"><!-- topbar --></div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+    <div class="page-inner" id="memory-content"
+         hx-get="/memory/content" hx-trigger="every 30s"
+         hx-swap="innerHTML" hx-select="#memory-inner">
+
+      <div id="memory-inner">
+
+        <!-- Section 1: Overview -->
+        <h2 class="section-label">Overview</h2>
+        <div class="metrics-grid metrics-grid-5">
+
+          <div class="metric-card">
+            <div class="metric-value" tl:text="${memorySizeStr}">0 B</div>
+            <div class="metric-label">Memory Size</div>
+            <div class="budget-bar-wrapper">
+              <div class="budget-bar-label">
+                <span>of <span tl:text="${budgetStr}">32 KB</span></span>
+                <span tl:text="${budgetPercent}">0</span>%
+              </div>
+              <div class="budget-bar">
+                <div class="budget-bar-fill" tl:classappend="${budgetWarnClass}" tl:attr="style=${'width:' + budgetBarWidth}">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value" tl:text="${entryCount}">0</div>
+            <div class="metric-label">Active Entries</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value" tl:text="${archivedCount}">0</div>
+            <div class="metric-label">Archived Entries</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value"><span tl:text="${errorsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${errorsCap}">50</span></span></div>
+            <div class="metric-label">Errors</div>
+            <div class="fill-indicator">
+              <div class="fill-bar">
+                <div class="fill-bar-inner" tl:attr="style=${'width:' + errorsPercent}"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value"><span tl:text="${learningsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${learningsCap}">50</span></span></div>
+            <div class="metric-label">Learnings</div>
+            <div class="fill-indicator">
+              <div class="fill-bar">
+                <div class="fill-bar-inner" tl:attr="style=${'width:' + learningsPercent}"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Section 2: Pruning -->
+        <h2 class="section-label">Memory Pruning</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Pruner</span>
+            <span class="card-badge" tl:classappend="${prunerBadgeClass}" tl:text="${prunerStatus}">Active</span>
+          </div>
+          <div class="card-rows">
+            <div class="card-row">
+              <span class="card-row-label">Config</span>
+              <span class="card-row-value">Archive after <span tl:text="${prunerArchiveDays}">90</span>d &middot; Schedule: <code tl:text="${prunerSchedule}">0 3 * * *</code></span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Next run</span>
+              <span class="card-row-value" tl:text="${prunerNextRun}">N/A</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Undated entries</span>
+              <span class="card-row-value">
+                <span tl:text="${prunerUndated}">0</span>
+                <span tl:if="${hasUndated}" class="warning-text">&#9888; never archived</span>
+              </span>
+            </div>
+          </div>
+
+          <div tl:if="${hasPrunerHistory}" class="card-subsection">
+            <div class="section-label">Recent Runs</div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Memory pruner recent runs</caption>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Archived</th>
+                    <th>Deduped</th>
+                    <th>Remaining</th>
+                    <th>Final Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr tl:each="run : ${prunerHistory}">
+                    <td tl:text="${run.date}">-</td>
+                    <td tl:text="${run.archived}">0</td>
+                    <td tl:text="${run.deduped}">0</td>
+                    <td tl:text="${run.remaining}">0</td>
+                    <td tl:text="${run.finalSize}">0 B</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p tl:unless="${hasPrunerHistory}" class="card-detail card-detail-muted card-subsection">No prune runs recorded yet</p>
+
+          <div class="card-actions">
+            <button class="btn btn-ghost" data-action="confirm-prune">Prune Now</button>
+          </div>
+        </div>
+
+        <!-- Section 3: Search & Index -->
+        <h2 class="section-label">Search &amp; Index</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Search Backend</span>
+            <span class="card-badge badge-success">Active</span>
+          </div>
+          <div class="card-rows">
+            <div class="card-row">
+              <span class="card-row-label">Backend</span>
+              <span class="card-row-value" tl:text="${searchBackend}">fts5</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Search depth</span>
+              <span class="card-row-value"><span tl:text="${searchDepth}">10</span> results</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Index entries</span>
+              <span class="card-row-value"><span tl:text="${searchIndexTotal}">0</span> <span class="metric-sub-inline">(<span tl:text="${searchIndexLive}">0</span> live, <span tl:text="${searchIndexArchived}">0</span> archived)</span></span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">DB size</span>
+              <span class="card-row-value" tl:text="${searchDbSize}">0 B</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Memory Files -->
+        <h2 class="section-label">Memory Files</h2>
+        <div class="card" id="memory-files-card">
+          <div class="tab-bar" role="tablist">
+            <button class="tab-btn active" data-action="switch-tab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
+            <button class="tab-btn" data-action="switch-tab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
+            <button class="tab-btn" data-action="switch-tab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
+            <button class="tab-btn" data-action="switch-tab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
+            <div class="tab-header-actions">
+              <div class="toggle-btn-group">
+                <button class="toggle-btn active" data-action="toggle-view" data-mode="raw">Raw</button>
+                <button class="toggle-btn" data-action="toggle-view" data-mode="rendered">Rendered</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: MEMORY.md -->
+          <div class="tab-panel active" id="tab-memory" role="tabpanel">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value" tl:text="${memoryMdEntries}">0</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value" tl:text="${memoryMdSize}">0 B</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Oldest</span>
+                <span class="tab-meta-value" tl:text="${memoryMdOldest}">N/A</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Newest</span>
+                <span class="tab-meta-value" tl:text="${memoryMdNewest}">N/A</span>
+              </div>
+            </div>
+
+            <div tl:if="${hasCategories}" class="card-subsection">
+              <div class="section-label">Category Breakdown</div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <caption class="sr-only">Memory entry categories</caption>
+                  <thead>
+                    <tr>
+                      <th>Section</th>
+                      <th class="text-right">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr tl:each="cat : ${categories}">
+                      <td tl:text="${cat.name}">-</td>
+                      <td class="text-right" tl:text="${cat.count}">0</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <pre class="memory-preview" data-file="memory">Click to load content...</pre>
+          </div>
+
+          <!-- Tab: errors.md -->
+          <div class="tab-panel" id="tab-errors" role="tabpanel">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value" tl:text="${errorsCount}">0</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value" tl:text="${errorsMdSize}">0 B</span>
+              </div>
+            </div>
+            <pre class="memory-preview" data-file="errors">Click to load content...</pre>
+          </div>
+
+          <!-- Tab: learnings.md -->
+          <div class="tab-panel" id="tab-learnings" role="tabpanel">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value" tl:text="${learningsCount}">0</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value" tl:text="${learningsMdSize}">0 B</span>
+              </div>
+            </div>
+            <pre class="memory-preview" data-file="learnings">Click to load content...</pre>
+          </div>
+
+          <!-- Tab: Archive -->
+          <div class="tab-panel" id="tab-archive" role="tabpanel">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value" tl:text="${archiveMdEntries}">0</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value" tl:text="${archiveMdSize}">0 B</span>
+              </div>
+            </div>
+            <pre class="memory-preview" data-file="archive">Click to load content...</pre>
+          </div>
+        </div>
+
+        <!-- Section 5: Daily Logs -->
+        <h2 class="section-label">Daily Logs</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Log Files</span>
+            <span class="card-badge badge-muted"><span tl:text="${logFileCount}">0</span> files &middot; <span tl:text="${logTotalSize}">0 B</span></span>
+          </div>
+          <div tl:if="${hasDailyLogs}">
+            <div class="table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Daily memory log files</caption>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Entries</th>
+                    <th>Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr tl:each="log : ${dailyLogs}">
+                    <td tl:text="${log.date}">-</td>
+                    <td tl:text="${log.entries}">0</td>
+                    <td tl:text="${log.size}">0 B</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p tl:unless="${hasDailyLogs}" class="card-detail card-detail-muted">No daily log files found</p>
+        </div>
+
+        <!-- Info footer -->
+        <div class="info-footer">
+          Memory files stored in <code tl:text="${workspacePath}">~/.dartclaw/workspace/</code>
+          &middot; Configured in <code>dartclaw.yaml</code>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>

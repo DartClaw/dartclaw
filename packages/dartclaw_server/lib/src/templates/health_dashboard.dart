@@ -1,3 +1,5 @@
+import '../audit/audit_log_reader.dart';
+import 'audit_table.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -13,7 +15,11 @@ String healthDashboardTemplate({
   required int dbSizeBytes,
   required String version,
   required SidebarData sidebarData,
-  bool signalEnabled = false,
+  AuditPage? auditPage,
+  String? verdictFilter,
+  String? guardFilter,
+  String bannerHtml = '',
+  String appName = 'DartClaw',
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
   final dbSizeStr = formatBytes(dbSizeBytes);
@@ -46,14 +52,9 @@ String healthDashboardTemplate({
     _ => 'badge-muted',
   };
 
-  final navItems = buildSystemNavItems(activePage: 'Health', signalEnabled: signalEnabled);
+  final navItems = buildSystemNavItems(activePage: 'Health');
 
-  final sidebar = sidebarTemplate(
-    mainSession: sidebarData.main,
-    channelSessions: sidebarData.channels,
-    sessionEntries: sidebarData.entries,
-    navItems: navItems,
-  );
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(title: 'System Health', backHref: '/', backLabel: 'Back to Chat');
 
@@ -103,6 +104,12 @@ String healthDashboardTemplate({
     {'value': dbSizeStr, 'label': 'DB Size'},
   ];
 
+  final auditSection = auditTableFragment(
+    auditPage: auditPage ?? AuditPage.empty,
+    verdictFilter: verdictFilter,
+    guardFilter: guardFilter,
+  );
+
   final body = templateLoader.trellis.render(templateLoader.source('health_dashboard'), {
     'sidebar': sidebar,
     'topbar': topbar,
@@ -114,7 +121,9 @@ String healthDashboardTemplate({
     'workerState': workerState,
     'cards': cards,
     'metrics': metrics,
+    'auditSection': auditSection,
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Health', body: body);
+  return layoutTemplate(title: 'Health', body: body, appName: appName);
 }

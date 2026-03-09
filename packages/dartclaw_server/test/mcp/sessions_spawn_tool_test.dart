@@ -43,7 +43,8 @@ void main() {
       final tool = SessionsSpawnTool(delegate: delegate);
 
       final result = await tool.call({'agent': 'search', 'message': 'background task'});
-      expect(result, contains('Spawned session:'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Spawned session:'));
 
       // Allow background to complete
       completer.complete();
@@ -59,7 +60,8 @@ void main() {
       final tool = SessionsSpawnTool(delegate: delegate);
 
       final result = await tool.call({'agent': 'nonexistent', 'message': 'test'});
-      expect(result, contains('Unknown agent'));
+      expect(result, isA<ToolResultText>());
+      expect((result as ToolResultText).content, contains('Unknown agent'));
     });
   });
 }

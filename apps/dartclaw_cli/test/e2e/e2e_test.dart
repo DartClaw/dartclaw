@@ -150,7 +150,7 @@ void main() {
       );
       expect(sendRes1.statusCode, equals(200));
       final sendHtml = await sendRes1.readAsString();
-      expect(sendHtml, contains('data-sse-url'));
+      expect(sendHtml, contains('sse-connect='));
 
       // 3. Verify user message persisted
       final msgRes1 = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId1/messages')));
@@ -232,7 +232,7 @@ void main() {
         ),
       );
 
-      // Extract turn ID from send response HTML — parse data-sse-url
+      // Extract turn ID from send response HTML — parse sse-connect attribute
       final sendRes = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId/messages')));
       expect(sendRes.statusCode, equals(200));
 

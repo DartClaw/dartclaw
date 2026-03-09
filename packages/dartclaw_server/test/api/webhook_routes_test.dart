@@ -36,7 +36,7 @@ class _FakeGowaManager extends GowaManager {
   Future<GowaStatus> getStatus() async => (isConnected: false, isLoggedIn: false, deviceId: null);
 
   @override
-  Future<String?> getLoginQr() async => null;
+  Future<GowaLoginQr> getLoginQr() async => (url: null, durationSeconds: 60);
 }
 
 class _FakeChannelManager extends ChannelManager {

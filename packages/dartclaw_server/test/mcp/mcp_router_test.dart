@@ -20,7 +20,8 @@ class _EchoTool implements McpTool {
   };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async => args['text'] as String;
+  Future<ToolResult> call(Map<String, dynamic> args) async =>
+      ToolResult.text(args['text'] as String);
 }
 
 void main() {

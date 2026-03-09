@@ -34,9 +34,9 @@ class MemorySaveTool implements McpTool {
       };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _handler(args);
-    return extractMcpText(result);
+    return ToolResult.text(extractMcpText(result));
   }
 }
 
@@ -66,9 +66,9 @@ class MemorySearchTool implements McpTool {
       };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _handler(args);
-    return extractMcpText(result);
+    return ToolResult.text(extractMcpText(result));
   }
 }
 
@@ -91,8 +91,8 @@ class MemoryReadTool implements McpTool {
       };
 
   @override
-  Future<String> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _handler(args);
-    return extractMcpText(result);
+    return ToolResult.text(extractMcpText(result));
   }
 }

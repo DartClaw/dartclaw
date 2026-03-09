@@ -1,7 +1,8 @@
 <div tl:fragment="healthDashboard" class="shell">
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div tl:utext="${topbar}"><!-- topbar --></div>
-  <main id="main-content" hx-history-elt class="dashboard">
+  <main id="main-content" tabindex="-1" hx-history-elt class="dashboard">
+    <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
     <div class="dashboard-inner">
 
       <div class="status-hero" tl:classappend="${statusColorClass}">
@@ -39,6 +40,9 @@
           <div class="metric-label" tl:text="${metric.label}">Metric</div>
         </div>
       </div>
+
+      <h2 class="section-label">Guard Activity</h2>
+      <div class="table-section" tl:utext="${auditSection}"><!-- audit table --></div>
 
     </div>
   </main>

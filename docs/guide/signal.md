@@ -5,20 +5,26 @@ DartClaw connects to Signal via [signal-cli](https://github.com/AsamK/signal-cli
 ## Prerequisites
 
 - signal-cli installed and on PATH (or absolute path in config)
-- Java 17+ (or use the GraalVM native binary)
 - A phone number for Signal registration, or an existing Signal account for device linking
 
 ## Installing signal-cli
 
-```bash
-# Option 1: Download release (requires Java 17+)
-# See https://github.com/AsamK/signal-cli/releases
-wget https://github.com/AsamK/signal-cli/releases/download/v0.13.x/signal-cli-0.13.x.tar.gz
-tar xf signal-cli-0.13.x.tar.gz
-sudo mv signal-cli-0.13.x/bin/signal-cli /usr/local/bin/
+**macOS (recommended):**
 
-# Option 2: Native binary (no Java required)
-# See https://github.com/AsamK/signal-cli/wiki/GraalVM-Native-Image
+```bash
+brew install signal-cli
+```
+
+This installs signal-cli and its Java dependency automatically.
+
+**Linux:**
+
+Download from [GitHub releases](https://github.com/AsamK/signal-cli/releases) (requires Java 21+):
+
+```bash
+wget https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux.tar.gz
+tar xf signal-cli-0.14.0-Linux.tar.gz
+sudo mv signal-cli-0.14.0/bin/signal-cli /usr/local/bin/
 ```
 
 Verify: `signal-cli --version`

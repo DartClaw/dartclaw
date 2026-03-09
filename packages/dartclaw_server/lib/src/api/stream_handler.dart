@@ -2,22 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
 import '../turn_manager.dart';
 
-String _sseFrame(String event, Map<String, dynamic> data) {
-  final encoded = jsonEncode(data);
-  // Defensive: jsonEncode escapes \n as \\n in JSON strings, but guard against
-  // future code paths that might pass raw strings as data values.
-  final safe = encoded.replaceAll('\n', '\\n').replaceAll('\r', '\\r');
-  if (encoded != safe) {
-    Logger('SSE').warning('Literal newline/carriage-return found in SSE data — sanitized');
-  }
+/// Formats an SSE frame with HTML content. Newlines in [htmlContent] are
+/// replaced with spaces because SSE data lines cannot contain literal newlines.
+String _sseHtmlFrame(String event, String htmlContent) {
+  final safe = htmlContent.replaceAll('\n', ' ').replaceAll('\r', '');
   return 'event: $event\ndata: $safe\n\n';
 }
 
+/// Sanitizes a tool ID for use as an HTML element id attribute.
+String _sanitizeToolId(String raw) =>
+    'tool-${raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
+
+/// Returns an SSE [Response] that streams turn events in real time.
 Response sseStreamResponse(
   AgentHarness worker,
   TurnManager turns,
@@ -50,17 +50,31 @@ Response sseStreamResponse(
     eventSub?.cancel();
   };
 
+  final toolNames = <String, String>{};
+  const htmlEscape = HtmlEscape();
+
   eventSub = worker.events.listen((event) {
     if (controller.isClosed) return;
     final String frame;
     if (event is DeltaEvent) {
       final text = redactor?.redact(event.text) ?? event.text;
-      frame = _sseFrame('delta', {'text': text});
+      frame = _sseHtmlFrame('delta', '<span>${htmlEscape.convert(text)}</span>');
     } else if (event is ToolUseEvent) {
-      frame = _sseFrame('tool_use', {'tool_name': event.toolName, 'tool_id': event.toolId, 'input': event.input});
+      final id = _sanitizeToolId(event.toolId);
+      final name = htmlEscape.convert(event.toolName);
+      toolNames[event.toolId] = event.toolName;
+      frame = _sseHtmlFrame(
+        'tool_use',
+        '<div id="$id" class="tool-indicator pending">$name</div>',
+      );
     } else if (event is ToolResultEvent) {
-      final output = redactor?.redact(event.output) ?? event.output;
-      frame = _sseFrame('tool_result', {'tool_id': event.toolId, 'output': output, 'is_error': event.isError});
+      final id = _sanitizeToolId(event.toolId);
+      final name = htmlEscape.convert(toolNames[event.toolId] ?? 'Tool');
+      final status = event.isError ? 'error' : 'success';
+      frame = _sseHtmlFrame(
+        'tool_result',
+        '<div id="$id" hx-swap-oob="outerHTML:#$id" class="tool-indicator $status">$name</div>',
+      );
     } else {
       return;
     }
@@ -77,12 +91,15 @@ Response sseStreamResponse(
       final result = await turns.waitForOutcome(sessionId, turnId);
       if (controller.isClosed) return;
       if (result.status == TurnStatus.completed) {
-        controller.add(utf8.encode(_sseFrame('done', {'turn_id': turnId})));
+        controller.add(utf8.encode(_sseHtmlFrame('done', '')));
       } else {
         final message = result.errorMessage ?? 'Turn failed';
         controller.add(
           utf8.encode(
-            _sseFrame('error', {'turn_id': turnId, 'status': result.status.name, 'error': message, 'message': message}),
+            _sseHtmlFrame(
+              'turn_error',
+              '<div class="turn-error">${htmlEscape.convert(message)}</div>',
+            ),
           ),
         );
       }
@@ -91,12 +108,10 @@ Response sseStreamResponse(
         try {
           controller.add(
             utf8.encode(
-              _sseFrame('error', {
-                'turn_id': turnId,
-                'status': 'failed',
-                'error': 'Internal error',
-                'message': 'Internal error',
-              }),
+              _sseHtmlFrame(
+                'turn_error',
+                '<div class="turn-error">Internal error</div>',
+              ),
             ),
           );
         } catch (_) {}
@@ -109,6 +124,11 @@ Response sseStreamResponse(
 
   return Response.ok(
     controller.stream,
-    headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
   );
 }

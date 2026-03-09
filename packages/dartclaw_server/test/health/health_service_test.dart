@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/src/health/health_route.dart';
 import 'package:dartclaw_server/src/health/health_service.dart';
+import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeHarness implements AgentHarness {
@@ -141,6 +144,31 @@ void main() {
       final status = await service.getStatus();
       expect(status['version'], isA<String>());
       expect(status['version'], isNotEmpty);
+    });
+  });
+
+  group('healthHandler', () {
+    test('GET /health returns JSON 200 with expected fields', () async {
+      final service = HealthService(
+        worker: harness,
+        searchDbPath: '/nonexistent/search.db',
+        sessionsDir: tempDir.path,
+      );
+
+      final handler = healthHandler(service);
+      final request = Request('GET', Uri.parse('http://localhost/health'));
+      final response = await handler(request);
+
+      expect(response.statusCode, 200);
+      expect(response.headers['Content-Type'], 'application/json');
+
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['status'], 'healthy');
+      expect(body['uptime_s'], isA<int>());
+      expect(body['worker_state'], 'idle');
+      expect(body['session_count'], isA<int>());
+      expect(body['db_size_bytes'], isA<int>());
+      expect(body['version'], isA<String>());
     });
   });
 }

@@ -304,5 +304,111 @@ void main() {
         expect(config.warnings, anyElement(contains('Invalid type for guards')));
       });
     });
+
+    group('search.providers config', () {
+      String? noFile(String path) => null;
+
+      test('no providers section returns empty map', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'search:\n  backend: fts5\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders, isEmpty);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('single provider enabled with API key parsed correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: my-key\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders, hasLength(1));
+        expect(config.searchProviders['brave']!.enabled, isTrue);
+        expect(config.searchProviders['brave']!.apiKey, 'my-key');
+      });
+
+      test('multiple providers parsed', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: brave-key\n    tavily:\n      enabled: false\n      api_key: tavily-key\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders, hasLength(2));
+        expect(config.searchProviders['brave']!.enabled, isTrue);
+        expect(config.searchProviders['tavily']!.enabled, isFalse);
+        expect(config.searchProviders['tavily']!.apiKey, 'tavily-key');
+      });
+
+      test('provider with enabled: false parsed with enabled=false', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers:\n    brave:\n      enabled: false\n      api_key: key\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders['brave']!.enabled, isFalse);
+      });
+
+      test('provider missing api_key skipped with warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers:\n    brave:\n      enabled: true\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders, isEmpty);
+        expect(config.warnings, anyElement(contains('missing "api_key"')));
+      });
+
+      test('provider with env var api_key substituted', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: \${BRAVE_API_KEY}\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user', 'BRAVE_API_KEY': 'resolved-key'},
+        );
+        expect(config.searchProviders['brave']!.apiKey, 'resolved-key');
+      });
+
+      test('invalid providers type produces warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'search:\n  providers: not-a-map\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.searchProviders, isEmpty);
+        expect(config.warnings, anyElement(contains('Invalid type for search.providers')));
+      });
+
+      test('no search section returns empty providers', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.searchProviders, isEmpty);
+      });
+    });
   });
 }

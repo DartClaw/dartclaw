@@ -2,7 +2,7 @@
 
 ## Web Interface
 
-DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX and Server-Sent Events. No JavaScript build step — everything runs from CDN libraries and a single `app.js` file.
+DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries and a single `app.js` file.
 
 ### Layout
 
@@ -128,7 +128,7 @@ Content-Type: application/x-www-form-urlencoded
 message=Help+me+write+a+test
 ```
 
-Stores the user message, composes the system prompt, and starts an agent turn. Returns an HTML fragment (for HTMX) containing a `data-sse-url` attribute pointing to the SSE stream.
+Stores the user message, composes the system prompt, and starts an agent turn. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
 
 **Error responses**:
 - `400` — empty message
@@ -141,54 +141,149 @@ Stores the user message, composes the system prompt, and starts an agent turn. R
 GET /api/sessions/:id/stream?turn=<turnId>
 ```
 
-Returns a Server-Sent Events stream. Each event has a `data` field containing JSON:
+Returns a Server-Sent Events stream. The HTMX SSE extension (`htmx-ext-sse`) handles the EventSource lifecycle, reconnection, and DOM swapping via declarative attributes. Each event contains an HTML fragment:
 
 **Text chunk** (streaming response text):
 ```
-event: message
-data: {"type": "delta", "text": "Here's how to "}
+event: delta
+data: <span>Here's how to </span>
 ```
 
 **Tool use** (agent invokes a tool):
 ```
-event: message
-data: {"type": "tool_use", "tool_name": "Read", "tool_id": "tool_abc123", "input": {"file_path": "/src/main.dart"}}
+event: tool_use
+data: <div id="tool-toolabc123" class="tool-indicator pending">Read</div>
 ```
 
-**Tool result** (tool execution completed):
+**Tool result** (tool execution completed — uses OOB swap to update existing indicator):
 ```
-event: message
-data: {"type": "tool_result", "tool_id": "tool_abc123", "output": "file contents...", "is_error": false}
+event: tool_result
+data: <div id="tool-toolabc123" hx-swap-oob="outerHTML:#tool-toolabc123" class="tool-indicator success">Read</div>
 ```
 
-**Turn completed**:
+**Turn completed** (HTMX `sse-close="done"` terminates EventSource):
 ```
-event: message
-data: {"type": "done"}
+event: done
+data:
 ```
 
 **Turn failed**:
 ```
-event: message
-data: {"type": "error", "message": "Worker process crashed"}
+event: turn_error
+data: <div class="turn-error">Worker process crashed</div>
 ```
 
-**Turn cancelled**:
+The stream closes after a terminal event (`done` or `turn_error`). The HTMX SSE extension handles reconnection with exponential backoff automatically.
+
+> **Note**: The event is named `turn_error` (not `error`) because the EventSource spec treats `error` as a special event that triggers `onerror` instead of being dispatched as a named event.
+
+### Configuration
+
+#### Get configuration
+
 ```
-event: message
-data: {"type": "cancelled"}
+GET /api/config
 ```
 
-The stream closes after a terminal event (`done`, `error`, or `cancelled`).
+Returns the current server configuration with metadata (allowed values, restart-pending fields).
+
+#### Update configuration
+
+```
+PATCH /api/config
+Content-Type: application/json
+
+{"agent.model": "claude-sonnet-4-20250514", "server.port": 3333}
+```
+
+Validates and applies configuration changes. Fields requiring restart are flagged in the response metadata. Returns `422` with field-level errors on validation failure.
+
+### Scheduling
+
+#### Create job
+
+```
+POST /api/scheduling/jobs
+Content-Type: application/json
+
+{"name": "daily-summary", "schedule": "0 9 * * *", "prompt": "Summarize yesterday's changes", "delivery": "announce"}
+```
+
+#### Update job
+
+```
+PUT /api/scheduling/jobs/:name
+Content-Type: application/json
+
+{"schedule": "0 10 * * *", "prompt": "Updated prompt", "delivery": "none"}
+```
+
+#### Delete job
+
+```
+DELETE /api/scheduling/jobs/:name
+```
+
+### Memory
+
+#### Get memory status
+
+```
+GET /api/memory/status
+```
+
+Returns memory overview: file sizes, entry counts, pruner status.
+
+#### Read memory file
+
+```
+GET /api/memory/files/:name
+```
+
+Returns the raw text content of a memory file (`memory`, `errors`, `learnings`, `archive`).
+
+#### Trigger prune
+
+```
+POST /api/memory/prune
+```
+
+Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
+
+### System
+
+#### Restart server
+
+```
+POST /api/system/restart
+```
+
+Initiates a graceful restart. Active turns are drained first. Returns `200` on success.
+
+#### Server-Sent Events (global)
+
+```
+GET /api/events
+```
+
+Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE.
 
 ### Web Pages
 
 | Route | Description |
 |-------|-------------|
-| `GET /` | Redirects to the most recent session, or shows empty app state |
+| `GET /login` | Login page with token input |
+| `GET /` | Redirects to most recent session, or shows empty app state |
 | `GET /sessions/:id` | Full page render with sidebar, topbar, and chat area |
+| `GET /sessions/:id/info` | Session info page (tokens, messages, details) |
 | `GET /sessions/:id/messages-html` | HTML fragment of message history (for HTMX partial reload) |
-| `GET /static/*` | Static assets (CSS, JS) |
+| `GET /health-dashboard` | System health status, services, guard audit log |
+| `GET /health-dashboard/audit` | Guard audit table fragment (HTMX polling) |
+| `GET /settings` | Configuration editor (agent, server, security, scheduling settings) |
+| `GET /scheduling` | Scheduling status, heartbeat, job management |
+| `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
+| `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
+| `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
 ## Memory MCP Tools
 

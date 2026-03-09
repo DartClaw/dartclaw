@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Channel DM access management — unified controller, config API, settings UI, pairing flow.
+
+### Added
+- **Unified DM access controller** (S02): shared `DmAccessController` extracted to `dartclaw_core/channel/`; Signal gains `pairing` mode (was WhatsApp-only); `SignalDmAccessController` removed; `DmAccessMode` enum (`open`, `disabled`, `allowlist`, `pairing`) shared across both channels; Signal allowlist accepts both phone numbers and ACI UUIDs
+- **Channel access config API** (S03): `GET/PATCH /api/config` now includes channel DM/group access fields; dedicated allowlist CRUD endpoints (`GET/POST/DELETE /api/config/channels/<type>/dm-allowlist`); allowlist changes are live (no restart); E.164 and JID validation on entries
+- **Channel access config UI** (S04): `/settings/channels/whatsapp` and `/settings/channels/signal` detail pages; DM mode selector, DM allowlist editor, group mode selector, group allowlist editor, mention gating toggle; restart-required banner for mode changes; closes wireframe deviation #8
+- **Pairing flow** (S05): unknown senders in `pairing` mode now trigger `createPairing()` instead of silent drop; pending pairings shown on channel detail page with sender ID, display name, and expiry countdown; Approve/Reject buttons wire through `confirmPairing()` → live allowlist update + YAML persist; pairing management endpoints (`GET /api/channels/<type>/dm-pairing`, `POST .../confirm`, `DELETE .../reject`); notification badge on channel card when pending pairings exist; HTMX polling for real-time updates
+
+### Changed
+- **Doc corrections** (S01): GOWA v8 alignment plan corrected — `GET /app/status` `device_id` is an internal UUID, not the WhatsApp JID; JID available via `GET /devices` → `jid` and `LOGIN_SUCCESS` event; signal-cli sealed-sender behaviour documented — `source` field carries ACI UUID, `sourceNumber` is the phone fallback
+
+---
+
+## [0.6.0] — 2026-03-05
+
+Config editing, guard audit UI, memory dashboard, MCP tool extensions, SDK prep.
+
+### Added
+- **YAML config writer** (S02): `ConfigWriter` — round-trip YAML edits via `yaml_edit`, preserves comments and formatting; automatic backup before write
+- **Config validation** (S03): `ConfigMeta` field registry + `ConfigValidator`; typed field descriptors with constraints; validation errors surfaced in UI
+- **Config read/write API** (S04): `GET /api/config` + `PATCH /api/config` for live config updates; job CRUD endpoints (`POST /api/scheduling/jobs`, `PUT /api/scheduling/jobs/<name>`, `DELETE /api/scheduling/jobs/<name>`)
+- **Settings page form mode** (S05): data-driven editable forms for all config sections; live-mutable toggles; restart-required badge on fields that need a server restart
+- **Scheduling job management UI** (S06): inline add/edit/delete jobs on the scheduling page; cron expression human-readable preview
+- **Graceful restart** (S07): `RestartService` — drains active turns then exits; SSE broadcast notifies connected clients; persistent banner survives the restart; client overlay blocks interaction during drain
+- **Guard audit storage** (S08): `GuardAuditSink` — persistent NDJSON file log of every guard decision; automatic rotation at 10 000 entries
+- **Guard audit web UI** (S09): guard audit table on `/health-dashboard` — paginated table of audit entries; filter by guard type and verdict
+- **Guard config detail viewer** (S10): per-guard configuration cards on `/settings`; `FileGuard` rule display
+- **Memory status API** (S11): `MemoryStatusService` — memory file sizes, entry counts, last-prune timestamp; pruner run history stored in KV
+- **Memory dashboard** (S12): `/memory` page with 5 sections (status, files, pruner history, archive stats, manual prune); 30-second HTMX polling; prune confirmation dialog
+- **`web_fetch` MCP tool** (S13): `WebFetchTool` — fetches URLs and converts HTML to Markdown for agent consumption
+- **Search MCP tools** (S14): `SearchProvider` interface; `BraveSearchTool` and `TavilySearchTool` implementations; provider selected via config
+- **`registerTool()` SDK API** (S15): public API on `DartClaw` for registering external MCP tools without forking
+- **Harness auto-config for MCP** (S16): registered MCP tools automatically wired into harness `--mcp-config` at spawn time; no manual config required
+
+### Changed
+- **Package split** (S17): new `packages/dartclaw_models/` extracted from `dartclaw_core` — `models.dart` + `session_key.dart`; consumers depend on `dartclaw_models` directly
+- **API surface + doc comments** (S18): `///` doc comments on all exported symbols across `dartclaw_core`, `dartclaw_models`, `dartclaw_storage`, `dartclaw_server`; barrel exports tightened; pana score 145/160; all packages bumped to 0.6.0
+
+---
+
 ## [0.5.0] — 2026-03-03
 
 Security hardening, memory lifecycle, MCP foundation, package split, Signal/WhatsApp E2E verification.

@@ -10,7 +10,7 @@
 
 <div tl:fragment="guardBlock" class="msg msg-guard-block">
   <div class="guard-block-header">
-    <span class="guard-block-icon"></span>
+    <span class="guard-block-icon" aria-hidden="true"></span>
     <span class="guard-block-label">GUARD BLOCKED</span>
   </div>
   <div class="guard-block-reason" tl:text="${detail}">Blocked</div>
@@ -18,22 +18,21 @@
 
 <div tl:fragment="turnFailed" class="msg msg-turn-failed">
   <div class="msg-turn-failed-header">
-    <span class="msg-turn-failed-icon">&#9888;</span>
+    <span class="msg-turn-failed-icon" aria-hidden="true">&#9888;</span>
     <span class="msg-turn-failed-label">Turn failed</span>
   </div>
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
 </div>
 
-<main tl:fragment="chatArea" id="main-content" hx-history-elt class="chat-area"
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area"
   tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle}">
   <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
-  <div id="sse-container"></div>
   <div tl:if="${readOnly}" class="input-area">
     <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
   </div>
   <div tl:unless="${readOnly}" class="input-area">
-    <form id="chat-form" tl:attr="hx-post=${sendUrl}" hx-target="#sse-container" hx-swap="innerHTML">
+    <form id="chat-form" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend">
       <label class="sr-only" for="message-input">Message</label>
       <textarea id="message-input" name="message" rows="1"
                 tl:attr="placeholder=${placeholder},disabled=${inputDisabled}"></textarea>
@@ -48,11 +47,19 @@
     <div class="msg-role">You</div>
     <div class="msg-content"><p tl:text="${message}">message</p></div>
   </div>
-  <div class="msg msg-assistant" id="streaming-msg">
+  <div class="msg msg-assistant" id="streaming-msg"
+       hx-ext="sse"
+       tl:attr="sse-connect=${sseUrl}"
+       sse-close="done">
     <div class="msg-role">Assistant</div>
-    <div class="msg-content streaming" id="streaming-content"></div>
-  </div>
-  <div id="sse-connector"
-       tl:attr="data-sse-url=${sseUrl}">
+    <div class="msg-content streaming" id="streaming-content"
+         sse-swap="delta" hx-swap="beforeend">
+    </div>
+    <div id="tool-container"
+         sse-swap="tool_use" hx-swap="beforeend">
+    </div>
+    <div sse-swap="tool_result" hx-swap="none"></div>
+    <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" style="display:none"
+         hx-on::after-swap="dartclaw.handleTurnError(event)"></div>
   </div>
 </tl:block>

@@ -13,17 +13,14 @@ String sessionInfoTemplate({
   String? createdAt,
   int? inputTokens,
   int? outputTokens,
+  String bannerHtml = '',
+  List<Map<String, String>> recentTurns = const [],
+  String appName = 'DartClaw',
 }) {
   final displayTitle = sessionTitle.trim().isEmpty ? 'New Session' : sessionTitle;
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
 
-  final sidebar = sidebarTemplate(
-    mainSession: sidebarData.main,
-    channelSessions: sidebarData.channels,
-    sessionEntries: sidebarData.entries,
-    activeSessionId: sessionId,
-    navItems: navItems,
-  );
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(
     title: 'Session Info',
@@ -41,9 +38,12 @@ String sessionInfoTemplate({
     'totalStr': totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',
     'messageCount': messageCount.toString(),
     'createdAt': createdAt ?? '\u2014',
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+    'hasRecentTurns': recentTurns.isNotEmpty,
+    'recentTurns': recentTurns,
   });
 
-  return layoutTemplate(title: 'Session Info', body: body);
+  return layoutTemplate(title: 'Session Info', body: body, appName: appName);
 }
 
 String _formatNumber(int n) {

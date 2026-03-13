@@ -13,8 +13,10 @@ String healthDashboardTemplate({
   required String workerState,
   required int sessionCount,
   required int dbSizeBytes,
+  required int totalArtifactDiskBytes,
   required String version,
   required SidebarData sidebarData,
+  required List<NavItem> navItems,
   AuditPage? auditPage,
   String? verdictFilter,
   String? guardFilter,
@@ -23,6 +25,7 @@ String healthDashboardTemplate({
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
   final dbSizeStr = formatBytes(dbSizeBytes);
+  final artifactDiskStr = formatBytes(totalArtifactDiskBytes);
   final statusLabel = status[0].toUpperCase() + status.substring(1);
 
   final statusColorClass = switch (status) {
@@ -51,8 +54,6 @@ String healthDashboardTemplate({
     'crashed' => 'badge-error',
     _ => 'badge-muted',
   };
-
-  final navItems = buildSystemNavItems(activePage: 'Health');
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
@@ -102,6 +103,7 @@ String healthDashboardTemplate({
     {'value': uptimeStr, 'label': 'Uptime'},
     {'value': '$sessionCount', 'label': 'Sessions'},
     {'value': dbSizeStr, 'label': 'DB Size'},
+    {'value': artifactDiskStr, 'label': 'Task Artifacts'},
   ];
 
   final auditSection = auditTableFragment(

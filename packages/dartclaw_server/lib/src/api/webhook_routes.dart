@@ -6,6 +6,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/auth_utils.dart';
+import 'google_chat_webhook.dart';
 
 final _log = Logger('WebhookRoutes');
 
@@ -14,7 +15,13 @@ final _log = Logger('WebhookRoutes');
 /// These endpoints are excluded from gateway auth — GOWA calls them directly.
 /// When [webhookSecret] is set, incoming requests must include a matching
 /// `secret` query parameter.
-Router webhookRoutes({WhatsAppChannel? whatsApp, String? webhookSecret}) {
+Router webhookRoutes({
+  WhatsAppChannel? whatsApp,
+  String? webhookSecret,
+  GoogleChatWebhookHandler? googleChat,
+  EventBus? eventBus,
+  List<String> trustedProxies = const [],
+}) {
   final router = Router();
 
   if (whatsApp != null) {
@@ -24,6 +31,13 @@ Router webhookRoutes({WhatsAppChannel? whatsApp, String? webhookSecret}) {
         final requestSecret = request.requestedUri.queryParameters['secret'];
         if (requestSecret == null || !constantTimeEquals(requestSecret, webhookSecret)) {
           _log.warning('Webhook request with invalid/missing secret');
+          fireFailedAuthEvent(
+            eventBus,
+            request,
+            source: 'webhook',
+            reason: 'invalid_webhook_secret',
+            trustedProxies: trustedProxies,
+          );
           return Response.forbidden('');
         }
       }
@@ -43,6 +57,10 @@ Router webhookRoutes({WhatsAppChannel? whatsApp, String? webhookSecret}) {
       // Return 200 immediately — processing is async
       return Response.ok('');
     });
+  }
+
+  if (googleChat != null) {
+    router.post(googleChat.config.webhookPath, googleChat.handle);
   }
 
   return router;

@@ -30,21 +30,23 @@ String signalPairingTemplate({
   String? error,
   int restartAttempt = 0,
   int maxRestartAttempts = 5,
-  SidebarData sidebarData = const (main: null, dmChannels: [], groupChannels: [], activeEntries: [], archivedEntries: []),
+  SidebarData sidebarData = const (
+    main: null,
+    dmChannels: [],
+    groupChannels: [],
+    activeEntries: [],
+    archivedEntries: [],
+  ),
+  List<NavItem> navItems = const [],
   bool fragmentOnly = false,
   String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Settings');
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(
-    title: 'Signal Channel',
-    backHref: '/settings#channels',
-    backLabel: 'Settings',
-  );
+  final topbar = pageTopbarTemplate(title: 'Signal Channel', backHref: '/settings#channels', backLabel: 'Settings');
 
-  final showLinkDevice = !isConnected && !showReconnecting &&
-      !verificationPending && !captchaPending && linkDeviceUri != null;
+  final showLinkDevice =
+      !isConnected && !showReconnecting && !verificationPending && !captchaPending && linkDeviceUri != null;
 
   final body = templateLoader.trellis.renderFragment(
     templateLoader.source('signal_pairing'),
@@ -58,16 +60,13 @@ String signalPairingTemplate({
       'showReconnecting': showReconnecting,
       'captchaPending': !isConnected && !showReconnecting && captchaPending,
       'captchaPhone': captchaPhone ?? '',
-      'verificationPending': !isConnected && !showReconnecting &&
-          !captchaPending && verificationPending,
+      'verificationPending': !isConnected && !showReconnecting && !captchaPending && verificationPending,
       'verifyPhone': configuredPhone ?? 'your number',
       'showLinkDevice': showLinkDevice,
       'linkDeviceUri': linkDeviceUri ?? '',
-      'smsPhoneDisplay': configuredPhone != null && configuredPhone.isNotEmpty
-          ? configuredPhone
-          : '',
-      'showSetup': !isConnected && !showReconnecting &&
-          !verificationPending && !captchaPending && linkDeviceUri == null,
+      'smsPhoneDisplay': configuredPhone != null && configuredPhone.isNotEmpty ? configuredPhone : '',
+      'showSetup':
+          !isConnected && !showReconnecting && !verificationPending && !captchaPending && linkDeviceUri == null,
       'restartAttempt': showReconnecting ? '$restartAttempt of $maxRestartAttempts' : null,
     },
   );

@@ -23,18 +23,20 @@ String whatsappPairingTemplate({
   String? pairingCode,
   int restartAttempt = 0,
   int maxRestartAttempts = 5,
-  SidebarData sidebarData = const (main: null, dmChannels: [], groupChannels: [], activeEntries: [], archivedEntries: []),
+  SidebarData sidebarData = const (
+    main: null,
+    dmChannels: [],
+    groupChannels: [],
+    activeEntries: [],
+    archivedEntries: [],
+  ),
+  List<NavItem> navItems = const [],
   bool fragmentOnly = false,
   String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Settings');
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(
-    title: 'WhatsApp Channel',
-    backHref: '/settings#channels',
-    backLabel: 'Settings',
-  );
+  final topbar = pageTopbarTemplate(title: 'WhatsApp Channel', backHref: '/settings#channels', backLabel: 'Settings');
 
   final showQr = !isConnected && !showReconnecting && qrImageUrl != null;
 

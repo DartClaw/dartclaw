@@ -120,8 +120,105 @@
       </div>
       </div>
 
+      <div class="section-toolbar" style="margin-top: var(--sp-6);">
+        <h2 class="section-header">Scheduled Tasks</h2>
+        <button class="btn btn-primary btn-sm" data-action="toggle-task-form">+ Add Task</button>
+      </div>
+
+      <div class="job-form-card" id="task-form" style="display: none;">
+        <div class="form-title" id="task-form-title">Add Scheduled Task</div>
+        <input type="hidden" id="task-edit-id" value="">
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="task-id">ID</label>
+            <input type="text" id="task-id" placeholder="e.g. weekly-report">
+          </div>
+          <div class="form-row">
+            <label for="task-schedule">Schedule</label>
+            <div class="schedule-row">
+              <input type="text" id="task-schedule" placeholder="0 9 * * 1">
+              <span class="cron-preview" id="task-cron-preview"></span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="task-title">Title</label>
+            <input type="text" id="task-title" placeholder="Task title">
+          </div>
+          <div class="form-row">
+            <label for="task-description">Description</label>
+            <textarea id="task-description" rows="3" placeholder="Describe what the task should accomplish..."></textarea>
+          </div>
+          <div class="form-row">
+            <label for="task-type">Type</label>
+            <select id="task-type">
+              <option tl:each="t : ${taskTypes}" tl:attr="value=${t}" tl:text="${t}">type</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="task-acceptance">Acceptance Criteria</label>
+            <textarea id="task-acceptance" rows="2" placeholder="Optional acceptance criteria..."></textarea>
+          </div>
+          <div class="form-row">
+            <label><input type="checkbox" id="task-enabled" checked> Enabled</label>
+          </div>
+          <div><span class="restart-badge">&#9888; restart required</span></div>
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm" data-action="submit-task-form">Save Task</button>
+            <button class="btn btn-ghost btn-sm" data-action="toggle-task-form">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-fade-wrap">
+      <div class="table-wrap">
+        <table class="data-table">
+          <caption class="sr-only">Scheduled tasks overview</caption>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Schedule</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr tl:if="${hasScheduledTasks}" tl:each="task : ${scheduledTasks}">
+              <td>
+                <span tl:text="${task.title}">Task title</span>
+                <span class="cron-human" tl:text="${task.id}" style="display:block;opacity:0.6;font-size:0.85em;"></span>
+              </td>
+              <td>
+                <span class="cron-expr" tl:text="${task.schedule}">* * * * *</span>
+                <span class="cron-human" tl:text="${task.cronHuman}"></span>
+              </td>
+              <td><span class="delivery-badge" tl:text="${task.type}">type</span></td>
+              <td><span tl:classappend="${task.statusDotClass}" class="status-dot" tl:text="${task.statusText}">enabled</span></td>
+              <td>
+                <div class="action-btns">
+                  <button class="btn-icon-sm"
+                          data-action="toggle-scheduled-task" tl:attr="data-task-id=${task.id}"
+                          tl:text="${task.enabled ? 'Disable' : 'Enable'}"
+                          title="Toggle">toggle</button>
+                  <button class="btn-icon-sm"
+                          data-action="edit-scheduled-task" tl:attr="data-task-id=${task.id}"
+                          title="Edit">&#9998;</button>
+                  <button class="btn-icon-sm"
+                          data-action="delete-scheduled-task" tl:attr="data-task-id=${task.id}"
+                          title="Delete">&times;</button>
+                </div>
+              </td>
+            </tr>
+            <tr tl:unless="${hasScheduledTasks}">
+              <td colspan="5" class="table-empty-cell">No scheduled tasks configured. Add one to automate recurring work.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+
       <div class="info-footer">
-        Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code>.
+        Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code> and <code>automation:</code>.
         Job changes require a restart to take effect.
       </div>
 

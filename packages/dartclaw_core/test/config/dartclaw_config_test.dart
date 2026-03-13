@@ -27,6 +27,11 @@ void main() {
         expect(config.searchDbPath, '/data/search.db');
       });
 
+      test('tasksDbPath joins dataDir with tasks.db', () {
+        final config = DartclawConfig(dataDir: '/data');
+        expect(config.tasksDbPath, '/data/tasks.db');
+      });
+
       test('kvPath joins dataDir with kv.json', () {
         final config = DartclawConfig(dataDir: '/data');
         expect(config.kvPath, '/data/kv.json');
@@ -73,9 +78,103 @@ void main() {
         expect(config.gatewayHsts, isTrue);
       });
 
+      test('google_chat config is parsed into typed config', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return '''
+channels:
+  google_chat:
+    enabled: true
+    service_account: /tmp/google-service-account.json
+    audience:
+      type: app-url
+      value: https://example.com/integrations/googlechat
+    webhook_path: /integrations/googlechat
+    bot_user: users/123
+    typing_indicator: false
+    dm_access: allowlist
+    group_access: open
+    require_mention: false
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.googleChatConfig.enabled, isTrue);
+        expect(config.googleChatConfig.serviceAccount, '/tmp/google-service-account.json');
+        expect(config.googleChatConfig.audience, isNotNull);
+        expect(config.googleChatConfig.audience!.mode, GoogleChatAudienceMode.appUrl);
+        expect(config.googleChatConfig.botUser, 'users/123');
+        expect(config.googleChatConfig.typingIndicator, isFalse);
+        expect(config.googleChatConfig.dmAccess, DmAccessMode.allowlist);
+        expect(config.googleChatConfig.groupAccess, GroupAccessMode.open);
+        expect(config.googleChatConfig.requireMention, isFalse);
+      });
+
       test('gateway.hsts defaults to false when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
         expect(config.gatewayHsts, isFalse);
+      });
+
+      test('auth.cookie_secure defaults to false when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.cookieSecure, isFalse);
+      });
+
+      test('auth.trusted_proxies defaults to empty when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.trustedProxies, isEmpty);
+      });
+
+      test('auth.cookie_secure parses when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'auth:\n  cookie_secure: true\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.cookieSecure, isTrue);
+      });
+
+      test('auth.trusted_proxies parses when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'auth:\n  trusted_proxies:\n    - 192.168.1.100\n    - 192.168.1.101\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.trustedProxies, ['192.168.1.100', '192.168.1.101']);
+      });
+
+      test('auth.cookie_secure invalid type collects warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'auth:\n  cookie_secure: yes\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.cookieSecure, isFalse);
+        expect(config.warnings, anyElement(contains('Invalid type for auth.cookie_secure')));
+      });
+
+      test('auth.trusted_proxies invalid type collects warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'auth:\n  trusted_proxies: 192.168.1.100\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.trustedProxies, isEmpty);
+        expect(config.warnings, anyElement(contains('Invalid type for auth.trusted_proxies')));
       });
 
       test('gateway.hsts invalid type collects warning and uses default', () {
@@ -88,6 +187,34 @@ void main() {
         );
         expect(config.gatewayHsts, isFalse);
         expect(config.warnings, anyElement(contains('Invalid type for gateway.hsts')));
+      });
+
+      test('guard_audit.max_entries defaults to 10000 when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.guardAuditMaxEntries, 10000);
+      });
+
+      test('guard_audit.max_entries parses when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: 25000\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.guardAuditMaxEntries, 25000);
+      });
+
+      test('guard_audit.max_entries invalid type collects warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: nope\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.guardAuditMaxEntries, 10000);
+        expect(config.warnings, anyElement(contains('Invalid type for guard_audit.max_entries')));
       });
 
       test('resolution order: CLI > YAML > defaults', () {

@@ -86,6 +86,30 @@ void main() {
       expect(dispatched, isEmpty);
     });
 
+    test('handleInboundMessage can resolve channel ownership from metadata spaceName', () async {
+      channel = FakeChannel(type: ChannelType.googlechat, ownedJids: {'spaces/AAAA'});
+      manager = ChannelManager(
+        queue: queue,
+        config: const ChannelConfig.defaults(),
+        liveScopeConfig: LiveScopeConfig(const SessionScopeConfig.defaults()),
+      );
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(
+          channelType: ChannelType.googlechat,
+          senderJid: 'users/123',
+          text: 'hello',
+          metadata: const {'spaceName': 'spaces/AAAA'},
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched, hasLength(1));
+      expect(dispatched.single.$2, 'hello');
+    });
+
     test('session key derivation — DM vs group', () {
       final dm = ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'dm');
       final group = ChannelMessage(

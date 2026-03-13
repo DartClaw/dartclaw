@@ -10,9 +10,14 @@
 library;
 
 // API routes
+export 'src/api/agent_routes.dart' show agentRoutes;
 export 'src/api/config_api_routes.dart' show configApiRoutes, writeRestartPending, readRestartPending;
 export 'src/api/config_routes.dart' show configRoutes;
+export 'src/api/google_chat_webhook.dart' show GoogleChatWebhookHandler, GoogleChatMessageDispatcher;
+export 'src/api/goal_routes.dart' show goalRoutes;
 export 'src/api/sse_broadcast.dart' show SseBroadcast;
+export 'src/api/task_routes.dart' show taskRoutes;
+export 'src/api/task_sse_routes.dart' show taskSseRoutes;
 
 // Config
 export 'src/config/config_meta.dart' show ConfigMeta, ConfigMutability, ConfigFieldType, FieldMeta;
@@ -27,10 +32,12 @@ export 'src/api/webhook_routes.dart' show webhookRoutes;
 
 // Auth
 export 'src/auth/auth_middleware.dart' show authMiddleware;
+export 'src/auth/auth_rate_limiter.dart' show AuthRateLimiter;
 export 'src/auth/security_headers.dart' show securityHeadersMiddleware;
 export 'src/auth/session_token.dart'
     show createSessionToken, validateSessionToken, sessionCookieHeader, sessionCookieName;
 export 'src/auth/token_service.dart' show TokenService;
+export 'src/security/google_jwt_verifier.dart' show GoogleJwtVerifier;
 
 // Concurrency
 export 'src/concurrency/session_lock_manager.dart' show SessionLockManager;
@@ -64,6 +71,7 @@ export 'src/scheduling/cron_parser.dart' show CronExpression;
 export 'src/scheduling/delivery.dart' show DeliveryMode;
 export 'src/scheduling/schedule_service.dart' show ScheduleService;
 export 'src/scheduling/scheduled_job.dart' show ScheduleType, ScheduledJob;
+export 'src/scheduling/scheduled_task_runner.dart' show ScheduledTaskRunner;
 
 // MCP
 export 'src/mcp/mcp_router.dart' show mcpRoute;
@@ -94,6 +102,16 @@ export 'src/restart_service.dart' show RestartService;
 // Server
 export 'src/server.dart' show DartclawServer;
 
+// Task execution
+export 'src/task/agent_observer.dart' show AgentObserver, AgentMetrics, AgentState;
+export 'src/task/artifact_collector.dart' show ArtifactCollector;
+export 'src/task/container_task_failure_subscriber.dart' show ContainerTaskFailureSubscriber;
+export 'src/task/diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
+export 'src/task/merge_executor.dart' show MergeExecutor, MergeResult, MergeSuccess, MergeConflict, MergeStrategy;
+export 'src/task/task_executor.dart' show TaskExecutor;
+export 'src/task/task_file_guard.dart' show TaskFileGuard;
+export 'src/task/worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
+
 // Session
 export 'src/session/group_session_initializer.dart' show GroupSessionInitializer, ChannelGroupConfig;
 export 'src/session/session_reset_service.dart' show SessionResetService;
@@ -105,6 +123,15 @@ export 'src/session/session_reset_service.dart' show SessionResetService;
 export 'src/templates/helpers.dart' show formatUptime, formatBytes;
 export 'src/templates/loader.dart' show initTemplates, resetTemplates;
 
+// Container health
+export 'src/container/container_health_monitor.dart' show ContainerHealthMonitor;
+
+// Harness pool
+export 'src/harness_pool.dart' show HarnessPool;
+
+// Turn runner
+export 'src/turn_runner.dart' show TurnRunner;
+
 // Turn manager
 export 'src/turn_manager.dart' show TurnStatus, TurnContext, TurnOutcome, BusyTurnException, TurnManager;
 
@@ -113,5 +140,7 @@ export 'src/version.dart' show dartclawVersion;
 export 'src/startup_banner.dart' show startupBanner;
 
 // Web routes
+export 'src/web/dashboard_page.dart' show DashboardPage, PageContext;
+export 'src/web/page_registry.dart' show PageRegistry;
 export 'src/web/signal_pairing_routes.dart' show signalPairingRoutes;
 export 'src/web/web_routes.dart' show webRoutes;

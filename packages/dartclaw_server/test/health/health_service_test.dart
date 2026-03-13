@@ -29,8 +29,9 @@ class _FakeHarness implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
-  }) async =>
-      {};
+    String? directory,
+    String? model,
+  }) async => {};
   @override
   Future<void> cancel() async {}
   @override
@@ -71,11 +72,7 @@ void main() {
 
     test('returns unhealthy when worker is stopped', () async {
       harness.setState(WorkerState.stopped);
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['status'], 'unhealthy');
@@ -83,11 +80,7 @@ void main() {
 
     test('returns degraded when worker is crashed', () async {
       harness.setState(WorkerState.crashed);
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['status'], 'degraded');
@@ -99,11 +92,7 @@ void main() {
       // File should not be counted
       File('${tempDir.path}/not-a-session.json').writeAsStringSync('{}');
 
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['session_count'], 2);
@@ -113,33 +102,21 @@ void main() {
       final dbFile = File('${tempDir.path}/search.db');
       dbFile.writeAsStringSync('x' * 1024);
 
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: dbFile.path,
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: dbFile.path, sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['db_size_bytes'], 1024);
     });
 
     test('returns 0 for missing DB file', () async {
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['db_size_bytes'], 0);
     });
 
     test('version is present', () async {
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final status = await service.getStatus();
       expect(status['version'], isA<String>());
@@ -149,11 +126,7 @@ void main() {
 
   group('healthHandler', () {
     test('GET /health returns JSON 200 with expected fields', () async {
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: tempDir.path,
-      );
+      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: tempDir.path);
 
       final handler = healthHandler(service);
       final request = Request('GET', Uri.parse('http://localhost/health'));

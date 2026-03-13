@@ -3,7 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'loader.dart';
 
 /// Navigation item for sidebar system links.
-typedef NavItem = ({String label, String href, bool active});
+typedef NavItem = ({String label, String href, bool active, String navGroup});
 
 /// Session entry for sidebar rendering, carrying type info.
 typedef SidebarSession = ({String id, String title, SessionType type});
@@ -16,18 +16,6 @@ typedef SidebarData = ({
   List<SidebarSession> activeEntries,
   List<SidebarSession> archivedEntries,
 });
-
-/// Builds the canonical system navigation items for the sidebar.
-///
-/// [activePage] determines which item gets `active: true` — must match
-/// one of the label values exactly (e.g. `'Health'`, `'Settings'`,
-/// `'Scheduling'`).
-List<NavItem> buildSystemNavItems({required String activePage}) => [
-      (label: 'Health', href: '/health-dashboard', active: activePage == 'Health'),
-      (label: 'Settings', href: '/settings', active: activePage == 'Settings'),
-      (label: 'Memory', href: '/memory', active: activePage == 'Memory'),
-      (label: 'Scheduling', href: '/scheduling', active: activePage == 'Scheduling'),
-    ];
 
 /// Sidebar with typed session sections.
 ///
@@ -50,6 +38,9 @@ String sidebarTemplate({
   List<NavItem> navItems = const [],
   String appName = 'DartClaw',
 }) {
+  final systemNavItems = navItems.where((item) => item.navGroup == 'system').toList();
+  final extensionNavItems = navItems.where((item) => item.navGroup != 'system').toList();
+
   Map<String, Object?> mapChannel(SidebarSession ch) {
     final trimmed = ch.title.trim();
     return {
@@ -75,7 +66,7 @@ String sidebarTemplate({
     };
   }).toList();
 
-  // Build archived entries list (no delete button).
+  // Build archived entries list.
   final archiveList = archivedEntries.map((entry) {
     final trimmed = entry.title.trim();
     final isActive = entry.id == activeSessionId;
@@ -88,8 +79,7 @@ String sidebarTemplate({
     };
   }).toList();
 
-  final archiveContainsActive = activeSessionId != null &&
-      archivedEntries.any((e) => e.id == activeSessionId);
+  final archiveContainsActive = activeSessionId != null && archivedEntries.any((e) => e.id == activeSessionId);
 
   return templateLoader.trellis.renderFragment(
     templateLoader.source('sidebar'),
@@ -112,7 +102,21 @@ String sidebarTemplate({
       'archivedCount': archivedEntries.length,
       'archiveContainsActive': archiveContainsActive,
       'hasNav': navItems.isNotEmpty,
-      'navItems': navItems.map((item) {
+      'showSystemNav': systemNavItems.isNotEmpty,
+      'showExtensionNav': extensionNavItems.isNotEmpty,
+      'systemNavItems': systemNavItems.map((item) {
+        // Inject hidden badge span for the Tasks nav item (populated by JS via SSE).
+        final labelHtml = item.label == 'Tasks'
+            ? '${_escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
+            : _escapeHtml(item.label);
+        return {
+          'label': labelHtml,
+          'href': item.href,
+          'active': item.active,
+          'ariaCurrent': item.active ? 'page' : null,
+        };
+      }).toList(),
+      'extensionNavItems': extensionNavItems.map((item) {
         return {
           'label': item.label,
           'href': item.href,
@@ -124,15 +128,15 @@ String sidebarTemplate({
   );
 }
 
+String _escapeHtml(String text) {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
 /// Builds the unified sidebar from [SidebarData] and system nav items.
 ///
 /// Used by system/admin pages (Settings, Health, etc.) that show the
 /// full sidebar with sessions but no active session highlighted.
-String buildSidebar({
-  required SidebarData sidebarData,
-  required List<NavItem> navItems,
-  String appName = 'DartClaw',
-}) {
+String buildSidebar({required SidebarData sidebarData, required List<NavItem> navItems, String appName = 'DartClaw'}) {
   return sidebarTemplate(
     mainSession: sidebarData.main,
     dmChannels: sidebarData.dmChannels,

@@ -1,2 +1,2 @@
 /// DartClaw version. Single source of truth — update here on each release.
-const dartclawVersion = '0.6.0';
+const dartclawVersion = '0.8.0';

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/src/container/container_config.dart';
+import 'package:dartclaw_core/src/container/container_manager.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:test/test.dart';
@@ -91,11 +93,9 @@ class _CapturingIOSink extends _NullIOSink {
 // Helpers
 // ---------------------------------------------------------------------------
 
-ProcessResult _result({int exitCode = 0, String stdout = ''}) =>
-    ProcessResult(0, exitCode, stdout, '');
+ProcessResult _result({int exitCode = 0, String stdout = ''}) => ProcessResult(0, exitCode, stdout, '');
 
-Future<ProcessResult> _defaultProbe(String exe, List<String> args) async =>
-    _result(exitCode: 0, stdout: '1.0.0');
+Future<ProcessResult> _defaultProbe(String exe, List<String> args) async => _result(exitCode: 0, stdout: '1.0.0');
 
 Future<void> _noOpDelay(Duration _) async {}
 
@@ -111,20 +111,24 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          capturedArgs = args;
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedArgs = args;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        harnessConfig: const HarnessConfig(
-          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
       );
 
       await harness.start();
@@ -157,21 +161,25 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          final idx = args.indexOf('--mcp-config');
-          if (idx != -1) mcpConfigPath = args[idx + 1];
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              final idx = args.indexOf('--mcp-config');
+              if (idx != -1) mcpConfigPath = args[idx + 1];
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        harnessConfig: const HarnessConfig(
-          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
       );
 
       await harness.start();
@@ -192,21 +200,25 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          final idx = args.indexOf('--mcp-config');
-          if (idx != -1) mcpConfigPath = args[idx + 1];
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              final idx = args.indexOf('--mcp-config');
+              if (idx != -1) mcpConfigPath = args[idx + 1];
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        harnessConfig: const HarnessConfig(
-          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
       );
 
       await harness.start();
@@ -225,21 +237,25 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          final idx = args.indexOf('--mcp-config');
-          if (idx != -1) mcpConfigPath = args[idx + 1];
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              final idx = args.indexOf('--mcp-config');
+              if (idx != -1) mcpConfigPath = args[idx + 1];
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        harnessConfig: const HarnessConfig(
-          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
       );
 
       await harness.start();
@@ -249,19 +265,89 @@ void main() {
       expect(File(mcpConfigPath!).existsSync(), isFalse);
     });
 
+    test('restricted container copies MCP config into /tmp when /project is unavailable', () async {
+      final fake = _FakeProcess();
+      final dockerCalls = <List<String>>[];
+      List<String>? capturedExecArgs;
+
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-restricted',
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        proxySocketDir: '/tmp/proxy',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async {
+          dockerCalls.add([exe, ...args]);
+          if (args.first == 'inspect') {
+            return ProcessResult(0, 0, 'true\n', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+        startCommand:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedExecArgs = args;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
+      );
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      expect(capturedExecArgs, contains('--mcp-config'));
+      final mcpConfigIdx = capturedExecArgs!.indexOf('--mcp-config');
+      final containerConfigPath = capturedExecArgs![mcpConfigIdx + 1];
+      expect(containerConfigPath, startsWith('/tmp/'));
+      expect(containerConfigPath, isNot(contains('/project/')));
+
+      final copyCall = dockerCalls.firstWhere((call) => call.length > 1 && call[1] == 'cp');
+      expect(copyCall[3], equals('dartclaw-test1234-restricted:$containerConfigPath'));
+      expect(File(copyCall[2]).existsSync(), isTrue);
+
+      await harness.stop();
+      final cleanupCall = dockerCalls.firstWhere((call) => call.length > 1 && call[1] == 'exec');
+      expect(cleanupCall, ['docker', 'exec', 'dartclaw-test1234-restricted', 'rm', '-f', containerConfigPath]);
+      expect(File(copyCall[2]).existsSync(), isFalse);
+      await harness.dispose();
+    });
+
     test('no temp file when mcpServerUrl is null', () async {
       late List<String> capturedArgs;
       final fake = _FakeProcess();
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          capturedArgs = args;
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedArgs = args;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
@@ -280,22 +366,26 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
         onMemorySave: (args) async => {'status': 'ok'},
         onMemorySearch: (args) async => {'results': []},
         onMemoryRead: (args) async => {'content': ''},
-        harnessConfig: const HarnessConfig(
-          mcpServerUrl: 'http://127.0.0.1:3000/mcp',
-          mcpGatewayToken: 'test-token',
-        ),
+        harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
       );
 
       await harness.start();
@@ -317,12 +407,19 @@ void main() {
 
       final harness = ClaudeCodeHarness(
         cwd: '/tmp',
-        processFactory: (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
-          scheduleMicrotask(() {
-            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-          });
-          return fake;
-        },
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},

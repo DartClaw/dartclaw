@@ -31,7 +31,7 @@ class ChannelManager {
   /// Derives a session key from the sender/group JIDs and enqueues.
   /// Drops the message with a warning if no registered channel owns the sender JID.
   void handleInboundMessage(ChannelMessage message) {
-    final channel = _findOwningChannel(message.senderJid);
+    final channel = _findOwningChannel(message);
     if (channel == null) {
       _log.warning('No channel owns JID "${message.senderJid}" — dropping message ${message.id}');
       return;
@@ -99,9 +99,17 @@ class ChannelManager {
     queue.dispose();
   }
 
-  Channel? _findOwningChannel(String jid) {
+  Channel? _findOwningChannel(ChannelMessage message) {
+    final candidates = <String>[
+      message.senderJid,
+      if (message.groupJid != null) message.groupJid!,
+      if (message.metadata['spaceName'] case final String spaceName) spaceName,
+    ];
+
     for (final channel in _channels) {
-      if (channel.ownsJid(jid)) return channel;
+      for (final jid in candidates) {
+        if (channel.ownsJid(jid)) return channel;
+      }
     }
     return null;
   }

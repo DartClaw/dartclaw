@@ -46,10 +46,11 @@ void main() {
 
     test('source() returns template content and trellis renders it', () {
       final loader = server.TemplateLoaderService(templatesDir);
-      final html = loader.trellis.render(
-        loader.source('error_page'),
-        {'code': 404, 'title': 'Not Found', 'detail': 'Gone'},
-      );
+      final html = loader.trellis.render(loader.source('error_page'), {
+        'code': 404,
+        'title': 'Not Found',
+        'detail': 'Gone',
+      });
       expect(html, contains('404'));
       expect(html, contains('Not Found'));
     });
@@ -95,32 +96,20 @@ void main() {
 
   group('login.html', () {
     test('renders login form with token input', () async {
-      final html = await engine.renderFileFragment(
-        'login',
-        fragment: 'loginPage',
-        context: {'error': null},
-      );
+      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
       expect(html, contains('login-form'));
       expect(html, contains('name="token"'));
       expect(html, contains('type="password"'));
     });
 
     test('renders error message when error is provided', () async {
-      final html = await engine.renderFileFragment(
-        'login',
-        fragment: 'loginPage',
-        context: {'error': 'Invalid token'},
-      );
+      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': 'Invalid token'});
       expect(html, contains('login-error'));
       expect(html, contains('Invalid token'));
     });
 
     test('hides error div when error is null', () async {
-      final html = await engine.renderFileFragment(
-        'login',
-        fragment: 'loginPage',
-        context: {'error': null},
-      );
+      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
       expect(html, isNot(contains('login-error')));
     });
 
@@ -134,12 +123,18 @@ void main() {
     });
 
     test('contains remember checkbox', () async {
+      final html = await engine.renderFileFragment('login', fragment: 'loginPage', context: {'error': null});
+      expect(html, contains('name="remember"'));
+    });
+
+    test('renders next-path hidden input when provided', () async {
       final html = await engine.renderFileFragment(
         'login',
         fragment: 'loginPage',
-        context: {'error': null},
+        context: {'error': null, 'nextPath': '/tasks?status=review'},
       );
-      expect(html, contains('name="remember"'));
+      expect(html, contains('name="next"'));
+      expect(html, contains('value="/tasks?status=review"'));
     });
   });
 
@@ -164,21 +159,13 @@ void main() {
     });
 
     test('emptyState renders prompt text', () async {
-      final html = await engine.renderFileFragment(
-        'components',
-        fragment: 'emptyState',
-        context: const {},
-      );
+      final html = await engine.renderFileFragment('components', fragment: 'emptyState', context: const {});
       expect(html, contains('No messages yet'));
       expect(html, contains('empty-state'));
     });
 
     test('emptyAppState renders create session button', () async {
-      final html = await engine.renderFileFragment(
-        'components',
-        fragment: 'emptyAppState',
-        context: const {},
-      );
+      final html = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
       expect(html, contains('No sessions yet'));
       expect(html, contains('data-action="create-session"'));
     });
@@ -196,30 +183,21 @@ void main() {
     });
 
     test('includes required CDN scripts', () async {
-      final html = await engine.renderFile('layout', {
-        'title': 'T',
-        'body': '',
-      });
+      final html = await engine.renderFile('layout', {'title': 'T', 'body': ''});
       expect(html, contains('htmx.org'));
       expect(html, contains('marked'));
       expect(html, contains('purify.min.js'));
     });
 
     test('includes static asset references', () async {
-      final html = await engine.renderFile('layout', {
-        'title': 'T',
-        'body': '',
-      });
+      final html = await engine.renderFile('layout', {'title': 'T', 'body': ''});
       expect(html, contains('/static/tokens.css'));
       expect(html, contains('/static/components.css'));
       expect(html, contains('/static/app.js'));
     });
 
     test('escapes title to prevent XSS', () async {
-      final html = await engine.renderFile('layout', {
-        'title': '<script>xss</script>',
-        'body': '',
-      });
+      final html = await engine.renderFile('layout', {'title': '<script>xss</script>', 'body': ''});
       expect(html, contains('&lt;script&gt;'));
       expect(html, isNot(contains('<script>xss</script>')));
     });
@@ -276,11 +254,7 @@ void main() {
       final html = await engine.renderFileFragment(
         'topbar',
         fragment: 'pageTopbar',
-        context: {
-          'title': 'Settings',
-          'backHref': '/',
-          'backLabel': 'Back',
-        },
+        context: {'title': 'Settings', 'backHref': '/', 'backLabel': 'Back'},
       );
       expect(html, contains('Settings'));
       expect(html, contains('href="/"'));
@@ -332,13 +306,7 @@ void main() {
           'groupChannels': <Map<String, dynamic>>[],
           'noActiveEntries': false,
           'activeEntries': [
-            {
-              'id': 's1',
-              'href': '/sessions/s1',
-              'active': true,
-              'extraClass': 'active',
-              'title': 'Research',
-            },
+            {'id': 's1', 'href': '/sessions/s1', 'active': true, 'extraClass': 'active', 'title': 'Research'},
           ],
           'hasArchivedEntries': false,
           'archivedEntries': <Map<String, dynamic>>[],
@@ -375,10 +343,13 @@ void main() {
           'archivedCount': 0,
           'archiveContainsActive': false,
           'hasNav': true,
-          'navItems': [
+          'showSystemNav': true,
+          'showExtensionNav': false,
+          'systemNavItems': [
             {'label': 'Health', 'href': '/health-dashboard', 'active': true, 'ariaCurrent': 'page'},
             {'label': 'Settings', 'href': '/settings', 'active': false, 'ariaCurrent': null},
           ],
+          'extensionNavItems': <Map<String, dynamic>>[],
         },
       );
       expect(html, contains('Health'));
@@ -660,11 +631,7 @@ void main() {
     });
 
     test('turnFailed hides detail when null', () async {
-      final html = await engine.renderFileFragment(
-        'chat',
-        fragment: 'turnFailed',
-        context: {'detail': null},
-      );
+      final html = await engine.renderFileFragment('chat', fragment: 'turnFailed', context: {'detail': null});
       expect(html, contains('Turn failed'));
       expect(html, isNot(contains('msg-turn-failed-detail')));
     });
@@ -696,10 +663,7 @@ void main() {
       final html = await engine.renderFileFragment(
         'chat',
         fragment: 'sendResponse',
-        context: {
-          'message': 'Hello <world>',
-          'sseUrl': '/api/sessions/s1/stream?turn=t1',
-        },
+        context: {'message': 'Hello <world>', 'sseUrl': '/api/sessions/s1/stream?turn=t1'},
       );
       expect(html, contains('msg-user'));
       expect(html, contains('Hello &lt;world&gt;'));

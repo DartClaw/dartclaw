@@ -55,8 +55,10 @@ bool validateSessionToken(String token, String gatewayToken, {Duration ttl = ses
 }
 
 /// Builds a Set-Cookie header value for a session token.
-String sessionCookieHeader(String token) =>
-    '$_cookieName=$token; HttpOnly; SameSite=Strict; Path=/; Max-Age=$_cookieMaxAge';
+String sessionCookieHeader(String token, {bool secure = false}) {
+  final secureAttr = secure ? '; Secure' : '';
+  return '$_cookieName=$token; HttpOnly; SameSite=Strict; Path=/; Max-Age=$_cookieMaxAge$secureAttr';
+}
 
 String _sign(String data, String key) {
   final hmac = Hmac(sha256, utf8.encode(key));

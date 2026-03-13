@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../bridge/bridge_events.dart';
 import '../container/container_manager.dart';
@@ -70,11 +71,14 @@ class ClaudeCodeHarness implements AgentHarness {
 
   WorkerState _state = WorkerState.stopped;
   String? _mcpConfigPath;
+  String? _containerMcpConfigPath;
   int _crashCount = 0;
   int _spawnGeneration = 0;
   Process? _process;
   String? _sessionId;
   Completer<Map<String, dynamic>>? _turnCompleter;
+  late String _processWorkingDirectory;
+  String? _processModel;
 
   /// Serializes mutating lifecycle ops.
   Future<void> _lock = Future<void>.value();
@@ -109,7 +113,10 @@ class ClaudeCodeHarness implements AgentHarness {
   }) : _processFactory = processFactory ?? Process.start,
        _commandProbe = commandProbe ?? Process.run,
        _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
-       _environment = environment ?? Platform.environment;
+       _environment = environment ?? Platform.environment {
+    _processWorkingDirectory = cwd;
+    _processModel = harnessConfig.model;
+  }
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -146,7 +153,9 @@ class ClaudeCodeHarness implements AgentHarness {
   }
 
   @override
-  Future<void> stop() => _withLock(() async {
+  Future<void> stop() => _withLock(_stopInternal);
+
+  Future<void> _stopInternal() async {
     if (_state == WorkerState.busy) {
       try {
         await cancel();
@@ -163,6 +172,13 @@ class ClaudeCodeHarness implements AgentHarness {
     } catch (_) {}
     _process?.kill();
     _process = null;
+    final containerMcpPath = _containerMcpConfigPath;
+    if (containerMcpPath != null) {
+      try {
+        await containerManager?.deleteFileInContainer(containerMcpPath);
+      } catch (_) {}
+      _containerMcpConfigPath = null;
+    }
     // Clean up MCP config temp file.
     final mcpPath = _mcpConfigPath;
     if (mcpPath != null) {
@@ -171,7 +187,7 @@ class ClaudeCodeHarness implements AgentHarness {
       } catch (_) {}
       _mcpConfigPath = null;
     }
-  });
+  }
 
   @override
   Future<void> dispose() async {
@@ -190,7 +206,17 @@ class ClaudeCodeHarness implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) async {
+    final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
+    final desiredModel = _resolveModel(model);
+    if (desiredWorkingDirectory != _processWorkingDirectory ||
+        desiredModel != _processModel ||
+        _state == WorkerState.stopped) {
+      await _restartForExecution(workingDirectory: desiredWorkingDirectory, model: desiredModel);
+    }
+
     // Crash restart with exponential backoff.
     if (_state == WorkerState.crashed) {
       if (_crashCount > maxRetries) {
@@ -286,9 +312,15 @@ class ClaudeCodeHarness implements AgentHarness {
     String? mcpConfigPath;
     String? mcpConfigArgPath;
     if (mcpUrl != null && mcpToken != null) {
-      final hostConfigPath = cm != null
-          ? '${cm.workspaceDir}/dartclaw-mcp-config-$pid.json'
-          : '${Directory.systemTemp.path}/dartclaw-mcp-config-$pid.json';
+      final suffix = DateTime.now().microsecondsSinceEpoch;
+      late final String hostConfigPath;
+      if (cm != null) {
+        final tempDir = Directory(p.join(cwd, '.agent_temp'));
+        await tempDir.create(recursive: true);
+        hostConfigPath = p.join(tempDir.path, 'dartclaw-mcp-config-$suffix.json');
+      } else {
+        hostConfigPath = p.join(Directory.systemTemp.path, 'dartclaw-mcp-config-$suffix.json');
+      }
       final configFile = File(hostConfigPath);
       final configJson = jsonEncode({
         'mcpServers': {
@@ -303,29 +335,43 @@ class ClaudeCodeHarness implements AgentHarness {
       // Set 0600 permissions (owner read/write only).
       await Process.run('chmod', ['600', configFile.path]);
       mcpConfigPath = configFile.path;
-      mcpConfigArgPath = cm != null ? '/workspace/${configFile.uri.pathSegments.last}' : configFile.path;
       _mcpConfigPath = mcpConfigPath;
       _log.fine('Wrote MCP config to $mcpConfigPath');
     }
 
+    if (cm != null) {
+      await cm.start();
+      if (mcpConfigPath != null) {
+        final filename = p.basename(mcpConfigPath);
+        if (cm.hasProjectMount) {
+          mcpConfigArgPath = p.posix.join('/project', '.agent_temp', filename);
+        } else {
+          mcpConfigArgPath = p.posix.join('/tmp', filename);
+          await cm.copyFileToContainer(mcpConfigPath, mcpConfigArgPath);
+          _containerMcpConfigPath = mcpConfigArgPath;
+        }
+      }
+    } else {
+      mcpConfigArgPath = mcpConfigPath;
+    }
+
     // Spawn claude process: containerized or direct.
     final args = _buildClaudeArgs(
-      model: harnessConfig.model,
+      model: _processModel ?? harnessConfig.model,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
     );
     final Process process;
     if (cm != null) {
-      await cm.start();
       final containerExecutable = claudeExecutable.contains('/')
           ? claudeExecutable
           : ContainerManager.containerClaudeExecutable;
-      process = await cm.exec([containerExecutable, ...args]);
+      process = await cm.exec([containerExecutable, ...args], workingDirectory: _processWorkingDirectory);
     } else {
       process = await _processFactory(
         claudeExecutable,
         args,
-        workingDirectory: cwd,
+        workingDirectory: _processWorkingDirectory,
         environment: env,
         includeParentEnvironment: false,
       );
@@ -368,6 +414,42 @@ class ClaudeCodeHarness implements AgentHarness {
     await _sendInitialize();
 
     _state = WorkerState.idle;
+  }
+
+  String _resolveWorkingDirectory(String? directory) {
+    if (directory == null || directory.trim().isEmpty) {
+      final cm = containerManager;
+      return cm?.containerPathForHostPath(cwd) ?? cwd;
+    }
+
+    final cm = containerManager;
+    if (cm == null) return directory;
+    final translated = cm.containerPathForHostPath(directory);
+    if (translated == null) {
+      throw StateError('Requested working directory is not mounted in the container: $directory');
+    }
+    return translated;
+  }
+
+  String? _resolveModel(String? override) {
+    final trimmed = override?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    return harnessConfig.model;
+  }
+
+  Future<void> _restartForExecution({required String workingDirectory, required String? model}) async {
+    await _withLock(() async {
+      if (_state == WorkerState.busy) {
+        throw StateError('Cannot change working directory or model while harness is busy');
+      }
+      if (_processWorkingDirectory == workingDirectory && _processModel == model && _state != WorkerState.stopped) {
+        return;
+      }
+      await _stopInternal();
+      _processWorkingDirectory = workingDirectory;
+      _processModel = model;
+      await _startInternal();
+    });
   }
 
   /// Verifies that ANTHROPIC_API_KEY or Claude CLI OAuth session is available.

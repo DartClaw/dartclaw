@@ -9,8 +9,10 @@ library;
 
 // Storage services
 export 'src/storage/memory_service.dart' show MemoryService;
-export 'src/storage/search_db.dart'
-    show SearchDbFactory, openSearchDb, openSearchDbInMemory;
+export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSearchDbInMemory;
+export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
+export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
+export 'src/storage/task_db.dart' show TaskDbFactory, openTaskDb, openTaskDbInMemory;
 
 // Search backends
 export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;

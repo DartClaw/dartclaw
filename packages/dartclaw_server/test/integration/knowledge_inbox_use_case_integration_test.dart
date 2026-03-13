@@ -80,6 +80,8 @@ class _KnowledgeInboxWorker implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) async {
     turnCallCount++;
     savedFindings = 0;
@@ -188,11 +190,7 @@ void main() {
     provider = _KnowledgeInboxSearchProvider(safeUrl: 'http://127.0.0.1:${fetchServer.port}/safe');
 
     searchBackend = Fts5SearchBackend(memoryService: memory);
-    final memoryHandlers = createMemoryHandlers(
-      memory: memory,
-      memoryFile: memoryFile,
-      searchBackend: searchBackend,
-    );
+    final memoryHandlers = createMemoryHandlers(memory: memory, memoryFile: memoryFile, searchBackend: searchBackend);
 
     worker = _KnowledgeInboxWorker(
       searchTool: TavilySearchTool(provider: provider, contentGuard: tavilyGuard),

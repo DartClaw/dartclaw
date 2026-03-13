@@ -2,7 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../api/config_api_routes.dart' show readRestartPending;
+import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
 import '../auth/token_service.dart';
 import '../health/health_service.dart';
@@ -13,21 +13,20 @@ import '../templates/components.dart';
 import '../templates/error_page.dart';
 import '../audit/audit_log_reader.dart';
 import '../templates/audit_table.dart';
-import '../templates/health_dashboard.dart';
 import '../templates/layout.dart';
 import '../templates/login.dart';
 import '../templates/memory_dashboard.dart';
 import '../memory/memory_status_service.dart';
-import '../templates/restart_banner.dart';
-import '../templates/scheduling.dart';
 import '../templates/session_info.dart';
-import '../templates/guard_config_summary.dart';
-import '../templates/settings.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
+import '../task/agent_observer.dart';
 import '../turn_manager.dart';
-import 'channel_status.dart';
+import 'dashboard_page.dart';
+import 'page_registry.dart';
+import 'page_support.dart';
+import 'system_pages.dart';
 import 'web_utils.dart';
 
 /// HTML page routes for the web UI.
@@ -46,9 +45,12 @@ Router webRoutes(
   WorkerState? Function()? workerStateGetter,
   TokenService? tokenService,
   String? gatewayToken,
+  bool cookieSecure = false,
+  List<String> trustedProxies = const [],
   HealthService? healthService,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
+  GoogleChatChannel? googleChatChannel,
   GuardChain? guardChain,
   TurnManager? turns,
   RuntimeConfig? runtimeConfig,
@@ -58,15 +60,60 @@ Router webRoutes(
   SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
   WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
   AppDisplayParams appDisplay = const AppDisplayParams(),
+  PageRegistry? pageRegistry,
+  DartclawConfig? config,
+  TaskService? taskService,
+  GoalService? goalService,
+  EventBus? eventBus,
+  AgentObserver? agentObserver,
 }) {
   final router = Router();
-  final signalEnabled = signalChannel != null;
-  final systemNav = buildSystemNavItems(activePage: '');
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
+  final registry = pageRegistry ?? PageRegistry();
+  if (pageRegistry == null) {
+    registerSystemDashboardPages(
+      registry,
+      healthService: healthService,
+      workerStateGetter: workerStateGetter,
+      whatsAppChannel: whatsAppChannel,
+      signalChannel: signalChannel,
+      googleChatChannel: googleChatChannel,
+      guardChain: guardChain,
+      runtimeConfigGetter: () => runtimeConfig,
+      memoryStatusServiceGetter: () => memoryStatusService,
+      contentGuardDisplay: contentGuardDisplay,
+      heartbeatDisplay: heartbeatDisplay,
+      schedulingDisplay: schedulingDisplay,
+      workspaceDisplay: workspaceDisplay,
+      auditReader: auditReader,
+    );
+  }
+  final systemNav = registry.navItems(activePage: '');
+  final pageContext = PageContext(
+    sessions: sessions,
+    appDisplay: appDisplay,
+    dataDir: appDisplay.dataDir,
+    config: config,
+    taskService: taskService,
+    goalService: goalService,
+    eventBus: eventBus,
+    messages: messages,
+    agentObserver: agentObserver,
+    buildSidebarData: () => buildSidebarData(sessions),
+    restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
+    buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
+  );
 
   // GET /login — render login page.
   router.get('/login', (Request request) {
-    return Response.ok(loginPageTemplate(appName: appDisplay.name), headers: htmlHeaders);
+    return Response.ok(
+      loginPageTemplate(
+        appName: appDisplay.name,
+        nextPath: _sanitizeNextPath(request.url.queryParameters['next']),
+        tokenValue: request.url.queryParameters['token'],
+      ),
+      headers: htmlHeaders,
+    );
   });
 
   // POST /login — validate token, set cookie, redirect.
@@ -80,16 +127,28 @@ Router webRoutes(
     final body = await request.readAsString();
     final params = Uri.splitQueryString(body);
     final candidate = params['token'] ?? '';
+    final nextPath = _sanitizeNextPath(params['next']);
 
     if (!ts.validateToken(candidate)) {
+      fireFailedAuthEvent(
+        eventBus,
+        request,
+        source: 'login',
+        reason: 'invalid_login_token',
+        trustedProxies: trustedProxies,
+      );
       return Response.ok(
-        loginPageTemplate(error: 'Invalid token', appName: appDisplay.name),
+        loginPageTemplate(error: 'Invalid token', nextPath: nextPath, tokenValue: candidate, appName: appDisplay.name),
         headers: htmlHeaders,
       );
     }
 
     final sessionToken = createSessionToken(gt);
-    return _redirect(request, '/', extraHeaders: {'set-cookie': sessionCookieHeader(sessionToken)});
+    return _redirect(
+      request,
+      nextPath ?? '/',
+      extraHeaders: {'set-cookie': sessionCookieHeader(sessionToken, secure: cookieSecure)},
+    );
   });
 
   // GET / — redirect to main session (guaranteed to exist after startup).
@@ -129,8 +188,10 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final sidebarData = await buildSidebarData(sessions);
-      final msgs = await messages.getMessages(id);
+      final msgs = await messages.getMessagesTail(id);
       final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
+      final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
+      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
       final sidebar = sidebarTemplate(
         mainSession: sidebarData.main,
@@ -149,7 +210,7 @@ Router webRoutes(
         appName: appDisplay.name,
       );
       final msgsHtml = messagesHtmlFragment(messageList);
-      final bannerHtml = StringBuffer(_restartBannerHtml(appDisplay.dataDir));
+      final bannerHtml = StringBuffer(restartBannerHtml(appDisplay.dataDir));
       if (workerStateGetter?.call() == WorkerState.crashed) {
         bannerHtml.write(
           '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. '
@@ -171,6 +232,8 @@ Router webRoutes(
         hasTitle: session.title != null && session.title!.trim().isNotEmpty,
         bannerHtml: bannerHtml.toString(),
         readOnly: isArchive,
+        earliestCursor: earliestCursor,
+        hasEarlierMessages: hasEarlierMessages,
       );
 
       if (wantsFragment(request)) {
@@ -191,10 +254,23 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final msgs = await messages.getMessages(id);
+      final beforeCursor = int.tryParse(request.url.queryParameters['before'] ?? '');
+      final msgs = beforeCursor == null
+          ? await messages.getMessagesTail(id)
+          : await messages.getMessagesBefore(id, beforeCursor);
       final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
+      final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
+      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
+      final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
 
-      return Response.ok(messagesHtmlFragment(messageList), headers: htmlHeaders);
+      return Response.ok(
+        html,
+        headers: {
+          ...htmlHeaders,
+          'x-dartclaw-earliest-cursor': earliestCursor?.toString() ?? '',
+          'x-dartclaw-has-earlier-messages': '$hasEarlierMessages',
+        },
+      );
     } catch (e) {
       return _htmlError('Failed to load messages: $e');
     }
@@ -234,7 +310,7 @@ Router webRoutes(
         sidebarData: await buildSidebarData(sessions),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
-        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+        bannerHtml: restartBannerHtml(appDisplay.dataDir),
         recentTurns: recentTurns,
         appName: appDisplay.name,
       );
@@ -242,42 +318,6 @@ Router webRoutes(
       return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session info: $e');
-    }
-  });
-
-  // GET /health-dashboard — HTML health dashboard.
-  router.get('/health-dashboard', (Request request) async {
-    try {
-      final params = request.url.queryParameters;
-      final verdictFilter = params['verdict'];
-      final guardFilter = params['guard'];
-
-      final allSessions = await sessions.listSessions();
-      final sidebarData = await buildSidebarData(sessions);
-
-      final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
-
-      final auditPage =
-          await auditReader?.read(verdictFilter: verdictFilter, guardFilter: guardFilter) ?? AuditPage.empty;
-
-      final page = healthDashboardTemplate(
-        status: status['status'] as String? ?? 'healthy',
-        uptimeSeconds: status['uptime_s'] as int? ?? 0,
-        workerState: status['worker_state'] as String? ?? 'unknown',
-        sessionCount: status['session_count'] as int? ?? 0,
-        dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
-        version: status['version'] as String? ?? 'unknown',
-        sidebarData: sidebarData,
-        auditPage: auditPage,
-        verdictFilter: verdictFilter,
-        guardFilter: guardFilter,
-        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
-        appName: appDisplay.name,
-      );
-
-      return Response.ok(page, headers: htmlHeaders);
-    } catch (e) {
-      return _htmlError('Failed to load health dashboard: $e');
     }
   });
 
@@ -300,55 +340,10 @@ Router webRoutes(
     }
   });
 
-  // GET /settings — settings hub.
-  router.get('/settings', (Request request) async {
-    try {
-      final allSessions = await sessions.listSessions();
-      final sidebarData = await buildSidebarData(sessions);
-
-      final status = await _getStatus(healthService, workerStateGetter, allSessions.length);
-
-      final gc = guardChain;
-      final guardsEnabled = gc != null;
-      final guardConfigs = extractGuardConfigs(gc, contentGuardDisplay: contentGuardDisplay);
-
-      final waStatus = await _whatsAppChannelStatus(whatsAppChannel);
-      final sigStatus = await _signalChannelStatus(signalChannel);
-
-      final page = settingsTemplate(
-        sidebarData: sidebarData,
-        uptimeSeconds: status['uptime_s'] as int? ?? 0,
-        sessionCount: status['session_count'] as int? ?? 0,
-        workerState: status['worker_state'] as String? ?? 'unknown',
-        version: status['version'] as String? ?? 'unknown',
-        whatsAppEnabled: whatsAppChannel != null,
-        whatsAppStatusLabel: waStatus.label,
-        whatsAppStatusClass: waStatus.badgeClass,
-        whatsAppPhone: jidToPhone(whatsAppChannel?.gowa.pairedJid),
-        whatsAppPendingCount: whatsAppChannel?.dmAccess.pendingPairings.length ?? 0,
-        signalEnabled: signalEnabled,
-        signalPhone: signalChannel?.sidecar.registeredPhone,
-        signalStatusLabel: sigStatus.label,
-        signalStatusClass: sigStatus.badgeClass,
-        signalPendingCount: signalChannel?.dmAccess.pendingPairings.length ?? 0,
-        guardsEnabled: guardsEnabled,
-        guardFailOpen: gc?.failOpen ?? false,
-        guardConfigs: guardConfigs,
-        workspacePath: workspaceDisplay.path,
-        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
-        appName: appDisplay.name,
-      );
-
-      return Response.ok(page, headers: htmlHeaders);
-    } catch (e) {
-      return _htmlError('Failed to load settings: $e');
-    }
-  });
-
   // GET /settings/channels/<type> — channel detail page.
   router.get('/settings/channels/<type>', (Request request, String type) async {
     try {
-      if (type != 'whatsapp' && type != 'signal') {
+      if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
         return _htmlNotFound('Unknown channel type: $type');
       }
 
@@ -359,7 +354,7 @@ Router webRoutes(
         if (channel == null) {
           return _htmlNotFound('WhatsApp channel is not configured');
         }
-        final status = await _whatsAppChannelStatus(channel);
+        final status = await whatsAppChannelStatus(channel);
         final page = channelDetailTemplate(
           channelType: 'whatsapp',
           channelLabel: 'WhatsApp',
@@ -376,17 +371,18 @@ Router webRoutes(
           entryPlaceholder: '15551234567@s.whatsapp.net',
           groupPlaceholder: '12345678@g.us',
           sidebarData: sidebarData,
-          pendingPairings: _pendingPairingsData(channel.dmAccess),
-          bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+          navItems: registry.navItems(activePage: 'Settings'),
+          pendingPairings: pendingPairingsData(channel.dmAccess),
+          bannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
-      } else {
+      } else if (type == 'signal') {
         final channel = signalChannel;
         if (channel == null) {
           return _htmlNotFound('Signal channel is not configured');
         }
-        final status = await _signalChannelStatus(channel);
+        final status = await signalChannelStatus(channel);
         final page = channelDetailTemplate(
           channelType: 'signal',
           channelLabel: 'Signal',
@@ -403,62 +399,42 @@ Router webRoutes(
           entryPlaceholder: '+15551234567 or UUID',
           groupPlaceholder: 'base64-group-id',
           sidebarData: sidebarData,
-          pendingPairings: _pendingPairingsData(channel.dmAccess),
-          bannerHtml: _restartBannerHtml(appDisplay.dataDir),
+          navItems: registry.navItems(activePage: 'Settings'),
+          pendingPairings: pendingPairingsData(channel.dmAccess),
+          bannerHtml: restartBannerHtml(appDisplay.dataDir),
+          appName: appDisplay.name,
+        );
+        return Response.ok(page, headers: htmlHeaders);
+      } else {
+        final channel = googleChatChannel;
+        if (channel == null) {
+          return _htmlNotFound('Google Chat channel is not configured');
+        }
+        final dmAccess = channel.dmAccess;
+        final page = channelDetailTemplate(
+          channelType: 'google_chat',
+          channelLabel: 'Google Chat',
+          statusLabel: channel.config.enabled ? 'Connected' : 'Disconnected',
+          statusClass: channel.config.enabled ? 'ok' : 'warn',
+          dmAccessMode: dmAccess?.mode.name ?? 'pairing',
+          dmAccessModes: ['open', 'disabled', 'allowlist', 'pairing'],
+          dmAllowlist: dmAccess?.allowlist.toList() ?? [],
+          groupAccessMode: channel.config.groupAccess.name,
+          groupAccessModes: ['open', 'disabled', 'allowlist'],
+          groupAllowlist: channel.config.groupAllowlist.toList(),
+          requireMention: channel.config.requireMention,
+          entryPlaceholder: 'users/123456789',
+          groupPlaceholder: 'spaces/AAAA',
+          sidebarData: sidebarData,
+          navItems: registry.navItems(activePage: 'Settings'),
+          pendingPairings: dmAccess != null ? pendingPairingsData(dmAccess) : [],
+          bannerHtml: restartBannerHtml(appDisplay.dataDir),
           appName: appDisplay.name,
         );
         return Response.ok(page, headers: htmlHeaders);
       }
     } catch (e) {
       return _htmlError('Failed to load channel detail: $e');
-    }
-  });
-
-  // GET /scheduling — scheduling status page.
-  router.get('/scheduling', (Request request) async {
-    try {
-      final sidebarData = await buildSidebarData(sessions);
-
-      final liveHb = runtimeConfig?.heartbeatEnabled ?? heartbeatDisplay.enabled;
-
-      final page = schedulingTemplate(
-        sidebarData: sidebarData,
-        heartbeatEnabled: liveHb,
-        heartbeatIntervalMinutes: heartbeatDisplay.intervalMinutes,
-        jobs: schedulingDisplay.jobs,
-        systemJobNames: schedulingDisplay.systemJobNames,
-        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
-        appName: appDisplay.name,
-      );
-
-      return Response.ok(page, headers: htmlHeaders);
-    } catch (e) {
-      return _htmlError('Failed to load scheduling page: $e');
-    }
-  });
-
-  // GET /memory — memory dashboard page.
-  router.get('/memory', (Request request) async {
-    try {
-      final memService = memoryStatusService;
-      if (memService == null) {
-        return _htmlError('Memory dashboard not available — workspace not configured');
-      }
-
-      final sidebarData = await buildSidebarData(sessions);
-      final status = await memService.getStatus();
-
-      final page = memoryDashboardTemplate(
-        status: status,
-        sidebarData: sidebarData,
-        workspacePath: workspaceDisplay.path ?? '~/.dartclaw/workspace/',
-        bannerHtml: _restartBannerHtml(appDisplay.dataDir),
-        appName: appDisplay.name,
-      );
-
-      return Response.ok(page, headers: htmlHeaders);
-    } catch (e) {
-      return _htmlError('Failed to load memory dashboard: $e');
     }
   });
 
@@ -476,7 +452,36 @@ Router webRoutes(
     }
   });
 
+  for (final page in registry.pages) {
+    router.get(page.route, (Request request) async {
+      try {
+        return await page.handler(request, pageContext);
+      } catch (e) {
+        return _htmlError('Failed to load ${page.title}: $e');
+      }
+    });
+  }
+
+  // Task detail sub-route: /tasks/<id>
+  router.get('/tasks/<id>', (Request request, String id) async {
+    try {
+      final tasksPage = registry.resolve('/tasks');
+      if (tasksPage == null) return _htmlNotFound('Tasks page not registered');
+      return await tasksPage.handler(request, pageContext);
+    } catch (e) {
+      return _htmlError('Failed to load task detail: $e');
+    }
+  });
+
   return router;
+}
+
+String? _sanitizeNextPath(String? rawValue) {
+  final trimmed = rawValue?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  if (!trimmed.startsWith('/')) return null;
+  if (trimmed.startsWith('//')) return null;
+  return trimmed;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +510,8 @@ Future<SidebarData> buildSidebarData(SessionService sessions) async {
         }
       case SessionType.cron:
         break; // hidden from sidebar
+      case SessionType.task:
+        break; // task sessions managed via /tasks page
       case SessionType.user:
         activeEntries.add(entry);
       case SessionType.archive:
@@ -531,53 +538,6 @@ bool _isGroupChannel(String? channelKey) {
   }
 }
 
-Future<Map<String, dynamic>> _getStatus(
-  HealthService? healthService,
-  WorkerState? Function()? workerStateGetter,
-  int sessionCount,
-) async {
-  if (healthService != null) return healthService.getStatus();
-  final ws = workerStateGetter?.call();
-  return {
-    'status': 'healthy',
-    'uptime_s': 0,
-    'worker_state': ws?.name ?? 'unknown',
-    'session_count': sessionCount,
-    'db_size_bytes': 0,
-    'version': 'unknown',
-  };
-}
-
-Future<ChannelStatus> _whatsAppChannelStatus(WhatsAppChannel? channel) async {
-  if (channel == null) return ChannelStatus.disabled;
-  final gowa = channel.gowa;
-  if (!gowa.isRunning) {
-    if (gowa.restartCount > 0) return ChannelStatus.reconnecting;
-    return gowa.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
-  }
-  try {
-    final status = await gowa.getStatus();
-    return status.isLoggedIn ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
-  } catch (_) {
-    return ChannelStatus.pairingNeeded;
-  }
-}
-
-Future<ChannelStatus> _signalChannelStatus(SignalChannel? channel) async {
-  if (channel == null) return ChannelStatus.disabled;
-  final sidecar = channel.sidecar;
-  if (!sidecar.isRunning) {
-    if (sidecar.restartCount > 0) return ChannelStatus.reconnecting;
-    return sidecar.wasPaired ? ChannelStatus.connectionError : ChannelStatus.notRunning;
-  }
-  try {
-    final registered = await sidecar.isAccountRegistered();
-    return registered ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
-  } catch (_) {
-    return ChannelStatus.pairingNeeded;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // HTMX SPA helpers
 // ---------------------------------------------------------------------------
@@ -598,24 +558,3 @@ Response _htmlNotFound(String message) =>
 
 Response _htmlError(String message) =>
     Response.internalServerError(body: errorPageTemplate(500, 'Internal Server Error', message), headers: htmlHeaders);
-
-List<Map<String, dynamic>> _pendingPairingsData(DmAccessController controller) {
-  final now = DateTime.now();
-  return controller.pendingPairings.map((p) {
-    final remaining = p.expiresAt.difference(now).inMinutes;
-    return {
-      'code': p.code,
-      'senderId': p.jid,
-      'displayName': p.displayName,
-      'remainingLabel': remaining > 0 ? '${remaining}m' : '<1m',
-    };
-  }).toList();
-}
-
-String _restartBannerHtml(String? dataDir) {
-  if (dataDir == null) return '';
-  final pending = readRestartPending(dataDir);
-  if (pending == null) return '';
-  final fields = (pending['fields'] as List<dynamic>?)?.whereType<String>().toList() ?? [];
-  return restartBannerTemplate(pendingFields: fields);
-}

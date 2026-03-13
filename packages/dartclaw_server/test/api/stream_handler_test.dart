@@ -32,6 +32,8 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) => throw UnimplementedError();
 
   @override
@@ -279,14 +281,13 @@ void main() {
         await Future<void>.delayed(Duration.zero);
       }, res.read());
 
-      final eventTypes =
-          frames
-              .map((f) {
-                final line = f.split('\n').firstWhere((l) => l.startsWith('event:'), orElse: () => '');
-                return line.isEmpty ? '' : line.substring('event:'.length).trim();
-              })
-              .where((t) => t.isNotEmpty)
-              .toList();
+      final eventTypes = frames
+          .map((f) {
+            final line = f.split('\n').firstWhere((l) => l.startsWith('event:'), orElse: () => '');
+            return line.isEmpty ? '' : line.substring('event:'.length).trim();
+          })
+          .where((t) => t.isNotEmpty)
+          .toList();
 
       expect(eventTypes, contains('delta'));
       expect(eventTypes, contains('done'));

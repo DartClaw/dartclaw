@@ -1,0 +1,409 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/channel/channel_config.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:http/testing.dart';
+import 'package:shelf/shelf.dart';
+import 'package:test/test.dart';
+
+class _FakeGoogleChatRestClient extends GoogleChatRestClient {
+  final List<(String, String)> sentMessages = [];
+  final List<(String, String)> editedMessages = [];
+  int _counter = 0;
+
+  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
+
+  @override
+  Future<String?> sendMessage(String spaceName, String text) async {
+    sentMessages.add((spaceName, text));
+    _counter++;
+    return '$spaceName/messages/$_counter';
+  }
+
+  @override
+  Future<bool> editMessage(String messageName, String newText) async {
+    editedMessages.add((messageName, newText));
+    return true;
+  }
+
+  @override
+  Future<void> testConnection() async {}
+}
+
+class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
+  bool shouldVerify = true;
+
+  _FakeGoogleJwtVerifier()
+    : super(
+        audience: const GoogleChatAudienceConfig(
+          mode: GoogleChatAudienceMode.appUrl,
+          value: 'https://example.com/integrations/googlechat',
+        ),
+      );
+
+  @override
+  Future<bool> verify(String? authHeader) async => shouldVerify;
+}
+
+Map<String, dynamic> _payload({
+  String type = 'MESSAGE',
+  String? text = 'Hello agent',
+  String senderType = 'HUMAN',
+  String senderName = 'users/123',
+  String userName = 'users/123',
+  String spaceType = 'DM',
+  List<Map<String, dynamic>> annotations = const [],
+}) {
+  return {
+    'type': type,
+    'space': {'name': 'spaces/AAAA', 'type': spaceType, 'displayName': 'Primary'},
+    'message': {
+      'name': 'spaces/AAAA/messages/BBBB',
+      'sender': {'name': senderName, 'type': senderType},
+      'text': text,
+      'annotations': annotations,
+    },
+    'user': {'name': userName, 'displayName': 'Alice', 'type': 'HUMAN'},
+  };
+}
+
+Future<Response> _post(GoogleChatWebhookHandler handler, {required Object body, Map<String, String>? headers}) {
+  return handler.handle(
+    Request(
+      'POST',
+      Uri.parse('http://localhost/integrations/googlechat'),
+      headers: headers ?? {'authorization': 'Bearer token'},
+      body: body is String ? body : jsonEncode(body),
+    ),
+  );
+}
+
+ChannelManager _buildChannelManager({
+  required GoogleChatChannel channel,
+  required Future<String> Function(ChannelMessage message) onDispatch,
+}) {
+  final queue = MessageQueue(
+    debounceWindow: Duration.zero,
+    maxConcurrentTurns: 1,
+    dispatcher: (sessionKey, message, {senderJid}) async {
+      final dispatched = ChannelMessage(
+        id: sessionKey,
+        channelType: ChannelType.googlechat,
+        senderJid: senderJid ?? '',
+        text: message,
+      );
+      return onDispatch(dispatched);
+    },
+  );
+  final manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
+  manager.registerChannel(channel);
+  return manager;
+}
+
+void main() {
+  late _FakeGoogleChatRestClient restClient;
+  late GoogleChatChannel channel;
+  late _FakeGoogleJwtVerifier jwtVerifier;
+  late ChannelMessage? dispatchedMessage;
+  late EventBus eventBus;
+  late GoogleChatWebhookHandler handler;
+
+  setUp(() {
+    restClient = _FakeGoogleChatRestClient();
+    channel = GoogleChatChannel(
+      config: const GoogleChatConfig(
+        webhookPath: '/integrations/googlechat',
+        dmAccess: DmAccessMode.open,
+        groupAccess: GroupAccessMode.open,
+      ),
+      restClient: restClient,
+    );
+    jwtVerifier = _FakeGoogleJwtVerifier();
+    eventBus = EventBus();
+    dispatchedMessage = null;
+    handler = GoogleChatWebhookHandler(
+      channel: channel,
+      jwtVerifier: jwtVerifier,
+      config: const GoogleChatConfig(
+        webhookPath: '/integrations/googlechat',
+        typingIndicator: false,
+        dmAccess: DmAccessMode.open,
+        groupAccess: GroupAccessMode.open,
+      ),
+      eventBus: eventBus,
+      dispatchMessage: (message) async {
+        dispatchedMessage = message;
+        return 'Agent reply';
+      },
+      responseTimeout: const Duration(milliseconds: 50),
+    );
+  });
+
+  tearDown(() async {
+    await eventBus.dispose();
+  });
+
+  group('JWT verification', () {
+    test('rejects request with invalid JWT', () async {
+      jwtVerifier.shouldVerify = false;
+      final events = <FailedAuthEvent>[];
+      final sub = eventBus.on<FailedAuthEvent>().listen(events.add);
+      addTearDown(sub.cancel);
+
+      final response = await _post(handler, body: _payload(), headers: {});
+
+      expect(response.statusCode, 401);
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(1));
+      expect(events.single.source, 'webhook');
+      expect(events.single.reason, 'invalid_google_chat_jwt');
+      expect(events.single.limited, isFalse);
+    });
+
+    test('accepts valid JWT', () async {
+      final response = await _post(handler, body: _payload());
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{"text":"Agent reply"}');
+    });
+  });
+
+  group('MESSAGE events', () {
+    test('processes valid MESSAGE event', () async {
+      await _post(handler, body: _payload());
+
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.senderJid, 'users/123');
+      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+    });
+
+    test('extracts group JID for ROOM spaces', () async {
+      await _post(handler, body: _payload(spaceType: 'ROOM'));
+
+      expect(dispatchedMessage!.groupJid, 'spaces/AAAA');
+    });
+
+    test('keeps DM messages without group JID', () async {
+      await _post(handler, body: _payload(spaceType: 'DM'));
+
+      expect(dispatchedMessage!.groupJid, isNull);
+    });
+
+    test('extracts mentions from annotations', () async {
+      await _post(
+        handler,
+        body: _payload(
+          annotations: [
+            {
+              'type': 'USER_MENTION',
+              'userMention': {
+                'user': {'name': 'users/999'},
+              },
+            },
+          ],
+        ),
+      );
+
+      expect(dispatchedMessage!.mentionedJids, ['users/999']);
+    });
+
+    test('filters bot messages by sender.type', () async {
+      await _post(handler, body: _payload(senderType: 'BOT'));
+
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('filters bot messages by configured bot user fallback', () async {
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(botUser: 'users/bot', typingIndicator: false),
+        dispatchMessage: (message) async {
+          dispatchedMessage = message;
+          return 'Agent reply';
+        },
+      );
+
+      await _post(handler, body: _payload(senderName: 'users/bot'));
+
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('drops empty text messages', () async {
+      await _post(handler, body: _payload(text: '   '));
+
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('routes through ChannelManager when one is provided', () async {
+      ChannelMessage? queuedMessage;
+      var directDispatchCalls = 0;
+      final manager = _buildChannelManager(
+        channel: channel,
+        onDispatch: (message) async {
+          queuedMessage = message;
+          return 'Queued reply';
+        },
+      );
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicator: false),
+        channelManager: manager,
+        dispatchMessage: (message) async {
+          directDispatchCalls++;
+          dispatchedMessage = message;
+          return 'Direct reply';
+        },
+      );
+
+      final response = await _post(handler, body: _payload());
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+      expect(directDispatchCalls, 0);
+      expect(dispatchedMessage, isNull);
+      expect(queuedMessage, isNotNull);
+      expect(queuedMessage!.senderJid, 'users/123');
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Queued reply')]);
+    });
+  });
+
+  group('ADDED_TO_SPACE', () {
+    test('sends welcome message', () async {
+      final response = await _post(handler, body: _payload(type: 'ADDED_TO_SPACE'));
+
+      expect(response.statusCode, 200);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.')]);
+    });
+  });
+
+  group('unknown events', () {
+    test('drops other event types silently', () async {
+      final response = await _post(handler, body: _payload(type: 'REMOVED_FROM_SPACE'));
+
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+      expect(restClient.sentMessages, isEmpty);
+    });
+  });
+
+  group('typing indicator', () {
+    test('sends placeholder then patches on timeout when enabled', () async {
+      final completer = Completer<String>();
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(typingIndicator: true),
+        dispatchMessage: (message) {
+          dispatchedMessage = message;
+          return completer.future;
+        },
+        responseTimeout: const Duration(milliseconds: 1),
+      );
+
+      final response = await _post(handler, body: _payload());
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
+
+      completer.complete('Final answer');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(restClient.editedMessages, [('spaces/AAAA/messages/1', 'Final answer')]);
+    });
+
+    test('keeps placeholders separate for overlapping turns in the same space', () async {
+      final first = Completer<String>();
+      final second = Completer<String>();
+      var callCount = 0;
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(typingIndicator: true),
+        dispatchMessage: (message) {
+          dispatchedMessage = message;
+          callCount++;
+          return callCount == 1 ? first.future : second.future;
+        },
+        responseTimeout: const Duration(milliseconds: 1),
+      );
+
+      await _post(
+        handler,
+        body: _payload(text: 'first', senderName: 'users/123', userName: 'users/123'),
+      );
+      await _post(
+        handler,
+        body: {
+          ..._payload(text: 'second', senderName: 'users/456', userName: 'users/456'),
+          'message': {
+            'name': 'spaces/AAAA/messages/CCCC',
+            'sender': {'name': 'users/456', 'type': 'HUMAN'},
+            'text': 'second',
+            'annotations': const [],
+          },
+          'user': {'name': 'users/456', 'displayName': 'Bob', 'type': 'HUMAN'},
+        },
+      );
+
+      expect(restClient.sentMessages, [
+        ('spaces/AAAA', '_DartClaw is typing..._'),
+        ('spaces/AAAA', '_DartClaw is typing..._'),
+      ]);
+
+      second.complete('Second answer');
+      first.complete('First answer');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(restClient.editedMessages, [
+        ('spaces/AAAA/messages/2', 'Second answer'),
+        ('spaces/AAAA/messages/1', 'First answer'),
+      ]);
+    });
+
+    test('does not send placeholder when disabled', () async {
+      final completer = Completer<String>();
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(typingIndicator: false),
+        dispatchMessage: (message) => completer.future,
+        responseTimeout: const Duration(milliseconds: 1),
+      );
+
+      await _post(handler, body: _payload());
+      completer.complete('Final answer');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Final answer')]);
+      expect(restClient.editedMessages, isEmpty);
+    });
+  });
+
+  group('payload edge cases', () {
+    test('returns 413 for oversized payloads', () async {
+      final response = await handler.handle(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/integrations/googlechat'),
+          headers: {'authorization': 'Bearer token', 'content-length': '${(1024 * 1024) + 1}'},
+          body: '',
+        ),
+      );
+
+      expect(response.statusCode, 413);
+    });
+
+    test('handles malformed JSON gracefully', () async {
+      final response = await _post(handler, body: '{not-json');
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+    });
+  });
+}

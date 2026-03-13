@@ -67,13 +67,22 @@
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
           hx-select-oob="#topbar,#sidebar">
           <span class="session-item-title" tl:text="${entry.title}">Archived session</span></a>
+        <button class="session-delete" data-action="delete-session"
+          tl:attr="data-session-id=${entry.id}" aria-label="Delete session">&#215;</button>
       </div>
     </div>
   </div>
 
-  <nav tl:if="${hasNav}" class="sidebar-section" aria-label="System navigation">
-    <div class="sidebar-section-label">System</div>
-    <a tl:each="nav : ${navItems}" class="sidebar-nav-item"
+  <nav tl:if="${hasNav}" class="sidebar-section" aria-label="Dashboard navigation">
+    <div tl:if="${showSystemNav}" class="sidebar-section-label">System</div>
+    <a tl:each="nav : ${systemNavItems}" class="sidebar-nav-item"
+      tl:classappend="${nav.active} ? 'active' : ''"
+      tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent}"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#sidebar"
+      tl:utext="${nav.label}">Link</a>
+    <div tl:if="${showExtensionNav}" class="sidebar-section-label">Extensions</div>
+    <a tl:each="nav : ${extensionNavItems}" class="sidebar-nav-item"
       tl:classappend="${nav.active} ? 'active' : ''"
       tl:attr="href=${nav.href},hx-get=${nav.href},aria-current=${nav.ariaCurrent}"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"

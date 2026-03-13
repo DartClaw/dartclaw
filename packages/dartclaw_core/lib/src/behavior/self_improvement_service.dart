@@ -3,12 +3,7 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-
-class _WriteOp {
-  final Future<void> Function() fn;
-  final Completer<void> completer;
-  _WriteOp(this.fn) : completer = Completer<void>();
-}
+import '../storage/write_op.dart';
 
 /// Manages `errors.md` and `learnings.md` in the workspace.
 ///
@@ -21,13 +16,10 @@ class SelfImprovementService {
   final String workspaceDir;
   final int maxEntries;
 
-  final _queue = StreamController<_WriteOp>();
+  final _queue = StreamController<WriteOp>();
   late final StreamSubscription<void> _queueSub;
 
-  SelfImprovementService({
-    required this.workspaceDir,
-    this.maxEntries = 50,
-  }) {
+  SelfImprovementService({required this.workspaceDir, this.maxEntries = 50}) {
     _queueSub = _queue.stream
         .asyncMap((op) async {
           try {
@@ -50,7 +42,7 @@ class SelfImprovementService {
     required String context,
     String? resolution,
   }) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       try {
         final timestamp = DateTime.now().toUtc().toIso8601String();
         final buf = StringBuffer()
@@ -73,10 +65,9 @@ class SelfImprovementService {
 
   /// Appends a learning entry to `learnings.md`. Never throws — logs warnings on failure.
   Future<void> appendLearning({required String text}) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       try {
-        final timestamp =
-            DateTime.now().toIso8601String().substring(0, 16).replaceFirst('T', ' ');
+        final timestamp = DateTime.now().toIso8601String().substring(0, 16).replaceFirst('T', ' ');
         final entry = '- [$timestamp] $text\n';
 
         await _appendCapped(_learningsPath, entry, '- [');

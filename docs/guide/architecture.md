@@ -1,71 +1,81 @@
 # Architecture
 
-DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. This document explains how they fit together, why they're separated, and where the boundaries are.
+> Current through: **0.8**
+
+DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. The `claude` CLI binary handles agent reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
 ## The Two Layers
 
 ```
-┌──────────────────────────────────────────────┐
-│  Layer 1: Dart Host                          │
-│  ─────────────────                           │
-│  Owns: file storage, HTTP API, web UI,       │
-│        turn orchestration, security policy    │
-│  Trust: FULL — this is your code             │
-└──────────────────────┬───────────────────────┘
-                       │ JSONL control protocol (stdin/stdout)
-┌──────────────────────▼───────────────────────┐
-│  Layer 2: claude CLI Binary                  │
-│  ──────────────────────────                  │
-│  Owns: agent reasoning, tool execution,      │
-│        bash commands, file operations        │
-│  Trust: SANDBOXED — isolated in Phase 2      │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  Layer 1: Dart Host (AOT-compiled binary)               │
+│  ────────────────────────────────────────                │
+│  Owns: storage, HTTP API, web UI, turn orchestration,   │
+│        security policy, channels, tasks, scheduling     │
+│  Trust: FULL — this is your code                        │
+└────────────────────────┬────────────────────────────────┘
+                         │ JSONL control protocol (stdin/stdout)
+┌────────────────────────▼────────────────────────────────┐
+│  Layer 2: claude CLI Binary (Bun standalone)            │
+│  ───────────────────────────────────────────             │
+│  Owns: agent reasoning, tool execution,                 │
+│        bash commands, file operations                   │
+│  Trust: SANDBOXED — Docker container isolation           │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### Layer 1: Dart Host
 
-The Dart host is the control plane. It's a Shelf HTTP server + file-based storage that:
+The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with file-based storage that:
 
-- **Stores state** — sessions and messages in NDJSON files, memory in MEMORY.md + SQLite FTS5 search index
-- **Serves the web UI** — HTML templates (Dart string functions), CSS, and JavaScript (HTMX + SSE)
-- **Orchestrates turns** — receives user messages, composes system prompts, spawns the claude binary, streams results
-- **Enforces security** — API key isolation, safety rule injection, memory operation routing
+- **Stores state** — sessions and messages in NDJSON files, tasks and search index in SQLite, config in YAML
+- **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
+- **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
+- **Enforces security** — guard chain (input sanitization, command/file/network guards, content classification), credential isolation, container management, audit logging
+- **Runs background work** — cron scheduling, session maintenance, memory pruning, task queue processing
 
 The host never executes agent logic directly. It spawns the `claude` binary as a subprocess and controls what information flows in and out.
 
 ### Layer 2: claude CLI Binary
 
-The actual agent runtime. The Dart host spawns this binary to execute each turn. It:
+The actual agent runtime. The Dart host spawns this binary to execute each turn:
 
 - Reasons about the user's request
-- Decides which tools to use (bash, file read/write, etc.)
+- Decides which tools to use (bash, file read/write, MCP tools, etc.)
 - Executes tools and incorporates results
 - Streams JSONL events back to the Dart host (text deltas, tool use, tool results)
 
-The Dart host manages the claude binary lifecycle, including auto-restart with exponential backoff on crash.
+The binary is a Bun standalone executable — no Node.js or npm required. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash.
 
 ## Communication: The JSONL Control Protocol
 
-Dart and the claude CLI binary communicate over stdin/stdout using a **JSONL** (JSON Lines) control protocol.
-
-### Message Flow
+Dart and the claude CLI binary communicate over stdin/stdout using a **bidirectional JSONL** (JSON Lines) control protocol. This is the same protocol used by the official Python, Go, and Elixir SDKs.
 
 ```
 Dart Host                              claude CLI Binary
     │                                       │
     │──── spawn with args + env ───────────>│
     │                                       │
-    │<──── system init (JSONL) ─────────────│
-    │<──── stream text delta (JSONL) ───────│
-    │<──── stream text delta (JSONL) ───────│
-    │<──── stream tool_use (JSONL) ─────────│
-    │<──── stream tool_result (JSONL) ──────│
-    │<──── stream text delta (JSONL) ───────│
-    │<──── result (JSONL) ──────────────────│
+    │──── initialize (hooks, MCP, prompt) ─>│
+    │<──── init response ──────────────────│
+    │                                       │
+    │──── user message (JSONL) ───────────>│
+    │<──── stream text delta ──────────────│
+    │<──── hook callback (PreToolUse) ─────│  ← guard evaluation
+    │──── hook response (allow/deny) ─────>│
+    │<──── stream tool_use ────────────────│
+    │<──── stream tool_result ─────────────│
+    │<──── stream text delta ──────────────│
+    │<──── result ─────────────────────────│
     │                                       │
 ```
 
-**Key design choice**: The Dart host drives the claude binary directly — no intermediate bridge layer. The JSONL protocol is parsed natively in Dart using a sealed class hierarchy (`ClaudeMessage` types: `SystemInit`, `StreamTextDelta`, `StreamToolUse`, `StreamToolResult`, etc.).
+The protocol supports:
+
+- **Streaming events** — text deltas, tool use, tool results, all parsed via a sealed class hierarchy
+- **Hook callbacks** — the binary asks the Dart host for permission before tool execution (PreToolUse/PostToolUse), enabling the guard system to block dangerous operations
+- **In-process MCP** — MCP tool calls (memory search, web fetch, etc.) are proxied through the control protocol as JSONRPC messages, handled by the Dart host
+- **Control messages** — interrupt, model switching, permission mode changes
 
 ### Why JSONL over stdin/stdout?
 
@@ -74,87 +84,275 @@ Dart Host                              claude CLI Binary
 - One line = one message — no framing issues
 - Native Dart JSON parsing, no additional protocol libraries needed
 
-## Database Design
+## Package Structure
 
-File-based storage (NDJSON + JSON) for sessions/messages/kv, with SQLite for search index:
+DartClaw is organized as a Dart pub workspace with five packages plus a CLI app. Each package has a specific role and dependency scope:
 
-| Table | Purpose |
-|-------|---------|
-| `sessions` | Chat sessions (id, title, timestamps) |
-| `messages` | All messages with auto-increment `cursor` column for crash recovery |
-| `memory_chunks` | FTS5-indexed memory entries for full-text search |
-| `kv_state` | Key-value store for global settings |
+```
+packages/
+  dartclaw_models/    Zero dependencies. Pure data classes: Session, Message,
+                      MemoryChunk, SessionKey, Task, Goal. Shareable everywhere.
+
+  dartclaw_core/      No SQLite. Harness abstraction, guard chain, channels,
+                      event bus, container management, config, memory files,
+                      behavior files, session maintenance, security services.
+                      Shareable with a future Flutter app.
+
+  dartclaw_storage/   SQLite3. Search index (FTS5), task repository, goal
+                      repository. Isolated so sqlite3 dependency does not
+                      leak into core or models.
+
+  dartclaw_server/    Shelf HTTP. API routes, web UI templates, turn
+                      orchestration, task executor, scheduling, MCP server,
+                      config writer, harness pool. Server-only code.
+
+  dartclaw/           Published umbrella. Re-exports core + models + storage
+                      as a single SDK import.
+
+apps/
+  dartclaw_cli/       CLI app (AOT-compilable): serve, status, rebuild-index,
+                      sessions cleanup commands.
+```
+
+The key boundary: `dartclaw_core` has no SQLite dependency, making it suitable for embedding in a Flutter desktop app. All SQLite access is isolated in `dartclaw_storage`.
+
+## Storage Design
+
+DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite is used for derived indexes and relational data** (search index, tasks).
+
+### File-Based Storage
+
+```
+~/.dartclaw/                          # dataDir (configurable)
+├── dartclaw.yaml                     # Config (YAML, backup-on-write)
+├── kv.json                           # Global key-value store
+├── audit.ndjson                      # Guard audit log (append + rotate)
+├── usage.jsonl                       # Token tracking (append + rotate)
+├── sessions/
+│   ├── .session_keys.json            # Deterministic key → UUID index
+│   └── <uuid>/
+│       ├── meta.json                 # Session metadata
+│       └── messages.ndjson           # Conversation transcript (append-only)
+└── workspace/
+    ├── MEMORY.md                     # Long-term memory
+    ├── errors.md                     # Auto-populated error log
+    ├── learnings.md                  # Agent-written insights
+    ├── SOUL.md, USER.md, TOOLS.md    # Behavior files (identity, profile, env)
+    └── memory/
+        └── YYYY-MM-DD.md            # Daily turn logs
+```
+
+Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers serialize writes via Dart `StreamController` queues.
+
+### SQLite
+
+| Database | Contents | Authoritative? |
+|----------|----------|----------------|
+| `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from MEMORY.md, rebuildable via `dartclaw rebuild-index` |
+| `tasks.db` | Tasks, goals, task artifacts | Yes — relational data with state machine transitions |
 
 ### Crash Recovery
 
-Messages have an auto-incrementing `cursor` column (separate from their UUID `id`). After a crash or restart, the client can request "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery.
+Messages in NDJSON files use their line number as a cursor. After a crash or restart, the client requests "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery because line numbers are monotonic and gap-free.
 
 ### Memory Search
 
-Memory uses SQLite FTS5 with BM25 ranking. When the agent calls `memory_save`:
+When the agent calls `memory_save`, text is appended to `MEMORY.md`, stripped of markdown, split into paragraph-sized chunks, and inserted into the FTS5 index. `memory_search` queries the index and returns BM25-ranked results. A nightly `MemoryPruner` archives entries older than 90 days and removes exact duplicates to keep the index focused.
 
-1. Text is appended to `MEMORY.md` (human-readable log)
-2. Text is stripped of markdown formatting
-3. Long text is split into paragraph-sized chunks
-4. Each chunk is inserted into `memory_chunks` (which auto-syncs to the FTS5 index via triggers)
+For more detail on memory configuration, see the [Search guide](search.md).
 
-Searching with `memory_search` queries the FTS5 index and returns results ranked by relevance.
+## Turn Orchestration
+
+A "turn" is a single round-trip: user message in, agent response out. The Dart host manages turns through several layers:
+
+1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
+2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, cost tracking, crash recovery
+3. **AgentHarness** — abstract interface to the claude binary. `ClaudeCodeHarness` is the concrete implementation that manages the subprocess and JSONL protocol
+4. **HarnessPool** — manages multiple harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are the "task pool" (acquired by the task executor for background work)
+
+```
+User message (web / channel / cron / task)
+    │
+    ▼
+TurnManager ──→ HarnessPool.primary (interactive)
+    │               or
+    │           HarnessPool.tryAcquire() (background task)
+    │
+    ▼
+TurnRunner (per-harness)
+    ├── GuardChain evaluation (input sanitizer, command/file/network guards)
+    ├── System prompt composition (behavior files + context)
+    ├── AgentHarness.turn() → claude binary via JSONL
+    ├── SSE streaming to web UI
+    ├── Message persistence (NDJSON append)
+    ├── Usage tracking (token attribution)
+    └── Self-improvement (errors.md / learnings.md on failure)
+```
+
+## Channel System
+
+DartClaw receives messages from multiple sources through a unified channel abstraction. Each channel normalizes inbound messages into a `ChannelMessage` and formats outbound responses for its delivery requirements.
+
+| Channel | Transport | Sidecar |
+|---------|-----------|---------|
+| **Web** | HTTP API + SSE | None |
+| **WhatsApp** | Webhook (GOWA binary) | Yes — Go binary, outpost pattern |
+| **Signal** | REST API (signal-cli-rest-api) | Yes — Docker container |
+| **Google Chat** | Webhook + REST API | None — pure REST, GCP service account auth |
+
+All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
+
+For channel setup, see the [WhatsApp](whatsapp.md), [Signal](signal.md), and [Configuration](configuration.md) guides.
+
+## Task Orchestrator
+
+The task system (added in 0.8) enables structured background work with review flows. Tasks move through a state machine:
+
+```
+draft → queued → running → review → accepted
+                   │         │
+                   │         ├→ rejected
+                   │         └→ queued (push-back)
+                   │
+                   └→ interrupted → queued
+```
+
+Key components:
+
+- **TaskService** — CRUD + state machine transitions, SQLite persistence
+- **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
+- **WorktreeManager** — for coding tasks, creates git worktrees so the agent works on an isolated branch. On accept, changes are merged (squash or merge). On reject, the worktree is cleaned up
+- **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
+- **AgentObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+
+Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
+
+## Container Isolation
+
+When Docker is enabled, DartClaw runs agent processes inside containers with kernel-level isolation. Containers are organized by **security profile** — each profile defines what the agent can access at the OS level.
+
+| Profile | Mounts | Network | Used By |
+|---------|--------|---------|---------|
+| `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, channels |
+| `restricted` | No workspace | `none` | Search agent, research tasks |
+
+Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). This keeps the container count small (2-4) regardless of task parallelism (up to 10 concurrent).
+
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. API credentials are injected via a credential proxy on a Unix socket — keys never exist inside the container environment.
+
+Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
+
+> DartClaw runs without Docker in development mode. This is acceptable for local use where you trust the agent. For any networked or shared deployment, container isolation is essential.
+
+For full security details, see the [Security guide](security.md).
 
 ## Security Model
 
 DartClaw follows **defense-in-depth** — multiple overlapping layers, each providing protection even if another fails.
 
-### Current (MVP / Phase 1)
+| Layer | Mechanism |
+|-------|-----------|
+| **Container isolation** | Docker kernel namespaces (PID, network, mount, user). The primary security boundary. |
+| **Credential isolation** | API keys injected via Unix socket proxy. Container environment is clean. |
+| **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
+| **Message redaction** | Outbound secret/PII redaction via configurable patterns |
+| **Audit logging** | All guard verdicts logged to `audit.ndjson` with rotation. Viewable in the health dashboard. |
+| **Usage tracking** | Per-agent token attribution and budget warnings |
+| **Mount allowlist** | Only approved directories visible inside containers |
+| **XSS prevention** | Server-side HTML escaping (Trellis `tl:text`) + client-side DOMPurify |
 
-| Layer | What It Does | Limitation |
-|-------|-------------|------------|
-| **Credential isolation** | `ANTHROPIC_API_KEY` not passed to agent subprocess environment | Only protects the API key, not other secrets |
-| **Safety rules** | System prompt rules injected every turn (no exfiltration, no credential exposure) | Prompt-level only — can be ignored by sufficiently confused agent |
-| **XSS prevention** | Server-side HTML escaping + client-side DOMPurify | Standard web security |
+For configuration and guard details, see the [Security guide](security.md).
 
-### Planned (Phase 2)
+## Scheduling and Maintenance
 
-| Layer | What It Does |
-|-------|-------------|
-| **Docker containers** | Kernel-level isolation — the agent literally cannot access host filesystem or network |
-| **Dart HTTP proxy** | API keys stay on the host; the container gets a Unix socket proxy that injects credentials |
-| **Mount allowlist** | Only explicitly approved directories are visible inside the container |
-| **Network control** | Container runs with `network:none`; only the Dart proxy can reach external services |
+DartClaw runs background work on cron schedules:
 
-### Why Docker Is Needed
+- **Scheduled jobs** — user-defined cron entries (morning briefing, research tasks, custom prompts). Each job gets its own session via deterministic `SessionKey.cronSession(jobId)`.
+- **Heartbeat** — periodic health check
+- **Memory pruning** — archives old entries, removes duplicates, enforces disk budget
+- **Session maintenance** — prunes idle sessions, enforces count caps and disk budgets, cleans up orphaned cron sessions
+- **Task automation** — scheduled jobs can create tasks that enter the review queue
 
-The claude binary runs with full OS-level access — any bash command can access the host filesystem, network, and environment. Application-level controls (credential isolation, safety rules) are defense-in-depth only.
+Jobs are managed via the web UI (`/scheduling`) or the config API. See the [Scheduling guide](scheduling.md).
 
-Docker provides kernel-level namespaces: separate PID, network, mount, and user spaces. Even with full bash access inside the container, the agent cannot escape to the host. This is the real security boundary — everything else is defense-in-depth.
+## Event Bus
 
-> **MVP runs without Docker.** This is acceptable for local development where you trust the agent's actions. For any networked or shared deployment, Docker isolation (Phase 2) is essential.
+Internal components communicate through a lightweight typed event bus. This decouples producers from consumers — adding a new reaction to an event requires zero changes to the code that fires it.
+
+Events use Dart 3 sealed classes, so the compiler catches missing handlers when new event types are added. Current event types include:
+
+- **GuardBlockEvent** — a guard blocked or warned on input
+- **ConfigChangedEvent** — configuration values changed via the API
+- **SessionLifecycleEvent** — session created, ended, or errored
+- **TaskLifecycleEvent** — task status changed, review ready
+- **ContainerLifecycleEvent** — container started, stopped, or crashed
+- **AgentStateChangedEvent** — a harness runner changed state (idle/busy)
+
+Events are fire-and-forget notifications. If no listener is subscribed, the event is silently dropped (broadcast stream semantics).
+
+## MCP Server
+
+DartClaw exposes an internal MCP (Model Context Protocol) server that provides custom tools to the agent. Tool calls are proxied through the JSONL control protocol as JSONRPC messages — no external MCP server process needed.
+
+Built-in MCP tools:
+
+| Tool | Purpose |
+|------|---------|
+| `memory_save` / `memory_search` | Persistent memory with FTS5 search |
+| `sessions_send` | Send a message to another session |
+| `sessions_spawn` | Create a new agent session |
+| `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
+| `brave_search` / `tavily_search` | Web search via configurable provider |
+
+Additional tools can be registered via the `registerTool()` SDK API.
 
 ## Web UI Architecture
 
 The web UI avoids JavaScript build toolchains entirely:
 
-- **Server-side**: Trellis template engine with HTML fragment rendering. Templates are `.html` files with `tl:` attributes.
-- **Client-side**: HTMX for navigation and form submission, HTMX SSE extension (`htmx-ext-sse`) for streaming, marked.js for markdown, highlight.js for syntax highlighting. HTMX and marked loaded from CDN; SSE extension, highlight.js, and DOMPurify vendored locally.
-- **Styling**: Custom CSS with design tokens (variables for colors, spacing, typography). Light/dark theme toggle.
+- **Server-side**: Trellis template engine with HTML fragment rendering. Templates are `.html` files with `tl:` attributes for auto-escaping.
+- **Client-side**: HTMX for SPA-like navigation and form submission, HTMX SSE extension for streaming, marked.js for markdown, highlight.js for syntax highlighting. Vendored locally — no CDN dependency at runtime.
+- **Styling**: Custom CSS with Catppuccin-based design tokens. Light/dark theme toggle.
 
-### SSE Streaming Flow
+### SSE Streaming
 
 When you send a message:
 
 1. HTMX POSTs the form to `/api/sessions/:id/send`
-2. Server starts the turn and returns an HTML fragment with `hx-ext="sse"` and `sse-connect` attributes pointing to the SSE endpoint
-3. The HTMX SSE extension automatically opens an EventSource to that URL and handles reconnection
-4. Server pushes HTML fragment events: `delta` (`<span>` text chunks), `tool_use` (tool indicator `<div>`s), `tool_result` (OOB swap updates), `done` (empty, triggers close)
-5. HTMX swaps each fragment into the DOM declaratively — text appended, tool indicators updated via OOB swap
+2. Server starts the turn and returns an HTML fragment with `hx-ext="sse"` attributes pointing to the SSE endpoint
+3. The HTMX SSE extension opens an EventSource and handles reconnection
+4. Server pushes HTML fragment events: `delta` (text chunks), `tool_use` (tool indicators), `tool_result` (OOB swap updates), `done` (triggers close)
+5. HTMX swaps each fragment into the DOM declaratively
 
-This architecture means zero JavaScript bundling, zero WebSocket complexity, and declarative streaming via HTMX attributes.
+### Dashboard Pages
+
+| Page | Purpose |
+|------|---------|
+| `/` | Main chat with session sidebar |
+| `/tasks` | Task dashboard (filterable, SSE badge count, agent overview) |
+| `/tasks/:id` | Task detail (embedded chat, artifact panel, review controls) |
+| `/health-dashboard` | System health, guard audit log, usage stats |
+| `/memory` | Memory overview, file browser, pruner history |
+| `/settings` | Live configuration editor, guard config viewer, channel access management |
+| `/scheduling` | Cron job management (add/edit/delete) |
+
+## Configuration System
+
+DartClaw is configured via `dartclaw.yaml` with live editing support:
+
+- **Config API** — `GET/PATCH /api/config` reads from disk and writes with YAML round-trip preservation (comments survive edits)
+- **Config validation** — `ConfigMeta` registry with validators, ensuring invalid values are rejected before write
+- **Backup on write** — every config change creates a `.bak` file
+- **Graceful restart** — when a config change requires restart, the server drains active turns (30s timeout), restarts services, and sends an SSE banner to connected clients
+
+For the full config reference, see the [Configuration guide](configuration.md).
 
 ## Lineage
 
 DartClaw evolved through three iterations:
 
-- **OpenClaw** — original Node.js prototype with security guide
-- **NanoClaw** — stripped-down version, identified the core feature set
+- **OpenClaw** — original Node.js prototype with comprehensive security patterns
+- **NanoClaw** — stripped-down version that identified the core feature set and proved OS-level isolation
 - **DartClaw** — current: rewritten in Dart for AOT compilation, zero npm runtime, security-first design
 
-The Dart rewrite was motivated by two things: AOT compilation to a single binary (no runtime dependencies beyond SQLite), and eliminating the Node.js/npm supply chain from the runtime.
+The Dart rewrite was motivated by AOT compilation to a single binary (no runtime dependencies beyond SQLite) and eliminating the Node.js/npm supply chain from the runtime. The architecture decisions and their rationale are documented in detail in the development repository.

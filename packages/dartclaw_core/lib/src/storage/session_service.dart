@@ -26,12 +26,9 @@ class SessionService {
     final now = DateTime.now();
     final session = Session(id: id, type: type, channelKey: channelKey, createdAt: now, updatedAt: now);
     await atomicWriteJson(File(p.join(dir.path, 'meta.json')), session.toJson());
-    eventBus?.fire(SessionCreatedEvent(
-      sessionId: session.id,
-      sessionKey: channelKey,
-      sessionType: type.name,
-      timestamp: now,
-    ));
+    eventBus?.fire(
+      SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
+    );
     return session;
   }
 
@@ -48,10 +45,15 @@ class SessionService {
     return Session.fromJson(json);
   }
 
-  Future<List<Session>> listSessions({SessionType? type, List<SessionType>? types}) async {
+  Future<List<Session>> listSessions({
+    SessionType? type,
+    List<SessionType>? types,
+    bool includeTaskSessions = false,
+  }) async {
     final dir = Directory(baseDir);
     if (!dir.existsSync()) return [];
 
+    final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
     final sessions = <Session>[];
     await for (final entity in dir.list()) {
       if (entity is! Directory) continue;
@@ -62,6 +64,7 @@ class SessionService {
       try {
         final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
         final session = Session.fromJson(json);
+        if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
         if (type != null && session.type != type) continue;
         if (types != null && !types.contains(session.type)) continue;
         sessions.add(session);
@@ -149,7 +152,7 @@ class SessionService {
   }
 
   /// Types that cannot be deleted (system-managed sessions).
-  static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron};
+  static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron, SessionType.task};
 
   Future<int> deleteSession(String id) async {
     if (!isValidUuid(id)) return 0;
@@ -169,12 +172,14 @@ class SessionService {
     }
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
-    eventBus?.fire(SessionEndedEvent(
-      sessionId: id,
-      sessionKey: sessionForEvent?.channelKey,
-      sessionType: sessionForEvent?.type.name ?? 'unknown',
-      timestamp: DateTime.now(),
-    ));
+    eventBus?.fire(
+      SessionEndedEvent(
+        sessionId: id,
+        sessionKey: sessionForEvent?.channelKey,
+        sessionType: sessionForEvent?.type.name ?? 'unknown',
+        timestamp: DateTime.now(),
+      ),
+    );
     return 1;
   }
 

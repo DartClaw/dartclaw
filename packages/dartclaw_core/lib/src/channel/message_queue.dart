@@ -74,7 +74,7 @@ class MessageQueue {
     final queue = _sessionQueues[sessionKey];
     if (queue != null && queue.length >= maxQueueDepth) {
       _log.warning('Queue full for $sessionKey (${queue.length}/$maxQueueDepth) — sending busy response');
-      _sendBusy(sourceChannel, message.senderJid);
+      _sendBusy(sourceChannel, _resolveRecipientJid(message));
       return;
     }
 
@@ -145,7 +145,7 @@ class MessageQueue {
 
     if (queue.length >= maxQueueDepth) {
       _log.warning('Queue full for ${entry.sessionKey} — sending busy response');
-      _sendBusy(entry.sourceChannel, entry.message.senderJid);
+      _sendBusy(entry.sourceChannel, _resolveRecipientJid(entry.message));
       return;
     }
 
@@ -178,9 +178,18 @@ class MessageQueue {
         try {
           var response = await _dispatcher(entry.sessionKey, entry.message.text, senderJid: entry.message.senderJid);
           response = _redactor?.redact(response) ?? response;
-          final formatted = entry.sourceChannel.formatResponse(response);
+          final formatted = entry.sourceChannel
+              .formatResponse(response)
+              .map(
+                (chunk) => ChannelResponse(
+                  text: chunk.text,
+                  mediaAttachments: chunk.mediaAttachments,
+                  metadata: {...chunk.metadata, sourceMessageIdMetadataKey: entry.message.id},
+                ),
+              );
+          final recipientJid = _resolveRecipientJid(entry.message);
           for (final chunk in formatted) {
-            await entry.sourceChannel.sendMessage(entry.message.senderJid, chunk);
+            await entry.sourceChannel.sendMessage(recipientJid, chunk);
           }
         } catch (e, st) {
           entry.attempt++;
@@ -202,8 +211,9 @@ class MessageQueue {
               st,
             );
             try {
+              final recipientJid = _resolveRecipientJid(entry.message);
               await entry.sourceChannel.sendMessage(
-                entry.message.senderJid,
+                recipientJid,
                 const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
               );
             } catch (sendErr) {
@@ -257,6 +267,14 @@ class MessageQueue {
     } catch (e) {
       _log.warning('Failed to send busy response', e);
     }
+  }
+
+  String _resolveRecipientJid(ChannelMessage message) {
+    final metadataRecipient = message.metadata['spaceName'];
+    if (metadataRecipient is String && metadataRecipient.isNotEmpty) {
+      return metadataRecipient;
+    }
+    return message.groupJid ?? message.senderJid;
   }
 }
 

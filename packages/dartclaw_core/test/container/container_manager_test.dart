@@ -6,6 +6,9 @@ import 'package:dartclaw_core/src/container/container_manager.dart';
 import 'package:test/test.dart';
 
 void main() {
+  const workspaceContainerName = 'dartclaw-test1234-workspace';
+  const restrictedContainerName = 'dartclaw-test1234-restricted';
+
   group('ContainerManager', () {
     test('isDockerAvailable returns true on zero exit code', () async {
       final manager = _manager(run: (executable, arguments) async => ProcessResult(1, 0, '', ''));
@@ -79,6 +82,7 @@ void main() {
     test('start creates container with hardened args and starts socat bridge', () async {
       final calls = <List<String>>[];
       final manager = _manager(
+        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
         run: (executable, arguments) async {
           calls.add([executable, ...arguments]);
           if (arguments.first == 'inspect') {
@@ -101,6 +105,12 @@ void main() {
           '-e',
           'ANTHROPIC_BASE_URL=http://localhost:8080',
           '-v',
+          '/tmp/workspace:/workspace:rw',
+          '-v',
+          '/tmp/project:/project:ro',
+          '-v',
+          '/tmp/shared:/shared:ro',
+          '-v',
           '/tmp/proxy:/var/run/dartclaw',
           '-v',
           '/tmp/.claude.json:/home/dartclaw/.claude.json:ro',
@@ -111,11 +121,96 @@ void main() {
         calls.any(
           (call) =>
               call.join(' ') ==
-              'docker exec -d dartclaw-agent socat TCP-LISTEN:8080,fork,reuseaddr '
+              'docker exec -d $workspaceContainerName socat TCP-LISTEN:8080,fork,reuseaddr '
                   'UNIX-CLIENT:/var/run/dartclaw/proxy.sock',
         ),
         isTrue,
       );
+    });
+
+    test('start creates restricted container with no workspace mounts', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
+        containerName: restrictedContainerName,
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        workingDir: '/tmp',
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      final create = calls.firstWhere((call) => call[1] == 'create');
+      final createCommand = create.join(' ');
+      expect(createCommand, isNot(contains('/workspace:rw')));
+      expect(createCommand, isNot(contains('/project:ro')));
+      expect(createCommand, contains('/shared:ro'));
+      expect(
+        create,
+        containsAll([
+          '--network',
+          'none',
+          '--cap-drop',
+          'ALL',
+          '--read-only',
+          '--tmpfs',
+          '/tmp:rw,noexec,nosuid,size=100m',
+          '--security-opt',
+          'no-new-privileges',
+          '-v',
+          '/tmp/shared:/shared:ro',
+          '-v',
+          '/tmp/proxy:/var/run/dartclaw',
+        ]),
+      );
+    });
+
+    test('start filters only workspace-related extra mounts for restricted profile', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        config: const ContainerConfig(
+          enabled: true,
+          extraMounts: [
+            '/tmp/shared:/shared:ro',
+            '/tmp/other-project:/project:ro',
+            '/tmp/other-workspace:/workspace:rw',
+          ],
+        ),
+        containerName: restrictedContainerName,
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        workingDir: '/tmp',
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      final createCommand = calls.firstWhere((call) => call[1] == 'create').join(' ');
+      expect(createCommand, contains('/shared:ro'));
+      expect(createCommand, isNot(contains('/other-project:/project:ro')));
+      expect(createCommand, isNot(contains('/other-workspace:/workspace:rw')));
+    });
+
+    test('defaults buildContextDir to current working directory', () {
+      final manager = _manager(
+        buildContextDir: null,
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      expect(manager.buildContextDir, Directory.current.path);
     });
 
     test('startSocatBridge throws on failure', () async {
@@ -139,7 +234,7 @@ void main() {
       await manager.start();
 
       expect(calls, [
-        ['docker', 'inspect', '--format', '{{.State.Running}}', 'dartclaw-agent'],
+        ['docker', 'inspect', '--format', '{{.State.Running}}', workspaceContainerName],
       ]);
     });
 
@@ -155,8 +250,24 @@ void main() {
       await manager.stop();
 
       expect(calls, [
-        ['docker', 'stop', '-t', '5', 'dartclaw-agent'],
-        ['docker', 'rm', '-f', 'dartclaw-agent'],
+        ['docker', 'stop', '-t', '5', workspaceContainerName],
+        ['docker', 'rm', '-f', workspaceContainerName],
+      ]);
+    });
+
+    test('deleteFileInContainer removes copied container files', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.deleteFileInContainer('/tmp/dartclaw-mcp-config-123.json');
+
+      expect(calls, [
+        ['docker', 'exec', workspaceContainerName, 'rm', '-f', '/tmp/dartclaw-mcp-config-123.json'],
       ]);
     });
 
@@ -182,11 +293,30 @@ void main() {
         '/project',
         '-e',
         'FOO=bar',
-        'dartclaw-agent',
+        workspaceContainerName,
         'claude',
         '--version',
       ]);
       expect(capturedIncludeParentEnvironment, isTrue);
+    });
+
+    test('exec uses /tmp working dir for restricted profile', () async {
+      List<String>? capturedArgs;
+      final manager = _manager(
+        containerName: restrictedContainerName,
+        profileId: 'restricted',
+        workspaceMounts: const [],
+        workingDir: '/tmp',
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+        start: (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          capturedArgs = [executable, ...arguments];
+          return _FakeProcess();
+        },
+      );
+
+      await manager.exec(['claude', '--version']);
+
+      expect(capturedArgs, ['docker', 'exec', '-i', '-w', '/tmp', restrictedContainerName, 'claude', '--version']);
     });
 
     test('isHealthy returns true only for running container', () async {
@@ -199,13 +329,25 @@ void main() {
   });
 }
 
-ContainerManager _manager({required RunCommand run, StartCommand? start}) {
+ContainerManager _manager({
+  ContainerConfig config = const ContainerConfig(enabled: true),
+  required RunCommand run,
+  StartCommand? start,
+  String containerName = 'dartclaw-test1234-workspace',
+  String profileId = 'workspace',
+  List<String> workspaceMounts = const ['/tmp/workspace:/workspace:rw', '/tmp/project:/project:ro'],
+  String? buildContextDir = '/tmp/project',
+  String workingDir = '/project',
+}) {
   return ContainerManager(
-    config: const ContainerConfig(enabled: true),
-    workspaceDir: '/tmp/workspace',
-    projectDir: '/tmp/project',
+    config: config,
+    containerName: containerName,
+    profileId: profileId,
+    workspaceMounts: workspaceMounts,
     proxySocketDir: '/tmp/proxy',
     hostClaudeJsonPath: '/tmp/.claude.json',
+    buildContextDir: buildContextDir,
+    workingDir: workingDir,
     runCommand: run,
     startCommand: start ?? _defaultStart,
   );

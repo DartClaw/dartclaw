@@ -21,7 +21,9 @@ import 'serve_command.dart';
 class WiringResult {
   final DartclawServer server;
   final Database searchDb;
+  final TaskService taskService;
   final AgentHarness harness;
+  final HarnessPool pool;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final KvService kvService;
@@ -32,12 +34,15 @@ class WiringResult {
   final bool authEnabled;
   final TokenService? tokenService;
   final EventBus eventBus;
+  final Map<String, ContainerManager> containerManagers;
   final Future<void> Function() shutdownExtras;
 
   const WiringResult({
     required this.server,
     required this.searchDb,
+    required this.taskService,
     required this.harness,
+    required this.pool,
     required this.heartbeat,
     required this.scheduleService,
     required this.kvService,
@@ -48,6 +53,7 @@ class WiringResult {
     required this.authEnabled,
     required this.tokenService,
     required this.eventBus,
+    required this.containerManagers,
     required this.shutdownExtras,
   });
 }
@@ -64,6 +70,7 @@ class ServiceWiring {
   final HarnessFactory harnessFactory;
   final ServerFactory serverFactory;
   final SearchDbFactory searchDbFactory;
+  final TaskDbFactory taskDbFactory;
   final WriteLine stderrLine;
   final ExitFn exitFn;
   final String resolvedConfigPath;
@@ -79,6 +86,7 @@ class ServiceWiring {
     required this.harnessFactory,
     required this.serverFactory,
     required this.searchDbFactory,
+    required this.taskDbFactory,
     required this.stderrLine,
     required this.exitFn,
     required this.resolvedConfigPath,
@@ -113,6 +121,22 @@ class ServiceWiring {
       _log.severe('Cannot open search database at ${config.searchDbPath}');
       exitFn(1);
     }
+
+    Database taskDb;
+    try {
+      taskDb = taskDbFactory(config.tasksDbPath);
+    } catch (_) {
+      try {
+        searchDb.close();
+      } catch (_) {}
+      _log.severe('Cannot open task database at ${config.tasksDbPath}');
+      exitFn(1);
+    }
+
+    final taskRepository = SqliteTaskRepository(taskDb);
+    final goalRepository = SqliteGoalRepository(taskDb);
+    final goalService = GoalService(goalRepository);
+    final taskService = TaskService(taskRepository);
 
     // Memory stack (MEMORY.md now lives in workspace/)
     final memoryFile = MemoryFileService(baseDir: config.workspaceDir);
@@ -192,7 +216,8 @@ class ServiceWiring {
     );
 
     CredentialProxy? credentialProxy;
-    ContainerManager? containerManager;
+    ContainerHealthMonitor? containerHealthMonitor;
+    final containerManagers = <String, ContainerManager>{};
     if (config.containerConfig.enabled) {
       final validationErrors = DockerValidator.validate(config.containerConfig);
       if (validationErrors.isNotEmpty) {
@@ -236,15 +261,26 @@ class ServiceWiring {
         hostClaudeJsonPath = claudeJson.path;
       }
 
-      containerManager = ContainerManager(
-        config: config.containerConfig,
-        workspaceDir: config.workspaceDir,
-        projectDir: Directory.current.path,
-        proxySocketDir: p.join(dataDir, 'proxy'),
-        hostClaudeJsonPath: hostClaudeJsonPath,
-      );
+      final profiles = [
+        SecurityProfile.workspace(workspaceDir: config.workspaceDir, projectDir: Directory.current.path),
+        SecurityProfile.restricted,
+      ];
+      final proxySocketDir = p.join(dataDir, 'proxy');
+      for (final profile in profiles) {
+        containerManagers[profile.id] = ContainerManager(
+          config: config.containerConfig,
+          containerName: ContainerManager.generateName(dataDir, profile.id),
+          profileId: profile.id,
+          workspaceMounts: profile.workspaceMounts,
+          proxySocketDir: proxySocketDir,
+          hostClaudeJsonPath: hostClaudeJsonPath,
+          buildContextDir: Directory.current.path,
+          workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
+        );
+      }
+      final workspaceContainerManager = containerManagers['workspace']!;
 
-      if (!await containerManager.isDockerAvailable()) {
+      if (!await workspaceContainerManager.isDockerAvailable()) {
         _log.severe('Docker is required when container.enabled: true');
         _log.severe('Install or start Docker: https://docs.docker.com/get-docker/');
         exitFn(1);
@@ -254,14 +290,33 @@ class ServiceWiring {
       await credentialProxy.start();
 
       try {
-        await containerManager.ensureImage();
-        await containerManager.start();
+        await workspaceContainerManager.ensureImage();
+        for (final entry in containerManagers.entries) {
+          await entry.value.start();
+          eventBus.fire(
+            ContainerStartedEvent(
+              profileId: entry.key,
+              containerName: entry.value.containerName,
+              timestamp: DateTime.now(),
+            ),
+          );
+        }
       } catch (e) {
+        for (final manager in containerManagers.values) {
+          try {
+            await manager.stop();
+          } catch (_) {}
+        }
         await credentialProxy.stop();
         rethrow;
       }
 
-      _log.info('Container isolation enabled (image: ${config.containerConfig.image})');
+      containerHealthMonitor = ContainerHealthMonitor(containerManagers: containerManagers, eventBus: eventBus);
+      containerHealthMonitor.start();
+
+      _log.info(
+        'Container isolation enabled — ${containerManagers.length} profiles (image: ${config.containerConfig.image})',
+      );
     } else {
       _log.warning(
         'Container isolation disabled — agent has full host access. '
@@ -278,17 +333,56 @@ class ServiceWiring {
       onMemorySearch: handlers.onSearch,
       onMemoryRead: handlers.onRead,
       harnessConfig: harnessConfig,
-      containerManager: containerManager,
+      containerManager: containerManagers['workspace'],
     );
     try {
       await harness.start();
     } catch (e) {
       _log.severe('Failed to start harness: $e');
       await memoryFile.dispose();
+      for (final manager in containerManagers.values) {
+        try {
+          await manager.stop();
+        } catch (_) {}
+      }
       await credentialProxy?.stop();
-      await containerManager?.stop();
-      await teardown(null, searchDb, harness);
+      await teardown(null, searchDb, harness, taskService);
       exitFn(1);
+    }
+
+    // Create additional harnesses for background task execution.
+    // `tasks.max_concurrent` excludes the primary interactive runner.
+    final taskHarnesses = <AgentHarness>[];
+    final taskProfileIds = <String>[];
+    final maxConcurrent = config.tasksMaxConcurrent;
+    final profileIds = containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
+    final taskRunnerCount = maxConcurrent == 0
+        ? 0
+        : (containerManagers.isEmpty ? maxConcurrent : max(maxConcurrent, profileIds.length));
+    for (var i = 0; i < taskRunnerCount; i++) {
+      final profileId = profileIds[i % profileIds.length];
+      final containerManager = containerManagers[profileId] ?? containerManagers['workspace'];
+      final taskHarness = harnessFactory(
+        Directory.current.path,
+        claudeExecutable: config.claudeExecutable,
+        turnTimeout: Duration(seconds: config.workerTimeout),
+        onMemorySave: handlers.onSave,
+        onMemorySearch: handlers.onSearch,
+        onMemoryRead: handlers.onRead,
+        harnessConfig: harnessConfig,
+        containerManager: containerManager,
+      );
+      try {
+        await taskHarness.start();
+        taskHarnesses.add(taskHarness);
+        taskProfileIds.add(profileId);
+      } catch (e) {
+        _log.warning('Failed to start task harness ${i + 1} of $taskRunnerCount: $e');
+        // Degraded mode: continue with fewer task runners.
+      }
+    }
+    if (taskHarnesses.isNotEmpty) {
+      _log.info('Task pool: ${taskHarnesses.length} task runner(s) + 1 primary');
     }
 
     // Build ToolPolicyCascade from agent definitions
@@ -305,7 +399,7 @@ class ServiceWiring {
     );
 
     // Construct guard chain with per-guard YAML configs
-    final auditLogger = GuardAuditLogger(dataDir: dataDir);
+    final auditLogger = GuardAuditLogger(dataDir: dataDir, maxEntries: config.guardAuditMaxEntries);
     final guardChain = config.guards.enabled
         ? GuardChain(
             failOpen: config.guards.failOpen,
@@ -477,16 +571,19 @@ class ServiceWiring {
     // Channel + message queue (H-01: S14-S15 wiring)
     final waConfig = config.channelConfig.channelConfigs['whatsapp'];
     final sigConfig = config.channelConfig.channelConfigs['signal'];
+    final googleChatEnabled = config.googleChatConfig.enabled;
     final waEnabled = waConfig != null && waConfig['enabled'] == true;
     final sigEnabled = sigConfig != null && sigConfig['enabled'] == true;
 
     ChannelManager? channelManager;
     WhatsAppChannel? whatsAppChannel;
+    GoogleChatChannel? googleChatChannel;
+    GoogleChatWebhookHandler? googleChatWebhookHandler;
     SignalChannel? signalChannel;
     String? webhookSecret;
     final liveScopeConfig = LiveScopeConfig(config.sessionScopeConfig);
 
-    if (waEnabled || sigEnabled) {
+    if (waEnabled || sigEnabled || googleChatEnabled) {
       channelManager = _buildChannelManager(
         config: config,
         liveScopeConfig: liveScopeConfig,
@@ -534,6 +631,69 @@ class ServiceWiring {
         _log.info('WhatsApp channel registered');
       } catch (e) {
         _log.warning('Failed to initialize WhatsApp channel: $e');
+      }
+    }
+
+    if (googleChatEnabled && channelManager != null) {
+      try {
+        final activeChannelManager = channelManager;
+        final googleChatConfig = config.googleChatConfig;
+        final audience = googleChatConfig.audience;
+        if (audience == null) {
+          throw StateError('Google Chat audience is required when the channel is enabled');
+        }
+
+        final credentialJson = await GcpAuthService.resolveCredentialJsonAsync(
+          configValue: googleChatConfig.serviceAccount,
+        );
+        if (credentialJson == null) {
+          throw StateError('Google Chat service account credentials could not be resolved');
+        }
+
+        final authClient = await GcpAuthService(
+          serviceAccountJson: credentialJson,
+          scopes: const ['https://www.googleapis.com/auth/chat.bot'],
+        ).initialize();
+        final googleChatDmAccess = DmAccessController(
+          mode: googleChatConfig.dmAccess,
+          allowlist: googleChatConfig.dmAllowlist.toSet(),
+        );
+        final googleChatMentionGating = MentionGating(
+          requireMention: googleChatConfig.requireMention,
+          mentionPatterns: const [],
+          ownJid: googleChatConfig.botUser ?? '',
+        );
+        final channel = GoogleChatChannel(
+          config: googleChatConfig,
+          restClient: GoogleChatRestClient(authClient: authClient),
+          channelManager: activeChannelManager,
+          dmAccess: googleChatDmAccess,
+          mentionGating: googleChatMentionGating,
+        );
+        final webhookHandler = GoogleChatWebhookHandler(
+          channel: channel,
+          jwtVerifier: GoogleJwtVerifier(audience: audience),
+          config: googleChatConfig,
+          channelManager: activeChannelManager,
+          dmAccess: googleChatDmAccess,
+          mentionGating: googleChatMentionGating,
+          eventBus: eventBus,
+          trustedProxies: config.trustedProxies,
+          dispatchMessage: (message) => _dispatchInboundChannelMessage(
+            channelManager: activeChannelManager,
+            sessions: sessions,
+            messages: messages,
+            serverRef: () => serverRef,
+            message: message,
+          ),
+        );
+
+        activeChannelManager.registerChannel(channel);
+        googleChatChannel = channel;
+        googleChatWebhookHandler = webhookHandler;
+        _log.info('Google Chat channel registered');
+      } catch (e) {
+        _log.warning('Failed to initialize Google Chat channel: $e');
       }
     }
 
@@ -596,6 +756,47 @@ class ServiceWiring {
     // Names of system-registered jobs (rendered read-only with SYSTEM badge).
     final systemJobNames = <String>['heartbeat'];
 
+    // Build HarnessPool: primary runner (index 0) + task runners (1..N-1).
+    // All runners share the same service instances (SessionLockManager prevents
+    // concurrent turns on the same session across runners).
+    final runners = <TurnRunner>[
+      TurnRunner(
+        harness: harness,
+        messages: messages,
+        behavior: behavior,
+        memoryFile: memoryFile,
+        sessions: sessions,
+        kv: kvService,
+        guardChain: guardChain,
+        lockManager: lockManager,
+        resetService: resetService,
+        contextMonitor: contextMonitor,
+        resultTrimmer: resultTrimmer,
+        redactor: messageRedactor,
+        selfImprovement: selfImprovement,
+        usageTracker: usageTracker,
+      ),
+      for (var i = 0; i < taskHarnesses.length; i++)
+        TurnRunner(
+          harness: taskHarnesses[i],
+          messages: messages,
+          behavior: behavior,
+          memoryFile: memoryFile,
+          sessions: sessions,
+          kv: kvService,
+          guardChain: guardChain,
+          lockManager: lockManager,
+          resetService: resetService,
+          contextMonitor: contextMonitor,
+          resultTrimmer: resultTrimmer,
+          redactor: messageRedactor,
+          selfImprovement: selfImprovement,
+          usageTracker: usageTracker,
+          profileId: taskProfileIds[i],
+        ),
+    ];
+    final pool = HarnessPool(runners: runners, maxConcurrentTasks: maxConcurrent);
+
     final server = serverFactory(
       sessions: sessions,
       messages: messages,
@@ -613,6 +814,7 @@ class ServiceWiring {
       resultTrimmer: resultTrimmer,
       channelManager: channelManager,
       whatsAppChannel: whatsAppChannel,
+      googleChatWebhookHandler: googleChatWebhookHandler,
       signalChannel: signalChannel,
       webhookSecret: webhookSecret,
       redactor: messageRedactor,
@@ -620,6 +822,7 @@ class ServiceWiring {
       selfImprovement: selfImprovement,
       usageTracker: usageTracker,
       authEnabled: authEnabled,
+      pool: pool,
       contentGuardDisplay: ContentGuardDisplayParams(
         enabled: config.contentGuardEnabled,
         classifier: config.contentGuardClassifier,
@@ -634,7 +837,11 @@ class ServiceWiring {
         enabled: config.heartbeatEnabled,
         intervalMinutes: config.heartbeatIntervalMinutes,
       ),
-      schedulingDisplay: SchedulingDisplayParams(jobs: displayJobs, systemJobNames: systemJobNames),
+      schedulingDisplay: SchedulingDisplayParams(
+        jobs: displayJobs,
+        systemJobNames: systemJobNames,
+        scheduledTasks: config.automationScheduledTasks,
+      ),
       workspaceDisplay: WorkspaceDisplayParams(path: config.workspaceDir),
       appDisplay: AppDisplayParams(name: config.name, dataDir: dataDir),
     );
@@ -785,6 +992,28 @@ class ServiceWiring {
       }
     }
 
+    // Register automation scheduled tasks (S13)
+    if (config.automationScheduledTasks.isNotEmpty) {
+      final taskRunner = ScheduledTaskRunner(
+        taskService: taskService,
+        definitions: config.automationScheduledTasks,
+        eventBus: eventBus,
+      );
+      final taskJobs = taskRunner.buildJobs();
+      scheduledJobs.addAll(taskJobs);
+      for (final def in config.automationScheduledTasks) {
+        displayJobs.add({
+          'name': def.id,
+          'schedule': def.cronExpression,
+          'delivery': 'task',
+          'status': def.enabled ? 'active' : 'disabled',
+        });
+      }
+      if (taskJobs.isNotEmpty) {
+        _log.info('Registered ${taskJobs.length} automation scheduled task(s)');
+      }
+    }
+
     // Start cron scheduler
     ScheduleService? scheduleService;
     if (scheduledJobs.isNotEmpty) {
@@ -838,6 +1067,46 @@ class ServiceWiring {
       },
       scheduleService: scheduleService,
     );
+
+    final diffGenerator = DiffGenerator(projectDir: Directory.current.path);
+    final mergeExecutor = MergeExecutor(
+      projectDir: Directory.current.path,
+      defaultStrategy: config.tasksWorktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+    );
+    final artifactCollector = ArtifactCollector(
+      tasks: taskService,
+      messages: messages,
+      sessionsDir: config.sessionsDir,
+      dataDir: dataDir,
+      workspaceDir: Directory.current.path,
+      diffGenerator: diffGenerator,
+      baseRef: config.tasksWorktreeBaseRef,
+    );
+    final taskFileGuard = TaskFileGuard();
+    final worktreeManager = WorktreeManager(
+      dataDir: dataDir,
+      projectDir: Directory.current.path,
+      baseRef: config.tasksWorktreeBaseRef,
+      staleTimeoutHours: config.tasksWorktreeStaleTimeoutHours,
+      worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+    );
+    await worktreeManager.detectStaleWorktrees();
+    final containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: taskService);
+    containerTaskFailureSubscriber.subscribe(eventBus);
+    final agentObserver = AgentObserver(pool: pool, eventBus: eventBus);
+    final taskExecutor = TaskExecutor(
+      tasks: taskService,
+      goals: goalService,
+      sessions: sessions,
+      messages: messages,
+      turns: server.turns,
+      artifactCollector: artifactCollector,
+      eventBus: eventBus,
+      worktreeManager: worktreeManager,
+      taskFileGuard: taskFileGuard,
+      observer: agentObserver,
+    );
+    taskExecutor.start();
 
     // Detect and clear restart.pending from previous graceful restart.
     final restartPendingFile = File(p.join(dataDir, 'restart.pending'));
@@ -905,6 +1174,16 @@ class ServiceWiring {
         ),
       );
     }
+    if (googleChatChannel != null) {
+      final gcConf = googleChatChannel.config;
+      channelGroupConfigs.add(
+        ChannelGroupConfig(
+          channelType: 'googlechat',
+          groupAccessEnabled: gcConf.groupAccess != GroupAccessMode.disabled,
+          groupAllowlist: gcConf.groupAllowlist,
+        ),
+      );
+    }
     final groupSessionInit = GroupSessionInitializer(
       sessions: sessions,
       eventBus: eventBus,
@@ -925,12 +1204,22 @@ class ServiceWiring {
       restartService: restartService,
       sseBroadcast: sseBroadcast,
       eventBus: eventBus,
+      goalService: goalService,
+      taskService: taskService,
+      worktreeManager: worktreeManager,
+      taskFileGuard: taskFileGuard,
+      agentObserver: agentObserver,
+      mergeExecutor: mergeExecutor,
+      mergeStrategy: config.tasksWorktreeMergeStrategy,
+      baseRef: config.tasksWorktreeBaseRef,
     );
 
     return WiringResult(
       server: server,
       searchDb: searchDb,
+      taskService: taskService,
       harness: harness,
+      pool: pool,
       heartbeat: heartbeat,
       scheduleService: scheduleService,
       kvService: kvService,
@@ -941,10 +1230,26 @@ class ServiceWiring {
       authEnabled: authEnabled,
       tokenService: tokenService,
       eventBus: eventBus,
+      containerManagers: containerManagers,
       shutdownExtras: () async {
+        await taskExecutor.stop();
+        agentObserver.dispose();
+        await containerTaskFailureSubscriber.dispose();
+        await containerHealthMonitor?.stop();
         groupSessionInit.dispose();
         await scopeReconciler.cancel();
-        await containerManager?.stop();
+        for (final entry in containerManagers.entries) {
+          try {
+            await entry.value.stop();
+            eventBus.fire(
+              ContainerStoppedEvent(
+                profileId: entry.key,
+                containerName: entry.value.containerName,
+                timestamp: DateTime.now(),
+              ),
+            );
+          } catch (_) {}
+        }
         await credentialProxy?.stop();
       },
     );
@@ -969,39 +1274,72 @@ class ServiceWiring {
       defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
       redactor: redactor,
       dispatcher: (sessionKey, message, {String? senderJid}) async {
-        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-
-        // Persist user message so it appears in the web UI conversation view
-        await messages.insertMessage(sessionId: session.id, role: 'user', content: message);
-
-        // Auto-name session on first message using channel type + sender identifier
-        if (session.title == null && senderJid != null) {
-          final String channelPrefix;
-          final String identifier;
-          if (senderJid.contains('@')) {
-            // WhatsApp JID: e.g. "46701234567@s.whatsapp.net"
-            channelPrefix = 'WA';
-            identifier = senderJid.split('@').first;
-          } else if (senderJid.startsWith('+')) {
-            // Signal phone number
-            channelPrefix = 'Signal';
-            identifier = senderJid;
-          } else {
-            // Signal ACI UUID (sealed sender — phone not available)
-            channelPrefix = 'Signal';
-            identifier = senderJid.substring(0, 8); // first 8 chars of UUID
-          }
-          await sessions.updateTitle(session.id, '$channelPrefix › $identifier');
-        }
-
-        final userMsg = <String, dynamic>{'role': 'user', 'content': message};
-        final srv = serverRef()!;
-        final turnId = await srv.turns.startTurn(session.id, [userMsg], source: 'channel');
-        final outcome = await srv.turns.waitForOutcome(session.id, turnId);
-        return outcome.responseText ?? '';
+        return _dispatchChannelTurn(
+          sessions: sessions,
+          messages: messages,
+          serverRef: serverRef,
+          sessionKey: sessionKey,
+          message: message,
+          senderJid: senderJid,
+        );
       },
     );
     return ChannelManager(queue: messageQueue, config: config.channelConfig, liveScopeConfig: liveScopeConfig);
+  }
+
+  static Future<String> _dispatchInboundChannelMessage({
+    required ChannelManager channelManager,
+    required SessionService sessions,
+    required MessageService messages,
+    required DartclawServer? Function() serverRef,
+    required ChannelMessage message,
+  }) {
+    return _dispatchChannelTurn(
+      sessions: sessions,
+      messages: messages,
+      serverRef: serverRef,
+      sessionKey: channelManager.deriveSessionKey(message),
+      message: message.text,
+      senderJid: message.senderJid,
+    );
+  }
+
+  static Future<String> _dispatchChannelTurn({
+    required SessionService sessions,
+    required MessageService messages,
+    required DartclawServer? Function() serverRef,
+    required String sessionKey,
+    required String message,
+    String? senderJid,
+  }) async {
+    final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: message);
+
+    if (session.title == null && senderJid != null) {
+      await sessions.updateTitle(session.id, _channelSessionTitle(senderJid));
+    }
+
+    final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+    final srv = serverRef()!;
+    final turnId = await srv.turns.startTurn(session.id, [userMsg], source: 'channel');
+    final outcome = await srv.turns.waitForOutcome(session.id, turnId);
+    return outcome.responseText ?? '';
+  }
+
+  static String _channelSessionTitle(String senderJid) {
+    if (senderJid.contains('@')) {
+      return 'WA › ${senderJid.split('@').first}';
+    }
+    if (senderJid.startsWith('users/')) {
+      return 'Google Chat › ${senderJid.substring('users/'.length)}';
+    }
+    if (senderJid.startsWith('spaces/')) {
+      return 'Google Chat › ${senderJid.substring('spaces/'.length)}';
+    }
+    if (senderJid.startsWith('+')) {
+      return 'Signal › $senderJid';
+    }
+    return 'Signal › ${senderJid.substring(0, min(8, senderJid.length))}';
   }
 
   /// Resolves a session by key, creates a user message, and starts a turn.
@@ -1053,16 +1391,24 @@ class ServiceWiring {
     await kv.set('prune_history', jsonEncode(history));
   }
 
-  /// Tears down server + search DB without HTTP server (used when bind fails).
+  /// Tears down server + DB-backed services without HTTP server (used when bind fails).
   ///
   /// Also used by [ServeCommand] for the same purpose.
-  static Future<void> teardown(DartclawServer? server, Database? searchDb, AgentHarness? harness) async {
+  static Future<void> teardown(
+    DartclawServer? server,
+    Database? searchDb,
+    AgentHarness? harness,
+    TaskService? taskService,
+  ) async {
     try {
       if (server != null) {
         await server.shutdown();
       } else if (harness != null) {
         await harness.stop();
       }
+    } catch (_) {}
+    try {
+      await taskService?.dispose();
     } catch (_) {}
     try {
       searchDb?.close();

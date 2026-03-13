@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+
 import '../scheduling/cron_parser.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -7,15 +9,15 @@ import 'topbar.dart';
 /// Renders the scheduling status page.
 String schedulingTemplate({
   required SidebarData sidebarData,
+  required List<NavItem> navItems,
   bool heartbeatEnabled = false,
   int heartbeatIntervalMinutes = 30,
   List<Map<String, dynamic>> jobs = const [],
   List<String> systemJobNames = const [],
+  List<ScheduledTaskDefinition> scheduledTasks = const [],
   String bannerHtml = '',
   String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Scheduling');
-
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(title: 'Scheduling Status');
@@ -61,6 +63,28 @@ String schedulingTemplate({
     };
   }).toList();
 
+  // Build scheduled task rows for the automation section
+  final taskRows = scheduledTasks.map((def) {
+    String cronHuman = '';
+    try {
+      cronHuman = CronExpression.parse(def.cronExpression).describe();
+    } catch (_) {}
+
+    return <String, dynamic>{
+      'id': def.id,
+      'title': def.title,
+      'schedule': def.cronExpression,
+      'type': def.type.name,
+      'enabled': def.enabled,
+      'statusDotClass': def.enabled ? 'active' : 'paused',
+      'statusText': def.enabled ? 'enabled' : 'disabled',
+      'cronHuman': cronHuman,
+      'description': def.description,
+      'acceptanceCriteria': def.acceptanceCriteria,
+      'autoStart': def.autoStart,
+    };
+  }).toList();
+
   final body = templateLoader.trellis.render(templateLoader.source('scheduling'), {
     'sidebar': sidebar,
     'topbar': topbar,
@@ -72,6 +96,9 @@ String schedulingTemplate({
     'hasJobs': jobs.isNotEmpty,
     'hasUserJobs': jobRows.any((j) => j['isSystem'] != true),
     'jobs': jobRows,
+    'hasScheduledTasks': scheduledTasks.isNotEmpty,
+    'scheduledTasks': taskRows,
+    'taskTypes': TaskType.values.map((t) => t.name).toList(),
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 

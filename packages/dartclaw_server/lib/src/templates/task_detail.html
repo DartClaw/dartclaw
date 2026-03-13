@@ -1,0 +1,148 @@
+<div class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner task-detail-page" id="tasks-content" tl:attr="data-task-id=${taskId}">
+
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+      <div class="task-meta-card card">
+        <div class="task-meta-grid">
+          <div class="task-meta-item">
+            <span class="task-meta-label">Type</span>
+            <span class="type-badge" tl:text="${typeLabel}">Research</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Status</span>
+            <span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">review</span>
+          </div>
+          <div tl:if="${goalTitle}" class="task-meta-item">
+            <span class="task-meta-label">Goal</span>
+            <span tl:text="${goalTitle}">Goal title</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Created</span>
+            <span tl:text="${createdAtDisplay}">2h ago</span>
+          </div>
+          <div tl:if="${hasStartedAt}" class="task-meta-item">
+            <span class="task-meta-label">Started</span>
+            <span tl:text="${startedAtDisplay}">1h ago</span>
+          </div>
+          <div tl:if="${hasCompletedAt}" class="task-meta-item">
+            <span class="task-meta-label">Completed</span>
+            <span tl:text="${completedAtDisplay}">30m ago</span>
+          </div>
+        </div>
+        <div tl:if="${description}" class="task-meta-description">
+          <span class="task-meta-label">Description</span>
+          <p tl:text="${description}">Task description here.</p>
+        </div>
+        <div tl:if="${acceptanceCriteria}" class="task-meta-description">
+          <span class="task-meta-label">Acceptance Criteria</span>
+          <p tl:text="${acceptanceCriteria}">Criteria here.</p>
+        </div>
+        <div tl:if="${hasPushBacks}" class="task-meta-description">
+          <span class="task-meta-label">Revision Loop</span>
+          <p>Push-backed <strong tl:text="${pushBackCount}">1</strong> time(s).</p>
+        </div>
+        <div tl:if="${showPushBackWarning}" class="task-meta-warning">
+          This task has been pushed back multiple times. Consider revising the description or rejecting it.
+        </div>
+      </div>
+
+      <div tl:if="${isDraft}" class="task-status-bar">
+        <button type="button" class="btn btn-primary" data-task-start>Start Task</button>
+        <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
+      </div>
+
+      <div tl:if="${isQueued}" class="task-status-bar task-status-running">
+        <span class="status-badge status-badge-queued">Queued</span>
+        <span class="empty-state-text">Waiting for an available runner...</span>
+        <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
+      </div>
+
+      <div class="task-detail-columns">
+        <div class="task-chat-column">
+          <h3>Session</h3>
+          <div tl:if="${hasSession}" class="task-chat-embed">
+            <div class="messages" tl:utext="${messagesHtml}">messages</div>
+          </div>
+          <div tl:unless="${hasSession}" class="task-no-session">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#128172;</div>
+              <p class="empty-state-title" tl:text="${noSessionTitle}">Session not started</p>
+              <p class="empty-state-text" tl:text="${noSessionText}">
+                This task has not been started yet. No session messages to display.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="task-artifact-column">
+          <h3>Artifacts</h3>
+          <div tl:if="${hasConflict}" class="task-artifact-item card">
+            <div class="task-artifact-header">
+              <span class="status-badge status-badge-interrupted">Merge Conflict</span>
+              <span class="task-artifact-name">Resolve in worktree</span>
+            </div>
+            <p class="empty-state-text">Resolve conflicts via git CLI in the worktree, then push-back or reject the task.</p>
+            <ul class="task-conflict-files">
+              <li tl:each="conflictFile : ${conflictingFiles}">
+                <code tl:text="${conflictFile}">lib/main.dart</code>
+              </li>
+            </ul>
+            <p tl:if="${conflictDetails}" class="empty-state-text" tl:text="${conflictDetails}">Automatic merge failed</p>
+          </div>
+          <div tl:if="${hasArtifacts}">
+            <div tl:each="artifact : ${artifacts}" class="task-artifact-item card">
+              <div class="task-artifact-header">
+                <span class="type-badge" tl:text="${artifact.kindLabel}">Document</span>
+                <span class="task-artifact-name" tl:text="${artifact.name}">output.md</span>
+              </div>
+              <div tl:if="${artifact.hasContent}">
+                <div tl:if="${artifact.isDiff}">
+                  <div tl:if="${artifact.hasRenderedHtml}" class="diff-view" tl:utext="${artifact.renderedHtml}">diff content</div>
+                  <pre tl:unless="${artifact.hasRenderedHtml}" class="diff-view" tl:text="${artifact.content}">diff content</pre>
+                </div>
+                <div tl:if="${artifact.isDocument}" class="task-artifact-content" data-markdown="" tl:text="${artifact.content}">document content</div>
+                <pre tl:if="${artifact.isData}" class="task-artifact-raw" tl:text="${artifact.content}">data content</pre>
+              </div>
+              <div tl:unless="${artifact.hasContent}" class="task-artifact-empty">
+                <span class="empty-state-text">Content unavailable</span>
+              </div>
+            </div>
+          </div>
+          <div tl:unless="${hasArtifacts}" class="empty-state">
+            <div class="empty-state-icon">&#128451;</div>
+            <p class="empty-state-title">No artifacts yet</p>
+            <p class="empty-state-text">Artifacts will appear here when the task produces output.</p>
+          </div>
+        </div>
+      </div>
+
+      <div tl:if="${isReview}" class="task-review-bar">
+        <button type="button" class="btn btn-accept" data-action="accept">Accept</button>
+        <button type="button" class="btn btn-reject" data-action="reject">Reject</button>
+        <button type="button" class="btn btn-pushback" data-action="push_back">Push Back</button>
+        <div class="pushback-comment" style="display:none">
+          <textarea id="pushback-comment" class="form-input" rows="2"
+                    placeholder="Explain what needs to change..."></textarea>
+          <button type="button" class="btn btn-primary btn-pushback-submit">Submit</button>
+        </div>
+      </div>
+
+      <div tl:unless="${isReview}">
+        <div tl:if="${isInterrupted}" class="task-status-bar task-status-running">
+          <span class="status-badge status-badge-interrupted">Interrupted</span>
+          <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
+        </div>
+        <div tl:if="${isRunning}" class="task-status-bar task-status-running">
+          <span class="status-badge status-badge-running">Running</span>
+          <span class="task-elapsed" tl:attr="data-started-at=${startedAtIso}">--:--</span>
+          <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>

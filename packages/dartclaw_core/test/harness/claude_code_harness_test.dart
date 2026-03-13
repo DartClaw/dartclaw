@@ -342,6 +342,48 @@ void main() {
         expect(capturedEnv?['HOME'], '/home/user');
         expect(capturedEnv?['ANTHROPIC_API_KEY'], 'sk-test');
       });
+
+      test('restarts in the requested working directory before a task turn', () async {
+        final workingDirectories = <String?>[];
+
+        final h = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            workingDirectories.add(workingDirectory);
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            Future.delayed(const Duration(milliseconds: 20), () {
+              fake.emitStdout(
+                jsonEncode({
+                  'type': 'result',
+                  'result': 'test response',
+                  'cost_usd': 0.01,
+                  'duration_ms': 100,
+                  'duration_api_ms': 50,
+                  'num_turns': 1,
+                  'is_error': false,
+                  'session_id': 'test-session',
+                }),
+              );
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'task-session',
+          messages: const [
+            {'role': 'user', 'content': 'edit code'},
+          ],
+          systemPrompt: 'system',
+          directory: '/tmp/worktree/task-1',
+        );
+
+        expect(workingDirectories, containsAllInOrder(['/tmp', '/tmp/worktree/task-1']));
+      });
     });
 
     // ----- state transitions ---------------------------------------------
@@ -515,16 +557,18 @@ void main() {
             });
             // Emit turn result so the turn completes
             Future.delayed(const Duration(milliseconds: 20), () {
-              fake.emitStdout(jsonEncode({
-                'type': 'result',
-                'result': 'test response',
-                'cost_usd': 0.01,
-                'duration_ms': 100,
-                'duration_api_ms': 50,
-                'num_turns': 1,
-                'is_error': false,
-                'session_id': 'test-session',
-              }));
+              fake.emitStdout(
+                jsonEncode({
+                  'type': 'result',
+                  'result': 'test response',
+                  'cost_usd': 0.01,
+                  'duration_ms': 100,
+                  'duration_api_ms': 50,
+                  'num_turns': 1,
+                  'is_error': false,
+                  'session_id': 'test-session',
+                }),
+              );
             });
             return fake;
           },
@@ -536,7 +580,9 @@ void main() {
 
         await h.turn(
           sessionId: 'test',
-          messages: [{'role': 'user', 'content': 'hello'}],
+          messages: [
+            {'role': 'user', 'content': 'hello'},
+          ],
           systemPrompt: 'this should NOT appear in payload',
         );
 
@@ -544,8 +590,11 @@ void main() {
         final userPayloads = stdinLines.where((p) => p['type'] == 'user').toList();
         expect(userPayloads, isNotEmpty, reason: 'Should have sent a user message');
         for (final p in userPayloads) {
-          expect(p.containsKey('system_prompt'), isFalse,
-              reason: 'Append-strategy harness should not send system_prompt in JSONL');
+          expect(
+            p.containsKey('system_prompt'),
+            isFalse,
+            reason: 'Append-strategy harness should not send system_prompt in JSONL',
+          );
         }
       });
     });

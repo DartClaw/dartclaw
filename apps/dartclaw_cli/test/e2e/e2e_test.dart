@@ -40,6 +40,8 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
@@ -268,18 +270,11 @@ void main() {
 
       // Inject runtime services BEFORE accessing handler — mirrors the fix
       // in serve_command.dart.
-      server2.setRuntimeServices(
-        runtimeConfig: RuntimeConfig(
-          heartbeatEnabled: false,
-          gitSyncEnabled: false,
-        ),
-      );
+      server2.setRuntimeServices(runtimeConfig: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
 
       final handler = server2.handler;
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/settings/runtime')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/settings/runtime')));
       expect(response.statusCode, equals(200));
 
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -309,9 +304,7 @@ void main() {
       // Deliberately do NOT call setRuntimeServices — simulates the old bug.
       final handler = server3.handler;
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/settings/runtime')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/settings/runtime')));
       // Without runtime services, config routes are not mounted — expect 404.
       expect(response.statusCode, equals(404));
     });

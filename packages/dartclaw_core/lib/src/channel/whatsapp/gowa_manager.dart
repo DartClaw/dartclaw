@@ -53,6 +53,7 @@ class GowaManager {
   int _restartCount = 0;
   bool _stopped = false;
   bool _wasPaired = false;
+  bool _usingExternalService = false;
   String? _deviceId;
   String? _pairedJid;
 
@@ -71,7 +72,7 @@ class GowaManager {
        _delay = delay ?? Future.delayed,
        _healthProbe = healthProbe;
 
-  bool get isRunning => _process != null && !_stopped;
+  bool get isRunning => (_process != null || _usingExternalService) && !_stopped;
 
   bool get wasPaired => _wasPaired;
 
@@ -93,12 +94,22 @@ class GowaManager {
     final gen = ++_generation;
     _log.info('Starting GOWA (gen $gen): $executable on $host:$port');
 
+    if (await _isServiceReachable()) {
+      _usingExternalService = true;
+      await _ensureDevice();
+      _restartCount = 0;
+      _log.info('Using existing GOWA service on $host:$port');
+      _log.info('GOWA started successfully (gen $gen)');
+      return;
+    }
+
     final args = ['rest', '--host', host, '--port', port.toString(), '--os', osName];
     if (dbUri != null) args.addAll(['--db-uri', dbUri!]);
     if (webhookUrl != null) args.add('--webhook=$webhookUrl');
 
     try {
       _process = await _processFactory(executable, args);
+      _usingExternalService = false;
     } catch (e) {
       _log.severe('Failed to spawn GOWA process', e);
       rethrow;
@@ -146,6 +157,7 @@ class GowaManager {
     final proc = _process;
     if (proc == null) return;
     _process = null;
+    _usingExternalService = false;
 
     _log.info('Stopping GOWA');
     proc.kill(ProcessSignal.sigterm);
@@ -175,6 +187,7 @@ class GowaManager {
 
     _stopped = false;
     _wasPaired = false;
+    _usingExternalService = false;
     _deviceId = null;
     _pairedJid = null;
     _restartCount = 0;
@@ -294,6 +307,22 @@ class GowaManager {
       await _delay(const Duration(seconds: 1));
     }
     return false;
+  }
+
+  Future<bool> _isServiceReachable() async {
+    if (_healthProbe != null) {
+      return _healthProbe();
+    }
+
+    try {
+      await _getRaw('/app/status');
+      return true;
+    } on HttpException {
+      // The sidecar is reachable even if the specific request requires a device.
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Check if GOWA is connected to WhatsApp (not just reachable).

@@ -134,6 +134,9 @@ Router sessionRoutes(
       if (session.type == SessionType.archive) {
         return errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
       }
+      if (session.type == SessionType.task) {
+        return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
+      }
 
       // 2. Parse + validate message
       final parsed = await _parseField(request, 'message');
@@ -169,10 +172,7 @@ Router sessionRoutes(
       final html = templateLoader.trellis.renderFragment(
         templateLoader.source('chat'),
         fragment: 'sendResponse',
-        context: {
-          'message': trimmedMessage,
-          'sseUrl': '/api/sessions/$id/stream?turn=$turnId',
-        },
+        context: {'message': trimmedMessage, 'sseUrl': '/api/sessions/$id/stream?turn=$turnId'},
       );
 
       return Response(200, body: html, headers: {'content-type': 'text/html; charset=utf-8'});
@@ -230,6 +230,9 @@ Router sessionRoutes(
       if (session.type == SessionType.archive) {
         return errorResponse(403, 'FORBIDDEN', 'Cannot reset archived session');
       }
+      if (session.type == SessionType.task) {
+        return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
+      }
       if (turns.isActive(id)) {
         return errorResponse(409, 'SESSION_BUSY', 'Cannot reset: turn in progress');
       }
@@ -251,7 +254,6 @@ Router sessionRoutes(
 // ---------------------------------------------------------------------------
 // Serialization helpers
 // ---------------------------------------------------------------------------
-
 
 Map<String, dynamic> _messageToJson(Message m) => {
   'id': m.id,

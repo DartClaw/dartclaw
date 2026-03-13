@@ -51,13 +51,13 @@ class MaintenanceReport {
 
   /// Empty report for a given mode.
   MaintenanceReport.empty(this.mode)
-      : sessionsArchived = 0,
-        sessionsDeleted = 0,
-        diskReclaimedBytes = 0,
-        totalSessions = 0,
-        totalDiskBytes = 0,
-        warnings = const [],
-        actions = const [];
+    : sessionsArchived = 0,
+      sessionsDeleted = 0,
+      diskReclaimedBytes = 0,
+      totalSessions = 0,
+      totalDiskBytes = 0,
+      warnings = const [],
+      actions = const [];
 }
 
 /// Executes the session maintenance pipeline.
@@ -143,6 +143,7 @@ class SessionMaintenanceService {
       final jobId = _extractJobId(s.channelKey!);
       return jobId != null && activeJobIds.contains(jobId);
     }
+    if (s.type == SessionType.task) return true;
     return false;
   }
 
@@ -167,6 +168,7 @@ class SessionMaintenanceService {
 
     for (final s in allSessions) {
       if (s.type == SessionType.archive) continue;
+      if (s.type == SessionType.task) continue;
       if (_isProtected(s)) continue;
       if (s.updatedAt.isAfter(cutoff)) continue;
 
@@ -180,12 +182,7 @@ class SessionMaintenanceService {
           warnings.add('Failed to archive session ${s.id}: $e');
         }
       }
-      actions.add(MaintenanceAction(
-        sessionId: s.id,
-        actionType: 'archive',
-        reason: 'stale',
-        applied: applied,
-      ));
+      actions.add(MaintenanceAction(sessionId: s.id, actionType: 'archive', reason: 'stale', applied: applied));
     }
 
     return _StageResult(archived: archived, warnings: warnings, actions: actions);
@@ -219,12 +216,7 @@ class SessionMaintenanceService {
           warnings.add('Failed to archive session ${s.id}: $e');
         }
       }
-      actions.add(MaintenanceAction(
-        sessionId: s.id,
-        actionType: 'archive',
-        reason: 'count_cap',
-        applied: applied,
-      ));
+      actions.add(MaintenanceAction(sessionId: s.id, actionType: 'archive', reason: 'count_cap', applied: applied));
     }
 
     return _StageResult(archived: archived, warnings: warnings, actions: actions);
@@ -259,12 +251,7 @@ class SessionMaintenanceService {
           warnings.add('Failed to delete cron session ${s.id}: $e');
         }
       }
-      actions.add(MaintenanceAction(
-        sessionId: s.id,
-        actionType: 'delete',
-        reason: 'cron_retention',
-        applied: applied,
-      ));
+      actions.add(MaintenanceAction(sessionId: s.id, actionType: 'delete', reason: 'cron_retention', applied: applied));
     }
 
     return _StageResult(deleted: deleted, warnings: warnings, actions: actions);
@@ -309,24 +296,14 @@ class SessionMaintenanceService {
         currentUsage -= sessionSize;
         reclaimedBytes += sessionSize;
       }
-      actions.add(MaintenanceAction(
-        sessionId: s.id,
-        actionType: 'delete',
-        reason: 'disk_budget',
-        applied: applied,
-      ));
+      actions.add(MaintenanceAction(sessionId: s.id, actionType: 'delete', reason: 'disk_budget', applied: applied));
     }
 
     if (currentUsage > threshold) {
       warnings.add('Still over disk budget after deleting all archived sessions');
     }
 
-    return _DiskResult(
-      deleted: deleted,
-      reclaimedBytes: reclaimedBytes,
-      warnings: warnings,
-      actions: actions,
-    );
+    return _DiskResult(deleted: deleted, reclaimedBytes: reclaimedBytes, warnings: warnings, actions: actions);
   }
 
   int _calculateDiskUsage(String dirPath) {
@@ -353,12 +330,7 @@ class _StageResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _StageResult({
-    this.archived = 0,
-    this.deleted = 0,
-    this.warnings = const [],
-    this.actions = const [],
-  });
+  _StageResult({this.archived = 0, this.deleted = 0, this.warnings = const [], this.actions = const []});
 
   factory _StageResult.empty() => _StageResult();
 }
@@ -369,12 +341,7 @@ class _DiskResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _DiskResult({
-    this.deleted = 0,
-    this.reclaimedBytes = 0,
-    this.warnings = const [],
-    this.actions = const [],
-  });
+  _DiskResult({this.deleted = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
 
   factory _DiskResult.empty() => _DiskResult();
 }

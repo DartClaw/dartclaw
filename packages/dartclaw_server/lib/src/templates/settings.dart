@@ -12,6 +12,7 @@ import 'topbar.dart';
 /// (channels, guards, health, auth, workspace) still receive template vars.
 String settingsTemplate({
   required SidebarData sidebarData,
+  required List<NavItem> navItems,
   required int uptimeSeconds,
   required int sessionCount,
   required String workerState,
@@ -26,6 +27,10 @@ String settingsTemplate({
   String signalStatusLabel = 'Disabled',
   String signalStatusClass = 'status-badge-muted',
   int signalPendingCount = 0,
+  bool googleChatEnabled = false,
+  String googleChatStatusLabel = 'Disabled',
+  String googleChatStatusClass = 'status-badge-muted',
+  int googleChatPendingCount = 0,
   bool guardsEnabled = false,
   bool guardFailOpen = false,
   List<GuardConfigSummary> guardConfigs = const [],
@@ -40,8 +45,6 @@ String settingsTemplate({
     'crashed' => ('Degraded', 'status-badge-warning'),
     _ => ('Unhealthy', 'status-badge-error'),
   };
-
-  final navItems = buildSystemNavItems(activePage: 'Settings');
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
@@ -62,6 +65,11 @@ String settingsTemplate({
     'signalPhone': signalPhone,
     'signalPendingCount': signalPendingCount,
     'signalHasPending': signalPendingCount > 0,
+    'googleChatEnabled': googleChatEnabled,
+    'googleChatStatusLabel': googleChatStatusLabel,
+    'googleChatStatusClass': googleChatStatusClass,
+    'googleChatPendingCount': googleChatPendingCount,
+    'googleChatHasPending': googleChatPendingCount > 0,
     'guardsEnabled': guardsEnabled,
     'activeGuardCount': guardConfigs.where((g) => g.enabled).length,
     'guardFailOpen': guardFailOpen,

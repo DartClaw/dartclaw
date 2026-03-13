@@ -8,13 +8,17 @@ CONFIG_PATH="$TMP_DIR/dartclaw.yaml"
 LOG_PATH="$TMP_DIR/server.log"
 PORT=3334
 SERVER_PID=""
+DATA_DIR="${HOME}/.dartclaw"
+DATA_HASH="$(printf '%s' "$DATA_DIR" | shasum -a 256 | awk '{print $1}' | cut -c1-8)"
+WORKSPACE_CONTAINER="dartclaw-${DATA_HASH}-workspace"
+RESTRICTED_CONTAINER="dartclaw-${DATA_HASH}-restricted"
 
 cleanup() {
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  docker rm -f dartclaw-agent >/dev/null 2>&1 || true
+  docker rm -f "$WORKSPACE_CONTAINER" "$RESTRICTED_CONTAINER" >/dev/null 2>&1 || true
   rm -r "$TMP_DIR"
 }
 
@@ -84,8 +88,9 @@ for _ in $(seq 1 40); do
 done
 
 [[ -n "$TURN_OK" ]] || fail_with_log
-docker ps --filter name=dartclaw-agent --format '{{.Names}}' | grep -x 'dartclaw-agent' >/dev/null
-if docker exec dartclaw-agent env | grep -q '^ANTHROPIC_API_KEY='; then
+docker ps --filter "name=^${WORKSPACE_CONTAINER}$" --format '{{.Names}}' | grep -x "$WORKSPACE_CONTAINER" >/dev/null
+docker ps --filter "name=^${RESTRICTED_CONTAINER}$" --format '{{.Names}}' | grep -x "$RESTRICTED_CONTAINER" >/dev/null
+if docker exec "$WORKSPACE_CONTAINER" env | grep -q '^ANTHROPIC_API_KEY='; then
   echo "FAIL: ANTHROPIC_API_KEY leaked into container"
   fail_with_log
 fi

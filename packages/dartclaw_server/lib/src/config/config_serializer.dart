@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../runtime_config.dart';
@@ -25,7 +27,9 @@ class ConfigSerializer {
       'workerTimeout': config.workerTimeout,
       'memoryMaxBytes': config.memoryMaxBytes,
       'agent': {'model': config.agentModel, 'maxTurns': config.agentMaxTurns, 'context1m': config.agentContext1m},
+      'auth': {'cookieSecure': config.cookieSecure, 'trustedProxies': config.trustedProxies},
       'concurrency': {'maxParallelTurns': config.maxParallelTurns},
+      'guardAudit': {'maxEntries': config.guardAuditMaxEntries},
       'sessions': {
         'resetHour': config.sessionResetHour,
         'idleTimeoutMinutes': config.sessionIdleTimeoutMinutes,
@@ -98,11 +102,45 @@ class ConfigSerializer {
           'groupAccess': config.channelConfig.channelConfigs['signal']?['group_access'] ?? 'disabled',
           'requireMention': config.channelConfig.channelConfigs['signal']?['require_mention'] ?? true,
         },
+        'googleChat': {
+          'enabled': config.googleChatConfig.enabled,
+          'serviceAccount': _serializeGoogleServiceAccount(config.googleChatConfig.serviceAccount),
+          'audience': config.googleChatConfig.audience == null
+              ? null
+              : {
+                  'type': _googleChatAudienceMode(config.googleChatConfig.audience!.mode),
+                  'value': config.googleChatConfig.audience!.value,
+                },
+          'webhookPath': config.googleChatConfig.webhookPath,
+          'botUser': config.googleChatConfig.botUser,
+          'typingIndicator': config.googleChatConfig.typingIndicator,
+          'dmAccess': config.googleChatConfig.dmAccess.name,
+          'dmAllowlist': config.googleChatConfig.dmAllowlist,
+          'groupAccess': config.googleChatConfig.groupAccess.name,
+          'groupAllowlist': config.googleChatConfig.groupAllowlist,
+          'requireMention': config.googleChatConfig.requireMention,
+        },
       },
       'gateway': {
         'authMode': config.gatewayAuthMode,
         'token': config.gatewayToken != null ? '***' : null,
         'hsts': config.gatewayHsts,
+      },
+      'automation': {
+        'scheduledTasks': config.automationScheduledTasks
+            .map(
+              (d) => {
+                'id': d.id,
+                'cronExpression': d.cronExpression,
+                'enabled': d.enabled,
+                'title': d.title,
+                'description': d.description,
+                'type': d.type.name,
+                'acceptanceCriteria': d.acceptanceCriteria,
+                'autoStart': d.autoStart,
+              },
+            )
+            .toList(),
       },
     };
   }
@@ -130,5 +168,35 @@ class ConfigSerializer {
     ConfigFieldType.string => 'string',
     ConfigFieldType.bool_ => 'bool',
     ConfigFieldType.enum_ => 'enum',
+    ConfigFieldType.stringList => 'string[]',
   };
+
+  static String _googleChatAudienceMode(GoogleChatAudienceMode mode) => switch (mode) {
+    GoogleChatAudienceMode.appUrl => 'app-url',
+    GoogleChatAudienceMode.projectNumber => 'project-number',
+  };
+
+  static String? _serializeGoogleServiceAccount(String? serviceAccount) {
+    final normalized = serviceAccount?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    if (!normalized.startsWith('{')) {
+      return normalized;
+    }
+
+    try {
+      final decoded = jsonDecode(normalized);
+      if (decoded is Map<String, dynamic>) {
+        final clientEmail = decoded['client_email'];
+        if (clientEmail is String && clientEmail.trim().isNotEmpty) {
+          return clientEmail.trim();
+        }
+      }
+    } catch (_) {
+      // Fall through to a generic redaction marker for malformed inline JSON.
+    }
+
+    return '***';
+  }
 }

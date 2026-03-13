@@ -1,0 +1,79 @@
+<div class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner" id="tasks-content">
+
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+      <div class="task-filter-bar">
+        <select id="task-status-filter" data-task-filter="status">
+          <option tl:each="opt : ${statusOptions}" tl:text="${opt.label}"
+                  tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Statuses</option>
+        </select>
+        <select id="task-type-filter" data-task-filter="type">
+          <option tl:each="opt : ${typeOptions}" tl:text="${opt.label}"
+                  tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Types</option>
+        </select>
+        <button class="btn btn-primary" type="button" data-task-dialog-open>New Task</button>
+      </div>
+
+      <div tl:if="${agentOverviewHtml}" tl:utext="${agentOverviewHtml}">agent overview</div>
+
+      <div tl:if="${hasTasks}">
+        <div tl:each="group : ${statusGroups}" class="task-status-group">
+          <h3>
+            <span tl:text="${group.statusLabel}">Status</span>
+            <span class="task-group-count" tl:text="${group.count}">0</span>
+          </h3>
+
+          <div tl:if="${group.isRunning}" class="task-running-cards">
+            <div tl:each="task : ${group.tasks}" class="card task-card-running">
+              <div class="task-card-title" tl:text="${task.title}">Task title</div>
+              <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
+              <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
+            </div>
+          </div>
+
+          <div tl:unless="${group.isRunning}" class="table-fade-wrap">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr tl:each="task : ${group.tasks}">
+                    <td>
+                      <a tl:if="${task.detailHref}" tl:attr="href=${task.detailHref}" tl:text="${task.title}">Task</a>
+                      <span tl:unless="${task.detailHref}" tl:text="${task.title}">Task</span>
+                      <div tl:if="${task.goalTitle}" class="task-goal-text">
+                        Goal: <span tl:text="${task.goalTitle}">Goal title</span>
+                      </div>
+                    </td>
+                    <td><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
+                    <td tl:text="${task.createdAtDisplay}">1h ago</td>
+                    <td><span tl:classappend="${task.statusBadgeClass}" class="status-badge" tl:text="${task.status}">status</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div tl:unless="${hasTasks}" class="empty-state">
+        <div class="empty-state-icon">&#9744;</div>
+        <p class="empty-state-title">No tasks yet</p>
+        <p class="empty-state-text">Tasks will appear here when created.</p>
+      </div>
+
+    </div>
+
+    <div tl:if="${newTaskDialogHtml}" tl:utext="${newTaskDialogHtml}">dialog</div>
+  </main>
+</div>

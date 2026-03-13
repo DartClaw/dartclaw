@@ -34,6 +34,22 @@ channels:
     dm_access: allowlist
     group_access: open
     require_mention: false
+  google_chat:
+    enabled: true
+    service_account: /tmp/google-service-account.json
+    audience:
+      type: app-url
+      value: https://example.com/integrations/googlechat
+    webhook_path: /integrations/googlechat
+    bot_user: users/123
+    typing_indicator: false
+    dm_access: allowlist
+    dm_allowlist:
+      - spaces/AAA/users/1
+    group_access: open
+    group_allowlist:
+      - spaces/AAA
+    require_mention: false
 ''');
   });
 
@@ -43,22 +59,29 @@ channels:
 
   Router createRouter({DartclawConfig? config}) {
     final channelConfigs = <String, Map<String, dynamic>>{
-      'whatsapp': {
-        'enabled': true,
-        'dm_access': 'pairing',
-        'group_access': 'disabled',
-        'require_mention': true,
-      },
-      'signal': {
-        'enabled': true,
-        'dm_access': 'allowlist',
-        'group_access': 'open',
-        'require_mention': false,
-      },
+      'whatsapp': {'enabled': true, 'dm_access': 'pairing', 'group_access': 'disabled', 'require_mention': true},
+      'signal': {'enabled': true, 'dm_access': 'allowlist', 'group_access': 'open', 'require_mention': false},
     };
-    final cfg = config ??
+    final cfg =
+        config ??
         DartclawConfig.defaults().copyWith(
           channelConfig: ChannelConfig(channelConfigs: channelConfigs),
+          googleChatConfig: const GoogleChatConfig(
+            enabled: true,
+            serviceAccount: '/tmp/google-service-account.json',
+            audience: GoogleChatAudienceConfig(
+              mode: GoogleChatAudienceMode.appUrl,
+              value: 'https://example.com/integrations/googlechat',
+            ),
+            webhookPath: '/integrations/googlechat',
+            botUser: 'users/123',
+            typingIndicator: false,
+            dmAccess: DmAccessMode.allowlist,
+            dmAllowlist: ['spaces/AAA/users/1'],
+            groupAccess: GroupAccessMode.open,
+            groupAllowlist: ['spaces/AAA'],
+            requireMention: false,
+          ),
         );
     final rc = RuntimeConfig(
       heartbeatEnabled: cfg.heartbeatEnabled,
@@ -110,6 +133,21 @@ channels:
       expect(channels['signal']['dmAccess'], 'allowlist');
       expect(channels['signal']['groupAccess'], 'open');
       expect(channels['signal']['requireMention'], false);
+
+      expect(channels['googleChat']['enabled'], true);
+      expect(channels['googleChat']['serviceAccount'], '/tmp/google-service-account.json');
+      expect(channels['googleChat']['audience'], {
+        'type': 'app-url',
+        'value': 'https://example.com/integrations/googlechat',
+      });
+      expect(channels['googleChat']['webhookPath'], '/integrations/googlechat');
+      expect(channels['googleChat']['botUser'], 'users/123');
+      expect(channels['googleChat']['typingIndicator'], false);
+      expect(channels['googleChat']['dmAccess'], 'allowlist');
+      expect(channels['googleChat']['dmAllowlist'], ['spaces/AAA/users/1']);
+      expect(channels['googleChat']['groupAccess'], 'open');
+      expect(channels['googleChat']['groupAllowlist'], ['spaces/AAA']);
+      expect(channels['googleChat']['requireMention'], false);
     });
 
     test('_meta.fields includes channel access field metadata', () async {
@@ -122,20 +160,30 @@ channels:
       expect(fields.containsKey('channels.signal.dm_access'), isTrue);
       expect(fields.containsKey('channels.whatsapp.group_access'), isTrue);
       expect(fields.containsKey('channels.signal.require_mention'), isTrue);
+      expect(fields.containsKey('channels.google_chat.dm_access'), isTrue);
+      expect(fields.containsKey('channels.google_chat.service_account'), isTrue);
+      expect(fields.containsKey('channels.google_chat.audience.type'), isTrue);
+      expect(fields.containsKey('channels.google_chat.audience.value'), isTrue);
+      expect(fields.containsKey('channels.google_chat.dm_allowlist'), isTrue);
+      expect(fields.containsKey('channels.google_chat.webhook_path'), isTrue);
+      expect(fields.containsKey('channels.google_chat.bot_user'), isTrue);
+      expect(fields.containsKey('channels.google_chat.group_allowlist'), isTrue);
 
       final waDmAccess = fields['channels.whatsapp.dm_access'] as Map<String, dynamic>;
       expect(waDmAccess['mutable'], 'restart');
       expect(waDmAccess['type'], 'enum');
       expect(waDmAccess['allowedValues'], ['open', 'disabled', 'allowlist', 'pairing']);
+
+      final gcServiceAccount = fields['channels.google_chat.service_account'] as Map<String, dynamic>;
+      expect(gcServiceAccount['mutable'], 'readonly');
+      expect(gcServiceAccount['type'], 'string');
     });
   });
 
   group('PATCH /api/config channel access fields', () {
     test('valid dm_access change returns pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.whatsapp.dm_access': 'allowlist',
-      });
+      final resp = await patch(router, '/api/config', {'channels.whatsapp.dm_access': 'allowlist'});
       expect(resp.statusCode, 200);
 
       final body = await parseBody(resp);
@@ -145,9 +193,7 @@ channels:
 
     test('invalid dm_access value returns validation error', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.whatsapp.dm_access': 'invalid',
-      });
+      final resp = await patch(router, '/api/config', {'channels.whatsapp.dm_access': 'invalid'});
       expect(resp.statusCode, 400);
 
       final body = await parseBody(resp);
@@ -156,9 +202,7 @@ channels:
 
     test('Signal dm_access pairing succeeds', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.signal.dm_access': 'pairing',
-      });
+      final resp = await patch(router, '/api/config', {'channels.signal.dm_access': 'pairing'});
       expect(resp.statusCode, 200);
 
       final body = await parseBody(resp);
@@ -168,20 +212,57 @@ channels:
 
     test('require_mention change returns pendingRestart', () async {
       final router = createRouter();
-      final resp = await patch(router, '/api/config', {
-        'channels.whatsapp.require_mention': false,
-      });
+      final resp = await patch(router, '/api/config', {'channels.whatsapp.require_mention': false});
       expect(resp.statusCode, 200);
 
       final body = await parseBody(resp);
       expect(body['pendingRestart'], contains('channels.whatsapp.require_mention'));
+    });
+
+    test('google chat credential fields are rejected as unknown (not editable via API)', () async {
+      final router = createRouter();
+      final resp = await patch(router, '/api/config', {
+        'channels.google_chat.service_account': '/tmp/updated-google-service-account.json',
+        'channels.google_chat.audience.type': 'project-number',
+        'channels.google_chat.audience.value': '123456789',
+      });
+      expect(resp.statusCode, 400);
+
+      final body = await parseBody(resp);
+      final errors = (body['errors'] as List).cast<Map<String, dynamic>>();
+      expect(errors, hasLength(3));
+      final fields = errors.map((e) => e['field']).toSet();
+      expect(
+        fields,
+        containsAll([
+          'channels.google_chat.service_account',
+          'channels.google_chat.audience.type',
+          'channels.google_chat.audience.value',
+        ]),
+      );
+    });
+
+    test('google chat allowlist changes return pendingRestart', () async {
+      final router = createRouter();
+      final resp = await patch(router, '/api/config', {
+        'channels.google_chat.dm_allowlist': ['spaces/AAA/users/2'],
+        'channels.google_chat.group_allowlist': ['spaces/BBB'],
+      });
+      expect(resp.statusCode, 200);
+
+      final body = await parseBody(resp);
+      expect(
+        body['pendingRestart'],
+        containsAll(['channels.google_chat.dm_allowlist', 'channels.google_chat.group_allowlist']),
+      );
+      expect(body['errors'], isEmpty);
     });
   });
 }
 
 /// Extension to add copyWith to DartclawConfig for testing.
 extension _DartclawConfigCopyWith on DartclawConfig {
-  DartclawConfig copyWith({ChannelConfig? channelConfig}) {
+  DartclawConfig copyWith({ChannelConfig? channelConfig, GoogleChatConfig? googleChatConfig}) {
     return DartclawConfig(
       port: port,
       host: host,
@@ -190,6 +271,7 @@ extension _DartclawConfigCopyWith on DartclawConfig {
       workerTimeout: workerTimeout,
       memoryMaxBytes: memoryMaxBytes,
       channelConfig: channelConfig ?? this.channelConfig,
+      googleChatConfig: googleChatConfig ?? this.googleChatConfig,
     );
   }
 }

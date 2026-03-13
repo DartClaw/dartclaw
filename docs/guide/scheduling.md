@@ -66,6 +66,12 @@ scheduling:
 
 Each scheduled job runs in its own session, isolated from user conversations. Session keys follow the pattern `agent:main:cron:<job-name>:<ISO8601>`.
 
+## Scheduled Task Templates
+
+If you want the scheduler to create reviewable tasks instead of running prompt jobs directly, use `automation.scheduled_tasks`. Each entry creates a normal task template on a cron schedule, so the result goes through the standard `/tasks` review flow.
+
+See [Tasks](tasks.md) for the task lifecycle, worktree behavior, and the `automation.scheduled_tasks` schema.
+
 ## Session Maintenance
 
 When configured, session maintenance runs as a built-in scheduled job alongside user-defined cron jobs.

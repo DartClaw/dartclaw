@@ -253,5 +253,36 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(dispatched, isEmpty);
     });
+
+    test('replies to groupJid for group messages', () async {
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(sender: 'alice@test', groupJid: 'group@test'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(channel.sent, hasLength(1));
+      expect(channel.sent.single.$1, 'group@test');
+    });
+
+    test('prefers metadata spaceName as reply recipient', () async {
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.googlechat,
+          senderJid: 'users/123',
+          text: 'hello',
+          metadata: const {'spaceName': 'spaces/AAAA'},
+        ),
+        channel,
+        'session-1',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(channel.sent, hasLength(1));
+      expect(channel.sent.single.$1, 'spaces/AAAA');
+    });
   });
 }

@@ -5,6 +5,7 @@ import '../worker/worker_state.dart';
 enum PromptStrategy {
   /// Replace the agent's built-in prompt (used for harnesses with no built-in prompt).
   replace,
+
   /// Append to the agent's built-in prompt via spawn-time flag.
   append,
 }
@@ -37,6 +38,8 @@ abstract class AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   });
 
   /// Cancel the current in-progress turn.

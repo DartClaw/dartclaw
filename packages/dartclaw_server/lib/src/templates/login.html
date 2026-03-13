@@ -6,11 +6,12 @@
     </div>
     <div tl:if="${error}" class="login-error" tl:text="${error}">Error message</div>
     <form method="POST" action="/login" class="login-form">
+      <input tl:if="${nextPath}" type="hidden" name="next" tl:attr="value=${nextPath}">
       <div class="login-field">
         <label for="token-input" class="login-label">Gateway Token</label>
         <input id="token-input" name="token" type="password" placeholder="Paste your token here"
                autocomplete="off" autofocus required
-               class="login-input">
+               class="login-input" tl:attr="value=${tokenValue}">
       </div>
       <label class="login-checkbox">
         <input type="checkbox" name="remember" value="1">

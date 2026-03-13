@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 void main() {
-  final baseDir = File('packages/dartclaw_server/lib/src/static/app.js')
-          .existsSync()
+  final baseDir = File('packages/dartclaw_server/lib/src/static/app.js').existsSync()
       ? 'packages/dartclaw_server/lib/src/static'
       : 'lib/src/static';
 
@@ -31,8 +30,7 @@ void main() {
       expect(source, contains('function finalizeTurn()'));
       // Both htmx:sseClose handler and handleTurnError call finalizeTurn
       final calls = 'finalizeTurn()'.allMatches(source).length;
-      expect(calls,
-          greaterThanOrEqualTo(3)); // definition + sseClose + handleTurnError
+      expect(calls, greaterThanOrEqualTo(3)); // definition + sseClose + handleTurnError
     });
 
     test('handles failed HTMX requests by re-enabling input', () {
@@ -42,12 +40,9 @@ void main() {
       expect(source, contains('enableInput();'));
     });
 
-    test(
-        'manual rename marks session as titled to prevent auto-title overwrite',
-        () {
+    test('manual rename marks session as titled to prevent auto-title overwrite', () {
       final source = File(scriptPath).readAsStringSync();
-      final matches =
-          RegExp(r"dataset\.hasTitle\s*=\s*'true'").allMatches(source).length;
+      final matches = RegExp(r"dataset\.hasTitle\s*=\s*'true'").allMatches(source).length;
       expect(matches, greaterThanOrEqualTo(2));
     });
   });
@@ -102,9 +97,7 @@ void main() {
   });
 
   group('app.js delete confirmation uses safe DOM API', () {
-    test(
-        'confirmDeleteJob uses createElement not innerHTML for job name (in scheduling.js)',
-        () {
+    test('confirmDeleteJob uses createElement not innerHTML for job name (in scheduling.js)', () {
       final source = File('$baseDir/scheduling.js').readAsStringSync();
       // Should use textContent and dataset for safe attribute assignment
       expect(source, contains("msg.textContent = \"Delete '\" + jobName"));
@@ -184,6 +177,36 @@ void main() {
       expect(source, contains("typeof toggleJobForm === 'function'"));
       expect(source, contains("typeof switchMemoryTab === 'function'"));
       expect(source, contains("typeof confirmPrune === 'function'"));
+    });
+  });
+
+  group('app.js task page helpers', () {
+    test('connects to task SSE and restores badge state after swaps', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains("new EventSource('/api/tasks/events')"));
+      expect(source, contains('let latestTaskReviewCount = null;'));
+      expect(source, contains('function restoreTaskBadge()'));
+      expect(source, contains('restoreTaskBadge();'));
+    });
+
+    test('refreshes tasks content without forcing a full reload', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('async function refreshTasksPageContent()'));
+      expect(source, contains('refreshTasksPageContent();'));
+      expect(source, contains("headers: { 'HX-Request': 'true' }"));
+    });
+
+    test('task elapsed timers use a single managed interval', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('let taskElapsedTimer = null;'));
+      expect(source, contains('clearInterval(taskElapsedTimer);'));
+      expect(source, contains('function refreshTaskElapsedTimes()'));
+    });
+
+    test('applyTaskFilters remains exposed on window', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('window.applyTaskFilters = function()'));
+      expect(source, contains("window.location.href = '/tasks' + (qs ? '?' + qs : '');"));
     });
   });
 }

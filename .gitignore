@@ -12,6 +12,9 @@ pubspec.lock
 *.iml
 .vscode/
 
+# Claude Code (local instructions symlinked from dartclaw-private)
+CLAUDE.local.md
+
 # OS
 .DS_Store
 

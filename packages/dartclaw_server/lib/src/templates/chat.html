@@ -25,8 +25,14 @@
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area"
-  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle}">
+  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
+  <div class="chat-load-earlier">
+    <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""
+            tl:attr="hidden=${loadEarlierHidden}">
+      Load earlier messages
+    </button>
+  </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
   <div tl:if="${readOnly}" class="input-area">
     <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>

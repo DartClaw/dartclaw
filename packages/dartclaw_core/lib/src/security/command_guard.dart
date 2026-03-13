@@ -75,7 +75,9 @@ class CommandGuardConfig {
 
   static final _defaultDestructive = [
     // Combined flags (-rf, -fr) or space-separated (-r -f, -f -r)
-    RegExp(r'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|--no-preserve-root|-[a-zA-Z]*r\s+-[a-zA-Z]*f|-[a-zA-Z]*f\s+-[a-zA-Z]*r)'),
+    RegExp(
+      r'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|--no-preserve-root|-[a-zA-Z]*r\s+-[a-zA-Z]*f|-[a-zA-Z]*f\s+-[a-zA-Z]*r)',
+    ),
     RegExp(r'chmod\s+(777|000|a\+rwx)'),
     RegExp(r'mkfs\.'),
     RegExp(r'dd\s+if='),
@@ -89,17 +91,14 @@ class CommandGuardConfig {
     RegExp(r'git\s+clean\s+-[a-zA-Z]*f'),
   ];
 
-  static final _defaultForkBombs = [
-    RegExp(r':\(\)\s*\{'),
-    RegExp(r'\|\s*:\s*&'),
-  ];
+  static final _defaultForkBombs = [RegExp(r':\(\)\s*\{'), RegExp(r'\|\s*:\s*&')];
 
   static final _defaultInterpreterEscapes = [
     RegExp(r'\beval\s+'),
-    RegExp(r'\bbash\s+-c\b'),
-    RegExp(r'\bsh\s+-c\b'),
-    RegExp(r'\bzsh\s+-c\b'),
-    RegExp(r'\bdash\s+-c\b'),
+    RegExp(r'\bbash\s+(-[a-zA-Z]*c|-c)\b'),
+    RegExp(r'\bsh\s+(-[a-zA-Z]*c|-c)\b'),
+    RegExp(r'\bzsh\s+(-[a-zA-Z]*c|-c)\b'),
+    RegExp(r'\bdash\s+(-[a-zA-Z]*c|-c)\b'),
     RegExp(r'\bpython[23]?\s+-c\b'),
     RegExp(r'\bnode\s+-e\b'),
     RegExp(r'\bperl\s+-e\b'),
@@ -121,9 +120,21 @@ class CommandGuardConfig {
   };
 
   static const _defaultSafePipeTargets = {
-    'jq', 'grep', 'sort', 'wc', 'head', 'tail',
-    'cat', 'less', 'tee', 'uniq', 'tr', 'cut',
-    'awk', 'fmt', 'column',
+    'jq',
+    'grep',
+    'sort',
+    'wc',
+    'head',
+    'tail',
+    'cat',
+    'less',
+    'tee',
+    'uniq',
+    'tr',
+    'cut',
+    'awk',
+    'fmt',
+    'column',
   };
 }
 
@@ -145,8 +156,7 @@ class CommandGuard extends Guard {
 
   final CommandGuardConfig config;
 
-  CommandGuard({CommandGuardConfig? config})
-      : config = config ?? CommandGuardConfig.defaults();
+  CommandGuard({CommandGuardConfig? config}) : config = config ?? CommandGuardConfig.defaults();
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {
@@ -159,25 +169,23 @@ class CommandGuard extends Guard {
       return GuardVerdict.pass();
     }
 
+    final raw = _normalizeQuotedShellWords(command);
     final processed = _stripSingleQuotes(command);
-    final reasons = <String>[];
+    final reasons = <String>{};
 
-    // Check all pattern categories
+    _matchCategory(command, config.interpreterEscapes, 'interpreter escape', reasons);
+    _matchCategory(raw, config.destructivePatterns, 'destructive command', reasons);
+    _matchCategory(raw, config.forcePatterns, 'force operation', reasons);
+    _matchCategory(raw, config.forkBombPatterns, 'fork bomb', reasons);
+    _matchCategory(raw, config.interpreterEscapes, 'interpreter escape', reasons);
     _matchCategory(processed, config.destructivePatterns, 'destructive command', reasons);
     _matchCategory(processed, config.forcePatterns, 'force operation', reasons);
     _matchCategory(processed, config.forkBombPatterns, 'fork bomb', reasons);
     _matchCategory(processed, config.interpreterEscapes, 'interpreter escape', reasons);
 
-    // Check pipe targets
-    final pipeSegments = _extractPipeSegments(processed);
-    if (pipeSegments.length > 1) {
-      for (var i = 1; i < pipeSegments.length; i++) {
-        final target = pipeSegments[i].trim().split(RegExp(r'\s+')).first;
-        if (config.blockedPipeTargets.contains(target)) {
-          reasons.add('blocked pipe target: $target');
-        }
-      }
-    }
+    _collectPipeTargetReasons(command, reasons);
+    _collectPipeTargetReasons(raw, reasons);
+    _collectPipeTargetReasons(processed, reasons);
 
     if (reasons.isNotEmpty) {
       return GuardVerdict.block('Command blocked: ${reasons.join(', ')}');
@@ -186,9 +194,22 @@ class CommandGuard extends Guard {
     return GuardVerdict.pass();
   }
 
-  /// Strips content inside single quotes to prevent bypass via `'rm' '-rf'`.
+  /// Removes whole single-quoted regions when looking for unsafe patterns.
+  ///
+  /// Known limitations: double quotes, heredocs, and variable expansion are not
+  /// interpreted here. Container isolation remains the primary security
+  /// boundary for shell execution.
   static String _stripSingleQuotes(String cmd) {
     return cmd.replaceAll(RegExp(r"'[^']*'"), '');
+  }
+
+  /// Removes quote characters around single shell words while preserving
+  /// only the structural information from quoted multi-word literals.
+  static String _normalizeQuotedShellWords(String cmd) {
+    return cmd.replaceAllMapped(RegExp(r"'([^']*)'"), (match) {
+      final content = match.group(1)!;
+      return content.contains(RegExp(r'\s')) ? '' : content;
+    });
   }
 
   /// Splits command on pipe operator `|`, excluding `||` (logical OR).
@@ -196,12 +217,35 @@ class CommandGuard extends Guard {
     return cmd.split(RegExp(r'(?<!\|)\|(?!\|)'));
   }
 
-  static void _matchCategory(
-    String cmd,
-    List<RegExp> patterns,
-    String label,
-    List<String> reasons,
-  ) {
+  void _collectPipeTargetReasons(String cmd, Set<String> reasons) {
+    final pipeSegments = _extractPipeSegments(cmd);
+    if (pipeSegments.length <= 1) return;
+
+    for (var i = 1; i < pipeSegments.length; i++) {
+      final target = _pipeTarget(pipeSegments[i]);
+      if (config.blockedPipeTargets.contains(target)) {
+        reasons.add('blocked pipe target: $target');
+      }
+    }
+  }
+
+  static String _pipeTarget(String segment) {
+    final trimmed = segment.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    if (trimmed.startsWith("'")) {
+      final closingQuote = trimmed.indexOf("'", 1);
+      if (closingQuote > 1) {
+        return trimmed.substring(1, closingQuote).split(RegExp(r'\s+')).first;
+      }
+    }
+
+    return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  static void _matchCategory(String cmd, List<RegExp> patterns, String label, Set<String> reasons) {
     for (final pattern in patterns) {
       if (pattern.hasMatch(cmd)) {
         reasons.add(label);

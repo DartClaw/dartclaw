@@ -10,8 +10,8 @@ enum ConfigMutability {
   readonly,
 }
 
-/// Scalar type of a config field.
-enum ConfigFieldType { int_, string, bool_, enum_ }
+/// Type of a config field.
+enum ConfigFieldType { int_, string, bool_, enum_, stringList }
 
 /// Metadata describing a single config field.
 class FieldMeta {
@@ -142,6 +142,51 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
     ),
+    'auth.cookie_secure': FieldMeta(
+      yamlPath: 'auth.cookie_secure',
+      jsonKey: 'auth.cookieSecure',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'auth.trusted_proxies': FieldMeta(
+      yamlPath: 'auth.trusted_proxies',
+      jsonKey: 'auth.trustedProxies',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+
+    // Tasks
+    'tasks.max_concurrent': FieldMeta(
+      yamlPath: 'tasks.max_concurrent',
+      jsonKey: 'tasks.maxConcurrent',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+      max: 10,
+    ),
+
+    'tasks.worktree.base_ref': FieldMeta(
+      yamlPath: 'tasks.worktree.base_ref',
+      jsonKey: 'tasks.worktree.baseRef',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'tasks.worktree.stale_timeout_hours': FieldMeta(
+      yamlPath: 'tasks.worktree.stale_timeout_hours',
+      jsonKey: 'tasks.worktree.staleTimeoutHours',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+      max: 168,
+    ),
+    'tasks.worktree.merge_strategy': FieldMeta(
+      yamlPath: 'tasks.worktree.merge_strategy',
+      jsonKey: 'tasks.worktree.mergeStrategy',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['squash', 'merge'],
+    ),
 
     // Concurrency
     'concurrency.max_parallel_turns': FieldMeta(
@@ -151,6 +196,14 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
       max: 10,
+    ),
+    'guard_audit.max_entries': FieldMeta(
+      yamlPath: 'guard_audit.max_entries',
+      jsonKey: 'guardAudit.maxEntries',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 100,
+      max: 1000000,
     ),
 
     // Sessions
@@ -399,6 +452,92 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
     ),
+
+    // Channels — Google Chat
+    'channels.google_chat.enabled': FieldMeta(
+      yamlPath: 'channels.google_chat.enabled',
+      jsonKey: 'channels.googleChat.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.service_account': FieldMeta(
+      yamlPath: 'channels.google_chat.service_account',
+      jsonKey: 'channels.googleChat.serviceAccount',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.readonly,
+      nullable: true,
+    ),
+    'channels.google_chat.audience.type': FieldMeta(
+      yamlPath: 'channels.google_chat.audience.type',
+      jsonKey: 'channels.googleChat.audience.type',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.readonly,
+      nullable: true,
+      allowedValues: ['app-url', 'project-number'],
+    ),
+    'channels.google_chat.audience.value': FieldMeta(
+      yamlPath: 'channels.google_chat.audience.value',
+      jsonKey: 'channels.googleChat.audience.value',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.readonly,
+      nullable: true,
+    ),
+    'channels.google_chat.webhook_path': FieldMeta(
+      yamlPath: 'channels.google_chat.webhook_path',
+      jsonKey: 'channels.googleChat.webhookPath',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.bot_user': FieldMeta(
+      yamlPath: 'channels.google_chat.bot_user',
+      jsonKey: 'channels.googleChat.botUser',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.typing_indicator': FieldMeta(
+      yamlPath: 'channels.google_chat.typing_indicator',
+      jsonKey: 'channels.googleChat.typingIndicator',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.dm_access': FieldMeta(
+      yamlPath: 'channels.google_chat.dm_access',
+      jsonKey: 'channels.googleChat.dmAccess',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['open', 'disabled', 'allowlist', 'pairing'],
+    ),
+    'channels.google_chat.dm_allowlist': FieldMeta(
+      yamlPath: 'channels.google_chat.dm_allowlist',
+      jsonKey: 'channels.googleChat.dmAllowlist',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.group_access': FieldMeta(
+      yamlPath: 'channels.google_chat.group_access',
+      jsonKey: 'channels.googleChat.groupAccess',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['open', 'disabled', 'allowlist'],
+    ),
+    'channels.google_chat.group_allowlist': FieldMeta(
+      yamlPath: 'channels.google_chat.group_allowlist',
+      jsonKey: 'channels.googleChat.groupAllowlist',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.require_mention': FieldMeta(
+      yamlPath: 'channels.google_chat.require_mention',
+      jsonKey: 'channels.googleChat.requireMention',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+
+    // Automation — scheduled tasks (restart-required, list type)
+    // Individual entries validated during parsing — registered as a section marker.
 
     // --- Read-only fields ---
     'gateway.auth_mode': FieldMeta(

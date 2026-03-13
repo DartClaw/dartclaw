@@ -168,6 +168,7 @@ void main() {
       await sessions.createSession(type: SessionType.user);
       await sessions.createSession(type: SessionType.channel, channelKey: 'wa:test');
       await sessions.getOrCreateMain();
+      await sessions.createSession(type: SessionType.task);
 
       final all = await sessions.listSessions();
       expect(all.length, equals(3));
@@ -180,6 +181,9 @@ void main() {
 
       final mains = await sessions.listSessions(type: SessionType.main);
       expect(mains.length, equals(1));
+
+      final taskSessions = await sessions.listSessions(type: SessionType.task);
+      expect(taskSessions.length, equals(1));
     });
 
     test('listSessions filters by multiple types', () async {
@@ -189,6 +193,22 @@ void main() {
 
       final sidebarSessions = await sessions.listSessions(types: [SessionType.user, SessionType.archive]);
       expect(sidebarSessions.length, equals(2));
+    });
+
+    test('listSessions excludes task sessions by default', () async {
+      await sessions.createSession(type: SessionType.user);
+      await sessions.createSession(type: SessionType.task);
+
+      final all = await sessions.listSessions();
+      expect(all.map((session) => session.type), isNot(contains(SessionType.task)));
+    });
+
+    test('listSessions can include task sessions explicitly', () async {
+      await sessions.createSession(type: SessionType.user);
+      await sessions.createSession(type: SessionType.task);
+
+      final all = await sessions.listSessions(includeTaskSessions: true);
+      expect(all.map((session) => session.type), contains(SessionType.task));
     });
 
     test('updateSessionType changes type', () async {
@@ -258,6 +278,11 @@ void main() {
 
     test('throws StateError for channel session', () async {
       final session = await sessions.createSession(type: SessionType.channel, channelKey: 'wa:123');
+      expect(() => sessions.deleteSession(session.id), throwsStateError);
+    });
+
+    test('throws StateError for task session', () async {
+      final session = await sessions.createSession(type: SessionType.task);
       expect(() => sessions.deleteSession(session.id), throwsStateError);
     });
 

@@ -90,12 +90,14 @@ void main() {
       expect(html, contains('data-session-id="s1"'));
     });
 
-    test('renders archive sessions in archived section, no delete button', () {
+    test('renders archive sessions in archived section with delete button', () {
       final html = sidebarTemplate(archivedEntries: [(id: 'a1', title: 'Old session', type: SessionType.archive)]);
       expect(html, contains('session-item-archive'));
       expect(html, contains('Old session'));
       expect(html, contains('sidebar-archive-section'));
       expect(html, contains('sidebar-archive-toggle'));
+      expect(html, contains('session-delete'));
+      expect(html, contains('data-session-id="a1"'));
     });
 
     test('active session gets active class', () {
@@ -187,6 +189,13 @@ void main() {
       expect(html, contains('Alice DM'));
       expect(html, isNot(contains('sidebar-subsection-label')));
     });
+
+    test('renders task review badge placeholder in system nav', () {
+      final html = sidebarTemplate(navItems: [(label: 'Tasks', href: '/tasks', active: false, navGroup: 'system')]);
+
+      expect(html, contains('id="tasks-badge"'));
+      expect(html, contains('nav-badge'));
+    });
   });
 
   group('topbarTemplate', () {
@@ -255,6 +264,7 @@ void main() {
       activeEntries: <SidebarSession>[],
       archivedEntries: <SidebarSession>[],
     );
+    const navItems = <NavItem>[];
 
     test('renders hero summary and pairing action', () {
       final html = channelDetailTemplate(
@@ -273,6 +283,7 @@ void main() {
         entryPlaceholder: 'jid',
         groupPlaceholder: 'group',
         sidebarData: sidebarData,
+        navItems: navItems,
         pendingPairings: const [],
       );
 
@@ -301,6 +312,7 @@ void main() {
         entryPlaceholder: 'phone or uuid',
         groupPlaceholder: 'group',
         sidebarData: sidebarData,
+        navItems: navItems,
         pendingPairings: const [
           {'senderId': '+1555', 'displayName': 'Bob', 'remainingLabel': '22m', 'code': 'abc'},
         ],
@@ -327,6 +339,7 @@ void main() {
         entryPlaceholder: 'phone or uuid',
         groupPlaceholder: 'group',
         sidebarData: sidebarData,
+        navItems: navItems,
       );
 
       expect(html, contains('id="channel-dm-access"'));
@@ -498,6 +511,19 @@ void main() {
     test('renders data-has-title="true" when hasTitle is true', () {
       final html = chatAreaTemplate(sessionId: 'a', messagesHtml: '', hasTitle: true);
       expect(html, contains('data-has-title="true"'));
+    });
+
+    test('renders earliest cursor and load earlier button state', () {
+      final html = chatAreaTemplate(sessionId: 's1', messagesHtml: '', earliestCursor: 25, hasEarlierMessages: true);
+      expect(html, contains('data-earliest-cursor="25"'));
+      expect(html, contains('data-load-earlier'));
+      expect(html, isNot(contains('hidden="true"')));
+    });
+
+    test('hides load earlier button when there are no earlier messages', () {
+      final html = chatAreaTemplate(sessionId: 's1', messagesHtml: '', earliestCursor: 1, hasEarlierMessages: false);
+      expect(html, contains('data-load-earlier'));
+      expect(html, contains('hidden='));
     });
   });
 

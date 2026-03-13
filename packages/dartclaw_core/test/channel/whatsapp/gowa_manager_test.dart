@@ -90,6 +90,26 @@ void main() {
       expect(mgr.isRunning, isFalse);
     });
 
+    test('start adopts healthy existing service without spawning', () async {
+      var spawned = false;
+      final mgr = GowaManager(
+        executable: 'whatsapp',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          spawned = true;
+          return FakeProcess();
+        },
+        healthProbe: () async => true,
+      );
+
+      await mgr.start();
+
+      expect(spawned, isFalse);
+      expect(mgr.isRunning, isTrue);
+
+      await mgr.stop();
+      expect(mgr.isRunning, isFalse);
+    });
+
     test('start spawns process with correct args (rest subcommand, --db-uri, --webhook)', () async {
       late String capturedExe;
       late List<String> capturedArgs;

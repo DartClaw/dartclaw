@@ -5,10 +5,12 @@ import 'package:yaml/yaml.dart';
 
 import '../agents/agent_definition.dart';
 import '../channel/channel_config.dart';
+import '../channel/googlechat/google_chat_config.dart';
 import '../container/container_config.dart';
 import '../security/env_substitute.dart';
 import '../security/guard_config.dart';
 import '../utils/path_utils.dart';
+import 'scheduled_task_definition.dart';
 import 'session_maintenance_config.dart';
 import 'session_scope_config.dart';
 
@@ -33,6 +35,8 @@ class DartclawConfig {
   final String? agentModel;
   final bool agentContext1m;
   final Map<String, dynamic>? agentAgents;
+  final bool cookieSecure;
+  final List<String> trustedProxies;
   final String gatewayAuthMode;
   final String? gatewayToken;
   final bool gatewayHsts;
@@ -44,6 +48,7 @@ class DartclawConfig {
   final int contextMaxResultBytes;
   final ContainerConfig containerConfig;
   final ChannelConfig channelConfig;
+  final GoogleChatConfig googleChatConfig;
   final bool heartbeatEnabled;
   final int heartbeatIntervalMinutes;
   final bool gitSyncEnabled;
@@ -68,6 +73,12 @@ class DartclawConfig {
   final Map<String, SearchProviderEntry> searchProviders;
   final SessionScopeConfig sessionScopeConfig;
   final SessionMaintenanceConfig sessionMaintenanceConfig;
+  final int guardAuditMaxEntries;
+  final int tasksMaxConcurrent;
+  final String tasksWorktreeBaseRef;
+  final int tasksWorktreeStaleTimeoutHours;
+  final String tasksWorktreeMergeStrategy;
+  final List<ScheduledTaskDefinition> automationScheduledTasks;
 
   /// Raw guards YAML map for per-guard config (command, file, network sections).
   final Map<String, dynamic> guardsYaml;
@@ -80,6 +91,7 @@ class DartclawConfig {
   String get sessionsDir => p.join(dataDir, 'sessions');
   String get logsDir => p.join(dataDir, 'logs');
   String get searchDbPath => p.join(dataDir, 'search.db');
+  String get tasksDbPath => p.join(dataDir, 'tasks.db');
   String get kvPath => p.join(dataDir, 'kv.json');
 
   const DartclawConfig({
@@ -102,6 +114,8 @@ class DartclawConfig {
     this.agentModel,
     this.agentContext1m = false,
     this.agentAgents,
+    this.cookieSecure = false,
+    this.trustedProxies = const [],
     this.gatewayAuthMode = 'token',
     this.gatewayToken,
     this.gatewayHsts = false,
@@ -113,6 +127,7 @@ class DartclawConfig {
     this.contextMaxResultBytes = 50 * 1024,
     this.containerConfig = const ContainerConfig.disabled(),
     this.channelConfig = const ChannelConfig.defaults(),
+    this.googleChatConfig = const GoogleChatConfig.disabled(),
     this.heartbeatEnabled = true,
     this.heartbeatIntervalMinutes = 30,
     this.gitSyncEnabled = true,
@@ -137,6 +152,12 @@ class DartclawConfig {
     this.searchProviders = const {},
     this.sessionScopeConfig = const SessionScopeConfig.defaults(),
     this.sessionMaintenanceConfig = const SessionMaintenanceConfig.defaults(),
+    this.guardAuditMaxEntries = 10000,
+    this.tasksMaxConcurrent = 3,
+    this.tasksWorktreeBaseRef = 'main',
+    this.tasksWorktreeStaleTimeoutHours = 24,
+    this.tasksWorktreeMergeStrategy = 'squash',
+    this.automationScheduledTasks = const [],
     this.guardsYaml = const {},
     this.warnings = const [],
   });
@@ -170,6 +191,7 @@ class DartclawConfig {
     final top = _parseTopLevel(yaml, cli, environment, defaults, warns);
     final logging = _parseLogging(yaml, cli, environment, defaults, warns);
     final agent = _parseAgent(yaml, defaults, warns);
+    final auth = _parseAuth(yaml, defaults, warns);
     final gateway = _parseGateway(yaml, environment, defaults, warns);
     final sessions = _parseSessions(yaml, defaults, warns);
     final context = _parseContext(yaml, defaults, warns);
@@ -183,7 +205,11 @@ class DartclawConfig {
     final memory = _parseMemory(yaml, defaults, warns);
     final container = _parseContainer(yaml, warns);
     final channels = _parseChannels(yaml, warns);
+    final googleChat = _parseGoogleChat(channels, warns);
     final concurrency = _parseConcurrency(yaml, defaults, warns);
+    final guardAudit = _parseGuardAudit(yaml, defaults, warns);
+    final tasks = _parseTasks(yaml, defaults, warns);
+    final automation = _parseAutomation(yaml, warns);
 
     return DartclawConfig(
       port: top.port,
@@ -208,6 +234,8 @@ class DartclawConfig {
       agentAgents: agent.agents,
       agentDefinitions: agent.definitions,
       devMode: top.devMode,
+      cookieSecure: auth.cookieSecure,
+      trustedProxies: auth.trustedProxies,
       gatewayAuthMode: gateway.authMode,
       gatewayToken: gateway.token,
       gatewayHsts: gateway.hsts,
@@ -223,6 +251,7 @@ class DartclawConfig {
       contextMaxResultBytes: context.maxResultBytes,
       containerConfig: container,
       channelConfig: channels,
+      googleChatConfig: googleChat,
       gitSyncEnabled: workspace.gitSyncEnabled,
       gitSyncPushEnabled: workspace.gitSyncPushEnabled,
       searchBackend: search.backend,
@@ -241,6 +270,12 @@ class DartclawConfig {
       memoryPruningEnabled: memory.pruningEnabled,
       memoryArchiveAfterDays: memory.archiveAfterDays,
       memoryPruningSchedule: memory.pruningSchedule,
+      guardAuditMaxEntries: guardAudit.maxEntries,
+      tasksMaxConcurrent: tasks.maxConcurrent,
+      tasksWorktreeBaseRef: tasks.worktreeBaseRef,
+      tasksWorktreeStaleTimeoutHours: tasks.worktreeStaleTimeoutHours,
+      tasksWorktreeMergeStrategy: tasks.worktreeMergeStrategy,
+      automationScheduledTasks: automation,
       warnings: List.unmodifiable(warns),
     );
   }
@@ -418,6 +453,36 @@ class DartclawConfig {
       agents: agents,
       definitions: definitions,
     );
+  }
+
+  static ({bool cookieSecure, List<String> trustedProxies}) _parseAuth(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    var cookieSecure = defaults.cookieSecure;
+    var trustedProxies = defaults.trustedProxies;
+
+    final authRaw = yaml['auth'];
+    if (authRaw is Map) {
+      final value = authRaw['cookie_secure'];
+      if (value is bool) {
+        cookieSecure = value;
+      } else if (value != null) {
+        warns.add('Invalid type for auth.cookie_secure: "${value.runtimeType}" — using default');
+      }
+
+      final trustedProxyValue = authRaw['trusted_proxies'];
+      if (trustedProxyValue is List) {
+        trustedProxies = trustedProxyValue.whereType<String>().toList(growable: false);
+      } else if (trustedProxyValue != null) {
+        warns.add('Invalid type for auth.trusted_proxies: "${trustedProxyValue.runtimeType}" — using default');
+      }
+    } else if (authRaw != null) {
+      warns.add('Invalid type for auth: "${authRaw.runtimeType}" — using defaults');
+    }
+
+    return (cookieSecure: cookieSecure, trustedProxies: trustedProxies);
   }
 
   static ({String authMode, String? token, bool hsts}) _parseGateway(
@@ -985,6 +1050,14 @@ class DartclawConfig {
     return config;
   }
 
+  static GoogleChatConfig _parseGoogleChat(ChannelConfig channels, List<String> warns) {
+    final raw = channels.channelConfigs['google_chat'];
+    if (raw == null) {
+      return const GoogleChatConfig.disabled();
+    }
+    return GoogleChatConfig.fromYaml(raw, warns);
+  }
+
   static ({int maxParallelTurns}) _parseConcurrency(
     Map<String, dynamic> yaml,
     DartclawConfig defaults,
@@ -998,6 +1071,98 @@ class DartclawConfig {
       warns,
     );
     return (maxParallelTurns: maxParallelTurns);
+  }
+
+  static ({int maxEntries}) _parseGuardAudit(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
+    final maxEntries = _parseInt(
+      'guard_audit.max_entries',
+      null,
+      (yaml['guard_audit'] is Map) ? (yaml['guard_audit'] as Map)['max_entries'] : null,
+      defaults.guardAuditMaxEntries,
+      warns,
+    ).clamp(100, 1000000);
+    return (maxEntries: maxEntries);
+  }
+
+  static ({int maxConcurrent, String worktreeBaseRef, int worktreeStaleTimeoutHours, String worktreeMergeStrategy})
+  _parseTasks(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
+    var maxConcurrent = defaults.tasksMaxConcurrent;
+    var worktreeBaseRef = defaults.tasksWorktreeBaseRef;
+    var worktreeStaleTimeoutHours = defaults.tasksWorktreeStaleTimeoutHours;
+    var worktreeMergeStrategy = defaults.tasksWorktreeMergeStrategy;
+
+    final tasksRaw = yaml['tasks'];
+    if (tasksRaw is Map) {
+      maxConcurrent = _parseInt(
+        'tasks.max_concurrent',
+        null,
+        tasksRaw['max_concurrent'],
+        defaults.tasksMaxConcurrent,
+        warns,
+      ).clamp(1, 10);
+
+      final worktreeRaw = tasksRaw['worktree'];
+      if (worktreeRaw is Map) {
+        final br = worktreeRaw['base_ref'];
+        if (br is String && br.isNotEmpty) worktreeBaseRef = br;
+        worktreeStaleTimeoutHours = _parseInt(
+          'tasks.worktree.stale_timeout_hours',
+          null,
+          worktreeRaw['stale_timeout_hours'],
+          defaults.tasksWorktreeStaleTimeoutHours,
+          warns,
+        ).clamp(1, 168);
+        final ms = worktreeRaw['merge_strategy'];
+        if (ms is String) {
+          if (ms == 'squash' || ms == 'merge') {
+            worktreeMergeStrategy = ms;
+          } else {
+            warns.add('Invalid value for tasks.worktree.merge_strategy: "$ms" — using default "squash"');
+          }
+        }
+      } else if (worktreeRaw != null) {
+        warns.add('Invalid type for tasks.worktree: "${worktreeRaw.runtimeType}" — using defaults');
+      }
+    } else if (tasksRaw != null) {
+      warns.add('Invalid type for tasks: "${tasksRaw.runtimeType}" — using defaults');
+    }
+
+    return (
+      maxConcurrent: maxConcurrent,
+      worktreeBaseRef: worktreeBaseRef,
+      worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
+      worktreeMergeStrategy: worktreeMergeStrategy,
+    );
+  }
+
+  static List<ScheduledTaskDefinition> _parseAutomation(Map<String, dynamic> yaml, List<String> warns) {
+    final automationRaw = yaml['automation'];
+    if (automationRaw == null) return const [];
+    if (automationRaw is! Map) {
+      warns.add('Invalid type for automation: "${automationRaw.runtimeType}" — using defaults');
+      return const [];
+    }
+
+    final tasksRaw = automationRaw['scheduled_tasks'];
+    if (tasksRaw == null) return const [];
+    if (tasksRaw is! List) {
+      warns.add('Invalid type for automation.scheduled_tasks: "${tasksRaw.runtimeType}" — expected list');
+      return const [];
+    }
+
+    final results = <ScheduledTaskDefinition>[];
+    for (final entry in tasksRaw) {
+      if (entry is! Map) {
+        warns.add('Invalid automation.scheduled_tasks entry: "${entry.runtimeType}" — skipping');
+        continue;
+      }
+      final parsed = ScheduledTaskDefinition.fromYaml(Map<String, dynamic>.from(entry), warns);
+      if (parsed != null) {
+        results.add(parsed);
+      }
+    }
+
+    return results;
   }
 
   // --- Private helpers ---
@@ -1022,6 +1187,7 @@ class DartclawConfig {
     'guards',
     'logging',
     'agent',
+    'auth',
     'gateway',
     'concurrency',
     'sessions',
@@ -1032,7 +1198,10 @@ class DartclawConfig {
     'workspace',
     'search',
     'usage',
+    'guard_audit',
     'memory',
+    'tasks',
+    'automation',
   };
 
   static Map<String, dynamic> _loadYaml(

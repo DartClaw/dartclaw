@@ -34,13 +34,7 @@ Map<String, dynamic> sampleStatus({
     'archiveMd': {'entryCount': archivedCount, 'sizeBytes': 1024},
     'errorsMd': {'entryCount': errorsCount, 'cap': errorsCap, 'sizeBytes': 512},
     'learningsMd': {'entryCount': learningsCount, 'cap': learningsCap, 'sizeBytes': 256},
-    'search': {
-      'backend': 'fts5',
-      'depth': 10,
-      'indexEntries': 20,
-      'indexArchived': 5,
-      'dbSizeBytes': 4096,
-    },
+    'search': {'backend': 'fts5', 'depth': 10, 'indexEntries': 20, 'indexArchived': 5, 'dbSizeBytes': 4096},
     'pruner': {
       'status': prunerStatus,
       'schedule': '0 3 * * *',
@@ -49,17 +43,20 @@ Map<String, dynamic> sampleStatus({
       'undatedCount': undatedCount,
       'history': prunerHistory,
     },
-    'dailyLogs': {
-      'fileCount': logFileCount,
-      'totalSizeBytes': 2048,
-      'recent': recentLogs,
-    },
+    'dailyLogs': {'fileCount': logFileCount, 'totalSizeBytes': 2048, 'recent': recentLogs},
     'config': {'memoryMaxBytes': budgetBytes},
   };
 }
 
-SidebarData emptySidebarData() =>
-    (main: null, dmChannels: <SidebarSession>[], groupChannels: <SidebarSession>[], activeEntries: <SidebarSession>[], archivedEntries: <SidebarSession>[]);
+SidebarData emptySidebarData() => (
+  main: null,
+  dmChannels: <SidebarSession>[],
+  groupChannels: <SidebarSession>[],
+  activeEntries: <SidebarSession>[],
+  archivedEntries: <SidebarSession>[],
+);
+
+const emptyNavItems = <NavItem>[];
 
 void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
@@ -70,6 +67,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/home/user/.dartclaw/workspace/',
       );
 
@@ -89,6 +87,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(sizeBytes: 8192, budgetBytes: 32768), // 25%
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -101,6 +100,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(sizeBytes: 27853, budgetBytes: 32768), // ~85%
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -111,6 +111,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(prunerHistory: []),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -119,16 +120,19 @@ void main() {
 
     test('pruner history renders table rows', () {
       final html = memoryDashboardTemplate(
-        status: sampleStatus(prunerHistory: [
-          {
-            'timestamp': '2026-03-01T03:00:00.000Z',
-            'entriesArchived': 3,
-            'duplicatesRemoved': 1,
-            'entriesRemaining': 10,
-            'finalSizeBytes': 5000,
-          },
-        ]),
+        status: sampleStatus(
+          prunerHistory: [
+            {
+              'timestamp': '2026-03-01T03:00:00.000Z',
+              'entriesArchived': 3,
+              'duplicatesRemoved': 1,
+              'entriesRemaining': 10,
+              'finalSizeBytes': 5000,
+            },
+          ],
+        ),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -142,6 +146,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(recentLogs: [], logFileCount: 0),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -157,6 +162,7 @@ void main() {
           logFileCount: 1,
         ),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -174,6 +180,7 @@ void main() {
         final html = memoryDashboardTemplate(
           status: sampleStatus(prunerStatus: status),
           sidebarData: emptySidebarData(),
+          navItems: emptyNavItems,
           workspacePath: '/tmp',
         );
 
@@ -185,6 +192,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(undatedCount: 3),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -193,11 +201,14 @@ void main() {
 
     test('category breakdown rendered when categories present', () {
       final html = memoryDashboardTemplate(
-        status: sampleStatus(categories: [
-          {'name': 'general', 'count': 5},
-          {'name': 'preferences', 'count': 3},
-        ]),
+        status: sampleStatus(
+          categories: [
+            {'name': 'general', 'count': 5},
+            {'name': 'preferences', 'count': 3},
+          ],
+        ),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -209,6 +220,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/tmp',
       );
 
@@ -219,6 +231,7 @@ void main() {
       final html = memoryDashboardTemplate(
         status: sampleStatus(),
         sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
         workspacePath: '/home/user/.dartclaw/workspace/',
       );
 
@@ -228,10 +241,7 @@ void main() {
 
   group('memoryDashboardContentFragment', () {
     test('renders fragment without layout wrapper', () {
-      final html = memoryDashboardContentFragment(
-        status: sampleStatus(),
-        workspacePath: '/tmp',
-      );
+      final html = memoryDashboardContentFragment(status: sampleStatus(), workspacePath: '/tmp');
 
       // Fragment should contain sections but not full HTML layout
       expect(html, contains('Overview'));

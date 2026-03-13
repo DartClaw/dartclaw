@@ -7,39 +7,45 @@ DartClaw is a security-focused agent runtime — a single AOT-compiled Dart bina
 _**Opinionated (Claude Code), but pluggable.**_
 The harness architecture currently drives Claude's native CLI binary via JSONL control protocol, but is designed to leash any agent runtime — Pi, local models, that hot new AI your timeline won't shut up about. Swap the brain, keep the cage.
 
-> **Status**: v0.7 — configurable session scoping, session maintenance, event bus infrastructure, channel DM access management.
+> **Status**: v0.8 — task orchestration, parallel execution, coding tasks with git worktree isolation, task dashboard, Google Chat channel, agent observability.
 
 ## Architecture
 
 ```
-User --> HTTP/WhatsApp/Signal --> Dart Host --> Guards --> Container --> claude binary
-                              |                         |
-                        Guard Chain               network:none
-                        Audit Logger            Credential Proxy
-                       Content Guard             Mount Allowlist
+User --> HTTP/WhatsApp/Signal/Google Chat --> Dart Host --> Guards --> Container --> claude binary
+                                          |                         |
+                                    Guard Chain               network:none
+                                    Audit Logger            Credential Proxy
+                                   Content Guard             Mount Allowlist
 ```
 
 Two layers with clear trust boundaries:
-- **Dart host** -- state (file-based + SQLite via `dartclaw_storage`), HTTP API, web UI, security policy, scheduling, channels
-- **Agent runtime** -- reasoning, tool execution, bash commands (optionally in Docker container)
+- **Dart host** -- state (file-based + SQLite via `dartclaw_storage`), HTTP API, web UI, security policy, scheduling, channels, task orchestration
+- **Agent runtime** -- reasoning, tool execution, bash commands (in per-type Docker containers or host process)
 
 The Dart host communicates with the agent runtime through the `AgentHarness` abstract interface. The current implementation (`ClaudeCodeHarness`) drives the native `claude` CLI binary via bidirectional JSONL over stdin/stdout. The harness abstraction is runtime-agnostic — the rest of the system (server, turn manager, health checks, guards) depends only on the interface, never on a specific runtime. This means alternative agent runtimes (e.g. Pi, local models, or other AI CLIs) can be integrated by implementing a new harness class without modifying any consuming code.
 
 ## Key Features
 
-- **Defense-in-depth security** -- Docker container isolation (`network:none`, `--cap-drop ALL`), guard chain (command/file/network/content), credential proxy, HTTP auth
+- **Defense-in-depth security** -- per-type container isolation (`workspace` and `restricted` profiles), Docker `network:none` + `--cap-drop ALL`, guard chain (command/file/network/content), credential proxy, HTTP auth
+- **Task orchestration** -- background AI tasks with review queue; 6 task types (coding/research/writing/analysis/automation/custom); goal hierarchy for context injection; state machine lifecycle with push-back
+- **Parallel execution** -- `HarnessPool` manages multiple agent instances; configurable `max_concurrent`; per-session turn serialization; container dispatch routing (research → restricted, others → workspace)
+- **Coding tasks** -- git worktree isolation per task; `FileGuard` integration; structured diff review; configurable merge strategy (squash/merge); conflict detection
+- **Task dashboard** -- `/tasks` page with review queue, status filters, SSE live updates, sidebar badge; task detail with embedded chat, artifact panel, review controls; "New Task" form
+- **Agent observability** -- `AgentObserver` per-harness metrics (tokens, turns, errors); `GET /api/agents` endpoint; pool status; live agent overview on dashboard
 - **Web chat UI** -- HTMX + SSE streaming, markdown rendering, syntax highlighting, light/dark theme
 - **WhatsApp channel** -- via GOWA sidecar (whatsmeow), DM/group access control, mention gating, pairing flow
 - **Signal channel** -- via signal-cli, DM/group access control, sealed-sender normalization, voice verification, pairing
+- **Google Chat channel** -- GCP service account auth, JWT-verified webhooks, Chat REST API, per-space rate limiting, typing indicator, DM/group access control
 - **Configurable session scoping** -- DM scope (shared/per-contact/per-channel-contact), group scope (shared/per-member), per-channel overrides
 - **Session maintenance** -- automatic pruning, count cap, disk budget, cron retention, warn/enforce modes, CLI cleanup command
-- **Scheduling** -- cron jobs, heartbeat checklist, workspace git sync
+- **Scheduling** -- cron jobs (prompt and task types), heartbeat checklist, workspace git sync; scheduled tasks auto-enter review queue
 - **Search agent** -- dedicated 2-agent pattern with tool policy cascade, content-guard at boundary
 - **Hybrid memory** -- FTS5 default, QMD opt-in for vector search, agent-driven consolidation
 - **Session management** -- per-session locks, concurrent turns, reset policies, archiving, event-driven lifecycle
 - **Crash recovery** -- cursor-based message replay, harness auto-restart with exponential backoff
 - **AOT compilation** -- single native binary, zero runtime dependencies
-- **Customizable** -- 5-level customization ladder from behavior files to source code
+- **Customizable** -- 5-level customization ladder from behavior files to source code; `PageRegistry` SDK API for dashboard plugins
 
 ## Prerequisites
 

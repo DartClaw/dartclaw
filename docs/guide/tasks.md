@@ -1,0 +1,139 @@
+# Tasks
+
+DartClaw's task system is for reviewable background work. A task can run as coding, research, writing, analysis, automation, or custom work, then stop in a review state before the final outcome is accepted.
+
+## Core Concepts
+
+### Task Types
+
+- `coding`
+- `research`
+- `writing`
+- `analysis`
+- `automation`
+- `custom`
+
+### Lifecycle
+
+```text
+draft -> queued -> running -> review -> accepted
+                 |         |
+                 |         -> rejected
+                 -> interrupted -> queued
+```
+
+Push-back sends a review task back to `queued` with operator feedback attached.
+
+## Creating Tasks
+
+### Web UI
+
+Open `/tasks` and use **New Task**. The form supports:
+
+- title
+- description
+- type
+- acceptance criteria
+- optional goal
+- `autoStart`
+- advanced overrides such as model and token budget
+
+`autoStart: true` queues the task immediately. Otherwise it remains in `draft` until started manually.
+
+### API
+
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "title": "Refactor the auth middleware tests",
+  "description": "Tighten rate-limit and cookie coverage without changing behavior.",
+  "type": "coding",
+  "acceptanceCriteria": "All auth tests pass and analyzer stays clean.",
+  "autoStart": true
+}
+```
+
+Tasks can also be linked to a goal with `goalId`.
+
+## Execution Model
+
+- `tasks.max_concurrent` controls how many background task runners are started
+- the primary interactive chat runner is separate from the background task pool
+- each task type maps to a security profile, so task execution can be isolated differently from the main chat flow
+- `/tasks` shows runner state through the agent pool and runner metrics panels
+
+## Coding Tasks and Worktrees
+
+Coding tasks run inside an isolated git worktree:
+
+- `tasks.worktree.base_ref` chooses the base branch or ref
+- `tasks.worktree.stale_timeout_hours` controls when abandoned worktrees are considered stale
+- `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted work
+
+The worktree path is guarded so file operations stay contained to the task's assigned checkout.
+
+## Review Workflow
+
+When execution finishes, the task enters `review` with artifacts attached:
+
+- **Accept**: finalizes the task and, for coding tasks, merges the worktree back into the base ref
+- **Reject**: closes the task without re-queueing it
+- **Push Back**: requires a comment and returns the task to `queued`
+
+The task detail page combines:
+
+- recent session messages (most recent messages from the execution transcript, not the full history)
+- structured diff output when available
+- raw or rendered artifacts
+- review controls
+
+## Diff Review and Merge Conflicts
+
+Coding tasks typically attach a structured diff artifact for review. If the final merge hits conflicts, DartClaw preserves a `conflict.json` artifact and keeps the task in review so the operator can resolve the worktree manually.
+
+## Automation and Scheduling
+
+Recurring task creation uses `automation.scheduled_tasks`. This is separate from `scheduling.jobs`, which runs prompt-based jobs directly.
+
+```yaml
+tasks:
+  max_concurrent: 3
+  worktree:
+    base_ref: main
+    stale_timeout_hours: 24
+    merge_strategy: squash
+
+automation:
+  scheduled_tasks:
+    - id: daily-maintenance-review
+      schedule: "0 9 * * 1-5"
+      enabled: true
+      task:
+        title: Daily maintenance review
+        description: Review maintenance items and prepare a coding task if changes are needed.
+        type: coding
+        acceptance_criteria: Tests stay green and the worktree is ready for review.
+        auto_start: true
+```
+
+See [Scheduling](scheduling.md) for the broader scheduler model.
+
+## Goals and Observability
+
+- Tasks can be grouped under goals for planning and reporting
+- `/tasks` shows review counts and runner utilization
+- task detail pages expose recent session messages plus artifacts for operator review
+
+## Configuration Summary
+
+These task-specific runtime keys come from `DartclawConfig`:
+
+- `tasks.max_concurrent`
+- `tasks.worktree.base_ref`
+- `tasks.worktree.stale_timeout_hours`
+- `tasks.worktree.merge_strategy`
+- `automation.scheduled_tasks`
+
+See also [Configuration](configuration.md), [Scheduling](scheduling.md), and [Web UI & API](web-ui-and-api.md).

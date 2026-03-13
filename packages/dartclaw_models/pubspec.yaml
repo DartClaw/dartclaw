@@ -1,7 +1,7 @@
 name: dartclaw_models
 description: Core data types for the DartClaw agent runtime — sessions, messages, memory chunks.
 publish_to: none
-version: 0.6.0
+version: 0.8.0
 
 environment:
   sdk: ^3.11.0

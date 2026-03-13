@@ -37,6 +37,18 @@ void main() {
       expect(m2.cursor, equals(2));
     });
 
+    test('resumes cursor from existing file after service restart', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'First');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'Second');
+      await messages.dispose();
+
+      messages = MessageService(baseDir: tempDir.path);
+      final third = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Third');
+
+      expect(third.cursor, equals(3));
+    });
+
     test('throws on empty role', () async {
       final session = await sessions.createSession();
       expect(
@@ -128,6 +140,39 @@ void main() {
     });
   });
 
+  group('tail windows', () {
+    test('getMessagesTail returns the last N messages', () async {
+      final session = await sessions.createSession();
+      for (var i = 1; i <= 5; i++) {
+        await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Message $i');
+      }
+
+      final tail = await messages.getMessagesTail(session.id, count: 2);
+      expect(tail.map((m) => m.content).toList(), ['Message 4', 'Message 5']);
+      expect(tail.map((m) => m.cursor).toList(), [4, 5]);
+    });
+
+    test('getMessagesBefore returns the previous window without gaps', () async {
+      final session = await sessions.createSession();
+      for (var i = 1; i <= 6; i++) {
+        await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Message $i');
+      }
+
+      final window = await messages.getMessagesBefore(session.id, 6, count: 3);
+      expect(window.map((m) => m.content).toList(), ['Message 3', 'Message 4', 'Message 5']);
+      expect(window.map((m) => m.cursor).toList(), [3, 4, 5]);
+    });
+
+    test('getMessagesTail returns all messages when history is smaller than the window', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Only');
+
+      final tail = await messages.getMessagesTail(session.id, count: 200);
+      expect(tail, hasLength(1));
+      expect(tail.single.content, 'Only');
+    });
+  });
+
   group('NDJSON format', () {
     test('each line is valid JSON', () async {
       final session = await sessions.createSession();
@@ -175,6 +220,19 @@ void main() {
         () => messages.insertMessage(sessionId: session.id, role: 'user', content: 'After dispose'),
         throwsA(isA<StateError>()),
       );
+    });
+  });
+
+  group('clearMessages', () {
+    test('resets cached cursor state', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'First');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'Second');
+
+      await messages.clearMessages(session.id);
+      final reset = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'After clear');
+
+      expect(reset.cursor, equals(1));
     });
   });
 }

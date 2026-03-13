@@ -1,15 +1,11 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:logging/logging.dart';
-import 'package:uuid/uuid.dart';
 
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
-import 'logging/log_context.dart';
+import 'harness_pool.dart';
 import 'session/session_reset_service.dart';
+import 'turn_runner.dart';
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -25,7 +21,20 @@ class TurnContext {
   final String agentName;
   final DateTime startedAt;
 
-  TurnContext({required this.turnId, required this.sessionId, this.agentName = 'main', required this.startedAt});
+  /// Optional working directory override for this turn (e.g. worktree path).
+  final String? directory;
+
+  /// Optional per-turn model override for task execution.
+  final String? model;
+
+  TurnContext({
+    required this.turnId,
+    required this.sessionId,
+    this.agentName = 'main',
+    required this.startedAt,
+    this.directory,
+    this.model,
+  });
 }
 
 /// Result of a completed turn including status and optional error.
@@ -35,7 +44,11 @@ class TurnOutcome {
   final TurnStatus status;
   final String? errorMessage; // non-null when failed
   final String? responseText; // non-null when completed
+  final int inputTokens;
+  final int outputTokens;
   final DateTime completedAt;
+
+  int get totalTokens => inputTokens + outputTokens;
 
   TurnOutcome({
     required this.turnId,
@@ -43,6 +56,8 @@ class TurnOutcome {
     required this.status,
     this.errorMessage,
     this.responseText,
+    this.inputTokens = 0,
+    this.outputTokens = 0,
     required this.completedAt,
   });
 }
@@ -63,33 +78,17 @@ class BusyTurnException implements Exception {
 // ---------------------------------------------------------------------------
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
+///
+/// Thin wrapper around [HarnessPool.primary] — delegates all turn operations
+/// to the primary [TurnRunner]. Exposes the [pool] for [TaskExecutor] to
+/// acquire task runners.
 class TurnManager {
-  static final _log = Logger('TurnManager');
-  static const _uuid = Uuid();
-  static const _memoryWarnBytes = 50 * 1024;
+  final HarnessPool _pool;
+  late final TurnRunner _primary = _pool.primary;
 
-  final MessageService _messages;
-  final AgentHarness _worker;
-  final BehaviorFileService _behavior;
-  final MemoryFileService? _memoryFile;
-  final SessionService? _sessions;
-  final KvService? _kv;
-  final GuardChain? _guardChain;
-  final SessionLockManager _lockManager;
-  final SessionResetService? _resetService;
-  final ContextMonitor _contextMonitor;
-  final ResultTrimmer _resultTrimmer;
-  final MessageRedactor? _redactor;
-  final SelfImprovementService? _selfImprovement;
-  final UsageTracker? _usageTracker;
-  final Duration _outcomeTtl;
-
-  final Map<String, TurnContext> _activeTurns = {};
-  final Set<String> _cancelledTurns = {};
-  final Map<String, ({TurnOutcome outcome, DateTime expiresAt})> _recentOutcomes = {};
-  final Map<String, Completer<TurnOutcome>> _outcomePending = {};
-  final Set<String> _recoveredSessions = {};
-
+  /// Backward-compatible constructor: accepts a single [AgentHarness] and wraps
+  /// it in a single-runner pool. Used by existing callers and tests that don't
+  /// need multi-harness support.
   TurnManager({
     required MessageService messages,
     required AgentHarness worker,
@@ -106,514 +105,117 @@ class TurnManager {
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
     Duration outcomeTtl = const Duration(seconds: 30),
-  }) : _messages = messages,
-       _worker = worker,
-       _behavior = behavior,
-       _memoryFile = memoryFile,
-       _sessions = sessions,
-       _kv = kv,
-       _guardChain = guardChain,
-       _lockManager = lockManager ?? SessionLockManager(),
-       _resetService = resetService,
-       _contextMonitor = contextMonitor ?? ContextMonitor(),
-       _resultTrimmer = resultTrimmer ?? const ResultTrimmer(),
-       _redactor = redactor,
-       _selfImprovement = selfImprovement,
-       _usageTracker = usageTracker,
-       _outcomeTtl = outcomeTtl;
+  }) : _pool = HarnessPool(
+         runners: [
+           TurnRunner(
+             harness: worker,
+             messages: messages,
+             behavior: behavior,
+             memoryFile: memoryFile,
+             sessions: sessions,
+             kv: kv,
+             guardChain: guardChain,
+             lockManager: lockManager,
+             resetService: resetService,
+             contextMonitor: contextMonitor,
+             resultTrimmer: resultTrimmer,
+             redactor: redactor,
+             selfImprovement: selfImprovement,
+             usageTracker: usageTracker,
+             outcomeTtl: outcomeTtl,
+           ),
+         ],
+       );
+
+  /// Creates a TurnManager backed by a [HarnessPool].
+  TurnManager.fromPool({required HarnessPool pool}) : _pool = pool;
 
   // ---------------------------------------------------------------------------
-  // Public API
+  // Public API — delegates to primary TurnRunner
   // ---------------------------------------------------------------------------
 
-  Iterable<String> get activeSessionIds => _activeTurns.keys;
+  /// The pool backing this manager. Used by [TaskExecutor] to acquire
+  /// task runners.
+  HarnessPool get pool => _pool;
 
-  bool isActive(String sessionId) => _activeTurns.containsKey(sessionId);
+  Iterable<String> get activeSessionIds sync* {
+    for (final runner in _pool.runners) {
+      yield* runner.activeSessionIds;
+    }
+  }
 
-  String? activeTurnId(String sessionId) => _activeTurns[sessionId]?.turnId;
+  bool isActive(String sessionId) => _pool.runners.any((runner) => runner.isActive(sessionId));
 
-  bool isActiveTurn(String sessionId, String turnId) => _activeTurns[sessionId]?.turnId == turnId;
+  String? activeTurnId(String sessionId) {
+    for (final runner in _pool.runners) {
+      final turnId = runner.activeTurnId(sessionId);
+      if (turnId != null) return turnId;
+    }
+    return null;
+  }
+
+  bool isActiveTurn(String sessionId, String turnId) =>
+      _pool.runners.any((runner) => runner.isActiveTurn(sessionId, turnId));
 
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
-    _evictExpiredOutcomes();
-    final entry = _recentOutcomes[turnId];
-    if (entry == null) return null;
-    return entry.outcome.sessionId == sessionId ? entry.outcome : null;
-  }
-
-  /// Reserves a new turn slot for [sessionId].
-  /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
-  /// Same-session requests queue behind the active turn.
-  /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main'}) async {
-    await _lockManager.acquire(sessionId); // queues for same-session, throws for global cap
-    final turnId = _uuid.v4();
-    _activeTurns[sessionId] = TurnContext(turnId: turnId, sessionId: sessionId, agentName: agentName, startedAt: DateTime.now());
-    _outcomePending[turnId] = Completer<TurnOutcome>();
-    _resetService?.touchActivity(sessionId);
-
-    // Persist turn state for crash recovery (fire-and-forget, non-blocking)
-    final kv = _kv;
-    if (kv != null) {
-      unawaited(
-        kv.set(
-          'turn:$sessionId',
-          jsonEncode({'turnId': turnId, 'startedAt': DateTime.now().toIso8601String()}),
-        ).catchError((e) {
-          _log.warning('Failed to persist turn state for crash recovery', e);
-        }),
-      );
+    for (final runner in _pool.runners) {
+      final outcome = runner.recentOutcome(sessionId, turnId);
+      if (outcome != null) return outcome;
     }
-
-    return turnId;
+    return null;
   }
 
-  /// Launches async execution for a previously [reserveTurn]'d turn.
-  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) {
-    unawaited(_runTurn(sessionId: sessionId, turnId: turnId, messages: messages, source: source));
-  }
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) =>
+      _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model);
 
-  /// Rolls back a [reserveTurn] reservation without executing.
-  void releaseTurn(String sessionId, String turnId) {
-    _activeTurns.remove(sessionId);
-    _lockManager.release(sessionId);
-    _outcomePending.remove(turnId)?.completeError(StateError('Turn released without execution'));
-  }
+  void executeTurn(
+    String sessionId,
+    String turnId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+  }) => _primary.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
 
-  Future<String> startTurn(String sessionId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) async {
-    final turnId = await reserveTurn(sessionId, agentName: agentName);
-    executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
-    return turnId;
-  }
+  void releaseTurn(String sessionId, String turnId) => _primary.releaseTurn(sessionId, turnId);
+
+  Future<String> startTurn(
+    String sessionId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+    String? model,
+  }) => _primary.startTurn(sessionId, messages, source: source, agentName: agentName, model: model);
 
   Future<void> cancelTurn(String sessionId) async {
-    final turnId = _activeTurns[sessionId]?.turnId;
-    if (turnId == null) return;
-    _cancelledTurns.add(turnId);
-    await _worker.cancel();
+    for (final runner in _pool.runners) {
+      if (runner.isActive(sessionId)) {
+        await runner.cancelTurn(sessionId);
+        return;
+      }
+    }
   }
 
-  /// Waits for the active turn on [sessionId] to complete.
-  /// Returns immediately if no active turn exists.
-  /// Throws [TimeoutException] if the turn doesn't complete within [timeout].
   Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) async {
-    final turnId = _activeTurns[sessionId]?.turnId;
-    if (turnId == null) return; // No active turn
-
-    final pending = _outcomePending[turnId];
-    if (pending == null) return; // Already completed
-
-    await pending.future.timeout(timeout);
+    for (final runner in _pool.runners) {
+      if (runner.isActive(sessionId)) {
+        await runner.waitForCompletion(sessionId, timeout: timeout);
+        return;
+      }
+    }
   }
 
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
-    final cached = recentOutcome(sessionId, turnId);
-    if (cached != null) return cached;
-
-    final pending = _outcomePending[turnId];
-    if (pending != null) return pending.future;
-
-    throw ArgumentError('Unknown turnId: $turnId');
-  }
-
-  /// Scans KvService for orphaned turn:* entries from a previous crash.
-  /// Logs warnings, cleans up entries, and populates recovery notice set.
-  Future<List<String>> detectAndCleanOrphanedTurns() async {
-    final kv = _kv;
-    if (kv == null) return [];
-
-    try {
-      final orphans = await kv.getByPrefix('turn:');
-      if (orphans.isEmpty) return [];
-
-      final sessionIds = <String>[];
-      for (final entry in orphans.entries) {
-        final sessionId = entry.key.substring('turn:'.length);
-        sessionIds.add(sessionId);
-
-        Map<String, dynamic>? data;
-        try {
-          data = jsonDecode(entry.value) as Map<String, dynamic>;
-        } catch (_) {}
-
-        final turnId = data?['turnId'] as String? ?? 'unknown';
-        final startedAt = data?['startedAt'] as String? ?? 'unknown';
-        _log.warning(
-          'Orphaned turn detected: session=$sessionId, turn=$turnId, started=$startedAt',
-        );
-        await kv.delete(entry.key);
-      }
-
-      _recoveredSessions.addAll(sessionIds);
-      _log.info('Cleaned up ${sessionIds.length} orphaned turn(s)');
-      return sessionIds;
-    } catch (e) {
-      _log.warning('Failed to detect orphaned turns', e);
-      return [];
-    }
-  }
-
-  /// Returns true (once) if this session recovered from a crash.
-  bool consumeRecoveryNotice(String sessionId) {
-    return _recoveredSessions.remove(sessionId);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Internal
-  // ---------------------------------------------------------------------------
-
-  Future<String> _buildSystemPrompt() async {
-    // Append-strategy harnesses use --append-system-prompt at spawn;
-    // no per-turn system prompt needed.
-    if (_worker.promptStrategy == PromptStrategy.append) return '';
-
-    final behaviorPrompt = await _behavior.composeSystemPrompt();
-
-    // Check MEMORY.md size for warning (read by BehaviorFileService, use MemoryFileService for size tracking)
-    final memFile = _memoryFile;
-    if (memFile != null) {
-      await memFile.readMemory(); // updates lastMemorySize
-      if (memFile.lastMemorySize > _memoryWarnBytes) {
-        _log.warning(
-          'MEMORY.md is ${memFile.lastMemorySize} bytes (>${_memoryWarnBytes ~/ 1024}KB) — consider pruning',
-        );
+    for (final runner in _pool.runners) {
+      final cached = runner.recentOutcome(sessionId, turnId);
+      if (cached != null) return cached;
+      if (runner.isActiveTurn(sessionId, turnId)) {
+        return runner.waitForOutcome(sessionId, turnId);
       }
     }
-
-    // AGENTS.md appended after behavior files (harder to override via prompt injection)
-    final agentsContent = await _behavior.composeAppendPrompt();
-    if (agentsContent.isEmpty) return behaviorPrompt;
-    return '$behaviorPrompt\n\n$agentsContent';
+    return _primary.waitForOutcome(sessionId, turnId);
   }
 
-  Future<void> _runTurn({
-    required String sessionId,
-    required String turnId,
-    required List<Map<String, dynamic>> messages,
-    String? source,
-  }) async {
-    return LogContext.runWith(() => _runTurnInner(
-      sessionId: sessionId,
-      turnId: turnId,
-      messages: messages,
-      source: source,
-    ), sessionId: sessionId, turnId: turnId);
-  }
+  Future<List<String>> detectAndCleanOrphanedTurns() => _primary.detectAndCleanOrphanedTurns();
 
-  Future<void> _runTurnInner({
-    required String sessionId,
-    required String turnId,
-    required List<Map<String, dynamic>> messages,
-    String? source,
-  }) async {
-    // Subscribe BEFORE calling turn() — events stream is broadcast (non-replay).
-    final buffer = StringBuffer();
-    final toolEvents = <ToolUseEvent>[];
-    String? userMessageFull;
-    if (messages.isNotEmpty) {
-      final last = messages.last;
-      if (last['role'] == 'user') {
-        userMessageFull = last['content'] as String?;
-      }
-    }
-    // Truncated version for logging only — guards receive full content
-    final userMessage = userMessageFull != null ? _truncate(userMessageFull, 100) : null;
-
-    final eventSub = _worker.events.listen((event) {
-      if (event is DeltaEvent) {
-        buffer.write(event.text);
-      } else if (event is ToolUseEvent) {
-        toolEvents.add(event);
-      } else if (event is SystemInitEvent) {
-        _contextMonitor.update(contextWindow: event.contextWindow);
-      }
-    });
-
-    TurnOutcome? outcome;
-    try {
-      try {
-        // Guard: messageReceived — evaluate full content before sending to agent
-        final chain = _guardChain;
-        if (chain != null && userMessageFull != null && userMessageFull.isNotEmpty) {
-          final msgVerdict = await chain.evaluateMessageReceived(
-            userMessageFull,
-            source: source,
-            sessionId: sessionId,
-          );
-          if (msgVerdict.isBlock) {
-            await _messages.insertMessage(
-              sessionId: sessionId,
-              role: 'assistant',
-              content: '[Blocked by guard: ${msgVerdict.message}]',
-            );
-            outcome = TurnOutcome(
-              turnId: turnId,
-              sessionId: sessionId,
-              status: TurnStatus.failed,
-              errorMessage: 'Blocked by guard: ${msgVerdict.message}',
-              completedAt: DateTime.now(),
-            );
-            unawaited(_selfImprovement?.appendError(
-              errorType: 'GUARD_BLOCK',
-              sessionId: sessionId,
-              context: msgVerdict.message ?? 'unknown',
-            ));
-            return;
-          }
-        }
-
-        final systemPrompt = await _buildSystemPrompt();
-        final result = await _worker.turn(sessionId: sessionId, messages: messages, systemPrompt: systemPrompt);
-        final accumulated = buffer.toString();
-
-        // Track per-session token costs + update context monitor
-        try {
-          await _trackCost(sessionId, result);
-          _contextMonitor.update(
-            contextTokens: result['input_tokens'] as int?,
-          );
-        } catch (e) {
-          _log.warning('Failed to track cost', e);
-        }
-
-        // Usage tracking (fire-and-forget — never blocks turns)
-        final tracker = _usageTracker;
-        if (tracker != null) {
-          final turnCtx = _activeTurns[sessionId];
-          final inputTokens = result['input_tokens'] as int? ?? 0;
-          final outputTokens = result['output_tokens'] as int? ?? 0;
-          final durationMs = turnCtx != null ? DateTime.now().difference(turnCtx.startedAt).inMilliseconds : 0;
-          unawaited(
-            tracker.record(UsageEvent(
-              timestamp: DateTime.now(),
-              sessionId: sessionId,
-              agentName: turnCtx?.agentName ?? 'main',
-              model: result['model'] as String?,
-              inputTokens: inputTokens,
-              outputTokens: outputTokens,
-              durationMs: durationMs,
-            )).catchError((_) {}),
-          );
-        }
-
-        // Guard: beforeAgentSend — evaluate before persisting response
-        if (chain != null && accumulated.isNotEmpty) {
-          final sendVerdict = await chain.evaluateBeforeAgentSend(
-            accumulated,
-            sessionId: sessionId,
-          );
-          if (sendVerdict.isBlock) {
-            await _messages.insertMessage(
-              sessionId: sessionId,
-              role: 'assistant',
-              content: '[Response blocked by guard: ${sendVerdict.message}]',
-            );
-            await _sessions?.touchUpdatedAt(sessionId);
-            outcome = TurnOutcome(
-              turnId: turnId,
-              sessionId: sessionId,
-              status: TurnStatus.failed,
-              errorMessage: 'Response blocked by guard: ${sendVerdict.message}',
-              completedAt: DateTime.now(),
-            );
-            unawaited(_selfImprovement?.appendError(
-              errorType: 'RESPONSE_BLOCKED',
-              sessionId: sessionId,
-              context: sendVerdict.message ?? 'unknown',
-            ));
-            return;
-          }
-        }
-
-        final redacted = _redactor?.redact(accumulated) ?? accumulated;
-        final trimmed = _resultTrimmer.trim(redacted);
-        await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: trimmed);
-        await _sessions?.touchUpdatedAt(sessionId);
-        outcome = TurnOutcome(
-          turnId: turnId,
-          sessionId: sessionId,
-          status: TurnStatus.completed,
-          responseText: trimmed,
-          completedAt: DateTime.now(),
-        );
-
-        // Daily log (fire-and-forget, errors must not fail the turn)
-        try {
-          await _appendDailyLog(
-            sessionId: sessionId,
-            userMessage: userMessage,
-            toolEvents: toolEvents,
-            result: redacted,
-          );
-        } catch (e) {
-          _log.warning('Failed to write daily log', e);
-        }
-
-        // Pre-compaction flush check (fire-and-forget)
-        if (_contextMonitor.shouldFlush) {
-          try {
-            await _runFlushTurn(sessionId);
-          } catch (e) {
-            _log.warning('Pre-compaction flush failed (lossy compaction possible)', e);
-          }
-        }
-      } catch (e, st) {
-        final wasCancelled = _cancelledTurns.remove(turnId);
-        _log.warning('Turn $turnId ${wasCancelled ? 'cancelled' : 'failed'}', e, st);
-        try {
-          var partial = buffer.toString();
-          if (partial.isNotEmpty && _redactor != null) {
-            partial = _redactor.redact(partial);
-          }
-          await _messages.insertMessage(
-            sessionId: sessionId,
-            role: 'assistant',
-            content: partial.isNotEmpty ? partial : (wasCancelled ? '[Turn cancelled]' : '[Turn failed]'),
-          );
-        } catch (_) {}
-        outcome = TurnOutcome(
-          turnId: turnId,
-          sessionId: sessionId,
-          status: wasCancelled ? TurnStatus.cancelled : TurnStatus.failed,
-          errorMessage: wasCancelled ? null : 'Turn execution failed',
-          completedAt: DateTime.now(),
-        );
-        unawaited(_selfImprovement?.appendError(
-          errorType: wasCancelled ? 'TURN_CANCELLED' : 'TURN_FAILURE',
-          sessionId: sessionId,
-          context: '$e',
-        ));
-      }
-    } finally {
-      await eventSub.cancel();
-      _activeTurns.remove(sessionId);
-      _lockManager.release(sessionId);
-
-      // Clean up persisted turn state
-      final kv = _kv;
-      if (kv != null) {
-        unawaited(
-          kv.delete('turn:$sessionId').catchError((e) {
-            _log.warning('Failed to clean up turn state', e);
-          }),
-        );
-      }
-      final resolved =
-          outcome ??
-          TurnOutcome(
-            turnId: turnId,
-            sessionId: sessionId,
-            status: TurnStatus.failed,
-            errorMessage: 'Unexpected internal error',
-            completedAt: DateTime.now(),
-          );
-      _recentOutcomes[turnId] = (outcome: resolved, expiresAt: DateTime.now().add(_outcomeTtl));
-      _outcomePending.remove(turnId)?.complete(resolved);
-    }
-  }
-
-  Future<void> _trackCost(String sessionId, Map<String, dynamic> result) async {
-    final kv = _kv;
-    if (kv == null) return;
-
-    final key = 'session_cost:$sessionId';
-    final existing = await kv.get(key);
-    Map<String, dynamic> costData;
-    if (existing != null) {
-      costData = jsonDecode(existing) as Map<String, dynamic>;
-    } else {
-      costData = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'estimated_cost_usd': 0.0, 'turn_count': 0};
-    }
-
-    final inputTokens = result['input_tokens'] as int? ?? 0;
-    final outputTokens = result['output_tokens'] as int? ?? 0;
-    final costUsd = (result['total_cost_usd'] as num?)?.toDouble() ?? 0.0;
-
-    costData['input_tokens'] = (costData['input_tokens'] as int) + inputTokens;
-    costData['output_tokens'] = (costData['output_tokens'] as int) + outputTokens;
-    costData['total_tokens'] = (costData['total_tokens'] as int) + inputTokens + outputTokens;
-    costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
-    costData['turn_count'] = (costData['turn_count'] as int) + 1;
-
-    await kv.set(key, jsonEncode(costData));
-  }
-
-  Future<void> _appendDailyLog({
-    required String sessionId,
-    required String? userMessage,
-    required List<ToolUseEvent> toolEvents,
-    required String result,
-  }) async {
-    final memFile = _memoryFile;
-    if (memFile == null || toolEvents.isEmpty) return;
-
-    final now = DateTime.now();
-    final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-
-    // Get session title if available
-    var title = 'Chat';
-    final sessions = _sessions;
-    if (sessions != null) {
-      try {
-        final session = await sessions.getSession(sessionId);
-        final t = session?.title;
-        if (t != null && t.isNotEmpty) title = t;
-      } catch (_) {}
-    }
-
-    // Dedupe tool names and format: toolName(firstArg)
-    final seen = <String>{};
-    final toolSummaries = <String>[];
-    for (final t in toolEvents) {
-      final key = '${t.toolName}:${t.input.values.firstOrNull ?? ''}';
-      if (seen.add(key)) {
-        final arg = t.input.values.firstOrNull;
-        final argStr = arg != null ? _truncate(arg.toString(), 50) : '';
-        toolSummaries.add('${t.toolName}($argStr)');
-      }
-    }
-
-    final resultSnippet = _truncate(result, 100);
-    final entry =
-        '## $time — $title\n'
-        '**User**: ${userMessage ?? '(no message)'}\n'
-        '**Tools**: ${toolSummaries.join(', ')}\n'
-        '**Result**: $resultSnippet';
-
-    await memFile.appendDailyLog(entry);
-  }
-
-  static const _flushPrompt = 'You are approaching your context limit. Before context compression '
-      'occurs, save any important information from this conversation to MEMORY.md using the '
-      'memory_save tool. Focus on:\n'
-      '1. Key facts, decisions, or preferences mentioned by the user\n'
-      '2. Important context about ongoing tasks\n'
-      '3. Any information that would be lost during compression\n\n'
-      'Save concisely. Do not ask for confirmation — just save what\'s important.';
-
-  Future<void> _runFlushTurn(String sessionId) async {
-    _contextMonitor.markFlushStarted();
-    try {
-      final systemPrompt = await _buildSystemPrompt();
-      final flushMessage = <String, dynamic>{
-        'role': 'user',
-        'content': _flushPrompt,
-      };
-      await _worker.turn(
-        sessionId: sessionId,
-        messages: [flushMessage],
-        systemPrompt: systemPrompt,
-      );
-      _log.info('Pre-compaction flush completed for session $sessionId');
-    } finally {
-      _contextMonitor.markFlushCompleted();
-    }
-  }
-
-  static String _truncate(String s, int maxLen) => s.length <= maxLen ? s : '${s.substring(0, maxLen)}...';
-
-  void _evictExpiredOutcomes() {
-    final now = DateTime.now();
-    _recentOutcomes.removeWhere((_, v) => v.expiresAt.isBefore(now));
-  }
+  bool consumeRecoveryNotice(String sessionId) => _primary.consumeRecoveryNotice(sessionId);
 }

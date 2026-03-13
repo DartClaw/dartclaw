@@ -217,6 +217,19 @@
         <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
 
+      <!-- Google Chat Channel (read-only, server-rendered) -->
+      <div class="card settings-card" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title">Google Chat Channel</span>
+          <span class="status-badge" tl:classappend="${googleChatStatusClass}" tl:text="${googleChatStatusLabel}">Disabled</span>
+          <span tl:if="${googleChatHasPending}" class="pairing-badge" tl:text="${googleChatPendingCount}">0</span>
+        </div>
+        <div tl:if="${googleChatEnabled}" class="card-actions">
+          <a href="/settings/channels/google_chat" class="card-link">Configure &#8594;</a>
+        </div>
+        <div tl:unless="${googleChatEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
       <!-- Authentication (read-only, server-rendered) -->
       <div class="card settings-card" data-tab="server">
         <div class="card-header">

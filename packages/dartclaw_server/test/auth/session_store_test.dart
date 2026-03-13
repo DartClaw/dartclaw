@@ -49,6 +49,12 @@ void main() {
       expect(header, contains('SameSite=Strict'));
       expect(header, contains('Path=/'));
       expect(header, contains('Max-Age='));
+      expect(header, isNot(contains('Secure')));
+    });
+
+    test('sessionCookieHeader includes Secure when requested', () {
+      final header = sessionCookieHeader('test-token', secure: true);
+      expect(header, contains('Secure'));
     });
 
     test('unique tokens per call', () {

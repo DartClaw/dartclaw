@@ -256,6 +256,36 @@ workspace:
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], '***');
     });
+
+    test('google chat inline service account is redacted in API response', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+channels:
+  google_chat:
+    enabled: true
+    service_account: '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}'
+    audience:
+      type: project-number
+      value: '123456789'
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await get(router, '/api/config');
+      final json = await readJson(response);
+
+      final channels = json['channels'] as Map<String, dynamic>;
+      final googleChat = channels['googleChat'] as Map<String, dynamic>;
+      expect(googleChat['serviceAccount'], 'chat-bot@example.iam.gserviceaccount.com');
+    });
   });
 
   group('PATCH /api/config — validation', () {
@@ -312,6 +342,56 @@ workspace:
       final json = await readJson(response);
       expect(json['error']['code'], 'INVALID_INPUT');
       expect(json['error']['message'], contains('job CRUD'));
+    });
+
+    test('enabling google chat without required auth fields returns 400', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {'channels.google_chat.enabled': true});
+      expect(response.statusCode, 400);
+
+      final json = await readJson(response);
+      final errors = json['errors'] as List;
+      final fields = errors.map((error) => (error as Map<String, dynamic>)['field']).toSet();
+      expect(
+        fields,
+        containsAll({
+          'channels.google_chat.service_account',
+          'channels.google_chat.audience.type',
+          'channels.google_chat.audience.value',
+        }),
+      );
+    });
+
+    test('clearing google chat service account fails when channel is already enabled', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+channels:
+  google_chat:
+    enabled: true
+    service_account: /tmp/google-service-account.json
+    audience:
+      type: project-number
+      value: '123456789'
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {
+        'channels.google_chat.service_account': '   ',
+      });
+      expect(response.statusCode, 400);
+
+      final json = await readJson(response);
+      final errors = json['errors'] as List;
+      expect((errors.first as Map<String, dynamic>)['field'], 'channels.google_chat.service_account');
     });
   });
 

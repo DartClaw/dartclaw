@@ -3,18 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-
-class _WriteOp {
-  final Future<void> Function() fn;
-  final Completer<void> completer;
-  _WriteOp(this.fn) : completer = Completer<void>();
-}
+import '../storage/write_op.dart';
 
 /// Manages the MEMORY.md file with category-based sections and atomic writes.
 class MemoryFileService {
   final String baseDir;
   int _lastMemorySize = 0;
-  final _queue = StreamController<_WriteOp>();
+  final _queue = StreamController<WriteOp>();
   late final StreamSubscription<void> _queueSub;
 
   MemoryFileService({required this.baseDir}) {
@@ -35,7 +30,7 @@ class MemoryFileService {
 
   /// Appends a timestamped entry to MEMORY.md, grouped under [category].
   Future<void> appendMemory({required String text, String? category}) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       final file = File(_memoryPath);
       final dir = file.parent;
       if (!dir.existsSync()) dir.createSync(recursive: true);
@@ -92,7 +87,7 @@ class MemoryFileService {
 
   /// Appends an entry to the daily log file (`memory/YYYY-MM-DD.md`).
   Future<void> appendDailyLog(String entry) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       final now = DateTime.now();
       final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final logDir = p.join(baseDir, 'memory');

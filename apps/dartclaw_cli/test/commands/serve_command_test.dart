@@ -62,6 +62,8 @@ class _FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) async => {'ok': true};
 }
 
@@ -189,6 +191,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              googleChatWebhookHandler,
               signalChannel,
               webhookSecret,
               redactor,
@@ -196,6 +199,7 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
+              pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
               heartbeatDisplay = const HeartbeatDisplayParams(),
               schedulingDisplay = const SchedulingDisplayParams(),
@@ -287,6 +291,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              googleChatWebhookHandler,
               signalChannel,
               webhookSecret,
               redactor,
@@ -294,6 +299,7 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
+              pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
               heartbeatDisplay = const HeartbeatDisplayParams(),
               schedulingDisplay = const SchedulingDisplayParams(),
@@ -360,6 +366,35 @@ void main() {
       expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
     });
 
+    test('task database open failure prints clear startup error', () async {
+      final logs = <LogRecord>[];
+      Logger.root.level = Level.ALL;
+      final logSub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() {
+        logSub.cancel();
+        Logger.root.level = Level.INFO;
+      });
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(dataDir: tempDir.path, templatesDir: _templatesDir());
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => throw FileSystemException('open failed'),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open task database')), isTrue);
+    });
+
     test('content guard with default claude_binary classifier needs no ANTHROPIC_API_KEY', () async {
       final apiKey = Platform.environment['ANTHROPIC_API_KEY'] ?? '';
       if (apiKey.isNotEmpty) {
@@ -419,6 +454,7 @@ void main() {
               resultTrimmer,
               channelManager,
               whatsAppChannel,
+              googleChatWebhookHandler,
               signalChannel,
               webhookSecret,
               redactor,
@@ -426,6 +462,7 @@ void main() {
               selfImprovement,
               usageTracker,
               authEnabled = true,
+              pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
               heartbeatDisplay = const HeartbeatDisplayParams(),
               schedulingDisplay = const SchedulingDisplayParams(),

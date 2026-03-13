@@ -169,6 +169,42 @@ class ConfigWriter {
     }
   }
 
+  /// Reads the current automation scheduled tasks from the YAML config file.
+  ///
+  /// Reads fresh from disk on each call. Returns an empty list if
+  /// `automation.scheduled_tasks` is absent or unreadable.
+  Future<List<Map<String, dynamic>>> readAutomationTasks() async {
+    final file = File(configPath);
+    if (!file.existsSync()) return [];
+    try {
+      final content = await file.readAsString();
+      final editor = YamlEditor(content);
+      final value = editor.parseAt(['automation', 'scheduled_tasks']).value;
+      if (value is! List) return [];
+      return value.map((item) {
+        if (item is Map) {
+          return <String, dynamic>{for (final e in item.entries) e.key.toString(): _deepConvert(e.value)};
+        }
+        return <String, dynamic>{};
+      }).toList();
+    } on ArgumentError {
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Recursively converts YAML map/list values to standard Dart types.
+  static dynamic _deepConvert(dynamic value) {
+    if (value is Map) {
+      return <String, dynamic>{for (final e in value.entries) e.key.toString(): _deepConvert(e.value)};
+    }
+    if (value is List) {
+      return value.map(_deepConvert).toList();
+    }
+    return value;
+  }
+
   /// Writes a channel allowlist to the YAML config file.
   ///
   /// Writes to `channels.<channelType>.<fieldName>` using the write queue.

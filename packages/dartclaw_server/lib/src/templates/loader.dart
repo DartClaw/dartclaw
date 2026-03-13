@@ -21,6 +21,8 @@ const expectedTemplates = [
   'memory_dashboard',
   'restart_banner',
   'channel_detail',
+  'tasks',
+  'task_detail',
 ];
 
 TemplateLoaderService? _templateLoader;

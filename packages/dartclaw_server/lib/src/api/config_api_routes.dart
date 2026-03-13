@@ -35,6 +35,7 @@ Router configApiRoutes({
   ScheduleService? scheduleService,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
+  GoogleChatChannel? googleChatChannel,
   EventBus? eventBus,
 }) {
   final router = Router();
@@ -78,8 +79,15 @@ Router configApiRoutes({
       return errorResponse(400, 'INVALID_INPUT', 'Use job CRUD endpoints for scheduling.jobs changes');
     }
 
+    late final DartclawConfig freshConfig;
+    try {
+      freshConfig = DartclawConfig.load(configPath: writer.configPath);
+    } catch (e) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read config: $e');
+    }
+
     // Validate
-    final errors = validator.validate(body);
+    final errors = validator.validate(body, currentValues: _currentConfigValues(freshConfig));
     if (errors.isNotEmpty) {
       return jsonResponse(400, {
         'applied': <String>[],
@@ -296,6 +304,173 @@ Router configApiRoutes({
     });
   });
 
+  // --- Automation scheduled task CRUD ---
+
+  // POST /api/scheduling/tasks — create a new scheduled task
+  router.post('/api/scheduling/tasks', (Request request) async {
+    final body = await _parseJsonBody(request);
+    if (body == null || body.isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
+    }
+
+    final id = body['id'];
+    final schedule = body['schedule'];
+    final title = body['title'];
+    final description = body['description'];
+    final type = body['type'];
+
+    if (id is! String || id.trim().isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', '"id" is required and must be a non-empty string');
+    }
+    if (schedule is! String || schedule.trim().isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', '"schedule" is required and must be a non-empty string');
+    }
+    if (title is! String || title.trim().isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', '"title" is required and must be a non-empty string');
+    }
+    if (description is! String || description.trim().isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', '"description" is required and must be a non-empty string');
+    }
+    if (type is! String || type.trim().isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', '"type" is required and must be a non-empty string');
+    }
+
+    // Validate cron expression
+    try {
+      CronExpression.parse(schedule);
+    } catch (_) {
+      return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
+    }
+
+    // Check uniqueness
+    final currentTasks = await writer.readAutomationTasks();
+    if (currentTasks.any((t) => t['id'] == id)) {
+      return errorResponse(409, 'CONFLICT', 'Scheduled task "$id" already exists');
+    }
+
+    final newTask = <String, dynamic>{
+      'id': id,
+      'schedule': schedule,
+      'enabled': body['enabled'] ?? true,
+      'task': <String, dynamic>{
+        'title': title,
+        'description': description,
+        'type': type,
+        if (body['acceptanceCriteria'] is String && (body['acceptanceCriteria'] as String).isNotEmpty)
+          'acceptance_criteria': body['acceptanceCriteria'],
+        if (body['autoStart'] != null) 'auto_start': body['autoStart'],
+      },
+    };
+
+    final updatedTasks = [
+      ...currentTasks.map((t) => Map<String, dynamic>.from(t)),
+      newTask,
+    ];
+
+    try {
+      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+
+    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+
+    return jsonResponse(201, {
+      'task': newTask,
+      'pendingRestart': true,
+    });
+  });
+
+  // PUT /api/scheduling/tasks/<id> — update existing scheduled task
+  router.put('/api/scheduling/tasks/<id>', (Request request, String id) async {
+    final body = await _parseJsonBody(request);
+    if (body == null || body.isEmpty) {
+      return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
+    }
+
+    final currentTasks = await writer.readAutomationTasks();
+    final idx = currentTasks.indexWhere((t) => t['id'] == id);
+    if (idx == -1) {
+      return errorResponse(404, 'NOT_FOUND', 'Scheduled task "$id" not found');
+    }
+
+    // Validate cron if changed
+    if (body.containsKey('schedule')) {
+      final schedule = body['schedule'];
+      if (schedule is! String || schedule.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', '"schedule" must be a non-empty string');
+      }
+      try {
+        CronExpression.parse(schedule);
+      } catch (_) {
+        return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
+      }
+    }
+
+    // Merge updates
+    final updatedTasks = currentTasks.map((t) => Map<String, dynamic>.from(t)).toList();
+    final task = updatedTasks[idx];
+    if (body.containsKey('schedule')) task['schedule'] = body['schedule'];
+    if (body.containsKey('enabled')) task['enabled'] = body['enabled'];
+
+    // Update nested task fields
+    final taskMap = task['task'] is Map
+        ? Map<String, dynamic>.from(task['task'] as Map)
+        : <String, dynamic>{};
+    if (body.containsKey('title')) taskMap['title'] = body['title'];
+    if (body.containsKey('description')) taskMap['description'] = body['description'];
+    if (body.containsKey('type')) taskMap['type'] = body['type'];
+    if (body.containsKey('acceptanceCriteria')) {
+      taskMap['acceptance_criteria'] = body['acceptanceCriteria'];
+    }
+    if (body.containsKey('autoStart')) taskMap['auto_start'] = body['autoStart'];
+    task['task'] = taskMap;
+
+    try {
+      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+
+    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+
+    return jsonResponse(200, {
+      'task': task,
+      'pendingRestart': true,
+    });
+  });
+
+  // DELETE /api/scheduling/tasks/<id>
+  router.delete('/api/scheduling/tasks/<id>', (Request request, String id) async {
+    final currentTasks = await writer.readAutomationTasks();
+    final idx = currentTasks.indexWhere((t) => t['id'] == id);
+    if (idx == -1) {
+      return errorResponse(404, 'NOT_FOUND', 'Scheduled task "$id" not found');
+    }
+
+    final updatedTasks = currentTasks.map((t) => Map<String, dynamic>.from(t)).toList();
+    updatedTasks.removeAt(idx);
+
+    try {
+      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+    } on StateError catch (e) {
+      return errorResponse(500, 'BACKUP_FAILED', e.message);
+    } on FileSystemException catch (e) {
+      return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
+    }
+
+    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+
+    return jsonResponse(200, {
+      'deleted': true,
+      'pendingRestart': true,
+    });
+  });
+
   // POST /api/system/restart — graceful restart
   router.post('/api/system/restart', (Request request) async {
     final rs = restartService;
@@ -348,12 +523,20 @@ Router configApiRoutes({
   DmAccessController? resolveController(String type) {
     if (type == 'whatsapp') return whatsAppChannel?.dmAccess;
     if (type == 'signal') return signalChannel?.dmAccess;
+    if (type == 'google_chat') return googleChatChannel?.dmAccess;
     return null;
   }
 
   // GET /api/config/channels/<type>/dm-allowlist
-  router.get('/api/config/channels/<type>/dm-allowlist', (Request request, String type) {
+  router.get('/api/config/channels/<type>/dm-allowlist', (Request request, String type) async {
     final controller = resolveController(type);
+    if (controller != null) {
+      return jsonResponse(200, {'allowlist': controller.allowlist.toList()});
+    }
+    if (type == 'google_chat') {
+      final entries = await writer.readChannelAllowlist(type, 'dm_allowlist');
+      return jsonResponse(200, {'allowlist': entries});
+    }
     if (controller == null) {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
@@ -363,7 +546,7 @@ Router configApiRoutes({
   // POST /api/config/channels/<type>/dm-allowlist
   router.post('/api/config/channels/<type>/dm-allowlist', (Request request, String type) async {
     final controller = resolveController(type);
-    if (controller == null) {
+    if (controller == null && type != 'google_chat') {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
@@ -382,12 +565,13 @@ Router configApiRoutes({
       return errorResponse(400, 'INVALID_INPUT', validationError);
     }
 
-    if (controller.allowlist.contains(entry)) {
+    final currentAllowlist = controller?.allowlist.toList() ?? await writer.readChannelAllowlist(type, 'dm_allowlist');
+    if (currentAllowlist.contains(entry)) {
       return errorResponse(409, 'CONFLICT', 'Entry "$entry" already in allowlist');
     }
 
     // Persist BEFORE mutating controller — if write fails, state stays consistent
-    final updatedList = [...controller.allowlist, entry];
+    final updatedList = [...currentAllowlist, entry];
     try {
       await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
     } on StateError catch (e) {
@@ -397,14 +581,14 @@ Router configApiRoutes({
     }
 
     // Write succeeded — now mutate live controller
-    controller.addToAllowlist(entry);
-    return jsonResponse(200, {'added': true, 'allowlist': controller.allowlist.toList()});
+    controller?.addToAllowlist(entry);
+    return jsonResponse(200, {'added': true, 'allowlist': updatedList});
   });
 
   // DELETE /api/config/channels/<type>/dm-allowlist
   router.delete('/api/config/channels/<type>/dm-allowlist', (Request request, String type) async {
     final controller = resolveController(type);
-    if (controller == null) {
+    if (controller == null && type != 'google_chat') {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
@@ -418,12 +602,13 @@ Router configApiRoutes({
       return errorResponse(400, 'INVALID_INPUT', '"entry" is required and must be a non-empty string');
     }
 
-    if (!controller.allowlist.contains(entry)) {
+    final currentAllowlist = controller?.allowlist.toList() ?? await writer.readChannelAllowlist(type, 'dm_allowlist');
+    if (!currentAllowlist.contains(entry)) {
       return errorResponse(404, 'NOT_FOUND', 'Entry "$entry" not in allowlist');
     }
 
     // Persist BEFORE mutating controller — if write fails, state stays consistent
-    final updatedList = controller.allowlist.where((e) => e != entry).toList();
+    final updatedList = currentAllowlist.where((e) => e != entry).toList();
     try {
       await writer.writeChannelAllowlist(type, 'dm_allowlist', updatedList);
     } on StateError catch (e) {
@@ -433,19 +618,23 @@ Router configApiRoutes({
     }
 
     // Write succeeded — now mutate live controller
-    controller.removeFromAllowlist(entry);
-    return jsonResponse(200, {'removed': true, 'allowlist': controller.allowlist.toList()});
+    controller?.removeFromAllowlist(entry);
+    return jsonResponse(200, {'removed': true, 'allowlist': updatedList});
   });
 
   // --- Group Allowlist CRUD endpoints (restart-required) ---
 
   // GET /api/config/channels/<type>/group-allowlist
   router.get('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal') {
+    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
-    final channel = type == 'whatsapp' ? whatsAppChannel : signalChannel;
-    if (channel == null) {
+    final channel = switch (type) {
+      'whatsapp' => whatsAppChannel,
+      'signal' => signalChannel,
+      _ => googleChatChannel,
+    };
+    if (type != 'google_chat' && channel == null) {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
     // Read from YAML to reflect pending (not-yet-restarted) changes.
@@ -455,11 +644,15 @@ Router configApiRoutes({
 
   // POST /api/config/channels/<type>/group-allowlist
   router.post('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal') {
+    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
-    final channel = type == 'whatsapp' ? whatsAppChannel : signalChannel;
-    if (channel == null) {
+    final channel = switch (type) {
+      'whatsapp' => whatsAppChannel,
+      'signal' => signalChannel,
+      _ => googleChatChannel,
+    };
+    if (type != 'google_chat' && channel == null) {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
@@ -502,11 +695,15 @@ Router configApiRoutes({
 
   // DELETE /api/config/channels/<type>/group-allowlist
   router.delete('/api/config/channels/<type>/group-allowlist', (Request request, String type) async {
-    if (type != 'whatsapp' && type != 'signal') {
+    if (type != 'whatsapp' && type != 'signal' && type != 'google_chat') {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
-    final channel = type == 'whatsapp' ? whatsAppChannel : signalChannel;
-    if (channel == null) {
+    final channel = switch (type) {
+      'whatsapp' => whatsAppChannel,
+      'signal' => signalChannel,
+      _ => googleChatChannel,
+    };
+    if (type != 'google_chat' && channel == null) {
       return errorResponse(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
 
@@ -639,10 +836,28 @@ Router configApiRoutes({
     return jsonResponse(200, {
       'whatsapp': whatsAppChannel?.dmAccess.pendingPairings.length ?? 0,
       'signal': signalChannel?.dmAccess.pendingPairings.length ?? 0,
+      'google_chat': googleChatChannel?.dmAccess?.pendingPairings.length ?? 0,
     });
   });
 
   return router;
+}
+
+Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
+  final audience = config.googleChatConfig.audience;
+  return {
+    'channels.google_chat.enabled': config.googleChatConfig.enabled,
+    'channels.google_chat.service_account': config.googleChatConfig.serviceAccount,
+    'channels.google_chat.audience.type': switch (audience?.mode) {
+      GoogleChatAudienceMode.appUrl => 'app-url',
+      GoogleChatAudienceMode.projectNumber => 'project-number',
+      null => null,
+    },
+    'channels.google_chat.audience.value': audience?.value,
+    'channels.google_chat.dm_access': config.googleChatConfig.dmAccess.name,
+    'channels.google_chat.group_access': config.googleChatConfig.groupAccess.name,
+    'channels.google_chat.require_mention': config.googleChatConfig.requireMention,
+  };
 }
 
 // --- restart.pending helpers ---
@@ -706,4 +921,3 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
     return null;
   }
 }
-

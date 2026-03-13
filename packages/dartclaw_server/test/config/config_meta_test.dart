@@ -36,7 +36,10 @@ void main() {
         expect(ConfigMeta.fields, contains('agent.model'));
         expect(ConfigMeta.fields, contains('agent.max_turns'));
         expect(ConfigMeta.fields, contains('agent.context_1m'));
+        expect(ConfigMeta.fields, contains('auth.cookie_secure'));
+        expect(ConfigMeta.fields, contains('auth.trusted_proxies'));
         expect(ConfigMeta.fields, contains('concurrency.max_parallel_turns'));
+        expect(ConfigMeta.fields, contains('guard_audit.max_entries'));
         expect(ConfigMeta.fields, contains('sessions.reset_hour'));
         expect(ConfigMeta.fields, contains('sessions.idle_timeout_minutes'));
         expect(ConfigMeta.fields, contains('logging.level'));
@@ -56,6 +59,18 @@ void main() {
         expect(ConfigMeta.fields, contains('memory.pruning.schedule'));
         expect(ConfigMeta.fields, contains('usage.budget_warning_tokens'));
         expect(ConfigMeta.fields, contains('usage.max_file_size_bytes'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.enabled'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.service_account'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.audience.type'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.audience.value'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.webhook_path'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.bot_user'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.typing_indicator'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.dm_access'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.dm_allowlist'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.group_access'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.group_allowlist'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.require_mention'));
 
         // Readonly fields
         expect(ConfigMeta.fields, contains('gateway.auth_mode'));
@@ -85,6 +100,14 @@ void main() {
         expect(ConfigMeta.fields['agent.model']!.mutability, ConfigMutability.restart);
       });
 
+      test('auth.cookie_secure is restart', () {
+        expect(ConfigMeta.fields['auth.cookie_secure']!.mutability, ConfigMutability.restart);
+      });
+
+      test('auth.trusted_proxies is restart', () {
+        expect(ConfigMeta.fields['auth.trusted_proxies']!.mutability, ConfigMutability.restart);
+      });
+
       test('gateway.auth_mode is readonly', () {
         expect(ConfigMeta.fields['gateway.auth_mode']!.mutability, ConfigMutability.readonly);
       });
@@ -95,6 +118,10 @@ void main() {
 
       test('gateway.hsts is restart', () {
         expect(ConfigMeta.fields['gateway.hsts']!.mutability, ConfigMutability.restart);
+      });
+
+      test('guard_audit.max_entries is restart', () {
+        expect(ConfigMeta.fields['guard_audit.max_entries']!.mutability, ConfigMutability.restart);
       });
 
       test('sessions scope fields are live', () {
@@ -171,11 +198,20 @@ void main() {
         );
       });
 
-      test('forMutability readonly returns gateway fields', () {
+      test('forMutability readonly returns gateway and Google Chat credential fields', () {
         final ro = ConfigMeta.forMutability(ConfigMutability.readonly).toList();
-        expect(ro, hasLength(2));
+        expect(ro, hasLength(5));
         final paths = ro.map((f) => f.yamlPath).toSet();
-        expect(paths, containsAll(['gateway.auth_mode', 'gateway.token']));
+        expect(
+          paths,
+          containsAll([
+            'gateway.auth_mode',
+            'gateway.token',
+            'channels.google_chat.service_account',
+            'channels.google_chat.audience.type',
+            'channels.google_chat.audience.value',
+          ]),
+        );
       });
     });
   });

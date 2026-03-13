@@ -398,9 +398,76 @@ function initHtmxRequestLifecycle() {
 }
 
 function loadMessages(sessionId) {
+  const messages = document.getElementById('messages');
   return htmx.ajax('GET', '/sessions/' + sessionId + '/messages-html', {
     target: '#messages',
     swap: 'innerHTML',
+    source: messages,
+  });
+}
+
+function updateMessagePagination(xhr) {
+  const chatArea = document.querySelector('.chat-area');
+  if (!chatArea || !xhr) return;
+
+  const earliestCursor = xhr.getResponseHeader('x-dartclaw-earliest-cursor');
+  if (earliestCursor) {
+    chatArea.dataset.earliestCursor = earliestCursor;
+  } else {
+    delete chatArea.dataset.earliestCursor;
+  }
+
+  const hasEarlierMessages = xhr.getResponseHeader('x-dartclaw-has-earlier-messages') === 'true';
+  const button = document.querySelector('[data-load-earlier]');
+  if (!button) return;
+
+  button.hidden = !hasEarlierMessages;
+  if (hasEarlierMessages) {
+    button.removeAttribute('hidden');
+  } else {
+    button.setAttribute('hidden', 'hidden');
+  }
+}
+
+function initLoadEarlierMessages() {
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-load-earlier]');
+    if (!button) return;
+    event.preventDefault();
+
+    const chatArea = document.querySelector('.chat-area');
+    const sessionId = chatArea && chatArea.dataset.sessionId;
+    const earliestCursor = chatArea && chatArea.dataset.earliestCursor;
+    if (!sessionId || !earliestCursor) return;
+
+    button.disabled = true;
+    htmx.ajax('GET', '/sessions/' + encodeURIComponent(sessionId) + '/messages-html?before=' + earliestCursor, {
+      target: '#messages',
+      swap: 'afterbegin',
+      source: button,
+    });
+  });
+
+  document.body.addEventListener('htmx:afterRequest', (event) => {
+    const elt = event.detail && event.detail.elt;
+    if (!elt) return;
+
+    const isMessagesReload = elt.id === 'messages';
+    const isLoadEarlier = elt.matches && elt.matches('[data-load-earlier]');
+    if (!isMessagesReload && !isLoadEarlier) return;
+
+    if (isLoadEarlier) {
+      elt.disabled = false;
+    }
+
+    if (!event.detail.successful) {
+      if (isLoadEarlier) {
+        showBanner('error', extractResponseMessage(event.detail.xhr));
+      }
+      return;
+    }
+
+    updateMessagePagination(event.detail.xhr);
   });
 }
 
@@ -636,8 +703,12 @@ dartclaw.handleTurnError = function(event) {
 function initAfterSwapReinit() {
   document.body.addEventListener('htmx:afterSwap', (event) => {
     const target = event.detail && event.detail.target;
+    const source = event.detail && event.detail.elt;
+    const isLoadEarlier = source && source.matches && source.matches('[data-load-earlier]');
     renderMarkdown();
-    scrollToBottom();
+    if (!isLoadEarlier) {
+      scrollToBottom();
+    }
     initThemeToggle();
     initSidebar();
     initTextareaResize();
@@ -651,6 +722,14 @@ function initAfterSwapReinit() {
     typeof initQrCountdown === 'function' && initQrCountdown();
     typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
     typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
+    restoreTaskBadge();
+    initTaskElapsedTimers();
+    initTaskListControls();
+    initTaskReviewActions();
+    initTaskStartActions();
+    initTaskCancelActions();
+    initNewTaskForm();
+    initTaskDetailRefresh();
     if (target && target.id === 'main-content') {
       target.focus({ preventScroll: true });
     }
@@ -681,6 +760,14 @@ function initHistoryRestore() {
     typeof initQrCountdown === 'function' && initQrCountdown();
     typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
     typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
+    restoreTaskBadge();
+    initTaskElapsedTimers();
+    initTaskListControls();
+    initTaskReviewActions();
+    initTaskStartActions();
+    initTaskCancelActions();
+    initNewTaskForm();
+    initTaskDetailRefresh();
     const mainContent = document.getElementById('main-content');
     if (mainContent) {
       mainContent.focus({ preventScroll: true });
@@ -824,6 +911,286 @@ function initRestartBanner() {
   connectGlobalEvents();
 }
 
+// === SCHEDULING PAGE: JOB + TASK CRUD ===
+
+function initSchedulingPage() {
+  // Delegated click handler for all scheduling data-action buttons
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-action');
+
+    // --- Job form ---
+    if (action === 'toggle-job-form') {
+      const form = document.getElementById('job-form');
+      if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
+    }
+    if (action === 'submit-job-form') {
+      submitJobForm();
+    }
+    if (action === 'edit-job') {
+      const name = btn.getAttribute('data-job-name');
+      if (name) editJob(name);
+    }
+    if (action === 'confirm-delete-job') {
+      const name = btn.getAttribute('data-job-name');
+      if (name && confirm('Delete job "' + name + '"?')) deleteJob(name);
+    }
+
+    // --- Scheduled task form ---
+    if (action === 'toggle-task-form') {
+      const form = document.getElementById('task-form');
+      if (form) {
+        const visible = form.style.display !== 'none';
+        form.style.display = visible ? 'none' : '';
+        if (!visible) resetTaskForm();
+      }
+    }
+    if (action === 'submit-task-form') {
+      submitTaskForm();
+    }
+    if (action === 'toggle-scheduled-task') {
+      const taskId = btn.getAttribute('data-task-id');
+      if (taskId) toggleScheduledTask(taskId);
+    }
+    if (action === 'edit-scheduled-task') {
+      const taskId = btn.getAttribute('data-task-id');
+      if (taskId) editScheduledTask(taskId);
+    }
+    if (action === 'delete-scheduled-task') {
+      const taskId = btn.getAttribute('data-task-id');
+      if (taskId && confirm('Delete scheduled task "' + taskId + '"?')) deleteScheduledTask(taskId);
+    }
+  });
+}
+
+function getApiToken() {
+  return new URLSearchParams(window.location.search).get('token');
+}
+
+function apiQs() {
+  const token = getApiToken();
+  return token ? '?token=' + encodeURIComponent(token) : '';
+}
+
+// --- Job CRUD ---
+
+async function submitJobForm() {
+  const name = document.getElementById('job-name')?.value?.trim();
+  const schedule = document.getElementById('job-schedule')?.value?.trim();
+  const prompt = document.getElementById('job-prompt')?.value?.trim();
+  const deliveryEl = document.querySelector('input[name="delivery"]:checked');
+  const delivery = deliveryEl ? deliveryEl.value : 'none';
+
+  if (!name || !schedule || !prompt) {
+    showToast('error', 'Name, schedule, and prompt are required');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/scheduling/jobs' + apiQs(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, schedule, prompt, delivery }),
+    });
+    if (resp.ok || resp.status === 201) {
+      showToast('success', 'Job created — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to create job');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+async function editJob(name) {
+  const newSchedule = prompt('New schedule for "' + name + '":');
+  if (!newSchedule) return;
+
+  try {
+    const resp = await fetch('/api/scheduling/jobs/' + encodeURIComponent(name) + apiQs(), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: newSchedule }),
+    });
+    if (resp.ok) {
+      showToast('success', 'Job updated — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to update job');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+async function deleteJob(name) {
+  try {
+    const resp = await fetch('/api/scheduling/jobs/' + encodeURIComponent(name) + apiQs(), {
+      method: 'DELETE',
+    });
+    if (resp.ok) {
+      showToast('success', 'Job deleted — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to delete job');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+// --- Scheduled Task CRUD ---
+
+function resetTaskForm() {
+  const titleEl = document.getElementById('task-form-title');
+  if (titleEl) titleEl.textContent = 'Add Scheduled Task';
+  document.getElementById('task-edit-id').value = '';
+  document.getElementById('task-id').value = '';
+  document.getElementById('task-id').disabled = false;
+  document.getElementById('task-schedule').value = '';
+  document.getElementById('task-title').value = '';
+  document.getElementById('task-description').value = '';
+  document.getElementById('task-type').selectedIndex = 0;
+  document.getElementById('task-acceptance').value = '';
+  document.getElementById('task-enabled').checked = true;
+}
+
+async function submitTaskForm() {
+  const editId = document.getElementById('task-edit-id')?.value?.trim();
+  const id = document.getElementById('task-id')?.value?.trim();
+  const schedule = document.getElementById('task-schedule')?.value?.trim();
+  const title = document.getElementById('task-title')?.value?.trim();
+  const description = document.getElementById('task-description')?.value?.trim();
+  const type = document.getElementById('task-type')?.value;
+  const acceptance = document.getElementById('task-acceptance')?.value?.trim();
+  const enabled = document.getElementById('task-enabled')?.checked ?? true;
+
+  if (!id || !schedule || !title || !description || !type) {
+    showToast('error', 'ID, schedule, title, description, and type are required');
+    return;
+  }
+
+  const body = { id, schedule, title, description, type, enabled };
+  if (acceptance) body.acceptanceCriteria = acceptance;
+
+  try {
+    const isEdit = editId && editId.length > 0;
+    const url = isEdit
+      ? '/api/scheduling/tasks/' + encodeURIComponent(editId) + apiQs()
+      : '/api/scheduling/tasks' + apiQs();
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const resp = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (resp.ok || resp.status === 201) {
+      showToast('success', (isEdit ? 'Task updated' : 'Task created') + ' — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to save scheduled task');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+async function toggleScheduledTask(taskId) {
+  // Fetch current config to find the task's current enabled state
+  try {
+    const configResp = await fetch('/api/config' + apiQs());
+    if (!configResp.ok) {
+      showToast('error', 'Failed to read config');
+      return;
+    }
+    const config = await configResp.json();
+    const tasks = config.automation?.scheduledTasks || [];
+    const task = tasks.find(function(t) { return t.id === taskId; });
+    if (!task) {
+      showToast('error', 'Task not found');
+      return;
+    }
+
+    const resp = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + apiQs(), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !task.enabled }),
+    });
+    if (resp.ok) {
+      showToast('success', 'Task ' + (!task.enabled ? 'enabled' : 'disabled') + ' — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to toggle task');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+async function editScheduledTask(taskId) {
+  // Fetch current config to pre-populate the form
+  try {
+    const configResp = await fetch('/api/config' + apiQs());
+    if (!configResp.ok) {
+      showToast('error', 'Failed to read config');
+      return;
+    }
+    const config = await configResp.json();
+    const tasks = config.automation?.scheduledTasks || [];
+    const task = tasks.find(function(t) { return t.id === taskId; });
+    if (!task) {
+      showToast('error', 'Task not found in config');
+      return;
+    }
+
+    // Show and populate form
+    const form = document.getElementById('task-form');
+    if (form) form.style.display = '';
+    const titleEl = document.getElementById('task-form-title');
+    if (titleEl) titleEl.textContent = 'Edit Scheduled Task';
+    document.getElementById('task-edit-id').value = taskId;
+    document.getElementById('task-id').value = task.id;
+    document.getElementById('task-id').disabled = true;
+    document.getElementById('task-schedule').value = task.cronExpression || '';
+    document.getElementById('task-title').value = task.title || '';
+    document.getElementById('task-description').value = task.description || '';
+    const typeSelect = document.getElementById('task-type');
+    if (typeSelect && task.type) {
+      for (var i = 0; i < typeSelect.options.length; i++) {
+        if (typeSelect.options[i].value === task.type) {
+          typeSelect.selectedIndex = i;
+          break;
+        }
+      }
+    }
+    document.getElementById('task-acceptance').value = task.acceptanceCriteria || '';
+    document.getElementById('task-enabled').checked = task.enabled !== false;
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
+async function deleteScheduledTask(taskId) {
+  try {
+    const resp = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + apiQs(), {
+      method: 'DELETE',
+    });
+    if (resp.ok) {
+      showToast('success', 'Scheduled task deleted — restart required');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showToast('error', data.error?.message || 'Failed to delete scheduled task');
+    }
+  } catch (_) {
+    showToast('error', 'Failed to reach server');
+  }
+}
+
 // === Init ===
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -840,14 +1207,538 @@ document.addEventListener('DOMContentLoaded', () => {
   initSessionDelete();
   initResumeArchive();
   initInlineRename();
+  initLoadEarlierMessages();
   typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
   typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
   typeof initSettingsForm === 'function' && initSettingsForm();
   typeof initChannelDetail === 'function' && initChannelDetail();
   typeof initPairingPolling === 'function' && initPairingPolling();
+  initSchedulingPage();
   initRestartBanner();
   typeof initQrFallback === 'function' && initQrFallback();
   typeof initQrCountdown === 'function' && initQrCountdown();
+  initTaskSse();
+  initTaskElapsedTimers();
+  initTaskListControls();
+  initTaskReviewActions();
+  initTaskStartActions();
+  initTaskCancelActions();
+  initNewTaskForm();
+  initTaskDetailRefresh();
   renderMarkdown();
   scrollToBottom();
 });
+
+// === TASK SSE + BADGE ===
+
+let taskEventSource = null;
+let latestTaskReviewCount = null;
+let taskElapsedTimer = null;
+let taskDetailRefreshTimer = null;
+
+function initTaskSse() {
+  const needsTaskEvents =
+    document.getElementById('tasks-badge') ||
+    document.querySelector('.tasks-page, .task-detail-page');
+  if (!needsTaskEvents) return;
+
+  // Connect to task SSE on any page (for sidebar badge updates).
+  if (taskEventSource) return;
+  try {
+    taskEventSource = new EventSource('/api/tasks/events');
+  } catch (_) {
+    return;
+  }
+
+  taskEventSource.onmessage = function(e) {
+    try {
+      const data = JSON.parse(e.data);
+
+      if (data.type === 'connected') {
+        updateTaskBadge(data.reviewCount || 0);
+        return;
+      }
+
+      // Status change event — update badge and optionally refresh task list.
+      if (data.type === 'task_status_changed') {
+        updateTaskBadge(data.reviewCount || 0);
+        if (shouldRefreshTaskContent(data.taskId)) {
+          refreshTasksPageContent();
+        }
+        return;
+      }
+
+      if (data.type === 'agent_state') {
+        if (shouldRefreshTaskContent(data.currentTaskId)) {
+          refreshTasksPageContent();
+        }
+      }
+    } catch (_) {}
+  };
+
+  taskEventSource.onerror = function() {
+    // EventSource auto-reconnects. No custom logic needed.
+  };
+}
+
+function currentTaskDetailId() {
+  const detailPage = document.querySelector('.task-detail-page');
+  return detailPage ? detailPage.getAttribute('data-task-id') : null;
+}
+
+function shouldRefreshTaskContent(taskId) {
+  return Boolean(document.getElementById('tasks-content')) || currentTaskDetailId() === taskId;
+}
+
+function updateTaskBadge(count) {
+  latestTaskReviewCount = count;
+  const badge = document.getElementById('tasks-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function initTaskElapsedTimers() {
+  const timers = document.querySelectorAll('.task-elapsed[data-started-at]');
+  if (!timers.length) {
+    if (taskElapsedTimer) {
+      clearInterval(taskElapsedTimer);
+      taskElapsedTimer = null;
+    }
+    return;
+  }
+
+  refreshTaskElapsedTimes();
+  if (taskElapsedTimer) return;
+  taskElapsedTimer = setInterval(refreshTaskElapsedTimes, 1000);
+}
+
+function initTaskDetailRefresh() {
+  const detailPage = document.querySelector('.task-detail-page');
+  if (!detailPage) {
+    if (taskDetailRefreshTimer) {
+      clearInterval(taskDetailRefreshTimer);
+      taskDetailRefreshTimer = null;
+    }
+    return;
+  }
+
+  const statusText = detailPage
+    .querySelector('.task-meta-card .status-badge')
+    ?.textContent
+    ?.trim()
+    .toLowerCase();
+  const shouldPoll = statusText === 'queued' || statusText === 'running';
+  if (!shouldPoll) {
+    if (taskDetailRefreshTimer) {
+      clearInterval(taskDetailRefreshTimer);
+      taskDetailRefreshTimer = null;
+    }
+    return;
+  }
+
+  if (taskDetailRefreshTimer) return;
+
+  taskDetailRefreshTimer = setInterval(async () => {
+    if (!document.querySelector('.task-detail-page')) {
+      clearInterval(taskDetailRefreshTimer);
+      taskDetailRefreshTimer = null;
+      return;
+    }
+
+    await refreshTasksPageContent();
+
+    const nextStatus = document
+      .querySelector('.task-detail-page .task-meta-card .status-badge')
+      ?.textContent
+      ?.trim()
+      .toLowerCase();
+    if (nextStatus !== 'queued' && nextStatus !== 'running') {
+      clearInterval(taskDetailRefreshTimer);
+      taskDetailRefreshTimer = null;
+    }
+  }, 2000);
+}
+
+function refreshTaskElapsedTimes() {
+  document.querySelectorAll('.task-elapsed[data-started-at]').forEach(el => {
+    const started = el.getAttribute('data-started-at');
+    if (!started) return;
+    const diff = Math.floor((Date.now() - new Date(started).getTime()) / 1000);
+    if (diff < 0) {
+      el.textContent = '--:--';
+      return;
+    }
+    const m = Math.floor(diff / 60);
+    const s = diff % 60;
+    el.textContent = m + 'm ' + String(s).padStart(2, '0') + 's';
+  });
+}
+
+function restoreTaskBadge() {
+  if (latestTaskReviewCount !== null) {
+    updateTaskBadge(latestTaskReviewCount);
+  }
+}
+
+async function refreshTasksPageContent() {
+  try {
+    const response = await fetch(window.location.pathname + window.location.search, {
+      headers: { 'HX-Request': 'true' },
+    });
+    if (!response.ok) return;
+
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const nextContent = parsed.getElementById('tasks-content');
+    const currentContent = document.getElementById('tasks-content');
+    if (!nextContent || !currentContent) return;
+
+    currentContent.replaceWith(nextContent);
+    initTaskElapsedTimers();
+    initTaskListControls();
+    initTaskReviewActions();
+    initTaskStartActions();
+    initTaskCancelActions();
+    initNewTaskForm();
+    initTaskDetailRefresh();
+    renderMarkdown();
+  } catch (_) {}
+}
+
+async function refreshTaskDetailContent() {
+  try {
+    const response = await fetch(window.location.pathname + window.location.search, {
+      headers: { 'HX-Request': 'true' },
+    });
+    if (!response.ok) return;
+
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const nextContent = parsed.getElementById('main-content');
+    const currentContent = document.getElementById('main-content');
+    if (!nextContent || !currentContent) return;
+
+    currentContent.replaceWith(nextContent);
+    initTaskElapsedTimers();
+    initTaskListControls();
+    initTaskReviewActions();
+    initTaskStartActions();
+    initTaskCancelActions();
+    initNewTaskForm();
+    initTaskDetailRefresh();
+    renderMarkdown();
+  } catch (_) {}
+}
+
+window.applyTaskFilters = function() {
+  const status = document.getElementById('task-status-filter');
+  const type = document.getElementById('task-type-filter');
+  const params = new URLSearchParams();
+  if (status && status.value) params.set('status', status.value);
+  if (type && type.value) params.set('type', type.value);
+  const qs = params.toString();
+  window.location.href = '/tasks' + (qs ? '?' + qs : '');
+};
+
+function initTaskListControls() {
+  document.querySelectorAll('[data-task-filter]').forEach(select => {
+    if (select.dataset.taskFilterInit) return;
+    select.dataset.taskFilterInit = '1';
+    select.addEventListener('change', window.applyTaskFilters);
+  });
+
+  document.querySelectorAll('[data-task-dialog-open]').forEach(button => {
+    if (button.dataset.taskDialogOpenInit) return;
+    button.dataset.taskDialogOpenInit = '1';
+    button.addEventListener('click', function() {
+      const dialog = document.getElementById('new-task-dialog');
+      if (dialog) dialog.showModal();
+    });
+  });
+
+  document.querySelectorAll('[data-task-dialog-close]').forEach(button => {
+    if (button.dataset.taskDialogCloseInit) return;
+    button.dataset.taskDialogCloseInit = '1';
+    button.addEventListener('click', function() {
+      const dialog = button.closest('dialog');
+      if (dialog) dialog.close();
+    });
+  });
+}
+
+// === TASK DETAIL: REVIEW ACTIONS ===
+
+function initTaskReviewActions() {
+  const reviewBar = document.querySelector('.task-review-bar');
+  if (!reviewBar || reviewBar.dataset.reviewInit) return;
+  reviewBar.dataset.reviewInit = '1';
+
+  const page = document.querySelector('.task-detail-page');
+  const taskId = page ? page.getAttribute('data-task-id') : null;
+  if (!taskId) return;
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  const qs = token ? '?token=' + encodeURIComponent(token) : '';
+
+  reviewBar.addEventListener('click', async function(e) {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-action');
+
+    if (action === 'push_back') {
+      const commentArea = reviewBar.querySelector('.pushback-comment');
+      if (commentArea && commentArea.style.display === 'none') {
+        commentArea.style.display = '';
+        return;
+      }
+    }
+
+    if (action === 'push_back') {
+      // handled by submit button
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/tasks/' + taskId + '/review' + qs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action }),
+      });
+      if (resp.ok) {
+        window.location.href = '/tasks' + qs;
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast('error', data.error?.message || 'Review action failed');
+      }
+    } catch (_) {
+      showToast('error', 'Failed to reach server');
+    }
+  });
+
+  // Push-back submit
+  const submitBtn = reviewBar.querySelector('.btn-pushback-submit');
+  if (submitBtn) {
+    submitBtn.addEventListener('click', async function() {
+      const textarea = document.getElementById('pushback-comment');
+      const comment = textarea ? textarea.value.trim() : '';
+      if (!comment) {
+        showToast('error', 'Comment is required for push back');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/tasks/' + taskId + '/review' + qs, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'push_back', comment: comment }),
+        });
+        if (resp.ok) {
+          window.location.href = '/tasks' + qs;
+        } else {
+          const data = await resp.json().catch(() => ({}));
+          showToast('error', data.error?.message || 'Push back failed');
+        }
+      } catch (_) {
+        showToast('error', 'Failed to reach server');
+      }
+    });
+  }
+}
+
+function initTaskStartActions() {
+  const page = document.querySelector('.task-detail-page');
+  if (!page) return;
+
+  const startBtn = page.querySelector('[data-task-start]');
+  if (!startBtn || startBtn.dataset.taskStartInit) return;
+  startBtn.dataset.taskStartInit = '1';
+
+  const taskId = page.getAttribute('data-task-id');
+  if (!taskId) return;
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  const qs = token ? '?token=' + encodeURIComponent(token) : '';
+
+  startBtn.addEventListener('click', async function() {
+    startBtn.disabled = true;
+    try {
+      const resp = await fetch('/api/tasks/' + taskId + '/start' + qs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast('error', data.error?.message || 'Failed to start task');
+        startBtn.disabled = false;
+      }
+    } catch (_) {
+      showToast('error', 'Failed to reach server');
+      startBtn.disabled = false;
+    }
+  });
+}
+
+function initTaskCancelActions() {
+  const page = document.querySelector('.task-detail-page');
+  if (!page) return;
+
+  const cancelBtn = page.querySelector('[data-task-cancel]');
+  if (!cancelBtn || cancelBtn.dataset.taskCancelInit) return;
+  cancelBtn.dataset.taskCancelInit = '1';
+
+  const taskId = page.getAttribute('data-task-id');
+  if (!taskId) return;
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  const qs = token ? '?token=' + encodeURIComponent(token) : '';
+
+  cancelBtn.addEventListener('click', async function() {
+    cancelBtn.disabled = true;
+    try {
+      const resp = await fetch('/api/tasks/' + taskId + '/cancel' + qs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (resp.ok) {
+        window.location.href = '/tasks' + qs;
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast('error', data.error?.message || 'Failed to cancel task');
+        cancelBtn.disabled = false;
+      }
+    } catch (_) {
+      showToast('error', 'Failed to reach server');
+      cancelBtn.disabled = false;
+    }
+  });
+}
+
+// === NEW TASK FORM ===
+
+function initNewTaskForm() {
+  const form = document.getElementById('new-task-form');
+  if (!form || form.dataset.taskFormInit) return;
+  form.dataset.taskFormInit = '1';
+
+  const token = new URLSearchParams(window.location.search).get('token');
+  const qs = token ? '?token=' + encodeURIComponent(token) : '';
+  const typeSelect = form.querySelector('[name="type"]');
+  const goalSelect = form.querySelector('[name="goalId"]');
+  const hintEl = form.querySelector('[data-task-type-hint]');
+  const descriptionLabel = form.querySelector('[data-task-description-label]');
+  const descriptionInput = form.querySelector('[data-task-description-input]');
+  const criteriaLabel = form.querySelector('[data-task-criteria-label]');
+  const criteriaInput = form.querySelector('[data-task-criteria-input]');
+
+  const typeConfig = {
+    coding: {
+      hint: 'Coding tasks run in isolated git worktrees and produce diffs for review.',
+      descriptionLabel: 'Implementation Brief',
+      descriptionPlaceholder: 'What should change in the codebase?',
+      criteriaLabel: 'Definition of Done',
+      criteriaPlaceholder: 'What files, behaviors, or tests should be complete?',
+    },
+    research: {
+      hint: 'Research tasks produce reviewable written artifacts and can run in the restricted profile.',
+      descriptionLabel: 'Research Brief',
+      descriptionPlaceholder: 'What should the agent investigate or summarize?',
+      criteriaLabel: 'Success Criteria',
+      criteriaPlaceholder: 'What should the final write-up answer or include?',
+    },
+    writing: {
+      hint: 'Writing tasks focus on producing polished documents or copy for review.',
+      descriptionLabel: 'Writing Brief',
+      descriptionPlaceholder: 'What should the agent write or rewrite?',
+      criteriaLabel: 'Editorial Criteria',
+      criteriaPlaceholder: 'Tone, audience, structure, and completion criteria',
+    },
+    analysis: {
+      hint: 'Analysis tasks are best for diagnostics, comparisons, and structured conclusions.',
+      descriptionLabel: 'Analysis Brief',
+      descriptionPlaceholder: 'What should the agent analyze?',
+      criteriaLabel: 'Expected Output',
+      criteriaPlaceholder: 'What conclusion, report, or artifact should come back?',
+    },
+    automation: {
+      hint: 'Automation tasks are useful for repeatable operational runs that still end in review.',
+      descriptionLabel: 'Automation Brief',
+      descriptionPlaceholder: 'What repeatable operation should the agent run?',
+      criteriaLabel: 'Completion Check',
+      criteriaPlaceholder: 'What makes the run successful and ready for review?',
+    },
+    custom: {
+      hint: 'Custom tasks use the generic task pipeline when none of the standard types fit cleanly.',
+      descriptionLabel: 'Task Brief',
+      descriptionPlaceholder: 'Describe the task clearly and concretely.',
+      criteriaLabel: 'Acceptance Criteria',
+      criteriaPlaceholder: 'How will you know when it is done?',
+    },
+  };
+
+  function applyTaskTypeFormBehavior() {
+    const config = typeConfig[(typeSelect && typeSelect.value) || 'custom'] || typeConfig.custom;
+    if (hintEl) hintEl.textContent = config.hint;
+    if (descriptionLabel) descriptionLabel.textContent = config.descriptionLabel;
+    if (descriptionInput) descriptionInput.placeholder = config.descriptionPlaceholder;
+    if (criteriaLabel) criteriaLabel.textContent = config.criteriaLabel;
+    if (criteriaInput) criteriaInput.placeholder = config.criteriaPlaceholder;
+  }
+
+  if (typeSelect && !typeSelect.dataset.taskTypeInit) {
+    typeSelect.dataset.taskTypeInit = '1';
+    typeSelect.addEventListener('change', applyTaskTypeFormBehavior);
+  }
+  applyTaskTypeFormBehavior();
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errorEl = document.getElementById('new-task-error');
+
+    const title = form.querySelector('[name="title"]').value.trim();
+    const description = form.querySelector('[name="description"]').value.trim();
+    const type = form.querySelector('[name="type"]').value;
+    const goalId = goalSelect ? goalSelect.value.trim() : '';
+    const acceptanceCriteria = form.querySelector('[name="acceptanceCriteria"]').value.trim();
+    const model = form.querySelector('[name="model"]').value.trim();
+    const tokenBudget = form.querySelector('[name="tokenBudget"]').value.trim();
+    const autoStart = form.querySelector('[name="autoStart"]').checked;
+
+    if (!title || !description || !type) {
+      if (errorEl) errorEl.textContent = 'Title, description, and type are required.';
+      return;
+    }
+
+    const body = { title, description, type, autoStart };
+    if (goalId) body.goalId = goalId;
+    if (acceptanceCriteria) body.acceptanceCriteria = acceptanceCriteria;
+    if (model) body.configJson = { model };
+    if (tokenBudget) body.configJson = { ...(body.configJson || {}), tokenBudget: parseInt(tokenBudget, 10) };
+
+    try {
+      const resp = await fetch('/api/tasks' + qs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok || resp.status === 201) {
+        const data = await resp.json();
+        const dialog = document.getElementById('new-task-dialog');
+        if (dialog) dialog.close();
+        window.location.href = '/tasks/' + data.id + qs;
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to create task';
+      }
+    } catch (_) {
+      if (errorEl) errorEl.textContent = 'Failed to reach server';
+    }
+  });
+}

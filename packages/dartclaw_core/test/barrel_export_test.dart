@@ -6,6 +6,7 @@
 library;
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -66,6 +67,38 @@ void main() {
 
       const result = MemorySearchResult(text: 'fact', source: 'test', score: 0.9);
       expect(result.score, 0.9);
+
+      final task = Task(
+        id: 'task-1',
+        title: 'Title',
+        description: 'Description',
+        type: TaskType.coding,
+        status: TaskStatus.draft,
+        createdAt: DateTime.now(),
+      );
+      expect(task.status, TaskStatus.draft);
+
+      final artifact = TaskArtifact(
+        id: 'artifact-1',
+        taskId: 'task-1',
+        name: 'Patch',
+        kind: ArtifactKind.diff,
+        path: '/tmp/patch.diff',
+        createdAt: DateTime.now(),
+      );
+      expect(artifact.kind, ArtifactKind.diff);
+      expect(TaskRepository, isNotNull);
+      expect(TaskService, isNotNull);
+
+      final goal = Goal(
+        id: 'goal-1',
+        title: 'Ship 0.8',
+        mission: 'Deliver the release safely.',
+        createdAt: DateTime.now(),
+      );
+      expect(goal.title, 'Ship 0.8');
+      expect(GoalRepository, isNotNull);
+      expect(GoalService, isNotNull);
     });
 
     test('SessionKey constructable', () {
@@ -75,9 +108,25 @@ void main() {
 
     test('container symbols importable', () {
       const config = ContainerConfig(enabled: true);
+      const profile = SecurityProfile.restricted;
       expect(config.enabled, isTrue);
       expect(ContainerManager, isNotNull);
       expect(CredentialProxy, isNotNull);
+      expect(profile.id, 'restricted');
+    });
+
+    test('google chat symbols importable', () {
+      const audience = GoogleChatAudienceConfig(
+        mode: GoogleChatAudienceMode.appUrl,
+        value: 'https://example.com/integrations/googlechat',
+      );
+      const config = GoogleChatConfig(audience: audience);
+      final restClient = GoogleChatRestClient(authClient: MockClient((request) async => throw UnimplementedError()));
+      final channel = GoogleChatChannel(config: config, restClient: restClient);
+
+      expect(config.audience, isNotNull);
+      expect(GcpAuthService, isNotNull);
+      expect(channel.name, 'googlechat');
     });
   });
 }

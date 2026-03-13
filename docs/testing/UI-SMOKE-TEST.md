@@ -54,7 +54,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 
 **Pass:**
 - Sidebar visible at desktop with `+ New Session` button
-- Sidebar has **SYSTEM nav section** with Health, Settings, Scheduling links
+- Sidebar has **SYSTEM nav section** with Health, Settings, Memory, Scheduling, and Tasks links
 - Chat area: empty state illustration, "No messages yet" heading, subtext
 - Mobile (375px): hamburger visible, sidebar hidden
 
@@ -72,7 +72,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 - **ℹ button** in topbar (links to `/sessions/<id>/info`)
 - Reset button visible (hidden at mobile)
 - Sidebar shows active session with accent left-border
-- Sidebar has **SYSTEM nav section**: Health, Settings, Scheduling
+- Sidebar has **SYSTEM nav section**: Health, Settings, Memory, Scheduling, Tasks
 - No console errors
 
 **Fail:** Missing ℹ button, missing system nav, no active state on session
@@ -101,7 +101,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 **Pass:**
 - Status hero card: icon (✓/⚠/✗), status text, uptime, version
 - Services section: WORKER, DATABASE, SESSIONS, STORAGE cards with colored badges
-- Sidebar SYSTEM nav: **Health (active)**, Settings, Scheduling — all three visible
+- Sidebar SYSTEM nav: **Health (active)**, Settings, Memory, Scheduling, Tasks — all visible
 - "← Back" in topbar
 - No console errors
 
@@ -114,10 +114,11 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 1. Navigate to `/settings`
 
 **Pass:**
-- 6 cards visible: WhatsApp Channel, Security & Guards, Scheduling, Authentication, System Health, Workspace
+- Tabbed editor visible with sections: Agent, Server, Sessions, Memory, Scheduling, Channels, Security
+- Channel cards visible for WhatsApp, Signal, and Google Chat
 - Security card shows active guard names (Command-Guard, File-Guard, Network-Guard)
 - Scheduling card links navigate correctly
-- Sidebar SYSTEM nav: Health, **Settings (active)**, Scheduling — all three visible
+- Sidebar SYSTEM nav: Health, **Settings (active)**, Memory, Scheduling, Tasks — all visible
 
 **Fail:** Missing cards, broken links, Scheduling missing from nav
 
@@ -133,7 +134,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 - Status badge: "Active" or "Disabled"
 - Jobs table: empty state row if no jobs configured
 - Mobile: table scrolls horizontally; a **visible fade gradient** appears at the right edge of the table container (verify in browser — CSS may be present in source but not render if `position` is wrong)
-- Sidebar SYSTEM nav: Health, Settings, **Scheduling (active)**
+- Sidebar SYSTEM nav: Health, Settings, Memory, **Scheduling (active)**, Tasks
 
 **Fail:** Pulse animation missing when active, no empty state, Scheduling not marked active in nav, fade gradient not visually present at mobile (check `getComputedStyle` on `.table-wrap::after` if uncertain)
 
@@ -244,7 +245,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 3. From settings, click "Scheduling"
 4. From scheduling, click "Health"
 
-**Pass:** Each navigation lands on the correct page; active nav item highlighted; all three links present on every system page
+**Pass:** Each navigation lands on the correct page; active nav item highlighted; the System nav consistently includes Health, Settings, Memory, Scheduling, and Tasks
 
 **Fail:** Any link missing, wrong page loads, active state not updated
 
@@ -289,24 +290,59 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 
 ---
 
-### TC-19: Memory Dashboard
+## Extended Surface
+
+### TC-19: Tasks List Page
 **Steps:**
-1. Navigate to `/memory`
+1. Navigate to `/tasks`
+2. Verify filters, task groups, and agent pool summary
 
 **Pass:**
-- Overview section: 5 metric cards (Memory Size with budget bar, Active Entries, Archived Entries, Errors, Learnings)
-- Pruning section: Pruner card with config, next run, undated entries; "Prune Now" button
-- Search & Index section: backend, depth, index entries, DB size
-- Memory Files section: 4 tabs (MEMORY.md, errors.md, learnings.md, Archive) with Raw/Rendered toggle
-- MEMORY.md tab content loads automatically on page load (no click needed)
-- Daily Logs section at bottom
-- Sidebar SYSTEM nav present
+- Status and type filters are visible
+- "New Task" button opens the create-task dialog
+- Agent pool section renders without console errors
+- Existing tasks are grouped by status with clickable task titles
+- Sidebar SYSTEM nav includes **Tasks (active)** plus Health, Settings, Memory, Scheduling
 
-**Fail:** MEMORY.md tab shows "Click to load content..." on first render; overview metrics missing; tabs non-functional
+**Fail:** Missing filters/dialog, broken task links, stale nav state, or console errors
 
 ---
 
-### TC-20: Memory Dashboard — Prune Action
+### TC-20: Task Detail Progression
+**Steps:**
+1. Open a draft task at `/tasks/<id>`
+2. Click **Start Task**
+3. Observe the detail page without manually reloading
+
+**Pass:**
+- Draft task shows **Start Task** action
+- After start, page transitions away from draft state
+- Queued/running state is visible on the same page without requiring manual reload
+- Once session exists, the embedded task session shows at least the initial user prompt
+- No console errors
+
+**Fail:** Page remains stale after start, still shows draft/start UI, or requires manual reload to reveal task session/status
+
+---
+
+### TC-21: Memory Dashboard
+**Steps:**
+1. Navigate to `/memory`
+2. Switch between memory file tabs
+3. Toggle Raw / Rendered mode
+
+**Pass:**
+- Overview, pruning, search/index, memory files, and daily logs sections render
+- Sidebar SYSTEM nav includes **Memory (active)** plus Health, Settings, Scheduling, Tasks
+- File tab content loads without full page reload
+- Raw / Rendered toggle updates already-loaded previews
+- No console errors
+
+**Fail:** Missing sections, broken tab loading, broken nav state, or console errors
+
+---
+
+### TC-22: Memory Dashboard — Prune Action
 **Steps:**
 1. Navigate to `/memory`
 2. Click "Prune Now"
@@ -322,7 +358,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 
 ---
 
-### TC-21: Scheduling — Job CRUD
+### TC-23: Scheduling — Job CRUD
 **Steps:**
 1. Navigate to `/scheduling`
 2. Click "Add Job" to open the form
@@ -343,7 +379,7 @@ See `docs/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for server setup and tooling
 
 ---
 
-### TC-22: Restart Banner
+### TC-24: Restart Banner
 **Steps:**
 1. Change a restart-requiring setting (e.g., server port) on `/settings`
 2. Observe restart banner appearance

@@ -128,6 +128,24 @@ void main() {
       final body = await res.readAsString();
       expect(body, contains('data-session-id'));
     });
+
+    test('initial session page renders tail-window pagination state', () async {
+      final session = await sessions.createSession();
+      for (var i = 1; i <= 250; i++) {
+        await messages.insertMessage(
+          sessionId: session.id,
+          role: 'user',
+          content: 'Message ${i.toString().padLeft(3, '0')}',
+        );
+      }
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('Load earlier messages'));
+      expect(body, contains('data-earliest-cursor="51"'));
+      expect(body, contains('<p>Message 250</p>'));
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -165,6 +183,46 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
       expect(body, contains('data-markdown'));
+    });
+
+    test('default load returns only the last 200 messages', () async {
+      final session = await sessions.createSession();
+      for (var i = 1; i <= 250; i++) {
+        await messages.insertMessage(
+          sessionId: session.id,
+          role: 'user',
+          content: 'Message ${i.toString().padLeft(3, '0')}',
+        );
+      }
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
+      final body = await res.readAsString();
+
+      expect(body, isNot(contains('<p>Message 001</p>')));
+      expect(body, contains('<p>Message 051</p>'));
+      expect(body, contains('<p>Message 250</p>'));
+    });
+
+    test('before query returns earlier messages without duplicates', () async {
+      final session = await sessions.createSession();
+      for (var i = 1; i <= 60; i++) {
+        await messages.insertMessage(
+          sessionId: session.id,
+          role: 'user',
+          content: 'Message ${i.toString().padLeft(3, '0')}',
+        );
+      }
+
+      final res = await handler(
+        Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html?before=51')),
+      );
+      final body = await res.readAsString();
+
+      expect(body, contains('<p>Message 001</p>'));
+      expect(body, contains('<p>Message 050</p>'));
+      expect(body, isNot(contains('<p>Message 051</p>')));
+      expect(res.headers['x-dartclaw-earliest-cursor'], '1');
+      expect(res.headers['x-dartclaw-has-earlier-messages'], 'false');
     });
   });
 
@@ -233,6 +291,116 @@ void main() {
       expect(body, contains('Pairing needed'));
       expect(body, contains('Pairing / Registration'));
       expect(body, isNot(contains('Disconnect')));
+    });
+  });
+
+  test('settings page reflects configured Google Chat even when channel is not connected', () async {
+    final handler = webRoutes(
+      sessions,
+      messages,
+      config: const DartclawConfig(
+        googleChatConfig: GoogleChatConfig(
+          enabled: true,
+          requireMention: true,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.disabled,
+        ),
+      ),
+    ).call;
+
+    final res = await handler(Request('GET', Uri.parse('http://localhost/settings')));
+    final body = await res.readAsString();
+
+    expect(res.statusCode, equals(200));
+    expect(body, contains('Google Chat Channel'));
+    expect(body, contains('Configured'));
+  });
+
+  group('login routes', () {
+    test('GET /login preserves next path and token hint in the form', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/login?next=%2Ftasks&token=abc123')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('name="next"'));
+      expect(body, contains('value="/tasks"'));
+      expect(body, contains('value="abc123"'));
+    });
+
+    test('POST /login redirects to provided next path on success', () async {
+      final handler = webRoutes(
+        sessions,
+        messages,
+        tokenService: TokenService(token: 'a' * 64),
+        gatewayToken: 'a' * 64,
+      ).call;
+
+      final res = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/login'),
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+          body: 'token=${'a' * 64}&next=%2Ftasks%3Fstatus%3Dreview',
+        ),
+      );
+
+      expect(res.statusCode, equals(302));
+      expect(res.headers['location'], '/tasks?status=review');
+      expect(res.headers['set-cookie'], contains('dart_session='));
+    });
+
+    test('POST /login can set Secure cookie flag', () async {
+      final handler = webRoutes(
+        sessions,
+        messages,
+        tokenService: TokenService(token: 'a' * 64),
+        gatewayToken: 'a' * 64,
+        cookieSecure: true,
+      ).call;
+
+      final res = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/login'),
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+          body: 'token=${'a' * 64}',
+        ),
+      );
+
+      expect(res.statusCode, equals(302));
+      expect(res.headers['set-cookie'], contains('Secure'));
+    });
+
+    test('POST /login fires FailedAuthEvent on invalid token', () async {
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final events = <FailedAuthEvent>[];
+      final sub = eventBus.on<FailedAuthEvent>().listen(events.add);
+      addTearDown(sub.cancel);
+
+      final handler = webRoutes(
+        sessions,
+        messages,
+        tokenService: TokenService(token: 'a' * 64),
+        gatewayToken: 'a' * 64,
+        eventBus: eventBus,
+      ).call;
+
+      final res = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/login'),
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+          body: 'token=wrong',
+        ),
+      );
+
+      expect(res.statusCode, equals(200));
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(1));
+      expect(events.single.source, 'login');
+      expect(events.single.reason, 'invalid_login_token');
+      expect(events.single.limited, isFalse);
     });
   });
 

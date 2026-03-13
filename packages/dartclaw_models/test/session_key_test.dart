@@ -36,18 +36,12 @@ void main() {
 
     group('dmPerChannelContact', () {
       test('format with channelType and peerId', () {
-        final key = SessionKey.dmPerChannelContact(
-          channelType: 'whatsapp',
-          peerId: '123@s.whatsapp.net',
-        );
+        final key = SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '123@s.whatsapp.net');
         expect(key, 'agent:main:dm:whatsapp:123%40s.whatsapp.net');
       });
 
       test('empty peerId throws ArgumentError', () {
-        expect(
-          () => SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: ''),
-          throwsArgumentError,
-        );
+        expect(() => SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: ''), throwsArgumentError);
       });
     });
 
@@ -58,10 +52,7 @@ void main() {
       });
 
       test('empty groupId throws ArgumentError', () {
-        expect(
-          () => SessionKey.groupShared(channelType: 'whatsapp', groupId: ''),
-          throwsArgumentError,
-        );
+        expect(() => SessionKey.groupShared(channelType: 'whatsapp', groupId: ''), throwsArgumentError);
       });
     });
 
@@ -77,22 +68,14 @@ void main() {
 
       test('empty groupId throws ArgumentError', () {
         expect(
-          () => SessionKey.groupPerMember(
-            channelType: 'whatsapp',
-            groupId: '',
-            peerId: '123@s.whatsapp.net',
-          ),
+          () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: '', peerId: '123@s.whatsapp.net'),
           throwsArgumentError,
         );
       });
 
       test('empty peerId throws ArgumentError', () {
         expect(
-          () => SessionKey.groupPerMember(
-            channelType: 'whatsapp',
-            groupId: 'group@g.us',
-            peerId: '',
-          ),
+          () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
           throwsArgumentError,
         );
       });
@@ -100,17 +83,25 @@ void main() {
 
     group('cronSession', () {
       test('produces correct format', () {
-        expect(
-          SessionKey.cronSession(jobId: 'daily-summary'),
-          'agent:main:cron:daily-summary',
-        );
+        expect(SessionKey.cronSession(jobId: 'daily-summary'), 'agent:main:cron:daily-summary');
       });
 
       test('encodes special characters in jobId', () {
-        expect(
-          SessionKey.cronSession(jobId: 'job with spaces'),
-          'agent:main:cron:job%20with%20spaces',
-        );
+        expect(SessionKey.cronSession(jobId: 'job with spaces'), 'agent:main:cron:job%20with%20spaces');
+      });
+    });
+
+    group('taskSession', () {
+      test('produces correct format', () {
+        expect(SessionKey.taskSession(taskId: 'task-123'), 'agent:main:task:task-123');
+      });
+
+      test('encodes special characters in taskId', () {
+        expect(SessionKey.taskSession(taskId: 'task with spaces'), 'agent:main:task:task%20with%20spaces');
+      });
+
+      test('empty taskId throws ArgumentError', () {
+        expect(() => SessionKey.taskSession(taskId: ''), throwsArgumentError);
       });
     });
 
@@ -141,6 +132,14 @@ void main() {
         expect(parsed.agentId, 'main');
         expect(parsed.scope, 'group');
         expect(parsed.identifiers, 'whatsapp:group%40g.us:123%40s.whatsapp.net');
+      });
+
+      test('round-trip for task session key', () {
+        final keyStr = SessionKey.taskSession(taskId: 'task-42');
+        final parsed = SessionKey.parse(keyStr);
+        expect(parsed.agentId, 'main');
+        expect(parsed.scope, 'task');
+        expect(parsed.identifiers, 'task-42');
       });
 
       test('invalid key throws FormatException', () {

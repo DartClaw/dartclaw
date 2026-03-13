@@ -9,13 +9,7 @@ final _turnFailedPattern = RegExp(r'^\[Turn failed(?::\s*(.+))?\]$', dotAll: tru
 enum MessageType { user, assistant, guardBlock, turnFailed }
 
 /// Classified message with type and extracted detail (for guard-block / turn-failed).
-typedef ClassifiedMessage = ({
-  String id,
-  String role,
-  String content,
-  MessageType messageType,
-  String? detail,
-});
+typedef ClassifiedMessage = ({String id, String role, String content, MessageType messageType, String? detail});
 
 /// Classifies a raw message into one of the four message types.
 ///
@@ -40,13 +34,7 @@ ClassifiedMessage classifyMessage({required String id, required String role, req
 
   final failedMatch = _turnFailedPattern.firstMatch(content);
   if (failedMatch != null) {
-    return (
-      id: id,
-      role: role,
-      content: content,
-      messageType: MessageType.turnFailed,
-      detail: failedMatch.group(1),
-    );
+    return (id: id, role: role, content: content, messageType: MessageType.turnFailed, detail: failedMatch.group(1));
   }
 
   return (id: id, role: role, content: content, messageType: MessageType.assistant, detail: null);
@@ -86,6 +74,8 @@ String chatAreaTemplate({
   bool hasTitle = false,
   String bannerHtml = '',
   bool readOnly = false,
+  int? earliestCursor,
+  bool hasEarlierMessages = false,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
   final inputDisabled = isStreaming || readOnly;
@@ -97,6 +87,8 @@ String chatAreaTemplate({
     context: {
       'sessionId': sessionId,
       'hasTitle': hasTitle ? 'true' : 'false',
+      'earliestCursor': earliestCursor?.toString(),
+      'loadEarlierHidden': hasEarlierMessages ? null : true,
       'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
       'messagesHtml': messagesHtml,
       'readOnly': readOnly,

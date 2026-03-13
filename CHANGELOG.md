@@ -9,6 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] — 2026-03-09
+
+Task orchestration, parallel execution, coding tasks with git worktree isolation, task dashboard, Google Chat channel, agent observability. Post-implementation security hardening, performance, and documentation.
+
+### Added
+- **PageRegistry + SDK API** (S01): `DashboardPage` abstract class + `PageRegistry` with `register()`, `resolve()`, `navItems()`; all system pages migrated to registry-based registration; `server.registerDashboardPage()` SDK API for external page plugins
+- **Per-profile containers** (S02): per-type container isolation (ADR-012); `workspace` profile (workspace:rw, project:ro) and `restricted` profile (no workspace mount); deterministic naming via `ContainerManager.generateName()`; `ServiceWiring` manages both profiles
+- **Task domain model** (S03): `TaskStatus` enum (9 states: draft/queued/running/interrupted/review/accepted/rejected/cancelled/failed) with validated state machine transitions; `TaskType` enum (coding/research/writing/analysis/automation/custom); `Task` + `TaskArtifact` value classes
+- **Task persistence** (S04): `TaskService` with SQLite persistence in `tasks.db` (WAL mode); CRUD + lifecycle operations; list queries filterable by status and type
+- **Task REST API** (S05): full lifecycle API — `POST /api/tasks`, `GET /api/tasks`, `GET /api/tasks/<id>`, start/checkout/cancel/review actions, artifact endpoints; `TaskStatusChangedEvent` + `TaskReviewReadyEvent` fired via event bus
+- **Task executor** (S06): `TaskExecutor` polls queued tasks (FIFO); `SessionKey.taskSession(taskId)` factory; `ArtifactCollector` gathers outputs by type; push-back injects comment and re-queues; task sessions hidden from main sidebar
+- **HarnessPool + TurnRunner** (S07): `TurnRunner` extracted from `TurnManager`; `HarnessPool` manages multiple `AgentHarness` instances with acquire/release lifecycle; configurable `tasks.max_concurrent` (default: 3); per-session turn serialization
+- **Container dispatch routing** (S08): task type → security profile routing (research → `restricted`, others → `workspace`); `ContainerStartedEvent` / `ContainerCrashedEvent`; container crash transitions in-flight tasks to `failed`
+- **WorktreeManager** (S09): git worktree lifecycle — `create(taskId, baseRef)` creates `dartclaw/task-<id>` branch; `FileGuard` integration for worktree path isolation; `--directory` flag passed to `claude` binary; stale detection; configurable base ref via `tasks.worktree.base_ref`
+- **Diff review + merge** (S10): diff artifact generated from worktree vs base branch; structured diff data (file list, additions, deletions, hunks); configurable merge strategy (`squash`/`merge` via `tasks.worktree.merge_strategy`); accept → squash-merge + cleanup; merge conflicts keep task in `review` with conflict details
+- **Task dashboard** (S11): `/tasks` page registered via `PageRegistry`; filterable list by status/type; running task status cards with elapsed time; SSE live updates; review queue at `/tasks?status=review`; sidebar badge count for pending reviews
+- **Task detail page** (S12): `/tasks/<id>` with embedded chat view, type-specific artifact panel (markdown, structured diff), Accept/Reject/Push Back review controls, "New Task" form with type-conditional fields
+- **Scheduled tasks** (S13): new `task` job type alongside existing `prompt`; cron fires → auto-creates task with `autoStart: true`; completed tasks enter review queue; scheduling UI updated for task-type jobs
+- **Google Chat config + auth** (S14): `GoogleChatConfig` model with YAML parsing; GCP service account OAuth2 (inline JSON / file path / env var); inbound JWT verification (app-url OIDC + project-number self-signed modes); 10min certificate cache
+- **Google Chat channel** (S15): `GoogleChatChannel` implementing `Channel` interface; webhook handler at `POST /integrations/googlechat` with JWT verification; Chat REST API client (send, edit, download); per-space rate limiting (1 write/sec); typing indicator pattern for async turns; message chunking at ~4,000 chars
+- **Google Chat session + access** (S16): session keying via `SessionScopeConfig.forChannel("googlechat")`; `DmAccessController` reuse (pairing/allowlist/open/disabled); mention gating; `ServiceWiring` registration
+- **Google Chat config UI** (S17): `/settings/channels/google_chat` channel detail page; mode selectors, allowlist editor, mention toggle, connection status; config API extended for Google Chat fields
+- **Goal model** (S18): `Goal` class (id, title, parentGoalId, mission); `goals` table in `tasks.db`; tasks reference goals via `goalId`; goal + parent goal context injection into task sessions (~200 tokens, 2 levels max); `POST/GET/DELETE /api/goals`
+- **Agent observability** (S19): `AgentObserver` tracks per-harness metrics (tokens, turns, errors, current task); `GET /api/agents` + `GET /api/agents/<id>` endpoints; pool status (active/available/max); agent overview section on `/tasks` with SSE live updates
+- **Google Chat user guide**: `docs/guide/google-chat.md` — setup, GCP auth, request verification modes, DM/group access, troubleshooting
+- **Tasks user guide**: `docs/guide/tasks.md` — task types, lifecycle, review workflow, coding tasks, scheduling integration, configuration
+- **Guard audit configurable retention**: `guard_audit.max_entries` config (default 10000); registered in `ConfigMeta`
+- **Task artifact disk reporting**: per-task `artifactDiskBytes` in task API responses; aggregate metric on health dashboard
+- **Merge conflict UX**: task detail shows conflicting files list + resolution instructions when conflict artifact exists
+- **Message tail-window loading**: `getMessagesTail()` + `getMessagesBefore()` APIs; initial chat/task-detail load returns last 200 messages; "Load earlier messages" button for backward pagination
+- **Write queue backpressure**: `BoundedWriteQueue` caps pending writes at 1000; warning at 80% capacity; explicit overflow error (no silent drops)
+
+### Security
+- **Cookie `Secure` flag**: `auth.cookie_secure` config controls `Secure` attribute on session cookies; enables safe deployment behind TLS
+- **Timing side-channel fix**: `constantTimeEquals` no longer leaks string length — pads shorter input to match longer before constant-time byte comparison
+- **Auth rate limiting**: `AuthRateLimiter` returns 429 after 5 failed auth attempts per minute; `FailedAuthEvent` fired on all auth failure paths (gateway, login, webhook); successful auth resets counter
+- **Auth trusted-proxy model**: `auth.trusted_proxies` config (list of IPs); `X-Forwarded-For` only accepted when connecting socket IP is in the trusted list; defaults to socket address for direct deployments
+- **CommandGuard hardening**: broadened interpreter escape patterns to catch combined flag forms (`bash -lc`, `bash -xc`, `sh -lc`); third match path checks interpreter escapes and pipe targets against original command text before quote normalization; blocks `bash -lc 'rm -rf /'` and `cat script | 'bash -x'`
+
+### Changed
+- **MessageService cursor tracking**: in-memory `_lineCounts` map for O(1) cursor assignment on insert; one-time file scan on first access per session
+- **KvService write-through cache**: reads served from in-memory cache after initial load; cache invalidated on write failure; atomic write pattern preserved
+- **Shared `WriteOp`**: extracted from duplicated `_WriteOp` in `MessageService` and `KvService` to `write_op.dart` (internal, not public API)
+- **DartclawServer fail-fast validation**: missing required runtime services for enabled features now throw `StateError` at handler build time
+
+### Fixed
+- **Task executor parallel dispatch**: pool-mode scheduling now dispatches across all compatible idle runners instead of waiting for one task to finish before starting the next
+- **Task cancel propagation**: cancelling a running task now forwards cancellation to the active turn before returning the UI to the task list
+- **Squash-merge conflict cleanup**: coding-task review no longer uses `git merge --abort` after `git merge --squash`; squash conflicts now restore state with a squash-safe reset path
+- **Login fallback deep links**: browser auth redirects now preserve the requested route via `/login?next=...`, and successful manual sign-in returns to that route
+- **Settings Google Chat status**: the settings page now receives live config context and can show configured Google Chat instances even when the channel is not connected
+- **Task SSE bootstrap**: the client only opens `/api/tasks/events` when the shell actually renders task UI or the task badge
+- **Task detail live refresh**: `/tasks/<id>` now transitions from draft to queued/running state without requiring a manual reload; task SSE refreshes target the active detail page and queued/running detail views use a scoped refresh fallback while a session is being attached
+- **Queued task UX**: task detail pages show an explicit queued-state shell and more accurate no-session copy while waiting for a runner
+- **Token deep-link bootstrap**: `?token=<valid>` sign-in now works on any GET route, not just `/`, and redirects back to the original path without the token while preserving other query params
+- **WhatsApp sidecar adoption**: the server now adopts an already healthy external GOWA service instead of spawning into an occupied port and falling into a reconnect loop
+
+### Tests
+- Added regression coverage for parallel task dispatch, squash-vs-merge conflict cleanup, login `next` handling, settings Google Chat configured state, and the repaired dashboard route test harness
+- Added task detail template coverage for queued-state rendering and made template tests workspace-root-safe
+- Added auth middleware coverage for deep-link token bootstrap and query-param preservation
+- Added `GowaManager` coverage for adopting an already healthy external service without spawning
+- Added `auth_utils` unit tests for `constantTimeEquals`, `readBounded`, and `requestRemoteKey` trust-boundary cases (direct, trusted proxy, spoofed header)
+- Added `AuthRateLimiter` unit tests (threshold, expiry, reset)
+- Added `CommandGuard` regression tests for multi-word quoted wrapper bypasses and combined `-lc`/`-xc` flag forms
+
+### Documentation
+- Updated the UI smoke test to match the current System navigation and tabbed Settings editor
+- Extended UI smoke coverage for `/tasks`, task detail progression, and `/memory`; corrected smoke-test numbering after the audit pass
+- Closed the remaining 0.8 validation ledger gaps for empty-task and channel-enabled wireframes after live browser verification
+
+---
+
 ## [0.7.0] — 2026-03-09
 
 Session scoping, session maintenance, event bus infrastructure, channel DM access management.
@@ -155,7 +228,7 @@ Consolidation milestone — template DX, tech debt resolution, system prompt cor
 
 ## [0.2.0] — 2026-02-27
 
-Initial public release. Core agent runtime with security hardening.
+Initial actual release. Core agent runtime with security hardening.
 
 ### Added
 - 2-layer architecture: Dart host → native `claude` binary via JSONL control protocol

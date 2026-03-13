@@ -5,6 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_core/src/channel/channel_config.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/auth/auth_utils.dart';
+import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -48,6 +49,23 @@ class _FakeChannelManager extends ChannelManager {
 
   @override
   void handleInboundMessage(ChannelMessage message) {}
+}
+
+class _FakeGoogleChatRestClient extends GoogleChatRestClient {
+  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
+}
+
+class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
+  _FakeGoogleJwtVerifier()
+    : super(
+        audience: const GoogleChatAudienceConfig(
+          mode: GoogleChatAudienceMode.appUrl,
+          value: 'https://example.com/integrations/googlechat',
+        ),
+      );
+
+  @override
+  Future<bool> verify(String? authHeader) async => true;
 }
 
 class _NeverExitProcess implements Process {
@@ -124,7 +142,13 @@ void main() {
     });
 
     test('wrong secret returns 403', () async {
-      final router = webhookRoutes(whatsApp: channel, webhookSecret: 'abc');
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final events = <FailedAuthEvent>[];
+      final sub = eventBus.on<FailedAuthEvent>().listen(events.add);
+      addTearDown(sub.cancel);
+
+      final router = webhookRoutes(whatsApp: channel, webhookSecret: 'abc', eventBus: eventBus);
       final handler = const Pipeline().addHandler(router.call);
       final response = await handler(
         Request(
@@ -134,6 +158,11 @@ void main() {
         ),
       );
       expect(response.statusCode, 403);
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(1));
+      expect(events.single.source, 'webhook');
+      expect(events.single.reason, 'invalid_webhook_secret');
+      expect(events.single.limited, isFalse);
     });
 
     test('missing secret returns 403', () async {
@@ -188,5 +217,40 @@ void main() {
       );
       expect(response.statusCode, 200);
     });
+  });
+
+  test('mounts Google Chat webhook at configured path', () async {
+    final router = webhookRoutes(
+      googleChat: GoogleChatWebhookHandler(
+        channel: GoogleChatChannel(
+          config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicator: false),
+          restClient: _FakeGoogleChatRestClient(),
+        ),
+        jwtVerifier: _FakeGoogleJwtVerifier(),
+        config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicator: false),
+        channelManager: _FakeChannelManager(),
+      ),
+    );
+    final handler = const Pipeline().addHandler(router.call);
+
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/integrations/googlechat'),
+        headers: {'authorization': 'Bearer token'},
+        body: jsonEncode({
+          'type': 'MESSAGE',
+          'space': {'name': 'spaces/AAAA', 'type': 'DM'},
+          'message': {
+            'name': 'spaces/AAAA/messages/BBBB',
+            'text': 'hello',
+            'sender': {'name': 'users/123', 'type': 'HUMAN'},
+          },
+          'user': {'name': 'users/123', 'displayName': 'Alice'},
+        }),
+      ),
+    );
+
+    expect(response.statusCode, 200);
   });
 }

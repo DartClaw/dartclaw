@@ -35,6 +35,8 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     final completer = Completer<Map<String, dynamic>>();
     _turnCompleters[sessionId] = completer;

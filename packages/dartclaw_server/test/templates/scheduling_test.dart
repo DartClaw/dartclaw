@@ -9,12 +9,20 @@ void main() {
   setUpAll(() => initTemplates(resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  final SidebarData emptySidebar = (main: null, dmChannels: <SidebarSession>[], groupChannels: <SidebarSession>[], activeEntries: <SidebarSession>[], archivedEntries: <SidebarSession>[]);
+  final SidebarData emptySidebar = (
+    main: null,
+    dmChannels: <SidebarSession>[],
+    groupChannels: <SidebarSession>[],
+    activeEntries: <SidebarSession>[],
+    archivedEntries: <SidebarSession>[],
+  );
+  const emptyNavItems = <NavItem>[];
 
   group('schedulingTemplate', () {
     test('renders system badge for system jobs', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
+        navItems: emptyNavItems,
         jobs: [
           {'name': 'heartbeat', 'schedule': '*/5 * * * *', 'delivery': 'none', 'status': 'active'},
         ],
@@ -27,6 +35,7 @@ void main() {
     test('renders action buttons for user jobs', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
+        navItems: emptyNavItems,
         jobs: [
           {'name': 'my-cron', 'schedule': '0 7 * * *', 'delivery': 'announce', 'status': 'active'},
         ],
@@ -40,6 +49,7 @@ void main() {
     test('system jobs have no action buttons', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
+        navItems: emptyNavItems,
         jobs: [
           {'name': 'heartbeat', 'schedule': '*/5 * * * *', 'delivery': 'none', 'status': 'active'},
         ],
@@ -52,6 +62,7 @@ void main() {
     test('cron human-readable description appears in output', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
+        navItems: emptyNavItems,
         jobs: [
           {'name': 'daily-review', 'schedule': '0 7 * * *', 'delivery': 'announce', 'status': 'active'},
         ],
@@ -62,47 +73,32 @@ void main() {
     });
 
     test('empty state when no jobs', () {
-      final html = schedulingTemplate(
-        sidebarData: emptySidebar,
-        jobs: [],
-        systemJobNames: [],
-      );
+      final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('No scheduled jobs configured'));
     });
 
     test('add job form card is present but hidden', () {
-      final html = schedulingTemplate(
-        sidebarData: emptySidebar,
-        jobs: [],
-        systemJobNames: [],
-      );
+      final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('job-form'));
       expect(html, contains('display: none'));
       expect(html, contains('data-action="toggle-job-form"'));
     });
 
     test('restart badge present in form', () {
-      final html = schedulingTemplate(
-        sidebarData: emptySidebar,
-        jobs: [],
-        systemJobNames: [],
-      );
+      final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('restart-badge'));
       expect(html, contains('restart required'));
     });
 
     test('info footer mentions restart requirement', () {
-      final html = schedulingTemplate(
-        sidebarData: emptySidebar,
-        jobs: [],
-        systemJobNames: [],
-      );
+      final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
       expect(html, contains('Job changes require a restart'));
     });
 
     test('row-system class applied to system job rows', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,
+        navItems: emptyNavItems,
         jobs: [
           {'name': 'memory-pruner', 'schedule': '0 3 * * *', 'delivery': 'none', 'status': 'active'},
         ],

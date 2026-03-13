@@ -3,51 +3,38 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'atomic_write.dart';
-
-class _WriteOp {
-  final Future<void> Function() fn;
-  final Completer<void> completer;
-  _WriteOp(this.fn) : completer = Completer<void>();
-}
+import 'write_op.dart';
 
 /// Simple key-value store backed by a JSON file with atomic writes.
 class KvService {
   final String filePath;
-  final _queue = StreamController<_WriteOp>();
-  late final StreamSubscription<void> _queueSub;
+  Map<String, dynamic>? _cache;
+  late final BoundedWriteQueue _queue;
 
   KvService({required this.filePath}) {
-    _queueSub = _queue.stream
-        .asyncMap((op) async {
-          try {
-            await op.fn();
-            op.completer.complete();
-          } catch (e, st) {
-            op.completer.completeError(e, st);
-          }
-        })
-        .listen((_) {});
+    _queue = BoundedWriteQueue();
   }
 
   Future<String?> get(String key) async {
-    final file = File(filePath);
-    if (!file.existsSync()) return null;
-    final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final map = await _ensureCache();
     final entry = map[key] as Map<String, dynamic>?;
     return entry?['value'] as String?;
   }
 
   Future<void> set(String key, String value) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       final file = File(filePath);
-      Map<String, dynamic> map = {};
-      if (file.existsSync()) {
-        map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      }
-      map[key] = {'value': value, 'updatedAt': DateTime.now().toIso8601String()};
+      final nextMap = Map<String, dynamic>.from(await _ensureCache());
+      nextMap[key] = {'value': value, 'updatedAt': DateTime.now().toIso8601String()};
       final dir = file.parent;
       if (!dir.existsSync()) await dir.create(recursive: true);
-      await atomicWriteJson(file, map);
+      try {
+        await atomicWriteJson(file, nextMap);
+        _cache = nextMap;
+      } catch (_) {
+        _cache = null;
+        rethrow;
+      }
     });
     _queue.add(op);
     return op.completer.future;
@@ -55,9 +42,7 @@ class KvService {
 
   /// Returns all entries whose key starts with [prefix].
   Future<Map<String, String>> getByPrefix(String prefix) async {
-    final file = File(filePath);
-    if (!file.existsSync()) return {};
-    final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final map = await _ensureCache();
     final result = <String, String>{};
     for (final entry in map.entries) {
       if (entry.key.startsWith(prefix)) {
@@ -69,12 +54,22 @@ class KvService {
   }
 
   Future<void> delete(String key) {
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       final file = File(filePath);
-      if (!file.existsSync()) return;
-      final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      map.remove(key);
-      await atomicWriteJson(file, map);
+      if (!file.existsSync() && (_cache == null || _cache!.isEmpty)) return;
+
+      final nextMap = Map<String, dynamic>.from(await _ensureCache());
+      nextMap.remove(key);
+
+      final dir = file.parent;
+      if (!dir.existsSync()) await dir.create(recursive: true);
+      try {
+        await atomicWriteJson(file, nextMap);
+        _cache = nextMap;
+      } catch (_) {
+        _cache = null;
+        rethrow;
+      }
     });
     _queue.add(op);
     return op.completer.future;
@@ -82,6 +77,19 @@ class KvService {
 
   Future<void> dispose() async {
     await _queue.close();
-    await _queueSub.cancel();
+  }
+
+  Future<Map<String, dynamic>> _ensureCache() async {
+    final cache = _cache;
+    if (cache != null) return cache;
+
+    final file = File(filePath);
+    if (!file.existsSync()) {
+      _cache = <String, dynamic>{};
+      return _cache!;
+    }
+
+    _cache = Map<String, dynamic>.from(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+    return _cache!;
   }
 }

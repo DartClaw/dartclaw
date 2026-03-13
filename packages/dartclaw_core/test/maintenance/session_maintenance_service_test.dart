@@ -60,10 +60,7 @@ void main() {
     test('stale session is archived in enforce mode', () async {
       await createAgedSession(age: const Duration(days: 60));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       final report = await service.run();
@@ -81,10 +78,7 @@ void main() {
     test('stale session is NOT archived in warn mode (but reported)', () async {
       final s = await createAgedSession(age: const Duration(days: 60));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.warn,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.warn, pruneAfterDays: 30),
       );
 
       final report = await service.run();
@@ -101,10 +95,7 @@ void main() {
     test('protected main session is never pruned regardless of age', () async {
       await createAgedSession(type: SessionType.main, age: const Duration(days: 365));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 1,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 1),
       );
 
       final report = await service.run();
@@ -119,10 +110,7 @@ void main() {
         age: const Duration(days: 60),
       );
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
         activeChannelKeys: {'agent:bot:whatsapp:123'},
       );
 
@@ -137,15 +125,23 @@ void main() {
         age: const Duration(days: 60),
       );
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
         activeJobIds: {'daily-summary'},
       );
 
       final report = await service.run();
       expect(report.sessionsArchived, 0);
+    });
+
+    test('task sessions are never pruned', () async {
+      final session = await createAgedSession(type: SessionType.task, age: const Duration(days: 365));
+      final service = createService(
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 1),
+      );
+
+      final report = await service.run();
+      expect(report.sessionsArchived, 0);
+      expect(report.actions.where((action) => action.sessionId == session.id), isEmpty);
     });
 
     test('orphaned channel session (not in activeChannelKeys) IS pruned', () async {
@@ -155,10 +151,7 @@ void main() {
         age: const Duration(days: 60),
       );
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
         activeChannelKeys: {}, // not active
       );
 
@@ -169,10 +162,7 @@ void main() {
     test('pruneAfterDays: 0 disables pruning', () async {
       await createAgedSession(age: const Duration(days: 365));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -185,10 +175,7 @@ void main() {
       await sessions.updateSessionType(s.id, SessionType.archive);
 
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       final report = await service.run();
@@ -201,10 +188,7 @@ void main() {
       await sessions.createSession();
       await sessions.createSession();
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxSessions: 10,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxSessions: 10),
       );
 
       final report = await service.run();
@@ -237,11 +221,7 @@ void main() {
       await sessions.createSession();
 
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxSessions: 2,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxSessions: 2, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -254,10 +234,7 @@ void main() {
         await sessions.createSession();
       }
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxSessions: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxSessions: 0),
       );
 
       final report = await service.run();
@@ -315,11 +292,7 @@ void main() {
         age: const Duration(hours: 48),
       );
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          cronRetentionHours: 0,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, cronRetentionHours: 0, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -332,11 +305,7 @@ void main() {
       final s = await sessions.createSession();
       fillSessionDir(s.id, 100); // 100 bytes, well under any budget
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxDiskMb: 1,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 1, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -356,11 +325,7 @@ void main() {
       // maxDiskMb=1 means budget=1MB, threshold=80%=~819KB
       // Total ~1MB > 819KB threshold
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxDiskMb: 1,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 1, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -380,11 +345,7 @@ void main() {
       fillSessionDir(archSession.id, 200 * 1024);
 
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxDiskMb: 1,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 1, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -401,11 +362,7 @@ void main() {
       fillSessionDir(userSession.id, 900 * 1024); // 900KB, no archives to delete
 
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxDiskMb: 1,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 1, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -416,11 +373,7 @@ void main() {
       final s = await sessions.createSession();
       fillSessionDir(s.id, 10 * 1024 * 1024); // 10MB
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          maxDiskMb: 0,
-          pruneAfterDays: 0,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, maxDiskMb: 0, pruneAfterDays: 0),
       );
 
       final report = await service.run();
@@ -448,10 +401,7 @@ void main() {
       await createAgedSession(age: const Duration(days: 60));
       await createAgedSession(age: const Duration(days: 60));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.warn,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.warn, pruneAfterDays: 30),
       );
 
       final report = await service.run();
@@ -466,10 +416,7 @@ void main() {
     test('running twice with same state produces consistent results', () async {
       await createAgedSession(age: const Duration(days: 60));
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       final report1 = await service.run();
@@ -489,10 +436,7 @@ void main() {
       await createAgedSession(age: const Duration(days: 60));
 
       final service = createService(
-        config: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        config: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       final report = await service.run();
@@ -518,12 +462,7 @@ void main() {
 
   group('MaintenanceAction', () {
     test('captures all fields', () {
-      const action = MaintenanceAction(
-        sessionId: 'test-id',
-        actionType: 'archive',
-        reason: 'stale',
-        applied: true,
-      );
+      const action = MaintenanceAction(sessionId: 'test-id', actionType: 'archive', reason: 'stale', applied: true);
       expect(action.sessionId, 'test-id');
       expect(action.actionType, 'archive');
       expect(action.reason, 'stale');

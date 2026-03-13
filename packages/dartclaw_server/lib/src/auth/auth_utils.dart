@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 
 /// Maximum webhook payload size (1 MiB). Rejects oversized POST bodies
@@ -12,10 +14,15 @@ const maxWebhookPayloadBytes = 1024 * 1024;
 /// of time regardless of where (or whether) they differ — preventing
 /// attackers from inferring correct characters via response-time analysis.
 bool constantTimeEquals(String a, String b) {
-  if (a.length != b.length) return false;
-  var result = 0;
-  for (var i = 0; i < a.length; i++) {
-    result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+  final aBytes = utf8.encode(a);
+  final bBytes = utf8.encode(b);
+  final maxLength = aBytes.length > bBytes.length ? aBytes.length : bBytes.length;
+  final paddedA = List<int>.filled(maxLength, 0)..setRange(0, aBytes.length, aBytes);
+  final paddedB = List<int>.filled(maxLength, 0)..setRange(0, bBytes.length, bBytes);
+
+  var result = aBytes.length ^ bBytes.length;
+  for (var i = 0; i < maxLength; i++) {
+    result |= paddedA[i] ^ paddedB[i];
   }
   return result == 0;
 }
@@ -34,4 +41,41 @@ Future<String?> readBounded(Request request, int limit) async {
     if (bytes.length > limit) return null;
   }
   return utf8.decode(bytes);
+}
+
+String? requestRemoteKey(Request request, {List<String> trustedProxies = const []}) {
+  final connectionInfo = request.context['shelf.io.connection_info'];
+  if (connectionInfo is HttpConnectionInfo) {
+    final socketAddress = connectionInfo.remoteAddress.address;
+    if (trustedProxies.isNotEmpty && trustedProxies.contains(socketAddress)) {
+      final forwardedFor = request.headers['x-forwarded-for'];
+      final forwardedClient = forwardedFor?.split(',').first.trim();
+      if (forwardedClient != null && forwardedClient.isNotEmpty) {
+        return forwardedClient;
+      }
+    }
+    return socketAddress;
+  }
+
+  return null;
+}
+
+void fireFailedAuthEvent(
+  EventBus? eventBus,
+  Request request, {
+  required String source,
+  required String reason,
+  bool limited = false,
+  List<String> trustedProxies = const [],
+}) {
+  eventBus?.fire(
+    FailedAuthEvent(
+      source: source,
+      path: '/${request.url.path}',
+      reason: reason,
+      remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
+      limited: limited,
+      timestamp: DateTime.now(),
+    ),
+  );
 }

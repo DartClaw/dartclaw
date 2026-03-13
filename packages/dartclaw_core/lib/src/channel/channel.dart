@@ -1,7 +1,7 @@
 import 'package:uuid/uuid.dart';
 
 /// The transport channel type for inbound messages.
-enum ChannelType { web, whatsapp, signal }
+enum ChannelType { web, whatsapp, signal, googlechat }
 
 /// Normalized inbound message from any channel.
 class ChannelMessage {
@@ -35,6 +35,8 @@ class ChannelResponse {
 
   const ChannelResponse({required this.text, this.mediaAttachments = const [], this.metadata = const {}});
 }
+
+const sourceMessageIdMetadataKey = 'sourceMessageId';
 
 /// Abstract base class for messaging channel integrations.
 ///

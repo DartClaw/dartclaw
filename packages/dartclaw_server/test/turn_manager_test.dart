@@ -66,6 +66,8 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
@@ -132,6 +134,8 @@ class _AppendStrategyWorker implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     lastSystemPrompt = systemPrompt;
     _turnCompleter = Completer<Map<String, dynamic>>();
@@ -259,7 +263,9 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
       );
 
-      final turnId = await appendTurns.startTurn('s1', [{'role': 'user', 'content': 'hello'}]);
+      final turnId = await appendTurns.startTurn('s1', [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await appendWorker.turnInvoked;
       expect(appendWorker.lastSystemPrompt, isEmpty);
 
@@ -271,7 +277,9 @@ void main() {
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
 
-      final turnId = await turns.startTurn(sessionId, [{'role': 'user', 'content': 'hello'}]);
+      final turnId = await turns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await worker.turnInvoked;
       // Default FakeWorkerService has promptStrategy.replace — systemPrompt should be non-empty
       // (at least the default prompt from BehaviorFileService)
@@ -518,6 +526,29 @@ void main() {
       // Should complete without error
       await turns.cancelTurn('s1');
     });
+
+    test('cancels active turns running on pooled task runners', () async {
+      final taskWorker = FakeWorkerService();
+      addTearDown(taskWorker.dispose);
+
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior);
+      final taskRunner = TurnRunner(harness: taskWorker, messages: messages, behavior: behavior);
+      final pooledTurns = TurnManager.fromPool(pool: HarnessPool(runners: [primaryRunner, taskRunner]));
+
+      final session = await SessionService(baseDir: tempDir.path).createSession();
+      final sessionId = session.id;
+
+      final turnId = await taskRunner.startTurn(sessionId, []);
+      await taskWorker.turnInvoked;
+      await pooledTurns.cancelTurn(sessionId);
+
+      expect(taskWorker.cancelCalled, isTrue);
+
+      try {
+        await taskRunner.waitForOutcome(sessionId, turnId);
+      } catch (_) {}
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -581,10 +612,9 @@ void main() {
         ),
       );
 
-      final turnId = await guardedTurns.startTurn(
-        sessionId,
-        [{'role': 'user', 'content': 'bad message'}],
-      );
+      final turnId = await guardedTurns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'bad message'},
+      ]);
       final outcome = await guardedTurns.waitForOutcome(sessionId, turnId);
 
       expect(outcome.status, TurnStatus.failed);
@@ -610,10 +640,9 @@ void main() {
         ),
       );
 
-      final turnId = await guardedTurns.startTurn(
-        sessionId,
-        [{'role': 'user', 'content': 'hello'}],
-      );
+      final turnId = await guardedTurns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await worker.turnInvoked;
       worker.emit(DeltaEvent('Normal response'));
       await Future<void>.delayed(Duration.zero);
@@ -649,10 +678,9 @@ void main() {
         ),
       );
 
-      final turnId = await guardedTurns.startTurn(
-        sessionId,
-        [{'role': 'user', 'content': 'hello'}],
-      );
+      final turnId = await guardedTurns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await worker.turnInvoked;
       worker.emit(DeltaEvent('Secret response'));
       await Future<void>.delayed(Duration.zero);
@@ -689,10 +717,9 @@ void main() {
         ),
       );
 
-      final turnId = await guardedTurns.startTurn(
-        sessionId,
-        [{'role': 'user', 'content': 'hello'}],
-      );
+      final turnId = await guardedTurns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await worker.turnInvoked;
       worker.emit(DeltaEvent('Good response'));
       await Future<void>.delayed(Duration.zero);
@@ -710,10 +737,9 @@ void main() {
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
 
-      final turnId = await turns.startTurn(
-        sessionId,
-        [{'role': 'user', 'content': 'hello'}],
-      );
+      final turnId = await turns.startTurn(sessionId, [
+        {'role': 'user', 'content': 'hello'},
+      ]);
       await worker.turnInvoked;
       worker.emit(DeltaEvent('Response'));
       await Future<void>.delayed(Duration.zero);
@@ -787,14 +813,8 @@ void main() {
 
     test('detectAndCleanOrphanedTurns finds and cleans orphans', () async {
       // Seed kv.json with orphaned turn entries (simulating a crash)
-      await kvService.set(
-        'turn:session1',
-        jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}),
-      );
-      await kvService.set(
-        'turn:session2',
-        jsonEncode({'turnId': 'turn-bbb', 'startedAt': '2026-01-01T00:01:00.000'}),
-      );
+      await kvService.set('turn:session1', jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}));
+      await kvService.set('turn:session2', jsonEncode({'turnId': 'turn-bbb', 'startedAt': '2026-01-01T00:01:00.000'}));
       await kvService.set('session_cost:session1', '{"total_tokens": 100}');
 
       final turnsWithKv = TurnManager(
@@ -813,10 +833,7 @@ void main() {
     });
 
     test('consumeRecoveryNotice returns true once then false', () async {
-      await kvService.set(
-        'turn:session1',
-        jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}),
-      );
+      await kvService.set('turn:session1', jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}));
 
       final turnsWithKv = TurnManager(
         messages: messages,

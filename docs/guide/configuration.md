@@ -31,6 +31,8 @@ worker_timeout: 600              # seconds per agent turn
 memory_max_bytes: 32768          # MEMORY.md size cap
 
 # --- Gateway Auth ---
+auth:
+  cookie_secure: false          # add Secure to the session cookie when served over HTTPS
 gateway:
   auth_mode: token               # token | none
   token: ${DARTCLAW_TOKEN}       # auto-generated if omitted
@@ -60,6 +62,9 @@ guards:
     enabled: true
     model: claude-haiku-4-5-20251001
     max_bytes: 51200             # 50KB truncation before classification
+
+guard_audit:
+  max_entries: 10000             # rotate audit.ndjson to the newest N entries
 
 # --- Scheduling ---
 scheduling:
@@ -140,6 +145,28 @@ channels:
     require_mention: true         # require @mention in groups
     mention_patterns: []          # regex patterns for mention detection
     max_chunk_size: 4000          # max message length before chunking
+  google_chat:
+    enabled: false
+    service_account: ''           # path to service account JSON or inline JSON
+    audience:
+      type: app-url               # app-url | project-number
+      value: https://assistant.example.com/integrations/googlechat
+    webhook_path: /integrations/googlechat
+    bot_user: ''                  # optional Google Chat user id for self-filtering
+    typing_indicator: true
+    dm_access: pairing            # pairing | allowlist | open | disabled
+    dm_allowlist: []
+    group_access: disabled        # disabled | open | allowlist
+    group_allowlist: []
+    require_mention: true
+
+# --- Tasks ---
+tasks:
+  max_concurrent: 3
+  worktree:
+    base_ref: main
+    stale_timeout_hours: 24
+    merge_strategy: squash        # squash | merge
 
 # --- Agent Config ---
 agent:
@@ -172,6 +199,19 @@ workspace:
   git_sync:
     enabled: false
     push_enabled: false          # push if remote configured
+
+# --- Scheduled Task Templates ---
+automation:
+  scheduled_tasks:
+    - id: daily-maintenance-review
+      schedule: "0 9 * * 1-5"
+      enabled: true
+      task:
+        title: Daily maintenance review
+        description: Review open maintenance items and prepare follow-up work.
+        type: coding
+        acceptance_criteria: Tests stay green and the worktree is ready for review.
+        auto_start: true
 ```
 
 ## Environment Variables

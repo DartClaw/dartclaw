@@ -23,8 +23,7 @@ void main() {
       });
 
       test('concurrency.max_parallel_turns 5', () {
-        expect(
-            validator.validate({'concurrency.max_parallel_turns': 5}), isEmpty);
+        expect(validator.validate({'concurrency.max_parallel_turns': 5}), isEmpty);
       });
 
       test('sessions.reset_hour 0 (boundary)', () {
@@ -36,8 +35,7 @@ void main() {
       });
 
       test('sessions.idle_timeout_minutes 0 (min 0)', () {
-        expect(
-            validator.validate({'sessions.idle_timeout_minutes': 0}), isEmpty);
+        expect(validator.validate({'sessions.idle_timeout_minutes': 0}), isEmpty);
       });
     });
 
@@ -87,15 +85,13 @@ void main() {
       });
 
       test('concurrency.max_parallel_turns 0 below range', () {
-        final errors =
-            validator.validate({'concurrency.max_parallel_turns': 0});
+        final errors = validator.validate({'concurrency.max_parallel_turns': 0});
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('between 1 and 10'));
       });
 
       test('concurrency.max_parallel_turns 11 above range', () {
-        final errors =
-            validator.validate({'concurrency.max_parallel_turns': 11});
+        final errors = validator.validate({'concurrency.max_parallel_turns': 11});
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('between 1 and 10'));
       });
@@ -117,13 +113,11 @@ void main() {
       });
 
       test('usage.budget_warning_tokens null is valid', () {
-        expect(
-            validator.validate({'usage.budget_warning_tokens': null}), isEmpty);
+        expect(validator.validate({'usage.budget_warning_tokens': null}), isEmpty);
       });
 
       test('usage.budget_warning_tokens 1000 is valid', () {
-        expect(validator.validate({'usage.budget_warning_tokens': 1000}),
-            isEmpty);
+        expect(validator.validate({'usage.budget_warning_tokens': 1000}), isEmpty);
       });
     });
 
@@ -137,8 +131,7 @@ void main() {
       });
 
       test('agent.model string', () {
-        expect(
-            validator.validate({'agent.model': 'claude-sonnet-4-6'}), isEmpty);
+        expect(validator.validate({'agent.model': 'claude-sonnet-4-6'}), isEmpty);
       });
 
       test('agent.model null (nullable)', () {
@@ -146,11 +139,7 @@ void main() {
       });
 
       test('guards.content.model string', () {
-        expect(
-          validator.validate(
-              {'guards.content.model': 'claude-haiku-4-5-20251001'}),
-          isEmpty,
-        );
+        expect(validator.validate({'guards.content.model': 'claude-haiku-4-5-20251001'}), isEmpty);
       });
     });
 
@@ -198,9 +187,83 @@ void main() {
       });
 
       test('scheduling.heartbeat.enabled true (live-mutable)', () {
+        expect(validator.validate({'scheduling.heartbeat.enabled': true}), isEmpty);
+      });
+    });
+
+    group('string list fields', () {
+      test('google chat dm_allowlist accepts list of strings', () {
         expect(
-            validator.validate({'scheduling.heartbeat.enabled': true}),
-            isEmpty);
+          validator.validate({
+            'channels.google_chat.dm_allowlist': ['spaces/AAA/users/1'],
+          }),
+          isEmpty,
+        );
+      });
+
+      test('google chat group_allowlist rejects non-list value', () {
+        final errors = validator.validate({'channels.google_chat.group_allowlist': 'spaces/AAA'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be a list of strings'));
+      });
+
+      test('google chat dm_allowlist rejects non-string elements', () {
+        final errors = validator.validate({
+          'channels.google_chat.dm_allowlist': ['spaces/AAA/users/1', 7],
+        });
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must contain only strings'));
+      });
+    });
+
+    group('google chat cross-field validation', () {
+      test('enabled requires service account and audience fields', () {
+        final errors = validator.validate({'channels.google_chat.enabled': true});
+        expect(errors, hasLength(3));
+        final fields = errors.map((error) => error.field).toSet();
+        expect(
+          fields,
+          containsAll([
+            'channels.google_chat.service_account',
+            'channels.google_chat.audience.type',
+            'channels.google_chat.audience.value',
+          ]),
+        );
+      });
+
+      test('enabled passes when required fields already exist in current values', () {
+        expect(
+          validator.validate(
+            {'channels.google_chat.enabled': true},
+            currentValues: {
+              'channels.google_chat.service_account': '/tmp/google-service-account.json',
+              'channels.google_chat.audience.type': 'project-number',
+              'channels.google_chat.audience.value': '123456789',
+            },
+          ),
+          isEmpty,
+        );
+      });
+
+      test('credential fields are rejected as read-only', () {
+        final errors = validator.validate({'channels.google_chat.service_account': '/tmp/sa.json'});
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'channels.google_chat.service_account');
+        expect(errors.first.message, contains('read-only'));
+      });
+
+      test('enabled without credentials in current values fails cross-field check', () {
+        final errors = validator.validate({'channels.google_chat.enabled': true}, currentValues: {});
+        expect(errors, hasLength(3));
+        final fields = errors.map((error) => error.field).toSet();
+        expect(
+          fields,
+          containsAll([
+            'channels.google_chat.service_account',
+            'channels.google_chat.audience.type',
+            'channels.google_chat.audience.value',
+          ]),
+        );
       });
     });
 
@@ -268,10 +331,7 @@ void main() {
       });
 
       test('guards.content.classifier claude_binary', () {
-        expect(
-          validator.validate({'guards.content.classifier': 'claude_binary'}),
-          isEmpty,
-        );
+        expect(validator.validate({'guards.content.classifier': 'claude_binary'}), isEmpty);
       });
     });
 
@@ -302,8 +362,7 @@ void main() {
       });
 
       test('guards.content.classifier openai not allowed', () {
-        final errors =
-            validator.validate({'guards.content.classifier': 'openai'});
+        final errors = validator.validate({'guards.content.classifier': 'openai'});
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('must be one of'));
       });
@@ -331,8 +390,9 @@ void main() {
       });
 
       test('agent.disallowed_tools excluded list type', () {
-        final errors =
-            validator.validate({'agent.disallowed_tools': ['tool1']});
+        final errors = validator.validate({
+          'agent.disallowed_tools': ['tool1'],
+        });
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('Unknown config field'));
       });
@@ -340,11 +400,7 @@ void main() {
 
     group('multiple errors', () {
       test('three fields three errors', () {
-        final errors = validator.validate({
-          'port': 0,
-          'host': '',
-          'logging.level': 'DEBUG',
-        });
+        final errors = validator.validate({'port': 0, 'host': '', 'logging.level': 'DEBUG'});
         expect(errors, hasLength(3));
         final fields = errors.map((e) => e.field).toSet();
         expect(fields, containsAll(['port', 'host', 'logging.level']));
@@ -385,17 +441,11 @@ void main() {
 
     group('session maintenance fields', () {
       test('sessions.maintenance.mode: warn passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.mode': 'warn'}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.mode': 'warn'}), isEmpty);
       });
 
       test('sessions.maintenance.mode: enforce passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.mode': 'enforce'}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.mode': 'enforce'}), isEmpty);
       });
 
       test('sessions.maintenance.mode: invalid fails', () {
@@ -405,10 +455,7 @@ void main() {
       });
 
       test('sessions.maintenance.prune_after_days: 0 passes (min boundary)', () {
-        expect(
-          validator.validate({'sessions.maintenance.prune_after_days': 0}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.prune_after_days': 0}), isEmpty);
       });
 
       test('sessions.maintenance.prune_after_days: -1 fails', () {
@@ -418,31 +465,19 @@ void main() {
       });
 
       test('sessions.maintenance.max_sessions: 0 passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.max_sessions': 0}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.max_sessions': 0}), isEmpty);
       });
 
       test('sessions.maintenance.max_disk_mb: 0 passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.max_disk_mb': 0}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.max_disk_mb': 0}), isEmpty);
       });
 
       test('sessions.maintenance.cron_retention_hours: 0 passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.cron_retention_hours': 0}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.cron_retention_hours': 0}), isEmpty);
       });
 
       test('sessions.maintenance.schedule: valid string passes', () {
-        expect(
-          validator.validate({'sessions.maintenance.schedule': '0 4 * * *'}),
-          isEmpty,
-        );
+        expect(validator.validate({'sessions.maintenance.schedule': '0 4 * * *'}), isEmpty);
       });
 
       test('all int fields with valid values pass', () {

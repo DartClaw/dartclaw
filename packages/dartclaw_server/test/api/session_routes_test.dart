@@ -37,6 +37,8 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     return _turnCompleter!.future;
@@ -84,7 +86,7 @@ class FakeTurnManager extends TurnManager {
   void clearBusy() => _busy = false;
 
   @override
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main'}) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) async {
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);
     }
@@ -94,7 +96,13 @@ class FakeTurnManager extends TurnManager {
   }
 
   @override
-  void executeTurn(String sessionId, String turnId, List<Map<String, dynamic>> messages, {String? source, String agentName = 'main'}) {
+  void executeTurn(
+    String sessionId,
+    String turnId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+  }) {
     // no-op: FakeTurnManager doesn't run real async turns
   }
 
@@ -183,6 +191,17 @@ void main() {
       final body = await res.readAsString();
       final list = jsonDecode(body) as List<dynamic>;
       expect(list.length, equals(1));
+    });
+
+    test('excludes task sessions by default', () async {
+      await sessions.createSession(type: SessionType.user);
+      await sessions.createSession(type: SessionType.task);
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions')));
+      expect(res.statusCode, equals(200));
+      final list = jsonDecode(await res.readAsString()) as List<dynamic>;
+      expect(list, hasLength(1));
+      expect((list.single as Map<String, dynamic>)['type'], 'user');
     });
   });
 
@@ -505,11 +524,23 @@ void main() {
     test('GET /api/sessions?type= filters by type', () async {
       await sessions.createSession(type: SessionType.user);
       await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      await sessions.createSession(type: SessionType.task);
       final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions?type=user')));
       expect(res.statusCode, equals(200));
       final list = jsonDecode(await res.readAsString()) as List<dynamic>;
       expect(list.length, equals(1));
       expect((list[0] as Map<String, dynamic>)['type'], equals('user'));
+    });
+
+    test('GET /api/sessions?type=task includes task sessions explicitly', () async {
+      await sessions.createSession(type: SessionType.user);
+      await sessions.createSession(type: SessionType.task);
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions?type=task')));
+      expect(res.statusCode, equals(200));
+      final list = jsonDecode(await res.readAsString()) as List<dynamic>;
+      expect(list.length, equals(1));
+      expect((list[0] as Map<String, dynamic>)['type'], equals('task'));
     });
 
     test('DELETE returns 403 for main session', () async {
@@ -523,6 +554,13 @@ void main() {
       final session = await sessions.createSession(type: SessionType.channel, channelKey: 'wa:123');
       final res = await handler(Request('DELETE', Uri.parse('http://localhost/api/sessions/${session.id}')));
       expect(res.statusCode, equals(403));
+    });
+
+    test('DELETE returns 403 for task session', () async {
+      final session = await sessions.createSession(type: SessionType.task);
+      final res = await handler(Request('DELETE', Uri.parse('http://localhost/api/sessions/${session.id}')));
+      expect(res.statusCode, equals(403));
+      expect(await _errorCode(res), equals('FORBIDDEN'));
     });
 
     test('DELETE returns 204 for archive session', () async {
@@ -545,24 +583,51 @@ void main() {
       expect(await _errorCode(res), equals('FORBIDDEN'));
     });
 
+    test('POST /send returns 403 for task session', () async {
+      final session = await sessions.createSession(type: SessionType.task);
+      final res = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/sessions/${session.id}/send'),
+          body: 'message=Hello',
+          headers: {'content-type': 'application/x-www-form-urlencoded'},
+        ),
+      );
+      expect(res.statusCode, equals(403));
+      expect(await _errorCode(res), equals('FORBIDDEN'));
+    });
+
     test('POST /reset returns 403 for archive session', () async {
       final session = await sessions.createSession(type: SessionType.archive);
       handler = sessionRoutes(
-        sessions, messages, turns, worker,
+        sessions,
+        messages,
+        turns,
+        worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
       ).call;
-      final res = await handler(
-        Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')),
-      );
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
+      expect(res.statusCode, equals(403));
+      expect(await _errorCode(res), equals('FORBIDDEN'));
+    });
+
+    test('POST /reset returns 403 for task session', () async {
+      final session = await sessions.createSession(type: SessionType.task);
+      handler = sessionRoutes(
+        sessions,
+        messages,
+        turns,
+        worker,
+        resetService: SessionResetService(sessions: sessions, messages: messages),
+      ).call;
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
       expect(res.statusCode, equals(403));
       expect(await _errorCode(res), equals('FORBIDDEN'));
     });
 
     test('POST /resume returns 200 and changes archive to user', () async {
       final session = await sessions.createSession(type: SessionType.archive);
-      final res = await handler(
-        Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/resume')),
-      );
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/resume')));
       expect(res.statusCode, equals(200));
       final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
       expect(body['type'], equals('user'));
@@ -570,17 +635,13 @@ void main() {
 
     test('POST /resume returns 400 for non-archive session', () async {
       final session = await sessions.createSession(type: SessionType.user);
-      final res = await handler(
-        Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/resume')),
-      );
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/resume')));
       expect(res.statusCode, equals(400));
       expect(await _errorCode(res), equals('INVALID_STATE'));
     });
 
     test('POST /resume returns 404 for unknown session', () async {
-      final res = await handler(
-        Request('POST', Uri.parse('http://localhost/api/sessions/nonexistent/resume')),
-      );
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/nonexistent/resume')));
       expect(res.statusCode, equals(404));
     });
 

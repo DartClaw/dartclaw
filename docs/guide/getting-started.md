@@ -167,7 +167,10 @@ Run `dart pub get` first. Check Dart SDK >= 3.7.0.
 - **[Workspace](workspace.md)** -- behavior files, memory, prompt assembly
 - **[Security](security.md)** -- guards, containers, credential proxy
 - **[WhatsApp](whatsapp.md)** -- GOWA setup, pairing, access control
+- **[Signal](signal.md)** -- signal-cli setup, registration, access control
+- **[Google Chat](google-chat.md)** -- Chat app setup, JWT verification, service account config
 - **[Scheduling](scheduling.md)** -- heartbeat, cron jobs, delivery modes
+- **[Tasks](tasks.md)** -- task lifecycle, review workflow, worktrees, automation
 - **[Search & Memory](search.md)** -- search agent, content-guard, FTS5/QMD
 - **[Deployment](deployment.md)** -- LaunchDaemon, systemd, egress firewall
 - **[Customization](customization.md)** -- L1-L5 customization ladder

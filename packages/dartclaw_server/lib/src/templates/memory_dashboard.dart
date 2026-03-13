@@ -8,12 +8,11 @@ import 'topbar.dart';
 String memoryDashboardTemplate({
   required Map<String, dynamic> status,
   required SidebarData sidebarData,
+  required List<NavItem> navItems,
   required String workspacePath,
   String bannerHtml = '',
   String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Memory');
-
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
   final topbar = pageTopbarTemplate(title: 'Memory Dashboard', backHref: '/', backLabel: 'Back to Chat');
@@ -28,22 +27,14 @@ String memoryDashboardTemplate({
 /// Renders only the inner content for HTMX polling refresh.
 ///
 /// Returns the `#memory-inner` div content without the shell/sidebar/topbar wrapper.
-String memoryDashboardContentFragment({
-  required Map<String, dynamic> status,
-  required String workspacePath,
-}) {
+String memoryDashboardContentFragment({required Map<String, dynamic> status, required String workspacePath}) {
   // Re-render the full template but only extract the inner content.
   // Since Trellis renders the whole fragment, we pass minimal sidebar/topbar.
   final context = _buildContext(status, '', '', workspacePath);
   return templateLoader.trellis.render(templateLoader.source('memory_dashboard'), context);
 }
 
-Map<String, dynamic> _buildContext(
-  Map<String, dynamic> status,
-  String sidebar,
-  String topbar,
-  String workspacePath,
-) {
+Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, String topbar, String workspacePath) {
   final memoryMd = status['memoryMd'] as Map<String, dynamic>? ?? {};
   final archiveMd = status['archiveMd'] as Map<String, dynamic>? ?? {};
   final errorsMd = status['errorsMd'] as Map<String, dynamic>? ?? {};
@@ -70,18 +61,15 @@ Map<String, dynamic> _buildContext(
 
   // Pruner history
   final history = (pruner['history'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-  final prunerHistoryRows = history.reversed
-      .take(10)
-      .map((run) {
-        return <String, dynamic>{
-          'date': _formatTimestamp(run['timestamp'] as String?),
-          'archived': '${run['entriesArchived'] ?? 0}',
-          'deduped': '${run['duplicatesRemoved'] ?? 0}',
-          'remaining': '${run['entriesRemaining'] ?? 0}',
-          'finalSize': formatBytes(run['finalSizeBytes'] as int? ?? 0),
-        };
-      })
-      .toList();
+  final prunerHistoryRows = history.reversed.take(10).map((run) {
+    return <String, dynamic>{
+      'date': _formatTimestamp(run['timestamp'] as String?),
+      'archived': '${run['entriesArchived'] ?? 0}',
+      'deduped': '${run['duplicatesRemoved'] ?? 0}',
+      'remaining': '${run['entriesRemaining'] ?? 0}',
+      'finalSize': formatBytes(run['finalSizeBytes'] as int? ?? 0),
+    };
+  }).toList();
 
   // Categories
   final categories = (memoryMd['categories'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
@@ -89,11 +77,13 @@ Map<String, dynamic> _buildContext(
   // Daily logs
   final recentLogs = (dailyLogs['recent'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
   final logRows = recentLogs
-      .map((log) => <String, dynamic>{
-            'date': log['date'] as String? ?? '',
-            'entries': '${log['entries'] ?? 0}',
-            'size': formatBytes(log['sizeBytes'] as int? ?? 0),
-          })
+      .map(
+        (log) => <String, dynamic>{
+          'date': log['date'] as String? ?? '',
+          'entries': '${log['entries'] ?? 0}',
+          'size': formatBytes(log['sizeBytes'] as int? ?? 0),
+        },
+      )
       .toList();
 
   return {

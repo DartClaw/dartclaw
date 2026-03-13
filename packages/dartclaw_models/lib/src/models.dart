@@ -1,5 +1,5 @@
 /// Classification for how a session was created.
-enum SessionType { main, channel, cron, user, archive }
+enum SessionType { main, channel, cron, user, task, archive }
 
 /// A conversation session containing messages between user and agent.
 class Session {

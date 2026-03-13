@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
-import 'package:shelf/shelf.dart' show Request;
+import 'package:shelf/shelf.dart' show Request, Response;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'test_utils.dart';
@@ -16,6 +19,7 @@ import 'test_utils.dart';
 class FakeWorkerService implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
+  final Completer<void> _turnStarted = Completer<void>();
   bool cancelCalled = false;
   bool stopCalled = false;
   bool disposeCalled = false;
@@ -39,8 +43,13 @@ class FakeWorkerService implements AgentHarness {
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
     bool resume = false,
+    String? directory,
+    String? model,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
+    if (!_turnStarted.isCompleted) {
+      _turnStarted.complete();
+    }
     return _turnCompleter!.future;
   }
 
@@ -62,7 +71,45 @@ class FakeWorkerService implements AgentHarness {
   }
 
   void completeSuccess() => _turnCompleter?.complete({'ok': true});
+  Future<void> get turnStarted => _turnStarted.future;
   Future<void> closeEvents() => _eventsCtrl.close();
+}
+
+class _TestDashboardPage extends DashboardPage {
+  _TestDashboardPage({this.routePath = '/custom-dashboard'});
+
+  final String routePath;
+
+  @override
+  String get route => routePath;
+
+  @override
+  String get title => 'Custom';
+
+  @override
+  String get navGroup => 'extension';
+
+  @override
+  Future<Response> handler(Request request, PageContext context) async {
+    return Response.ok('custom dashboard');
+  }
+}
+
+Future<ProcessResult> _successfulProcessResult(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) async {
+  return ProcessResult(1, 0, '', '');
+}
+
+AgentObserver _buildAgentObserver(FakeWorkerService worker, MessageService messages) {
+  final runner = TurnRunner(
+    harness: worker,
+    messages: messages,
+    behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+  );
+  return AgentObserver(pool: HarnessPool(runners: [runner]));
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +174,7 @@ void main() {
         }),
       );
 
-      // Let the event loop process so the turn actually starts.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await worker.turnStarted;
 
       await server.shutdown();
 
@@ -162,7 +208,7 @@ void main() {
           );
         }),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await worker.turnStarted;
       worker.completeSuccess();
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
@@ -171,6 +217,204 @@ void main() {
 
       expect(worker.cancelCalled, isFalse, reason: 'no active turn to cancel after completion');
       expect(worker.disposeCalled, isTrue, reason: 'worker.dispose() always called');
+    });
+  });
+
+  group('registerDashboardPage', () {
+    test('serves registered page routes and adds them to sidebar nav', () async {
+      server.registerDashboardPage(_TestDashboardPage());
+      final session = await sessions.createSession();
+      final handler = server.handler;
+
+      final pageRes = await handler(Request('GET', Uri.parse('http://localhost/custom-dashboard')));
+      final pageBody = await pageRes.readAsString();
+      expect(pageRes.statusCode, equals(200));
+      expect(pageBody, contains('custom dashboard'));
+
+      final sessionRes = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final sessionBody = await sessionRes.readAsString();
+      expect(sessionRes.statusCode, equals(200));
+      expect(sessionBody, contains('/custom-dashboard'));
+      expect(sessionBody, contains('Custom'));
+      expect(sessionBody, contains('Extensions'));
+    });
+
+    test('still allows registration after the handler is built but before first request', () async {
+      final _ = server.handler;
+      server.registerDashboardPage(_TestDashboardPage(routePath: '/late-dashboard'));
+
+      final response = await server.handler(Request('GET', Uri.parse('http://localhost/late-dashboard')));
+
+      expect(response.statusCode, equals(200));
+      expect(await response.readAsString(), contains('custom dashboard'));
+    });
+
+    test('throws after the server starts serving requests', () async {
+      final handler = server.handler;
+      await handler(Request('GET', Uri.parse('http://localhost/')));
+
+      expect(
+        () => server.registerDashboardPage(_TestDashboardPage(routePath: '/late-dashboard')),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('task route wiring', () {
+    late Database taskDb;
+    late TaskService taskService;
+    late EventBus eventBus;
+    late WorktreeManager worktreeManager;
+    late TaskFileGuard taskFileGuard;
+    late MergeExecutor mergeExecutor;
+    late AgentObserver agentObserver;
+
+    setUp(() {
+      taskDb = openTaskDbInMemory();
+      taskService = TaskService(SqliteTaskRepository(taskDb));
+      eventBus = EventBus();
+      worktreeManager = WorktreeManager(
+        dataDir: tempDir.path,
+        projectDir: tempDir.path,
+        processRunner: _successfulProcessResult,
+      );
+      taskFileGuard = TaskFileGuard();
+      mergeExecutor = MergeExecutor(projectDir: tempDir.path, processRunner: _successfulProcessResult);
+      agentObserver = _buildAgentObserver(worker, messages);
+      server = DartclawServer(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDir(),
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        tokenService: TokenService(token: 'test-token'),
+        gatewayToken: 'test-token',
+      );
+      server.setRuntimeServices(
+        taskService: taskService,
+        eventBus: eventBus,
+        worktreeManager: worktreeManager,
+        taskFileGuard: taskFileGuard,
+        mergeExecutor: mergeExecutor,
+        agentObserver: agentObserver,
+      );
+    });
+
+    tearDown(() async {
+      agentObserver.dispose();
+      await eventBus.dispose();
+      await taskService.dispose();
+    });
+
+    test('task routes are mounted behind auth middleware', () async {
+      final response = await server.handler(Request('GET', Uri.parse('http://localhost/api/tasks')));
+
+      expect(response.statusCode, equals(401));
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['error'], 'Unauthorized');
+    });
+
+    test('authorized requests can reach mounted task routes', () async {
+      final response = await server.handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/tasks'),
+          body: jsonEncode({'title': 'Task from server', 'description': 'Describe the work', 'type': 'coding'}),
+          headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
+        ),
+      );
+
+      expect(response.statusCode, equals(201));
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['status'], 'draft');
+    });
+
+    test('authorized requests can reach mounted task SSE route', () async {
+      final response = await server.handler(
+        Request('GET', Uri.parse('http://localhost/api/tasks/events'), headers: {'authorization': 'Bearer test-token'}),
+      );
+
+      expect(response.statusCode, equals(200));
+      expect(response.headers['content-type'], equals('text/event-stream'));
+    });
+  });
+
+  group('runtime service validation', () {
+    test('throws when taskService is enabled without required task runtime services', () async {
+      final taskDb = openTaskDbInMemory();
+      final taskService = TaskService(SqliteTaskRepository(taskDb));
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      addTearDown(taskService.dispose);
+
+      server.setRuntimeServices(taskService: taskService, eventBus: eventBus);
+
+      expect(
+        () => server.handler(Request('GET', Uri.parse('http://localhost/'))),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('worktreeManager'))),
+      );
+    });
+
+    test('throws when configWriter is enabled without restart dependencies', () async {
+      final configWriter = ConfigWriter(configPath: p.join(tempDir.path, 'dartclaw.yaml'));
+      addTearDown(configWriter.dispose);
+
+      server.setRuntimeServices(configWriter: configWriter);
+
+      expect(
+        () => server.handler(Request('GET', Uri.parse('http://localhost/'))),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('restartService'))),
+      );
+    });
+  });
+
+  group('goal route wiring', () {
+    late Database taskDb;
+    late GoalService goalService;
+    late SqliteTaskRepository taskRepository;
+
+    setUp(() {
+      taskDb = openTaskDbInMemory();
+      taskRepository = SqliteTaskRepository(taskDb);
+      goalService = GoalService(SqliteGoalRepository(taskDb));
+      server = DartclawServer(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDir(),
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        tokenService: TokenService(token: 'test-token'),
+        gatewayToken: 'test-token',
+      );
+      server.setRuntimeServices(goalService: goalService);
+    });
+
+    tearDown(() async {
+      await goalService.dispose();
+      await taskRepository.dispose();
+    });
+
+    test('goal routes are mounted behind auth middleware', () async {
+      final response = await server.handler(Request('GET', Uri.parse('http://localhost/api/goals')));
+
+      expect(response.statusCode, equals(401));
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['error'], 'Unauthorized');
+    });
+
+    test('authorized requests can reach mounted goal routes', () async {
+      final response = await server.handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/goals'),
+          body: jsonEncode({'title': 'Goal from server', 'mission': 'Deliver the release safely.'}),
+          headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
+        ),
+      );
+
+      expect(response.statusCode, equals(201));
+      final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['title'], 'Goal from server');
     });
   });
 }

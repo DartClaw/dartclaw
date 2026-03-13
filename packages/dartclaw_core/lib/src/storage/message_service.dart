@@ -8,12 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_models/dartclaw_models.dart';
 import 'uuid_validation.dart';
-
-class _WriteOp {
-  final Future<void> Function() fn;
-  final Completer<void> completer;
-  _WriteOp(this.fn) : completer = Completer<void>();
-}
+import 'write_op.dart';
 
 /// Manages message persistence with cursor-based crash recovery.
 class MessageService {
@@ -21,20 +16,11 @@ class MessageService {
 
   final String baseDir;
   static const _uuid = Uuid();
-  final _queue = StreamController<_WriteOp>();
-  late final StreamSubscription<void> _queueSub;
+  final Map<String, int> _lineCounts = {};
+  late final BoundedWriteQueue _queue;
 
   MessageService({required this.baseDir}) {
-    _queueSub = _queue.stream
-        .asyncMap((op) async {
-          try {
-            await op.fn();
-            op.completer.complete();
-          } catch (e, st) {
-            op.completer.completeError(e, st);
-          }
-        })
-        .listen((_) {});
+    _queue = BoundedWriteQueue(logger: _log);
   }
 
   Future<Message> insertMessage({
@@ -47,7 +33,7 @@ class MessageService {
     if (role.trim().isEmpty) throw ArgumentError('role must not be empty');
 
     final completer = Completer<Message>();
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       // FK check: session dir must exist
       final sessionDir = Directory(p.join(baseDir, sessionId));
       if (!sessionDir.existsSync()) {
@@ -69,11 +55,10 @@ class MessageService {
       );
 
       final line = jsonEncode(message.toJson());
+      final currentCount = _lineCounts[sessionId] ?? await _countLines(ndjsonFile);
       await ndjsonFile.writeAsString('$line\n', mode: FileMode.append);
-
-      // Inline line count during write to avoid second file read
-      final fileContent = await ndjsonFile.readAsString();
-      final lineCount = fileContent.isEmpty ? 0 : fileContent.split('\n').where((l) => l.trim().isNotEmpty).length;
+      final lineCount = currentCount + 1;
+      _lineCounts[sessionId] = lineCount;
 
       completer.complete(
         Message(
@@ -137,26 +122,85 @@ class MessageService {
     return messages;
   }
 
+  Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
+    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    if (count <= 0) return [];
+
+    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
+    if (!ndjsonFile.existsSync()) return [];
+
+    final lines = await ndjsonFile.readAsLines();
+    return _collectMessagesBackwards(sessionId, lines, startIndex: lines.length - 1, count: count);
+  }
+
+  Future<List<Message>> getMessagesBefore(String sessionId, int cursor, {int count = 50}) async {
+    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    if (cursor <= 1 || count <= 0) return [];
+
+    final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
+    if (!ndjsonFile.existsSync()) return [];
+
+    final lines = await ndjsonFile.readAsLines();
+    final startIndex = cursor - 2;
+    if (startIndex < 0) return [];
+
+    return _collectMessagesBackwards(
+      sessionId,
+      lines,
+      startIndex: startIndex < lines.length ? startIndex : lines.length - 1,
+      count: count,
+    );
+  }
+
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
   Future<void> clearMessages(String sessionId) {
     if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
     final completer = Completer<void>();
-    final op = _WriteOp(() async {
+    final op = WriteOp(() async {
       final ndjsonFile = File(p.join(baseDir, sessionId, 'messages.ndjson'));
       if (ndjsonFile.existsSync()) {
         await ndjsonFile.writeAsString('');
       }
+      _lineCounts.remove(sessionId);
       completer.complete();
     });
     _queue.add(op);
-    unawaited(op.completer.future.catchError((Object e, StackTrace st) {
-      if (!completer.isCompleted) completer.completeError(e, st);
-    }));
+    unawaited(
+      op.completer.future.catchError((Object e, StackTrace st) {
+        if (!completer.isCompleted) completer.completeError(e, st);
+      }),
+    );
     return completer.future;
   }
 
   Future<void> dispose() async {
     await _queue.close();
-    await _queueSub.cancel();
+  }
+
+  Future<int> _countLines(File file) async {
+    if (!file.existsSync()) return 0;
+    final lines = await file.readAsLines();
+    return lines.where((line) => line.trim().isNotEmpty).length;
+  }
+
+  List<Message> _collectMessagesBackwards(
+    String sessionId,
+    List<String> lines, {
+    required int startIndex,
+    required int count,
+  }) {
+    final messages = <Message>[];
+    for (var i = startIndex; i >= 0 && messages.length < count; i--) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      try {
+        final json = jsonDecode(line) as Map<String, dynamic>;
+        json['cursor'] = i + 1;
+        messages.add(Message.fromJson(json));
+      } catch (e) {
+        _log.warning('Malformed NDJSON line ${i + 1} in session $sessionId: $e');
+      }
+    }
+    return messages.reversed.toList();
   }
 }

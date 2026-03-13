@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+
 /// Top-level application identity displayed on the settings page.
 class AppDisplayParams {
   final String name;
@@ -43,10 +45,12 @@ class HeartbeatDisplayParams {
 class SchedulingDisplayParams {
   final List<Map<String, dynamic>> jobs;
   final List<String> systemJobNames;
+  final List<ScheduledTaskDefinition> scheduledTasks;
 
   const SchedulingDisplayParams({
     this.jobs = const [],
     this.systemJobNames = const [],
+    this.scheduledTasks = const [],
   });
 }
 

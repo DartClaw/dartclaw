@@ -42,6 +42,7 @@ typedef ServerFactory =
       ResultTrimmer? resultTrimmer,
       ChannelManager? channelManager,
       WhatsAppChannel? whatsAppChannel,
+      GoogleChatWebhookHandler? googleChatWebhookHandler,
       SignalChannel? signalChannel,
       String? webhookSecret,
       MessageRedactor? redactor,
@@ -49,6 +50,7 @@ typedef ServerFactory =
       SelfImprovementService? selfImprovement,
       UsageTracker? usageTracker,
       bool authEnabled,
+      HarnessPool? pool,
       ContentGuardDisplayParams contentGuardDisplay,
       HeartbeatDisplayParams heartbeatDisplay,
       SchedulingDisplayParams schedulingDisplay,
@@ -63,6 +65,7 @@ typedef ExitFn = Never Function(int code);
 class ServeCommand extends Command<void> {
   final DartclawConfig? _config;
   final SearchDbFactory _searchDbFactory;
+  final TaskDbFactory _taskDbFactory;
   final HarnessFactory _harnessFactory;
   final ServerFactory _serverFactory;
   final ServeFn _serveFn;
@@ -79,6 +82,7 @@ class ServeCommand extends Command<void> {
   ServeCommand({
     DartclawConfig? config,
     SearchDbFactory? searchDbFactory,
+    TaskDbFactory? taskDbFactory,
     HarnessFactory? harnessFactory,
     ServerFactory? serverFactory,
     ServeFn? serveFn,
@@ -86,6 +90,7 @@ class ServeCommand extends Command<void> {
     ExitFn? exitFn,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
+       _taskDbFactory = taskDbFactory ?? openTaskDb,
        _harnessFactory =
            harnessFactory ??
            ((
@@ -127,6 +132,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer,
              channelManager,
              whatsAppChannel,
+             googleChatWebhookHandler,
              signalChannel,
              webhookSecret,
              redactor,
@@ -134,6 +140,7 @@ class ServeCommand extends Command<void> {
              selfImprovement,
              usageTracker,
              authEnabled = true,
+             pool,
              contentGuardDisplay = const ContentGuardDisplayParams(),
              heartbeatDisplay = const HeartbeatDisplayParams(),
              schedulingDisplay = const SchedulingDisplayParams(),
@@ -156,6 +163,7 @@ class ServeCommand extends Command<void> {
              resultTrimmer: resultTrimmer,
              channelManager: channelManager,
              whatsAppChannel: whatsAppChannel,
+             googleChatWebhookHandler: googleChatWebhookHandler,
              signalChannel: signalChannel,
              webhookSecret: webhookSecret,
              redactor: redactor,
@@ -163,6 +171,7 @@ class ServeCommand extends Command<void> {
              selfImprovement: selfImprovement,
              usageTracker: usageTracker,
              authEnabled: authEnabled,
+             pool: pool,
              contentGuardDisplay: contentGuardDisplay,
              heartbeatDisplay: heartbeatDisplay,
              schedulingDisplay: schedulingDisplay,
@@ -313,6 +322,7 @@ class ServeCommand extends Command<void> {
         harnessFactory: _harnessFactory,
         serverFactory: _serverFactory,
         searchDbFactory: _searchDbFactory,
+        taskDbFactory: _taskDbFactory,
         stderrLine: _stderrLine,
         exitFn: _exitFn,
         resolvedConfigPath: resolvedConfigPath,
@@ -330,7 +340,7 @@ class ServeCommand extends Command<void> {
           'Cannot bind to $host:$port — is another process already '
           'using this port? Try: lsof -ti :$port | xargs kill',
         );
-        await ServiceWiring.teardown(result.server, result.searchDb, result.harness);
+        await ServiceWiring.teardown(result.server, result.searchDb, result.harness, result.taskService);
         await result.shutdownExtras();
         _exitFn(1);
       }
@@ -379,6 +389,7 @@ class ServeCommand extends Command<void> {
             result.resetService.dispose();
             await result.kvService.dispose();
             await result.selfImprovement.dispose();
+            await result.taskService.dispose();
             await result.eventBus.dispose();
             await result.qmdManager?.stop();
             await result.shutdownExtras();

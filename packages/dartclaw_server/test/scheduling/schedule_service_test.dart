@@ -451,6 +451,7 @@ class _ConfigurableTurnManager implements TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    String? model,
   }) async {
     startTurnCallCount++;
     final turnId = 'fake-turn-$startTurnCallCount';

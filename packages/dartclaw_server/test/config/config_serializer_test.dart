@@ -24,8 +24,15 @@ void main() {
       expect(agent['maxTurns'], isNull);
       expect(agent['context1m'], false);
 
+      final auth = json['auth'] as Map<String, dynamic>;
+      expect(auth['cookieSecure'], false);
+      expect(auth['trustedProxies'], isEmpty);
+
       final concurrency = json['concurrency'] as Map<String, dynamic>;
       expect(concurrency['maxParallelTurns'], 3);
+
+      final guardAudit = json['guardAudit'] as Map<String, dynamic>;
+      expect(guardAudit['maxEntries'], 10000);
 
       final sessions = json['sessions'] as Map<String, dynamic>;
       expect(sessions['resetHour'], 4);
@@ -54,6 +61,20 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['hsts'], true);
+    });
+
+    test('auth cookie settings and guardAudit.maxEntries serialize custom values', () {
+      final config = const DartclawConfig(
+        cookieSecure: true,
+        trustedProxies: ['192.168.1.100'],
+        guardAuditMaxEntries: 25000,
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      expect((json['auth'] as Map<String, dynamic>)['cookieSecure'], true);
+      expect((json['auth'] as Map<String, dynamic>)['trustedProxies'], ['192.168.1.100']);
+      expect((json['guardAudit'] as Map<String, dynamic>)['maxEntries'], 25000);
     });
 
     test('gateway.token is null when config has null token', () {
@@ -184,6 +205,62 @@ void main() {
       final jobs = scheduling['jobs'] as List;
       expect(jobs, hasLength(1));
       expect((jobs[0] as Map)['name'], 'test-job');
+    });
+
+    test('google chat config serializes with camelCase keys', () {
+      final config = DartclawConfig(
+        googleChatConfig: const GoogleChatConfig(
+          enabled: true,
+          serviceAccount: '/tmp/google-service-account.json',
+          audience: GoogleChatAudienceConfig(
+            mode: GoogleChatAudienceMode.appUrl,
+            value: 'https://example.com/integrations/googlechat',
+          ),
+          webhookPath: '/integrations/googlechat',
+          botUser: 'users/123',
+          typingIndicator: false,
+          dmAccess: DmAccessMode.allowlist,
+          dmAllowlist: ['spaces/AAA/users/1'],
+          groupAccess: GroupAccessMode.open,
+          groupAllowlist: ['spaces/AAA'],
+          requireMention: false,
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final channels = json['channels'] as Map<String, dynamic>;
+      final googleChat = channels['googleChat'] as Map<String, dynamic>;
+
+      expect(googleChat['enabled'], isTrue);
+      expect(googleChat['serviceAccount'], '/tmp/google-service-account.json');
+      expect(googleChat['audience'], {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'});
+      expect(googleChat['webhookPath'], '/integrations/googlechat');
+      expect(googleChat['botUser'], 'users/123');
+      expect(googleChat['typingIndicator'], isFalse);
+      expect(googleChat['dmAccess'], 'allowlist');
+      expect(googleChat['dmAllowlist'], ['spaces/AAA/users/1']);
+      expect(googleChat['groupAccess'], 'open');
+      expect(googleChat['groupAllowlist'], ['spaces/AAA']);
+      expect(googleChat['requireMention'], isFalse);
+    });
+
+    test('google chat inline service account is redacted to client email', () {
+      final config = DartclawConfig(
+        googleChatConfig: const GoogleChatConfig(
+          enabled: true,
+          serviceAccount:
+              '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
+          audience: GoogleChatAudienceConfig(mode: GoogleChatAudienceMode.projectNumber, value: '123456789'),
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final channels = json['channels'] as Map<String, dynamic>;
+      final googleChat = channels['googleChat'] as Map<String, dynamic>;
+
+      expect(googleChat['serviceAccount'], 'chat-bot@example.iam.gserviceaccount.com');
     });
   });
 

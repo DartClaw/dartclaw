@@ -23,7 +23,8 @@ export 'src/storage/kv_service.dart' show KvService;
 export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEvent, ToolResultEvent, SystemInitEvent;
 
 // Channel interfaces
-export 'src/channel/channel.dart' show Channel, ChannelType, ChannelMessage, ChannelResponse;
+export 'src/channel/channel.dart'
+    show Channel, ChannelType, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
 export 'src/channel/channel_manager.dart' show ChannelManager;
 export 'src/channel/message_queue.dart' show MessageQueue, TurnDispatcher;
 
@@ -37,6 +38,13 @@ export 'src/channel/signal/signal_config.dart' show SignalConfig;
 export 'src/channel/signal/signal_dm_access.dart' show SignalGroupAccessMode, SignalMentionGating;
 export 'src/channel/signal/signal_sender_map.dart' show SignalSenderMap;
 
+// Google Chat channel
+export 'src/channel/googlechat/google_chat_config.dart'
+    show GoogleChatConfig, GoogleChatAudienceConfig, GoogleChatAudienceMode;
+export 'src/channel/googlechat/gcp_auth_service.dart' show GcpAuthService;
+export 'src/channel/googlechat/google_chat_channel.dart' show GoogleChatChannel;
+export 'src/channel/googlechat/google_chat_rest_client.dart' show GoogleChatApiException, GoogleChatRestClient;
+
 // WhatsApp channel
 export 'src/channel/whatsapp/whatsapp_channel.dart' show WhatsAppChannel;
 export 'src/channel/whatsapp/whatsapp_config.dart' show WhatsAppConfig, GroupAccessMode;
@@ -45,9 +53,11 @@ export 'src/channel/whatsapp/mention_gating.dart' show MentionGating;
 
 // Container
 export 'src/container/container_config.dart' show ContainerConfig;
+export 'src/container/container_dispatcher.dart' show resolveProfile;
 export 'src/container/container_manager.dart' show ContainerManager;
 export 'src/container/credential_proxy.dart' show CredentialProxy;
 export 'src/container/docker_validator.dart' show DockerValidator;
+export 'src/container/security_profile.dart' show SecurityProfile;
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
@@ -93,6 +103,7 @@ export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTime
 
 // Config
 export 'src/config/dartclaw_config.dart' show DartclawConfig, SearchProviderEntry;
+export 'src/config/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/config/live_scope_config.dart' show LiveScopeConfig;
 export 'src/config/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
@@ -104,6 +115,17 @@ export 'src/agents/agent_definition.dart' show AgentDefinition;
 export 'src/agents/session_delegate.dart' show SessionDelegate;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 export 'src/agents/subagent_limits.dart' show SubagentLimits;
+
+// Tasks
+export 'src/task/goal.dart' show Goal;
+export 'src/task/goal_repository.dart' show GoalRepository;
+export 'src/task/goal_service.dart' show GoalService;
+export 'src/task/task.dart' show Task;
+export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
+export 'src/task/task_repository.dart' show TaskRepository;
+export 'src/task/task_service.dart' show TaskService;
+export 'src/task/task_status.dart' show TaskStatus;
+export 'src/task/task_type.dart' show TaskType;
 
 // Search (abstract interface — sqlite3-free)
 export 'src/search/search_backend.dart' show SearchBackend;
@@ -118,10 +140,20 @@ export 'src/events/dartclaw_event.dart'
         DartclawEvent,
         GuardBlockEvent,
         ConfigChangedEvent,
+        FailedAuthEvent,
         SessionLifecycleEvent,
         SessionCreatedEvent,
         SessionEndedEvent,
-        SessionErrorEvent;
+        SessionErrorEvent,
+        TaskLifecycleEvent,
+        TaskStatusChangedEvent,
+        TaskReviewReadyEvent,
+        ContainerLifecycleEvent,
+        ContainerStartedEvent,
+        ContainerStoppedEvent,
+        ContainerCrashedEvent,
+        AgentLifecycleEvent,
+        AgentStateChangedEvent;
 export 'src/events/session_lifecycle_subscriber.dart' show SessionLifecycleSubscriber;
 
 // Utilities

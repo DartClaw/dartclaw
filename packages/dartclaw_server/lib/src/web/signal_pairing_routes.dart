@@ -3,6 +3,7 @@ import 'package:qr/qr.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import 'page_registry.dart';
 import 'signal_pairing.dart';
 import 'web_routes.dart' show buildSidebarData;
 import 'web_utils.dart';
@@ -14,6 +15,7 @@ import 'web_utils.dart';
 Router signalPairingRoutes({
   required SignalChannel signalChannel,
   required SessionService sessions,
+  required PageRegistry pageRegistry,
   String appName = 'DartClaw',
 }) {
   final router = Router();
@@ -46,8 +48,7 @@ Router signalPairingRoutes({
         } else {
           linkDeviceUri = await signalChannel.sidecar.getLinkDeviceUri();
         }
-      } else if (signalChannel.sidecar.wasPaired &&
-          signalChannel.sidecar.restartCount > 0) {
+      } else if (signalChannel.sidecar.wasPaired && signalChannel.sidecar.restartCount > 0) {
         showReconnecting = true;
       }
     } catch (e) {
@@ -63,6 +64,7 @@ Router signalPairingRoutes({
       restartAttempt: signalChannel.sidecar.restartCount,
       maxRestartAttempts: signalChannel.sidecar.maxRestartAttempts,
       sidebarData: sidebarData,
+      navItems: pageRegistry.navItems(activePage: 'Settings'),
       fragmentOnly: wantsFragment(request),
       appName: appName,
     );
@@ -86,9 +88,9 @@ Router signalPairingRoutes({
     final sidebarData = await buildSidebarData(sessions);
     final html = signalPairingTemplate(
       isConnected: true,
-      connectedPhone: signalChannel.sidecar.registeredPhone ??
-          signalChannel.config.phoneNumber,
+      connectedPhone: signalChannel.sidecar.registeredPhone ?? signalChannel.config.phoneNumber,
       sidebarData: sidebarData,
+      navItems: pageRegistry.navItems(activePage: 'Settings'),
       fragmentOnly: wantsFragment(request),
       appName: appName,
     );
@@ -177,10 +179,7 @@ Router signalPairingRoutes({
     try {
       final uri = await signalChannel.sidecar.getLinkDeviceUri();
       if (uri == null) return Response.notFound('No link URI available');
-      return Response.ok(
-        _buildQrSvg(uri),
-        headers: {'content-type': 'image/svg+xml'},
-      );
+      return Response.ok(_buildQrSvg(uri), headers: {'content-type': 'image/svg+xml'});
     } catch (_) {
       return Response.internalServerError(body: 'Failed to generate QR');
     }
@@ -197,8 +196,10 @@ String _buildQrSvg(String data) {
   const quiet = 4; // spec mandates ≥4 module quiet zone
   final total = n + quiet * 2;
   final buf = StringBuffer()
-    ..write('<svg xmlns="http://www.w3.org/2000/svg" '
-        'viewBox="0 0 $total $total" shape-rendering="crispEdges">')
+    ..write(
+      '<svg xmlns="http://www.w3.org/2000/svg" '
+      'viewBox="0 0 $total $total" shape-rendering="crispEdges">',
+    )
     ..write('<rect width="$total" height="$total" fill="white"/>')
     ..write('<g fill="black">');
   for (var y = 0; y < n; y++) {

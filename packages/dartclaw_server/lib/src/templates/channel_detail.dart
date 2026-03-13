@@ -24,11 +24,11 @@ String channelDetailTemplate({
   required String entryPlaceholder,
   required String groupPlaceholder,
   required SidebarData sidebarData,
+  required List<NavItem> navItems,
   List<Map<String, dynamic>> pendingPairings = const [],
   String bannerHtml = '',
   String appName = 'DartClaw',
 }) {
-  final navItems = buildSystemNavItems(activePage: 'Settings');
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final topbar = pageTopbarTemplate(
     title: '$channelLabel Channel',
@@ -36,13 +36,20 @@ String channelDetailTemplate({
     backLabel: 'Settings',
   );
 
-  final pairingHref = channelType == 'whatsapp' ? '/whatsapp/pairing' : '/signal/pairing';
-  final disconnectHref = '$pairingHref/disconnect';
+  final pairingHref = switch (channelType) {
+    'whatsapp' => '/whatsapp/pairing',
+    'signal' => '/signal/pairing',
+    _ => null,
+  };
+  final disconnectHref = pairingHref != null ? '$pairingHref/disconnect' : null;
   final isConnected = statusLabel == 'Connected';
   final heroTitle = channelLabel;
-  final heroSubtitle = channelType == 'whatsapp'
-      ? 'Channel access rules, pairing approvals, and session routing.'
-      : 'Access policy, group controls, and conversation scoping for Signal traffic.';
+  final heroSubtitle = switch (channelType) {
+    'whatsapp' => 'Channel access rules, pairing approvals, and session routing.',
+    'signal' => 'Access policy, group controls, and conversation scoping for Signal traffic.',
+    'google_chat' => 'Access policy, group controls, and session routing for Google Chat.',
+    _ => 'Channel configuration and access controls.',
+  };
   final dmCards = _buildModeCards(['pairing', 'allowlist', 'open', 'disabled'], dmAccessMode, _dmModeHelp);
   final groupCards = _buildModeCards(['allowlist', 'open', 'disabled'], groupAccessMode, _groupModeHelp);
   final groupAccessDisabled = groupAccessMode == 'disabled';
@@ -57,7 +64,7 @@ String channelDetailTemplate({
     'phone': phone,
     'pairingHref': pairingHref,
     'disconnectHref': disconnectHref,
-    'showDisconnectAction': isConnected,
+    'showDisconnectAction': isConnected && pairingHref != null,
     'heroTitle': heroTitle,
     'heroSubtitle': heroSubtitle,
     'dmAccessMode': dmAccessMode,

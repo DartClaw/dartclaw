@@ -1,10 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -606,10 +608,7 @@ void main() {
         messages: messages,
         worker: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        guardChain: GuardChain(
-          guards: [FakeGuard(verdict: GuardVerdict.block('unsafe input'))],
-          eventBus: EventBus(),
-        ),
+        guardChain: GuardChain(guards: [FakeGuard(verdict: GuardVerdict.block('unsafe input'))]),
       );
 
       final turnId = await guardedTurns.startTurn(sessionId, [
@@ -634,10 +633,7 @@ void main() {
         messages: messages,
         worker: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        guardChain: GuardChain(
-          guards: [FakeGuard(verdict: GuardVerdict.warn('proceed with caution'))],
-          eventBus: EventBus(),
-        ),
+        guardChain: GuardChain(guards: [FakeGuard(verdict: GuardVerdict.warn('proceed with caution'))]),
       );
 
       final turnId = await guardedTurns.startTurn(sessionId, [
@@ -674,7 +670,6 @@ void main() {
               },
             ),
           ],
-          eventBus: EventBus(),
         ),
       );
 
@@ -713,7 +708,6 @@ void main() {
               },
             ),
           ],
-          eventBus: EventBus(),
         ),
       );
 
@@ -755,137 +749,134 @@ void main() {
   // -------------------------------------------------------------------------
   group('crash recovery', () {
     late KvService kvService;
+    late Database turnStateDb;
+    late TurnStateStore turnState;
+    late TurnManager Function({TurnStateStore? turnStateStore, KvService? kv}) buildTurns;
 
     setUp(() {
       kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+      turnStateDb = sqlite3.openInMemory();
+      turnState = TurnStateStore(turnStateDb);
+      buildTurns = ({TurnStateStore? turnStateStore, KvService? kv}) {
+        return TurnManager.fromPool(
+          pool: HarnessPool(
+            runners: [
+              TurnRunner(
+                harness: worker,
+                messages: messages,
+                behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+                turnState: turnStateStore,
+                kv: kv,
+              ),
+            ],
+          ),
+        );
+      };
     });
 
     tearDown(() async {
       await kvService.dispose();
+      await turnState.dispose();
     });
 
-    test('turn start writes turn state to KV', () async {
-      final turnsWithKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: kvService,
-      );
+    test('turn start writes turn state to store', () async {
+      final turnsWithState = buildTurns(turnStateStore: turnState, kv: kvService);
 
-      final turnId = await turnsWithKv.startTurn('s1', []);
+      final turnId = await turnsWithState.startTurn('s1', []);
 
-      // Allow fire-and-forget KV write to complete
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-
-      final stored = await kvService.get('turn:s1');
+      final stored = (await turnState.getAll())['s1'];
       expect(stored, isNotNull);
-      final data = jsonDecode(stored!) as Map<String, dynamic>;
-      expect(data['turnId'], equals(turnId));
-      expect(data['startedAt'], isNotNull);
+      expect(stored?.turnId, equals(turnId));
+      expect(stored?.startedAt, isA<DateTime>());
 
       // Cleanup
       await worker.turnInvoked;
       worker.completeSuccess();
-      await turnsWithKv.waitForOutcome('s1', turnId);
+      await turnsWithState.waitForOutcome('s1', turnId);
     });
 
-    test('turn completion removes turn state from KV', () async {
+    test('turn completion removes turn state from store', () async {
       final session = await SessionService(baseDir: tempDir.path).createSession();
       final sessionId = session.id;
-      final turnsWithKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: kvService,
-      );
+      final turnsWithState = buildTurns(turnStateStore: turnState, kv: kvService);
 
-      final turnId = await turnsWithKv.startTurn(sessionId, []);
+      final turnId = await turnsWithState.startTurn(sessionId, []);
       await worker.turnInvoked;
       worker.completeSuccess();
-      await turnsWithKv.waitForOutcome(sessionId, turnId);
+      await turnsWithState.waitForOutcome(sessionId, turnId);
 
-      // Allow fire-and-forget KV delete to complete
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-
-      final stored = await kvService.get('turn:$sessionId');
-      expect(stored, isNull);
+      expect(await turnState.getAll(), isNot(contains(sessionId)));
     });
 
     test('detectAndCleanOrphanedTurns finds and cleans orphans', () async {
-      // Seed kv.json with orphaned turn entries (simulating a crash)
-      await kvService.set('turn:session1', jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}));
-      await kvService.set('turn:session2', jsonEncode({'turnId': 'turn-bbb', 'startedAt': '2026-01-01T00:01:00.000'}));
+      // Seed state store with orphaned turn entries (simulating a crash).
+      await turnState.set('session1', 'turn-aaa', DateTime.parse('2026-01-01T00:00:00.000'));
+      await turnState.set('session2', 'turn-bbb', DateTime.parse('2026-01-01T00:01:00.000'));
       await kvService.set('session_cost:session1', '{"total_tokens": 100}');
 
-      final turnsWithKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: kvService,
-      );
+      final turnsWithState = buildTurns(turnStateStore: turnState, kv: kvService);
 
-      final recovered = await turnsWithKv.detectAndCleanOrphanedTurns();
+      final recovered = await turnsWithState.detectAndCleanOrphanedTurns();
 
       expect(recovered, unorderedEquals(['session1', 'session2']));
-      expect(await kvService.get('turn:session1'), isNull);
-      expect(await kvService.get('turn:session2'), isNull);
+      expect(await turnState.getAll(), isEmpty);
       expect(await kvService.get('session_cost:session1'), isNotNull);
     });
 
     test('consumeRecoveryNotice returns true once then false', () async {
-      await kvService.set('turn:session1', jsonEncode({'turnId': 'turn-aaa', 'startedAt': '2026-01-01T00:00:00.000'}));
+      await turnState.set('session1', 'turn-aaa', DateTime.parse('2026-01-01T00:00:00.000'));
 
-      final turnsWithKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: kvService,
-      );
+      final turnsWithState = buildTurns(turnStateStore: turnState, kv: kvService);
 
-      await turnsWithKv.detectAndCleanOrphanedTurns();
+      await turnsWithState.detectAndCleanOrphanedTurns();
 
-      expect(turnsWithKv.consumeRecoveryNotice('session1'), isTrue);
-      expect(turnsWithKv.consumeRecoveryNotice('session1'), isFalse);
+      expect(turnsWithState.consumeRecoveryNotice('session1'), isTrue);
+      expect(turnsWithState.consumeRecoveryNotice('session1'), isFalse);
     });
 
     test('detectAndCleanOrphanedTurns returns empty when no orphans', () async {
       await kvService.set('session_cost:xyz', '{"total_tokens": 50}');
 
-      final turnsWithKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: kvService,
-      );
+      final turnsWithState = buildTurns(turnStateStore: turnState, kv: kvService);
 
-      final recovered = await turnsWithKv.detectAndCleanOrphanedTurns();
+      final recovered = await turnsWithState.detectAndCleanOrphanedTurns();
       expect(recovered, isEmpty);
     });
 
-    test('detectAndCleanOrphanedTurns returns empty when no KV service', () async {
-      final recovered = await turns.detectAndCleanOrphanedTurns();
+    test('detectAndCleanOrphanedTurns returns empty when no turn state store', () async {
+      final turnsWithoutState = buildTurns(kv: kvService);
+
+      final recovered = await turnsWithoutState.detectAndCleanOrphanedTurns();
       expect(recovered, isEmpty);
     });
 
-    test('KV write failure degrades gracefully', () async {
-      final readOnlyKv = KvService(filePath: '/dev/null/impossible/kv.json');
-      final turnsWithBadKv = TurnManager(
-        messages: messages,
-        worker: worker,
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        kv: readOnlyKv,
-      );
+    test('turn state write failure degrades gracefully', () async {
+      final turnsWithBadState = buildTurns(turnStateStore: _ThrowingTurnStateStore(), kv: kvService);
 
-      // Should not throw — turn proceeds despite KV write failure
-      final turnId = await turnsWithBadKv.startTurn('s1', []);
+      // Should not throw — turn proceeds despite state write failure.
+      final turnId = await turnsWithBadState.startTurn('s1', []);
       expect(turnId, isNotEmpty);
-      expect(turnsWithBadKv.isActive('s1'), isTrue);
+      expect(turnsWithBadState.isActive('s1'), isTrue);
 
       // Cleanup
       await worker.turnInvoked;
       worker.completeSuccess();
-      await turnsWithBadKv.waitForOutcome('s1', turnId);
-      await readOnlyKv.dispose();
+      await turnsWithBadState.waitForOutcome('s1', turnId);
     });
   });
+}
+
+class _ThrowingTurnStateStore implements TurnStateStore {
+  @override
+  Future<void> delete(String sessionId) async => throw StateError('delete failed');
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<Map<String, ({String turnId, DateTime startedAt})>> getAll() async =>
+      <String, ({String turnId, DateTime startedAt})>{};
+
+  @override
+  Future<void> set(String sessionId, String turnId, DateTime startedAt) async => throw StateError('set failed');
 }

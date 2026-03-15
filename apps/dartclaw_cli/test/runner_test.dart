@@ -8,10 +8,9 @@ void main() {
   late DartclawRunner runner;
 
   setUp(() {
-    runner =
-        DartclawRunner()
-          ..addCommand(ServeCommand())
-          ..addCommand(StatusCommand());
+    runner = DartclawRunner()
+      ..addCommand(ServeCommand())
+      ..addCommand(StatusCommand());
   });
 
   group('DartclawRunner', () {
@@ -32,7 +31,7 @@ void main() {
     });
 
     test('description matches expected value', () {
-      expect(runner.description, 'DartClaw \u2014 security-hardened agent runtime');
+      expect(runner.description, 'DartClaw \u2014 security-focused agent runtime');
     });
 
     test('executable name is dartclaw', () {

@@ -9,11 +9,7 @@ void main() {
     });
 
     test('toJson returns correct structure', () {
-      final rc = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: true,
-        gitSyncPushEnabled: false,
-      );
+      final rc = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: false);
       final json = rc.toJson();
       expect(json['heartbeat'], {'enabled': true});
       expect(json['gitSync'], {'enabled': true, 'pushEnabled': false});

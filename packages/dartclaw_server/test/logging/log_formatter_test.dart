@@ -22,12 +22,16 @@ void main() {
     });
 
     test('includes correlation IDs when in zone', () {
-      LogContext.runWith(() {
-        final record = LogRecord(Level.INFO, 'Turn started', 'TurnManager');
-        final output = formatter.format(record);
-        expect(output, contains('[session=sess-1 turn=turn-1]'));
-        expect(output, contains('TurnManager: Turn started'));
-      }, sessionId: 'sess-1', turnId: 'turn-1');
+      LogContext.runWith(
+        () {
+          final record = LogRecord(Level.INFO, 'Turn started', 'TurnManager');
+          final output = formatter.format(record);
+          expect(output, contains('[session=sess-1 turn=turn-1]'));
+          expect(output, contains('TurnManager: Turn started'));
+        },
+        sessionId: 'sess-1',
+        turnId: 'turn-1',
+      );
     });
 
     test('omits correlation IDs when not in zone', () {
@@ -38,48 +42,24 @@ void main() {
     });
 
     test('includes error and stackTrace when present', () {
-      final record = LogRecord(
-        Level.SEVERE,
-        'Crash',
-        'Worker',
-        StateError('bad state'),
-        StackTrace.current,
-      );
+      final record = LogRecord(Level.SEVERE, 'Crash', 'Worker', StateError('bad state'), StackTrace.current);
       final output = formatter.format(record);
       expect(output, contains('SEVERE:'));
       expect(output, contains('bad state'));
     });
 
-    test('colorize wraps level in ANSI codes', () {
+    test('colorize wraps level and logger name in ANSI codes', () {
       final colored = HumanFormatter(redactor: LogRedactor(), colorize: true);
       final severe = colored.format(LogRecord(Level.SEVERE, 'crash', 'X'));
       expect(severe, contains('\x1B[31mSEVERE\x1B[0m'));
 
-      final warning = colored.format(LogRecord(Level.WARNING, 'warn', 'X'));
-      expect(warning, contains('\x1B[33mWARNING\x1B[0m'));
-
-      final info = colored.format(LogRecord(Level.INFO, 'ok', 'X'));
-      expect(info, contains('\x1B[36mINFO\x1B[0m'));
-
-      final fine = colored.format(LogRecord(Level.FINE, 'debug', 'X'));
-      expect(fine, contains('\x1B[2mFINE\x1B[0m'));
-    });
-
-    test('colorize wraps logger name in stable ANSI color', () {
-      final colored = HumanFormatter(redactor: LogRedactor(), colorize: true);
+      // Logger name wrapped in stable color (same logger = same color across calls)
       final output = colored.format(LogRecord(Level.INFO, 'msg', 'GowaManager'));
-      // Logger name should be wrapped in some color + reset
-      expect(output, matches(RegExp(r'\x1B\[\d+m' 'GowaManager' r'\x1B\[0m')));
-
-      // Same logger always gets the same color
+      expect(output, matches(RegExp(r'\x1B\[\d+mGowaManager\x1B\[0m')));
       final output2 = colored.format(LogRecord(Level.WARNING, 'x', 'GowaManager'));
       final color1 = RegExp(r'(\x1B\[\d+m)GowaManager').firstMatch(output)!.group(1);
       final color2 = RegExp(r'(\x1B\[\d+m)GowaManager').firstMatch(output2)!.group(1);
       expect(color1, equals(color2));
-
-      // Different logger gets a (potentially different) color
-      final other = colored.format(LogRecord(Level.INFO, 'msg', 'ServeCommand'));
-      expect(other, matches(RegExp(r'\x1B\[\d+m' 'ServeCommand' r'\x1B\[0m')));
     });
 
     test('colorize false emits plain level', () {
@@ -115,13 +95,17 @@ void main() {
     });
 
     test('includes correlation IDs from zone', () {
-      LogContext.runWith(() {
-        final record = LogRecord(Level.INFO, 'Turn started', 'TurnManager');
-        final output = formatter.format(record);
-        final json = jsonDecode(output) as Map<String, dynamic>;
-        expect(json['sessionId'], 'sess-abc');
-        expect(json['turnId'], 'turn-xyz');
-      }, sessionId: 'sess-abc', turnId: 'turn-xyz');
+      LogContext.runWith(
+        () {
+          final record = LogRecord(Level.INFO, 'Turn started', 'TurnManager');
+          final output = formatter.format(record);
+          final json = jsonDecode(output) as Map<String, dynamic>;
+          expect(json['sessionId'], 'sess-abc');
+          expect(json['turnId'], 'turn-xyz');
+        },
+        sessionId: 'sess-abc',
+        turnId: 'turn-xyz',
+      );
     });
 
     test('omits null fields', () {

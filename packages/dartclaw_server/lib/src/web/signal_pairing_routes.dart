@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:qr/qr.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';

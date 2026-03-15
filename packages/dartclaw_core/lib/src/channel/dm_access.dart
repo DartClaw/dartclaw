@@ -1,22 +1,38 @@
 import 'dart:math';
 
 /// Access control mode for direct messages — shared across all channels.
-enum DmAccessMode { pairing, allowlist, open, disabled }
+enum DmAccessMode {
+  /// Unknown senders must be explicitly paired before access is granted.
+  pairing,
+
+  /// Only senders in the allowlist may interact with the runtime.
+  allowlist,
+
+  /// Any sender may interact with the runtime.
+  open,
+
+  /// Direct messages are disabled entirely.
+  disabled,
+}
 
 /// A pending pairing code for DM access control.
 class PairingCode {
+  /// Human-entered pairing code shown to the operator.
   final String code;
+
+  /// Sender identifier requesting approval.
   final String jid;
+
+  /// Absolute expiry timestamp after which the code is invalid.
   final DateTime expiresAt;
+
+  /// Optional display name captured from the channel event.
   final String? displayName;
 
-  PairingCode({
-    required this.code,
-    required this.jid,
-    required this.expiresAt,
-    this.displayName,
-  });
+  /// Creates a pending pairing record.
+  PairingCode({required this.code, required this.jid, required this.expiresAt, this.displayName});
 
+  /// Whether this pairing has expired and should be evicted.
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
 
@@ -26,16 +42,21 @@ class DmAccessController {
   static const _codeLength = 8;
   static const _codeExpiry = Duration(hours: 1);
 
+  /// Access policy applied to inbound direct messages.
   final DmAccessMode mode;
   final Set<String> _allowlist;
   final Map<String, PairingCode> _pendingPairings = {};
   final Random _random;
 
+  /// Creates a DM access controller with an optional initial allowlist.
   DmAccessController({required this.mode, Set<String>? allowlist, Random? random})
     : _allowlist = allowlist ?? {},
       _random = random ?? Random.secure();
 
+  /// Immutable snapshot of approved sender identifiers.
   Set<String> get allowlist => Set.unmodifiable(_allowlist);
+
+  /// Number of non-expired pending pairing requests currently tracked.
   int get pendingCount => _pendingPairings.length;
 
   /// Returns non-expired pending pairings (evicts expired first).

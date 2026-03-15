@@ -2,21 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
-import '../config/config_meta.dart';
-import 'allowlist_validator.dart';
-import 'api_helpers.dart';
 import '../config/config_serializer.dart';
-import '../config/config_validator.dart';
-import '../config/config_writer.dart';
 import '../restart_service.dart';
 import '../runtime_config.dart';
 import '../scheduling/cron_parser.dart';
 import '../scheduling/schedule_service.dart';
+import 'allowlist_validator.dart';
+import 'api_helpers.dart';
 import 'sse_broadcast.dart';
 
 /// Config read/write API endpoints.
@@ -38,6 +39,9 @@ Router configApiRoutes({
   GoogleChatChannel? googleChatChannel,
   EventBus? eventBus,
 }) {
+  ensureDartclawGoogleChatRegistered();
+  ensureDartclawWhatsappRegistered();
+
   final router = Router();
   const serializer = ConfigSerializer();
 
@@ -70,12 +74,13 @@ Router configApiRoutes({
     if (body == null) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be valid JSON');
     }
-    if (body.isEmpty) {
+    final normalizedBody = _normalizeConfigPatch(body);
+    if (normalizedBody.isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
 
     // Reject scheduling.jobs — use job CRUD endpoints
-    if (body.containsKey('scheduling.jobs')) {
+    if (normalizedBody.containsKey('scheduling.jobs')) {
       return errorResponse(400, 'INVALID_INPUT', 'Use job CRUD endpoints for scheduling.jobs changes');
     }
 
@@ -87,7 +92,7 @@ Router configApiRoutes({
     }
 
     // Validate
-    final errors = validator.validate(body, currentValues: _currentConfigValues(freshConfig));
+    final errors = validator.validate(normalizedBody, currentValues: _currentConfigValues(freshConfig));
     if (errors.isNotEmpty) {
       return jsonResponse(400, {
         'applied': <String>[],
@@ -100,7 +105,7 @@ Router configApiRoutes({
     final liveFields = <String, dynamic>{};
     final restartFields = <String, dynamic>{};
 
-    for (final entry in body.entries) {
+    for (final entry in normalizedBody.entries) {
       final meta = ConfigMeta.fields[entry.key];
       if (meta == null) continue; // validated above — should not happen
       if (meta.mutability == ConfigMutability.live) {
@@ -125,13 +130,15 @@ Router configApiRoutes({
 
     // Fire ConfigChangedEvent — subscribers handle live side-effects.
     if (allFields.isNotEmpty) {
-      eventBus?.fire(ConfigChangedEvent(
-        changedKeys: allFields.keys.toList(),
-        oldValues: <String, dynamic>{},
-        newValues: allFields,
-        requiresRestart: restartFields.isNotEmpty,
-        timestamp: DateTime.now(),
-      ));
+      eventBus?.fire(
+        ConfigChangedEvent(
+          changedKeys: allFields.keys.toList(),
+          oldValues: <String, dynamic>{},
+          newValues: allFields,
+          requiresRestart: restartFields.isNotEmpty,
+          timestamp: DateTime.now(),
+        ),
+      );
     }
 
     // Create/update restart.pending if needed
@@ -185,18 +192,10 @@ Router configApiRoutes({
       return errorResponse(409, 'CONFLICT', 'Job "$name" already exists');
     }
 
-    final newJob = <String, dynamic>{
-      'name': name,
-      'schedule': schedule,
-      'prompt': prompt,
-      'delivery': delivery,
-    };
+    final newJob = <String, dynamic>{'name': name, 'schedule': schedule, 'prompt': prompt, 'delivery': delivery};
 
     // Build updated array and write
-    final updatedJobs = [
-      ...currentJobs.map((j) => Map<String, dynamic>.from(j)),
-      newJob,
-    ];
+    final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
 
     try {
       await writer.updateFields({'scheduling.jobs': updatedJobs});
@@ -208,10 +207,7 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['scheduling.jobs']);
 
-    return jsonResponse(201, {
-      'job': newJob,
-      'pendingRestart': true,
-    });
+    return jsonResponse(201, {'job': newJob, 'pendingRestart': true});
   });
 
   // PUT /api/scheduling/jobs/<name> — update existing job
@@ -270,10 +266,7 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['scheduling.jobs']);
 
-    return jsonResponse(200, {
-      'job': job,
-      'pendingRestart': true,
-    });
+    return jsonResponse(200, {'job': job, 'pendingRestart': true});
   });
 
   // DELETE /api/scheduling/jobs/<name>
@@ -298,10 +291,7 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['scheduling.jobs']);
 
-    return jsonResponse(200, {
-      'deleted': true,
-      'pendingRestart': true,
-    });
+    return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
   });
 
   // --- Automation scheduled task CRUD ---
@@ -362,10 +352,7 @@ Router configApiRoutes({
       },
     };
 
-    final updatedTasks = [
-      ...currentTasks.map((t) => Map<String, dynamic>.from(t)),
-      newTask,
-    ];
+    final updatedTasks = [...currentTasks.map((t) => Map<String, dynamic>.from(t)), newTask];
 
     try {
       await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
@@ -377,10 +364,7 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['automation.scheduled_tasks']);
 
-    return jsonResponse(201, {
-      'task': newTask,
-      'pendingRestart': true,
-    });
+    return jsonResponse(201, {'task': newTask, 'pendingRestart': true});
   });
 
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
@@ -416,9 +400,7 @@ Router configApiRoutes({
     if (body.containsKey('enabled')) task['enabled'] = body['enabled'];
 
     // Update nested task fields
-    final taskMap = task['task'] is Map
-        ? Map<String, dynamic>.from(task['task'] as Map)
-        : <String, dynamic>{};
+    final taskMap = task['task'] is Map ? Map<String, dynamic>.from(task['task'] as Map) : <String, dynamic>{};
     if (body.containsKey('title')) taskMap['title'] = body['title'];
     if (body.containsKey('description')) taskMap['description'] = body['description'];
     if (body.containsKey('type')) taskMap['type'] = body['type'];
@@ -438,10 +420,7 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['automation.scheduled_tasks']);
 
-    return jsonResponse(200, {
-      'task': task,
-      'pendingRestart': true,
-    });
+    return jsonResponse(200, {'task': task, 'pendingRestart': true});
   });
 
   // DELETE /api/scheduling/tasks/<id>
@@ -465,30 +444,22 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['automation.scheduled_tasks']);
 
-    return jsonResponse(200, {
-      'deleted': true,
-      'pendingRestart': true,
-    });
+    return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
   });
 
   // POST /api/system/restart — graceful restart
   router.post('/api/system/restart', (Request request) async {
     final rs = restartService;
     if (rs == null) {
-      return errorResponse(
-          503, 'RESTART_UNAVAILABLE', 'Restart service not configured');
+      return errorResponse(503, 'RESTART_UNAVAILABLE', 'Restart service not configured');
     }
     if (rs.isRestarting) {
-      return errorResponse(
-          409, 'RESTART_IN_PROGRESS', 'Restart already in progress');
+      return errorResponse(409, 'RESTART_IN_PROGRESS', 'Restart already in progress');
     }
 
     // Read current pending fields from restart.pending (if any).
     final pending = readRestartPending(dataDir);
-    final fields = (pending?['fields'] as List<dynamic>?)
-            ?.whereType<String>()
-            .toList() ??
-        <String>[];
+    final fields = (pending?['fields'] as List<dynamic>?)?.whereType<String>().toList() ?? <String>[];
 
     // Fire-and-forget: restart happens async (response sent before exit).
     unawaited(rs.restart(pendingFields: fields));
@@ -504,17 +475,12 @@ Router configApiRoutes({
   router.get('/api/events', (Request request) {
     final sse = sseBroadcast;
     if (sse == null) {
-      return errorResponse(
-          503, 'SSE_UNAVAILABLE', 'SSE broadcast not configured');
+      return errorResponse(503, 'SSE_UNAVAILABLE', 'SSE broadcast not configured');
     }
     final controller = sse.subscribe();
     return Response.ok(
       controller.stream,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
+      headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
     );
   });
 
@@ -682,13 +648,15 @@ Router configApiRoutes({
 
     writeRestartPending(dataDir, ['channels.$type.group_allowlist']);
 
-    eventBus?.fire(ConfigChangedEvent(
-      changedKeys: ['channels.$type.group_allowlist'],
-      oldValues: {'channels.$type.group_allowlist': current},
-      newValues: {'channels.$type.group_allowlist': updated},
-      requiresRestart: true,
-      timestamp: DateTime.now(),
-    ));
+    eventBus?.fire(
+      ConfigChangedEvent(
+        changedKeys: ['channels.$type.group_allowlist'],
+        oldValues: {'channels.$type.group_allowlist': current},
+        newValues: {'channels.$type.group_allowlist': updated},
+        requiresRestart: true,
+        timestamp: DateTime.now(),
+      ),
+    );
 
     return jsonResponse(201, {'added': true, 'allowlist': updated});
   });
@@ -844,19 +812,20 @@ Router configApiRoutes({
 }
 
 Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
-  final audience = config.googleChatConfig.audience;
+  final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+  final audience = googleChatConfig.audience;
   return {
-    'channels.google_chat.enabled': config.googleChatConfig.enabled,
-    'channels.google_chat.service_account': config.googleChatConfig.serviceAccount,
+    'channels.google_chat.enabled': googleChatConfig.enabled,
+    'channels.google_chat.service_account': googleChatConfig.serviceAccount,
     'channels.google_chat.audience.type': switch (audience?.mode) {
       GoogleChatAudienceMode.appUrl => 'app-url',
       GoogleChatAudienceMode.projectNumber => 'project-number',
       null => null,
     },
     'channels.google_chat.audience.value': audience?.value,
-    'channels.google_chat.dm_access': config.googleChatConfig.dmAccess.name,
-    'channels.google_chat.group_access': config.googleChatConfig.groupAccess.name,
-    'channels.google_chat.require_mention': config.googleChatConfig.requireMention,
+    'channels.google_chat.dm_access': googleChatConfig.dmAccess.name,
+    'channels.google_chat.group_access': googleChatConfig.groupAccess.name,
+    'channels.google_chat.require_mention': googleChatConfig.requireMention,
   };
 }
 
@@ -886,10 +855,7 @@ void writeRestartPending(String dataDir, List<String> fields) {
   // Merge and deduplicate
   final merged = {...existingFields, ...fields}.toList();
 
-  final json = jsonEncode({
-    'timestamp': DateTime.now().toUtc().toIso8601String(),
-    'fields': merged,
-  });
+  final json = jsonEncode({'timestamp': DateTime.now().toUtc().toIso8601String(), 'fields': merged});
 
   // Atomic write
   final tempFile = File('$filePath.tmp');
@@ -920,4 +886,15 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
   } catch (_) {
     return null;
   }
+}
+
+Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) => {
+  for (final entry in body.entries) entry.key: _normalizeConfigPatchValue(entry.key, entry.value),
+};
+
+Object? _normalizeConfigPatchValue(String path, Object? value) {
+  if (path.endsWith('.task_trigger.default_type') && value is String) {
+    return TaskTriggerConfig.normalizeDefaultType(value);
+  }
+  return value;
 }

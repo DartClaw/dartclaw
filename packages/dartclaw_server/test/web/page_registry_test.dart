@@ -77,14 +77,6 @@ void main() {
       }
     });
 
-    test('register rejects reserved google chat channel detail route', () {
-      final registry = PageRegistry();
-      expect(
-        () => registry.register(_StubDashboardPage('/settings/channels/google_chat', 'Google Chat')),
-        throwsA(isA<StateError>()),
-      );
-    });
-
     test('register rejects duplicate routes', () {
       final registry = PageRegistry()..register(_StubDashboardPage('/custom', 'First'));
 

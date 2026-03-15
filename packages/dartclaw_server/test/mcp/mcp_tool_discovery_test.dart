@@ -18,12 +18,11 @@ class _StubTool implements McpTool {
   final Map<String, dynamic> inputSchema;
 
   _StubTool(this.name, {String? description})
-      : description = description ?? 'Stub $name',
-        inputSchema = {'type': 'object', 'properties': {}};
+    : description = description ?? 'Stub $name',
+      inputSchema = {'type': 'object', 'properties': {}};
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async =>
-      ToolResult.text('ok');
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('ok');
 }
 
 // ---------------------------------------------------------------------------
@@ -83,14 +82,10 @@ void main() {
 
       final tools = await _toolsList(handler);
       final names = tools.map((t) => t['name']).toSet();
-      expect(names, containsAll([
-        'memory_save',
-        'memory_search',
-        'memory_read',
-        'sessions_send',
-        'sessions_spawn',
-        'web_fetch',
-      ]));
+      expect(
+        names,
+        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_send', 'sessions_spawn', 'web_fetch']),
+      );
       expect(tools, hasLength(6));
     });
 
@@ -106,8 +101,7 @@ void main() {
     test('tools/list includes custom tools via registerTool()', () async {
       handler.registerTool(_StubTool('memory_save'));
       handler.registerTool(_StubTool('web_fetch'));
-      handler.registerTool(_StubTool('my_custom_tool',
-          description: 'A custom tool registered via the SDK'));
+      handler.registerTool(_StubTool('my_custom_tool', description: 'A custom tool registered via the SDK'));
 
       final tools = await _toolsList(handler);
       final names = tools.map((t) => t['name']).toSet();

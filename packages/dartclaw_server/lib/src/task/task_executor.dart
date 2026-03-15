@@ -8,6 +8,7 @@ import '../turn_manager.dart';
 import '../turn_runner.dart';
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
+import 'task_event_helpers.dart';
 import 'task_file_guard.dart';
 import 'worktree_manager.dart';
 
@@ -163,7 +164,9 @@ class TaskExecutor {
   Future<Task?> _checkout(Task queuedTask) async {
     try {
       final runningTask = await _tasks.transition(queuedTask.id, TaskStatus.running);
-      await _fireTaskEvents(
+      await fireTaskLifecycleEvents(
+        tasks: _tasks,
+        eventBus: _eventBus,
         taskId: queuedTask.id,
         oldStatus: queuedTask.status,
         newStatus: runningTask.status,
@@ -177,6 +180,43 @@ class TaskExecutor {
 
   /// Pool-mode execution: uses a specific acquired [runner].
   Future<void> _executeWithRunner(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
+    return _executeCore(
+      runningTask,
+      runnerIndex: runnerIndex,
+      reserveTurn: (sessionId, {String? directory, String? model}) =>
+          runner.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model),
+      executeTurn: runner.executeTurn,
+      waitForOutcome: runner.waitForOutcome,
+    );
+  }
+
+  /// Single-harness fallback execution: uses TurnManager (primary runner).
+  Future<void> _execute(Task runningTask) async {
+    return _executeCore(
+      runningTask,
+      runnerIndex: 0,
+      reserveTurn: (sessionId, {String? directory, String? model}) =>
+          _reserveSharedTurn(sessionId, directory: directory, model: model),
+      executeTurn: _turns.executeTurn,
+      waitForOutcome: _turns.waitForOutcome,
+    );
+  }
+
+  /// Shared task execution logic for both pool-mode and single-harness paths.
+  Future<void> _executeCore(
+    Task runningTask, {
+    required int runnerIndex,
+    required Future<String> Function(String sessionId, {String? directory, String? model}) reserveTurn,
+    required void Function(
+      String sessionId,
+      String turnId,
+      List<Map<String, dynamic>> messages, {
+      String? source,
+      String agentName,
+    })
+    executeTurn,
+    required Future<TurnOutcome> Function(String sessionId, String turnId) waitForOutcome,
+  }) async {
     var task = runningTask;
     WorktreeInfo? worktreeInfo;
     try {
@@ -199,7 +239,7 @@ class TaskExecutor {
       final pendingMessage = await _composePendingMessage(task, session.id, workingDirectory: worktreeInfo?.path);
       if (pendingMessage == null) {
         _log.warning('Task ${task.id} had no message to execute; marking failed');
-        await _markFailed(task);
+        await _markFailed(task, errorSummary: 'Task had no executable prompt.');
         return;
       }
       final modelOverride = _modelOverride(task);
@@ -227,14 +267,9 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
-      final turnId = await runner.reserveTurn(
-        session.id,
-        agentName: 'task',
-        directory: worktreeInfo?.path,
-        model: modelOverride,
-      );
-      runner.executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
-      final outcome = await runner.waitForOutcome(session.id, turnId);
+      final turnId = await reserveTurn(session.id, directory: worktreeInfo?.path, model: modelOverride);
+      executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
+      final outcome = await waitForOutcome(session.id, turnId);
       _observer?.recordTurn(
         runnerIndex,
         inputTokens: outcome.inputTokens,
@@ -250,11 +285,16 @@ class TaskExecutor {
         await _artifactCollector.collect(refreshed);
         if (tokenBudget != null && outcome.totalTokens > tokenBudget) {
           _log.warning('Task ${task.id} exceeded token budget ($tokenBudget < ${outcome.totalTokens}); marking failed');
-          await _markFailed(task);
+          await _markFailed(
+            task,
+            errorSummary: 'Token budget exceeded: used ${outcome.totalTokens} tokens against a limit of $tokenBudget.',
+          );
           return;
         }
         final reviewed = await _tasks.transition(task.id, TaskStatus.review);
-        await _fireTaskEvents(
+        await fireTaskLifecycleEvents(
+          tasks: _tasks,
+          eventBus: _eventBus,
           taskId: task.id,
           oldStatus: TaskStatus.running,
           newStatus: reviewed.status,
@@ -262,110 +302,18 @@ class TaskExecutor {
         );
         return;
       }
+
+      await _markFailed(task, errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status));
+      return;
     } catch (error, stackTrace) {
       if (error is GitNotFoundException || error is WorktreeException) {
         _log.warning('Worktree setup failed for task ${task.id}: $error');
       } else {
         _log.warning('Task execution failed for ${task.id}: $error', error, stackTrace);
       }
+      await _markFailed(task, errorSummary: _sanitizeErrorSummary(error.toString()));
+      return;
     }
-
-    // On failure: do NOT cleanup worktree (preserved for inspection)
-    await _markFailed(task);
-  }
-
-  /// Single-harness fallback execution: uses TurnManager (primary runner).
-  Future<void> _execute(Task runningTask) async {
-    var task = runningTask;
-    WorktreeInfo? worktreeInfo;
-    try {
-      // Worktree setup for coding tasks
-      if (task.type == TaskType.coding && _worktreeManager != null) {
-        worktreeInfo = await _worktreeManager.create(task.id);
-        _taskFileGuard?.register(task.id, worktreeInfo.path);
-        task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
-      }
-
-      final session = await _sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: runningTask.id),
-        type: SessionType.task,
-      );
-
-      if (task.sessionId != session.id) {
-        task = await _tasks.updateFields(task.id, sessionId: session.id);
-      }
-
-      final pendingMessage = await _composePendingMessage(task, session.id, workingDirectory: worktreeInfo?.path);
-      if (pendingMessage == null) {
-        _log.warning('Task ${task.id} had no message to execute; marking failed');
-        await _markFailed(task);
-        return;
-      }
-      final modelOverride = _modelOverride(task);
-      final tokenBudget = _tokenBudget(task);
-
-      await _messages.insertMessage(sessionId: session.id, role: 'user', content: pendingMessage);
-
-      final clearedConfig = _clearPushBackComment(task.configJson);
-      if (clearedConfig != null) {
-        task = await _tasks.updateFields(task.id, configJson: clearedConfig);
-      }
-
-      final sessionMessages = await _messages.getMessages(session.id);
-      final turnMessages = sessionMessages
-          .map(
-            (message) => <String, dynamic>{
-              'id': message.id,
-              'sessionId': message.sessionId,
-              'role': message.role,
-              'content': message.content,
-              'cursor': message.cursor,
-              'metadata': message.metadata,
-              'createdAt': message.createdAt.toIso8601String(),
-            },
-          )
-          .toList(growable: false);
-
-      final turnId = await _reserveSharedTurn(session.id, directory: worktreeInfo?.path, model: modelOverride);
-      _turns.executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
-      final outcome = await _turns.waitForOutcome(session.id, turnId);
-      _observer?.recordTurn(
-        0,
-        inputTokens: outcome.inputTokens,
-        outputTokens: outcome.outputTokens,
-        isError: outcome.status != TurnStatus.completed,
-      );
-
-      if (outcome.status == TurnStatus.completed) {
-        final refreshed = await _tasks.get(task.id) ?? task;
-        if (refreshed.status == TaskStatus.cancelled) {
-          return;
-        }
-        await _artifactCollector.collect(refreshed);
-        if (tokenBudget != null && outcome.totalTokens > tokenBudget) {
-          _log.warning('Task ${task.id} exceeded token budget ($tokenBudget < ${outcome.totalTokens}); marking failed');
-          await _markFailed(task);
-          return;
-        }
-        final reviewed = await _tasks.transition(task.id, TaskStatus.review);
-        await _fireTaskEvents(
-          taskId: task.id,
-          oldStatus: TaskStatus.running,
-          newStatus: reviewed.status,
-          trigger: 'system',
-        );
-        return;
-      }
-    } catch (error, stackTrace) {
-      if (error is GitNotFoundException || error is WorktreeException) {
-        _log.warning('Worktree setup failed for task ${task.id}: $error');
-      } else {
-        _log.warning('Task execution failed for ${task.id}: $error', error, stackTrace);
-      }
-    }
-
-    // On failure: do NOT cleanup worktree (preserved for inspection)
-    await _markFailed(task);
   }
 
   Future<String> _reserveSharedTurn(String sessionId, {String? directory, String? model}) async {
@@ -486,14 +434,20 @@ class TaskExecutor {
     return null;
   }
 
-  Future<void> _markFailed(Task task) async {
+  Future<void> _markFailed(Task task, {String? errorSummary}) async {
     try {
       final current = await _tasks.get(task.id);
       if (current == null || current.status.terminal) {
         return;
       }
-      final failed = await _tasks.transition(task.id, TaskStatus.failed);
-      await _fireTaskEvents(
+      final failed = await _tasks.transition(
+        task.id,
+        TaskStatus.failed,
+        configJson: errorSummary == null ? null : _withErrorSummary(current.configJson, errorSummary),
+      );
+      await fireTaskLifecycleEvents(
+        tasks: _tasks,
+        eventBus: _eventBus,
         taskId: task.id,
         oldStatus: TaskStatus.running,
         newStatus: failed.status,
@@ -504,33 +458,37 @@ class TaskExecutor {
     }
   }
 
-  Future<void> _fireTaskEvents({
-    required String taskId,
-    required TaskStatus oldStatus,
-    required TaskStatus newStatus,
-    required String trigger,
-  }) async {
-    _eventBus.fire(
-      TaskStatusChangedEvent(
-        taskId: taskId,
-        oldStatus: oldStatus,
-        newStatus: newStatus,
-        trigger: trigger,
-        timestamp: DateTime.now(),
-      ),
-    );
+  Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String errorSummary) =>
+      Map<String, dynamic>.from(configJson)..['errorSummary'] = _sanitizeErrorSummary(errorSummary);
 
-    if (newStatus != TaskStatus.review) return;
+  String _defaultTurnFailureSummary(TurnStatus status) =>
+      status == TurnStatus.cancelled ? 'Turn cancelled' : 'Turn execution failed';
 
-    final artifacts = await _tasks.listArtifacts(taskId);
-    final artifactKinds = artifacts.map((artifact) => artifact.kind.name).toSet().toList()..sort();
-    _eventBus.fire(
-      TaskReviewReadyEvent(
-        taskId: taskId,
-        artifactCount: artifacts.length,
-        artifactKinds: artifactKinds,
-        timestamp: DateTime.now(),
-      ),
-    );
+  String _sanitizeErrorSummary(String message) {
+    final firstLine = message
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => 'Task execution failed');
+    var normalized = firstLine;
+    for (final prefix in const [
+      'Exception: ',
+      'StateError: ',
+      'Bad state: ',
+      'ArgumentError: ',
+      'Invalid argument(s): ',
+    ]) {
+      if (normalized.startsWith(prefix)) {
+        normalized = normalized.substring(prefix.length).trim();
+        break;
+      }
+    }
+    normalized = normalized.replaceFirst(RegExp(r'[.]+$'), '').trim();
+    if (normalized.isEmpty) {
+      normalized = 'Task execution failed';
+    }
+    if (normalized.length <= 200) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 197).trimRight()}...';
   }
 }

@@ -89,7 +89,10 @@ Router memoryRoutes({
   return router;
 }
 
-Future<void> _appendPruneHistory(KvService kv, ({int entriesArchived, int duplicatesRemoved, int entriesRemaining, int finalSizeBytes}) result) async {
+Future<void> _appendPruneHistory(
+  KvService kv,
+  ({int entriesArchived, int duplicatesRemoved, int entriesRemaining, int finalSizeBytes}) result,
+) async {
   List<dynamic> history = [];
   try {
     final existing = await kv.get('prune_history');
@@ -114,4 +117,3 @@ Future<void> _appendPruneHistory(KvService kv, ({int entriesArchived, int duplic
 
   await kv.set('prune_history', jsonEncode(history));
 }
-

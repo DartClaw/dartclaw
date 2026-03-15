@@ -1,15 +1,45 @@
-/// Classification for how a session was created.
-enum SessionType { main, channel, cron, user, task, archive }
+/// Classification for how a [Session] was created.
+enum SessionType {
+  /// A long-lived primary session created by the runtime itself.
+  main,
 
-/// A conversation session containing messages between user and agent.
+  /// A session derived from an inbound channel message.
+  channel,
+
+  /// A session started by a scheduled task or cron trigger.
+  cron,
+
+  /// A user-initiated interactive session such as web or CLI chat.
+  user,
+
+  /// A session associated with a tracked task execution.
+  task,
+
+  /// A read-only or historical session retained for archival purposes.
+  archive,
+}
+
+/// A top-level conversation container for exchanges between a user and an agent.
 class Session {
+  /// Unique identifier for this session.
   final String id;
+
+  /// Human-readable title shown in UI surfaces, or `null` when unnamed.
   final String? title;
+
+  /// How this session was created and routed through the runtime.
   final SessionType type;
+
+  /// Channel-specific routing key for sessions that originate from a channel.
   final String? channelKey;
+
+  /// When this session record was first created.
   final DateTime createdAt;
+
+  /// When this session was last mutated.
   final DateTime updatedAt;
 
+  /// Creates a session snapshot with immutable metadata.
   const Session({
     required this.id,
     this.title,
@@ -19,6 +49,7 @@ class Session {
     required this.updatedAt,
   });
 
+  /// Serializes this session to a JSON-safe map.
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -28,6 +59,7 @@ class Session {
     'updatedAt': updatedAt.toIso8601String(),
   };
 
+  /// Reconstructs a [Session] from persisted JSON data.
   factory Session.fromJson(Map<String, dynamic> json) => Session(
     id: json['id'] as String,
     title: json['title'] as String?,
@@ -37,6 +69,7 @@ class Session {
     updatedAt: DateTime.parse(json['updatedAt'] as String),
   );
 
+  /// Returns a copy with selected fields replaced.
   Session copyWith({
     String? id,
     String? title,
@@ -61,16 +94,30 @@ class Session {
   }
 }
 
-/// A single message in a session, with a cursor for crash-recovery resumption.
+/// A single persisted message within a [Session].
 class Message {
+  /// Monotonic message cursor used for stable ordering and resume points.
   final int cursor;
+
+  /// Unique identifier for this message.
   final String id;
+
+  /// Identifier of the parent [Session].
   final String sessionId;
+
+  /// Author role such as `user`, `assistant`, or `system`.
   final String role;
+
+  /// Message body text as stored in session history.
   final String content;
+
+  /// Optional serialized metadata associated with the message.
   final String? metadata;
+
+  /// When the message was created.
   final DateTime createdAt;
 
+  /// Creates an immutable message record.
   const Message({
     required this.cursor,
     required this.id,
@@ -81,6 +128,7 @@ class Message {
     required this.createdAt,
   });
 
+  /// Serializes this message to a JSON-safe map.
   Map<String, dynamic> toJson() => {
     'cursor': cursor,
     'id': id,
@@ -91,6 +139,7 @@ class Message {
     'createdAt': createdAt.toIso8601String(),
   };
 
+  /// Reconstructs a [Message] from persisted JSON data.
   factory Message.fromJson(Map<String, dynamic> json) => Message(
     cursor: json['cursor'] as int,
     id: json['id'] as String,
@@ -104,12 +153,22 @@ class Message {
 
 /// A chunk of text stored in the FTS5 memory index for semantic search.
 class MemoryChunk {
+  /// SQLite row identifier for this chunk.
   final int id;
+
+  /// Indexed text content used for lexical and semantic search.
   final String textContent;
+
+  /// Source label describing where this chunk came from.
   final String source;
+
+  /// Optional category used for grouping or filtering results.
   final String? category;
+
+  /// When this chunk was created in storage.
   final DateTime createdAt;
 
+  /// Creates an immutable memory chunk snapshot.
   const MemoryChunk({
     required this.id,
     required this.textContent,
@@ -121,10 +180,18 @@ class MemoryChunk {
 
 /// A ranked result from a memory search query.
 class MemorySearchResult {
+  /// Text snippet returned by the search backend.
   final String text;
+
+  /// Source label associated with the matching memory entry.
   final String source;
+
+  /// Optional category associated with the result.
   final String? category;
+
+  /// Backend-specific relevance score for ranking matches.
   final double score;
 
+  /// Creates an immutable memory search result value.
   const MemorySearchResult({required this.text, required this.source, this.category, required this.score});
 }

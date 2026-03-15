@@ -1,11 +1,24 @@
 /// Immutable goal value object for persistent task context.
+///
+/// Goals let higher-level missions group one or more [Task] records while
+/// keeping the mission statement separate from individual execution details.
 class Goal {
+  /// Unique identifier for this goal.
   final String id;
+
+  /// Short human-readable name shown in task and planning UIs.
   final String title;
+
+  /// Optional parent goal identifier for hierarchical planning.
   final String? parentGoalId;
+
+  /// Mission statement or desired outcome for this goal.
   final String mission;
+
+  /// Timestamp when this goal was created.
   final DateTime createdAt;
 
+  /// Creates an immutable goal record.
   const Goal({
     required this.id,
     required this.title,
@@ -14,6 +27,7 @@ class Goal {
     required this.createdAt,
   });
 
+  /// Serializes this goal to the JSON shape used by persistence layers.
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -22,6 +36,7 @@ class Goal {
     'createdAt': createdAt.toIso8601String(),
   };
 
+  /// Deserializes a goal from persisted JSON.
   factory Goal.fromJson(Map<String, dynamic> json) => Goal(
     id: json['id'] as String,
     title: json['title'] as String,

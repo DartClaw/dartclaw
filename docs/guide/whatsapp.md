@@ -62,6 +62,18 @@ Open the pairing page at `http://localhost:3000/whatsapp/pairing`. Scan the QR c
 | `open` | Anyone can DM the agent. |
 | `disabled` | DMs ignored. |
 
+### Contact Identifiers
+
+Use WhatsApp JIDs in `dm_allowlist` and `group_allowlist`.
+
+- DM format: `<phone>@s.whatsapp.net`
+- Phone format: country code + number, with no `+`, spaces, or punctuation
+- DM examples: `14155552671@s.whatsapp.net`, `46701234567@s.whatsapp.net`
+- Group format: `<group-id>@g.us`
+- Group examples: `120363041234567890@g.us`, `120363400987654321@g.us`
+
+Tip: check GOWA logs or the guard audit log to discover the exact JID for a contact or group.
+
 ### 4. Group Policies
 
 In groups, the agent only responds when mentioned (default `mention` mode). Configure mention patterns in `dartclaw.yaml`. The agent also responds to replies to its own messages.

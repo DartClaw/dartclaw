@@ -121,7 +121,7 @@ Multiple jobs coexist and run independently:
 
 1. **Health check fires every 5 minutes** -- quick status check, results logged only (`delivery: none`)
 2. **Heartbeat fires every 30 minutes** -- processes HEARTBEAT.md checklist in an isolated session, runs memory consolidation if needed
-3. **Daily report fires at 6:00 PM** -- summarizes the day's findings and delivers via `announce` to the active session or channel
+3. **Daily report fires at 6:00 PM** -- summarizes the day's findings (accessible via cron session in web UI sidebar; `announce` channel routing is planned)
 4. **Weekly cleanup fires Sunday at 3:00 AM** -- maintenance tasks, results saved to MEMORY.md
 
 Each job runs in its own isolated session. Jobs do not share state directly -- they communicate through MEMORY.md. The `max_parallel_turns: 3` setting limits how many concurrent agent turns can run.
@@ -141,6 +141,26 @@ Each job runs in its own isolated session. Jobs do not share state directly -- t
   ```
 - **Add environment-specific endpoints**: Put server URLs, API keys, and monitoring targets in TOOLS.md
 - **Adjust concurrency**: Increase `max_parallel_turns` if you have many concurrent jobs, or decrease it to reduce resource usage
+
+## Task System (0.8+)
+
+DartClaw also has a dedicated **task system** for structured, reviewable work. While scheduled cron jobs are fire-and-forget prompts, tasks have a full lifecycle (draft → queued → running → review → accepted/rejected), diff-based review for coding tasks, and a task dashboard UI at `/tasks`.
+
+You can create tasks on a schedule via `automation.scheduled_tasks`:
+
+```yaml
+automation:
+  scheduled_tasks:
+    - id: daily-review
+      cron_expression: "0 9 * * *"
+      enabled: true
+      title: "Daily code review"
+      description: "Review recent changes and flag issues"
+      type: research
+      auto_start: true
+```
+
+Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](_common-patterns.md#channel-to-task-integration-09). Use cron jobs for lightweight, recurring prompts; use tasks when you need structured review, artifacts, or multi-step work.
 
 ## Gotchas & Limitations
 

@@ -10,9 +10,7 @@ void main() {
 
   group('restartBannerTemplate', () {
     test('with fields renders banner HTML', () {
-      final html = restartBannerTemplate(
-        pendingFields: ['agent.model', 'port'],
-      );
+      final html = restartBannerTemplate(pendingFields: ['agent.model', 'port']);
 
       expect(html, contains('banner-restart'));
       expect(html, contains('agent.model, port'));

@@ -72,10 +72,7 @@ void main() {
     });
 
     test('contains ExecStart with interpolated values', () {
-      expect(
-        unit,
-        contains('ExecStart=/usr/local/bin/dartclaw serve --host 0.0.0.0 --port 3000'),
-      );
+      expect(unit, contains('ExecStart=/usr/local/bin/dartclaw serve --host 0.0.0.0 --port 3000'));
     });
 
     test('contains API key placeholder', () {
@@ -122,9 +119,7 @@ void main() {
     });
 
     test('includes custom hosts', () {
-      final rules = generatePfRules(
-        allowedHosts: ['api.anthropic.com', 'custom.example.com'],
-      );
+      final rules = generatePfRules(allowedHosts: ['api.anthropic.com', 'custom.example.com']);
       expect(rules, contains('custom.example.com'));
     });
   });
@@ -151,9 +146,7 @@ void main() {
     });
 
     test('includes custom hosts', () {
-      final rules = generateNftablesRules(
-        allowedHosts: ['api.anthropic.com', 'custom.example.com'],
-      );
+      final rules = generateNftablesRules(allowedHosts: ['api.anthropic.com', 'custom.example.com']);
       expect(rules, contains('custom.example.com'));
     });
   });

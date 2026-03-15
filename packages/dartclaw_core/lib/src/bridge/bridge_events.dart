@@ -5,8 +5,10 @@ sealed class BridgeEvent {}
 
 /// Incremental text output from the agent.
 final class DeltaEvent extends BridgeEvent {
+  /// Newly emitted text delta from the agent runtime.
   final String text;
 
+  /// Creates a text delta event.
   DeltaEvent(this.text);
 
   @override
@@ -21,10 +23,16 @@ final class DeltaEvent extends BridgeEvent {
 
 /// Agent requested a tool invocation.
 final class ToolUseEvent extends BridgeEvent {
+  /// Tool name requested by the agent.
   final String toolName;
+
+  /// Stable tool invocation identifier assigned by the runtime.
   final String toolId;
+
+  /// JSON input payload supplied to the tool.
   final Map<String, dynamic> input;
 
+  /// Creates a tool-use event.
   ToolUseEvent({required this.toolName, required this.toolId, required this.input});
 
   static const _mapEq = MapEquality<String, dynamic>();
@@ -46,10 +54,16 @@ final class ToolUseEvent extends BridgeEvent {
 
 /// Result returned from a tool invocation.
 final class ToolResultEvent extends BridgeEvent {
+  /// Tool invocation identifier this result corresponds to.
   final String toolId;
+
+  /// Serialized tool output returned to the agent.
   final String output;
+
+  /// Whether the tool result represents an error.
   final bool isError;
 
+  /// Creates a tool-result event.
   ToolResultEvent({required this.toolId, required this.output, required this.isError});
 
   @override
@@ -66,8 +80,10 @@ final class ToolResultEvent extends BridgeEvent {
 
 /// Initialization metadata from the agent subprocess.
 final class SystemInitEvent extends BridgeEvent {
+  /// Maximum context window reported by the runtime.
   final int contextWindow;
 
+  /// Creates an initialization event from the runtime handshake.
   SystemInitEvent({required this.contextWindow});
 
   @override

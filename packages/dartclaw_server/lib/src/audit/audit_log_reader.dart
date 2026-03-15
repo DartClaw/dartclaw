@@ -20,13 +20,7 @@ class AuditPage {
     required this.pageSize,
   });
 
-  static const empty = AuditPage(
-    entries: [],
-    totalEntries: 0,
-    currentPage: 1,
-    totalPages: 0,
-    pageSize: 25,
-  );
+  static const empty = AuditPage(entries: [], totalEntries: 0, currentPage: 1, totalPages: 0, pageSize: 25);
 }
 
 /// Reads and parses `audit.ndjson` with filtering and pagination.
@@ -47,12 +41,7 @@ class AuditLogReader {
   /// [verdictFilter]: exact match on verdict ('pass', 'warn', 'block').
   /// [guardFilter]: case-insensitive substring match on guard name.
   /// Filters are AND-combined.
-  Future<AuditPage> read({
-    int page = 1,
-    int pageSize = 25,
-    String? verdictFilter,
-    String? guardFilter,
-  }) async {
+  Future<AuditPage> read({int page = 1, int pageSize = 25, String? verdictFilter, String? guardFilter}) async {
     final file = File(_auditPath);
     if (!file.existsSync()) return AuditPage.empty;
 
@@ -77,8 +66,7 @@ class AuditLogReader {
     // Apply filters.
     final filtered = reversed.where((entry) {
       if (verdictFilter != null && entry.verdict != verdictFilter) return false;
-      if (guardFilter != null &&
-          !entry.guard.toLowerCase().contains(guardFilter.toLowerCase())) {
+      if (guardFilter != null && !entry.guard.toLowerCase().contains(guardFilter.toLowerCase())) {
         return false;
       }
       return true;

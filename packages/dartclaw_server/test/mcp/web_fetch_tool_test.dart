@@ -26,22 +26,19 @@ class _FakeClassifier implements ContentClassifier {
 // Test HTTP server helpers
 // ---------------------------------------------------------------------------
 
-Future<HttpServer> _startServer(
-  Future<void> Function(HttpRequest) handler,
-) async {
+Future<HttpServer> _startServer(Future<void> Function(HttpRequest) handler) async {
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen(handler);
   return server;
 }
 
-String _serverUrl(HttpServer server, [String path = '/']) =>
-    'http://127.0.0.1:${server.port}$path';
+String _serverUrl(HttpServer server, [String path = '/']) => 'http://127.0.0.1:${server.port}$path';
 
 /// Extracts the text content from a [ToolResult].
 String _text(ToolResult result) => switch (result) {
-      ToolResultText(:final content) => content,
-      ToolResultError(:final message) => message,
-    };
+  ToolResultText(:final content) => content,
+  ToolResultError(:final message) => message,
+};
 
 /// Creates a [WebFetchTool] with SSRF protection disabled for local test servers.
 WebFetchTool _noSsrfTool({
@@ -49,14 +46,13 @@ WebFetchTool _noSsrfTool({
   Duration? timeout,
   int? defaultMaxLength,
   bool failOpenOnClassification = true,
-}) =>
-    WebFetchTool(
-      classifier: classifier,
-      timeout: timeout ?? const Duration(seconds: 30),
-      defaultMaxLength: defaultMaxLength ?? 50000,
-      failOpenOnClassification: failOpenOnClassification,
-      ssrfProtectionEnabled: false,
-    );
+}) => WebFetchTool(
+  classifier: classifier,
+  timeout: timeout ?? const Duration(seconds: 30),
+  defaultMaxLength: defaultMaxLength ?? 50000,
+  failOpenOnClassification: failOpenOnClassification,
+  ssrfProtectionEnabled: false,
+);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -128,9 +124,7 @@ void main() {
         // localhost resolves to 127.0.0.1 via DNS — should be caught
         // even though "localhost" is already caught by the fast path,
         // this validates the async checkSsrfPolicy flow end-to-end.
-        final result = await WebFetchTool.checkSsrfPolicy(
-          Uri.parse('http://localhost/secret'),
-        );
+        final result = await WebFetchTool.checkSsrfPolicy(Uri.parse('http://localhost/secret'));
         expect(result, isNotNull);
         expect(result, contains('Blocked'));
       });
@@ -143,10 +137,7 @@ void main() {
       });
 
       test('blocks link-local 169.254.x.x', () {
-        expect(
-          WebFetchTool.checkIpv4Octets(169, 254),
-          contains('link-local'),
-        );
+        expect(WebFetchTool.checkIpv4Octets(169, 254), contains('link-local'));
       });
 
       test('blocks RFC1918 10.x.x.x', () {
@@ -175,10 +166,7 @@ void main() {
       });
 
       test('blocks unspecified 0.x.x.x', () {
-        expect(
-          WebFetchTool.checkIpv4Octets(0, 0),
-          contains('unspecified'),
-        );
+        expect(WebFetchTool.checkIpv4Octets(0, 0), contains('unspecified'));
       });
 
       test('blocks multicast/reserved >= 224', () {
@@ -387,10 +375,7 @@ void main() {
 
       test('classifier error with failOpen=true returns content', () async {
         final classifier = _FakeClassifier(shouldThrow: true);
-        final tool = _noSsrfTool(
-          classifier: classifier,
-          failOpenOnClassification: true,
-        );
+        final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: true);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
         expect(_text(result), contains('Some content'));
@@ -398,10 +383,7 @@ void main() {
 
       test('classifier error with failOpen=false returns error', () async {
         final classifier = _FakeClassifier(shouldThrow: true);
-        final tool = _noSsrfTool(
-          classifier: classifier,
-          failOpenOnClassification: false,
-        );
+        final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: false);
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());
         expect(_text(result), contains('classification failed'));
@@ -432,10 +414,7 @@ void main() {
         });
 
         final tool = _noSsrfTool();
-        final result = await tool.call({
-          'url': _serverUrl(server),
-          'maxLength': 100,
-        });
+        final result = await tool.call({'url': _serverUrl(server), 'maxLength': 100});
         expect(result, isA<ToolResultText>());
         expect(_text(result).length, 100);
       });

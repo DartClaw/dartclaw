@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+
+import 'config_loader.dart';
 
 typedef TokenWriteLine = void Function(String line);
 
@@ -30,15 +31,13 @@ class _TokenShowCommand extends Command<void> {
   @override
   String get description => 'Display the current gateway token';
 
-  _TokenShowCommand({
-    TokenWriteLine? stdoutLine,
-    TokenWriteLine? stderrLine,
-  })  : _stdoutLine = stdoutLine ?? stdout.writeln,
-        _stderrLine = stderrLine ?? stderr.writeln;
+  _TokenShowCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
+    : _stdoutLine = stdoutLine ?? stdout.writeln,
+      _stderrLine = stderrLine ?? stderr.writeln;
 
   @override
   void run() {
-    final config = DartclawConfig.load(configPath: globalResults?['config'] as String?);
+    final config = loadCliConfig(configPath: globalResults?['config'] as String?);
     final dataDir = config.dataDir;
     final token = config.gatewayToken ?? TokenService.loadFromFile(dataDir);
     if (token == null) {
@@ -59,15 +58,13 @@ class _TokenRotateCommand extends Command<void> {
   @override
   String get description => 'Generate and persist a new gateway token';
 
-  _TokenRotateCommand({
-    TokenWriteLine? stdoutLine,
-    TokenWriteLine? stderrLine,
-  })  : _stdoutLine = stdoutLine ?? stdout.writeln,
-        _stderrLine = stderrLine ?? stderr.writeln;
+  _TokenRotateCommand({TokenWriteLine? stdoutLine, TokenWriteLine? stderrLine})
+    : _stdoutLine = stdoutLine ?? stdout.writeln,
+      _stderrLine = stderrLine ?? stderr.writeln;
 
   @override
   void run() {
-    final config = DartclawConfig.load(configPath: globalResults?['config'] as String?);
+    final config = loadCliConfig(configPath: globalResults?['config'] as String?);
     final dataDir = config.dataDir;
     final newToken = TokenService.rotateToken(dataDir);
     _stdoutLine(newToken);

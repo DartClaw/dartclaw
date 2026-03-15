@@ -7,7 +7,7 @@ DartClaw is a security-focused agent runtime — a single AOT-compiled Dart bina
 _**Opinionated (Claude Code), but pluggable.**_
 The harness architecture currently drives Claude's native CLI binary via JSONL control protocol, but is designed to leash any agent runtime — Pi, local models, that hot new AI your timeline won't shut up about. Swap the brain, keep the cage.
 
-> **Status**: v0.8 — task orchestration, parallel execution, coding tasks with git worktree isolation, task dashboard, Google Chat channel, agent observability.
+> **Status**: v0.9 — SDK package decomposition, publish-readiness, channel-to-task integration, Google Chat Cards v2 + slash commands. See [roadmap](docs/specs/roadmap.md).
 
 ## Architecture
 
@@ -107,17 +107,23 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md` (identity), `AGENTS.md` (s
 
 ## Documentation
 
-### User Guide
+### User Guide ([full index](docs/guide/README.md))
 - **[Getting Started](docs/guide/getting-started.md)** -- installation, first run, overview
 - **[Configuration](docs/guide/configuration.md)** -- dartclaw.yaml, guards, scheduling
 - **[Workspace](docs/guide/workspace.md)** -- behavior files, memory, prompt assembly
 - **[Security](docs/guide/security.md)** -- guards, containers, credential proxy
-- **[WhatsApp](docs/guide/whatsapp.md)** -- GOWA setup, pairing, access control
-- **[Signal](docs/guide/signal.md)** -- signal-cli setup, pairing, sealed-sender normalization
+- **[Tasks](docs/guide/tasks.md)** -- task orchestration, review workflow, coding tasks
+- **[WhatsApp](docs/guide/whatsapp.md)** / **[Signal](docs/guide/signal.md)** / **[Google Chat](docs/guide/google-chat.md)** -- channel setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** -- heartbeat, cron jobs
 - **[Search & Memory](docs/guide/search.md)** -- search agent, FTS5/QMD
+- **[Use-Case Cookbook](docs/guide/use-cases/)** -- **[Personal Assistant](docs/guide/use-cases/00-personal-assistant.md)**, morning briefings, journaling, research, CRM tracking
 - **[Deployment](docs/guide/deployment.md)** -- LaunchDaemon, systemd, egress firewall
 - **[Customization](docs/guide/customization.md)** -- L1-L5 customization ladder
+
+### SDK Guide
+- **[Quick Start](docs/sdk/quick-start.md)** -- build your first agent in under 30 lines
+- **[Package Guide](docs/sdk/packages.md)** -- which package to depend on
+- **[Examples](examples/sdk/)** -- runnable SDK example projects
 
 ### Architecture & Specs
 - **[Architecture](docs/guide/architecture.md)** -- 2-layer model, design decisions

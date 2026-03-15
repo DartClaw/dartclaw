@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -128,7 +129,7 @@ void main() {
     final firstSessionId = reviewed!.sessionId!;
 
     final nextConfig = Map<String, dynamic>.from(reviewed.configJson)
-      ..['pushBackCount'] = 1
+      ..['pushBackCount'] = 0
       ..['pushBackComment'] = 'Address the missing detail.';
     await tasks.updateFields('task-2', configJson: nextConfig);
     await tasks.transition('task-2', TaskStatus.queued);
@@ -185,6 +186,7 @@ void main() {
 
     final failed = await tasks.get('task-budget');
     expect(failed!.status, TaskStatus.failed);
+    expect(failed.configJson['errorSummary'], 'Token budget exceeded: used 130 tokens against a limit of 100');
     final artifacts = await tasks.listArtifacts('task-budget');
     expect(artifacts, hasLength(1));
     expect(artifacts.single.name, 'budget.md');
@@ -205,6 +207,7 @@ void main() {
     final failed = await tasks.get('task-3');
     expect(failed!.status, TaskStatus.failed);
     expect(failed.sessionId, isNotNull);
+    expect(failed.configJson['errorSummary'], 'Turn execution failed');
 
     final taskSession = (await sessions.listSessions(type: SessionType.task)).single;
     final taskMessages = await messages.getMessages(taskSession.id);

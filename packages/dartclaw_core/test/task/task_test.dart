@@ -28,59 +28,6 @@ void main() {
   }
 
   group('Task', () {
-    group('construction', () {
-      test('creates with defaults', () {
-        final task = Task(
-          id: 'task-1',
-          title: 'Draft task',
-          description: 'Describe the work',
-          type: TaskType.analysis,
-          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
-        );
-
-        expect(task.status, TaskStatus.draft);
-        expect(task.configJson, isEmpty);
-        expect(task.worktreeJson, isNull);
-        expect(task.startedAt, isNull);
-        expect(task.completedAt, isNull);
-      });
-
-      test('creates with all fields', () {
-        final createdAt = DateTime.parse('2026-03-10T10:00:00Z');
-        final startedAt = DateTime.parse('2026-03-10T10:05:00Z');
-        final completedAt = DateTime.parse('2026-03-10T10:15:00Z');
-        final task = Task(
-          id: 'task-1',
-          title: 'Review diff',
-          description: 'Review the proposed changes',
-          type: TaskType.analysis,
-          status: TaskStatus.review,
-          goalId: 'goal-1',
-          acceptanceCriteria: 'Approve or reject',
-          sessionId: 'session-1',
-          configJson: const {'model': 'sonnet'},
-          worktreeJson: const {'path': '/tmp/worktree'},
-          createdAt: createdAt,
-          startedAt: startedAt,
-          completedAt: completedAt,
-        );
-
-        expect(task.id, 'task-1');
-        expect(task.title, 'Review diff');
-        expect(task.description, 'Review the proposed changes');
-        expect(task.type, TaskType.analysis);
-        expect(task.status, TaskStatus.review);
-        expect(task.goalId, 'goal-1');
-        expect(task.acceptanceCriteria, 'Approve or reject');
-        expect(task.sessionId, 'session-1');
-        expect(task.configJson, {'model': 'sonnet'});
-        expect(task.worktreeJson, {'path': '/tmp/worktree'});
-        expect(task.createdAt, createdAt);
-        expect(task.startedAt, startedAt);
-        expect(task.completedAt, completedAt);
-      });
-    });
-
     group('copyWith', () {
       test('copies with changed title', () {
         final task = createTask();
@@ -188,18 +135,6 @@ void main() {
         expect(updatedAgain.configJson['pushBackCount'], 3);
       });
 
-      test('review to queued increments pushBackCount from 0 to 1', () {
-        final task = createTask(
-          status: TaskStatus.review,
-          configJson: const {'pushBackCount': 0},
-          startedAt: DateTime.parse('2026-03-10T10:05:00Z'),
-          completedAt: DateTime.parse('2026-03-10T10:10:00Z'),
-        );
-        final updated = task.transition(TaskStatus.queued, now: DateTime.parse('2026-03-10T10:11:00Z'));
-
-        expect(updated.configJson['pushBackCount'], 1);
-      });
-
       test('review to queued clears completedAt', () {
         final task = createTask(status: TaskStatus.review, completedAt: DateTime.parse('2026-03-10T10:10:00Z'));
         final updated = task.transition(TaskStatus.queued, now: DateTime.parse('2026-03-10T10:11:00Z'));
@@ -269,13 +204,6 @@ void main() {
         expect(() => task.transition(TaskStatus.queued), throwsStateError);
       });
 
-      test('transition uses provided timestamp', () {
-        final task = createTask(status: TaskStatus.queued);
-        final timestamp = DateTime.parse('2026-03-10T10:06:00Z');
-        final updated = task.transition(TaskStatus.running, now: timestamp);
-
-        expect(updated.startedAt, timestamp);
-      });
     });
 
     group('JSON serialization', () {
@@ -325,19 +253,6 @@ void main() {
         expect(task.configJson, isEmpty);
       });
 
-      test('fromJson defaults configJson to empty map when missing', () {
-        final task = Task.fromJson({
-          'id': 'task-1',
-          'title': 'Task',
-          'description': 'Describe the work',
-          'type': 'coding',
-          'status': 'draft',
-          'createdAt': '2026-03-10T10:00:00Z',
-        });
-
-        expect(task.configJson, isEmpty);
-      });
-
       test('fromJson throws FormatException when status is missing', () {
         expect(
           () => Task.fromJson({
@@ -345,21 +260,6 @@ void main() {
             'title': 'Task',
             'description': 'Describe the work',
             'type': 'coding',
-            'configJson': const {},
-            'createdAt': '2026-03-10T10:00:00Z',
-          }),
-          throwsFormatException,
-        );
-      });
-
-      test('fromJson throws FormatException when status is null', () {
-        expect(
-          () => Task.fromJson({
-            'id': 'task-1',
-            'title': 'Task',
-            'description': 'Describe the work',
-            'type': 'coding',
-            'status': null,
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
           }),

@@ -407,24 +407,43 @@ function initChannelDetail() {
   var channelType = page.dataset.channelType;
   if (!channelType) return;
 
+  function patchChannelConfig(path, value, onSuccess, onError) {
+    var body = {};
+    body[path] = value;
+
+    fetch('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (d) { throw d; });
+        return res.json();
+      })
+      .then(function () {
+        if (onSuccess) onSuccess();
+      })
+      .catch(function (err) {
+        if (onError) onError(err);
+      });
+  }
+
+  function syncTaskTriggerFields(enabled) {
+    var fields = page.querySelector('[data-task-trigger-fields]');
+    if (!fields) return;
+    fields.hidden = !enabled;
+    fields.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+  }
+
   // Mode selector change handler
   page.querySelectorAll('.channel-mode-select').forEach(function (select) {
     var previousValue = select.value;
     select.addEventListener('change', function () {
       var fieldKey = select.dataset.fieldKey;
-      var body = {};
-      body['channels.' + channelType + '.' + fieldKey] = select.value;
-
-      fetch('/api/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (d) { throw d; });
-          return res.json();
-        })
-        .then(function (data) {
+      patchChannelConfig(
+        'channels.' + channelType + '.' + fieldKey,
+        select.value,
+        function () {
           previousValue = select.value;
           syncModeCards(page, fieldKey, select.value);
           showChannelRestartBanner();
@@ -437,13 +456,14 @@ function initChannelDetail() {
               mentionSection.classList.toggle('channel-mention-disabled', select.value === 'disabled');
             }
           }
-        })
-        .catch(function (err) {
+        },
+        function (err) {
           select.value = previousValue;
           syncModeCards(page, fieldKey, previousValue);
           var msg = (err && err.error && err.error.message) || 'Failed to update mode';
           showToast('error', msg);
-        });
+        },
+      );
     });
   });
 
@@ -592,27 +612,104 @@ function initChannelDetail() {
   var mentionCheckbox = page.querySelector('#require-mention');
   if (mentionCheckbox) {
     mentionCheckbox.addEventListener('change', function () {
-      var body = {};
-      body['channels.' + channelType + '.require_mention'] = mentionCheckbox.checked;
-
-      fetch('/api/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (d) { throw d; });
-          return res.json();
-        })
-        .then(function () {
+      patchChannelConfig(
+        'channels.' + channelType + '.require_mention',
+        mentionCheckbox.checked,
+        function () {
           showChannelRestartBanner();
           showToast('success', 'Mention setting updated (restart required)');
-        })
-        .catch(function (err) {
+        },
+        function (err) {
           mentionCheckbox.checked = !mentionCheckbox.checked;
           var msg = (err && err.error && err.error.message) || 'Failed to update';
           showToast('error', msg);
-        });
+        },
+      );
+    });
+  }
+
+  var taskTriggerEnabled = page.querySelector('#task-trigger-enabled');
+  var taskTriggerPrefix = page.querySelector('#task-trigger-prefix');
+  var taskTriggerDefaultType = page.querySelector('#task-trigger-default-type');
+  var taskTriggerAutoStart = page.querySelector('#task-trigger-auto-start');
+
+  syncTaskTriggerFields(Boolean(taskTriggerEnabled && taskTriggerEnabled.checked));
+
+  if (taskTriggerEnabled) {
+    taskTriggerEnabled.addEventListener('change', function () {
+      patchChannelConfig(
+        'channels.' + channelType + '.task_trigger.enabled',
+        taskTriggerEnabled.checked,
+        function () {
+          syncTaskTriggerFields(taskTriggerEnabled.checked);
+          showChannelRestartBanner();
+          showToast('success', 'Task trigger updated (restart required)');
+        },
+        function (err) {
+          taskTriggerEnabled.checked = !taskTriggerEnabled.checked;
+          syncTaskTriggerFields(taskTriggerEnabled.checked);
+          var msg = (err && err.error && err.error.message) || 'Failed to update task trigger';
+          showToast('error', msg);
+        },
+      );
+    });
+  }
+
+  if (taskTriggerPrefix) {
+    var previousPrefix = taskTriggerPrefix.value;
+    taskTriggerPrefix.addEventListener('change', function () {
+      patchChannelConfig(
+        'channels.' + channelType + '.task_trigger.prefix',
+        taskTriggerPrefix.value,
+        function () {
+          previousPrefix = taskTriggerPrefix.value;
+          showChannelRestartBanner();
+          showToast('success', 'Task trigger prefix updated (restart required)');
+        },
+        function (err) {
+          taskTriggerPrefix.value = previousPrefix;
+          var msg = (err && err.error && err.error.message) || 'Failed to update task trigger prefix';
+          showToast('error', msg);
+        },
+      );
+    });
+  }
+
+  if (taskTriggerDefaultType) {
+    var previousDefaultType = taskTriggerDefaultType.value;
+    taskTriggerDefaultType.addEventListener('change', function () {
+      patchChannelConfig(
+        'channels.' + channelType + '.task_trigger.default_type',
+        taskTriggerDefaultType.value,
+        function () {
+          previousDefaultType = taskTriggerDefaultType.value;
+          showChannelRestartBanner();
+          showToast('success', 'Task trigger default type updated (restart required)');
+        },
+        function (err) {
+          taskTriggerDefaultType.value = previousDefaultType;
+          var msg = (err && err.error && err.error.message) || 'Failed to update task trigger type';
+          showToast('error', msg);
+        },
+      );
+    });
+  }
+
+  if (taskTriggerAutoStart) {
+    taskTriggerAutoStart.addEventListener('change', function () {
+      patchChannelConfig(
+        'channels.' + channelType + '.task_trigger.auto_start',
+        taskTriggerAutoStart.checked,
+        function () {
+          showChannelRestartBanner();
+          showToast('success', 'Task trigger start mode updated (restart required)');
+        },
+        function (err) {
+          taskTriggerAutoStart.checked = !taskTriggerAutoStart.checked;
+          var msg = (err && err.error && err.error.message) || 'Failed to update task trigger start mode';
+          showToast('error', msg);
+        },
+      );
     });
   }
 }

@@ -17,58 +17,64 @@ Handler mcpRoute(McpProtocolHandler handler, {required String gatewayToken}) {
     // Non-browser clients (e.g. Claude Desktop) do not send Origin — allow them.
     final origin = request.headers['origin'];
     if (origin != null) {
-      final allowed = origin.startsWith('http://localhost') ||
+      final allowed =
+          origin.startsWith('http://localhost') ||
           origin.startsWith('https://localhost') ||
           origin.startsWith('http://127.0.0.1') ||
           origin.startsWith('https://127.0.0.1');
       if (!allowed) {
-        return Response(403,
-            body: jsonEncode({'error': 'Forbidden — invalid Origin'}),
-            headers: {'content-type': 'application/json'});
+        return Response(
+          403,
+          body: jsonEncode({'error': 'Forbidden — invalid Origin'}),
+          headers: {'content-type': 'application/json'},
+        );
       }
     }
 
     // Auth check: Bearer token
     final authHeader = request.headers['authorization'];
     if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-      return Response(401,
-          body: jsonEncode({'error': 'Unauthorized'}),
-          headers: {'content-type': 'application/json'});
+      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: {'content-type': 'application/json'});
     }
     final token = authHeader.substring(7);
     if (token != gatewayToken) {
-      return Response(401,
-          body: jsonEncode({'error': 'Unauthorized'}),
-          headers: {'content-type': 'application/json'});
+      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: {'content-type': 'application/json'});
     }
 
     // Method check
     if (request.method == 'GET') {
-      return Response(405,
-          body: jsonEncode({'error': 'GET not implemented — use POST for JSON-RPC'}),
-          headers: {'content-type': 'application/json'});
+      return Response(
+        405,
+        body: jsonEncode({'error': 'GET not implemented — use POST for JSON-RPC'}),
+        headers: {'content-type': 'application/json'},
+      );
     }
     if (request.method != 'POST') {
-      return Response(405,
-          body: jsonEncode({'error': 'Method not allowed'}),
-          headers: {'content-type': 'application/json'});
+      return Response(
+        405,
+        body: jsonEncode({'error': 'Method not allowed'}),
+        headers: {'content-type': 'application/json'},
+      );
     }
 
     // Content-Type check
     final contentType = request.headers['content-type'] ?? '';
     if (!contentType.contains('application/json')) {
-      return Response(415,
-          body: jsonEncode({'error': 'Unsupported Media Type — expected application/json'}),
-          headers: {'content-type': 'application/json'});
+      return Response(
+        415,
+        body: jsonEncode({'error': 'Unsupported Media Type — expected application/json'}),
+        headers: {'content-type': 'application/json'},
+      );
     }
 
     // Body size check: reject oversized payloads before reading.
-    final contentLength =
-        int.tryParse(request.headers['content-length'] ?? '');
+    final contentLength = int.tryParse(request.headers['content-length'] ?? '');
     if (contentLength != null && contentLength > 1024 * 1024) {
-      return Response(413,
-          body: jsonEncode({'error': 'Payload too large — 1 MB limit'}),
-          headers: {'content-type': 'application/json'});
+      return Response(
+        413,
+        body: jsonEncode({'error': 'Payload too large — 1 MB limit'}),
+        headers: {'content-type': 'application/json'},
+      );
     }
 
     // Read body and dispatch to protocol handler

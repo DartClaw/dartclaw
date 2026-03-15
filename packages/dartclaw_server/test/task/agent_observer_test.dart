@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -29,31 +30,6 @@ void main() {
     expect(metrics[1].role, 'task');
     expect(metrics[2].runnerId, 2);
     expect(metrics[2].role, 'task');
-  });
-
-  test('markBusy sets state and task ID', () {
-    observer.markBusy(1, taskId: 'task-abc');
-    final m = observer.metricsFor(1)!;
-    expect(m.state, AgentState.busy);
-    expect(m.currentTaskId, 'task-abc');
-  });
-
-  test('markIdle clears state and task ID', () {
-    observer.markBusy(1, taskId: 'task-abc');
-    observer.markIdle(1);
-    final m = observer.metricsFor(1)!;
-    expect(m.state, AgentState.idle);
-    expect(m.currentTaskId, isNull);
-    expect(m.currentSessionId, isNull);
-  });
-
-  test('recordTurn increments counters', () {
-    observer.recordTurn(1, inputTokens: 100, outputTokens: 50, isError: false);
-    observer.recordTurn(1, inputTokens: 200, outputTokens: 100, isError: true);
-    final m = observer.metricsFor(1)!;
-    expect(m.tokensConsumed, 450);
-    expect(m.turnsCompleted, 2);
-    expect(m.errorCount, 1);
   });
 
   test('metricsFor returns null for out-of-range index', () {

@@ -80,10 +80,7 @@ void main() {
 
   group('LogService.install()', () {
     test('sets root logger level', () {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.WARNING,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.WARNING);
       svc.install();
       expect(Logger.root.level, Level.WARNING);
       addTearDown(svc.dispose);
@@ -92,10 +89,7 @@ void main() {
     test('root logger processes records after install', () async {
       // We need a separate logger child so we can observe records flowing
       // through the root without fighting with LogService's own subscription.
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       svc.install();
 
       final records = <LogRecord>[];
@@ -114,12 +108,8 @@ void main() {
       await svc.dispose();
     });
 
-    test('re-installing replaces previous subscription (no duplicate records)',
-        () async {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+    test('re-installing replaces previous subscription (no duplicate records)', () async {
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       svc.install();
       svc.install(); // second install — should cancel old subscription
 
@@ -140,37 +130,25 @@ void main() {
 
   group('LogService.dispose()', () {
     test('dispose cancels subscription — no errors', () async {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       svc.install();
       await expectLater(svc.dispose(), completes);
     });
 
     test('double-dispose does not throw', () async {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       svc.install();
       await svc.dispose();
       await expectLater(svc.dispose(), completes);
     });
 
     test('dispose without install does not throw', () async {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       await expectLater(svc.dispose(), completes);
     });
 
     test('after dispose, no further records processed by service', () async {
-      final svc = LogService(
-        formatter: HumanFormatter(),
-        level: Level.INFO,
-      );
+      final svc = LogService(formatter: HumanFormatter(), level: Level.INFO);
       svc.install();
       await svc.dispose();
 

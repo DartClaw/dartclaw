@@ -4,9 +4,9 @@ import 'package:test/test.dart';
 void main() {
   group('AgentDefinition', () {
     group('searchAgent factory', () {
-      test('defaults model to claude-haiku-4-5', () {
+      test('defaults model to haiku shorthand', () {
         final agent = AgentDefinition.searchAgent();
-        expect(agent.model, 'claude-haiku-4-5');
+        expect(agent.model, 'haiku');
       });
 
       test('allows model override', () {
@@ -23,13 +23,15 @@ void main() {
     });
 
     group('fromYaml', () {
-      test('parses model field', () {
+      test('parses model field and keeps extra keys out of model', () {
         final warns = <String>[];
         final agent = AgentDefinition.fromYaml('search', {
-          'model': 'claude-haiku-4-5',
-          'description': 'Test agent',
+          'model': 'haiku',
+          'custom_key': 'custom_value',
         }, warns);
-        expect(agent.model, 'claude-haiku-4-5');
+        expect(agent.model, 'haiku');
+        expect(agent.extra, isNot(contains('model')));
+        expect(agent.extra['custom_key'], 'custom_value');
         expect(warns, isEmpty);
       });
 
@@ -40,24 +42,13 @@ void main() {
         }, warns);
         expect(agent.model, isNull);
       });
-
-      test('model does not leak into extra', () {
-        final warns = <String>[];
-        final agent = AgentDefinition.fromYaml('search', {
-          'model': 'claude-haiku-4-5',
-          'custom_key': 'custom_value',
-        }, warns);
-        expect(agent.model, 'claude-haiku-4-5');
-        expect(agent.extra, isNot(contains('model')));
-        expect(agent.extra['custom_key'], 'custom_value');
-      });
     });
 
     group('toInitializePayload', () {
       test('includes model when non-null', () {
         final agent = AgentDefinition.searchAgent();
         final payload = agent.toInitializePayload();
-        expect(payload['model'], 'claude-haiku-4-5');
+        expect(payload['model'], 'haiku');
       });
 
       test('excludes model when null', () {
@@ -75,27 +66,6 @@ void main() {
         final payload = agent.toInitializePayload();
         expect(payload['description'], isNotEmpty);
         expect(payload['prompt'], isNotEmpty);
-      });
-    });
-
-    group('constructor', () {
-      test('model defaults to null', () {
-        const agent = AgentDefinition(
-          id: 'test',
-          description: 'Test',
-          prompt: 'Test prompt',
-        );
-        expect(agent.model, isNull);
-      });
-
-      test('accepts explicit model', () {
-        const agent = AgentDefinition(
-          id: 'test',
-          description: 'Test',
-          prompt: 'Test prompt',
-          model: 'claude-sonnet-4-6',
-        );
-        expect(agent.model, 'claude-sonnet-4-6');
       });
     });
   });

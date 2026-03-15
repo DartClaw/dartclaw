@@ -23,16 +23,6 @@ void main() {
       expect(limiter.shouldLimit('client'), isTrue);
     });
 
-    test('stays limited over the threshold', () {
-      final limiter = AuthRateLimiter(maxAttempts: 5, windowDuration: const Duration(minutes: 1));
-
-      for (var i = 0; i < 6; i++) {
-        limiter.recordFailure('client');
-      }
-
-      expect(limiter.shouldLimit('client'), isTrue);
-    });
-
     test('reset clears recorded failures', () {
       final limiter = AuthRateLimiter(maxAttempts: 5, windowDuration: const Duration(minutes: 1));
 

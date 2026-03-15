@@ -9,8 +9,6 @@ String restartBannerTemplate({required List<String> pendingFields}) {
   return templateLoader.trellis.renderFragment(
     templateLoader.source('restart_banner'),
     fragment: 'restartBanner',
-    context: {
-      'fieldList': pendingFields.join(', '),
-    },
+    context: {'fieldList': pendingFields.join(', ')},
   );
 }

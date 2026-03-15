@@ -1,6 +1,6 @@
 # Getting Started
 
-DartClaw is a security-hardened agent runtime for Claude. Dart orchestrator (AOT-compiled, zero npm) drives the native `claude` CLI binary via JSONL control protocol.
+DartClaw is a security-focused agent runtime for Claude. Dart orchestrator (AOT-compiled, zero npm) drives the native `claude` CLI binary via JSONL control protocol.
 
 Designed for always-on deployment on a Mac Mini or Linux server as a personal AI assistant with web UI, WhatsApp, scheduling, and defense-in-depth security.
 

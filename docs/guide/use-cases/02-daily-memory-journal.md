@@ -125,3 +125,4 @@ The agent uses `memory_save` to append entries in MEMORY.md's timestamped format
 - **Git sync requires a remote** for push -- run `git remote add origin <url>` in `~/.dartclaw/workspace/` to set it up
 - **Journal job sees an isolated session** -- it does not have access to your main session's chat history directly. It reviews context via MEMORY.md and behavior files
 - **Consolidation threshold** -- consolidation runs during heartbeat only when MEMORY.md exceeds `memory_max_bytes`. If you set a very high cap, consolidation may never trigger
+- **Session maintenance** -- long-running assistant setups accumulate many sessions (including cron sessions). Configure `sessions.maintenance` to auto-prune old sessions. See [Common Patterns](_common-patterns.md#session-maintenance) for details

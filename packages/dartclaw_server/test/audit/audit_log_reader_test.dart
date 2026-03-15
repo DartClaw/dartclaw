@@ -61,12 +61,7 @@ void main() {
 
     test('parses entries and returns newest first', () async {
       final entries = [
-        AuditEntry(
-          timestamp: DateTime.utc(2026, 3, 1, 10),
-          guard: 'GuardA',
-          hook: 'pre_inbound',
-          verdict: 'pass',
-        ),
+        AuditEntry(timestamp: DateTime.utc(2026, 3, 1, 10), guard: 'GuardA', hook: 'pre_inbound', verdict: 'pass'),
         AuditEntry(
           timestamp: DateTime.utc(2026, 3, 1, 11),
           guard: 'GuardB',
@@ -74,12 +69,7 @@ void main() {
           verdict: 'block',
           reason: 'blocked',
         ),
-        AuditEntry(
-          timestamp: DateTime.utc(2026, 3, 1, 12),
-          guard: 'GuardC',
-          hook: 'post_outbound',
-          verdict: 'warn',
-        ),
+        AuditEntry(timestamp: DateTime.utc(2026, 3, 1, 12), guard: 'GuardC', hook: 'post_outbound', verdict: 'warn'),
       ];
       writeEntries(entries);
 

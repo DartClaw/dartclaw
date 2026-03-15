@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'container_config.dart';
 
+/// Testable callback used for one-shot CLI commands such as `docker inspect`.
 typedef RunCommand = Future<ProcessResult> Function(String executable, List<String> arguments);
+
+/// Testable callback used for long-lived processes such as `docker exec -i`.
 typedef StartCommand =
     Future<Process> Function(
       String executable,
@@ -52,10 +54,21 @@ class ContainerManager {
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
 
-  /// Format: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`
+  /// Format: `dartclaw-<stableHash(dataDir)>-<profileId>`
   static String generateName(String dataDir, String profileId) {
-    final hash = sha256.convert(utf8.encode(dataDir)).toString().substring(0, 8);
+    final hash = _stableHexHash(dataDir);
     return 'dartclaw-$hash-$profileId';
+  }
+
+  // FNV-1a is sufficient here: we need a deterministic, Docker-safe suffix
+  // for local container names, not a cryptographic digest.
+  static String _stableHexHash(String value) {
+    var hash = 0x811c9dc5;
+    for (final byte in utf8.encode(value)) {
+      hash ^= byte;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 
   /// Check if Docker is available and running.

@@ -2,21 +2,50 @@ import 'task_status.dart';
 import 'task_type.dart';
 
 /// Immutable task value object for orchestrated work.
+///
+/// A task tracks the lifecycle of a unit of work from draft through review or
+/// terminal completion, along with optional goal linkage and worktree context.
 class Task {
+  /// Unique identifier for this task.
   final String id;
+
+  /// Short title shown in task lists and review surfaces.
   final String title;
+
+  /// Full task description or operator request.
   final String description;
+
+  /// High-level category that influences routing and defaults.
   final TaskType type;
+
+  /// Current lifecycle status for this task.
   final TaskStatus status;
+
+  /// Optional identifier of the parent [Goal] that owns this task.
   final String? goalId;
+
+  /// Optional acceptance criteria used during review.
   final String? acceptanceCriteria;
+
+  /// Session associated with the task's execution, if one has been created.
   final String? sessionId;
+
+  /// Arbitrary task configuration persisted as immutable JSON data.
   final Map<String, dynamic> configJson;
+
+  /// Optional worktree metadata persisted for coding-style tasks.
   final Map<String, dynamic>? worktreeJson;
+
+  /// Timestamp when this task record was created.
   final DateTime createdAt;
+
+  /// Timestamp when work on this task first started, if ever.
   final DateTime? startedAt;
+
+  /// Timestamp when the task reached a terminal or review-complete state.
   final DateTime? completedAt;
 
+  /// Creates an immutable task record.
   Task({
     required this.id,
     required this.title,
@@ -100,6 +129,7 @@ class Task {
     );
   }
 
+  /// Serializes this task to the JSON shape used by repositories.
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -116,6 +146,7 @@ class Task {
     if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
   };
 
+  /// Deserializes a task from persisted JSON.
   factory Task.fromJson(Map<String, dynamic> json) => Task(
     id: json['id'] as String,
     title: json['title'] as String,

@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.8**
+> Current through: **0.9**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. The `claude` CLI binary handles agent reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -28,7 +28,7 @@ DartClaw is a 2-layer agent runtime where each layer has a distinct role and tru
 
 The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with file-based storage that:
 
-- **Stores state** — sessions and messages in NDJSON files, tasks and search index in SQLite, config in YAML
+- **Stores state** — sessions and messages in NDJSON files, tasks/search/turn-recovery state in SQLite, config in YAML
 - **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
 - **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
 - **Enforces security** — guard chain (input sanitization, command/file/network guards, content classification), credential isolation, container management, audit logging
@@ -86,35 +86,52 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw is organized as a Dart pub workspace with five packages plus a CLI app. Each package has a specific role and dependency scope:
+DartClaw is organized as a Dart pub workspace with eleven packages plus a CLI app. Each package has a focused role:
 
 ```
 packages/
-  dartclaw_models/    Zero dependencies. Pure data classes: Session, Message,
-                      MemoryChunk, SessionKey, Task, Goal. Shareable everywhere.
+  dartclaw_models/       Zero dependencies. Shared data types such as Session,
+                         Message, MemoryChunk, SessionKey, Task, and Goal.
 
-  dartclaw_core/      No SQLite. Harness abstraction, guard chain, channels,
-                      event bus, container management, config, memory files,
-                      behavior files, session maintenance, security services.
-                      Shareable with a future Flutter app.
+  dartclaw_security/     Guard framework, concrete guards, content
+                         classification, redaction, and guard audit primitives.
 
-  dartclaw_storage/   SQLite3. Search index (FTS5), task repository, goal
-                      repository. Isolated so sqlite3 dependency does not
-                      leak into core or models.
+  dartclaw_core/         No SQLite. Harness abstraction, channel interfaces
+                         and shared routing, config, event bus, container
+                         config, and file-based services. Shareable with a
+                         future Flutter app.
 
-  dartclaw_server/    Shelf HTTP. API routes, web UI templates, turn
-                      orchestration, task executor, scheduling, MCP server,
-                      config writer, harness pool. Server-only code.
+  dartclaw_config/       Shared config editing/metadata utilities used by the
+                         server and config API.
 
-  dartclaw/           Published umbrella. Re-exports core + models + storage
-                      as a single SDK import.
+  dartclaw_whatsapp/     WhatsApp integration and config registration.
+
+  dartclaw_signal/       Signal integration and config registration.
+
+  dartclaw_google_chat/  Google Chat integration and config registration.
+
+  dartclaw_storage/      SQLite3. Search index, tasks, goals, related storage
+                         services, and transient turn recovery state.
+
+  dartclaw_server/       Shelf HTTP. API routes, web UI templates, turn
+                         orchestration, MCP server, scheduling, task execution,
+                         and server-only behavior, workspace, maintenance, and
+                         observability services.
+
+  dartclaw_testing/      Shared test doubles and in-memory helpers reused
+                         across workspace packages.
+
+  dartclaw/              Convenience umbrella package that re-exports the main
+                         SDK surface from `dartclaw_core`, `dartclaw_storage`,
+                         and the bundled channel packages.
 
 apps/
-  dartclaw_cli/       CLI app (AOT-compilable): serve, status, rebuild-index,
-                      sessions cleanup commands.
+  dartclaw_cli/          CLI app (AOT-compilable): serve, status,
+                         rebuild-index, deploy, token, and maintenance
+                         commands.
 ```
 
-The key boundary: `dartclaw_core` has no SQLite dependency, making it suitable for embedding in a Flutter desktop app. All SQLite access is isolated in `dartclaw_storage`.
+The key boundaries are simple: `dartclaw_core` stays SQLite-free, concrete guards live in `dartclaw_security`, concrete channel implementations live in per-channel packages, and server-only behavior/workspace/maintenance/observability code lives in `dartclaw_server`.
 
 ## Storage Design
 
@@ -126,8 +143,9 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ~/.dartclaw/                          # dataDir (configurable)
 ├── dartclaw.yaml                     # Config (YAML, backup-on-write)
 ├── kv.json                           # Global key-value store
-├── audit.ndjson                      # Guard audit log (append + rotate)
+├── audit-YYYY-MM-DD.ndjson           # Guard audit log partitions with retention cleanup
 ├── usage.jsonl                       # Token tracking (append + rotate)
+├── state.db                          # Active turn recovery state
 ├── sessions/
 │   ├── .session_keys.json            # Deterministic key → UUID index
 │   └── <uuid>/
@@ -150,10 +168,13 @@ Mutable files use atomic writes (temp file + rename) to prevent corruption on cr
 |----------|----------|----------------|
 | `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from MEMORY.md, rebuildable via `dartclaw rebuild-index` |
 | `tasks.db` | Tasks, goals, task artifacts | Yes — relational data with state machine transitions |
+| `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
 ### Crash Recovery
 
 Messages in NDJSON files use their line number as a cursor. After a crash or restart, the client requests "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery because line numbers are monotonic and gap-free.
+
+Separately, active turn reservations are persisted in `state.db` via `TurnStateStore`. On restart, the server scans that table for orphaned turns, cleans the rows, and surfaces a one-time recovery notice for the affected sessions.
 
 ### Memory Search
 
@@ -201,6 +222,8 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 | **Google Chat** | Webhook + REST API | None — pure REST, GCP service account auth |
 
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
+
+The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, and Google Chat integrations live in their own packages.
 
 For channel setup, see the [WhatsApp](whatsapp.md), [Signal](signal.md), and [Configuration](configuration.md) guides.
 
@@ -256,10 +279,12 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | **Credential isolation** | API keys injected via Unix socket proxy. Container environment is clean. |
 | **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
-| **Audit logging** | All guard verdicts logged to `audit.ndjson` with rotation. Viewable in the health dashboard. |
+| **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |
 | **Usage tracking** | Per-agent token attribution and budget warnings |
 | **Mount allowlist** | Only approved directories visible inside containers |
 | **XSS prevention** | Server-side HTML escaping (Trellis `tl:text`) + client-side DOMPurify |
+
+The concrete guard chain lives in `dartclaw_security` and is wired into the running server by the Dart host.
 
 For configuration and guard details, see the [Security guide](security.md).
 

@@ -105,20 +105,15 @@ class McpProtocolHandler {
       'capabilities': {
         'tools': {'listChanged': false},
       },
-      'serverInfo': {
-        'name': _serverName,
-        'version': dartclawVersion,
-      },
+      'serverInfo': {'name': _serverName, 'version': dartclawVersion},
     };
     return _successResponse(id, result);
   }
 
   String _handleToolsList(Object id) {
-    final tools = _tools.values.map((t) => {
-      'name': t.name,
-      'description': t.description,
-      'inputSchema': t.inputSchema,
-    }).toList();
+    final tools = _tools.values
+        .map((t) => {'name': t.name, 'description': t.description, 'inputSchema': t.inputSchema})
+        .toList();
     return _successResponse(id, {'tools': tools});
   }
 
@@ -148,16 +143,16 @@ class McpProtocolHandler {
 
     return switch (result) {
       ToolResultText(:final content) => _successResponse(id, {
-          'content': [
-            {'type': 'text', 'text': content},
-          ],
-        }),
+        'content': [
+          {'type': 'text', 'text': content},
+        ],
+      }),
       ToolResultError(:final message) => _successResponse(id, {
-          'content': [
-            {'type': 'text', 'text': message},
-          ],
-          'isError': true,
-        }),
+        'content': [
+          {'type': 'text', 'text': message},
+        ],
+        'isError': true,
+      }),
     };
   }
 

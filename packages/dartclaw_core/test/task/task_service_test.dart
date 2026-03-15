@@ -104,7 +104,7 @@ void main() {
       expect(updated.completedAt, now);
     });
 
-    test('transitions review to queued without persisting mutable fields', () async {
+    test('transitions review to queued and persists transition-managed config fields', () async {
       await repo.insert(
         _task(
           status: TaskStatus.review,
@@ -118,12 +118,35 @@ void main() {
       final updated = await service.transition('task-1', TaskStatus.queued);
       final persisted = await repo.getById('task-1');
 
-      expect(updated.configJson, {'pushBackCount': 1, 'budget': 1000});
+      expect(updated.configJson, {'pushBackCount': 2, 'budget': 1000});
       expect(updated.sessionId, 'session-1');
       expect(updated.completedAt, isNull);
-      expect(persisted?.configJson, {'pushBackCount': 1, 'budget': 1000});
+      expect(persisted?.configJson, {'pushBackCount': 2, 'budget': 1000});
       expect(persisted?.sessionId, 'session-1');
       expect(persisted?.completedAt, isNull);
+    });
+
+    test('transitions can persist config overrides atomically with the status update', () async {
+      await repo.insert(
+        _task(
+          status: TaskStatus.running,
+          configJson: const {'origin': 'channel'},
+          startedAt: DateTime.parse('2026-03-10T10:05:00Z'),
+        ),
+      );
+
+      final updated = await service.transition(
+        'task-1',
+        TaskStatus.failed,
+        configJson: const {'origin': 'channel', 'errorSummary': 'Turn execution failed'},
+      );
+
+      expect(updated.status, TaskStatus.failed);
+      expect(updated.configJson, {'origin': 'channel', 'errorSummary': 'Turn execution failed'});
+      expect((await repo.getById('task-1'))!.configJson, {
+        'origin': 'channel',
+        'errorSummary': 'Turn execution failed',
+      });
     });
 
     test('invalid transition throws StateError', () async {
@@ -473,7 +496,12 @@ class _InMemoryTaskRepository implements TaskRepository {
       return false;
     }
 
-    _tasks[task.id] = current.copyWith(status: task.status, startedAt: task.startedAt, completedAt: task.completedAt);
+    _tasks[task.id] = current.copyWith(
+      status: task.status,
+      configJson: task.configJson,
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
+    );
     if (taskReturnedOnNextReadAfterSuccessfulTransition != null) {
       _spoofNextReadAfterSuccessfulTransition = true;
     }

@@ -1,10 +1,18 @@
 /// Configuration for Docker container isolation.
 class ContainerConfig {
+  /// Whether Docker-based isolation is enabled.
   final bool enabled;
+
+  /// Docker image used for isolated agent execution.
   final String image;
+
+  /// Additional bind mounts applied to the container.
   final List<String> extraMounts;
+
+  /// Additional raw Docker CLI arguments appended at startup.
   final List<String> extraArgs;
 
+  /// Creates container isolation configuration.
   const ContainerConfig({
     this.enabled = false,
     this.image = 'dartclaw-agent:latest',
@@ -12,8 +20,10 @@ class ContainerConfig {
     this.extraArgs = const [],
   });
 
+  /// Creates a disabled container configuration.
   const ContainerConfig.disabled() : this();
 
+  /// Parses container configuration from YAML, appending warnings to [warns].
   factory ContainerConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = yaml['enabled'];
     if (enabled != null && enabled is! bool) {

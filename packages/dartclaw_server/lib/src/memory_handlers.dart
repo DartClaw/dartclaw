@@ -4,6 +4,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 
+import 'behavior/self_improvement_service.dart';
+
 final _log = Logger('MemoryHandlers');
 
 /// Creates memory bridge handler closures for wiring into AgentHarness.
@@ -87,7 +89,10 @@ createMemoryHandlers({
       final sizeBytes = utf8.encode(memContent).length;
       return {
         'content': [
-          {'type': 'text', 'text': memContent.isEmpty ? '(MEMORY.md is empty)' : '$memContent\n\n---\nSize: $sizeBytes bytes'},
+          {
+            'type': 'text',
+            'text': memContent.isEmpty ? '(MEMORY.md is empty)' : '$memContent\n\n---\nSize: $sizeBytes bytes',
+          },
         ],
       };
     },

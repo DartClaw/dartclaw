@@ -3,7 +3,7 @@
 /// Provides the platform-independent building blocks:
 /// - [AgentHarness] / [ClaudeCodeHarness] -- subprocess lifecycle management
 /// - [Guard] / [GuardChain] -- security policy evaluation pipeline
-/// - [Channel] -- multi-channel messaging interface (WhatsApp, Signal)
+/// - [Channel] -- multi-channel messaging interface foundations
 /// - [BridgeEvent] -- sealed event hierarchy from the JSONL control protocol
 /// - [HarnessConfig] / [McpTool] -- SDK configuration and MCP tool interface
 ///
@@ -25,31 +25,28 @@ export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEven
 // Channel interfaces
 export 'src/channel/channel.dart'
     show Channel, ChannelType, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
+export 'src/channel/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
+export 'src/channel/channel_config_provider.dart' show ChannelConfigProvider;
 export 'src/channel/channel_manager.dart' show ChannelManager;
 export 'src/channel/message_queue.dart' show MessageQueue, TurnDispatcher;
+export 'src/channel/review_command_parser.dart'
+    show
+        ReviewCommand,
+        ReviewCommandParser,
+        ChannelReviewResult,
+        ChannelReviewSuccess,
+        ChannelReviewMergeConflict,
+        ChannelReviewError,
+        ChannelReviewHandler;
+export 'src/channel/task_origin.dart' show TaskOrigin;
+export 'src/channel/task_trigger_config.dart' show TaskTriggerConfig;
+export 'src/channel/task_trigger_parser.dart' show TaskTriggerParser, TaskTriggerResult;
+export 'src/channel/text_chunking.dart' show chunkText;
 
 // Shared channel DM access
 export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, PairingCode;
 
-// Signal channel
-export 'src/channel/signal/signal_channel.dart' show SignalChannel;
-export 'src/channel/signal/signal_cli_manager.dart' show SignalCliManager;
-export 'src/channel/signal/signal_config.dart' show SignalConfig;
-export 'src/channel/signal/signal_dm_access.dart' show SignalGroupAccessMode, SignalMentionGating;
-export 'src/channel/signal/signal_sender_map.dart' show SignalSenderMap;
-
-// Google Chat channel
-export 'src/channel/googlechat/google_chat_config.dart'
-    show GoogleChatConfig, GoogleChatAudienceConfig, GoogleChatAudienceMode;
-export 'src/channel/googlechat/gcp_auth_service.dart' show GcpAuthService;
-export 'src/channel/googlechat/google_chat_channel.dart' show GoogleChatChannel;
-export 'src/channel/googlechat/google_chat_rest_client.dart' show GoogleChatApiException, GoogleChatRestClient;
-
-// WhatsApp channel
-export 'src/channel/whatsapp/whatsapp_channel.dart' show WhatsAppChannel;
-export 'src/channel/whatsapp/whatsapp_config.dart' show WhatsAppConfig, GroupAccessMode;
-export 'src/channel/whatsapp/gowa_manager.dart' show GowaManager, GowaLoginQr, GowaStatus;
-export 'src/channel/whatsapp/mention_gating.dart' show MentionGating;
+export 'src/channel/mention_gating.dart' show MentionGating;
 
 // Container
 export 'src/container/container_config.dart' show ContainerConfig;
@@ -64,34 +61,14 @@ export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/harness_config.dart' show HarnessConfig;
 export 'src/harness/mcp_tool.dart' show McpTool;
+export 'src/harness/process_types.dart' show DelayFactory, HealthProbe, ProcessFactory;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
 
 // Worker state
 export 'src/worker/worker_state.dart' show WorkerState;
 
-// Behavior services
-export 'src/behavior/behavior_file_service.dart' show BehaviorFileService;
-export 'src/behavior/heartbeat_scheduler.dart' show HeartbeatScheduler;
-export 'src/behavior/self_improvement_service.dart' show SelfImprovementService;
-
 // Security — interfaces and user-constructable guards
-export 'src/security/guard.dart' show Guard, GuardChain, GuardContext;
-export 'src/security/guard_verdict.dart' show GuardVerdict, GuardPass, GuardWarn, GuardBlock;
-export 'src/security/guard_config.dart' show GuardConfig;
-export 'src/security/content_classifier.dart' show ContentClassifier;
-export 'src/security/command_guard.dart' show CommandGuard, CommandGuardConfig;
-export 'src/security/file_guard.dart' show FileAccessLevel, FileGuard, FileGuardConfig, FileGuardRule;
-export 'src/security/network_guard.dart' show NetworkGuard, NetworkGuardConfig;
-export 'src/security/input_sanitizer.dart' show InputSanitizer, InputSanitizerConfig;
-export 'src/security/message_redactor.dart' show MessageRedactor;
-export 'src/security/content_guard.dart' show ContentGuard;
-export 'src/security/guard_audit.dart' show GuardAuditLogger, GuardAuditSubscriber, AuditEntry;
-export 'src/security/anthropic_api_classifier.dart' show AnthropicApiClassifier;
-export 'src/security/claude_binary_classifier.dart' show ClaudeBinaryClassifier;
-
-// Workspace
-export 'src/workspace/workspace_service.dart' show WorkspaceService, WorkspaceMigrationException;
-export 'src/workspace/workspace_git_sync.dart' show WorkspaceGitSync;
+export 'package:dartclaw_security/dartclaw_security.dart';
 
 // Memory
 // Show clause review: parseMemoryEntries and memoryTimestampRe are used by
@@ -107,8 +84,6 @@ export 'src/config/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/config/live_scope_config.dart' show LiveScopeConfig;
 export 'src/config/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
-export 'src/maintenance/session_maintenance_service.dart'
-    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
 
 // Agents
 export 'src/agents/agent_definition.dart' show AgentDefinition;
@@ -129,9 +104,6 @@ export 'src/task/task_type.dart' show TaskType;
 
 // Search (abstract interface — sqlite3-free)
 export 'src/search/search_backend.dart' show SearchBackend;
-
-// Observability
-export 'src/observability/usage_tracker.dart' show UsageTracker, UsageEvent;
 
 // Events
 export 'src/events/event_bus.dart' show EventBus;

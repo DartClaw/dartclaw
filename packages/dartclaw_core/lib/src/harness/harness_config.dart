@@ -1,9 +1,18 @@
 /// Configuration for SDK options forwarded in the initialize handshake.
 class HarnessConfig {
+  /// Tools that the runtime must refuse even if the model requests them.
   final List<String> disallowedTools;
+
+  /// Optional hard cap on the number of turns the runtime may take.
   final int? maxTurns;
+
+  /// Optional model override for spawned turns.
   final String? model;
+
+  /// Optional sub-agent configuration forwarded during initialization.
   final Map<String, dynamic>? agents;
+
+  /// Whether to request the 1M-token context window from the runtime.
   final bool context1m;
 
   /// Content to pass via --append-system-prompt CLI flag at spawn.
@@ -38,6 +47,7 @@ class HarnessConfig {
   /// endpoint via the gateway middleware.
   final String? mcpGatewayToken;
 
+  /// Creates immutable initialize-handshake options for a harness.
   const HarnessConfig({
     this.disallowedTools = const [],
     this.maxTurns,

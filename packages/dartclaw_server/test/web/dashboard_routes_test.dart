@@ -2,47 +2,13 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
-
-class _FakeWorkerService implements AgentHarness {
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => Stream<BridgeEvent>.empty();
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-  }) async {
-    return {'ok': true};
-  }
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {}
-}
 
 String _staticDir() {
   const fromPkg = 'lib/src/static';
@@ -73,7 +39,7 @@ void main() {
     server = DartclawServer(
       sessions: sessions,
       messages: messages,
-      worker: _FakeWorkerService(),
+      worker: FakeAgentHarness(),
       staticDir: _staticDir(),
       behavior: BehaviorFileService(workspaceDir: workspaceDir),
       appDisplay: AppDisplayParams(dataDir: tempDir.path),

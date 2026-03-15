@@ -41,10 +41,7 @@ Router agentRoutes(AgentObserver observer) {
         headers: {'Content-Type': 'application/json'},
       );
     }
-    return Response.ok(
-      jsonEncode(metrics.toJson()),
-      headers: {'Content-Type': 'application/json'},
-    );
+    return Response.ok(jsonEncode(metrics.toJson()), headers: {'Content-Type': 'application/json'});
   });
 
   return router;

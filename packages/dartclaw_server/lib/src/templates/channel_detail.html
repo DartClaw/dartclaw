@@ -200,6 +200,54 @@
                 <span tl:unless="${groupAccessDisabled}">Changes require a restart.</span>
               </div>
             </div>
+
+            <div class="channel-sub-card channel-task-trigger-section" data-section="task-trigger">
+              <h3>Task Trigger</h3>
+              <label class="channel-checkbox-row" for="task-trigger-enabled">
+                <input
+                  type="checkbox"
+                  id="task-trigger-enabled"
+                  class="form-checkbox"
+                  tl:attr="checked=${taskTriggerEnabled ? 'checked' : null}">
+                <span>Enable task trigger parsing</span>
+              </label>
+              <div class="channel-hint">
+                Messages starting with the prefix can create tasks later in the pipeline. Changes require a restart.
+              </div>
+
+              <div
+                class="channel-sub-card"
+                data-task-trigger-fields
+                tl:attr="hidden=${taskTriggerEnabled ? null : 'hidden'},aria-hidden=${taskTriggerEnabled ? 'false' : 'true'}">
+                <label class="form-label" for="task-trigger-prefix">Trigger prefix</label>
+                <input
+                  type="text"
+                  id="task-trigger-prefix"
+                  class="form-input"
+                  tl:attr="value=${taskTriggerPrefix}">
+                <div class="channel-hint">Example: <code>task:</code> or <code>do:</code>.</div>
+
+                <label class="form-label" for="task-trigger-default-type">Default task type</label>
+                <select id="task-trigger-default-type" class="form-select">
+                  <option
+                    tl:each="taskType : ${taskTriggerTypes}"
+                    tl:attr="value=${taskType},selected=${taskType == taskTriggerDefaultType ? 'selected' : null}"
+                    tl:text="${taskType}">
+                    research
+                  </option>
+                </select>
+
+                <label class="channel-checkbox-row" for="task-trigger-auto-start">
+                  <input
+                    type="checkbox"
+                    id="task-trigger-auto-start"
+                    class="form-checkbox"
+                    tl:attr="checked=${taskTriggerAutoStart ? 'checked' : null}">
+                  <span>Auto-start matched tasks</span>
+                </label>
+                <div class="channel-hint">Disabled tasks stay in draft until explicitly started.</div>
+              </div>
+            </div>
           </section>
 
         </div>

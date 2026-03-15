@@ -1,7 +1,15 @@
 name: dartclaw_core
-description: Shared library for DartClaw — DB, bridge protocol, models, services.
+description: Core DartClaw runtime primitives for channel management, harness orchestration, tasks, and memory services.
 publish_to: none
-version: 0.8.0
+version: 0.9.0
+repository: https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_core
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - cli
+  - agents
+  - security
 
 environment:
   sdk: ^3.11.0
@@ -11,16 +19,19 @@ resolution: workspace
 dependencies:
   dartclaw_models:
     path: ../dartclaw_models
+  dartclaw_security:
+    path: ../dartclaw_security
   stream_channel: ^2.1.4
   uuid: ^4.5.2
   collection: ^1.19.0
-  crypto: ^3.0.6
-  googleapis_auth: ^1.6.0
-  http: ^1.5.0
   logging: ^1.3.0
   path: ^1.9.1
   yaml: ^3.1.3
 
 dev_dependencies:
+  dartclaw_google_chat:
+    path: ../dartclaw_google_chat
+  dartclaw_testing:
+    path: ../dartclaw_testing
   test: ^1.29.0
   lints: ^6.0.0

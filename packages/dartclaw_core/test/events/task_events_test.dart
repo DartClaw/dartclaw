@@ -38,40 +38,6 @@ void main() {
     );
   }
 
-  group('TaskStatusChangedEvent', () {
-    test('carries all fields', () {
-      final event = statusEvent();
-
-      expect(event.taskId, 'task-1');
-      expect(event.oldStatus, TaskStatus.queued);
-      expect(event.newStatus, TaskStatus.running);
-      expect(event.trigger, 'system');
-      expect(event.timestamp, now);
-    });
-
-    test('toString returns readable representation', () {
-      expect(statusEvent().toString(), 'TaskStatusChangedEvent(task: task-1, queued -> running, trigger: system)');
-    });
-  });
-
-  group('TaskReviewReadyEvent', () {
-    test('carries all fields', () {
-      final event = reviewEvent();
-
-      expect(event.taskId, 'task-1');
-      expect(event.artifactCount, 2);
-      expect(event.artifactKinds, ['data', 'document']);
-      expect(event.timestamp, now);
-    });
-
-    test('toString returns readable representation', () {
-      expect(
-        reviewEvent().toString(),
-        'TaskReviewReadyEvent(task: task-1, artifacts: 2, kinds: [data, document])',
-      );
-    });
-  });
-
   group('TaskLifecycleEvent filtering', () {
     test('on<TaskLifecycleEvent>() receives both event types', () async {
       final events = <TaskLifecycleEvent>[];

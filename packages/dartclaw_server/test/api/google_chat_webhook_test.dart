@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/channel/channel_config.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -50,21 +51,27 @@ class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
 Map<String, dynamic> _payload({
   String type = 'MESSAGE',
   String? text = 'Hello agent',
+  String? argumentText,
   String senderType = 'HUMAN',
   String senderName = 'users/123',
   String userName = 'users/123',
   String spaceType = 'DM',
   List<Map<String, dynamic>> annotations = const [],
 }) {
+  final message = <String, dynamic>{
+    'name': 'spaces/AAAA/messages/BBBB',
+    'sender': {'name': senderName, 'type': senderType},
+    'text': text,
+    'annotations': annotations,
+  };
+  if (argumentText != null) {
+    message['argumentText'] = argumentText;
+  }
+
   return {
     'type': type,
     'space': {'name': 'spaces/AAAA', 'type': spaceType, 'displayName': 'Primary'},
-    'message': {
-      'name': 'spaces/AAAA/messages/BBBB',
-      'sender': {'name': senderName, 'type': senderType},
-      'text': text,
-      'annotations': annotations,
-    },
+    'message': message,
     'user': {'name': userName, 'displayName': 'Alice', 'type': 'HUMAN'},
   };
 }
@@ -177,6 +184,16 @@ void main() {
       expect(dispatchedMessage, isNotNull);
       expect(dispatchedMessage!.senderJid, 'users/123');
       expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+    });
+
+    test('prefers argumentText over raw text when present', () async {
+      await _post(
+        handler,
+        body: _payload(text: '<users/app> accept', argumentText: 'accept'),
+      );
+
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.text, 'accept');
     });
 
     test('extracts group JID for ROOM spaces', () async {
@@ -364,6 +381,49 @@ void main() {
         ('spaces/AAAA/messages/2', 'Second answer'),
         ('spaces/AAAA/messages/1', 'First answer'),
       ]);
+    });
+
+    test('patches placeholder for ChannelManager task-trigger acknowledgements', () async {
+      final tasks = TaskService(InMemoryTaskRepository());
+      addTearDown(tasks.dispose);
+      final manager = ChannelManager(
+        queue: MessageQueue(
+          debounceWindow: Duration.zero,
+          maxConcurrentTurns: 1,
+          dispatcher: (sessionKey, message, {senderJid}) async => 'Queued reply',
+        ),
+        config: const ChannelConfig.defaults(),
+        taskService: tasks,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+      );
+      addTearDown(() => manager.dispose());
+      manager.registerChannel(channel);
+      handler = GoogleChatWebhookHandler(
+        channel: channel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(
+          webhookPath: '/integrations/googlechat',
+          typingIndicator: true,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
+        channelManager: manager,
+      );
+
+      final response = await _post(handler, body: _payload(text: 'task: investigate the outage'));
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
+      expect(restClient.editedMessages, hasLength(1));
+      expect(restClient.editedMessages.single.$1, 'spaces/AAAA/messages/1');
+      expect(
+        restClient.editedMessages.single.$2,
+        matches(RegExp(r'^Task created: investigate the outage \[research\] -- ID: [0-9a-f]{6}$')),
+      );
     });
 
     test('does not send placeholder when disabled', () async {

@@ -7,7 +7,8 @@ String generateUnit({
   required int port,
   required String dataDir,
   required String user,
-}) => '''[Unit]
+}) =>
+    '''[Unit]
 Description=DartClaw Agent Runtime
 After=network.target
 

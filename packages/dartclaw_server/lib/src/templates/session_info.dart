@@ -22,11 +22,7 @@ String sessionInfoTemplate({
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
-  final topbar = pageTopbarTemplate(
-    title: 'Session Info',
-    backHref: '/sessions/$sessionId',
-    backLabel: 'Back to Chat',
-  );
+  final topbar = pageTopbarTemplate(title: 'Session Info', backHref: '/sessions/$sessionId', backLabel: 'Back to Chat');
 
   final body = templateLoader.trellis.render(templateLoader.source('session_info'), {
     'sidebar': sidebar,

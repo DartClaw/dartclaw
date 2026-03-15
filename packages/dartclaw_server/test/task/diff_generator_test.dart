@@ -19,11 +19,7 @@ void main() {
       return ProcessResult(0, exitCode, stdout, stderr);
     }
 
-    Future<ProcessResult> mockRunner(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-    }) async {
+    Future<ProcessResult> mockRunner(String executable, List<String> arguments, {String? workingDirectory}) async {
       calls.add((executable: executable, args: arguments));
       final key = arguments.join(' ');
       return responses[key] ?? pr('');
@@ -32,9 +28,7 @@ void main() {
     test('generates structured diff from numstat and unified output', () async {
       generator = DiffGenerator(projectDir: '/project', processRunner: mockRunner);
 
-      responses['diff --numstat main...feature'] = pr(
-        '10\t2\tlib/main.dart\n3\t0\tlib/new.dart\n',
-      );
+      responses['diff --numstat main...feature'] = pr('10\t2\tlib/main.dart\n3\t0\tlib/new.dart\n');
       responses['diff -U3 --no-color main...feature'] = pr(
         'diff --git a/lib/main.dart b/lib/main.dart\n'
         '--- a/lib/main.dart\n'
@@ -86,9 +80,7 @@ void main() {
     test('handles binary files', () async {
       generator = DiffGenerator(projectDir: '/project', processRunner: mockRunner);
 
-      responses['diff --numstat main...feature'] = pr(
-        '-\t-\tassets/image.png\n',
-      );
+      responses['diff --numstat main...feature'] = pr('-\t-\tassets/image.png\n');
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -103,9 +95,7 @@ void main() {
     test('handles renamed files', () async {
       generator = DiffGenerator(projectDir: '/project', processRunner: mockRunner);
 
-      responses['diff --numstat main...feature'] = pr(
-        '5\t2\tlib/{old.dart => new.dart}\n',
-      );
+      responses['diff --numstat main...feature'] = pr('5\t2\tlib/{old.dart => new.dart}\n');
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -119,9 +109,7 @@ void main() {
     test('handles deleted files', () async {
       generator = DiffGenerator(projectDir: '/project', processRunner: mockRunner);
 
-      responses['diff --numstat main...feature'] = pr(
-        '0\t15\tlib/removed.dart\n',
-      );
+      responses['diff --numstat main...feature'] = pr('0\t15\tlib/removed.dart\n');
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -135,16 +123,9 @@ void main() {
     test('throws WorktreeException on git failure', () async {
       generator = DiffGenerator(projectDir: '/project', processRunner: mockRunner);
 
-      responses['diff --numstat main...feature'] = pr(
-        '',
-        exitCode: 128,
-        stderr: 'fatal: bad ref',
-      );
+      responses['diff --numstat main...feature'] = pr('', exitCode: 128, stderr: 'fatal: bad ref');
 
-      expect(
-        () => generator.generate(baseRef: 'main', branch: 'feature'),
-        throwsA(isA<WorktreeException>()),
-      );
+      expect(() => generator.generate(baseRef: 'main', branch: 'feature'), throwsA(isA<WorktreeException>()));
     });
 
     test('uses three-dot diff syntax', () async {
@@ -217,4 +198,3 @@ void main() {
     });
   });
 }
-

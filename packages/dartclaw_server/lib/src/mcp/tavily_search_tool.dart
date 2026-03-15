@@ -14,11 +14,9 @@ class TavilySearchProvider implements SearchProvider {
   final String _apiKey;
   final Duration _timeout;
 
-  TavilySearchProvider({
-    required String apiKey,
-    Duration timeout = const Duration(seconds: 15),
-  })  : _apiKey = apiKey,
-        _timeout = timeout;
+  TavilySearchProvider({required String apiKey, Duration timeout = const Duration(seconds: 15)})
+    : _apiKey = apiKey,
+      _timeout = timeout;
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -73,37 +71,31 @@ class TavilySearchTool implements McpTool {
   final SearchProvider _provider;
   final ContentGuard? _contentGuard;
 
-  TavilySearchTool({
-    required SearchProvider provider,
-    ContentGuard? contentGuard,
-  })  : _provider = provider,
-        _contentGuard = contentGuard;
+  TavilySearchTool({required SearchProvider provider, ContentGuard? contentGuard})
+    : _provider = provider,
+      _contentGuard = contentGuard;
 
   @override
   String get name => 'tavily_search';
 
   @override
-  String get description =>
-      'Search the web using Tavily Search API. Returns titles, URLs, and snippets.';
+  String get description => 'Search the web using Tavily Search API. Returns titles, URLs, and snippets.';
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'query': {
-            'type': 'string',
-            'description': 'Search query',
-          },
-          'count': {
-            'type': 'integer',
-            'description': 'Number of results (1-10, default 5)',
-            'default': 5,
-            'minimum': 1,
-            'maximum': 10,
-          },
-        },
-        'required': ['query'],
-      };
+    'type': 'object',
+    'properties': {
+      'query': {'type': 'string', 'description': 'Search query'},
+      'count': {
+        'type': 'integer',
+        'description': 'Number of results (1-10, default 5)',
+        'default': 5,
+        'minimum': 1,
+        'maximum': 10,
+      },
+    },
+    'required': ['query'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
@@ -127,8 +119,7 @@ class TavilySearchTool implements McpTool {
     // ContentGuard scan
     final guard = _contentGuard;
     if (guard != null) {
-      final concatenated =
-          results.map((r) => '${r.title} ${r.snippet}').join('\n');
+      final concatenated = results.map((r) => '${r.title} ${r.snippet}').join('\n');
       final context = GuardContext(
         hookPoint: 'beforeAgentSend',
         messageContent: concatenated,
@@ -140,11 +131,13 @@ class TavilySearchTool implements McpTool {
       }
     }
 
-    return ToolResult.text(jsonEncode({
-      'results': results.map((r) => r.toJson()).toList(),
-      'query': query,
-      'provider': 'tavily',
-      'count': results.length,
-    }));
+    return ToolResult.text(
+      jsonEncode({
+        'results': results.map((r) => r.toJson()).toList(),
+        'query': query,
+        'provider': 'tavily',
+        'count': results.length,
+      }),
+    );
   }
 }

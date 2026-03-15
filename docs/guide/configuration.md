@@ -28,7 +28,6 @@ port: 3000
 host: localhost
 data_dir: ~/.dartclaw
 worker_timeout: 600              # seconds per agent turn
-memory_max_bytes: 32768          # MEMORY.md size cap
 
 # --- Gateway Auth ---
 auth:
@@ -64,7 +63,19 @@ guards:
     max_bytes: 51200             # 50KB truncation before classification
 
 guard_audit:
-  max_entries: 10000             # rotate audit.ndjson to the newest N entries
+  max_retention_days: 30         # delete dated audit partitions older than this
+
+tasks:
+  artifact_retention_days: 0     # 0 = unlimited; clean terminal-task artifacts in maintenance
+
+# --- Memory ---
+memory:
+  max_bytes: 32768               # preferred MEMORY.md size cap
+  pruning:
+    enabled: true                # archive + dedupe MEMORY.md on a schedule
+    archive_after_days: 30
+    schedule: "0 3 * * *"
+memory_max_bytes: 32768          # deprecated alias for memory.max_bytes
 
 # --- Scheduling ---
 scheduling:
@@ -213,6 +224,9 @@ automation:
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```
+
+Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias, and
+`memory.pruning.*` configures the scheduled MEMORY.md cleanup job.
 
 ## Environment Variables
 

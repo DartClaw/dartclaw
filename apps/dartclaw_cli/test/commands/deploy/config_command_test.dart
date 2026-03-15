@@ -92,11 +92,7 @@ void main() {
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await IOOverrides.runZoned(
-        () => runner.run([
-          'config',
-          '--output-dir=${tmpDir.path}',
-          '--data-dir=${tmpDir.path}',
-        ]),
+        () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}']),
         stdout: () => _CapturingStdout(output),
       );
 
@@ -116,12 +112,7 @@ void main() {
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await IOOverrides.runZoned(
-        () => runner.run([
-          'config',
-          '--output-dir=${tmpDir.path}',
-          '--data-dir=${tmpDir.path}',
-          '--force',
-        ]),
+        () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}', '--force']),
         stdout: () => _CapturingStdout(output),
       );
 
@@ -136,11 +127,7 @@ void main() {
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await IOOverrides.runZoned(
-        () => runner.run([
-          'config',
-          '--output-dir=${tmpDir.path}',
-          '--data-dir=${tmpDir.path}',
-        ]),
+        () => runner.run(['config', '--output-dir=${tmpDir.path}', '--data-dir=${tmpDir.path}']),
         stdout: () => _CapturingStdout(output),
       );
 

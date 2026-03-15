@@ -1,9 +1,12 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'behavior/behavior_file_service.dart';
+import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
 import 'harness_pool.dart';
+import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_runner.dart';
 

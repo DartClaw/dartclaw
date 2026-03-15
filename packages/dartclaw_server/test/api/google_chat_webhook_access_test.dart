@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
@@ -176,14 +177,20 @@ void main() {
   group('Group access control', () {
     test('group_access: disabled — drops group messages', () async {
       final handler = buildHandler(groupAccess: GroupAccessMode.disabled);
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNull);
     });
 
     test('group_access: open — allows all group messages', () async {
       final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNotNull);
     });
@@ -194,7 +201,10 @@ void main() {
         groupAllowlist: ['spaces/GRP'],
         requireMention: false,
       );
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNotNull);
     });
@@ -205,7 +215,10 @@ void main() {
         groupAllowlist: ['spaces/OTHER'],
         requireMention: false,
       );
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNull);
     });
@@ -213,22 +226,17 @@ void main() {
 
   group('Mention gating', () {
     test('requireMention: true — drops group message without mention', () async {
-      final handler = buildHandler(
-        groupAccess: GroupAccessMode.open,
-        requireMention: true,
-        botUser: 'users/bot',
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: true, botUser: 'users/bot');
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNull);
     });
 
     test('requireMention: true — processes group message with bot mention', () async {
-      final handler = buildHandler(
-        groupAccess: GroupAccessMode.open,
-        requireMention: true,
-        botUser: 'users/bot',
-      );
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: true, botUser: 'users/bot');
       final response = await _post(
         handler,
         body: _payload(
@@ -249,22 +257,17 @@ void main() {
     });
 
     test('requireMention: false — processes group message without mention', () async {
-      final handler = buildHandler(
-        groupAccess: GroupAccessMode.open,
-        requireMention: false,
-        botUser: 'users/bot',
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false, botUser: 'users/bot');
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
-      final response = await _post(handler, body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'));
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNotNull);
     });
 
     test('DM messages bypass mention gating', () async {
-      final handler = buildHandler(
-        dmMode: DmAccessMode.open,
-        requireMention: true,
-        botUser: 'users/bot',
-      );
+      final handler = buildHandler(dmMode: DmAccessMode.open, requireMention: true, botUser: 'users/bot');
       final response = await _post(handler, body: _payload(spaceType: 'DM'));
       expect(response.statusCode, 200);
       expect(dispatchedMessage, isNotNull);
@@ -274,7 +277,10 @@ void main() {
   group('Session keying fields', () {
     test('DM message has senderJid=user.name and no groupJid', () async {
       final handler = buildHandler(dmMode: DmAccessMode.open);
-      await _post(handler, body: _payload(spaceType: 'DM', userName: 'users/456'));
+      await _post(
+        handler,
+        body: _payload(spaceType: 'DM', userName: 'users/456'),
+      );
       expect(dispatchedMessage, isNotNull);
       expect(dispatchedMessage!.senderJid, 'users/456');
       expect(dispatchedMessage!.groupJid, isNull);

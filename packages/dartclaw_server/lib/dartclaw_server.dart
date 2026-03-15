@@ -15,17 +15,15 @@ export 'src/api/config_api_routes.dart' show configApiRoutes, writeRestartPendin
 export 'src/api/config_routes.dart' show configRoutes;
 export 'src/api/google_chat_webhook.dart' show GoogleChatWebhookHandler, GoogleChatMessageDispatcher;
 export 'src/api/goal_routes.dart' show goalRoutes;
+export 'src/api/slash_command_handler.dart' show SlashCommandHandler;
 export 'src/api/sse_broadcast.dart' show SseBroadcast;
 export 'src/api/task_routes.dart' show taskRoutes;
 export 'src/api/task_sse_routes.dart' show taskSseRoutes;
 
 // Config
-export 'src/config/config_meta.dart' show ConfigMeta, ConfigMutability, ConfigFieldType, FieldMeta;
+export 'package:dartclaw_config/dartclaw_config.dart';
 export 'src/config/config_serializer.dart' show ConfigSerializer;
-export 'src/config/config_validator.dart' show ConfigValidator, ValidationError;
 export 'src/config/config_change_subscriber.dart' show ConfigChangeSubscriber;
-export 'src/config/scope_reconciler.dart' show ScopeReconciler;
-export 'src/config/config_writer.dart' show ConfigWriter;
 export 'src/api/session_routes.dart' show sessionRoutes;
 export 'src/api/stream_handler.dart' show sseStreamResponse;
 export 'src/api/webhook_routes.dart' show webhookRoutes;
@@ -68,7 +66,7 @@ export 'src/runtime_config.dart' show RuntimeConfig;
 
 // Scheduling
 export 'src/scheduling/cron_parser.dart' show CronExpression;
-export 'src/scheduling/delivery.dart' show DeliveryMode;
+export 'src/scheduling/delivery.dart' show DeliveryMode, DeliveryService;
 export 'src/scheduling/schedule_service.dart' show ScheduleService;
 export 'src/scheduling/scheduled_job.dart' show ScheduleType, ScheduledJob;
 export 'src/scheduling/scheduled_task_runner.dart' show ScheduledTaskRunner;
@@ -95,6 +93,10 @@ export 'src/params/display_params.dart'
 
 // Audit
 export 'src/audit/audit_log_reader.dart' show AuditLogReader, AuditPage;
+export 'src/audit/guard_audit_subscriber.dart' show GuardAuditSubscriber;
+
+// Behavior
+export 'src/behavior/memory_consolidator.dart' show MemoryConsolidator;
 
 // Restart
 export 'src/restart_service.dart' show RestartService;
@@ -110,6 +112,17 @@ export 'src/task/diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEn
 export 'src/task/merge_executor.dart' show MergeExecutor, MergeResult, MergeSuccess, MergeConflict, MergeStrategy;
 export 'src/task/task_executor.dart' show TaskExecutor;
 export 'src/task/task_file_guard.dart' show TaskFileGuard;
+export 'src/task/task_notification_subscriber.dart' show TaskNotificationSubscriber;
+export 'src/task/task_review_service.dart'
+    show
+        TaskReviewService,
+        ReviewResult,
+        ReviewSuccess,
+        ReviewMergeConflict,
+        ReviewNotFound,
+        ReviewInvalidTransition,
+        ReviewInvalidRequest,
+        ReviewActionFailed;
 export 'src/task/worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
 
 // Session

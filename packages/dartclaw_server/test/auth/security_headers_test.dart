@@ -43,18 +43,11 @@ void main() {
     expect(response.headers['cache-control'], 'no-store');
   });
 
-  test('does not set HSTS header by default', () async {
-    final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
-    expect(response.headers['strict-transport-security'], isNull);
-  });
+  test('sets HSTS header when enableHsts is true, absent otherwise', () async {
+    final responseOn = await buildHandler(enableHsts: true)(Request('GET', Uri.parse('http://localhost/')));
+    expect(responseOn.headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
 
-  test('sets HSTS header when enableHsts is true', () async {
-    final response = await buildHandler(enableHsts: true)(Request('GET', Uri.parse('http://localhost/')));
-    expect(response.headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
-  });
-
-  test('does not set HSTS header when enableHsts is false', () async {
-    final response = await buildHandler(enableHsts: false)(Request('GET', Uri.parse('http://localhost/')));
-    expect(response.headers['strict-transport-security'], isNull);
+    final responseOff = await buildHandler(enableHsts: false)(Request('GET', Uri.parse('http://localhost/')));
+    expect(responseOff.headers['strict-transport-security'], isNull);
   });
 }

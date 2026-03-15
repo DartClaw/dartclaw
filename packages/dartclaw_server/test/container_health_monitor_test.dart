@@ -6,10 +6,7 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
 /// Creates a ContainerManager with a custom `docker inspect` response.
-ContainerManager _makeManager({
-  required String profileId,
-  required bool Function() isRunning,
-}) {
+ContainerManager _makeManager({required String profileId, required bool Function() isRunning}) {
   return ContainerManager(
     config: ContainerConfig(enabled: true, image: 'test:latest'),
     containerName: 'test-$profileId',

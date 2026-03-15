@@ -26,6 +26,41 @@ You are [role description -- e.g., "a personal assistant", "a system administrat
 
 The agent can update SOUL.md over time. It is re-read every turn -- edit live without restarting. See [Workspace](../workspace.md) for prompt assembly order.
 
+### Example: A real daily-driver SOUL.md
+
+Here is a fleshed-out example that goes beyond placeholders:
+
+```markdown
+# Agent Identity
+
+You are a personal AI assistant for a software engineer focused on backend systems and developer tooling.
+
+## Expertise
+- Dart, Go, and Python development
+- System architecture and API design
+- Infrastructure: Docker, systemd, Caddy, SQLite
+- Security: container isolation, credential management, supply chain
+
+## Topics to Track
+- Dart language updates (especially Dart 3.x features, macros progress)
+- AI agent frameworks: LangChain, CrewAI, Claude Agent SDK updates
+- Self-hosting: Coolify, Traefik, Tailscale announcements
+- Security advisories for tools I use (sqlite3, shelf, signal-cli)
+
+## Communication Style
+- Technical depth by default -- I understand code, don't oversimplify
+- Lead with the answer, then supporting reasoning
+- Use code snippets when they clarify faster than prose
+- For briefings: bullet points, no headers, mobile-optimized
+
+## Boundaries
+- Do not track celebrity news, sports, or entertainment
+- Do not generate motivational quotes or filler content
+- If unsure about a finding, say so rather than guessing
+```
+
+Notice the level of specificity: concrete technologies, explicit exclusions, and formatting preferences. The more specific your SOUL.md, the more useful your assistant becomes.
+
 ## HEARTBEAT.md Format
 
 HEARTBEAT.md uses a checklist format. The heartbeat scheduler processes the entire file in a single turn at configured intervals.
@@ -102,4 +137,140 @@ Key points:
 - Entries are structured as timestamped items grouped by category
 - Git sync (if enabled) commits workspace changes after heartbeat
 
+**Note on config layout**: `memory_max_bytes` is a top-level key, while memory pruning settings are nested under `memory.pruning`. These are related but configured separately:
+
+```yaml
+# Top-level: consolidation threshold for MEMORY.md
+memory_max_bytes: 65536
+
+# Nested: automated memory entry pruning (archive old entries)
+memory:
+  pruning:
+    enabled: true
+    archive_after_days: 90
+    schedule: "0 3 * * *"
+```
+
 See [Search & Memory](../search.md) for search agent integration and memory retrieval.
+
+## Session Maintenance
+
+DartClaw automatically manages session lifecycle when `sessions.maintenance` is configured. This prevents unbounded disk growth from long-running assistant setups.
+
+```yaml
+sessions:
+  maintenance:
+    mode: enforce              # 'warn' logs but does not delete; 'enforce' prunes
+    prune_after_days: 90       # archive sessions older than this
+    max_sessions: 500          # cap total session count
+    max_disk_mb: 0             # 0 = disabled; set a limit for disk-constrained environments
+    cron_retention_hours: 24   # keep cron job sessions for this long before pruning
+    schedule: "0 3 * * *"      # when to run maintenance
+```
+
+Key points:
+- Maintenance runs on a cron schedule, separate from heartbeat
+- Protected session types (active channels, recent web sessions) are never pruned
+- `warn` mode is useful for seeing what would be pruned before committing to `enforce`
+- The `dartclaw sessions cleanup` CLI command supports `--dry-run` for manual inspection
+
+See [Configuration](../configuration.md) for full session config reference.
+
+## Channel-to-Task Integration (0.9+)
+
+With `task_trigger` enabled on a channel, users can create background tasks from WhatsApp, Signal, or Google Chat by sending messages with a configured prefix:
+
+```
+task: Research Dart isolate performance patterns
+task: coding Fix the login page CSS
+```
+
+Review completed tasks directly from the channel:
+```
+accept          (if only one task is in review)
+accept abc123   (if multiple tasks are in review)
+reject abc123
+```
+
+Enable per channel in `dartclaw.yaml`:
+
+```yaml
+channels:
+  whatsapp:
+    task_trigger:
+      enabled: true
+      prefix: "task:"            # prefix that triggers task creation
+      default_type: research     # type when not specified
+      auto_start: true           # start immediately or queue as draft
+```
+
+See [Scheduled Task Queue](03-scheduled-task-queue.md) for more on the task system.
+
+## Heartbeat vs Cron Jobs
+
+DartClaw has two independent scheduling mechanisms. They serve different purposes:
+
+| | Heartbeat | Cron Jobs |
+|---|---|---|
+| **Input** | Processes `HEARTBEAT.md` checklist | Runs a specific prompt from `dartclaw.yaml` |
+| **Purpose** | Ongoing maintenance (memory consolidation, git sync, checklist review) | Time-of-day tasks with unique prompts (briefings, reports, scans) |
+| **Schedule** | Fixed interval (`interval_minutes`) | Cron expression or interval per job |
+| **Memory consolidation** | Triggers automatically when MEMORY.md exceeds cap | Does not trigger consolidation |
+| **Git sync** | Commits workspace changes after each run | Does not trigger git sync |
+| **Delivery** | Results logged only | Configurable: `none`, `announce` (planned), `webhook` |
+| **Session** | New isolated session each run | Same session reused per job ID (history accumulates) |
+
+**When to use which:**
+- Use **heartbeat** for the "background maintenance loop" -- memory housekeeping, git sync, and recurring checks that don't need specific delivery
+- Use **cron jobs** for "things that happen at specific times" -- morning briefings, daily journals, weekly reviews, knowledge scans
+
+They can (and typically do) run together. Heartbeat handles the plumbing; cron jobs handle the content.
+
+## Monitoring Your Assistant
+
+Once your assistant is running, use these built-in tools to verify it's working:
+
+### Web UI dashboards
+
+- **Health Dashboard** (`/health-dashboard`) -- server uptime, guard audit log (recent blocks), system status. Check here first if something seems wrong
+- **Memory Dashboard** (`/memory`) -- MEMORY.md size vs budget, entry counts, pruner history, search index status. Useful for verifying that journaling and knowledge inbox jobs are actually writing entries
+- **Task Dashboard** (`/tasks`) -- active and completed tasks, review queue. Shows task execution status if you're using the task system
+- **Settings** (`/settings`) -- channel connection status, guard configuration, scheduling job list. Verify channels are connected and jobs are registered
+
+### Logs
+
+Enable verbose logging temporarily to debug scheduling issues:
+
+```yaml
+logging:
+  level: FINE
+```
+
+Key log patterns to look for:
+- `CronScheduler` -- job firing events
+- `HeartbeatScheduler` -- heartbeat cycle events
+- `MemoryConsolidation` -- consolidation triggers
+- `GitSync` -- commit and push events
+- `announce` -- delivery routing decisions
+
+### Agent metrics (0.8+)
+
+The agent metrics API shows per-agent activity:
+- `GET /api/agents` -- list all agents with status (idle/busy) and turn counts
+- `GET /api/agents/<id>` -- detailed metrics for a specific agent
+
+The `/tasks` page shows an agent overview section with real-time status.
+
+### Periodic health check
+
+Add a simple self-check to your HEARTBEAT.md:
+
+```markdown
+- [ ] Verify MEMORY.md has been updated in the last 24 hours
+- [ ] Check that the most recent cron session completed successfully
+- [ ] Review error counts in errors.md
+```
+
+## Troubleshooting
+
+See [Troubleshooting](_troubleshooting.md) for common issues and solutions.

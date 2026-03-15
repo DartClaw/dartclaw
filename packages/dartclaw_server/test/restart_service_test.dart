@@ -9,10 +9,7 @@ class _FakeTurnManager implements TurnManager {
   final List<String> cancelledIds = [];
   final Duration? waitDelay;
 
-  _FakeTurnManager({
-    List<String> activeIds = const [],
-    this.waitDelay,
-  }) : _activeIds = List.of(activeIds);
+  _FakeTurnManager({List<String> activeIds = const [], this.waitDelay}) : _activeIds = List.of(activeIds);
 
   @override
   Iterable<String> get activeSessionIds => _activeIds;
@@ -23,10 +20,7 @@ class _FakeTurnManager implements TurnManager {
   }
 
   @override
-  Future<void> waitForCompletion(
-    String sessionId, {
-    Duration timeout = const Duration(seconds: 10),
-  }) async {
+  Future<void> waitForCompletion(String sessionId, {Duration timeout = const Duration(seconds: 10)}) async {
     final d = waitDelay;
     if (d != null) await Future<void>.delayed(d);
   }
@@ -42,10 +36,7 @@ void main() {
       final turns = _FakeTurnManager(activeIds: ['s1', 's2']);
       var exitCode = -1;
 
-      final service = RestartService(
-        turns: turns,
-        exit: (code) => exitCode = code,
-      );
+      final service = RestartService(turns: turns, exit: (code) => exitCode = code);
 
       await service.restart();
 
@@ -58,11 +49,7 @@ void main() {
       final turns = _FakeTurnManager(activeIds: ['s1']);
       final events = <String>[];
 
-      final service = RestartService(
-        turns: turns,
-        exit: (_) {},
-        broadcastSse: (event, data) => events.add(event),
-      );
+      final service = RestartService(turns: turns, exit: (_) {}, broadcastSse: (event, data) => events.add(event));
 
       await service.restart();
 
@@ -96,10 +83,7 @@ void main() {
       final turns = _FakeTurnManager();
       var exitCode = -1;
 
-      final service = RestartService(
-        turns: turns,
-        exit: (code) => exitCode = code,
-      );
+      final service = RestartService(turns: turns, exit: (code) => exitCode = code);
 
       await service.restart();
 
@@ -109,10 +93,7 @@ void main() {
 
     test('drain timeout force-cancels remaining turns then exits', () async {
       // waitDelay > drainDeadline → timeout fires, remaining turns are cancelled.
-      final turns = _FakeTurnManager(
-        activeIds: ['s1'],
-        waitDelay: const Duration(seconds: 5),
-      );
+      final turns = _FakeTurnManager(activeIds: ['s1'], waitDelay: const Duration(seconds: 5));
       var exitCode = -1;
 
       final service = RestartService(
@@ -132,10 +113,7 @@ void main() {
       final turns = _FakeTurnManager();
       var exitCalled = false;
 
-      final service = RestartService(
-        turns: turns,
-        exit: (_) => exitCalled = true,
-      );
+      final service = RestartService(turns: turns, exit: (_) => exitCalled = true);
 
       await service.restart();
       expect(exitCalled, isTrue);
@@ -146,10 +124,7 @@ void main() {
     test('isRestarting flag set during restart', () async {
       final turns = _FakeTurnManager();
 
-      final service = RestartService(
-        turns: turns,
-        exit: (_) {},
-      );
+      final service = RestartService(turns: turns, exit: (_) {});
 
       expect(service.isRestarting, isFalse);
 

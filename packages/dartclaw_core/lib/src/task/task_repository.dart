@@ -17,7 +17,8 @@ abstract class TaskRepository {
   /// Persists an update to an existing task.
   Future<void> update(Task task);
 
-  /// Persists transition fields only when the current status matches [expectedStatus].
+  /// Persists transition fields and transition-safe config fields only when the
+  /// current status matches [expectedStatus].
   ///
   /// Returns `true` when the update was applied, or `false` when the row is
   /// missing or its status changed before the write.

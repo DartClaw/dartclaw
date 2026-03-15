@@ -40,7 +40,7 @@ scheduling:
 agent:
   agents:
     cron:
-      model: claude-sonnet-4-6
+      model: sonnet
 ```
 
 ## Behavior Files
@@ -75,7 +75,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 ## Workflow
 
 1. **Cron fires at 3:00 AM** (server-local time -- chosen to avoid peak usage)
-2. **Isolated session created** with key `agent:main:cron:nightly-reflection:<ISO8601>`
+2. **Isolated session created** for the cron job (visible in the web UI sidebar)
 3. **Agent reads behavior files** -- SOUL.md for reflection guidelines, MEMORY.md for context
 4. **Agent reads errors.md** -- auto-populated by SelfImprovementService on turn failures, guard blocks, and crashes (capped at 50 entries)
 5. **Agent reads learnings.md** -- populated via memory_save with `category='learning'` during normal operation
@@ -86,9 +86,9 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 ## Customization Tips
 
 - **Change timing**: `0 23 * * *` runs at 11 PM (same-day reflection). `0 6 * * *` runs at 6 AM (review yesterday before starting)
-- **Add delivery**: Set `delivery: announce` to push the reflection summary to WhatsApp or the web UI
+- **Add delivery**: Set `delivery: announce` to push the reflection summary to WhatsApp, Signal, Google Chat, or the web UI
 - **Weekly instead of nightly**: Change to `0 3 * * 0` (Sunday at 3 AM) for weekly reflection with broader pattern analysis
-- **Use Opus for deeper analysis**: Change `model: claude-opus-4-6` in the cron agent config if you want more thorough analysis (higher cost)
+- **Use Opus for deeper analysis**: Change `model: opus` in the cron agent config if you want more thorough analysis (higher cost)
 - **Add git sync**: Enable `workspace.git_sync: true` so reflections are committed alongside other workspace changes during heartbeat
 - **Customize error categories**: Update SOUL.md reflection guidelines to prioritize certain error types over others
 
@@ -97,6 +97,6 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 - **errors.md is capped at 50 entries**: SelfImprovementService trims oldest entries when the cap is reached. If your system generates many errors, older ones may be lost before the nightly reflection runs. Consider running reflection more frequently in high-error environments
 - **learnings.md must be explicitly populated**: Unlike errors.md (auto-populated), learnings.md only gets entries when the agent explicitly uses memory_save with `category='learning'`. If your workflow doesn't generate learnings, this file will be empty
 - **Empty files = no-op**: The prompt instructs the agent to skip reflection if both files are empty. This is intentional -- no wasted tokens on days with no activity
-- **Model override scope**: The `agent.agents.cron.model` setting applies to ALL cron jobs, not just reflection. If you have other cron jobs that need Opus, use separate agent configs or run reflection as its own job ID
+- **Model override scope**: The `agent.agents.cron.model` setting applies to ALL cron jobs, not just reflection. If you have other cron jobs that need a different model, consider using the main agent model for those and only applying the cost-optimized model to cron
 - **Timezone is server-local**: The 3 AM cron uses server time. Adjust for your timezone if the server is in a different location
 - **No errors.md cleanup**: The reflection job reads but does not modify errors.md or learnings.md. These files continue to accumulate until their caps are reached or you manually clear them

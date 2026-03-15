@@ -3,7 +3,10 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -14,6 +17,8 @@ void main() {
   late MessageService messages;
   late _FakeWorker worker;
   late TurnRunner runner;
+  late Database turnStateDb;
+  late TurnStateStore turnState;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_turn_runner_test_');
@@ -25,17 +30,21 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     worker = _FakeWorker();
+    turnStateDb = sqlite3.openInMemory();
+    turnState = TurnStateStore(turnStateDb);
     runner = TurnRunner(
       harness: worker,
       messages: messages,
       behavior: BehaviorFileService(workspaceDir: workspaceDir),
       sessions: sessions,
+      turnState: turnState,
     );
   });
 
   tearDown(() async {
     await messages.dispose();
     await worker.dispose();
+    await turnState.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -120,6 +129,52 @@ void main() {
 
   test('harness getter returns the underlying harness', () {
     expect(runner.harness, same(worker));
+  });
+
+  test('releaseTurn removes persisted turn state and fails the pending outcome', () async {
+    final session = await sessions.getOrCreateMain();
+    final turnId = await runner.reserveTurn(session.id);
+
+    expect((await turnState.getAll())[session.id]?.turnId, equals(turnId));
+
+    final outcomeExpectation = runner.waitForOutcome(session.id, turnId).then<void>(
+      (_) => fail('Expected released turn to fail the pending outcome'),
+      onError: (Object error, StackTrace _) {
+        expect(
+          error,
+          isA<StateError>().having(
+            (stateError) => stateError.message,
+            'message',
+            contains('released without execution'),
+          ),
+        );
+      },
+    );
+    runner.releaseTurn(session.id, turnId);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(runner.isActive(session.id), isFalse);
+    expect(await turnState.getAll(), isNot(contains(session.id)));
+    await outcomeExpectation;
+  });
+
+  test('persists and cleans turn state via store', () async {
+    final session = await sessions.getOrCreateMain();
+    worker.delayMs = 100;
+    worker.responseText = 'Tracked';
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Track turn state'},
+    ]);
+
+    final activeState = (await turnState.getAll())[session.id];
+    expect(activeState, isNotNull);
+    expect(activeState?.turnId, equals(turnId));
+    expect(activeState?.startedAt, isA<DateTime>());
+
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(await turnState.getAll(), isNot(contains(session.id)));
   });
 }
 

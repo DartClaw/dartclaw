@@ -129,29 +129,32 @@ void main() {
         await expectLater(repository.update(_task(id: 'missing')), throwsArgumentError);
       });
 
-      test('conditionally updates transition fields without overwriting mutable fields', () async {
-        final task = _task(
-          status: TaskStatus.review,
-          sessionId: 'session-1',
-          configJson: const {'pushBackCount': 1, 'budget': 1000},
-          completedAt: DateTime.parse('2026-03-10T10:04:00Z'),
-        );
-        await repository.insert(task);
-        await repository.update(task.copyWith(title: 'Fresh title'));
+      test(
+        'conditionally updates transition fields and transition-provided config without overwriting other fields',
+        () async {
+          final task = _task(
+            status: TaskStatus.review,
+            sessionId: 'session-1',
+            configJson: const {'pushBackCount': 1, 'budget': 1000},
+            completedAt: DateTime.parse('2026-03-10T10:04:00Z'),
+          );
+          await repository.insert(task);
+          await repository.update(task.copyWith(title: 'Fresh title'));
 
-        final transitioned = task
-            .transition(TaskStatus.queued, now: DateTime.parse('2026-03-10T10:05:00Z'))
-            .copyWith(sessionId: 'session-2', configJson: const {'pushBackCount': 99, 'budget': 5});
-        final updated = await repository.updateIfStatus(transitioned, expectedStatus: TaskStatus.review);
+          final transitioned = task
+              .transition(TaskStatus.queued, now: DateTime.parse('2026-03-10T10:05:00Z'))
+              .copyWith(sessionId: 'session-2', configJson: const {'pushBackCount': 99, 'budget': 5});
+          final updated = await repository.updateIfStatus(transitioned, expectedStatus: TaskStatus.review);
 
-        final loaded = await repository.getById(task.id);
-        expect(updated, isTrue);
-        expect(loaded?.title, 'Fresh title');
-        expect(loaded?.status, TaskStatus.queued);
-        expect(loaded?.sessionId, 'session-1');
-        expect(loaded?.configJson, {'pushBackCount': 1, 'budget': 1000});
-        expect(loaded?.completedAt, isNull);
-      });
+          final loaded = await repository.getById(task.id);
+          expect(updated, isTrue);
+          expect(loaded?.title, 'Fresh title');
+          expect(loaded?.status, TaskStatus.queued);
+          expect(loaded?.sessionId, 'session-1');
+          expect(loaded?.configJson, {'pushBackCount': 99, 'budget': 5});
+          expect(loaded?.completedAt, isNull);
+        },
+      );
 
       test('conditional update returns false when status changed', () async {
         final task = _task(status: TaskStatus.queued);

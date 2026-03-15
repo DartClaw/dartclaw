@@ -55,12 +55,12 @@ sessions:
 concurrency:
   max_parallel_turns: 2
 
-# Search agent uses cheaper/faster model by default (claude-haiku-4-5).
+# Search agent uses cheaper/faster model by default (haiku).
 # Override here if needed:
 # agent:
 #   agents:
 #     search:
-#       model: claude-haiku-4-5
+#       model: haiku
 
 # Channel integrations (see docs/guide/whatsapp.md and docs/guide/signal.md)
 # channels:

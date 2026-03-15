@@ -1,21 +1,26 @@
+import 'dart:collection';
 import 'dart:io';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../agents/agent_definition.dart';
 import '../channel/channel_config.dart';
-import '../channel/googlechat/google_chat_config.dart';
+import '../channel/channel_config_provider.dart';
+import '../channel/channel.dart';
 import '../container/container_config.dart';
-import '../security/env_substitute.dart';
-import '../security/guard_config.dart';
 import '../utils/path_utils.dart';
 import 'scheduled_task_definition.dart';
 import 'session_maintenance_config.dart';
 import 'session_scope_config.dart';
 
 /// Immutable configuration for DartClaw runtime.
-class DartclawConfig {
+class DartclawConfig implements ChannelConfigProvider {
+  static final Expando<Map<ChannelType, Object>> _lazyChannelConfigCache = Expando('channelConfigCache');
+  static final Expando<List<String>> _lazyChannelConfigWarnings = Expando('channelConfigWarnings');
+  static final Map<ChannelType, Object Function(Map<String, dynamic>, List<String>)> _channelConfigParsers = {};
+
   final int port;
   final String host;
   final String name;
@@ -48,7 +53,6 @@ class DartclawConfig {
   final int contextMaxResultBytes;
   final ContainerConfig containerConfig;
   final ChannelConfig channelConfig;
-  final GoogleChatConfig googleChatConfig;
   final bool heartbeatEnabled;
   final int heartbeatIntervalMinutes;
   final bool gitSyncEnabled;
@@ -73,8 +77,11 @@ class DartclawConfig {
   final Map<String, SearchProviderEntry> searchProviders;
   final SessionScopeConfig sessionScopeConfig;
   final SessionMaintenanceConfig sessionMaintenanceConfig;
+  /// Legacy no-op retained for backward compatibility with older YAML.
   final int guardAuditMaxEntries;
+  final int guardAuditMaxRetentionDays;
   final int tasksMaxConcurrent;
+  final int tasksArtifactRetentionDays;
   final String tasksWorktreeBaseRef;
   final int tasksWorktreeStaleTimeoutHours;
   final String tasksWorktreeMergeStrategy;
@@ -83,9 +90,11 @@ class DartclawConfig {
   /// Raw guards YAML map for per-guard config (command, file, network sections).
   final Map<String, dynamic> guardsYaml;
 
-  /// Warnings collected during [load] (unknown keys, type mismatches, etc.).
+  /// Warnings collected during [load] and channel config parsing.
   /// Callers are responsible for surfacing these.
-  final List<String> warnings;
+  final List<String> _warnings;
+
+  List<String> get warnings => UnmodifiableListView(_warningSink());
 
   String get workspaceDir => p.join(dataDir, 'workspace');
   String get sessionsDir => p.join(dataDir, 'sessions');
@@ -127,7 +136,6 @@ class DartclawConfig {
     this.contextMaxResultBytes = 50 * 1024,
     this.containerConfig = const ContainerConfig.disabled(),
     this.channelConfig = const ChannelConfig.defaults(),
-    this.googleChatConfig = const GoogleChatConfig.disabled(),
     this.heartbeatEnabled = true,
     this.heartbeatIntervalMinutes = 30,
     this.gitSyncEnabled = true,
@@ -153,17 +161,35 @@ class DartclawConfig {
     this.sessionScopeConfig = const SessionScopeConfig.defaults(),
     this.sessionMaintenanceConfig = const SessionMaintenanceConfig.defaults(),
     this.guardAuditMaxEntries = 10000,
+    this.guardAuditMaxRetentionDays = 30,
     this.tasksMaxConcurrent = 3,
+    this.tasksArtifactRetentionDays = 0,
     this.tasksWorktreeBaseRef = 'main',
     this.tasksWorktreeStaleTimeoutHours = 24,
     this.tasksWorktreeMergeStrategy = 'squash',
     this.automationScheduledTasks = const [],
     this.guardsYaml = const {},
-    this.warnings = const [],
-  });
+    List<String> warnings = const [],
+  }) : _warnings = warnings;
 
   /// All default values.
   const DartclawConfig.defaults() : this();
+
+  /// Registers a parser for a channel config type that lives outside core.
+  ///
+  /// Channel packages currently call this from top-level import side effects in
+  /// their public libraries. Bootstrap code that bundles channels must import
+  /// those packages and ensure registration before calling [DartclawConfig.load].
+  static void registerChannelConfigParser(
+    ChannelType channelType,
+    Object Function(Map<String, dynamic> yaml, List<String> warns) parser,
+  ) {
+    if (channelType == ChannelType.web) {
+      throw ArgumentError('No channel config is defined for ${channelType.name}.');
+    }
+
+    _channelConfigParsers[channelType] = parser;
+  }
 
   /// Load config with resolution: CLI overrides > YAML file > defaults.
   ///
@@ -202,16 +228,15 @@ class DartclawConfig {
     final contentGuard = _parseContentGuard(yaml, defaults, warns);
     final inputSanitizer = _parseInputSanitizer(yaml, defaults, warns);
     final usage = _parseUsage(yaml, defaults, warns);
-    final memory = _parseMemory(yaml, defaults, warns);
+    final memory = _parseMemory(yaml, cli, defaults, warns);
     final container = _parseContainer(yaml, warns);
     final channels = _parseChannels(yaml, warns);
-    final googleChat = _parseGoogleChat(channels, warns);
     final concurrency = _parseConcurrency(yaml, defaults, warns);
     final guardAudit = _parseGuardAudit(yaml, defaults, warns);
     final tasks = _parseTasks(yaml, defaults, warns);
     final automation = _parseAutomation(yaml, warns);
 
-    return DartclawConfig(
+    final config = DartclawConfig(
       port: top.port,
       host: top.host,
       name: top.name,
@@ -220,7 +245,7 @@ class DartclawConfig {
       claudeExecutable: top.claudeExecutable,
       staticDir: top.staticDir,
       templatesDir: top.templatesDir,
-      memoryMaxBytes: top.memoryMaxBytes,
+      memoryMaxBytes: memory.maxBytes,
       guards: guards.config,
       guardsYaml: guards.yaml,
       logFormat: logging.logFormat,
@@ -251,7 +276,6 @@ class DartclawConfig {
       contextMaxResultBytes: context.maxResultBytes,
       containerConfig: container,
       channelConfig: channels,
-      googleChatConfig: googleChat,
       gitSyncEnabled: workspace.gitSyncEnabled,
       gitSyncPushEnabled: workspace.gitSyncPushEnabled,
       searchBackend: search.backend,
@@ -271,14 +295,70 @@ class DartclawConfig {
       memoryArchiveAfterDays: memory.archiveAfterDays,
       memoryPruningSchedule: memory.pruningSchedule,
       guardAuditMaxEntries: guardAudit.maxEntries,
+      guardAuditMaxRetentionDays: guardAudit.maxRetentionDays,
       tasksMaxConcurrent: tasks.maxConcurrent,
+      tasksArtifactRetentionDays: tasks.artifactRetentionDays,
       tasksWorktreeBaseRef: tasks.worktreeBaseRef,
       tasksWorktreeStaleTimeoutHours: tasks.worktreeStaleTimeoutHours,
       tasksWorktreeMergeStrategy: tasks.worktreeMergeStrategy,
       automationScheduledTasks: automation,
-      warnings: List.unmodifiable(warns),
+      warnings: warns,
     );
+
+    config._primeChannelConfigs();
+    return config;
   }
+
+  @override
+  T getChannelConfig<T>(ChannelType channelType) {
+    final cachedConfig = _channelConfigFor(channelType);
+    if (cachedConfig is! T) {
+      throw ArgumentError(
+        'Channel ${channelType.name} expects ${cachedConfig.runtimeType}, which is not assignable to $T.',
+      );
+    }
+    return cachedConfig as T;
+  }
+
+  void _primeChannelConfigs() {
+    for (final channelType in _channelConfigParsers.keys) {
+      _channelConfigFor(channelType);
+    }
+  }
+
+  Object _channelConfigFor(ChannelType channelType) {
+    if (channelType == ChannelType.web) {
+      throw ArgumentError('No channel config is defined for ${channelType.name}.');
+    }
+
+    final cache = _lazyChannelConfigCache[this] ??= <ChannelType, Object>{};
+    return cache.putIfAbsent(channelType, () => _parseChannelConfig(channelType));
+  }
+
+  Object _parseChannelConfig(ChannelType channelType) {
+    final parser = _channelConfigParsers[channelType];
+    if (parser == null) {
+      // Missing registration is still a bootstrap error. Hosts are expected to
+      // import the channel package so its top-level self-registration runs
+      // before [DartclawConfig.load] primes channel configs.
+      throw StateError(
+        'No config parser registered for ${channelType.name}. '
+        'Import that channel package before requesting its config.',
+      );
+    }
+
+    final warns = _warningSink();
+    final configKey = switch (channelType) {
+      ChannelType.googlechat => 'google_chat',
+      ChannelType.signal => 'signal',
+      ChannelType.whatsapp => 'whatsapp',
+      ChannelType.web => throw ArgumentError('No channel config is defined for ${channelType.name}.'),
+    };
+
+    return parser(channelConfig.channelConfigs[configKey] ?? const <String, dynamic>{}, warns);
+  }
+
+  List<String> _warningSink() => _lazyChannelConfigWarnings[this] ??= List<String>.of(_warnings);
 
   // ---------------------------------------------------------------------------
   // Section parse methods — each returns a named record
@@ -293,7 +373,6 @@ class DartclawConfig {
     String claudeExecutable,
     String staticDir,
     String templatesDir,
-    int memoryMaxBytes,
     bool devMode,
   })
   _parseTopLevel(
@@ -318,14 +397,6 @@ class DartclawConfig {
     final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
     final dataDir = expandHome(rawDataDir, env: env);
 
-    final memoryMaxBytes = _parseInt(
-      'memory_max_bytes',
-      cli['memory_max_bytes'],
-      yaml['memory_max_bytes'],
-      defaults.memoryMaxBytes,
-      warns,
-    );
-
     // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML)
     final claudeExecutable = cli['claude_executable'] ?? defaults.claudeExecutable;
     final staticDir = cli['static_dir'] ?? defaults.staticDir;
@@ -343,7 +414,6 @@ class DartclawConfig {
       claudeExecutable: claudeExecutable,
       staticDir: staticDir,
       templatesDir: templatesDir,
-      memoryMaxBytes: memoryMaxBytes,
       devMode: devMode,
     );
   }
@@ -996,36 +1066,85 @@ class DartclawConfig {
     return (budgetWarningTokens: budgetWarningTokens, maxFileSizeBytes: maxFileSizeBytes);
   }
 
-  static ({bool pruningEnabled, int archiveAfterDays, String pruningSchedule}) _parseMemory(
+  static ({int maxBytes, bool pruningEnabled, int archiveAfterDays, String pruningSchedule}) _parseMemory(
     Map<String, dynamic> yaml,
+    Map<String, String> cli,
     DartclawConfig defaults,
     List<String> warns,
   ) {
+    var maxBytes = defaults.memoryMaxBytes;
     var pruningEnabled = defaults.memoryPruningEnabled;
     var archiveAfterDays = defaults.memoryArchiveAfterDays;
     var pruningSchedule = defaults.memoryPruningSchedule;
 
+    Object? nestedMaxBytes;
+    Object? pruningRaw;
     final memoryRaw = yaml['memory'];
     if (memoryRaw is Map) {
-      final pruningRaw = memoryRaw['pruning'];
-      if (pruningRaw is Map) {
-        final en = pruningRaw['enabled'];
-        if (en is bool) pruningEnabled = en;
-        archiveAfterDays = _parseInt(
-          'memory.pruning.archive_after_days',
-          null,
-          pruningRaw['archive_after_days'],
-          defaults.memoryArchiveAfterDays,
-          warns,
-        );
-        final sched = pruningRaw['schedule'];
-        if (sched is String) pruningSchedule = sched;
-      }
+      nestedMaxBytes = memoryRaw['max_bytes'];
+      pruningRaw = memoryRaw['pruning'];
     } else if (memoryRaw != null) {
       warns.add('Invalid type for memory: "${memoryRaw.runtimeType}" — using defaults');
     }
 
-    return (pruningEnabled: pruningEnabled, archiveAfterDays: archiveAfterDays, pruningSchedule: pruningSchedule);
+    final legacyTopLevelMaxBytes = yaml['memory_max_bytes'];
+    if (legacyTopLevelMaxBytes != null && nestedMaxBytes == null) {
+      warns.add('Config key "memory_max_bytes" is deprecated; use "memory.max_bytes" instead');
+    }
+
+    if (nestedMaxBytes != null) {
+      maxBytes = _parseInt('memory.max_bytes', cli['memory_max_bytes'], nestedMaxBytes, defaults.memoryMaxBytes, warns);
+    } else {
+      maxBytes = _parseInt(
+        'memory_max_bytes',
+        cli['memory_max_bytes'],
+        legacyTopLevelMaxBytes,
+        defaults.memoryMaxBytes,
+        warns,
+      );
+    }
+
+    if (pruningRaw is Map) {
+      pruningEnabled = _parseBool(
+        'memory.pruning.enabled',
+        cli['memory_pruning_enabled'],
+        pruningRaw['enabled'],
+        pruningEnabled,
+        warns,
+      );
+      archiveAfterDays = _parseInt(
+        'memory.pruning.archive_after_days',
+        cli['memory_pruning_archive_after_days'],
+        pruningRaw['archive_after_days'],
+        defaults.memoryArchiveAfterDays,
+        warns,
+      );
+      final sched = pruningRaw['schedule'];
+      if (cli['memory_pruning_schedule'] case final cliSchedule?) {
+        pruningSchedule = cliSchedule;
+      } else if (sched is String) {
+        pruningSchedule = sched;
+      }
+    } else {
+      pruningEnabled = _parseBool('memory.pruning.enabled', cli['memory_pruning_enabled'], null, pruningEnabled, warns);
+      archiveAfterDays = _parseInt(
+        'memory.pruning.archive_after_days',
+        cli['memory_pruning_archive_after_days'],
+        null,
+        defaults.memoryArchiveAfterDays,
+        warns,
+      );
+      if (cli['memory_pruning_schedule'] case final cliSchedule?) {
+        pruningSchedule = cliSchedule;
+      }
+    }
+
+    return (
+      maxBytes: maxBytes,
+      pruningEnabled: pruningEnabled,
+      archiveAfterDays: archiveAfterDays,
+      pruningSchedule: pruningSchedule,
+    );
   }
 
   static ContainerConfig _parseContainer(Map<String, dynamic> yaml, List<String> warns) {
@@ -1050,14 +1169,6 @@ class DartclawConfig {
     return config;
   }
 
-  static GoogleChatConfig _parseGoogleChat(ChannelConfig channels, List<String> warns) {
-    final raw = channels.channelConfigs['google_chat'];
-    if (raw == null) {
-      return const GoogleChatConfig.disabled();
-    }
-    return GoogleChatConfig.fromYaml(raw, warns);
-  }
-
   static ({int maxParallelTurns}) _parseConcurrency(
     Map<String, dynamic> yaml,
     DartclawConfig defaults,
@@ -1073,20 +1184,38 @@ class DartclawConfig {
     return (maxParallelTurns: maxParallelTurns);
   }
 
-  static ({int maxEntries}) _parseGuardAudit(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
-    final maxEntries = _parseInt(
-      'guard_audit.max_entries',
+  static ({int maxEntries, int maxRetentionDays}) _parseGuardAudit(
+    Map<String, dynamic> yaml,
+    DartclawConfig defaults,
+    List<String> warns,
+  ) {
+    final guardAuditRaw = yaml['guard_audit'];
+    if (guardAuditRaw is Map && guardAuditRaw.containsKey('max_entries')) {
+      warns.add(
+        'guard_audit.max_entries is deprecated and ignored — '
+        'use guard_audit.max_retention_days for audit retention',
+      );
+    }
+    final maxRetentionDays = _parseInt(
+      'guard_audit.max_retention_days',
       null,
-      (yaml['guard_audit'] is Map) ? (yaml['guard_audit'] as Map)['max_entries'] : null,
-      defaults.guardAuditMaxEntries,
+      (guardAuditRaw is Map) ? guardAuditRaw['max_retention_days'] : null,
+      defaults.guardAuditMaxRetentionDays,
       warns,
-    ).clamp(100, 1000000);
-    return (maxEntries: maxEntries);
+    ).clamp(0, 365);
+    return (maxEntries: defaults.guardAuditMaxEntries, maxRetentionDays: maxRetentionDays);
   }
 
-  static ({int maxConcurrent, String worktreeBaseRef, int worktreeStaleTimeoutHours, String worktreeMergeStrategy})
+  static ({
+    int maxConcurrent,
+    int artifactRetentionDays,
+    String worktreeBaseRef,
+    int worktreeStaleTimeoutHours,
+    String worktreeMergeStrategy,
+  })
   _parseTasks(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
     var maxConcurrent = defaults.tasksMaxConcurrent;
+    var artifactRetentionDays = defaults.tasksArtifactRetentionDays;
     var worktreeBaseRef = defaults.tasksWorktreeBaseRef;
     var worktreeStaleTimeoutHours = defaults.tasksWorktreeStaleTimeoutHours;
     var worktreeMergeStrategy = defaults.tasksWorktreeMergeStrategy;
@@ -1100,6 +1229,13 @@ class DartclawConfig {
         defaults.tasksMaxConcurrent,
         warns,
       ).clamp(1, 10);
+      artifactRetentionDays = _parseInt(
+        'tasks.artifact_retention_days',
+        null,
+        tasksRaw['artifact_retention_days'],
+        defaults.tasksArtifactRetentionDays,
+        warns,
+      ).clamp(0, 3650);
 
       final worktreeRaw = tasksRaw['worktree'];
       if (worktreeRaw is Map) {
@@ -1129,6 +1265,7 @@ class DartclawConfig {
 
     return (
       maxConcurrent: maxConcurrent,
+      artifactRetentionDays: artifactRetentionDays,
       worktreeBaseRef: worktreeBaseRef,
       worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
       worktreeMergeStrategy: worktreeMergeStrategy,
@@ -1284,6 +1421,16 @@ class DartclawConfig {
       }
       warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
     }
+    return defaultValue;
+  }
+
+  static bool _parseBool(String key, String? cliValue, Object? yamlValue, bool defaultValue, List<String> warns) {
+    if (cliValue != null) {
+      if (cliValue == 'true') return true;
+      if (cliValue == 'false') return false;
+      warns.add('Invalid CLI value for $key: "$cliValue" — using default');
+    }
+    if (yamlValue is bool) return yamlValue;
     return defaultValue;
   }
 

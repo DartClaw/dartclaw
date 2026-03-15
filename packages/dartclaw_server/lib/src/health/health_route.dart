@@ -8,9 +8,6 @@ import 'health_service.dart';
 Handler healthHandler(HealthService service) {
   return (Request request) async {
     final status = await service.getStatus();
-    return Response.ok(
-      jsonEncode(status),
-      headers: {'Content-Type': 'application/json'},
-    );
+    return Response.ok(jsonEncode(status), headers: {'Content-Type': 'application/json'});
   };
 }

@@ -19,8 +19,7 @@ class _EchoTool implements McpTool {
   };
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async =>
-      ToolResult.text(args['text'] as String);
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text(args['text'] as String);
 }
 
 class _FailTool implements McpTool {
@@ -46,8 +45,7 @@ class _ErrorTool implements McpTool {
   Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': {}};
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async =>
-      ToolResult.error('something went wrong');
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.error('something went wrong');
 }
 
 class _SlowTool implements McpTool {
@@ -115,36 +113,41 @@ void main() {
     });
 
     test('tools/call dispatches to correct handler', () async {
-      final response = decode(await handler.handleRequest(
-        request('tools/call', id: 3, params: {'name': 'echo', 'arguments': {'text': 'hello'}}),
-      ));
+      final response = decode(
+        await handler.handleRequest(
+          request(
+            'tools/call',
+            id: 3,
+            params: {
+              'name': 'echo',
+              'arguments': {'text': 'hello'},
+            },
+          ),
+        ),
+      );
       final result = response['result'] as Map<String, dynamic>;
       final content = result['content'] as List;
       expect(content[0]['text'], 'hello');
     });
 
     test('tools/call with unknown tool returns error', () async {
-      final response = decode(await handler.handleRequest(
-        request('tools/call', id: 4, params: {'name': 'nonexistent'}),
-      ));
+      final response = decode(
+        await handler.handleRequest(request('tools/call', id: 4, params: {'name': 'nonexistent'})),
+      );
       expect(response['error'], isNotNull);
       expect((response['error'] as Map)['code'], -32602);
       expect((response['error'] as Map)['message'], contains('Unknown tool'));
     });
 
     test('tools/call with missing name returns error', () async {
-      final response = decode(await handler.handleRequest(
-        request('tools/call', id: 5, params: {}),
-      ));
+      final response = decode(await handler.handleRequest(request('tools/call', id: 5, params: {})));
       expect(response['error'], isNotNull);
       expect((response['error'] as Map)['code'], -32602);
     });
 
     test('tools/call with tool failure returns isError result', () async {
       handler.registerTool(_FailTool());
-      final response = decode(await handler.handleRequest(
-        request('tools/call', id: 6, params: {'name': 'fail'}),
-      ));
+      final response = decode(await handler.handleRequest(request('tools/call', id: 6, params: {'name': 'fail'})));
       final result = response['result'] as Map<String, dynamic>;
       expect(result['isError'], isTrue);
       final content = result['content'] as List;
@@ -152,17 +155,13 @@ void main() {
     });
 
     test('unknown method returns method not found error', () async {
-      final response = decode(await handler.handleRequest(
-        request('unknown/method', id: 7),
-      ));
+      final response = decode(await handler.handleRequest(request('unknown/method', id: 7)));
       expect(response['error'], isNotNull);
       expect((response['error'] as Map)['code'], -32601);
     });
 
     test('notification returns null (no response)', () async {
-      final response = await handler.handleRequest(
-        request('notifications/initialized'),
-      );
+      final response = await handler.handleRequest(request('notifications/initialized'));
       expect(response, isNull);
     });
 
@@ -173,9 +172,7 @@ void main() {
     });
 
     test('missing jsonrpc field returns invalid request', () async {
-      final response = decode(await handler.handleRequest(
-        jsonEncode({'method': 'initialize', 'id': 1}),
-      ));
+      final response = decode(await handler.handleRequest(jsonEncode({'method': 'initialize', 'id': 1})));
       expect(response['error'], isNotNull);
       expect((response['error'] as Map)['code'], -32600);
     });
@@ -199,9 +196,9 @@ void main() {
 
     test('tool returning ToolResult.error produces isError response', () async {
       handler.registerTool(_ErrorTool());
-      final response = decode(await handler.handleRequest(
-        request('tools/call', id: 8, params: {'name': 'error_tool'}),
-      ));
+      final response = decode(
+        await handler.handleRequest(request('tools/call', id: 8, params: {'name': 'error_tool'})),
+      );
       expect(response['error'], isNull);
       final result = response['result'] as Map<String, dynamic>;
       expect(result['isError'], isTrue);
@@ -213,10 +210,24 @@ void main() {
       handler.registerTool(_SlowTool());
       final futures = [
         handler.handleRequest(
-          request('tools/call', id: 9, params: {'name': 'slow', 'arguments': {'id': 'a'}}),
+          request(
+            'tools/call',
+            id: 9,
+            params: {
+              'name': 'slow',
+              'arguments': {'id': 'a'},
+            },
+          ),
         ),
         handler.handleRequest(
-          request('tools/call', id: 10, params: {'name': 'slow', 'arguments': {'id': 'b'}}),
+          request(
+            'tools/call',
+            id: 10,
+            params: {
+              'name': 'slow',
+              'arguments': {'id': 'b'},
+            },
+          ),
         ),
       ];
       final responses = await Future.wait(futures);

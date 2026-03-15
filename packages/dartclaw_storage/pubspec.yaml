@@ -1,7 +1,14 @@
 name: dartclaw_storage
-description: SQLite3-backed storage services for DartClaw.
+description: SQLite-backed memory storage, search index, and pruning services for DartClaw agents.
 publish_to: none
-version: 0.8.0
+version: 0.9.0
+repository: https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_storage
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - sqlite
+  - agents
 
 environment:
   sdk: ^3.11.0

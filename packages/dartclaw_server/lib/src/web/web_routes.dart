@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -66,6 +71,7 @@ Router webRoutes(
   GoalService? goalService,
   EventBus? eventBus,
   AgentObserver? agentObserver,
+  KvService? kvService,
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
@@ -303,6 +309,7 @@ Router webRoutes(
           .reversed
           .toList();
 
+      final usage = await _readSessionUsage(kvService, id);
       final page = sessionInfoTemplate(
         sessionId: id,
         sessionTitle: session.title ?? '',
@@ -310,6 +317,8 @@ Router webRoutes(
         sidebarData: await buildSidebarData(sessions),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
         bannerHtml: restartBannerHtml(appDisplay.dataDir),
         recentTurns: recentTurns,
         appName: appDisplay.name,
@@ -368,6 +377,10 @@ Router webRoutes(
           groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel.config.groupAllowlist.toList(),
           requireMention: channel.config.requireMention,
+          taskTriggerEnabled: channel.config.taskTrigger.enabled,
+          taskTriggerPrefix: channel.config.taskTrigger.prefix,
+          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
+          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
           entryPlaceholder: '15551234567@s.whatsapp.net',
           groupPlaceholder: '12345678@g.us',
           sidebarData: sidebarData,
@@ -396,6 +409,10 @@ Router webRoutes(
           groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel.config.groupAllowlist.toList(),
           requireMention: channel.config.requireMention,
+          taskTriggerEnabled: channel.config.taskTrigger.enabled,
+          taskTriggerPrefix: channel.config.taskTrigger.prefix,
+          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
+          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
           entryPlaceholder: '+15551234567 or UUID',
           groupPlaceholder: 'base64-group-id',
           sidebarData: sidebarData,
@@ -423,6 +440,10 @@ Router webRoutes(
           groupAccessModes: ['open', 'disabled', 'allowlist'],
           groupAllowlist: channel.config.groupAllowlist.toList(),
           requireMention: channel.config.requireMention,
+          taskTriggerEnabled: channel.config.taskTrigger.enabled,
+          taskTriggerPrefix: channel.config.taskTrigger.prefix,
+          taskTriggerDefaultType: channel.config.taskTrigger.defaultType,
+          taskTriggerAutoStart: channel.config.taskTrigger.autoStart,
           entryPlaceholder: 'users/123456789',
           groupPlaceholder: 'spaces/AAAA',
           sidebarData: sidebarData,
@@ -474,6 +495,31 @@ Router webRoutes(
   });
 
   return router;
+}
+
+Future<({int? inputTokens, int? outputTokens})> _readSessionUsage(KvService? kvService, String sessionId) async {
+  if (kvService == null) {
+    return (inputTokens: null, outputTokens: null);
+  }
+
+  final raw = await kvService.get('session_cost:$sessionId');
+  if (raw == null) {
+    return (inputTokens: null, outputTokens: null);
+  }
+
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return (inputTokens: null, outputTokens: null);
+    }
+
+    return (
+      inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
+      outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
+    );
+  } catch (_) {
+    return (inputTokens: null, outputTokens: null);
+  }
 }
 
 String? _sanitizeNextPath(String? rawValue) {

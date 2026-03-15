@@ -3,10 +3,16 @@
 /// Factory methods pre-encode individual identifier components.
 /// The [identifiers] field is stored as-is (already encoded by factories).
 class SessionKey {
+  /// Agent identifier embedded into the key prefix.
   final String agentId;
+
+  /// Session scope such as `web`, `dm`, `group`, `cron`, or `task`.
   final String scope;
+
+  /// Already-encoded trailing identifier payload for this scope.
   final String identifiers;
 
+  /// Creates a parsed session key representation.
   const SessionKey({required this.agentId, required this.scope, this.identifiers = ''});
 
   /// Generates key string: `agent:<agentId>:<scope>:<identifiers>`.
@@ -14,7 +20,7 @@ class SessionKey {
   @override
   String toString() => 'agent:$agentId:$scope:$identifiers';
 
-  /// Parses a key string back into a [SessionKey].
+  /// Parses a serialized key string back into a [SessionKey].
   factory SessionKey.parse(String key) {
     final parts = key.split(':');
     if (parts.length < 4 || parts[0] != 'agent') {
@@ -23,20 +29,20 @@ class SessionKey {
     return SessionKey(agentId: parts[1], scope: parts[2], identifiers: parts.sublist(3).join(':'));
   }
 
-  /// Primary web session key.
+  /// Builds the shared primary web session key for [agentId].
   static String webSession({String agentId = 'main'}) => SessionKey(agentId: agentId, scope: 'web').toString();
 
-  /// Shared DM session — all DM contacts share one session.
+  /// Builds a shared DM session key used by all DM contacts for [agentId].
   static String dmShared({String agentId = 'main'}) =>
       SessionKey(agentId: agentId, scope: 'dm', identifiers: 'shared').toString();
 
-  /// Per-contact DM session — one session per contact across all channels.
+  /// Builds a per-contact DM session key shared across channels.
   static String dmPerContact({String agentId = 'main', required String peerId}) {
     if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
     return SessionKey(agentId: agentId, scope: 'dm', identifiers: 'contact:${Uri.encodeComponent(peerId)}').toString();
   }
 
-  /// Per-channel-contact DM session — one session per contact per channel type.
+  /// Builds a per-channel per-contact DM session key.
   static String dmPerChannelContact({String agentId = 'main', required String channelType, required String peerId}) {
     if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
     return SessionKey(
@@ -46,7 +52,7 @@ class SessionKey {
     ).toString();
   }
 
-  /// Shared group session — one session per group.
+  /// Builds a shared group session key for a channel group.
   static String groupShared({String agentId = 'main', required String channelType, required String groupId}) {
     if (groupId.isEmpty) throw ArgumentError('groupId must not be empty');
     return SessionKey(
@@ -56,7 +62,7 @@ class SessionKey {
     ).toString();
   }
 
-  /// Per-member group session — one session per member in a group.
+  /// Builds a per-member group session key inside a specific group.
   static String groupPerMember({
     String agentId = 'main',
     required String channelType,
@@ -72,11 +78,11 @@ class SessionKey {
     ).toString();
   }
 
-  /// Cron session key.
+  /// Builds a scheduled-job session key for [jobId].
   static String cronSession({String agentId = 'main', required String jobId}) =>
       SessionKey(agentId: agentId, scope: 'cron', identifiers: Uri.encodeComponent(jobId)).toString();
 
-  /// Task session key.
+  /// Builds a task-linked session key for [taskId].
   static String taskSession({String agentId = 'main', required String taskId}) {
     if (taskId.isEmpty) throw ArgumentError('taskId must not be empty');
     return SessionKey(agentId: agentId, scope: 'task', identifiers: Uri.encodeComponent(taskId)).toString();

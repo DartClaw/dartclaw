@@ -163,6 +163,7 @@ class SqliteTaskRepository implements TaskRepository {
       UPDATE tasks
       SET
         status = ?,
+        config_json = ?,
         started_at = ?,
         completed_at = ?
       WHERE id = ? AND status = ?
@@ -170,6 +171,7 @@ class SqliteTaskRepository implements TaskRepository {
     try {
       stmt.execute([
         task.status.name,
+        _encodeJson(task.configJson),
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
         task.id,

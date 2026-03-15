@@ -1,11 +1,30 @@
+/// Access control mode for group messages across supported channels.
+enum GroupAccessMode {
+  /// Only explicitly listed groups may interact with the runtime.
+  allowlist,
+
+  /// Any group may interact with the runtime.
+  open,
+
+  /// Group messages are ignored entirely.
+  disabled,
+}
+
 /// Retry policy for channel message delivery.
 class RetryPolicy {
+  /// Maximum number of delivery attempts before a message is dead-lettered.
   final int maxAttempts;
+
+  /// Base delay before retry backoff and jitter are applied.
   final Duration baseDelay;
+
+  /// Randomization factor applied to retry delays to reduce thundering herds.
   final double jitterFactor;
 
+  /// Creates a retry policy for outbound channel delivery.
   const RetryPolicy({this.maxAttempts = 3, this.baseDelay = const Duration(seconds: 1), this.jitterFactor = 0.2});
 
+  /// Parses a retry policy from YAML configuration, appending warnings to [warns].
   factory RetryPolicy.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     var maxAttempts = 3;
     final ma = yaml['max_attempts'];
@@ -41,11 +60,19 @@ class RetryPolicy {
 
 /// Configuration for the channel subsystem.
 class ChannelConfig {
+  /// Time window used to coalesce inbound messages from the same session.
   final Duration debounceWindow;
+
+  /// Maximum queued messages allowed per session key.
   final int maxQueueDepth;
+
+  /// Retry policy applied when a channel-specific override is absent.
   final RetryPolicy defaultRetryPolicy;
+
+  /// Raw channel-specific config maps keyed by channel name.
   final Map<String, Map<String, dynamic>> channelConfigs;
 
+  /// Creates channel subsystem configuration.
   const ChannelConfig({
     this.debounceWindow = const Duration(milliseconds: 1000),
     this.maxQueueDepth = 100,
@@ -53,8 +80,10 @@ class ChannelConfig {
     this.channelConfigs = const {},
   });
 
+  /// Creates the default channel configuration used when no YAML overrides exist.
   const ChannelConfig.defaults() : this();
 
+  /// Parses channel configuration from YAML, appending warnings to [warns].
   factory ChannelConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     var debounceMs = 1000;
     final dw = yaml['debounce_window_ms'];

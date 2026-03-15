@@ -1,7 +1,10 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:test/test.dart';
 
 void main() {
+  setUpAll(ensureDartclawGoogleChatRegistered);
+
   group('DartclawConfig', () {
     group('defaults', () {
       test('all fields have expected default values', () {
@@ -52,6 +55,11 @@ void main() {
       // No config file found -> defaults
       String? noFile(String path) => null;
 
+      test('implements ChannelConfigProvider', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config, isA<ChannelConfigProvider>());
+      });
+
       test('missing config file uses defaults', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
         expect(config.port, 3000);
@@ -78,40 +86,29 @@ void main() {
         expect(config.gatewayHsts, isTrue);
       });
 
-      test('google_chat config is parsed into typed config', () {
-        final config = DartclawConfig.load(
-          fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
-              return '''
-channels:
-  google_chat:
-    enabled: true
-    service_account: /tmp/google-service-account.json
-    audience:
-      type: app-url
-      value: https://example.com/integrations/googlechat
-    webhook_path: /integrations/googlechat
-    bot_user: users/123
-    typing_indicator: false
-    dm_access: allowlist
-    group_access: open
-    require_mention: false
-''';
-            }
-            return null;
-          },
-          env: {'HOME': '/home/user'},
-        );
+      test('google chat parser works after explicit package registration', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+        expect(googleChatConfig, isA<GoogleChatConfig>());
+        expect(googleChatConfig.enabled, isFalse);
+      });
 
-        expect(config.googleChatConfig.enabled, isTrue);
-        expect(config.googleChatConfig.serviceAccount, '/tmp/google-service-account.json');
-        expect(config.googleChatConfig.audience, isNotNull);
-        expect(config.googleChatConfig.audience!.mode, GoogleChatAudienceMode.appUrl);
-        expect(config.googleChatConfig.botUser, 'users/123');
-        expect(config.googleChatConfig.typingIndicator, isFalse);
-        expect(config.googleChatConfig.dmAccess, DmAccessMode.allowlist);
-        expect(config.googleChatConfig.groupAccess, GroupAccessMode.open);
-        expect(config.googleChatConfig.requireMention, isFalse);
+      test('getChannelConfig rejects ChannelType.web', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(() => config.getChannelConfig<Object>(ChannelType.web), throwsArgumentError);
+      });
+
+      test('getChannelConfig rejects unregistered extracted channels before type checking', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(() => config.getChannelConfig<DartclawConfig>(ChannelType.signal), throwsStateError);
+      });
+
+      test('getChannelConfig keeps other extracted channels externally registered', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+        expect(googleChatConfig, isA<GoogleChatConfig>());
+        expect(() => config.getChannelConfig<Object>(ChannelType.whatsapp), throwsStateError);
+        expect(() => config.getChannelConfig<Object>(ChannelType.signal), throwsStateError);
       });
 
       test('gateway.hsts defaults to false when unset', () {
@@ -194,7 +191,12 @@ channels:
         expect(config.guardAuditMaxEntries, 10000);
       });
 
-      test('guard_audit.max_entries parses when configured', () {
+      test('guard_audit.max_retention_days defaults to 30 when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.guardAuditMaxRetentionDays, 30);
+      });
+
+      test('guard_audit.max_entries is ignored with deprecation warning when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
             if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: 25000\n';
@@ -202,10 +204,45 @@ channels:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guardAuditMaxEntries, 25000);
+        expect(config.guardAuditMaxEntries, 10000);
+        expect(
+          config.warnings,
+          anyElement(contains('guard_audit.max_entries is deprecated and ignored')),
+        );
       });
 
-      test('guard_audit.max_entries invalid type collects warning and uses default', () {
+      test('guard_audit.max_retention_days parses when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 7\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.guardAuditMaxRetentionDays, 7);
+      });
+
+      test('guard_audit.max_retention_days is clamped to 0..365', () {
+        final low = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: -5\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        final high = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 999\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(low.guardAuditMaxRetentionDays, 0);
+        expect(high.guardAuditMaxRetentionDays, 365);
+      });
+
+      test('guard_audit.max_entries invalid type is ignored with deprecation warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
             if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: nope\n';
@@ -214,7 +251,147 @@ channels:
           env: {'HOME': '/home/user'},
         );
         expect(config.guardAuditMaxEntries, 10000);
-        expect(config.warnings, anyElement(contains('Invalid type for guard_audit.max_entries')));
+        expect(
+          config.warnings,
+          anyElement(contains('guard_audit.max_entries is deprecated and ignored')),
+        );
+      });
+
+      test('tasks.artifact_retention_days defaults to 0 when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(config.tasksArtifactRetentionDays, 0);
+      });
+
+      test('tasks.artifact_retention_days parses when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 90\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.tasksArtifactRetentionDays, 90);
+      });
+
+      test('tasks.artifact_retention_days is clamped to 0..3650', () {
+        final low = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: -30\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        final high = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 5000\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(low.tasksArtifactRetentionDays, 0);
+        expect(high.tasksArtifactRetentionDays, 3650);
+      });
+
+      test('parses memory.max_bytes from nested config', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.memoryMaxBytes, 65536);
+      });
+
+      test('falls back to top-level memory_max_bytes when memory.max_bytes is absent', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'memory_max_bytes: 65536\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.memoryMaxBytes, 65536);
+      });
+
+      test('CLI memory_max_bytes takes precedence over nested and top-level config', () {
+        final config = DartclawConfig.load(
+          cliOverrides: {'memory_max_bytes': '262144'},
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'memory_max_bytes: 131072\nmemory:\n  max_bytes: 65536\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.memoryMaxBytes, 262144);
+      });
+
+      test('nested memory.max_bytes takes precedence over top-level memory_max_bytes', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'memory_max_bytes: 131072\nmemory:\n  max_bytes: 65536\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.memoryMaxBytes, 65536);
+      });
+
+      test('emits deprecation warning for top-level memory_max_bytes', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'memory_max_bytes: 65536\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(
+          config.warnings,
+          anyElement(allOf(contains('memory_max_bytes'), contains('memory.max_bytes'), contains('deprecated'))),
+        );
+      });
+
+      test('no deprecation warning when using nested memory.max_bytes', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.warnings, isNot(anyElement(contains('deprecated'))));
+      });
+
+      test('memory.pruning CLI overrides take precedence over YAML', () {
+        final config = DartclawConfig.load(
+          cliOverrides: {
+            'memory_pruning_enabled': 'false',
+            'memory_pruning_archive_after_days': '7',
+            'memory_pruning_schedule': '0 4 * * *',
+          },
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'memory:\n  pruning:\n    enabled: true\n    archive_after_days: 90\n    schedule: "0 3 * * *"\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.memoryPruningEnabled, isFalse);
+        expect(config.memoryArchiveAfterDays, 7);
+        expect(config.memoryPruningSchedule, '0 4 * * *');
       });
 
       test('resolution order: CLI > YAML > defaults', () {

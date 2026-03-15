@@ -31,11 +31,7 @@ void main() {
             groupAccessEnabled: true,
             groupAllowlist: ['grp-wa-1', 'grp-wa-2'],
           ),
-          const ChannelGroupConfig(
-            channelType: 'signal',
-            groupAccessEnabled: true,
-            groupAllowlist: ['grp-sig-1'],
-          ),
+          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupAllowlist: ['grp-sig-1']),
         ],
       );
       await init.initialize();
@@ -50,16 +46,8 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: false,
-            groupAllowlist: ['grp-wa-1'],
-          ),
-          const ChannelGroupConfig(
-            channelType: 'signal',
-            groupAccessEnabled: true,
-            groupAllowlist: ['grp-sig-1'],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupAllowlist: ['grp-wa-1']),
+          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupAllowlist: ['grp-sig-1']),
         ],
       );
       await init.initialize();
@@ -74,11 +62,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: ['grp-wa-1'],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['grp-wa-1']),
         ],
       );
       await init.initialize();
@@ -90,11 +74,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: ['grp-wa-1'],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['grp-wa-1']),
         ],
       );
       await init2.initialize();
@@ -110,11 +90,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: [],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: []),
         ],
       );
       await init.initialize();
@@ -131,25 +107,23 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: [],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: []),
         ],
       );
       await init.initialize();
 
       // Fire config change with new group
-      eventBus.fire(ConfigChangedEvent(
-        changedKeys: ['channels.whatsapp.group_allowlist'],
-        oldValues: {'channels.whatsapp.group_allowlist': <String>[]},
-        newValues: {
-          'channels.whatsapp.group_allowlist': ['new-grp-1'],
-        },
-        requiresRestart: true,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        ConfigChangedEvent(
+          changedKeys: ['channels.whatsapp.group_allowlist'],
+          oldValues: {'channels.whatsapp.group_allowlist': <String>[]},
+          newValues: {
+            'channels.whatsapp.group_allowlist': ['new-grp-1'],
+          },
+          requiresRestart: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       // Wait for fire-and-forget processing
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -164,24 +138,22 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: false,
-            groupAllowlist: [],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupAllowlist: []),
         ],
       );
       await init.initialize();
 
-      eventBus.fire(ConfigChangedEvent(
-        changedKeys: ['channels.whatsapp.group_allowlist'],
-        oldValues: {'channels.whatsapp.group_allowlist': <String>[]},
-        newValues: {
-          'channels.whatsapp.group_allowlist': ['new-grp-1'],
-        },
-        requiresRestart: true,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        ConfigChangedEvent(
+          changedKeys: ['channels.whatsapp.group_allowlist'],
+          oldValues: {'channels.whatsapp.group_allowlist': <String>[]},
+          newValues: {
+            'channels.whatsapp.group_allowlist': ['new-grp-1'],
+          },
+          requiresRestart: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
       init.dispose();
@@ -191,20 +163,20 @@ void main() {
     });
 
     test('ignores non-group-allowlist config changes', () async {
-      final init = GroupSessionInitializer(
-        sessions: sessions,
-        eventBus: eventBus,
-        channelConfigs: [],
-      );
+      final init = GroupSessionInitializer(sessions: sessions, eventBus: eventBus, channelConfigs: []);
       await init.initialize();
 
-      eventBus.fire(ConfigChangedEvent(
-        changedKeys: ['channels.whatsapp.dm_allowlist'],
-        oldValues: {},
-        newValues: {'channels.whatsapp.dm_allowlist': ['+123']},
-        requiresRestart: true,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        ConfigChangedEvent(
+          changedKeys: ['channels.whatsapp.dm_allowlist'],
+          oldValues: {},
+          newValues: {
+            'channels.whatsapp.dm_allowlist': ['+123'],
+          },
+          requiresRestart: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
       init.dispose();
@@ -220,11 +192,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: ['my-group'],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['my-group']),
         ],
       );
       await init.initialize();
@@ -245,11 +213,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(
-            channelType: 'whatsapp',
-            groupAccessEnabled: true,
-            groupAllowlist: ['my-group'],
-          ),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['my-group']),
         ],
       );
       await init.initialize();
@@ -263,24 +227,22 @@ void main() {
 
   group('dispose', () {
     test('stops listening to events after dispose', () async {
-      final init = GroupSessionInitializer(
-        sessions: sessions,
-        eventBus: eventBus,
-        channelConfigs: [],
-      );
+      final init = GroupSessionInitializer(sessions: sessions, eventBus: eventBus, channelConfigs: []);
       await init.initialize();
       init.dispose();
 
       // Fire event after dispose — should be ignored
-      eventBus.fire(ConfigChangedEvent(
-        changedKeys: ['channels.signal.group_allowlist'],
-        oldValues: {},
-        newValues: {
-          'channels.signal.group_allowlist': ['grp-after-dispose'],
-        },
-        requiresRestart: true,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        ConfigChangedEvent(
+          changedKeys: ['channels.signal.group_allowlist'],
+          oldValues: {},
+          newValues: {
+            'channels.signal.group_allowlist': ['grp-after-dispose'],
+          },
+          requiresRestart: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
 

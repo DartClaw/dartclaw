@@ -14,16 +14,11 @@ void main() {
 
     test('reports Docker pass when docker succeeds', () async {
       final output = <String>[];
-      final cmd = SetupCommand(
-        run: (exe, args) async => ProcessResult(0, 0, '', ''),
-      );
+      final cmd = SetupCommand(run: (exe, args) async => ProcessResult(0, 0, '', ''));
 
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
-      await IOOverrides.runZoned(
-        () => runner.run(['setup']),
-        stdout: () => _CapturingStdout(output),
-      );
+      await IOOverrides.runZoned(() => runner.run(['setup']), stdout: () => _CapturingStdout(output));
 
       expect(output.join('\n'), contains('[PASS] Docker'));
     });
@@ -39,10 +34,7 @@ void main() {
 
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
-      await IOOverrides.runZoned(
-        () => runner.run(['setup']),
-        stdout: () => _CapturingStdout(output),
-      );
+      await IOOverrides.runZoned(() => runner.run(['setup']), stdout: () => _CapturingStdout(output));
 
       expect(output.join('\n'), contains('[FAIL] Docker'));
     });
@@ -58,10 +50,7 @@ void main() {
 
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
-      await IOOverrides.runZoned(
-        () => runner.run(['setup']),
-        stdout: () => _CapturingStdout(output),
-      );
+      await IOOverrides.runZoned(() => runner.run(['setup']), stdout: () => _CapturingStdout(output));
 
       expect(output.join('\n'), contains('[FAIL] Docker not found'));
     });
@@ -77,26 +66,18 @@ void main() {
 
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
-      await IOOverrides.runZoned(
-        () => runner.run(['setup']),
-        stdout: () => _CapturingStdout(output),
-      );
+      await IOOverrides.runZoned(() => runner.run(['setup']), stdout: () => _CapturingStdout(output));
 
       expect(output.join('\n'), contains('[WARN] dartclaw binary not in PATH'));
     });
 
     test('reports OS pass on macOS or Linux', () async {
       final output = <String>[];
-      final cmd = SetupCommand(
-        run: (exe, args) async => ProcessResult(0, 0, '', ''),
-      );
+      final cmd = SetupCommand(run: (exe, args) async => ProcessResult(0, 0, '', ''));
 
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
-      await IOOverrides.runZoned(
-        () => runner.run(['setup']),
-        stdout: () => _CapturingStdout(output),
-      );
+      await IOOverrides.runZoned(() => runner.run(['setup']), stdout: () => _CapturingStdout(output));
 
       // On macOS CI or Linux CI, OS check should pass
       expect(output.join('\n'), contains('[PASS] OS:'));

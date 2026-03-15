@@ -19,19 +19,13 @@ class SessionsSendTool implements McpTool {
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'agent': {
-            'type': 'string',
-            'description': 'Agent ID (e.g. "search")',
-          },
-          'message': {
-            'type': 'string',
-            'description': 'The query or instruction to send',
-          },
-        },
-        'required': ['agent', 'message'],
-      };
+    'type': 'object',
+    'properties': {
+      'agent': {'type': 'string', 'description': 'Agent ID (e.g. "search")'},
+      'message': {'type': 'string', 'description': 'The query or instruction to send'},
+    },
+    'required': ['agent', 'message'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {

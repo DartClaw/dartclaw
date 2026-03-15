@@ -1,11 +1,12 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../behavior/heartbeat_scheduler.dart';
 import '../runtime_config.dart';
 import '../scheduling/schedule_service.dart';
+import '../workspace/workspace_git_sync.dart';
 import 'api_helpers.dart';
 
 /// Toggle API endpoints for runtime service control.
@@ -44,10 +45,7 @@ Router configRoutes({
     }
     runtimeConfig.heartbeatEnabled = enabled;
 
-    return jsonResponse(200, {
-      'enabled': enabled,
-      'intervalMinutes': heartbeatIntervalMinutes,
-    });
+    return jsonResponse(200, {'enabled': enabled, 'intervalMinutes': heartbeatIntervalMinutes});
   });
 
   // POST /api/settings/git-sync/toggle
@@ -125,18 +123,19 @@ Router configRoutes({
 
   // GET /api/settings/runtime
   router.get('/api/settings/runtime', (Request request) async {
-    final jobStatuses = scheduledJobs.map((j) => {
-      'name': j['name']?.toString() ?? '',
-      'status': j['status']?.toString() ?? 'active',
-      'schedule': j['schedule']?.toString() ?? '',
-    }).toList();
+    final jobStatuses = scheduledJobs
+        .map(
+          (j) => {
+            'name': j['name']?.toString() ?? '',
+            'status': j['status']?.toString() ?? 'active',
+            'schedule': j['schedule']?.toString() ?? '',
+          },
+        )
+        .toList();
 
     final result = {
       ...runtimeConfig.toJson(),
-      'heartbeat': {
-        'enabled': runtimeConfig.heartbeatEnabled,
-        'intervalMinutes': heartbeatIntervalMinutes,
-      },
+      'heartbeat': {'enabled': runtimeConfig.heartbeatEnabled, 'intervalMinutes': heartbeatIntervalMinutes},
       'jobs': jobStatuses,
     };
 
@@ -174,4 +173,3 @@ dynamic _coerceBool(String v) {
   if (v == 'false') return false;
   return v;
 }
-

@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskType;
+
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -21,6 +23,10 @@ String channelDetailTemplate({
   required List<String> groupAccessModes,
   required List<String> groupAllowlist,
   required bool requireMention,
+  bool taskTriggerEnabled = false,
+  String taskTriggerPrefix = 'task:',
+  String taskTriggerDefaultType = 'research',
+  bool taskTriggerAutoStart = true,
   required String entryPlaceholder,
   required String groupPlaceholder,
   required SidebarData sidebarData,
@@ -53,6 +59,7 @@ String channelDetailTemplate({
   final dmCards = _buildModeCards(['pairing', 'allowlist', 'open', 'disabled'], dmAccessMode, _dmModeHelp);
   final groupCards = _buildModeCards(['allowlist', 'open', 'disabled'], groupAccessMode, _groupModeHelp);
   final groupAccessDisabled = groupAccessMode == 'disabled';
+  final taskTriggerTypes = _taskTriggerTypeOptions(taskTriggerDefaultType);
 
   final body = templateLoader.trellis.render(templateLoader.source('channel_detail'), {
     'sidebar': sidebar,
@@ -78,6 +85,11 @@ String channelDetailTemplate({
     'groupAllowlist': groupAllowlist,
     'groupAllowlistCount': groupAllowlist.length,
     'requireMention': requireMention,
+    'taskTriggerEnabled': taskTriggerEnabled,
+    'taskTriggerPrefix': taskTriggerPrefix,
+    'taskTriggerDefaultType': taskTriggerDefaultType,
+    'taskTriggerAutoStart': taskTriggerAutoStart,
+    'taskTriggerTypes': taskTriggerTypes,
     'groupAccessDisabled': groupAccessDisabled,
     'entryPlaceholder': entryPlaceholder,
     'groupPlaceholder': groupPlaceholder,
@@ -113,4 +125,12 @@ List<Map<String, dynamic>> _buildModeCards(List<String> modes, String activeMode
     };
     return <String, dynamic>{'value': mode, 'label': label, 'help': helpMap[mode] ?? '', 'active': mode == activeMode};
   }).toList();
+}
+
+List<String> _taskTriggerTypeOptions(String selectedType) {
+  final options = TaskType.values.map((type) => type.name).toList();
+  if (!options.contains(selectedType)) {
+    options.add(selectedType);
+  }
+  return options;
 }

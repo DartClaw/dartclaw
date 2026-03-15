@@ -1,0 +1,217 @@
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        Channel,
+        ChannelManager,
+        ChannelResponse,
+        ChannelType,
+        DmAccessController,
+        MentionGating,
+        chunkText,
+        sourceMessageIdMetadataKey;
+import 'package:logging/logging.dart';
+
+import 'google_chat_config.dart';
+import 'google_chat_rest_client.dart';
+
+/// Channel adapter that delivers DartClaw responses to Google Chat spaces.
+class GoogleChatChannel extends Channel {
+  static final _log = Logger('GoogleChatChannel');
+
+  @override
+  final String name = 'googlechat';
+
+  @override
+  final ChannelType type = ChannelType.googlechat;
+
+  /// Parsed Google Chat runtime configuration.
+  final GoogleChatConfig config;
+
+  /// Authenticated REST client used for outbound Google Chat API calls.
+  final GoogleChatRestClient restClient;
+
+  /// Optional DM access controller for one-to-one spaces.
+  final DmAccessController? dmAccess;
+
+  /// Optional mention-gating helper for group spaces.
+  final MentionGating? mentionGating;
+  final ChannelManager? _channelManager;
+  final Map<String, String> _pendingPlaceholders = {};
+
+  /// Creates a Google Chat channel adapter.
+  GoogleChatChannel({
+    required this.config,
+    required this.restClient,
+    ChannelManager? channelManager,
+    this.dmAccess,
+    this.mentionGating,
+  }) : _channelManager = channelManager;
+
+  /// Channel manager used to route normalized inbound messages, if attached.
+  ChannelManager? get channelManager => _channelManager;
+
+  @override
+  Future<void> connect() async {
+    _log.info('Starting Google Chat channel');
+    await restClient.testConnection();
+    _log.info('Google Chat API credentials verified');
+    _log.info('Google Chat channel connected');
+  }
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    if (response.mediaAttachments.isNotEmpty) {
+      _log.warning('Outbound Google Chat media is not supported in 0.8');
+    }
+
+    final structuredPayload = response.structuredPayload;
+    final fallbackText = _fallbackText(response);
+    if (structuredPayload != null) {
+      final name = await restClient.sendCard(recipientJid, structuredPayload);
+      if (name != null) {
+        final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
+        if (turnId != null) {
+          _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
+        }
+        return;
+      }
+      _log.warning('Google Chat card send failed for $recipientJid, falling back to plain text');
+    }
+
+    if (fallbackText.isEmpty) {
+      return;
+    }
+
+    final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
+    final placeholder = turnId == null ? null : _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
+    if (placeholder != null) {
+      final updated = await restClient.editMessage(placeholder, fallbackText);
+      if (updated) {
+        return;
+      }
+      _log.warning('Failed to replace typing placeholder for $recipientJid, falling back to new message');
+    }
+
+    await restClient.sendMessage(recipientJid, fallbackText);
+  }
+
+  /// Associates a pending typing placeholder with an outbound turn id.
+  void setPlaceholder({required String spaceName, required String turnId, required String messageName}) {
+    _pendingPlaceholders[_placeholderKey(spaceName, turnId)] = messageName;
+  }
+
+  @override
+  bool ownsJid(String jid) => jid.startsWith('spaces/');
+
+  @override
+  List<ChannelResponse> formatResponse(String text) {
+    final chunks = chunkText(text, maxSize: 4000);
+    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _log.info('Disconnecting Google Chat channel');
+    await restClient.close();
+    _pendingPlaceholders.clear();
+    _log.info('Google Chat channel disconnected');
+  }
+
+  String _fallbackText(ChannelResponse response) {
+    if (response.text.isNotEmpty) {
+      return response.text;
+    }
+
+    final structuredPayload = response.structuredPayload;
+    if (structuredPayload == null) {
+      return '';
+    }
+
+    final synthesized = _synthesizeFallbackText(structuredPayload);
+    if (synthesized.isNotEmpty) {
+      return synthesized;
+    }
+
+    return 'DartClaw sent an update.';
+  }
+
+  String _synthesizeFallbackText(Map<String, dynamic> structuredPayload) {
+    final cards = structuredPayload['cardsV2'];
+    if (cards is! List || cards.isEmpty) {
+      return '';
+    }
+
+    final cardEntry = cards.first;
+    if (cardEntry is! Map) {
+      return '';
+    }
+
+    final card = cardEntry['card'];
+    if (card is! Map) {
+      return '';
+    }
+
+    final parts = <String>[];
+    final header = card['header'];
+    if (header is Map) {
+      final title = _nonEmptyString(header['title']);
+      final subtitle = _nonEmptyString(header['subtitle']);
+      if (title != null) {
+        parts.add(title);
+      }
+      if (subtitle != null) {
+        parts.add(subtitle);
+      }
+    }
+
+    final sections = card['sections'];
+    if (sections is List) {
+      for (final section in sections) {
+        if (section is! Map) {
+          continue;
+        }
+        final widgets = section['widgets'];
+        if (widgets is! List) {
+          continue;
+        }
+        for (final widget in widgets) {
+          if (widget is! Map) {
+            continue;
+          }
+          final textParagraph = widget['textParagraph'];
+          if (textParagraph is! Map) {
+            continue;
+          }
+          final text = _nonEmptyString(textParagraph['text']);
+          if (text == null) {
+            continue;
+          }
+          parts.add(_plainTextFromMarkup(text));
+        }
+      }
+    }
+
+    return parts.where((part) => part.isNotEmpty).join('\n');
+  }
+
+  String _plainTextFromMarkup(String value) {
+    return value
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', '\'')
+        .replaceAll('&amp;', '&')
+        .trim();
+  }
+
+  String? _nonEmptyString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String _placeholderKey(String spaceName, String turnId) => '$spaceName::$turnId';
+}

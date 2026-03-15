@@ -4,8 +4,7 @@ import 'mcp_utils.dart';
 
 /// Callback type matching the memory handler signature from
 /// `createMemoryHandlers()`.
-typedef MemoryHandler = Future<Map<String, dynamic>> Function(
-    Map<String, dynamic>);
+typedef MemoryHandler = Future<Map<String, dynamic>> Function(Map<String, dynamic>);
 
 /// MCP tool for saving a fact or preference to persistent memory.
 class MemorySaveTool implements McpTool {
@@ -17,21 +16,17 @@ class MemorySaveTool implements McpTool {
   String get name => 'memory_save';
 
   @override
-  String get description =>
-      'Save a fact, preference, or piece of knowledge to persistent memory.';
+  String get description => 'Save a fact, preference, or piece of knowledge to persistent memory.';
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'text': {'type': 'string', 'description': 'The text to save'},
-          'category': {
-            'type': 'string',
-            'description': 'Category (e.g. preferences, project)',
-          },
-        },
-        'required': ['text'],
-      };
+    'type': 'object',
+    'properties': {
+      'text': {'type': 'string', 'description': 'The text to save'},
+      'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
+    },
+    'required': ['text'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
@@ -54,16 +49,13 @@ class MemorySearchTool implements McpTool {
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'query': {'type': 'string', 'description': 'Search query'},
-          'limit': {
-            'type': 'number',
-            'description': 'Max results (default 5)',
-          },
-        },
-        'required': ['query'],
-      };
+    'type': 'object',
+    'properties': {
+      'query': {'type': 'string', 'description': 'Search query'},
+      'limit': {'type': 'number', 'description': 'Max results (default 5)'},
+    },
+    'required': ['query'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
@@ -85,10 +77,7 @@ class MemoryReadTool implements McpTool {
   String get description => 'Read the full contents of MEMORY.md.';
 
   @override
-  Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': <String, dynamic>{},
-      };
+  Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': <String, dynamic>{}};
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {

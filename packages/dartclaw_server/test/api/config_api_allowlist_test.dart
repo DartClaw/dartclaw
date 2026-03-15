@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -36,10 +38,7 @@ channels:
     tempDir.deleteSync(recursive: true);
   });
 
-  Router createRouter({
-    DmAccessController? waController,
-    DmAccessController? sigController,
-  }) {
+  Router createRouter({DmAccessController? waController, DmAccessController? sigController}) {
     final cfg = const DartclawConfig.defaults();
     final rc = RuntimeConfig(
       heartbeatEnabled: cfg.heartbeatEnabled,
@@ -131,9 +130,7 @@ channels:
     });
 
     test('POST with invalid format returns 400', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': 'no-at-sign',
-      });
+      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {'entry': 'no-at-sign'});
       expect(resp.statusCode, 400);
     });
 
@@ -192,9 +189,7 @@ channels:
     });
 
     test('Signal: POST with phone entry succeeds', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/signal/dm-allowlist', {
-        'entry': '+1234567890',
-      });
+      final resp = await request(router, 'POST', '/api/config/channels/signal/dm-allowlist', {'entry': '+1234567890'});
       expect(resp.statusCode, 200);
       final body = await parseBody(resp);
       expect(body['added'], isTrue);
@@ -209,9 +204,7 @@ channels:
     });
 
     test('WhatsApp: POST without @ returns 400', () async {
-      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {
-        'entry': '1234567890',
-      });
+      final resp = await request(router, 'POST', '/api/config/channels/whatsapp/dm-allowlist', {'entry': '1234567890'});
       expect(resp.statusCode, 400);
     });
   });

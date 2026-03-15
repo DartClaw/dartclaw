@@ -19,10 +19,7 @@ Router taskSseRoutes(TaskService tasks, EventBus eventBus, {AgentObserver? obser
 
     // Send initial connected message with current review count and agent snapshot.
     final reviewTasks = await tasks.list(status: TaskStatus.review);
-    final connectedPayload = <String, dynamic>{
-      'type': 'connected',
-      'reviewCount': reviewTasks.length,
-    };
+    final connectedPayload = <String, dynamic>{'type': 'connected', 'reviewCount': reviewTasks.length};
     if (observer != null) {
       final pool = observer.poolStatus;
       connectedPayload['agents'] = {

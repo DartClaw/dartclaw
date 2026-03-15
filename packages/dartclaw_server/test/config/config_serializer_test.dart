@@ -1,9 +1,18 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
 void main() {
   const serializer = ConfigSerializer();
+
+  setUpAll(() {
+    ensureDartclawGoogleChatRegistered();
+    ensureDartclawSignalRegistered();
+    ensureDartclawWhatsappRegistered();
+  });
 
   group('ConfigSerializer.toJson', () {
     test('default config produces correct nested camelCase JSON', () {
@@ -17,6 +26,10 @@ void main() {
       expect(json['dataDir'], '~/.dartclaw');
       expect(json['workerTimeout'], 600);
       expect(json['memoryMaxBytes'], 32 * 1024);
+
+      final memory = json['memory'] as Map<String, dynamic>;
+      expect(memory['maxBytes'], 32 * 1024);
+      expect(memory['pruning'], {'enabled': true, 'archiveAfterDays': 90, 'schedule': '0 3 * * *'});
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;
@@ -32,7 +45,13 @@ void main() {
       expect(concurrency['maxParallelTurns'], 3);
 
       final guardAudit = json['guardAudit'] as Map<String, dynamic>;
-      expect(guardAudit['maxEntries'], 10000);
+      expect(guardAudit['maxRetentionDays'], 30);
+      expect(guardAudit.containsKey('maxEntries'), isFalse);
+
+      final tasks = json['tasks'] as Map<String, dynamic>;
+      expect(tasks['maxConcurrent'], 3);
+      expect(tasks['artifactRetentionDays'], 0);
+      expect(tasks['worktree'], {'baseRef': 'main', 'staleTimeoutHours': 24, 'mergeStrategy': 'squash'});
 
       final sessions = json['sessions'] as Map<String, dynamic>;
       expect(sessions['resetHour'], 4);
@@ -63,18 +82,31 @@ void main() {
       expect(gateway['hsts'], true);
     });
 
-    test('auth cookie settings and guardAudit.maxEntries serialize custom values', () {
+    test('auth cookie settings and retention config serialize custom values', () {
       final config = const DartclawConfig(
         cookieSecure: true,
         trustedProxies: ['192.168.1.100'],
-        guardAuditMaxEntries: 25000,
+        guardAuditMaxRetentionDays: 14,
+        tasksMaxConcurrent: 5,
+        tasksArtifactRetentionDays: 90,
+        tasksWorktreeBaseRef: 'develop',
+        tasksWorktreeStaleTimeoutHours: 72,
+        tasksWorktreeMergeStrategy: 'merge',
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
       expect((json['auth'] as Map<String, dynamic>)['cookieSecure'], true);
       expect((json['auth'] as Map<String, dynamic>)['trustedProxies'], ['192.168.1.100']);
-      expect((json['guardAudit'] as Map<String, dynamic>)['maxEntries'], 25000);
+      expect((json['guardAudit'] as Map<String, dynamic>)['maxRetentionDays'], 14);
+      expect((json['guardAudit'] as Map<String, dynamic>).containsKey('maxEntries'), isFalse);
+      expect((json['tasks'] as Map<String, dynamic>)['maxConcurrent'], 5);
+      expect((json['tasks'] as Map<String, dynamic>)['artifactRetentionDays'], 90);
+      expect((json['tasks'] as Map<String, dynamic>)['worktree'], {
+        'baseRef': 'develop',
+        'staleTimeoutHours': 72,
+        'mergeStrategy': 'merge',
+      });
     });
 
     test('gateway.token is null when config has null token', () {
@@ -209,21 +241,33 @@ void main() {
 
     test('google chat config serializes with camelCase keys', () {
       final config = DartclawConfig(
-        googleChatConfig: const GoogleChatConfig(
-          enabled: true,
-          serviceAccount: '/tmp/google-service-account.json',
-          audience: GoogleChatAudienceConfig(
-            mode: GoogleChatAudienceMode.appUrl,
-            value: 'https://example.com/integrations/googlechat',
-          ),
-          webhookPath: '/integrations/googlechat',
-          botUser: 'users/123',
-          typingIndicator: false,
-          dmAccess: DmAccessMode.allowlist,
-          dmAllowlist: ['spaces/AAA/users/1'],
-          groupAccess: GroupAccessMode.open,
-          groupAllowlist: ['spaces/AAA'],
-          requireMention: false,
+        channelConfig: ChannelConfig(
+          channelConfigs: {
+            'google_chat': _googleChatChannelConfig(
+              const GoogleChatConfig(
+                enabled: true,
+                serviceAccount: '/tmp/google-service-account.json',
+                audience: GoogleChatAudienceConfig(
+                  mode: GoogleChatAudienceMode.appUrl,
+                  value: 'https://example.com/integrations/googlechat',
+                ),
+                webhookPath: '/integrations/googlechat',
+                botUser: 'users/123',
+                typingIndicator: false,
+                dmAccess: DmAccessMode.allowlist,
+                dmAllowlist: ['spaces/AAA/users/1'],
+                groupAccess: GroupAccessMode.open,
+                groupAllowlist: ['spaces/AAA'],
+                requireMention: false,
+                taskTrigger: TaskTriggerConfig(
+                  enabled: true,
+                  prefix: 'do:',
+                  defaultType: 'automation',
+                  autoStart: false,
+                ),
+              ),
+            ),
+          },
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
@@ -243,15 +287,27 @@ void main() {
       expect(googleChat['groupAccess'], 'open');
       expect(googleChat['groupAllowlist'], ['spaces/AAA']);
       expect(googleChat['requireMention'], isFalse);
+      expect(googleChat['taskTrigger'], {
+        'enabled': true,
+        'prefix': 'do:',
+        'defaultType': 'automation',
+        'autoStart': false,
+      });
     });
 
     test('google chat inline service account is redacted to client email', () {
       final config = DartclawConfig(
-        googleChatConfig: const GoogleChatConfig(
-          enabled: true,
-          serviceAccount:
-              '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
-          audience: GoogleChatAudienceConfig(mode: GoogleChatAudienceMode.projectNumber, value: '123456789'),
+        channelConfig: ChannelConfig(
+          channelConfigs: {
+            'google_chat': _googleChatChannelConfig(
+              const GoogleChatConfig(
+                enabled: true,
+                serviceAccount:
+                    '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
+                audience: GoogleChatAudienceConfig(mode: GoogleChatAudienceMode.projectNumber, value: '123456789'),
+              ),
+            ),
+          },
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
@@ -261,6 +317,68 @@ void main() {
       final googleChat = channels['googleChat'] as Map<String, dynamic>;
 
       expect(googleChat['serviceAccount'], 'chat-bot@example.iam.gserviceaccount.com');
+    });
+
+    test('whatsapp config serializes from parsed typed config', () {
+      final config = DartclawConfig(
+        channelConfig: const ChannelConfig(
+          channelConfigs: {
+            'whatsapp': {
+              'enabled': 'yes',
+              'dm_access': 'invalid',
+              'group_access': 'invalid',
+              'require_mention': 'invalid',
+            },
+          },
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final channels = json['channels'] as Map<String, dynamic>;
+      final whatsapp = channels['whatsapp'] as Map<String, dynamic>;
+
+      expect(whatsapp['enabled'], isFalse);
+      expect(whatsapp['dmAccess'], 'pairing');
+      expect(whatsapp['groupAccess'], 'disabled');
+      expect(whatsapp['requireMention'], isTrue);
+      expect(whatsapp['taskTrigger'], {
+        'enabled': false,
+        'prefix': 'task:',
+        'defaultType': 'research',
+        'autoStart': true,
+      });
+    });
+
+    test('signal config serializes from parsed typed config', () {
+      final config = DartclawConfig(
+        channelConfig: const ChannelConfig(
+          channelConfigs: {
+            'signal': {
+              'enabled': 'yes',
+              'dm_access': 'invalid',
+              'group_access': 'invalid',
+              'require_mention': 'invalid',
+            },
+          },
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final channels = json['channels'] as Map<String, dynamic>;
+      final signal = channels['signal'] as Map<String, dynamic>;
+
+      expect(signal['enabled'], isFalse);
+      expect(signal['dmAccess'], 'allowlist');
+      expect(signal['groupAccess'], 'disabled');
+      expect(signal['requireMention'], isTrue);
+      expect(signal['taskTrigger'], {
+        'enabled': false,
+        'prefix': 'task:',
+        'defaultType': 'research',
+        'autoStart': true,
+      });
     });
   });
 
@@ -280,6 +398,35 @@ void main() {
       expect(port['mutable'], 'restart');
       expect(port['min'], 1);
       expect(port['max'], 65535);
+    });
+
+    test('new retention entries include integer constraints', () {
+      final meta = serializer.metaJson();
+      expect(meta.containsKey('guard_audit.max_entries'), isFalse);
+      final guardAuditRetention = meta['guard_audit.max_retention_days'] as Map<String, dynamic>;
+      expect(guardAuditRetention['type'], 'int');
+      expect(guardAuditRetention['mutable'], 'restart');
+      expect(guardAuditRetention['min'], 0);
+      expect(guardAuditRetention['max'], 365);
+
+      final taskArtifactsRetention = meta['tasks.artifact_retention_days'] as Map<String, dynamic>;
+      expect(taskArtifactsRetention['type'], 'int');
+      expect(taskArtifactsRetention['mutable'], 'restart');
+      expect(taskArtifactsRetention['min'], 0);
+      expect(taskArtifactsRetention['max'], 3650);
+    });
+
+    test('memory.max_bytes metadata is exposed alongside the legacy root key', () {
+      final meta = serializer.metaJson();
+      final nested = meta['memory.max_bytes'] as Map<String, dynamic>;
+      expect(nested['type'], 'int');
+      expect(nested['mutable'], 'restart');
+      expect(nested['min'], 1);
+
+      final legacy = meta['memory_max_bytes'] as Map<String, dynamic>;
+      expect(legacy['type'], 'int');
+      expect(legacy['mutable'], 'restart');
+      expect(legacy['min'], 1);
     });
 
     test('enum entries have allowedValues', () {
@@ -315,3 +462,30 @@ void main() {
     });
   });
 }
+
+Map<String, dynamic> _googleChatChannelConfig(GoogleChatConfig config) => {
+  'enabled': config.enabled,
+  if (config.serviceAccount != null) 'service_account': config.serviceAccount,
+  if (config.audience != null)
+    'audience': {
+      'type': switch (config.audience!.mode) {
+        GoogleChatAudienceMode.appUrl => 'app-url',
+        GoogleChatAudienceMode.projectNumber => 'project-number',
+      },
+      'value': config.audience!.value,
+    },
+  'webhook_path': config.webhookPath,
+  if (config.botUser != null) 'bot_user': config.botUser,
+  'typing_indicator': config.typingIndicator,
+  'dm_access': config.dmAccess.name,
+  'dm_allowlist': config.dmAllowlist,
+  'group_access': config.groupAccess.name,
+  'group_allowlist': config.groupAllowlist,
+  'require_mention': config.requireMention,
+  'task_trigger': {
+    'enabled': config.taskTrigger.enabled,
+    'prefix': config.taskTrigger.prefix,
+    'default_type': config.taskTrigger.defaultType,
+    'auto_start': config.taskTrigger.autoStart,
+  },
+};

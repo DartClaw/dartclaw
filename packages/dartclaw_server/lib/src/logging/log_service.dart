@@ -16,13 +16,10 @@ class LogService {
   final Level _level;
   StreamSubscription<LogRecord>? _subscription;
 
-  LogService({
-    required LogFormatter formatter,
-    IOSink? fileSink,
-    Level level = Level.INFO,
-  }) : _formatter = formatter,
-       _fileSink = fileSink,
-       _level = level;
+  LogService({required LogFormatter formatter, IOSink? fileSink, Level level = Level.INFO})
+    : _formatter = formatter,
+      _fileSink = fileSink,
+      _level = level;
 
   /// Convenience factory from string config values.
   ///
@@ -38,10 +35,7 @@ class LogService {
     final effectiveRedactor = redactor ?? LogRedactor();
     final formatter = switch (format) {
       'json' => JsonFormatter(redactor: effectiveRedactor),
-      _ => HumanFormatter(
-          redactor: effectiveRedactor,
-          colorize: stderr.hasTerminal,
-        ),
+      _ => HumanFormatter(redactor: effectiveRedactor, colorize: stderr.hasTerminal),
     };
 
     IOSink? fileSink;
@@ -49,10 +43,7 @@ class LogService {
       fileSink = File(logFile).openWrite(mode: FileMode.append);
     }
 
-    final lvl = Level.LEVELS.firstWhere(
-      (l) => l.name == level.toUpperCase(),
-      orElse: () => Level.INFO,
-    );
+    final lvl = Level.LEVELS.firstWhere((l) => l.name == level.toUpperCase(), orElse: () => Level.INFO);
 
     return LogService(formatter: formatter, fileSink: fileSink, level: lvl);
   }

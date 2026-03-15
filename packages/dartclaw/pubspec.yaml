@@ -1,11 +1,19 @@
 name: dartclaw
 description: >-
-  Security-hardened AI agent runtime for Dart. Subprocess harness for the
+  Security-focused AI agent runtime for Dart. Subprocess harness for the
   Claude CLI binary via JSONL control protocol, with guard chain, session
   management, and multi-channel messaging.
-version: 0.8.0
+version: 0.9.0
 publish_to: none
 repository: https://github.com/tolo/dartclaw
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - cli
+  - agents
+  - security
+  - chat
 
 environment:
   sdk: ^3.11.0
@@ -17,3 +25,13 @@ dependencies:
     path: ../dartclaw_core
   dartclaw_storage:
     path: ../dartclaw_storage
+  dartclaw_whatsapp:
+    path: ../dartclaw_whatsapp
+  dartclaw_signal:
+    path: ../dartclaw_signal
+  dartclaw_google_chat:
+    path: ../dartclaw_google_chat
+
+dev_dependencies:
+  test: ^1.29.0
+  lints: ^6.0.0

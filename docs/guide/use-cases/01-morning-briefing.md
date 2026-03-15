@@ -10,7 +10,7 @@ A daily cron job delivers a morning briefing at a configured time. The agent sum
 - [MEMORY.md](../workspace.md) -- provides context persistence between briefings
 - [Delivery modes](../scheduling.md#delivery-modes) -- `announce` sends results to the active session or channel
 - [Search agent](../search.md) -- enables web lookups for news, weather, etc.
-- [WhatsApp channel](../whatsapp.md) -- optional delivery target (web UI works too)
+- [Channels](../whatsapp.md) -- optional delivery via WhatsApp, Signal, or [Google Chat](../google-chat.md) (web UI works too)
 
 ## Configuration
 
@@ -37,10 +37,17 @@ agent:
     search:
       tools: [WebSearch, WebFetch]
 
-# WhatsApp (optional -- web UI works without this)
-channels:
-  whatsapp:
-    enabled: true
+# Channel delivery (optional -- web UI works without any of these)
+# Uncomment the channel(s) you use:
+# channels:
+#   whatsapp:
+#     enabled: true
+#   signal:
+#     enabled: true
+#     phone_number: "+1234567890"
+#   google_chat:
+#     enabled: true
+#     service_account: ${GOOGLE_CHAT_SERVICE_ACCOUNT}
 ```
 
 ## Behavior Files
@@ -87,11 +94,11 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 ## Workflow
 
 1. **Cron fires at 7:00 AM** (server-local time)
-2. **Isolated session created** with key `agent:main:cron:morning-briefing:<ISO8601>`
+2. **Isolated session created** for the cron job (visible in the web UI sidebar)
 3. **Agent reads behavior files** -- SOUL.md for personality/interests, USER.md for location, MEMORY.md for context
 4. **Agent uses search agent** to look up weather, news, or other web sources
 5. **Agent composes briefing** -- concise, mobile-friendly format
-6. **Result delivered via `announce`** to the active WhatsApp channel or web session
+6. **Result delivered via `announce`** to the active channel (WhatsApp, Signal, or Google Chat) or web session
 
 ## Customization Tips
 
@@ -103,7 +110,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 
 ## Gotchas & Limitations
 
-- **`announce` delivery requires an active target**: WhatsApp must be connected, or a web session must be open. If neither is available, the result is logged but not delivered
+- **`announce` delivery is not yet implemented**: `delivery: announce` currently logs the result but does not route it to channels or web sessions. Job results are accessible via cron session history in the web UI sidebar. Use `delivery: webhook` for active push delivery. Channel routing for announce is planned
 - **Timezone is server-local**: The cron expression uses the server's timezone, not the user's. If your server is in UTC but you want 7 AM Berlin time, adjust the expression accordingly
 - **Search agent results go through content-guard**: Web content is filtered before the agent sees it. Some sources may be partially truncated
 - **No state between briefings**: Each cron run is an isolated session. The agent relies on MEMORY.md for continuity, not previous briefing sessions

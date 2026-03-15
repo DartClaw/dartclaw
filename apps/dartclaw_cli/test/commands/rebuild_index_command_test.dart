@@ -21,10 +21,10 @@ void main() {
   });
 
   Future<void> runCommand(DartclawConfig config) async {
-    final runner =
-        DartclawRunner()..addCommand(
-          RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDbInMemory()),
-        );
+    final runner = DartclawRunner()
+      ..addCommand(
+        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDbInMemory()),
+      );
     await runner.run(['rebuild-index']);
   }
 
@@ -68,10 +68,10 @@ void main() {
 
     // Use file-based DB so we can reopen after command closes it
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner =
-        DartclawRunner()..addCommand(
-          RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-        );
+    final runner = DartclawRunner()
+      ..addCommand(
+        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
+      );
     await runner.run(['rebuild-index']);
 
     expect(output, hasLength(1));
@@ -99,10 +99,10 @@ void main() {
     final config = DartclawConfig(dataDir: tempDir.path);
 
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner =
-        DartclawRunner()..addCommand(
-          RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-        );
+    final runner = DartclawRunner()
+      ..addCommand(
+        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
+      );
     await runner.run(['rebuild-index']);
 
     expect(output, hasLength(1));

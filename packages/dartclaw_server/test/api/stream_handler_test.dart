@@ -4,51 +4,9 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
-
-// ---------------------------------------------------------------------------
-// Fakes
-// ---------------------------------------------------------------------------
-
-class FakeWorkerService implements AgentHarness {
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-
-  void emit(BridgeEvent event) => _eventsCtrl.add(event);
-}
 
 class ControllableTurnManager extends TurnManager {
   final String activeTurnIdValue;
@@ -116,7 +74,7 @@ Future<List<String>> _collectFrames(Future<void> Function() trigger, Stream<List
 
 void main() {
   late Directory tempDir;
-  late FakeWorkerService worker;
+  late FakeAgentHarness worker;
   late ControllableTurnManager turns;
 
   const sessionId = 'sess-1';
@@ -124,7 +82,7 @@ void main() {
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_stream_test_');
-    worker = FakeWorkerService();
+    worker = FakeAgentHarness();
     turns = ControllableTurnManager(MessageService(baseDir: tempDir.path), worker, turnId);
   });
 

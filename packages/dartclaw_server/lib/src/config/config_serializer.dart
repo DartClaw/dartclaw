@@ -1,9 +1,12 @@
 import 'dart:convert';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 import '../runtime_config.dart';
-import 'config_meta.dart';
 
 /// Converts [DartclawConfig] to the structured JSON shape returned by
 /// `GET /api/config`.
@@ -19,6 +22,13 @@ class ConfigSerializer {
   /// [config] provides startup-time values and defaults.
   /// [runtime] provides current toggle state for live-mutable fields.
   Map<String, dynamic> toJson(DartclawConfig config, {required RuntimeConfig runtime}) {
+    ensureDartclawGoogleChatRegistered();
+    ensureDartclawSignalRegistered();
+    ensureDartclawWhatsappRegistered();
+
+    final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+    final signalConfig = config.getChannelConfig<SignalConfig>(ChannelType.signal);
+    final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
     return {
       'port': config.port,
       'host': config.host,
@@ -29,7 +39,16 @@ class ConfigSerializer {
       'agent': {'model': config.agentModel, 'maxTurns': config.agentMaxTurns, 'context1m': config.agentContext1m},
       'auth': {'cookieSecure': config.cookieSecure, 'trustedProxies': config.trustedProxies},
       'concurrency': {'maxParallelTurns': config.maxParallelTurns},
-      'guardAudit': {'maxEntries': config.guardAuditMaxEntries},
+      'guardAudit': {'maxRetentionDays': config.guardAuditMaxRetentionDays},
+      'tasks': {
+        'maxConcurrent': config.tasksMaxConcurrent,
+        'artifactRetentionDays': config.tasksArtifactRetentionDays,
+        'worktree': {
+          'baseRef': config.tasksWorktreeBaseRef,
+          'staleTimeoutHours': config.tasksWorktreeStaleTimeoutHours,
+          'mergeStrategy': config.tasksWorktreeMergeStrategy,
+        },
+      },
       'sessions': {
         'resetHour': config.sessionResetHour,
         'idleTimeoutMinutes': config.sessionIdleTimeoutMinutes,
@@ -72,6 +91,7 @@ class ConfigSerializer {
         'inputSanitizer': {'enabled': config.inputSanitizerEnabled, 'channelsOnly': config.inputSanitizerChannelsOnly},
       },
       'memory': {
+        'maxBytes': config.memoryMaxBytes,
         'pruning': {
           'enabled': config.memoryPruningEnabled,
           'archiveAfterDays': config.memoryArchiveAfterDays,
@@ -91,34 +111,37 @@ class ConfigSerializer {
       },
       'channels': {
         'whatsapp': {
-          'enabled': config.channelConfig.channelConfigs['whatsapp']?['enabled'] ?? false,
-          'dmAccess': config.channelConfig.channelConfigs['whatsapp']?['dm_access'] ?? 'pairing',
-          'groupAccess': config.channelConfig.channelConfigs['whatsapp']?['group_access'] ?? 'disabled',
-          'requireMention': config.channelConfig.channelConfigs['whatsapp']?['require_mention'] ?? true,
+          'enabled': whatsAppConfig.enabled,
+          'dmAccess': whatsAppConfig.dmAccess.name,
+          'groupAccess': whatsAppConfig.groupAccess.name,
+          'requireMention': whatsAppConfig.requireMention,
+          'taskTrigger': _taskTriggerJson(whatsAppConfig.taskTrigger),
         },
         'signal': {
-          'enabled': config.channelConfig.channelConfigs['signal']?['enabled'] ?? false,
-          'dmAccess': config.channelConfig.channelConfigs['signal']?['dm_access'] ?? 'allowlist',
-          'groupAccess': config.channelConfig.channelConfigs['signal']?['group_access'] ?? 'disabled',
-          'requireMention': config.channelConfig.channelConfigs['signal']?['require_mention'] ?? true,
+          'enabled': signalConfig.enabled,
+          'dmAccess': signalConfig.dmAccess.name,
+          'groupAccess': signalConfig.groupAccess.name,
+          'requireMention': signalConfig.requireMention,
+          'taskTrigger': _taskTriggerJson(signalConfig.taskTrigger),
         },
         'googleChat': {
-          'enabled': config.googleChatConfig.enabled,
-          'serviceAccount': _serializeGoogleServiceAccount(config.googleChatConfig.serviceAccount),
-          'audience': config.googleChatConfig.audience == null
+          'enabled': googleChatConfig.enabled,
+          'serviceAccount': _serializeGoogleServiceAccount(googleChatConfig.serviceAccount),
+          'audience': googleChatConfig.audience == null
               ? null
               : {
-                  'type': _googleChatAudienceMode(config.googleChatConfig.audience!.mode),
-                  'value': config.googleChatConfig.audience!.value,
+                  'type': _googleChatAudienceMode(googleChatConfig.audience!.mode),
+                  'value': googleChatConfig.audience!.value,
                 },
-          'webhookPath': config.googleChatConfig.webhookPath,
-          'botUser': config.googleChatConfig.botUser,
-          'typingIndicator': config.googleChatConfig.typingIndicator,
-          'dmAccess': config.googleChatConfig.dmAccess.name,
-          'dmAllowlist': config.googleChatConfig.dmAllowlist,
-          'groupAccess': config.googleChatConfig.groupAccess.name,
-          'groupAllowlist': config.googleChatConfig.groupAllowlist,
-          'requireMention': config.googleChatConfig.requireMention,
+          'webhookPath': googleChatConfig.webhookPath,
+          'botUser': googleChatConfig.botUser,
+          'typingIndicator': googleChatConfig.typingIndicator,
+          'dmAccess': googleChatConfig.dmAccess.name,
+          'dmAllowlist': googleChatConfig.dmAllowlist,
+          'groupAccess': googleChatConfig.groupAccess.name,
+          'groupAllowlist': googleChatConfig.groupAllowlist,
+          'requireMention': googleChatConfig.requireMention,
+          'taskTrigger': _taskTriggerJson(googleChatConfig.taskTrigger),
         },
       },
       'gateway': {
@@ -199,4 +222,11 @@ class ConfigSerializer {
 
     return '***';
   }
+
+  static Map<String, dynamic> _taskTriggerJson(TaskTriggerConfig config) => {
+    'enabled': config.enabled,
+    'prefix': config.prefix,
+    'defaultType': config.defaultType,
+    'autoStart': config.autoStart,
+  };
 }

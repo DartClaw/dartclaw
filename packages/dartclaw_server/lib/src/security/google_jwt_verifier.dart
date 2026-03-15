@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 

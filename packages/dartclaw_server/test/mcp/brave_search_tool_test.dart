@@ -14,11 +14,7 @@ class _MockProvider implements SearchProvider {
   bool shouldThrow;
   String errorMessage;
 
-  _MockProvider({
-    this.results = const [],
-    this.shouldThrow = false,
-    this.errorMessage = 'provider error',
-  });
+  _MockProvider({this.results = const [], this.shouldThrow = false, this.errorMessage = 'provider error'});
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -32,8 +28,7 @@ class _FakeClassifier implements ContentClassifier {
   _FakeClassifier({this.result = 'safe'});
 
   @override
-  Future<String> classify(String content,
-      {Duration timeout = const Duration(seconds: 15)}) async {
+  Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {
     return result;
   }
 }
@@ -90,10 +85,12 @@ void main() {
 
     group('search results', () {
       test('successful search returns JSON with results', () async {
-        final provider = _MockProvider(results: [
-          SearchResult(title: 'Title 1', url: 'https://a.com', snippet: 'Snippet 1'),
-          SearchResult(title: 'Title 2', url: 'https://b.com', snippet: 'Snippet 2'),
-        ]);
+        final provider = _MockProvider(
+          results: [
+            SearchResult(title: 'Title 1', url: 'https://a.com', snippet: 'Snippet 1'),
+            SearchResult(title: 'Title 2', url: 'https://b.com', snippet: 'Snippet 2'),
+          ],
+        );
         final tool = BraveSearchTool(provider: provider);
         final result = await tool.call({'query': 'test'});
         final json = jsonDecode(_text(result)) as Map<String, dynamic>;
@@ -126,9 +123,9 @@ void main() {
       });
 
       test('count clamped to 1-20 range', () async {
-        final provider = _MockProvider(results: [
-          SearchResult(title: 'T', url: 'https://a.com', snippet: 'S'),
-        ]);
+        final provider = _MockProvider(
+          results: [SearchResult(title: 'T', url: 'https://a.com', snippet: 'S')],
+        );
         final tool = BraveSearchTool(provider: provider);
 
         // count=0 clamped to 1
@@ -147,9 +144,9 @@ void main() {
       test('safe content passes through', () async {
         final classifier = _FakeClassifier(result: 'safe');
         final guard = ContentGuard(classifier: classifier);
-        final provider = _MockProvider(results: [
-          SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text'),
-        ]);
+        final provider = _MockProvider(
+          results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text')],
+        );
         final tool = BraveSearchTool(provider: provider, contentGuard: guard);
         final result = await tool.call({'query': 'test'});
         expect(result, isA<ToolResultText>());
@@ -160,9 +157,9 @@ void main() {
       test('blocked content returns error result', () async {
         final classifier = _FakeClassifier(result: 'prompt_injection');
         final guard = ContentGuard(classifier: classifier);
-        final provider = _MockProvider(results: [
-          SearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Injected content'),
-        ]);
+        final provider = _MockProvider(
+          results: [SearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Injected content')],
+        );
         final tool = BraveSearchTool(provider: provider, contentGuard: guard);
         final result = await tool.call({'query': 'test'});
         expect(result, isA<ToolResultError>());
@@ -170,9 +167,9 @@ void main() {
       });
 
       test('no guard (null) passes content through', () async {
-        final provider = _MockProvider(results: [
-          SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Text'),
-        ]);
+        final provider = _MockProvider(
+          results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Text')],
+        );
         final tool = BraveSearchTool(provider: provider);
         final result = await tool.call({'query': 'test'});
         expect(result, isA<ToolResultText>());

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/heartbeat_scheduler.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -10,11 +11,7 @@ void main() {
   late RuntimeConfig runtimeConfig;
 
   setUp(() {
-    runtimeConfig = RuntimeConfig(
-      heartbeatEnabled: true,
-      gitSyncEnabled: false,
-      gitSyncPushEnabled: true,
-    );
+    runtimeConfig = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false, gitSyncPushEnabled: true);
   });
 
   group('GET /api/settings/runtime', () {
@@ -147,10 +144,7 @@ void main() {
         workspaceDir: tempDir.path,
         dispatch: (_, _) async {},
       );
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        heartbeat: heartbeat,
-      );
+      final router = configRoutes(runtimeConfig: runtimeConfig, heartbeat: heartbeat);
 
       // HTMX sends form-encoded by default
       final request = Request(
@@ -172,10 +166,7 @@ void main() {
         workspaceDir: tempDir.path,
         dispatch: (_, _) async {},
       );
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        heartbeat: heartbeat,
-      );
+      final router = configRoutes(runtimeConfig: runtimeConfig, heartbeat: heartbeat);
 
       final request = Request(
         'POST',
@@ -193,19 +184,11 @@ void main() {
 
   group('job pause/resume via ScheduleService', () {
     test('pause/resume toggle updates service state', () async {
-      final service = ScheduleService(
-        turns: _FakeTurnManager(),
-        sessions: _FakeSessionService(),
-        jobs: [],
-      );
+      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       final jobs = <Map<String, dynamic>>[
         {'name': 'daily-report', 'status': 'active', 'schedule': '0 9 * * *'},
       ];
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        scheduleService: service,
-        scheduledJobs: jobs,
-      );
+      final router = configRoutes(runtimeConfig: runtimeConfig, scheduleService: service, scheduledJobs: jobs);
 
       final pauseRequest = Request(
         'POST',
@@ -233,19 +216,11 @@ void main() {
     });
 
     test('job toggle accepts form-encoded body', () async {
-      final service = ScheduleService(
-        turns: _FakeTurnManager(),
-        sessions: _FakeSessionService(),
-        jobs: [],
-      );
+      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       final jobs = <Map<String, dynamic>>[
         {'name': 'nightly-sync', 'status': 'active'},
       ];
-      final router = configRoutes(
-        runtimeConfig: runtimeConfig,
-        scheduleService: service,
-        scheduledJobs: jobs,
-      );
+      final router = configRoutes(runtimeConfig: runtimeConfig, scheduleService: service, scheduledJobs: jobs);
 
       final request = Request(
         'POST',

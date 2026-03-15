@@ -51,19 +51,23 @@ class ContainerHealthMonitor {
 
         if (wasHealthy && !healthy) {
           _log.severe('Container crashed: profile=$profileId, container=${manager.containerName}');
-          _eventBus.fire(ContainerCrashedEvent(
-            profileId: profileId,
-            containerName: manager.containerName,
-            error: 'Container is no longer running',
-            timestamp: DateTime.now(),
-          ));
+          _eventBus.fire(
+            ContainerCrashedEvent(
+              profileId: profileId,
+              containerName: manager.containerName,
+              error: 'Container is no longer running',
+              timestamp: DateTime.now(),
+            ),
+          );
         } else if (!wasHealthy && healthy) {
           _log.info('Container recovered: profile=$profileId, container=${manager.containerName}');
-          _eventBus.fire(ContainerStartedEvent(
-            profileId: profileId,
-            containerName: manager.containerName,
-            timestamp: DateTime.now(),
-          ));
+          _eventBus.fire(
+            ContainerStartedEvent(
+              profileId: profileId,
+              containerName: manager.containerName,
+              timestamp: DateTime.now(),
+            ),
+          );
         }
 
         _lastHealthy[profileId] = healthy;

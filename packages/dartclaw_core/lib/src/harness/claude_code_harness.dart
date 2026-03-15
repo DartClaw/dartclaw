@@ -3,13 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../bridge/bridge_events.dart';
 import '../container/container_manager.dart';
-import '../security/guard.dart';
-import '../security/guard_audit.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'claude_protocol.dart';
@@ -33,7 +32,7 @@ List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt, String
   '--permission-prompt-tool',
   'stdio',
   '--model',
-  model ?? 'claude-sonnet-4-6',
+  model ?? 'sonnet',
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
 ];

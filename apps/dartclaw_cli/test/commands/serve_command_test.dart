@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -24,36 +29,9 @@ class _ExitIntercept implements Exception {
   _ExitIntercept(this.code);
 }
 
-class _FakeWorkerService implements AgentHarness {
-  bool started = false;
-  bool stopped = false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => const Stream<BridgeEvent>.empty();
-
-  @override
-  Future<void> start() async {
-    started = true;
-  }
-
-  @override
-  Future<void> stop() async {
-    stopped = true;
-  }
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> dispose() async {
-    stopped = true;
-  }
+class _FakeWorkerService extends FakeAgentHarness {
+  bool get started => startCalled;
+  bool get stopped => stopCalled || disposeCalled;
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -198,6 +176,7 @@ void main() {
               gatewayToken,
               selfImprovement,
               usageTracker,
+              EventBus? eventBus,
               authEnabled = true,
               pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -222,6 +201,7 @@ void main() {
               resultTrimmer: resultTrimmer,
               redactor: redactor,
               gatewayToken: gatewayToken,
+              eventBus: eventBus,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -232,6 +212,124 @@ void main() {
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
       expect(stderrLines.join('\n'), contains('WARNING: Binding to 0.0.0.0 exposes the server to the network.'));
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
+    });
+
+    test('channel config warnings are printed before server startup', () async {
+      final stderrLines = <String>[];
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+
+      ensureDartclawGoogleChatRegistered();
+      ensureDartclawWhatsappRegistered();
+      ensureDartclawSignalRegistered();
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig.load(
+        fileReader: (path) {
+          if (path == 'dartclaw.yaml') {
+            return '''
+channels:
+  google_chat:
+    group_access: 123
+  whatsapp:
+    gowa_port: nope
+  signal:
+    port: nope
+''';
+          }
+          return null;
+        },
+        cliOverrides: {
+          'data_dir': tempDir.path,
+          'static_dir': Directory.current.path,
+          'templates_dir': _templatesDir(),
+        },
+        env: {'HOME': '/home/user'},
+      );
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory:
+            (
+              cwd, {
+              claudeExecutable,
+              turnTimeout,
+              onMemorySave,
+              onMemorySearch,
+              onMemoryRead,
+              harnessConfig,
+              containerManager,
+            }) => worker,
+        serverFactory:
+            ({
+              required sessions,
+              required messages,
+              required worker,
+              required staticDir,
+              required behavior,
+              memoryFile,
+              sessionsForTurns,
+              guardChain,
+              kv,
+              healthService,
+              tokenService,
+              lockManager,
+              resetService,
+              contextMonitor,
+              resultTrimmer,
+              channelManager,
+              whatsAppChannel,
+              googleChatWebhookHandler,
+              signalChannel,
+              webhookSecret,
+              redactor,
+              gatewayToken,
+              selfImprovement,
+              usageTracker,
+              EventBus? eventBus,
+              authEnabled = true,
+              pool,
+              contentGuardDisplay = const ContentGuardDisplayParams(),
+              heartbeatDisplay = const HeartbeatDisplayParams(),
+              schedulingDisplay = const SchedulingDisplayParams(),
+              workspaceDisplay = const WorkspaceDisplayParams(),
+              appDisplay = const AppDisplayParams(),
+            }) => DartclawServer(
+              sessions: sessions,
+              messages: messages,
+              worker: worker,
+              staticDir: staticDir,
+              behavior: behavior,
+              memoryFile: memoryFile,
+              guardChain: guardChain,
+              kv: kv,
+              healthService: healthService,
+              tokenService: tokenService,
+              lockManager: lockManager,
+              resetService: resetService,
+              contextMonitor: contextMonitor,
+              resultTrimmer: resultTrimmer,
+              redactor: redactor,
+              gatewayToken: gatewayToken,
+              eventBus: eventBus,
+              authEnabled: authEnabled,
+            ),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stderrLine: stderrLines.add,
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      expect(stderrLines.join('\n'), contains('WARNING: Invalid type for google_chat.group_access'));
+      expect(stderrLines.join('\n'), contains('WARNING: Invalid type for whatsapp.gowa_port'));
+      expect(stderrLines.join('\n'), contains('WARNING: Invalid type for signal.port'));
       expect(worker.started, isTrue);
       expect(worker.stopped, isTrue);
     });
@@ -298,6 +396,7 @@ void main() {
               gatewayToken,
               selfImprovement,
               usageTracker,
+              EventBus? eventBus,
               authEnabled = true,
               pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -322,6 +421,7 @@ void main() {
               resultTrimmer: resultTrimmer,
               redactor: redactor,
               gatewayToken: gatewayToken,
+              eventBus: eventBus,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -336,6 +436,111 @@ void main() {
         logs.any((r) => r.level == Level.SEVERE && r.message.contains('is another process already using this port?')),
         isTrue,
       );
+    });
+
+    test('startup migrates legacy turn KV keys to state db without touching session cost keys', () async {
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        dataDir: tempDir.path,
+        staticDir: Directory.current.path,
+        templatesDir: _templatesDir(),
+      );
+      final kvFile = File(config.kvPath);
+      kvFile.writeAsStringSync(
+        jsonEncode({
+          'turn:session-a': {'value': '{"turnId":"old-a"}', 'updatedAt': '2026-03-01T00:00:00Z'},
+          'turn:session-b': {'value': '{"turnId":"old-b"}', 'updatedAt': '2026-03-02T00:00:00Z'},
+          'session_cost:session-a': {'value': '123', 'updatedAt': '2026-03-03T00:00:00Z'},
+        }),
+      );
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory:
+            (
+              cwd, {
+              claudeExecutable,
+              turnTimeout,
+              onMemorySave,
+              onMemorySearch,
+              onMemoryRead,
+              harnessConfig,
+              containerManager,
+            }) => worker,
+        serverFactory:
+            ({
+              required sessions,
+              required messages,
+              required worker,
+              required staticDir,
+              required behavior,
+              memoryFile,
+              sessionsForTurns,
+              guardChain,
+              kv,
+              healthService,
+              tokenService,
+              lockManager,
+              resetService,
+              contextMonitor,
+              resultTrimmer,
+              channelManager,
+              whatsAppChannel,
+              googleChatWebhookHandler,
+              signalChannel,
+              webhookSecret,
+              redactor,
+              gatewayToken,
+              selfImprovement,
+              usageTracker,
+              EventBus? eventBus,
+              authEnabled = true,
+              pool,
+              contentGuardDisplay = const ContentGuardDisplayParams(),
+              heartbeatDisplay = const HeartbeatDisplayParams(),
+              schedulingDisplay = const SchedulingDisplayParams(),
+              workspaceDisplay = const WorkspaceDisplayParams(),
+              appDisplay = const AppDisplayParams(),
+            }) => DartclawServer(
+              sessions: sessions,
+              messages: messages,
+              worker: worker,
+              staticDir: staticDir,
+              behavior: behavior,
+              memoryFile: memoryFile,
+              guardChain: guardChain,
+              kv: kv,
+              healthService: healthService,
+              tokenService: tokenService,
+              lockManager: lockManager,
+              resetService: resetService,
+              contextMonitor: contextMonitor,
+              resultTrimmer: resultTrimmer,
+              redactor: redactor,
+              gatewayToken: gatewayToken,
+              eventBus: eventBus,
+              authEnabled: authEnabled,
+            ),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+
+      expect(File(p.join(tempDir.path, 'state.db')).existsSync(), isTrue);
+
+      final kvContents = jsonDecode(kvFile.readAsStringSync()) as Map<String, dynamic>;
+      expect(kvContents.keys.where((key) => key.startsWith('turn:')), isEmpty);
+      expect(kvContents.containsKey('session_cost:session-a'), isTrue);
     });
 
     test('search database open failure prints clear startup error', () async {
@@ -461,6 +666,7 @@ void main() {
               gatewayToken,
               selfImprovement,
               usageTracker,
+              EventBus? eventBus,
               authEnabled = true,
               pool,
               contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -485,6 +691,7 @@ void main() {
               resultTrimmer: resultTrimmer,
               redactor: redactor,
               gatewayToken: gatewayToken,
+              eventBus: eventBus,
               authEnabled: authEnabled,
             ),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),

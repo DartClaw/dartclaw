@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/channel/channel_config.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -286,6 +286,38 @@ workspace:
       final googleChat = channels['googleChat'] as Map<String, dynamic>;
       expect(googleChat['serviceAccount'], 'chat-bot@example.iam.gserviceaccount.com');
     });
+
+    test('whatsapp config is serialized from parsed typed config', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+channels:
+  whatsapp:
+    enabled: nope
+    dm_access: invalid
+    group_access: invalid
+    require_mention: invalid
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await get(router, '/api/config');
+      final json = await readJson(response);
+
+      final channels = json['channels'] as Map<String, dynamic>;
+      final whatsapp = channels['whatsapp'] as Map<String, dynamic>;
+      expect(whatsapp['enabled'], isFalse);
+      expect(whatsapp['dmAccess'], 'pairing');
+      expect(whatsapp['groupAccess'], 'disabled');
+      expect(whatsapp['requireMention'], isTrue);
+    });
   });
 
   group('PATCH /api/config — validation', () {
@@ -384,9 +416,7 @@ workspace:
     push_enabled: true
 ''');
       final router = createRouter();
-      final response = await patch(router, '/api/config', {
-        'channels.google_chat.service_account': '   ',
-      });
+      final response = await patch(router, '/api/config', {'channels.google_chat.service_account': '   '});
       expect(response.statusCode, 400);
 
       final json = await readJson(response);

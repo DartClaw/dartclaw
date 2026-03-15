@@ -1,7 +1,13 @@
 name: dartclaw_models
 description: Core data types for the DartClaw agent runtime — sessions, messages, memory chunks.
 publish_to: none
-version: 0.8.0
+version: 0.9.0
+repository: https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_models
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - agents
 
 environment:
   sdk: ^3.11.0

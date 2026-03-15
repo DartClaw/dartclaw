@@ -8,7 +8,9 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../task/merge_executor.dart';
+import '../task/task_event_helpers.dart';
 import '../task/task_file_guard.dart';
+import '../task/task_review_service.dart';
 import '../task/worktree_manager.dart';
 import '../turn_manager.dart';
 import 'api_helpers.dart';
@@ -20,6 +22,7 @@ Router taskRoutes(
   TaskService tasks,
   EventBus eventBus, {
   TurnManager? turns,
+  TaskReviewService? reviewService,
   WorktreeManager? worktreeManager,
   TaskFileGuard? taskFileGuard,
   MergeExecutor? mergeExecutor,
@@ -28,6 +31,18 @@ Router taskRoutes(
   String baseRef = 'main',
 }) {
   final router = Router();
+  final effectiveReviewService =
+      reviewService ??
+      TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        worktreeManager: worktreeManager,
+        taskFileGuard: taskFileGuard,
+        mergeExecutor: mergeExecutor,
+        dataDir: dataDir,
+        mergeStrategy: mergeStrategy,
+        baseRef: baseRef,
+      );
 
   router.post('/api/tasks', (Request request) async {
     try {
@@ -83,7 +98,7 @@ Router taskRoutes(
         configJson: configJson,
       );
 
-      await _fireTaskEvents(
+      await fireTaskLifecycleEvents(
         tasks: tasks,
         eventBus: eventBus,
         taskId: task.id,
@@ -205,71 +220,25 @@ Router taskRoutes(
         return errorResponse(400, 'INVALID_INPUT', 'comment must not be empty for push_back', {'field': 'comment'});
       }
 
-      final task = await tasks.get(id);
-      if (task == null) return _taskNotFound();
-
-      final oldStatus = task.status;
-      try {
-        // Handle merge on accept for coding tasks
-        if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && mergeExecutor != null) {
-          final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
-          final strategy = mergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash;
-          final mergeResult = await mergeExecutor.merge(
-            branch: worktreeInfo.branch,
-            baseRef: baseRef,
-            taskId: id,
-            taskTitle: task.title,
-            strategy: strategy,
-          );
-          if (mergeResult is MergeConflict) {
-            // Persist conflict artifact
-            if (dataDir != null) {
-              try {
-                final conflictDir = Directory('$dataDir/tasks/$id/artifacts');
-                await conflictDir.create(recursive: true);
-                final conflictFile = File('${conflictDir.path}/conflict.json');
-                await conflictFile.writeAsString(jsonEncode(mergeResult.toJson()));
-                await tasks.addArtifact(
-                  id: const Uuid().v4(),
-                  taskId: id,
-                  name: 'conflict.json',
-                  kind: ArtifactKind.data,
-                  path: conflictFile.path,
-                );
-              } catch (e) {
-                _log.warning('Failed to persist conflict artifact for task $id: $e');
-              }
-            }
-            return errorResponse(409, 'MERGE_CONFLICT', 'Merge conflict detected', {
-              'conflictingFiles': mergeResult.conflictingFiles,
-              'details': mergeResult.details,
-            });
-          }
-        }
-
-        var updated = await tasks.transition(id, targetStatus);
-        if (targetStatus == TaskStatus.queued) {
-          final nextConfigJson = _buildPushBackConfig(updated.configJson, comment!);
-          updated = await tasks.updateFields(id, configJson: nextConfigJson);
-        }
-        await _fireTaskEvents(
-          tasks: tasks,
-          eventBus: eventBus,
-          taskId: id,
-          oldStatus: oldStatus,
-          newStatus: updated.status,
-          trigger: 'user',
-        );
-        // Cleanup worktree on accept/reject (not push_back)
-        if ((targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) && task.worktreeJson != null) {
-          await _cleanupWorktree(id, worktreeManager, taskFileGuard);
-        }
-        return jsonResponse(200, updated.toJson());
-      } on ArgumentError {
-        return _taskNotFound();
-      } on StateError {
-        return _invalidTransition(id, oldStatus, targetStatus, await tasks.get(id));
-      }
+      final result = await effectiveReviewService.review(id, action, comment: comment, trigger: 'user');
+      return switch (result) {
+        ReviewSuccess(:final task) => jsonResponse(200, task.toJson()),
+        ReviewMergeConflict(:final conflictingFiles, :final details) => errorResponse(
+          409,
+          'MERGE_CONFLICT',
+          'Merge conflict detected',
+          {'conflictingFiles': conflictingFiles, 'details': details},
+        ),
+        ReviewNotFound() => _taskNotFound(),
+        ReviewInvalidTransition(:final taskId, :final oldStatus, :final targetStatus, :final currentStatus) =>
+          _invalidTransition(taskId, oldStatus, targetStatus, currentStatus: currentStatus),
+        ReviewInvalidRequest(:final message) => errorResponse(400, 'INVALID_INPUT', message),
+        ReviewActionFailed(:final message) => errorResponse(
+          500,
+          'INTERNAL_ERROR',
+          _sanitizeReviewFailureMessage(message),
+        ),
+      };
     } catch (e, st) {
       _log.warning('Failed to review task $id: $e', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to review task');
@@ -338,7 +307,7 @@ Future<Response> _transitionTask({
     final oldStatus = task.status;
     try {
       final updated = await tasks.transition(taskId, targetStatus);
-      await _fireTaskEvents(
+      await fireTaskLifecycleEvents(
         tasks: tasks,
         eventBus: eventBus,
         taskId: taskId,
@@ -352,7 +321,7 @@ Future<Response> _transitionTask({
     } on StateError {
       final current = await tasks.get(taskId);
       return errorResponse(409, errorCode, 'Cannot transition from ${oldStatus.name} to ${targetStatus.name}', {
-        'currentStatus': (current ?? task).status.name,
+        'currentStatus': current?.status.name ?? task.status.name,
       });
     }
   } catch (e, st) {
@@ -361,43 +330,11 @@ Future<Response> _transitionTask({
   }
 }
 
-Future<void> _fireTaskEvents({
-  required TaskService tasks,
-  required EventBus eventBus,
-  required String taskId,
-  required TaskStatus oldStatus,
-  required TaskStatus newStatus,
-  required String trigger,
-}) async {
-  eventBus.fire(
-    TaskStatusChangedEvent(
-      taskId: taskId,
-      oldStatus: oldStatus,
-      newStatus: newStatus,
-      trigger: trigger,
-      timestamp: DateTime.now(),
-    ),
-  );
-
-  if (newStatus != TaskStatus.review) return;
-
-  final artifacts = await tasks.listArtifacts(taskId);
-  final artifactKinds = artifacts.map((artifact) => artifact.kind.name).toSet().toList()..sort();
-  eventBus.fire(
-    TaskReviewReadyEvent(
-      taskId: taskId,
-      artifactCount: artifacts.length,
-      artifactKinds: artifactKinds,
-      timestamp: DateTime.now(),
-    ),
-  );
-}
-
 Response _taskNotFound() => errorResponse(404, 'TASK_NOT_FOUND', 'Task not found');
 
-Response _invalidTransition(String taskId, TaskStatus oldStatus, TaskStatus targetStatus, Task? currentTask) {
+Response _invalidTransition(String taskId, TaskStatus oldStatus, TaskStatus targetStatus, {TaskStatus? currentStatus}) {
   return errorResponse(409, 'INVALID_TRANSITION', 'Cannot transition from ${oldStatus.name} to ${targetStatus.name}', {
-    'currentStatus': currentTask?.status.name ?? oldStatus.name,
+    'currentStatus': currentStatus?.name ?? oldStatus.name,
     'taskId': taskId,
   });
 }
@@ -467,19 +404,22 @@ String? _stringOrNull(Object? value) => value is String ? value : null;
 
 String? _trimmedStringOrNull(Object? value) => _stringOrNull(value)?.trim();
 
-Map<String, dynamic> _buildPushBackConfig(Map<String, dynamic> configJson, String comment) {
-  final nextConfigJson = Map<String, dynamic>.from(configJson);
-  final currentCount = nextConfigJson['pushBackCount'];
-  nextConfigJson['pushBackCount'] = (currentCount is num ? currentCount.toInt() : 0) + 1;
-  nextConfigJson['pushBackComment'] = comment;
-  return nextConfigJson;
-}
-
 Response? _validateStringFieldType(Map<String, dynamic> body, String field) {
   if (!body.containsKey(field)) return null;
   final value = body[field];
   if (value == null || value is String) return null;
   return errorResponse(400, 'INVALID_INPUT', '$field must be a string', {'field': field});
+}
+
+String _sanitizeReviewFailureMessage(String message) {
+  final trimmed = message.trim();
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('could not accept task:') ||
+      lower.startsWith('could not reject task:') ||
+      lower.startsWith('could not push back task:')) {
+    return 'Review action failed. Please try again or use the web UI.';
+  }
+  return trimmed;
 }
 
 Future<void> _cleanupWorktree(String taskId, WorktreeManager? worktreeManager, TaskFileGuard? taskFileGuard) async {

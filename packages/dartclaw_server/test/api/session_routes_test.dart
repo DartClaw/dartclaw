@@ -4,64 +4,12 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
-
-// ---------------------------------------------------------------------------
-// FakeWorkerService
-// ---------------------------------------------------------------------------
-
-class FakeWorkerService implements AgentHarness {
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Completer<Map<String, dynamic>>? _turnCompleter;
-  bool cancelCalled = false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-  }) {
-    _turnCompleter = Completer<Map<String, dynamic>>();
-    return _turnCompleter!.future;
-  }
-
-  @override
-  Future<void> cancel() async {
-    cancelCalled = true;
-    _turnCompleter?.completeError(StateError('Cancelled'));
-  }
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-
-  void emit(BridgeEvent event) => _eventsCtrl.add(event);
-  void completeSuccess() => _turnCompleter?.complete({'ok': true});
-  void completeFail(Object error) => _turnCompleter?.completeError(error);
-}
 
 // ---------------------------------------------------------------------------
 // FakeTurnManager
@@ -72,7 +20,7 @@ class FakeTurnManager extends TurnManager {
   final Map<String, String> _activeTurns = {};
   final Map<String, TurnOutcome> _outcomes = {};
 
-  FakeTurnManager(MessageService messages, FakeWorkerService worker)
+  FakeTurnManager(MessageService messages, AgentHarness worker)
     : super(
         messages: messages,
         worker: worker,
@@ -158,7 +106,7 @@ void main() {
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
-  late FakeWorkerService worker;
+  late FakeAgentHarness worker;
   late FakeTurnManager turns;
   late Handler handler;
 
@@ -166,7 +114,7 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_routes_test_');
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
-    worker = FakeWorkerService();
+    worker = FakeAgentHarness();
     turns = FakeTurnManager(messages, worker);
     handler = sessionRoutes(sessions, messages, turns, worker).call;
   });

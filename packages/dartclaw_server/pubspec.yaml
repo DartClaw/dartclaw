@@ -1,7 +1,15 @@
 name: dartclaw_server
-description: HTTP API and HTMX web UI for DartClaw.
+description: Reference HTTP API server and HTMX web UI for DartClaw deployments and task workflows.
 publish_to: none
-version: 0.8.0
+version: 0.9.0
+repository: https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_server
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - cli
+  - agents
+  - server
 
 environment:
   sdk: ^3.11.0
@@ -10,8 +18,18 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.6
+  dartclaw_config:
+    path: ../dartclaw_config
   dartclaw_core:
     path: ../dartclaw_core
+  dartclaw_security:
+    path: ../dartclaw_security
+  dartclaw_google_chat:
+    path: ../dartclaw_google_chat
+  dartclaw_whatsapp:
+    path: ../dartclaw_whatsapp
+  dartclaw_signal:
+    path: ../dartclaw_signal
   dart_jsonwebtoken: ^2.14.0
   html2md: ^1.3.2
   dartclaw_storage:
@@ -26,10 +44,11 @@ dependencies:
   qr: ^3.0.2
   trellis: ^0.5.0
   uuid: ^4.5.2
-  yaml_edit: ^2.2.0
 
 dev_dependencies:
   async: ^2.12.0
+  dartclaw_testing:
+    path: ../dartclaw_testing
   sqlite3: ^3.1.6
   test: ^1.29.0
   lints: ^6.0.0

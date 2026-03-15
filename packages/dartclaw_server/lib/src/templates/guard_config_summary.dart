@@ -38,10 +38,7 @@ class GuardConfigSection {
 
   const GuardConfigSection({required this.label, required this.items});
 
-  Map<String, dynamic> toTemplateMap() => {
-    'label': label,
-    'items': items.map((i) => i.toTemplateMap()).toList(),
-  };
+  Map<String, dynamic> toTemplateMap() => {'label': label, 'items': items.map((i) => i.toTemplateMap()).toList()};
 }
 
 class GuardConfigItem {
@@ -49,17 +46,9 @@ class GuardConfigItem {
   final String value;
   final String style;
 
-  const GuardConfigItem({
-    required this.label,
-    required this.value,
-    this.style = 'default',
-  });
+  const GuardConfigItem({required this.label, required this.value, this.style = 'default'});
 
-  Map<String, dynamic> toTemplateMap() => {
-    'label': label,
-    'value': value,
-    'style': style,
-  };
+  Map<String, dynamic> toTemplateMap() => {'label': label, 'value': value, 'style': style};
 }
 
 // ---------------------------------------------------------------------------
@@ -119,32 +108,15 @@ GuardConfigSummary _extractCommandGuard(CommandGuard guard) {
     sections: [
       GuardConfigSection(
         label: 'Pattern Categories',
-        items: categories.entries
-            .map((e) => GuardConfigItem(
-                  label: e.key,
-                  value: '${e.value} patterns',
-                ))
-            .toList(),
+        items: categories.entries.map((e) => GuardConfigItem(label: e.key, value: '${e.value} patterns')).toList(),
       ),
       GuardConfigSection(
         label: 'Blocked Pipe Targets',
-        items: [
-          GuardConfigItem(
-            label: 'Targets',
-            value: cfg.blockedPipeTargets.toList().join(', '),
-            style: 'mono',
-          ),
-        ],
+        items: [GuardConfigItem(label: 'Targets', value: cfg.blockedPipeTargets.toList().join(', '), style: 'mono')],
       ),
       GuardConfigSection(
         label: 'Safe Pipe Targets',
-        items: [
-          GuardConfigItem(
-            label: 'Targets',
-            value: cfg.safePipeTargets.toList().join(', '),
-            style: 'mono',
-          ),
-        ],
+        items: [GuardConfigItem(label: 'Targets', value: cfg.safePipeTargets.toList().join(', '), style: 'mono')],
       ),
     ],
   );
@@ -175,18 +147,11 @@ GuardConfigSummary _extractFileGuard(FileGuard guard) {
         if (grouped.containsKey(level))
           GuardConfigSection(
             label: levelLabels[level] ?? level.name,
-            items: grouped[level]!
-                .map((p) => GuardConfigItem(label: p, value: '', style: 'mono'))
-                .toList(),
+            items: grouped[level]!.map((p) => GuardConfigItem(label: p, value: '', style: 'mono')).toList(),
           ),
       GuardConfigSection(
         label: 'Summary',
-        items: [
-          GuardConfigItem(
-            label: 'Total rules',
-            value: '${cfg.rules.length}',
-          ),
-        ],
+        items: [GuardConfigItem(label: 'Total rules', value: '${cfg.rules.length}')],
       ),
     ],
   );
@@ -208,32 +173,16 @@ GuardConfigSummary _extractNetworkGuard(NetworkGuard guard) {
     sections: [
       GuardConfigSection(
         label: 'Allowed Domains',
-        items: [
-          GuardConfigItem(
-            label: 'Domains',
-            value: '${displayDomains.join(", ")}$domainSuffix',
-            style: 'mono',
-          ),
-        ],
+        items: [GuardConfigItem(label: 'Domains', value: '${displayDomains.join(", ")}$domainSuffix', style: 'mono')],
       ),
       GuardConfigSection(
         label: 'Exfiltration Patterns',
-        items: [
-          GuardConfigItem(
-            label: 'Built-in patterns',
-            value: '${cfg.exfilPatterns.length}',
-          ),
-        ],
+        items: [GuardConfigItem(label: 'Built-in patterns', value: '${cfg.exfilPatterns.length}')],
       ),
       if (cfg.agentOverrides.isNotEmpty)
         GuardConfigSection(
           label: 'Agent Overrides',
-          items: [
-            GuardConfigItem(
-              label: 'Override count',
-              value: '${cfg.agentOverrides.length}',
-            ),
-          ],
+          items: [GuardConfigItem(label: 'Override count', value: '${cfg.agentOverrides.length}')],
         ),
     ],
   );
@@ -271,12 +220,7 @@ GuardConfigSummary _extractInputSanitizer(InputSanitizer guard) {
       ),
       GuardConfigSection(
         label: 'Pattern Categories',
-        items: categoryCounts.entries
-            .map((e) => GuardConfigItem(
-                  label: e.key,
-                  value: '${e.value} patterns',
-                ))
-            .toList(),
+        items: categoryCounts.entries.map((e) => GuardConfigItem(label: e.key, value: '${e.value} patterns')).toList(),
       ),
     ],
   );
@@ -284,12 +228,8 @@ GuardConfigSummary _extractInputSanitizer(InputSanitizer guard) {
 
 GuardConfigSummary _buildContentGuardSummary(ContentGuardDisplayParams p) {
   final isClaudeBinary = p.classifier == 'claude_binary';
-  final apiKeyDisplay = isClaudeBinary
-      ? 'N/A (OAuth)'
-      : (p.apiKeyConfigured ? 'Configured' : 'Not configured');
-  final apiKeyStyle = isClaudeBinary
-      ? 'badge-muted'
-      : (p.apiKeyConfigured ? 'badge-success' : 'badge-muted');
+  final apiKeyDisplay = isClaudeBinary ? 'N/A (OAuth)' : (p.apiKeyConfigured ? 'Configured' : 'Not configured');
+  final apiKeyStyle = isClaudeBinary ? 'badge-muted' : (p.apiKeyConfigured ? 'badge-success' : 'badge-muted');
 
   return GuardConfigSummary(
     name: 'Content Guard',
@@ -305,25 +245,10 @@ GuardConfigSummary _buildContentGuardSummary(ContentGuardDisplayParams p) {
             value: p.enabled ? 'Yes' : 'No',
             style: p.enabled ? 'badge-success' : 'badge-muted',
           ),
-          GuardConfigItem(
-            label: 'Classifier',
-            value: p.classifier,
-            style: 'mono',
-          ),
-          GuardConfigItem(
-            label: 'Model',
-            value: p.model.isNotEmpty ? p.model : '-',
-            style: 'mono',
-          ),
-          GuardConfigItem(
-            label: 'Max content',
-            value: formatBytes(p.maxBytes),
-          ),
-          GuardConfigItem(
-            label: 'API key',
-            value: apiKeyDisplay,
-            style: apiKeyStyle,
-          ),
+          GuardConfigItem(label: 'Classifier', value: p.classifier, style: 'mono'),
+          GuardConfigItem(label: 'Model', value: p.model.isNotEmpty ? p.model : '-', style: 'mono'),
+          GuardConfigItem(label: 'Max content', value: formatBytes(p.maxBytes)),
+          GuardConfigItem(label: 'API key', value: apiKeyDisplay, style: apiKeyStyle),
           GuardConfigItem(
             label: 'Fail behavior',
             value: p.failOpen ? 'Fail-open' : 'Fail-closed',

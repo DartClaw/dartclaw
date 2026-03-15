@@ -11,11 +11,7 @@ class ChannelGroupConfig {
   final bool groupAccessEnabled;
   final List<String> groupAllowlist;
 
-  const ChannelGroupConfig({
-    required this.channelType,
-    required this.groupAccessEnabled,
-    required this.groupAllowlist,
-  });
+  const ChannelGroupConfig({required this.channelType, required this.groupAccessEnabled, required this.groupAllowlist});
 }
 
 /// Pre-creates sessions for allowlisted groups so they appear in the sidebar
@@ -36,9 +32,9 @@ class GroupSessionInitializer {
     required SessionService sessions,
     EventBus? eventBus,
     required List<ChannelGroupConfig> channelConfigs,
-  })  : _sessions = sessions,
-        _eventBus = eventBus,
-        _channelConfigs = channelConfigs;
+  }) : _sessions = sessions,
+       _eventBus = eventBus,
+       _channelConfigs = channelConfigs;
 
   /// Pre-create sessions for all configured groups and subscribe to config changes.
   Future<void> initialize() async {
@@ -53,14 +49,8 @@ class GroupSessionInitializer {
   Future<void> _ensureGroupSessions(String channelType, List<String> groupIds) async {
     for (final groupId in groupIds) {
       try {
-        final key = SessionKey.groupShared(
-          channelType: channelType,
-          groupId: groupId,
-        );
-        final session = await _sessions.getOrCreateByKey(
-          key,
-          type: SessionType.channel,
-        );
+        final key = SessionKey.groupShared(channelType: channelType, groupId: groupId);
+        final session = await _sessions.getOrCreateByKey(key, type: SessionType.channel);
         // Set title to group ID only if title is null (newly created).
         // Don't overwrite user-set titles.
         if (session.title == null) {
@@ -81,18 +71,19 @@ class GroupSessionInitializer {
       final channelType = match.group(1)!;
 
       // Only auto-create if group access is enabled for this channel
-      final channelConfig = _channelConfigs
-          .where((c) => c.channelType == channelType)
-          .firstOrNull;
+      final channelConfig = _channelConfigs.where((c) => c.channelType == channelType).firstOrNull;
       if (channelConfig == null || !channelConfig.groupAccessEnabled) continue;
 
       final newList = event.newValues[key];
       if (newList is! List) continue;
 
       final groupIds = newList.whereType<String>().toList();
-      unawaited(_ensureGroupSessions(channelType, groupIds).catchError(
-        (Object e) => _log.warning('Failed to auto-create group sessions on config change', e),
-      ));
+      unawaited(
+        _ensureGroupSessions(
+          channelType,
+          groupIds,
+        ).catchError((Object e) => _log.warning('Failed to auto-create group sessions on config change', e)),
+      );
     }
   }
 

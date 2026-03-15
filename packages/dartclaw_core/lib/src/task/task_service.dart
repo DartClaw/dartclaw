@@ -47,11 +47,17 @@ class TaskService {
   Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
 
   /// Applies a lifecycle transition.
-  Future<Task> transition(String taskId, TaskStatus newStatus, {DateTime? now}) async {
+  Future<Task> transition(
+    String taskId,
+    TaskStatus newStatus, {
+    DateTime? now,
+    Map<String, dynamic>? configJson,
+  }) async {
     final task = await _requireTask(taskId);
     final transitioned = task.transition(newStatus, now: now);
     final persistedTransition = task.copyWith(
       status: transitioned.status,
+      configJson: configJson ?? transitioned.configJson,
       startedAt: transitioned.startedAt,
       completedAt: transitioned.completedAt,
     );

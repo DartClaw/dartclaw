@@ -60,7 +60,7 @@ channels:
     require_mention: true
 ```
 
-Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_core/lib/src/channel/googlechat/google_chat_config.dart`:
+Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_google_chat/lib/src/google_chat_config.dart`:
 
 - `enabled`
 - `service_account`
@@ -84,6 +84,13 @@ Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_core/lib/sr
 - `open`: any Google Chat user who can reach the app can DM it
 - `disabled`: direct messages are ignored
 
+### Contact Identifiers
+
+For `dm_allowlist`, use Google Chat user resource names:
+
+- Format: `users/<numeric-id>`
+- Examples: `users/12345678901234567890`, `users/10987654321098765432`
+
 ## Group and Space Access
 
 For rooms and spaces:
@@ -91,6 +98,11 @@ For rooms and spaces:
 - `group_access: disabled` ignores all non-DM traffic
 - `group_access: open` accepts any allowed space
 - `group_access: allowlist` restricts traffic to `group_allowlist`
+
+For `group_allowlist`, use Google Chat space resource names:
+
+- Format: `spaces/<space-id>`
+- Examples: `spaces/AAAAJ7bWv0Y`, `spaces/AAAARm2k9Q8`
 
 When `require_mention: true`, DartClaw only responds when the bot is explicitly mentioned in group spaces.
 
@@ -107,12 +119,31 @@ Many Google Workspace environments require an administrator to approve or publis
 5. Send a test message.
 6. If `dm_access: pairing`, approve the pairing code in the DartClaw UI before retrying.
 
+## Slash Commands
+
+Google Chat slash commands are configured in Google Cloud Console, not in DartClaw itself.
+
+1. Open Google Cloud Console.
+2. Go to **APIs & Services** -> **Google Chat API** -> **Configuration**.
+3. Under **Slash commands**, add these entries:
+
+| Command ID | Command | Description |
+|------|------|------|
+| `1` | `/new` | Create a task. Usage: `/new [type:] description` |
+| `2` | `/reset` | Archive the current Google Chat session |
+| `3` | `/status` | Show active tasks and session counts |
+
+4. Save the configuration and wait a few minutes for propagation.
+
+The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
+
 ## Testing
 
 - DM the bot directly and verify `dm_access` behaves as configured.
 - Add the bot to a space and verify `group_access` plus `require_mention`.
 - If `typing_indicator: true`, verify the placeholder appears before long replies complete.
 - Confirm the webhook path you registered matches `channels.google_chat.webhook_path`.
+- Run `/new`, `/reset`, and `/status` from Google Chat after registering the command IDs above.
 
 ## Troubleshooting
 

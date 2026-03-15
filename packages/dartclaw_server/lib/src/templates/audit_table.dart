@@ -6,11 +6,7 @@ import '../audit/audit_log_reader.dart';
 ///
 /// Used both for initial health dashboard render (inline) and for
 /// HTMX polling updates (`GET /health-dashboard/audit`).
-String auditTableFragment({
-  required AuditPage auditPage,
-  String? verdictFilter,
-  String? guardFilter,
-}) {
+String auditTableFragment({required AuditPage auditPage, String? verdictFilter, String? guardFilter}) {
   final buf = StringBuffer();
 
   // Build the hx-get URL with current filters for polling.
@@ -20,8 +16,10 @@ String auditTableFragment({
   if (guardFilter != null) queryParams.add('guard=$guardFilter');
   final pollUrl = queryParams.isEmpty ? baseUrl : '$baseUrl?${queryParams.join('&')}';
 
-  buf.write('<div id="audit-table-container" '
-      'hx-get="$pollUrl" hx-trigger="every 30s" hx-swap="outerHTML">');
+  buf.write(
+    '<div id="audit-table-container" '
+    'hx-get="$pollUrl" hx-trigger="every 30s" hx-swap="outerHTML">',
+  );
 
   // Filter toolbar
   buf.write('<div class="table-toolbar">');
@@ -36,15 +34,19 @@ String auditTableFragment({
   buf.write('</div>');
 
   if (auditPage.entries.isEmpty) {
-    buf.write('<div class="empty-state" style="padding:var(--sp-6);text-align:center;'
-        'color:var(--fg-overlay)">No guard events recorded yet</div>');
+    buf.write(
+      '<div class="empty-state" style="padding:var(--sp-6);text-align:center;'
+      'color:var(--fg-overlay)">No guard events recorded yet</div>',
+    );
   } else {
     // Table
-    buf.write('<div class="table-scroll"><table>'
-        '<caption class="sr-only">Guard audit log entries</caption>'
-        '<thead><tr>'
-        '<th>Timestamp</th><th>Guard</th><th>Verdict</th><th>Detail</th>'
-        '</tr></thead><tbody>');
+    buf.write(
+      '<div class="table-scroll"><table>'
+      '<caption class="sr-only">Guard audit log entries</caption>'
+      '<thead><tr>'
+      '<th>Timestamp</th><th>Guard</th><th>Verdict</th><th>Detail</th>'
+      '</tr></thead><tbody>',
+    );
 
     for (final entry in auditPage.entries) {
       _renderRow(buf, entry);
@@ -68,9 +70,7 @@ void _filterBtn(
   String? currentVerdict, {
   required bool isGuard,
 }) {
-  final isActive = isGuard
-      ? (value == null ? currentGuard == null : currentGuard == value)
-      : currentVerdict == value;
+  final isActive = isGuard ? (value == null ? currentGuard == null : currentGuard == value) : currentVerdict == value;
 
   final params = <String>[];
   if (isGuard) {
@@ -83,10 +83,12 @@ void _filterBtn(
   }
   final url = params.isEmpty ? '/health-dashboard/audit' : '/health-dashboard/audit?${params.join('&')}';
 
-  buf.write('<button class="filter-btn${isActive ? ' active' : ''}" '
-      'aria-pressed="${isActive ? 'true' : 'false'}" '
-      'hx-get="$url" hx-target="#audit-table-container" hx-swap="outerHTML">'
-      '${_esc(label)}</button>');
+  buf.write(
+    '<button class="filter-btn${isActive ? ' active' : ''}" '
+    'aria-pressed="${isActive ? 'true' : 'false'}" '
+    'hx-get="$url" hx-target="#audit-table-container" hx-swap="outerHTML">'
+    '${_esc(label)}</button>',
+  );
 }
 
 void _renderRow(StringBuffer buf, AuditEntry entry) {
@@ -95,39 +97,48 @@ void _renderRow(StringBuffer buf, AuditEntry entry) {
   final verdictLabel = entry.verdict.toUpperCase();
   final detail = _esc(entry.reason ?? entry.hook);
 
-  buf.write('<tr class="audit-row" tabindex="0" role="button" aria-expanded="false"><td>$ts</td>'
-      '<td><span class="guard-type">${_esc(entry.guard)}</span></td>'
-      '<td class="$verdictClass">$verdictLabel</td>'
-      '<td>$detail</td></tr>');
+  buf.write(
+    '<tr class="audit-row" tabindex="0" role="button" aria-expanded="false"><td>$ts</td>'
+    '<td><span class="guard-type">${_esc(entry.guard)}</span></td>'
+    '<td class="$verdictClass">$verdictLabel</td>'
+    '<td>$detail</td></tr>',
+  );
 
   // Expandable detail row
   final hasDetail = entry.sessionId != null || entry.channel != null || entry.reason != null;
   if (hasDetail) {
-    buf.write('<tr class="audit-detail-row" style="display:none"><td colspan="4">'
-        '<div class="audit-detail"><div class="detail-grid">');
-    buf.write('<div><span class="detail-label">Hook</span> '
-        '<span>${_esc(entry.hook)}</span></div>');
-    buf.write('<div><span class="detail-label">Session</span> '
-        '<span>${_esc(entry.sessionId ?? '\u2014')}</span></div>');
-    buf.write('<div><span class="detail-label">Channel</span> '
-        '<span>${_esc(entry.channel ?? '\u2014')}</span></div>');
-    buf.write('<div><span class="detail-label">Peer</span> '
-        '<span>${_esc(entry.peerId ?? '\u2014')}</span></div>');
+    buf.write(
+      '<tr class="audit-detail-row" style="display:none"><td colspan="4">'
+      '<div class="audit-detail"><div class="detail-grid">',
+    );
+    buf.write(
+      '<div><span class="detail-label">Hook</span> '
+      '<span>${_esc(entry.hook)}</span></div>',
+    );
+    buf.write(
+      '<div><span class="detail-label">Session</span> '
+      '<span>${_esc(entry.sessionId ?? '\u2014')}</span></div>',
+    );
+    buf.write(
+      '<div><span class="detail-label">Channel</span> '
+      '<span>${_esc(entry.channel ?? '\u2014')}</span></div>',
+    );
+    buf.write(
+      '<div><span class="detail-label">Peer</span> '
+      '<span>${_esc(entry.peerId ?? '\u2014')}</span></div>',
+    );
     buf.write('</div>');
     if (entry.reason != null) {
-      buf.write('<div class="detail-reason"><span class="detail-label">Full Reason</span>'
-          '<pre>${_esc(entry.reason!)}</pre></div>');
+      buf.write(
+        '<div class="detail-reason"><span class="detail-label">Full Reason</span>'
+        '<pre>${_esc(entry.reason!)}</pre></div>',
+      );
     }
     buf.write('</div></td></tr>');
   }
 }
 
-void _renderPagination(
-  StringBuffer buf,
-  AuditPage page,
-  String? verdictFilter,
-  String? guardFilter,
-) {
+void _renderPagination(StringBuffer buf, AuditPage page, String? verdictFilter, String? guardFilter) {
   final start = (page.currentPage - 1) * page.pageSize + 1;
   final end = start + page.entries.length - 1;
 
@@ -142,10 +153,12 @@ void _renderPagination(
   // Previous button
   if (page.currentPage > 1) {
     final prevParams = [...baseParams, 'page=${page.currentPage - 1}'];
-    buf.write('<button class="btn btn-ghost btn-sm" '
-        'hx-get="/health-dashboard/audit?${prevParams.join('&')}" '
-        'hx-target="#audit-table-container" hx-swap="outerHTML">'
-        '\u2190 Previous</button>');
+    buf.write(
+      '<button class="btn btn-ghost btn-sm" '
+      'hx-get="/health-dashboard/audit?${prevParams.join('&')}" '
+      'hx-target="#audit-table-container" hx-swap="outerHTML">'
+      '\u2190 Previous</button>',
+    );
   } else {
     buf.write('<button class="btn btn-ghost btn-sm" disabled>\u2190 Previous</button>');
   }
@@ -155,10 +168,12 @@ void _renderPagination(
   // Next button
   if (page.currentPage < page.totalPages) {
     final nextParams = [...baseParams, 'page=${page.currentPage + 1}'];
-    buf.write('<button class="btn btn-ghost btn-sm" '
-        'hx-get="/health-dashboard/audit?${nextParams.join('&')}" '
-        'hx-target="#audit-table-container" hx-swap="outerHTML">'
-        'Next \u2192</button>');
+    buf.write(
+      '<button class="btn btn-ghost btn-sm" '
+      'hx-get="/health-dashboard/audit?${nextParams.join('&')}" '
+      'hx-target="#audit-table-container" hx-swap="outerHTML">'
+      'Next \u2192</button>',
+    );
   } else {
     buf.write('<button class="btn btn-ghost btn-sm" disabled>Next \u2192</button>');
   }
@@ -181,9 +196,5 @@ String _formatTimestamp(DateTime dt) {
 }
 
 String _esc(String text) {
-  return text
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;');
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }

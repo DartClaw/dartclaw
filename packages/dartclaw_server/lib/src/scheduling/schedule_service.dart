@@ -3,11 +3,26 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+import '../api/sse_broadcast.dart';
+import '../behavior/memory_consolidator.dart';
 import '../turn_manager.dart';
 import 'delivery.dart';
 import 'scheduled_job.dart';
 
 final _log = Logger('ScheduleService');
+
+Future<String> _noopChannelDispatch(String sessionKey, String message, {String? senderJid}) async => '';
+
+DeliveryService _defaultDeliveryService(SessionService sessions) {
+  return DeliveryService(
+    channelManager: ChannelManager(
+      queue: MessageQueue(dispatcher: _noopChannelDispatch),
+      config: const ChannelConfig.defaults(),
+    ),
+    sseBroadcast: SseBroadcast(),
+    sessions: sessions,
+  );
+}
 
 /// Manages time-based job execution: cron, interval, and one-time schedules.
 ///
@@ -18,6 +33,8 @@ class ScheduleService {
   final TurnManager _turns;
   final SessionService _sessions;
   final List<ScheduledJob> _jobs;
+  final DeliveryService _delivery;
+  final MemoryConsolidator? _consolidator;
 
   final Map<String, Timer> _timers = {};
   final Set<String> _running = {};
@@ -28,9 +45,13 @@ class ScheduleService {
     required TurnManager turns,
     required SessionService sessions,
     required List<ScheduledJob> jobs,
+    DeliveryService? delivery,
+    MemoryConsolidator? consolidator,
   }) : _turns = turns,
        _sessions = sessions,
-       _jobs = jobs;
+       _jobs = jobs,
+       _delivery = delivery ?? _defaultDeliveryService(sessions),
+       _consolidator = consolidator;
 
   /// Schedule all jobs. Calculates next fire time for each and sets timers.
   void start() {
@@ -164,12 +185,8 @@ class ScheduleService {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final result = await _runJobTurn(job);
-        await deliverResult(
-          mode: job.deliveryMode,
-          jobId: job.id,
-          result: result,
-          webhookUrl: job.webhookUrl,
-        );
+        await _delivery.deliver(mode: job.deliveryMode, jobId: job.id, result: result, webhookUrl: job.webhookUrl);
+        await _consolidator?.runIfNeeded();
         _log.info('Job "${job.id}": completed (attempt $attempt/$maxAttempts)');
         return;
       } catch (e) {
@@ -192,10 +209,7 @@ class ScheduleService {
     final sessionKey = SessionKey.cronSession(jobId: job.id);
     final session = await _sessions.getOrCreateByKey(sessionKey, type: SessionType.cron);
 
-    final userMessage = <String, dynamic>{
-      'role': 'user',
-      'content': job.prompt,
-    };
+    final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};
 
     final turnId = await _turns.startTurn(session.id, [userMessage], source: 'cron', agentName: 'cron:${job.id}');
     final outcome = await _turns.waitForOutcome(session.id, turnId);
@@ -204,7 +218,7 @@ class ScheduleService {
       throw Exception('Turn failed: ${outcome.errorMessage ?? "unknown error"}');
     }
 
-    return 'Job "${job.id}" turn completed with status: ${outcome.status.name}';
+    return outcome.responseText ?? '';
   }
 
   // Exposed for testing only — do not call from production code.

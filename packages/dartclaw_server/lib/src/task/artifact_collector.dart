@@ -155,10 +155,7 @@ class ArtifactCollector {
     final baseRef = _baseRef ?? 'main';
     try {
       final worktreeInfo = WorktreeInfo.fromJson(worktreeData);
-      final diffResult = await diffGen.generate(
-        baseRef: baseRef,
-        branch: worktreeInfo.branch,
-      );
+      final diffResult = await diffGen.generate(baseRef: baseRef, branch: worktreeInfo.branch);
 
       final artifactsDir = Directory(p.join(_dataDir, 'tasks', task.id, 'artifacts'));
       await artifactsDir.create(recursive: true);

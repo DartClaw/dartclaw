@@ -5,6 +5,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 
+import 'config_loader.dart';
+
 class RebuildIndexCommand extends Command<void> {
   final DartclawConfig? _config;
   final void Function(String)? _writeLine;
@@ -23,7 +25,7 @@ class RebuildIndexCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final config = _config ?? DartclawConfig.load(configPath: globalResults?['config'] as String?);
+    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
     final write = _writeLine ?? stdout.writeln;
 
     for (final w in config.warnings) {

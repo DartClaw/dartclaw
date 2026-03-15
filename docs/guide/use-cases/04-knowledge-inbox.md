@@ -41,7 +41,7 @@ agent:
 
 # Content guard filters web content (enabled by default)
 guards:
-  content_guard:
+  content:
     enabled: true
 ```
 
@@ -92,7 +92,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 ## Workflow
 
 1. **Cron fires at 12:00 PM** (server-local time)
-2. **Isolated session created** with key `agent:main:cron:knowledge-inbox:<ISO8601>`
+2. **Isolated session created** for the cron job (visible in the web UI sidebar)
 3. **Agent reads behavior files** -- SOUL.md for topics, MEMORY.md for existing knowledge
 4. **Agent searches each topic** via search agent (WebSearch for discovery, WebFetch for full content)
 5. **Content-guard filters** web content for safety before the agent processes it
@@ -104,7 +104,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 ## Customization Tips
 
 - **Change frequency**: `0 */6 * * *` runs every 6 hours for more frequent monitoring
-- **Add delivery**: Change `delivery: announce` to push a summary of new findings to WhatsApp or web UI
+- **Add delivery**: Change `delivery: announce` to push a summary of new findings to WhatsApp, Signal, Google Chat, or web UI
 - **Narrow topics**: Be specific in SOUL.md -- "Dart 3.x pattern matching" finds more targeted results than "Dart"
 - **Exclude sources**: Add an "Ignore" section to SOUL.md listing domains to skip
 - **Search depth**: Add `max_results: 5` to the search agent config to limit per-topic results

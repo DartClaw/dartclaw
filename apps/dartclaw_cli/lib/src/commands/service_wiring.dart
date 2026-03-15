@@ -1,11 +1,23 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_server/src/behavior/heartbeat_scheduler.dart';
+import 'package:dartclaw_server/src/behavior/self_improvement_service.dart';
+import 'package:dartclaw_server/src/maintenance/session_maintenance_service.dart';
+import 'package:dartclaw_server/src/observability/usage_tracker.dart';
+import 'package:dartclaw_server/src/workspace/workspace_git_sync.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -107,6 +119,8 @@ class ServiceWiring {
     // Construct file-based services
     Directory(config.sessionsDir).createSync(recursive: true);
 
+    ensureDartclawGoogleChatRegistered();
+
     final sessions = SessionService(baseDir: config.sessionsDir, eventBus: eventBus);
     final messages = MessageService(baseDir: config.sessionsDir);
 
@@ -137,6 +151,24 @@ class ServiceWiring {
     final goalRepository = SqliteGoalRepository(taskDb);
     final goalService = GoalService(goalRepository);
     final taskService = TaskService(taskRepository);
+
+    late final TurnStateStore turnStateStore;
+    final stateDbPath = p.join(config.dataDir, 'state.db');
+    try {
+      Directory(config.dataDir).createSync(recursive: true);
+      final stateDb = sqlite3.open(stateDbPath);
+      try {
+        turnStateStore = TurnStateStore(stateDb);
+      } catch (_) {
+        stateDb.close();
+        rethrow;
+      }
+    } catch (_) {
+      await taskService.dispose();
+      searchDb.close();
+      _log.severe('Cannot open turn state database at $stateDbPath');
+      exitFn(1);
+    }
 
     // Memory stack (MEMORY.md now lives in workspace/)
     final memoryFile = MemoryFileService(baseDir: config.workspaceDir);
@@ -340,6 +372,7 @@ class ServiceWiring {
     } catch (e) {
       _log.severe('Failed to start harness: $e');
       await memoryFile.dispose();
+      await turnStateStore.dispose();
       for (final manager in containerManagers.values) {
         try {
           await manager.stop();
@@ -399,7 +432,7 @@ class ServiceWiring {
     );
 
     // Construct guard chain with per-guard YAML configs
-    final auditLogger = GuardAuditLogger(dataDir: dataDir, maxEntries: config.guardAuditMaxEntries);
+    final auditLogger = GuardAuditLogger(dataDir: dataDir);
     final guardChain = config.guards.enabled
         ? GuardChain(
             failOpen: config.guards.failOpen,
@@ -434,7 +467,21 @@ class ServiceWiring {
               ),
               ToolPolicyGuard(cascade: toolPolicyCascade),
             ],
-            eventBus: eventBus,
+            onVerdict: (name, category, verdict, message, ctx) {
+              eventBus.fire(
+                GuardBlockEvent(
+                  guardName: name,
+                  guardCategory: category,
+                  verdict: verdict,
+                  verdictMessage: message,
+                  hookPoint: ctx.hookPoint,
+                  sessionId: ctx.sessionId,
+                  channel: ctx.source,
+                  peerId: ctx.peerId,
+                  timestamp: ctx.timestamp,
+                ),
+              );
+            },
           )
         : null;
 
@@ -524,6 +571,18 @@ class ServiceWiring {
     // KV store for per-session cost tracking
     final kvService = KvService(filePath: config.kvPath);
 
+    try {
+      final legacyTurnState = await kvService.getByPrefix('turn:');
+      if (legacyTurnState.isNotEmpty) {
+        for (final key in legacyTurnState.keys) {
+          await kvService.delete(key);
+        }
+        _log.info('Removed ${legacyTurnState.length} legacy turn-state KV key(s)');
+      }
+    } catch (e, st) {
+      _log.warning('Failed to remove legacy turn-state KV keys', e, st);
+    }
+
     // Usage tracking (fire-and-forget, never blocks turns)
     final usageTracker = UsageTracker(
       dataDir: dataDir,
@@ -537,6 +596,7 @@ class ServiceWiring {
       worker: harness,
       searchDbPath: config.searchDbPath,
       sessionsDir: config.sessionsDir,
+      tasksDir: p.join(config.dataDir, 'tasks'),
       usageTracker: usageTracker,
     );
 
@@ -568,12 +628,59 @@ class ServiceWiring {
       idleTimeoutMinutes: config.sessionIdleTimeoutMinutes,
     );
 
+    final mergeExecutor = MergeExecutor(
+      projectDir: Directory.current.path,
+      defaultStrategy: config.tasksWorktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+    );
+    final taskFileGuard = TaskFileGuard();
+    final worktreeManager = WorktreeManager(
+      dataDir: dataDir,
+      projectDir: Directory.current.path,
+      baseRef: config.tasksWorktreeBaseRef,
+      staleTimeoutHours: config.tasksWorktreeStaleTimeoutHours,
+      worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+    );
+    await worktreeManager.detectStaleWorktrees();
+    final taskReviewService = TaskReviewService(
+      tasks: taskService,
+      eventBus: eventBus,
+      worktreeManager: worktreeManager,
+      taskFileGuard: taskFileGuard,
+      mergeExecutor: mergeExecutor,
+      dataDir: dataDir,
+      mergeStrategy: config.tasksWorktreeMergeStrategy,
+      baseRef: config.tasksWorktreeBaseRef,
+    );
+    final reviewHandler = taskReviewService.channelReviewHandler(trigger: 'channel');
+
     // Channel + message queue (H-01: S14-S15 wiring)
     final waConfig = config.channelConfig.channelConfigs['whatsapp'];
     final sigConfig = config.channelConfig.channelConfigs['signal'];
-    final googleChatEnabled = config.googleChatConfig.enabled;
-    final waEnabled = waConfig != null && waConfig['enabled'] == true;
-    final sigEnabled = sigConfig != null && sigConfig['enabled'] == true;
+    final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+    WhatsAppConfig? parsedWhatsAppConfig;
+    SignalConfig? parsedSignalConfig;
+    if (waConfig != null) {
+      final warns = <String>[];
+      parsedWhatsAppConfig = WhatsAppConfig.fromYaml(waConfig, warns);
+      for (final w in warns) {
+        _log.warning(w);
+      }
+    }
+    if (sigConfig != null) {
+      final warns = <String>[];
+      parsedSignalConfig = SignalConfig.fromYaml(sigConfig, warns);
+      for (final w in warns) {
+        _log.warning('Signal config: $w');
+      }
+    }
+    final googleChatEnabled = googleChatConfig.enabled;
+    final waEnabled = parsedWhatsAppConfig?.enabled ?? false;
+    final sigEnabled = parsedSignalConfig?.enabled ?? false;
+    final taskTriggerConfigs = <ChannelType, TaskTriggerConfig>{
+      if (parsedWhatsAppConfig != null) ChannelType.whatsapp: parsedWhatsAppConfig.taskTrigger,
+      if (parsedSignalConfig != null) ChannelType.signal: parsedSignalConfig.taskTrigger,
+      ChannelType.googlechat: googleChatConfig.taskTrigger,
+    };
 
     ChannelManager? channelManager;
     WhatsAppChannel? whatsAppChannel;
@@ -591,16 +698,17 @@ class ServiceWiring {
         messages: messages,
         serverRef: () => serverRef,
         redactor: messageRedactor,
+        taskService: taskService,
+        reviewCommandParser: const ReviewCommandParser(),
+        reviewHandler: reviewHandler,
+        eventBus: eventBus,
+        taskTriggerConfigs: taskTriggerConfigs,
       );
     }
 
     if (waEnabled && channelManager != null) {
       try {
-        final warns = <String>[];
-        final parsedConfig = WhatsAppConfig.fromYaml(waConfig, warns);
-        for (final w in warns) {
-          _log.warning('WhatsApp config: $w');
-        }
+        final parsedConfig = parsedWhatsAppConfig!;
         // Generate shared webhook secret for GOWA->DartClaw webhook auth
         final webhookSecretBytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
         webhookSecret = base64Url.encode(webhookSecretBytes).replaceAll('=', '');
@@ -637,7 +745,6 @@ class ServiceWiring {
     if (googleChatEnabled && channelManager != null) {
       try {
         final activeChannelManager = channelManager;
-        final googleChatConfig = config.googleChatConfig;
         final audience = googleChatConfig.audience;
         if (audience == null) {
           throw StateError('Google Chat audience is required when the channel is enabled');
@@ -670,15 +777,27 @@ class ServiceWiring {
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
         );
+        final slashCommandParser = const SlashCommandParser();
+        final slashCommandHandler = SlashCommandHandler(
+          taskService: taskService,
+          sessionService: sessions,
+          eventBus: eventBus,
+          channelManager: activeChannelManager,
+          defaultTaskType: googleChatConfig.taskTrigger.defaultType,
+          autoStartTasks: googleChatConfig.taskTrigger.autoStart,
+        );
         final webhookHandler = GoogleChatWebhookHandler(
           channel: channel,
           jwtVerifier: GoogleJwtVerifier(audience: audience),
           config: googleChatConfig,
           channelManager: activeChannelManager,
+          reviewHandler: reviewHandler,
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
           eventBus: eventBus,
           trustedProxies: config.trustedProxies,
+          slashCommandParser: slashCommandParser,
+          slashCommandHandler: slashCommandHandler,
           dispatchMessage: (message) => _dispatchInboundChannelMessage(
             channelManager: activeChannelManager,
             sessions: sessions,
@@ -698,22 +817,18 @@ class ServiceWiring {
     }
 
     // Create ConfigWriter for persistent config editing.
-    final configWriter = ConfigWriter(configPath: resolvedConfigPath);
+    final configWriter = config_tools.ConfigWriter(configPath: resolvedConfigPath);
 
     // Signal channel wiring
     if (sigEnabled && channelManager != null) {
       try {
-        final warns = <String>[];
-        final parsedSignalConfig = SignalConfig.fromYaml(sigConfig, warns);
-        for (final w in warns) {
-          _log.warning('Signal config: $w');
-        }
+        final activeSignalConfig = parsedSignalConfig!;
 
         final sidecar = SignalCliManager(
-          executable: parsedSignalConfig.executable,
-          host: parsedSignalConfig.host,
-          port: parsedSignalConfig.port,
-          phoneNumber: parsedSignalConfig.phoneNumber,
+          executable: activeSignalConfig.executable,
+          host: activeSignalConfig.host,
+          port: activeSignalConfig.port,
+          phoneNumber: activeSignalConfig.phoneNumber,
           onRegistered: (phone) {
             _log.info('Signal: writing registered phone $phone to config');
             unawaited(
@@ -725,18 +840,18 @@ class ServiceWiring {
         );
 
         final sigDmAccess = DmAccessController(
-          mode: parsedSignalConfig.dmAccess,
-          allowlist: parsedSignalConfig.dmAllowlist.toSet(),
+          mode: activeSignalConfig.dmAccess,
+          allowlist: activeSignalConfig.dmAllowlist.toSet(),
         );
         final sigMentionGating = SignalMentionGating(
-          requireMention: parsedSignalConfig.requireMention,
-          mentionPatterns: parsedSignalConfig.mentionPatterns,
-          ownNumber: parsedSignalConfig.phoneNumber,
+          requireMention: activeSignalConfig.requireMention,
+          mentionPatterns: activeSignalConfig.mentionPatterns,
+          ownNumber: activeSignalConfig.phoneNumber,
         );
 
         final sigChannel = SignalChannel(
           sidecar: sidecar,
-          config: parsedSignalConfig,
+          config: activeSignalConfig,
           dmAccess: sigDmAccess,
           mentionGating: sigMentionGating,
           channelManager: channelManager,
@@ -748,6 +863,12 @@ class ServiceWiring {
       } catch (e) {
         _log.warning('Failed to initialize Signal channel: $e');
       }
+    }
+
+    TaskNotificationSubscriber? taskNotificationSubscriber;
+    if (channelManager != null) {
+      taskNotificationSubscriber = TaskNotificationSubscriber(tasks: taskService, channelManager: channelManager);
+      taskNotificationSubscriber.subscribe(eventBus);
     }
 
     // Mutable display list for scheduling UI (includes both user-configured
@@ -766,6 +887,7 @@ class ServiceWiring {
         behavior: behavior,
         memoryFile: memoryFile,
         sessions: sessions,
+        turnState: turnStateStore,
         kv: kvService,
         guardChain: guardChain,
         lockManager: lockManager,
@@ -783,6 +905,7 @@ class ServiceWiring {
           behavior: behavior,
           memoryFile: memoryFile,
           sessions: sessions,
+          turnState: turnStateStore,
           kv: kvService,
           guardChain: guardChain,
           lockManager: lockManager,
@@ -821,6 +944,7 @@ class ServiceWiring {
       gatewayToken: resolvedGatewayToken,
       selfImprovement: selfImprovement,
       usageTracker: usageTracker,
+      eventBus: eventBus,
       authEnabled: authEnabled,
       pool: pool,
       contentGuardDisplay: ContentGuardDisplayParams(
@@ -887,6 +1011,8 @@ class ServiceWiring {
 
     // Detect orphaned turns from previous crash
     await server.turns.detectAndCleanOrphanedTurns();
+
+    final sseBroadcast = SseBroadcast();
 
     // Parse scheduled jobs from config
     final scheduledJobs = <ScheduledJob>[];
@@ -964,16 +1090,25 @@ class ServiceWiring {
                 activeChannelKeys: activeChannelKeys,
                 activeJobIds: scheduledJobs.map((j) => j.id).toSet(),
                 sessionsDir: config.sessionsDir,
+                taskService: taskService,
+                artifactRetentionDays: config.tasksArtifactRetentionDays,
+                dataDir: config.dataDir,
               );
               final report = await maintenance.run();
               _log.info(
                 'Maintenance complete: '
                 '${report.sessionsArchived} archived, '
                 '${report.sessionsDeleted} deleted, '
-                '${_formatBytes(report.diskReclaimedBytes)} reclaimed',
+                '${_formatBytes(report.diskReclaimedBytes)} reclaimed, '
+                '${report.artifactsDeleted} artifacts deleted '
+                '(${_formatBytes(report.artifactDiskReclaimedBytes)} reclaimed)',
               );
               for (final w in report.warnings) {
                 _log.warning('Maintenance warning: $w');
+              }
+              if (config.guardAuditMaxRetentionDays > 0) {
+                final deletedAuditFiles = await auditLogger.cleanOldFiles(config.guardAuditMaxRetentionDays);
+                _log.info('Audit cleanup: $deletedAuditFiles old files deleted');
               }
               return 'archived=${report.sessionsArchived} deleted=${report.sessionsDeleted}';
             },
@@ -1014,10 +1149,46 @@ class ServiceWiring {
       }
     }
 
+    Future<void> dispatchSystemTurn(String sessionKey, String message) async {
+      await _dispatchTurn(
+        sessions,
+        () => server,
+        sessionKey,
+        message,
+        type: SessionType.cron,
+        source: 'heartbeat',
+        agentName: 'heartbeat',
+      );
+    }
+
+    final memoryConsolidator = MemoryConsolidator(
+      workspaceDir: config.workspaceDir,
+      dispatch: dispatchSystemTurn,
+      threshold: config.memoryMaxBytes,
+    );
+
     // Start cron scheduler
     ScheduleService? scheduleService;
+    ChannelManager? fallbackDeliveryChannelManager;
     if (scheduledJobs.isNotEmpty) {
-      scheduleService = ScheduleService(turns: server.turns, sessions: sessions, jobs: scheduledJobs);
+      final deliveryChannelManager =
+          channelManager ??
+          (fallbackDeliveryChannelManager = ChannelManager(
+            queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid}) async => ''),
+            config: const ChannelConfig.defaults(),
+          ));
+      final deliveryService = DeliveryService(
+        channelManager: deliveryChannelManager,
+        sseBroadcast: sseBroadcast,
+        sessions: sessions,
+      );
+      scheduleService = ScheduleService(
+        turns: server.turns,
+        sessions: sessions,
+        jobs: scheduledJobs,
+        delivery: deliveryService,
+        consolidator: memoryConsolidator,
+      );
       scheduleService.start();
     }
 
@@ -1039,18 +1210,9 @@ class ServiceWiring {
       heartbeat = HeartbeatScheduler(
         interval: Duration(minutes: config.heartbeatIntervalMinutes),
         workspaceDir: config.workspaceDir,
-        dispatch: (sessionKey, message) async {
-          await _dispatchTurn(
-            sessions,
-            () => server,
-            sessionKey,
-            message,
-            type: SessionType.cron,
-            source: 'heartbeat',
-            agentName: 'heartbeat',
-          );
-        },
+        dispatch: dispatchSystemTurn,
         gitSync: gitSync,
+        consolidator: memoryConsolidator,
       );
       heartbeat.start();
       _log.info('Heartbeat scheduler started (${config.heartbeatIntervalMinutes}m interval)');
@@ -1069,10 +1231,6 @@ class ServiceWiring {
     );
 
     final diffGenerator = DiffGenerator(projectDir: Directory.current.path);
-    final mergeExecutor = MergeExecutor(
-      projectDir: Directory.current.path,
-      defaultStrategy: config.tasksWorktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
-    );
     final artifactCollector = ArtifactCollector(
       tasks: taskService,
       messages: messages,
@@ -1082,15 +1240,6 @@ class ServiceWiring {
       diffGenerator: diffGenerator,
       baseRef: config.tasksWorktreeBaseRef,
     );
-    final taskFileGuard = TaskFileGuard();
-    final worktreeManager = WorktreeManager(
-      dataDir: dataDir,
-      projectDir: Directory.current.path,
-      baseRef: config.tasksWorktreeBaseRef,
-      staleTimeoutHours: config.tasksWorktreeStaleTimeoutHours,
-      worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
-    );
-    await worktreeManager.detectStaleWorktrees();
     final containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: taskService);
     containerTaskFailureSubscriber.subscribe(eventBus);
     final agentObserver = AgentObserver(pool: pool, eventBus: eventBus);
@@ -1121,8 +1270,7 @@ class ServiceWiring {
       restartPendingFile.deleteSync();
     }
 
-    // Create SSE broadcast and restart service.
-    final sseBroadcast = SseBroadcast();
+    // Create restart service.
     final restartService = RestartService(
       turns: server.turns,
       drainDeadline: const Duration(seconds: 30),
@@ -1149,7 +1297,7 @@ class ServiceWiring {
       gitSync: gitSync,
     );
     configChangeSubscriber.subscribe(eventBus);
-    final scopeReconciler = ScopeReconciler(liveScopeConfig: liveScopeConfig);
+    final scopeReconciler = config_tools.ScopeReconciler(liveScopeConfig: liveScopeConfig);
     scopeReconciler.subscribe(eventBus);
 
     // Pre-create sessions for allowlisted groups so they appear in sidebar immediately.
@@ -1206,6 +1354,7 @@ class ServiceWiring {
       eventBus: eventBus,
       goalService: goalService,
       taskService: taskService,
+      taskReviewService: taskReviewService,
       worktreeManager: worktreeManager,
       taskFileGuard: taskFileGuard,
       agentObserver: agentObserver,
@@ -1234,10 +1383,12 @@ class ServiceWiring {
       shutdownExtras: () async {
         await taskExecutor.stop();
         agentObserver.dispose();
+        await taskNotificationSubscriber?.dispose();
         await containerTaskFailureSubscriber.dispose();
         await containerHealthMonitor?.stop();
         groupSessionInit.dispose();
         await scopeReconciler.cancel();
+        await turnStateStore.dispose();
         for (final entry in containerManagers.entries) {
           try {
             await entry.value.stop();
@@ -1250,6 +1401,7 @@ class ServiceWiring {
             );
           } catch (_) {}
         }
+        await fallbackDeliveryChannelManager?.dispose();
         await credentialProxy?.stop();
       },
     );
@@ -1266,6 +1418,11 @@ class ServiceWiring {
     required MessageService messages,
     required DartclawServer? Function() serverRef,
     MessageRedactor? redactor,
+    TaskService? taskService,
+    ReviewCommandParser? reviewCommandParser,
+    ChannelReviewHandler? reviewHandler,
+    EventBus? eventBus,
+    Map<ChannelType, TaskTriggerConfig> taskTriggerConfigs = const {},
   }) {
     final messageQueue = MessageQueue(
       debounceWindow: config.channelConfig.debounceWindow,
@@ -1284,7 +1441,17 @@ class ServiceWiring {
         );
       },
     );
-    return ChannelManager(queue: messageQueue, config: config.channelConfig, liveScopeConfig: liveScopeConfig);
+    return ChannelManager(
+      queue: messageQueue,
+      config: config.channelConfig,
+      liveScopeConfig: liveScopeConfig,
+      taskService: taskService,
+      reviewCommandParser: reviewCommandParser,
+      reviewHandler: reviewHandler,
+      triggerParser: const TaskTriggerParser(),
+      eventBus: eventBus,
+      taskTriggerConfigs: taskTriggerConfigs,
+    );
   }
 
   static Future<String> _dispatchInboundChannelMessage({

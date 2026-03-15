@@ -12,7 +12,6 @@ void main() {
 
     test('extracts all 5 guard types, skipping ToolPolicyGuard', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [
           InputSanitizer(config: InputSanitizerConfig.defaults()),
           CommandGuard(config: CommandGuardConfig.defaults()),
@@ -24,10 +23,7 @@ void main() {
 
       final configs = extractGuardConfigs(
         chain,
-        contentGuardDisplay: const ContentGuardDisplayParams(
-          enabled: true,
-          classifier: 'claude_binary',
-        ),
+        contentGuardDisplay: const ContentGuardDisplayParams(enabled: true, classifier: 'claude_binary'),
       );
 
       // 4 from chain (ToolPolicyGuard skipped) + 1 ContentGuard = 5
@@ -45,7 +41,6 @@ void main() {
   group('CommandGuard extraction', () {
     test('shows pattern counts and pipe targets', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [CommandGuard(config: CommandGuardConfig.defaults())],
       );
 
@@ -70,7 +65,6 @@ void main() {
   group('FileGuard extraction', () {
     test('groups rules by access level', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [FileGuard(config: FileGuardConfig.defaults())],
       );
 
@@ -88,7 +82,6 @@ void main() {
   group('NetworkGuard extraction', () {
     test('shows domains and truncates at 15', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [NetworkGuard(config: NetworkGuardConfig.defaults())],
       );
 
@@ -102,7 +95,6 @@ void main() {
 
     test('includes agent overrides section when present', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [
           NetworkGuard(
             config: NetworkGuardConfig(
@@ -127,7 +119,6 @@ void main() {
   group('InputSanitizer extraction', () {
     test('shows enabled/channelsOnly badges and pattern categories', () {
       final chain = GuardChain(
-        eventBus: EventBus(),
         guards: [
           InputSanitizer(
             config: InputSanitizerConfig(
@@ -159,7 +150,7 @@ void main() {
   group('ContentGuard extraction', () {
     test('claude_binary classifier shows N/A for API key', () {
       final configs = extractGuardConfigs(
-        GuardChain(eventBus: EventBus(), guards: []),
+        GuardChain(guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'claude_binary',
@@ -183,7 +174,7 @@ void main() {
 
     test('anthropic_api classifier with no key shows Not configured', () {
       final configs = extractGuardConfigs(
-        GuardChain(eventBus: EventBus(), guards: []),
+        GuardChain(guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'anthropic_api',
@@ -199,7 +190,7 @@ void main() {
 
     test('anthropic_api classifier with key shows Configured', () {
       final configs = extractGuardConfigs(
-        GuardChain(eventBus: EventBus(), guards: []),
+        GuardChain(guards: []),
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'anthropic_api',
@@ -216,10 +207,8 @@ void main() {
 
     test('disabled content guard shows No', () {
       final configs = extractGuardConfigs(
-        GuardChain(eventBus: EventBus(), guards: []),
-        contentGuardDisplay: const ContentGuardDisplayParams(
-          enabled: false,
-        ),
+        GuardChain(guards: []),
+        contentGuardDisplay: const ContentGuardDisplayParams(enabled: false),
       );
 
       final cg = configs.firstWhere((c) => c.guardKey == 'content-guard');
@@ -231,11 +220,8 @@ void main() {
 
     test('fail behavior displays correctly', () {
       final configs = extractGuardConfigs(
-        GuardChain(eventBus: EventBus(), guards: []),
-        contentGuardDisplay: const ContentGuardDisplayParams(
-          enabled: true,
-          failOpen: true,
-        ),
+        GuardChain(guards: []),
+        contentGuardDisplay: const ContentGuardDisplayParams(enabled: true, failOpen: true),
       );
 
       final cg = configs.firstWhere((c) => c.guardKey == 'content-guard');
@@ -255,9 +241,7 @@ void main() {
         sections: [
           GuardConfigSection(
             label: 'Section 1',
-            items: [
-              GuardConfigItem(label: 'Key', value: 'Val', style: 'mono'),
-            ],
+            items: [GuardConfigItem(label: 'Key', value: 'Val', style: 'mono')],
           ),
         ],
       );

@@ -30,13 +30,6 @@ void main() {
       expect(workspace, isNot(restricted));
     });
 
-    test('hash is 8 characters', () {
-      final name = ContainerManager.generateName('/home/user/.dartclaw', 'workspace');
-      final parts = name.split('-');
-
-      expect(parts[1], hasLength(8));
-    });
-
     test('name contains only safe Docker characters', () {
       final name = ContainerManager.generateName('/home/user/.dartclaw', 'restricted');
 

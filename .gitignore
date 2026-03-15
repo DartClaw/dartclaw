@@ -3,6 +3,7 @@
 
 # Dart
 .dart_tool/
+.dart-tool/
 build/
 *.g.dart
 pubspec.lock

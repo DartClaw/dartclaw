@@ -11,50 +11,39 @@ import 'loader.dart';
 /// - archive: resume button, read-only
 ///
 /// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
-String topbarTemplate({
-  String? title,
-  String? sessionId,
-  SessionType? sessionType,
-  String appName = 'DartClaw',
-}) {
+String topbarTemplate({String? title, String? sessionId, SessionType? sessionType, String appName = 'DartClaw'}) {
   final src = templateLoader.source('topbar');
 
   if (sessionId == null) {
-    return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: {
-      'appName': appName,
-    });
+    return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: {'appName': appName});
   }
 
   final displayTitle = (title == null || title.trim().isEmpty) ? 'New Session' : title;
   final isArchive = sessionType == SessionType.archive;
 
-  return templateLoader.trellis.renderFragment(src, fragment: 'sessionTopbar', context: {
-    'displayTitle': displayTitle,
-    'sessionId': sessionId,
-    'isArchive': isArchive,
-    'showResume': isArchive,
-    'showReset': !isArchive,
-    'infoHref': '/sessions/$sessionId/info',
-    'resetHref': '/api/sessions/$sessionId/reset',
-  });
+  return templateLoader.trellis.renderFragment(
+    src,
+    fragment: 'sessionTopbar',
+    context: {
+      'displayTitle': displayTitle,
+      'sessionId': sessionId,
+      'isArchive': isArchive,
+      'showResume': isArchive,
+      'showReset': !isArchive,
+      'infoHref': '/sessions/$sessionId/info',
+      'resetHref': '/api/sessions/$sessionId/reset',
+    },
+  );
 }
 
 /// Topbar for standalone pages (settings, health dashboard, scheduling, session info).
 ///
 /// Simpler than [topbarTemplate] — static title, optional back link, no session actions.
 /// All dynamic values are auto-escaped by Trellis (`tl:text`, `tl:attr`).
-String pageTopbarTemplate({
-  required String title,
-  String? backHref,
-  String? backLabel,
-}) {
+String pageTopbarTemplate({required String title, String? backHref, String? backLabel}) {
   return templateLoader.trellis.renderFragment(
     templateLoader.source('topbar'),
     fragment: 'pageTopbar',
-    context: {
-      'title': title,
-      'backHref': backHref,
-      'backLabel': backLabel ?? 'Back',
-    },
+    context: {'title': title, 'backHref': backHref, 'backLabel': backLabel ?? 'Back'},
   );
 }

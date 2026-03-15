@@ -15,8 +15,7 @@ class RestartService {
   final Duration drainDeadline;
   final void Function(int code) _exit;
   final void Function(String event, Map<String, dynamic> data)? _broadcastSse;
-  final void Function(String dataDir, List<String> fields)?
-      _writeRestartPending;
+  final void Function(String dataDir, List<String> fields)? _writeRestartPending;
   final String? _dataDir;
 
   bool _restarting = false;
@@ -28,11 +27,11 @@ class RestartService {
     void Function(String event, Map<String, dynamic> data)? broadcastSse,
     void Function(String dataDir, List<String> fields)? writeRestartPending,
     String? dataDir,
-  })  : _turns = turns,
-        _exit = exit,
-        _broadcastSse = broadcastSse,
-        _writeRestartPending = writeRestartPending,
-        _dataDir = dataDir;
+  }) : _turns = turns,
+       _exit = exit,
+       _broadcastSse = broadcastSse,
+       _writeRestartPending = writeRestartPending,
+       _dataDir = dataDir;
 
   bool get isRestarting => _restarting;
 
@@ -67,9 +66,7 @@ class RestartService {
       _log.info('Draining ${activeIds.length} active turn(s)...');
       try {
         await Future.wait(
-          activeIds.map(
-            (id) => _turns.waitForCompletion(id, timeout: drainDeadline),
-          ),
+          activeIds.map((id) => _turns.waitForCompletion(id, timeout: drainDeadline)),
         ).timeout(drainDeadline);
         _log.info('All turns drained successfully');
       } on TimeoutException {

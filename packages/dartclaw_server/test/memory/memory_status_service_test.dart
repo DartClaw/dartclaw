@@ -85,9 +85,7 @@ Another error
 Some learning detail
 ''');
 
-      final service = makeService(
-        searchIndexCounter: (source) => source == 'memory' ? 3 : 2,
-      );
+      final service = makeService(searchIndexCounter: (source) => source == 'memory' ? 3 : 2);
       final status = await service.getStatus();
 
       // memoryMd
@@ -246,9 +244,7 @@ Some learning detail
 
   group('search status', () {
     test('search index counts from callback', () async {
-      final service = makeService(
-        searchIndexCounter: (source) => source == 'memory' ? 100 : 50,
-      );
+      final service = makeService(searchIndexCounter: (source) => source == 'memory' ? 100 : 50);
       final status = await service.getStatus();
       final search = status['search'] as Map<String, dynamic>;
       expect(search['indexEntries'], 100);
@@ -271,9 +267,7 @@ Some learning detail
 
       // Create 3 daily log files
       for (final date in ['2026-03-01', '2026-03-02', '2026-03-03']) {
-        File(p.join(logDir.path, '$date.md')).writeAsStringSync(
-          '- [10:00] Entry one\n- [11:00] Entry two\n',
-        );
+        File(p.join(logDir.path, '$date.md')).writeAsStringSync('- [10:00] Entry one\n- [11:00] Entry two\n');
       }
 
       final service = makeService();

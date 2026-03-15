@@ -1,7 +1,12 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/src/maintenance/session_maintenance_service.dart';
+
+import 'config_loader.dart';
 
 typedef CleanupWriteLine = void Function(String line);
 typedef CleanupExitFn = void Function(int code);
@@ -12,13 +17,10 @@ class CleanupCommand extends Command<void> {
   final CleanupWriteLine _writeLine;
   final CleanupExitFn _exitFn;
 
-  CleanupCommand({
-    DartclawConfig? config,
-    CleanupWriteLine? writeLine,
-    CleanupExitFn? exitFn,
-  })  : _config = config,
-        _writeLine = writeLine ?? stdout.writeln,
-        _exitFn = exitFn ?? exit {
+  CleanupCommand({DartclawConfig? config, CleanupWriteLine? writeLine, CleanupExitFn? exitFn})
+    : _config = config,
+      _writeLine = writeLine ?? stdout.writeln,
+      _exitFn = exitFn ?? exit {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }
@@ -38,7 +40,7 @@ class CleanupCommand extends Command<void> {
       throw UsageException('Cannot use --dry-run and --enforce together', usage);
     }
 
-    final config = _config ?? DartclawConfig.load(configPath: globalResults?['config'] as String?);
+    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
 
     for (final w in config.warnings) {
       _writeLine('WARNING: $w');
@@ -47,9 +49,7 @@ class CleanupCommand extends Command<void> {
     final sessions = SessionService(baseDir: config.sessionsDir);
 
     // Derive protected channel keys from config
-    final hasConfiguredChannels = config.channelConfig.channelConfigs.values.any(
-      (c) => c['enabled'] == true,
-    );
+    final hasConfiguredChannels = config.channelConfig.channelConfigs.values.any((c) => c['enabled'] == true);
     final activeChannelKeys = <String>{};
     if (hasConfiguredChannels) {
       final channelSessions = await sessions.listSessions(type: SessionType.channel);
@@ -59,10 +59,7 @@ class CleanupCommand extends Command<void> {
     }
 
     // Derive active job IDs from config
-    final activeJobIds = config.schedulingJobs
-        .map((j) => j['name'] as String?)
-        .whereType<String>()
-        .toSet();
+    final activeJobIds = config.schedulingJobs.map((j) => j['name'] as String?).whereType<String>().toSet();
 
     // Determine mode override
     MaintenanceMode? modeOverride;

@@ -31,10 +31,8 @@ class ConfigCommand extends Command<void> {
   Future<void> run() async {
     final host = argResults!['host'] as String;
     final port = int.parse(argResults!['port'] as String);
-    final dataDir = argResults!['data-dir'] as String? ??
-        '${Platform.environment['HOME']}/.dartclaw';
-    final user = argResults!['user'] as String? ??
-        Platform.environment['USER'] ?? 'dartclaw';
+    final dataDir = argResults!['data-dir'] as String? ?? '${Platform.environment['HOME']}/.dartclaw';
+    final user = argResults!['user'] as String? ?? Platform.environment['USER'] ?? 'dartclaw';
     final binPath = argResults!['bin-path'] as String? ?? 'dartclaw';
     final outputDir = argResults!['output-dir'] as String? ?? dataDir;
     final force = argResults!['force'] as bool;
@@ -43,15 +41,11 @@ class ConfigCommand extends Command<void> {
 
     // Generate service file based on OS
     if (Platform.isMacOS) {
-      final plist = generatePlist(
-        binPath: binPath, host: host, port: port, dataDir: dataDir, user: user,
-      );
+      final plist = generatePlist(binPath: binPath, host: host, port: port, dataDir: dataDir, user: user);
       final plistPath = p.join(outputDir, 'com.dartclaw.agent.plist');
       if (_writeFile(plistPath, plist, force)) generated.add(plistPath);
     } else if (Platform.isLinux) {
-      final unit = generateUnit(
-        binPath: binPath, host: host, port: port, dataDir: dataDir, user: user,
-      );
+      final unit = generateUnit(binPath: binPath, host: host, port: port, dataDir: dataDir, user: user);
       final unitPath = p.join(outputDir, 'dartclaw.service');
       if (_writeFile(unitPath, unit, force)) generated.add(unitPath);
     }

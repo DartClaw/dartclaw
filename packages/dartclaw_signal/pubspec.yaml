@@ -1,0 +1,26 @@
+name: dartclaw_signal
+description: Signal channel integration for DartClaw via signal-cli subprocess.
+publish_to: none
+version: 0.9.0
+repository: https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_signal
+homepage: https://github.com/tolo/dartclaw
+issue_tracker: https://github.com/tolo/dartclaw/issues
+topics:
+  - ai
+  - chat
+  - messaging
+  - agents
+
+environment:
+  sdk: ^3.11.0
+
+resolution: workspace
+
+dependencies:
+  dartclaw_core:
+    path: ../dartclaw_core
+  logging: ^1.3.0
+
+dev_dependencies:
+  test: ^1.29.0
+  lints: ^6.0.0

@@ -133,16 +133,11 @@ void main() {
   });
 
   group('CronExpression.matches weekday mapping', () {
-    test('Sunday is 0 in cron notation', () {
-      final cron = CronExpression.parse('* * * * 0');
-      // Find a Sunday: 2026-03-01 is a Sunday
-      expect(cron.matches(DateTime(2026, 3, 1, 12, 0)), isTrue);
-    });
-
-    test('Monday is 1 in cron notation', () {
-      final cron = CronExpression.parse('* * * * 1');
+    test('maps Sunday (0) and Monday (1) correctly in cron notation', () {
+      // 2026-03-01 is a Sunday
+      expect(CronExpression.parse('* * * * 0').matches(DateTime(2026, 3, 1, 12, 0)), isTrue);
       // 2026-02-23 is a Monday
-      expect(cron.matches(DateTime(2026, 2, 23, 12, 0)), isTrue);
+      expect(CronExpression.parse('* * * * 1').matches(DateTime(2026, 2, 23, 12, 0)), isTrue);
     });
   });
 }

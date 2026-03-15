@@ -25,15 +25,22 @@ agent:
   agents:
     search:
       tools: [WebSearch, WebFetch]
-      model: claude-haiku-4-5
+      model: haiku
       max_concurrent: 2
       max_response_bytes: 5242880
 
 guards:
   content:
     enabled: true
+    model: claude-haiku-4-5-20251001
 
 memory_max_bytes: 65536
+
+sessions:
+  idle_timeout_minutes: 480           # long timeout for research sessions
+  maintenance:
+    mode: enforce
+    prune_after_days: 90
 
 scheduling:
   heartbeat:
@@ -112,12 +119,12 @@ scheduling:
 
 ## Customization Tips
 
-- **Use a more capable search model**: Change `agents.search.model` to `claude-sonnet-4-6` for complex research requiring better synthesis (costs more per search)
+- **Use a more capable search model**: Change `agents.search.model` to `sonnet` for complex research requiring better synthesis (higher cost per search)
 - **Increase search concurrency**: Set `max_concurrent: 4` for faster parallel searches (uses more API calls)
 - **Add topic focus**: Edit SOUL.md's "Research Process" to prioritize certain source types (e.g., "prefer peer-reviewed papers" or "focus on official documentation")
 - **Enable QMD hybrid search**: Add `search.backend: qmd` for semantic memory retrieval -- better for finding conceptually related previous research
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)
-- **Connect WhatsApp**: Add WhatsApp channel so you can ask research questions on the go -- the agent uses the same search agent and memory
+- **Connect a messaging channel**: Add WhatsApp, Signal, or Google Chat so you can ask research questions on the go -- the agent uses the same search agent and memory. With `task_trigger` enabled (0.9+), send `task: research <topic>` to create a background research task
 
 ## Gotchas & Limitations
 

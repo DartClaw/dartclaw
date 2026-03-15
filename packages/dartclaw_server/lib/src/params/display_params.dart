@@ -5,10 +5,7 @@ class AppDisplayParams {
   final String name;
   final String? dataDir;
 
-  const AppDisplayParams({
-    this.name = 'DartClaw',
-    this.dataDir,
-  });
+  const AppDisplayParams({this.name = 'DartClaw', this.dataDir});
 }
 
 /// Content guard configuration displayed on the settings page.
@@ -35,10 +32,7 @@ class HeartbeatDisplayParams {
   final bool enabled;
   final int intervalMinutes;
 
-  const HeartbeatDisplayParams({
-    this.enabled = false,
-    this.intervalMinutes = 30,
-  });
+  const HeartbeatDisplayParams({this.enabled = false, this.intervalMinutes = 30});
 }
 
 /// Scheduling configuration displayed on the settings page.
@@ -47,18 +41,12 @@ class SchedulingDisplayParams {
   final List<String> systemJobNames;
   final List<ScheduledTaskDefinition> scheduledTasks;
 
-  const SchedulingDisplayParams({
-    this.jobs = const [],
-    this.systemJobNames = const [],
-    this.scheduledTasks = const [],
-  });
+  const SchedulingDisplayParams({this.jobs = const [], this.systemJobNames = const [], this.scheduledTasks = const []});
 }
 
 /// Workspace configuration displayed on the settings page.
 class WorkspaceDisplayParams {
   final String? path;
 
-  const WorkspaceDisplayParams({
-    this.path,
-  });
+  const WorkspaceDisplayParams({this.path});
 }

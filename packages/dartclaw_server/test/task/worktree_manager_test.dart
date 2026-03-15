@@ -19,8 +19,7 @@ void main() {
 
       // Initialize a real git repo with an initial commit
       await Process.run('git', ['init'], workingDirectory: projectDir);
-      await Process.run('git', ['checkout', '-b', 'main'],
-          workingDirectory: projectDir);
+      await Process.run('git', ['checkout', '-b', 'main'], workingDirectory: projectDir);
       File(p.join(projectDir, 'README.md')).writeAsStringSync('# Test');
       await Process.run('git', ['add', '.'], workingDirectory: projectDir);
       await Process.run(
@@ -41,10 +40,7 @@ void main() {
     });
 
     test('create() produces worktree at expected path with expected branch name', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       final info = await manager.create('abc123');
 
@@ -53,36 +49,26 @@ void main() {
       expect(Directory(info.path).existsSync(), isTrue);
 
       // Verify the branch exists
-      final branchResult = await Process.run(
-        'git',
-        ['branch', '--list', 'dartclaw/task-abc123'],
-        workingDirectory: projectDir,
-      );
+      final branchResult = await Process.run('git', [
+        'branch',
+        '--list',
+        'dartclaw/task-abc123',
+      ], workingDirectory: projectDir);
       expect((branchResult.stdout as String).trim(), isNotEmpty);
     });
 
     test('create() appends -N suffix when branch already exists', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       // Create a branch that will collide
-      await Process.run(
-        'git',
-        ['branch', 'dartclaw/task-collide', 'main'],
-        workingDirectory: projectDir,
-      );
+      await Process.run('git', ['branch', 'dartclaw/task-collide', 'main'], workingDirectory: projectDir);
 
       final info = await manager.create('collide');
       expect(info.branch, equals('dartclaw/task-collide-2'));
     });
 
     test('cleanup() removes worktree directory and branch', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       final info = await manager.create('cleanup-test');
       expect(Directory(info.path).existsSync(), isTrue);
@@ -92,29 +78,19 @@ void main() {
       expect(Directory(info.path).existsSync(), isFalse);
 
       // Verify branch is deleted
-      final branchResult = await Process.run(
-        'git',
-        ['branch', '--list', info.branch],
-        workingDirectory: projectDir,
-      );
+      final branchResult = await Process.run('git', ['branch', '--list', info.branch], workingDirectory: projectDir);
       expect((branchResult.stdout as String).trim(), isEmpty);
     });
 
     test('cleanup() logs warning on failure (does not throw)', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       // Cleanup a non-existent task should not throw
       await manager.cleanup('nonexistent');
     });
 
     test('getWorktreeInfo() returns info for existing worktree', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       await manager.create('info-test');
       final info = manager.getWorktreeInfo('info-test');
@@ -123,29 +99,20 @@ void main() {
     });
 
     test('getWorktreeInfo() returns null for non-existent worktree', () {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       expect(manager.getWorktreeInfo('nonexistent'), isNull);
     });
 
     test('detectStaleWorktrees() does not throw for empty directory', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       // Should not throw when worktrees dir doesn't exist
       await manager.detectStaleWorktrees();
     });
 
     test('detectStaleWorktrees() does not throw for fresh worktrees', () async {
-      final manager = WorktreeManager(
-        dataDir: dataDir,
-        projectDir: projectDir,
-      );
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
       await manager.create('fresh-task');
       await manager.detectStaleWorktrees();
@@ -193,10 +160,7 @@ void main() {
 
       expect(
         () => manager.create('task-1'),
-        throwsA(
-          isA<WorktreeException>()
-              .having((e) => e.gitStderr, 'gitStderr', contains('not a valid ref')),
-        ),
+        throwsA(isA<WorktreeException>().having((e) => e.gitStderr, 'gitStderr', contains('not a valid ref'))),
       );
     });
   });
@@ -220,11 +184,7 @@ void main() {
 
   group('WorktreeException', () {
     test('toString includes message, stderr, and exit code', () {
-      const ex = WorktreeException(
-        'Failed to create',
-        gitStderr: 'fatal: error',
-        exitCode: 128,
-      );
+      const ex = WorktreeException('Failed to create', gitStderr: 'fatal: error', exitCode: 128);
       final str = ex.toString();
       expect(str, contains('Failed to create'));
       expect(str, contains('fatal: error'));

@@ -85,11 +85,13 @@ class KvService {
 
     final file = File(filePath);
     if (!file.existsSync()) {
-      _cache = <String, dynamic>{};
-      return _cache!;
+      final empty = <String, dynamic>{};
+      _cache = empty;
+      return empty;
     }
 
-    _cache = Map<String, dynamic>.from(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
-    return _cache!;
+    final loaded = Map<String, dynamic>.from(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+    _cache = loaded;
+    return loaded;
   }
 }

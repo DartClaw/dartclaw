@@ -40,14 +40,8 @@ class MemoryStatusService {
   Future<Map<String, dynamic>> getStatus() async {
     final memoryMd = _getMemoryMdStatus();
     final archiveMd = _getArchiveStatus();
-    final errorsMd = _getSelfImprovementStatus(
-      p.join(workspaceDir, 'errors.md'),
-      cap: 50,
-    );
-    final learningsMd = _getSelfImprovementStatus(
-      p.join(workspaceDir, 'learnings.md'),
-      cap: 50,
-    );
+    final errorsMd = _getSelfImprovementStatus(p.join(workspaceDir, 'errors.md'), cap: 50);
+    final learningsMd = _getSelfImprovementStatus(p.join(workspaceDir, 'learnings.md'), cap: 50);
     final search = _getSearchStatus();
     final pruner = await _getPrunerStatus();
     final dailyLogs = _getDailyLogsStatus();
@@ -60,9 +54,7 @@ class MemoryStatusService {
       'search': search,
       'pruner': pruner,
       'dailyLogs': dailyLogs,
-      'config': {
-        'memoryMaxBytes': config.memoryMaxBytes,
-      },
+      'config': {'memoryMaxBytes': config.memoryMaxBytes},
     };
   }
 
@@ -90,9 +82,7 @@ class MemoryStatusService {
       for (final entry in entries) {
         categoryMap[entry.category] = (categoryMap[entry.category] ?? 0) + 1;
       }
-      final categories = categoryMap.entries
-          .map((e) => {'name': e.key, 'count': e.value})
-          .toList();
+      final categories = categoryMap.entries.map((e) => {'name': e.key, 'count': e.value}).toList();
 
       // Oldest/newest timestamps (ignoring undated entries)
       DateTime? oldest;
@@ -323,11 +313,9 @@ class MemoryStatusService {
 
     try {
       final datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}\.md$');
-      final logFiles = logDir.listSync()
-          .whereType<File>()
-          .where((f) => datePattern.hasMatch(p.basename(f.path)))
-          .toList()
-        ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+      final logFiles =
+          logDir.listSync().whereType<File>().where((f) => datePattern.hasMatch(p.basename(f.path))).toList()
+            ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
 
       var totalSizeBytes = 0;
       final recent = <Map<String, dynamic>>[];
@@ -342,19 +330,11 @@ class MemoryStatusService {
           final name = p.basenameWithoutExtension(file.path);
           final content = file.readAsStringSync();
           final entries = content.split('\n').where((l) => l.startsWith('- [')).length;
-          recent.add({
-            'date': name,
-            'entries': entries,
-            'sizeBytes': sizeBytes,
-          });
+          recent.add({'date': name, 'entries': entries, 'sizeBytes': sizeBytes});
         }
       }
 
-      return {
-        'fileCount': logFiles.length,
-        'totalSizeBytes': totalSizeBytes,
-        'recent': recent,
-      };
+      return {'fileCount': logFiles.length, 'totalSizeBytes': totalSizeBytes, 'recent': recent};
     } catch (e) {
       _log.warning('Failed to enumerate daily logs: $e');
       return {'fileCount': 0, 'totalSizeBytes': 0, 'recent': <Map<String, dynamic>>[]};

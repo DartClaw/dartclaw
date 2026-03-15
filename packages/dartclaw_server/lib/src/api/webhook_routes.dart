@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';

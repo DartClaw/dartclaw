@@ -24,20 +24,11 @@ void main() {
   });
 
   /// Runs the cleanup command via a CommandRunner with the given [args].
-  Future<void> runCleanup(
-    List<String> args, {
-    DartclawConfig? config,
-  }) async {
+  Future<void> runCleanup(List<String> args, {DartclawConfig? config}) async {
     final cfg = config ?? DartclawConfig(dataDir: tempDir.path);
-    final command = CleanupCommand(
-      config: cfg,
-      writeLine: output.add,
-      exitFn: (code) => exitCode = code,
-    );
+    final command = CleanupCommand(config: cfg, writeLine: output.add, exitFn: (code) => exitCode = code);
 
-    final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(
-      _TestSessionsCommand(command),
-    );
+    final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(_TestSessionsCommand(command));
 
     await runner.run(['sessions', 'cleanup', ...args]);
   }
@@ -64,9 +55,7 @@ void main() {
     test('cleanup with --dry-run always uses warn mode', () async {
       final config = DartclawConfig(
         dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-        ),
+        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce),
       );
 
       await runCleanup(['--dry-run'], config: config);
@@ -85,9 +74,7 @@ void main() {
     test('cleanup with no flags respects config mode', () async {
       final config = DartclawConfig(
         dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-        ),
+        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce),
       );
 
       await runCleanup([], config: config);
@@ -97,10 +84,7 @@ void main() {
     });
 
     test('cleanup with both --dry-run and --enforce throws UsageException', () async {
-      expect(
-        () => runCleanup(['--dry-run', '--enforce']),
-        throwsA(isA<UsageException>()),
-      );
+      expect(() => runCleanup(['--dry-run', '--enforce']), throwsA(isA<UsageException>()));
     });
 
     test('output format includes summary sections', () async {
@@ -125,10 +109,7 @@ void main() {
 
       final config = DartclawConfig(
         dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       await runCleanup([], config: config);
@@ -145,10 +126,7 @@ void main() {
 
       final config = DartclawConfig(
         dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 30,
-        ),
+        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
       );
 
       await runCleanup(['--dry-run'], config: config);
@@ -178,9 +156,6 @@ void _backdateSession(String sessionsDir, String sessionId, Duration age) {
   final content = metaFile.readAsStringSync();
   final backdated = DateTime.now().subtract(age).toIso8601String();
   // Replace the updatedAt timestamp
-  final updated = content.replaceAllMapped(
-    RegExp(r'"updatedAt":"[^"]*"'),
-    (m) => '"updatedAt":"$backdated"',
-  );
+  final updated = content.replaceAllMapped(RegExp(r'"updatedAt":"[^"]*"'), (m) => '"updatedAt":"$backdated"');
   metaFile.writeAsStringSync(updated);
 }

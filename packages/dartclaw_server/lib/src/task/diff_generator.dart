@@ -81,9 +81,7 @@ class DiffFileEntry {
     additions: json['additions'] as int,
     deletions: json['deletions'] as int,
     binary: json['binary'] as bool? ?? false,
-    hunks: (json['hunks'] as List)
-        .map((h) => DiffHunk.fromJson(h as Map<String, dynamic>))
-        .toList(),
+    hunks: (json['hunks'] as List).map((h) => DiffHunk.fromJson(h as Map<String, dynamic>)).toList(),
   );
 }
 
@@ -109,9 +107,7 @@ class DiffResult {
   };
 
   factory DiffResult.fromJson(Map<String, dynamic> json) => DiffResult(
-    files: (json['files'] as List)
-        .map((f) => DiffFileEntry.fromJson(f as Map<String, dynamic>))
-        .toList(),
+    files: (json['files'] as List).map((f) => DiffFileEntry.fromJson(f as Map<String, dynamic>)).toList(),
     totalAdditions: json['totalAdditions'] as int,
     totalDeletions: json['totalDeletions'] as int,
     filesChanged: json['filesChanged'] as int,
@@ -123,19 +119,13 @@ class DiffGenerator {
   static final _log = Logger('DiffGenerator');
 
   final String _projectDir;
-  final Future<ProcessResult> Function(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) _runProcess;
+  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
+  _runProcess;
 
   DiffGenerator({
     required String projectDir,
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-    })? processRunner,
+    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
+    processRunner,
   }) : _projectDir = projectDir,
        _runProcess = processRunner ?? _defaultProcessRunner;
 
@@ -144,24 +134,20 @@ class DiffGenerator {
     List<String> arguments, {
     String? workingDirectory,
   }) {
-    return Process.run(executable, arguments,
-        workingDirectory: workingDirectory);
+    return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 
   /// Generates a structured diff between [baseRef] and [branch].
   ///
   /// Uses three-dot diff (`baseRef...branch`) to show only changes introduced
   /// on the branch, not changes on base since branching.
-  Future<DiffResult> generate({
-    required String baseRef,
-    required String branch,
-  }) async {
+  Future<DiffResult> generate({required String baseRef, required String branch}) async {
     // 1. Get file-level stats via numstat
-    final numstatResult = await _runProcess(
-      'git',
-      ['diff', '--numstat', '$baseRef...$branch'],
-      workingDirectory: _projectDir,
-    );
+    final numstatResult = await _runProcess('git', [
+      'diff',
+      '--numstat',
+      '$baseRef...$branch',
+    ], workingDirectory: _projectDir);
     if (numstatResult.exitCode != 0) {
       throw WorktreeException(
         'git diff --numstat failed',
@@ -171,11 +157,12 @@ class DiffGenerator {
     }
 
     // 2. Get unified diff with hunks
-    final unifiedResult = await _runProcess(
-      'git',
-      ['diff', '-U3', '--no-color', '$baseRef...$branch'],
-      workingDirectory: _projectDir,
-    );
+    final unifiedResult = await _runProcess('git', [
+      'diff',
+      '-U3',
+      '--no-color',
+      '$baseRef...$branch',
+    ], workingDirectory: _projectDir);
     if (unifiedResult.exitCode != 0) {
       throw WorktreeException(
         'git diff -U3 failed',
@@ -194,15 +181,17 @@ class DiffGenerator {
 
     for (final entry in numstatEntries) {
       final hunks = hunksByFile[entry.path] ?? hunksByFile[entry.oldPath] ?? const <DiffHunk>[];
-      files.add(DiffFileEntry(
-        path: entry.path,
-        oldPath: entry.oldPath,
-        status: entry.status,
-        additions: entry.additions,
-        deletions: entry.deletions,
-        binary: entry.binary,
-        hunks: hunks,
-      ));
+      files.add(
+        DiffFileEntry(
+          path: entry.path,
+          oldPath: entry.oldPath,
+          status: entry.status,
+          additions: entry.additions,
+          deletions: entry.deletions,
+          binary: entry.binary,
+          hunks: hunks,
+        ),
+      );
       totalAdditions += entry.additions;
       totalDeletions += entry.deletions;
     }
@@ -235,13 +224,9 @@ class DiffGenerator {
 
       // Binary files: numstat reports - for additions and deletions
       if (addStr == '-' && delStr == '-') {
-        entries.add(_NumstatEntry(
-          path: pathPart,
-          additions: 0,
-          deletions: 0,
-          binary: true,
-          status: DiffFileStatus.modified,
-        ));
+        entries.add(
+          _NumstatEntry(path: pathPart, additions: 0, deletions: 0, binary: true, status: DiffFileStatus.modified),
+        );
         continue;
       }
 
@@ -273,13 +258,9 @@ class DiffGenerator {
         }
       }
 
-      entries.add(_NumstatEntry(
-        path: path,
-        oldPath: oldPath,
-        additions: additions,
-        deletions: deletions,
-        status: status,
-      ));
+      entries.add(
+        _NumstatEntry(path: path, oldPath: oldPath, additions: additions, deletions: deletions, status: status),
+      );
     }
     return entries;
   }
@@ -321,8 +302,7 @@ class DiffGenerator {
         i++;
         while (i < lines.length) {
           final hunkLine = lines[i];
-          if (hunkLine.startsWith('diff --git ') ||
-              _hunkHeaderRe.hasMatch(hunkLine)) {
+          if (hunkLine.startsWith('diff --git ') || _hunkHeaderRe.hasMatch(hunkLine)) {
             break;
           }
           if (hunkLine.startsWith(' ') ||
@@ -334,14 +314,16 @@ class DiffGenerator {
           i++;
         }
 
-        hunksByFile[currentFile]!.add(DiffHunk(
-          header: header,
-          oldStart: oldStart,
-          oldCount: oldCount,
-          newStart: newStart,
-          newCount: newCount,
-          lines: hunkLines,
-        ));
+        hunksByFile[currentFile]!.add(
+          DiffHunk(
+            header: header,
+            oldStart: oldStart,
+            oldCount: oldCount,
+            newStart: newStart,
+            newCount: newCount,
+            lines: hunkLines,
+          ),
+        );
         continue;
       }
 
@@ -359,18 +341,12 @@ class DiffGenerator {
       final oldSuffix = braceMatch.group(2)!;
       final newSuffix = braceMatch.group(3)!;
       final postfix = braceMatch.group(4)!;
-      return (
-        oldPath: '$prefix$oldSuffix$postfix',
-        newPath: '$prefix$newSuffix$postfix',
-      );
+      return (oldPath: '$prefix$oldSuffix$postfix', newPath: '$prefix$newSuffix$postfix');
     }
     // Fallback: tab-separated old\tnew
     final tabIndex = pathPart.indexOf('\t');
     if (tabIndex > 0) {
-      return (
-        oldPath: pathPart.substring(0, tabIndex),
-        newPath: pathPart.substring(tabIndex + 1),
-      );
+      return (oldPath: pathPart.substring(0, tabIndex), newPath: pathPart.substring(tabIndex + 1));
     }
     return (oldPath: pathPart, newPath: pathPart);
   }

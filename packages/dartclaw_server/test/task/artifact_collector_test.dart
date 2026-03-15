@@ -217,20 +217,22 @@ void main() {
     final startedAt = DateTime.parse('2026-03-10T10:00:00Z');
     final session = await sessions.createSession(type: SessionType.task);
 
-    final mockDiffGen = _MockDiffGenerator(result: DiffResult(
-      files: [
-        DiffFileEntry(
-          path: 'lib/main.dart',
-          status: DiffFileStatus.modified,
-          additions: 5,
-          deletions: 2,
-          hunks: const [],
-        ),
-      ],
-      totalAdditions: 5,
-      totalDeletions: 2,
-      filesChanged: 1,
-    ));
+    final mockDiffGen = _MockDiffGenerator(
+      result: DiffResult(
+        files: [
+          DiffFileEntry(
+            path: 'lib/main.dart',
+            status: DiffFileStatus.modified,
+            additions: 5,
+            deletions: 2,
+            hunks: const [],
+          ),
+        ],
+        totalAdditions: 5,
+        totalDeletions: 2,
+        filesChanged: 1,
+      ),
+    );
 
     final collectorWithDiff = ArtifactCollector(
       tasks: tasks,
@@ -249,11 +251,14 @@ void main() {
       sessionId: session.id,
       startedAt: startedAt,
     );
-    task = await tasks.updateFields(task.id, worktreeJson: const {
-      'path': '/tmp/worktree',
-      'branch': 'dartclaw/task-7',
-      'createdAt': '2026-03-10T10:00:00.000Z',
-    });
+    task = await tasks.updateFields(
+      task.id,
+      worktreeJson: const {
+        'path': '/tmp/worktree',
+        'branch': 'dartclaw/task-7',
+        'createdAt': '2026-03-10T10:00:00.000Z',
+      },
+    );
 
     final artifacts = await collectorWithDiff.collect(task);
 
@@ -296,11 +301,14 @@ void main() {
       sessionId: session.id,
       startedAt: startedAt,
     );
-    task = await tasks.updateFields(task.id, worktreeJson: const {
-      'path': '/tmp/worktree',
-      'branch': 'dartclaw/task-8',
-      'createdAt': '2026-03-10T10:00:00.000Z',
-    });
+    task = await tasks.updateFields(
+      task.id,
+      worktreeJson: const {
+        'path': '/tmp/worktree',
+        'branch': 'dartclaw/task-8',
+        'createdAt': '2026-03-10T10:00:00.000Z',
+      },
+    );
 
     final artifacts = await collectorWithDiff.collect(task);
 
@@ -333,24 +341,15 @@ class _MockDiffGenerator extends DiffGenerator {
   String? lastBaseRef;
   String? lastBranch;
 
-  _MockDiffGenerator({this.result, this.shouldThrow = false})
-      : super(projectDir: '/mock');
+  _MockDiffGenerator({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
 
   @override
-  Future<DiffResult> generate({
-    required String baseRef,
-    required String branch,
-  }) async {
+  Future<DiffResult> generate({required String baseRef, required String branch}) async {
     lastBaseRef = baseRef;
     lastBranch = branch;
     if (shouldThrow) {
       throw Exception('Mock diff generation failure');
     }
-    return result ?? DiffResult(
-      files: const [],
-      totalAdditions: 0,
-      totalDeletions: 0,
-      filesChanged: 0,
-    );
+    return result ?? DiffResult(files: const [], totalAdditions: 0, totalDeletions: 0, filesChanged: 0);
   }
 }

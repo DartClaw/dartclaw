@@ -25,10 +25,7 @@ class SessionLockManager {
     }
     // Check global cap after waiting
     if (_activeCount >= maxParallel) {
-      throw BusyTurnException(
-        'Global concurrency limit reached ($maxParallel)',
-        isSameSession: false,
-      );
+      throw BusyTurnException('Global concurrency limit reached ($maxParallel)', isSameSession: false);
     }
     _locks[sessionId] = Completer<void>();
     _activeCount++;

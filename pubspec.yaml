@@ -8,6 +8,12 @@ workspace:
   - packages/dartclaw
   - packages/dartclaw_models
   - packages/dartclaw_core
+  - packages/dartclaw_config
+  - packages/dartclaw_security
+  - packages/dartclaw_google_chat
+  - packages/dartclaw_whatsapp
+  - packages/dartclaw_signal
   - packages/dartclaw_storage
+  - packages/dartclaw_testing
   - packages/dartclaw_server
   - apps/dartclaw_cli

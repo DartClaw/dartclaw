@@ -9,9 +9,6 @@ class LogContext {
   static String? get turnId => Zone.current[#logTurnId] as String?;
 
   static R runWith<R>(R Function() body, {String? sessionId, String? turnId}) {
-    return runZoned(body, zoneValues: {
-      #logSessionId: ?sessionId,
-      #logTurnId: ?turnId,
-    });
+    return runZoned(body, zoneValues: {#logSessionId: ?sessionId, #logTurnId: ?turnId});
   }
 }

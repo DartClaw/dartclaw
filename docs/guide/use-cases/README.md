@@ -8,9 +8,15 @@ Practical workflow guides for common DartClaw automation patterns. Each use-case
 - Basic familiarity with `dartclaw.yaml` configuration (see [Configuration](../configuration.md))
 - Workspace behavior files set up (see [Workspace](../workspace.md))
 
+## Quick Start: Personal Assistant
+
+**Want a ready-to-go personal AI assistant?** Start here:
+
+--> [**Personal Assistant & Knowledge Base**](00-personal-assistant.md) -- a complete, turnkey setup combining daily briefings, knowledge curation, journaling, and self-improvement into one config. Includes a "Day in the Life" walkthrough, combined behavior files, and step-by-step setup.
+
 ## Decision Tree
 
-**What do you want to do?**
+Already know what you want? Pick a specific use-case:
 
 - Want a **daily briefing** delivered to your phone or web UI?
   --> [Morning Briefing](01-morning-briefing.md)
@@ -37,14 +43,23 @@ Practical workflow guides for common DartClaw automation patterns. Each use-case
 
 | # | Name | Features Used | Complexity |
 |---|------|---------------|------------|
-| 1 | [Morning Briefing](01-morning-briefing.md) | Cron scheduling, MEMORY.md, WhatsApp/web delivery, search agent | Low |
+| 0 | [**Personal Assistant**](00-personal-assistant.md) | Combines 1+2+4+7 into turnkey setup | Low |
+| 1 | [Morning Briefing](01-morning-briefing.md) | Cron scheduling, MEMORY.md, WhatsApp/Signal/Google Chat delivery, search agent | Low |
 | 2 | [Daily Memory Journal](02-daily-memory-journal.md) | Cron scheduling, HEARTBEAT.md, memory consolidation, git sync | Low |
-| 3 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple cron/interval jobs, HEARTBEAT.md, delivery modes | Low |
+| 3 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple cron/interval jobs, HEARTBEAT.md, delivery modes, task system | Low |
 | 4 | [Knowledge Inbox](04-knowledge-inbox.md) | Search agent, content-guard, memory_save, cron scheduling | Medium |
-| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp DM allowlist, memory_save, memory search | Medium |
+| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat DM allowlist, memory_save, memory search | Medium |
 | 6 | [Research Assistant](06-research-assistant.md) | Search agent (tool policy cascade), memory, web UI | Medium |
 | 7 | [Nightly Reflection](07-nightly-reflection.md) | Cron scheduling, errors.md, learnings.md, memory_save | Low |
 
 ## Shared Patterns
 
-See [Common Patterns](_common-patterns.md) for reusable templates and testing guides shared across use-cases.
+See [Common Patterns](_common-patterns.md) for reusable templates, cron testing guides, heartbeat vs cron comparison, monitoring guidance, and memory consolidation details shared across use-cases.
+
+## Troubleshooting
+
+See [Troubleshooting](_troubleshooting.md) for common issues: jobs not firing, announce not delivering, memory not consolidating, channel problems, and cost optimization.
+
+## Further Reading
+
+- **Personal AI & PKM Landscape Research** -- DartClaw's design draws on research into systems like Letta, Khoj, Mem0, Zep, Alfred, and PAI. Topics include memory tier analysis, identity systems, behavioral learning, and proactive AI patterns. See the [Personal Assistant composite guide](00-personal-assistant.md#going-deeper) for an overview of how these patterns inform DartClaw's architecture

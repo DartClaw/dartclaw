@@ -82,10 +82,7 @@ class TemplateLoaderService {
       }
     }
     if (devMode) {
-      trellis = Trellis(
-        loader: FileSystemLoader(_basePath, devMode: true),
-        devMode: true,
-      );
+      trellis = Trellis(loader: FileSystemLoader(_basePath, devMode: true), devMode: true);
     } else {
       trellis = Trellis(loader: MapLoader(_sources));
     }

@@ -1,38 +1,8 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/channel/channel_config.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel;
 import 'package:test/test.dart';
-
-// ---------------------------------------------------------------------------
-// FakeChannel
-// ---------------------------------------------------------------------------
-
-class FakeChannel extends Channel {
-  @override
-  final String name;
-  @override
-  final ChannelType type;
-  final Set<String> ownedJids;
-  final List<(String, ChannelResponse)> sentMessages = [];
-  bool connected = false;
-
-  FakeChannel({this.name = 'fake', this.type = ChannelType.whatsapp, this.ownedJids = const {}});
-
-  @override
-  Future<void> connect() async => connected = true;
-
-  @override
-  Future<void> disconnect() async => connected = false;
-
-  @override
-  bool ownsJid(String jid) => ownedJids.contains(jid);
-
-  @override
-  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
-    sentMessages.add((recipientJid, response));
-  }
-}
 
 void main() {
   group('ChannelManager', () {

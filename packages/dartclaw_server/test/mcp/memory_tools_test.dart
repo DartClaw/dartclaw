@@ -16,10 +16,10 @@ void main() {
     test('invokes handler and returns extracted text', () async {
       final tool = MemorySaveTool(
         handler: (args) async => {
-              'content': [
-                {'type': 'text', 'text': 'Saved 2 chunk(s) to memory.'},
-              ],
-            },
+          'content': [
+            {'type': 'text', 'text': 'Saved 2 chunk(s) to memory.'},
+          ],
+        },
       );
 
       final result = await tool.call({'text': 'hello', 'category': 'test'});
@@ -40,10 +40,10 @@ void main() {
     test('invokes handler and returns extracted text', () async {
       final tool = MemorySearchTool(
         handler: (args) async => {
-              'content': [
-                {'type': 'text', 'text': '- [general] Some result (score: 1.00)'},
-              ],
-            },
+          'content': [
+            {'type': 'text', 'text': '- [general] Some result (score: 1.00)'},
+          ],
+        },
       );
 
       final result = await tool.call({'query': 'test'});
@@ -62,10 +62,10 @@ void main() {
     test('invokes handler and returns extracted text', () async {
       final tool = MemoryReadTool(
         handler: (args) async => {
-              'content': [
-                {'type': 'text', 'text': '## general\n- Some memory entry'},
-              ],
-            },
+          'content': [
+            {'type': 'text', 'text': '## general\n- Some memory entry'},
+          ],
+        },
       );
 
       final result = await tool.call({});

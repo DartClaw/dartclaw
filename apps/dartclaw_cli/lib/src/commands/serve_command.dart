@@ -1,15 +1,24 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_server/src/behavior/self_improvement_service.dart';
+import 'package:dartclaw_server/src/observability/usage_tracker.dart';
+import 'package:dartclaw_server/src/workspace/workspace_service.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Handler;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
+import 'config_loader.dart';
 import 'service_wiring.dart';
 
 typedef HarnessFactory =
@@ -49,6 +58,7 @@ typedef ServerFactory =
       String? gatewayToken,
       SelfImprovementService? selfImprovement,
       UsageTracker? usageTracker,
+      EventBus? eventBus,
       bool authEnabled,
       HarnessPool? pool,
       ContentGuardDisplayParams contentGuardDisplay,
@@ -139,6 +149,7 @@ class ServeCommand extends Command<void> {
              gatewayToken,
              selfImprovement,
              usageTracker,
+             eventBus,
              authEnabled = true,
              pool,
              contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -170,6 +181,7 @@ class ServeCommand extends Command<void> {
              gatewayToken: gatewayToken,
              selfImprovement: selfImprovement,
              usageTracker: usageTracker,
+             eventBus: eventBus,
              authEnabled: authEnabled,
              pool: pool,
              contentGuardDisplay: contentGuardDisplay,
@@ -213,7 +225,7 @@ class ServeCommand extends Command<void> {
     // Build config: injected > CLI+YAML+defaults
     final config =
         _config ??
-        DartclawConfig.load(
+        loadCliConfig(
           configPath: globalResults?['config'] as String?,
           cliOverrides: {
             if (argResults!.wasParsed('port')) 'port': argResults!['port'] as String,

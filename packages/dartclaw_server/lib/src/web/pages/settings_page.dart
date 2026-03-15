@@ -1,4 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 
 import '../../health/health_service.dart';
@@ -41,6 +44,8 @@ class SettingsPage extends DashboardPage {
 
   @override
   Future<Response> handler(Request request, PageContext context) async {
+    ensureDartclawGoogleChatRegistered();
+
     final allSessions = await context.sessions.listSessions();
     final sidebarData = await context.buildSidebarData();
     final status = await getStatus(healthService, workerStateGetter, allSessions.length);
@@ -49,7 +54,8 @@ class SettingsPage extends DashboardPage {
     final guardConfigs = extractGuardConfigs(gc, contentGuardDisplay: contentGuardDisplay);
     final waStatus = await whatsAppChannelStatus(whatsAppChannel);
     final sigStatus = await signalChannelStatus(signalChannel);
-    final googleChatConfig = context.config?.googleChatConfig ?? const GoogleChatConfig.disabled();
+    final googleChatConfig =
+        context.config?.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat) ?? const GoogleChatConfig.disabled();
     final googleChatConfigured = googleChatConfig.enabled;
     final googleChatConnected = googleChatChannel != null;
 

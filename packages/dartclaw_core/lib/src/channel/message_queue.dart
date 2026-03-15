@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
-
-import '../security/message_redactor.dart';
 import 'channel.dart';
 import 'channel_config.dart';
 

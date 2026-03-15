@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import '../behavior/heartbeat_scheduler.dart';
 import '../runtime_config.dart';
+import '../workspace/workspace_git_sync.dart';
 
 /// Subscribes to [ConfigChangedEvent] and applies live config side-effects.
 ///
@@ -13,11 +15,7 @@ class ConfigChangeSubscriber {
   final WorkspaceGitSync? gitSync;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
-  ConfigChangeSubscriber({
-    required this.runtimeConfig,
-    this.heartbeat,
-    this.gitSync,
-  });
+  ConfigChangeSubscriber({required this.runtimeConfig, this.heartbeat, this.gitSync});
 
   /// Start listening on the given [EventBus].
   void subscribe(EventBus bus) {

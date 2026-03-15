@@ -47,9 +47,7 @@ void main() {
         // No pruner — not configured
       );
 
-      final response = await router.call(
-        Request('POST', Uri.parse('http://localhost/api/memory/prune')),
-      );
+      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
 
       expect(response.statusCode, 503);
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -58,15 +56,9 @@ void main() {
 
     test('returns 200 with result when pruner is configured', () async {
       // Write a MEMORY.md with entries
-      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync(
-        '## general\n- [2026-03-01 10:00] Test entry\n',
-      );
+      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Test entry\n');
 
-      final pruner = MemoryPruner(
-        workspaceDir: workspaceDir,
-        memoryService: memoryService,
-        archiveAfterDays: 90,
-      );
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
       final router = memoryRoutes(
         statusService: statusService,
@@ -75,9 +67,7 @@ void main() {
         kvService: kvService,
       );
 
-      final response = await router.call(
-        Request('POST', Uri.parse('http://localhost/api/memory/prune')),
-      );
+      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
 
       expect(response.statusCode, 200);
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -88,15 +78,9 @@ void main() {
     });
 
     test('persists result to KV prune_history', () async {
-      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync(
-        '## general\n- [2026-03-01 10:00] Entry one\n',
-      );
+      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Entry one\n');
 
-      final pruner = MemoryPruner(
-        workspaceDir: workspaceDir,
-        memoryService: memoryService,
-        archiveAfterDays: 90,
-      );
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
       final router = memoryRoutes(
         statusService: statusService,
@@ -105,9 +89,7 @@ void main() {
         kvService: kvService,
       );
 
-      await router.call(
-        Request('POST', Uri.parse('http://localhost/api/memory/prune')),
-      );
+      await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
 
       final raw = await kvService.get('prune_history');
       expect(raw, isNotNull);
@@ -119,24 +101,21 @@ void main() {
 
     test('history trimmed to 10 entries', () async {
       // Pre-populate with 10 existing entries
-      final existing = List.generate(10, (i) => {
-        'timestamp': '2026-01-${(i + 1).toString().padLeft(2, '0')}T00:00:00.000Z',
-        'entriesArchived': 0,
-        'duplicatesRemoved': 0,
-        'entriesRemaining': 5,
-        'finalSizeBytes': 100,
-      });
+      final existing = List.generate(
+        10,
+        (i) => {
+          'timestamp': '2026-01-${(i + 1).toString().padLeft(2, '0')}T00:00:00.000Z',
+          'entriesArchived': 0,
+          'duplicatesRemoved': 0,
+          'entriesRemaining': 5,
+          'finalSizeBytes': 100,
+        },
+      );
       await kvService.set('prune_history', jsonEncode(existing));
 
-      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync(
-        '## general\n- [2026-03-01 10:00] Entry\n',
-      );
+      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Entry\n');
 
-      final pruner = MemoryPruner(
-        workspaceDir: workspaceDir,
-        memoryService: memoryService,
-        archiveAfterDays: 90,
-      );
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
       final router = memoryRoutes(
         statusService: statusService,
@@ -145,9 +124,7 @@ void main() {
         kvService: kvService,
       );
 
-      await router.call(
-        Request('POST', Uri.parse('http://localhost/api/memory/prune')),
-      );
+      await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
 
       final raw = await kvService.get('prune_history');
       final history = jsonDecode(raw!) as List;
@@ -158,11 +135,7 @@ void main() {
 
     test('returns 200 with zeros for empty MEMORY.md', () async {
       // No MEMORY.md file — pruner returns empty result
-      final pruner = MemoryPruner(
-        workspaceDir: workspaceDir,
-        memoryService: memoryService,
-        archiveAfterDays: 90,
-      );
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
 
       final router = memoryRoutes(
         statusService: statusService,
@@ -171,9 +144,7 @@ void main() {
         kvService: kvService,
       );
 
-      final response = await router.call(
-        Request('POST', Uri.parse('http://localhost/api/memory/prune')),
-      );
+      final response = await router.call(Request('POST', Uri.parse('http://localhost/api/memory/prune')));
 
       expect(response.statusCode, 200);
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;

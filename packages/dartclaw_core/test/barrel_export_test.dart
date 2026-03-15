@@ -6,7 +6,6 @@
 library;
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -115,18 +114,34 @@ void main() {
       expect(profile.id, 'restricted');
     });
 
-    test('google chat symbols importable', () {
-      const audience = GoogleChatAudienceConfig(
-        mode: GoogleChatAudienceMode.appUrl,
-        value: 'https://example.com/integrations/googlechat',
+    test('channel provider and shared channel symbols importable', () {
+      final ChannelConfigProvider provider = const DartclawConfig.defaults();
+      final gating = MentionGating(requireMention: true, mentionPatterns: ['@dartclaw'], ownJid: 'wa:bot');
+      final message = ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'wa:user',
+        groupJid: 'wa:group',
+        text: 'plain message',
       );
-      const config = GoogleChatConfig(audience: audience);
-      final restClient = GoogleChatRestClient(authClient: MockClient((request) async => throw UnimplementedError()));
-      final channel = GoogleChatChannel(config: config, restClient: restClient);
 
-      expect(config.audience, isNotNull);
-      expect(GcpAuthService, isNotNull);
-      expect(channel.name, 'googlechat');
+      expect(provider, isA<ChannelConfigProvider>());
+      expect(GroupAccessMode.open.name, 'open');
+      expect(gating.shouldProcess(message), isFalse);
+    });
+
+    test('task trigger symbols importable', () {
+      const config = TaskTriggerConfig(enabled: true);
+      const parser = TaskTriggerParser();
+      final result = parser.parse('task: ship it', config);
+      const origin = TaskOrigin(
+        channelType: 'whatsapp',
+        sessionKey: 'agent:main:dm:contact:wa%3Auser',
+        recipientId: 'wa:user',
+      );
+
+      expect(result, isNotNull);
+      expect(result!.type, TaskType.research);
+      expect(origin.recipientId, 'wa:user');
     });
   });
 }

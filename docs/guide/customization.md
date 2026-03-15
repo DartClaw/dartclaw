@@ -105,3 +105,5 @@ class BusinessHoursGuard extends Guard {
   }
 }
 ```
+
+For comprehensive SDK documentation, see the [SDK Guide](../sdk/quick-start.md) for Quick Start and package selection, plus the [SDK examples](../../examples/sdk/) for runnable reference projects.

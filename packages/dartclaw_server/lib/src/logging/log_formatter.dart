@@ -20,8 +20,7 @@ class HumanFormatter implements LogFormatter {
   final LogRedactor _redactor;
   final bool colorize;
 
-  HumanFormatter({LogRedactor? redactor, this.colorize = false})
-      : _redactor = redactor ?? LogRedactor();
+  HumanFormatter({LogRedactor? redactor, this.colorize = false}) : _redactor = redactor ?? LogRedactor();
 
   static const _reset = '\x1B[0m';
   static const _red = '\x1B[31m';

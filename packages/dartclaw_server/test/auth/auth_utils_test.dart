@@ -8,26 +8,14 @@ void main() {
   group('constantTimeEquals', () {
     test('returns true for equal strings', () {
       expect(constantTimeEquals('abc123', 'abc123'), isTrue);
-    });
-
-    test('returns false for different strings with same length', () {
-      expect(constantTimeEquals('abc123', 'abc124'), isFalse);
-    });
-
-    test('returns false for different lengths', () {
-      expect(constantTimeEquals('abc', 'abcd'), isFalse);
-    });
-
-    test('returns true for empty strings', () {
       expect(constantTimeEquals('', ''), isTrue);
-    });
-
-    test('returns false for empty versus non-empty', () {
-      expect(constantTimeEquals('', 'value'), isFalse);
-    });
-
-    test('compares unicode by UTF-8 bytes', () {
       expect(constantTimeEquals('Hej 👋', 'Hej 👋'), isTrue);
+    });
+
+    test('returns false for different strings', () {
+      expect(constantTimeEquals('abc123', 'abc124'), isFalse);
+      expect(constantTimeEquals('abc', 'abcd'), isFalse);
+      expect(constantTimeEquals('', 'value'), isFalse);
       expect(constantTimeEquals('Hej 👋', 'Hej 😀'), isFalse);
     });
   });

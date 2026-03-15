@@ -35,10 +35,10 @@ String startupBanner({
   // ANSI helpers
   //   Box border: magenta, Title: bold + bright white,
   //   URL: underline + bright cyan (clickable look), Stats: dim
-  final boxOn = colorize ? '\x1B[35m' : '';        // magenta
-  final titleOn = colorize ? '\x1B[1;97m' : '';     // bold bright white
-  final urlOn = colorize ? '\x1B[4;96m' : '';       // underline bright cyan
-  final dimOn = colorize ? '\x1B[2m' : '';          // dim
+  final boxOn = colorize ? '\x1B[35m' : ''; // magenta
+  final titleOn = colorize ? '\x1B[1;97m' : ''; // bold bright white
+  final urlOn = colorize ? '\x1B[4;96m' : ''; // underline bright cyan
+  final dimOn = colorize ? '\x1B[2m' : ''; // dim
   final reset = colorize ? '\x1B[0m' : '';
 
   // Format each stat as "Label .... value" with fixed column width.
@@ -62,11 +62,7 @@ String startupBanner({
   }
 
   // Box width: fit all content lines
-  var innerWidth = [
-    title.length,
-    url.length,
-    ...rows.map((r) => r.length),
-  ].reduce(max);
+  var innerWidth = [title.length, url.length, ...rows.map((r) => r.length)].reduce(max);
   innerWidth += 4; // padding (2 each side)
 
   // Build banner

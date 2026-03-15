@@ -37,9 +37,15 @@ typedef _RouteMatcher = bool Function(String route);
 
 final _reservedRoutePatterns = <({String label, _RouteMatcher matches})>[
   (label: '/health-dashboard/audit', matches: (route) => _matchesReservedPath(route, '/health-dashboard/audit')),
-  (label: '/settings/channels/whatsapp', matches: (route) => _matchesReservedPath(route, '/settings/channels/whatsapp')),
+  (
+    label: '/settings/channels/whatsapp',
+    matches: (route) => _matchesReservedPath(route, '/settings/channels/whatsapp'),
+  ),
   (label: '/settings/channels/signal', matches: (route) => _matchesReservedPath(route, '/settings/channels/signal')),
-  (label: '/settings/channels/google_chat', matches: (route) => _matchesReservedPath(route, '/settings/channels/google_chat')),
+  (
+    label: '/settings/channels/google_chat',
+    matches: (route) => _matchesReservedPath(route, '/settings/channels/google_chat'),
+  ),
   (label: '/memory/content', matches: (route) => _matchesReservedPath(route, '/memory/content')),
   (label: '/health', matches: (route) => route == '/health'),
   (label: '/static/', matches: (route) => _matchesReservedPrefixOnly(route, '/static/')),

@@ -1,7 +1,5 @@
 import 'package:logging/logging.dart';
-
-import '../security/guard.dart';
-import '../security/guard_verdict.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
 
 /// 3-layer tool policy evaluator.
 ///
@@ -17,11 +15,7 @@ class ToolPolicyCascade {
   final Map<String, Set<String>> agentDeny;
   final Map<String, Set<String>> agentAllow;
 
-  const ToolPolicyCascade({
-    this.globalDeny = const {},
-    this.agentDeny = const {},
-    this.agentAllow = const {},
-  });
+  const ToolPolicyCascade({this.globalDeny = const {}, this.agentDeny = const {}, this.agentAllow = const {}});
 
   /// Returns true if [toolName] is allowed for [agentId].
   bool isAllowed(String agentId, String toolName) {

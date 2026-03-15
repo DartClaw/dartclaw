@@ -14,18 +14,13 @@ class BraveSearchProvider implements SearchProvider {
   final String _apiKey;
   final Duration _timeout;
 
-  BraveSearchProvider({
-    required String apiKey,
-    Duration timeout = const Duration(seconds: 15),
-  })  : _apiKey = apiKey,
-        _timeout = timeout;
+  BraveSearchProvider({required String apiKey, Duration timeout = const Duration(seconds: 15)})
+    : _apiKey = apiKey,
+      _timeout = timeout;
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
-    final uri = Uri.https('api.search.brave.com', '/res/v1/web/search', {
-      'q': query,
-      'count': count.toString(),
-    });
+    final uri = Uri.https('api.search.brave.com', '/res/v1/web/search', {'q': query, 'count': count.toString()});
 
     final client = HttpClient();
     client.connectionTimeout = _timeout;
@@ -70,37 +65,31 @@ class BraveSearchTool implements McpTool {
   final SearchProvider _provider;
   final ContentGuard? _contentGuard;
 
-  BraveSearchTool({
-    required SearchProvider provider,
-    ContentGuard? contentGuard,
-  })  : _provider = provider,
-        _contentGuard = contentGuard;
+  BraveSearchTool({required SearchProvider provider, ContentGuard? contentGuard})
+    : _provider = provider,
+      _contentGuard = contentGuard;
 
   @override
   String get name => 'brave_search';
 
   @override
-  String get description =>
-      'Search the web using Brave Search API. Returns titles, URLs, and snippets.';
+  String get description => 'Search the web using Brave Search API. Returns titles, URLs, and snippets.';
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'query': {
-            'type': 'string',
-            'description': 'Search query',
-          },
-          'count': {
-            'type': 'integer',
-            'description': 'Number of results (1-20, default 5)',
-            'default': 5,
-            'minimum': 1,
-            'maximum': 20,
-          },
-        },
-        'required': ['query'],
-      };
+    'type': 'object',
+    'properties': {
+      'query': {'type': 'string', 'description': 'Search query'},
+      'count': {
+        'type': 'integer',
+        'description': 'Number of results (1-20, default 5)',
+        'default': 5,
+        'minimum': 1,
+        'maximum': 20,
+      },
+    },
+    'required': ['query'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
@@ -124,8 +113,7 @@ class BraveSearchTool implements McpTool {
     // ContentGuard scan
     final guard = _contentGuard;
     if (guard != null) {
-      final concatenated =
-          results.map((r) => '${r.title} ${r.snippet}').join('\n');
+      final concatenated = results.map((r) => '${r.title} ${r.snippet}').join('\n');
       final context = GuardContext(
         hookPoint: 'beforeAgentSend',
         messageContent: concatenated,
@@ -137,11 +125,13 @@ class BraveSearchTool implements McpTool {
       }
     }
 
-    return ToolResult.text(jsonEncode({
-      'results': results.map((r) => r.toJson()).toList(),
-      'query': query,
-      'provider': 'brave',
-      'count': results.length,
-    }));
+    return ToolResult.text(
+      jsonEncode({
+        'results': results.map((r) => r.toJson()).toList(),
+        'query': query,
+        'provider': 'brave',
+        'count': results.length,
+      }),
+    );
   }
 }

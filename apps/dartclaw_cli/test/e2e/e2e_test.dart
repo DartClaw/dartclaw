@@ -4,75 +4,11 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
-
-// ---------------------------------------------------------------------------
-// FakeWorkerService
-// ---------------------------------------------------------------------------
-
-class FakeWorkerService implements AgentHarness {
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Completer<Map<String, dynamic>>? _turnCompleter;
-  Completer<void> _turnInvoked = Completer<void>();
-  bool cancelCalled = false;
-  bool stopCalled = false;
-
-  Future<void> get turnInvoked => _turnInvoked.future;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-  }) {
-    _turnCompleter = Completer<Map<String, dynamic>>();
-    if (!_turnInvoked.isCompleted) _turnInvoked.complete();
-    return _turnCompleter!.future;
-  }
-
-  @override
-  Future<void> cancel() async {
-    cancelCalled = true;
-    _turnCompleter?.completeError(StateError('Cancelled'));
-  }
-
-  @override
-  Future<void> stop() async {
-    stopCalled = true;
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
-
-  void emit(BridgeEvent event) => _eventsCtrl.add(event);
-
-  void completeSuccess() {
-    _turnCompleter?.complete({'ok': true});
-    _turnInvoked = Completer<void>();
-  }
-
-  Future<void> closeEvents() => _eventsCtrl.close();
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,14 +44,14 @@ void main() {
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
-  late FakeWorkerService worker;
+  late FakeAgentHarness worker;
   late DartclawServer server;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_e2e_test_');
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
-    worker = FakeWorkerService();
+    worker = FakeAgentHarness();
     server = DartclawServer(
       sessions: sessions,
       messages: messages,
@@ -257,7 +193,7 @@ void main() {
 
       final sessions2 = SessionService(baseDir: tempDir2.path);
       final messages2 = MessageService(baseDir: tempDir2.path);
-      final worker2 = FakeWorkerService();
+      final worker2 = FakeAgentHarness();
       final server2 = DartclawServer(
         sessions: sessions2,
         messages: messages2,
@@ -290,7 +226,7 @@ void main() {
 
       final sessions3 = SessionService(baseDir: tempDir3.path);
       final messages3 = MessageService(baseDir: tempDir3.path);
-      final worker3 = FakeWorkerService();
+      final worker3 = FakeAgentHarness();
       final server3 = DartclawServer(
         sessions: sessions3,
         messages: messages3,

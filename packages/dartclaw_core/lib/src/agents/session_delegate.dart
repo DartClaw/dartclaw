@@ -1,21 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
-import '../security/content_guard.dart';
-import '../security/guard.dart';
-import '../security/guard_audit.dart';
 import 'agent_definition.dart';
 import 'subagent_limits.dart';
 
 /// Callback to dispatch a turn to an agent and return the result text.
-typedef TurnDispatchFn = Future<String> Function({
-  required String sessionId,
-  required String message,
-  required String agentId,
-});
+typedef TurnDispatchFn =
+    Future<String> Function({required String sessionId, required String message, required String agentId});
 
 /// Handles `sessions_send` and `sessions_spawn` MCP tool calls, dispatching
 /// turns to sub-agents with limit enforcement.
@@ -36,10 +31,10 @@ class SessionDelegate {
     Map<String, AgentDefinition> agents = const {},
     ContentGuard? contentGuard,
     GuardAuditLogger? auditLogger,
-  })  : _dispatch = dispatch,
-        _agents = agents,
-        _contentGuard = contentGuard,
-        _auditLogger = auditLogger;
+  }) : _dispatch = dispatch,
+       _agents = agents,
+       _contentGuard = contentGuard,
+       _auditLogger = auditLogger;
 
   /// Handle synchronous delegation — wait for the sub-agent to complete.
   Future<Map<String, dynamic>> handleSessionsSend(Map<String, dynamic> params) async {
@@ -63,20 +58,12 @@ class SessionDelegate {
     limits.recordSpawn('main');
 
     try {
-      final result = await _dispatch(
-        sessionId: sessionId,
-        message: message,
-        agentId: agentId,
-      );
+      final result = await _dispatch(sessionId: sessionId, message: message, agentId: agentId);
 
       // Content-guard: scan at agent boundary before returning to main agent
       final guard = _contentGuard;
       if (guard != null) {
-        final context = GuardContext(
-          hookPoint: 'beforeAgentSend',
-          messageContent: result,
-          timestamp: DateTime.now(),
-        );
+        final context = GuardContext(hookPoint: 'beforeAgentSend', messageContent: result, timestamp: DateTime.now());
         final verdict = await guard.evaluate(context);
         _auditLogger?.logVerdict(
           verdict: verdict,
@@ -137,18 +124,9 @@ class SessionDelegate {
     return _success('Spawned session: $sessionId');
   }
 
-  Future<void> _runBackground(
-    String sessionId,
-    String agentId,
-    String message,
-    Completer<String> completer,
-  ) async {
+  Future<void> _runBackground(String sessionId, String agentId, String message, Completer<String> completer) async {
     try {
-      final result = await _dispatch(
-        sessionId: sessionId,
-        message: message,
-        agentId: agentId,
-      );
+      final result = await _dispatch(sessionId: sessionId, message: message, agentId: agentId);
       completer.complete(result);
     } catch (e) {
       _log.warning('Spawned agent "$agentId" failed: $e');
@@ -160,15 +138,15 @@ class SessionDelegate {
   }
 
   static Map<String, dynamic> _success(String text) => {
-        'content': [
-          {'type': 'text', 'text': text},
-        ],
-      };
+    'content': [
+      {'type': 'text', 'text': text},
+    ],
+  };
 
   static Map<String, dynamic> _error(String message) => {
-        'content': [
-          {'type': 'text', 'text': message},
-        ],
-        'isError': true,
-      };
+    'content': [
+      {'type': 'text', 'text': message},
+    ],
+    'isError': true,
+  };
 }

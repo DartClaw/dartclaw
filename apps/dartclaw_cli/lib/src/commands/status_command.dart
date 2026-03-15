@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'config_loader.dart';
+
 typedef StatusWriteLine = void Function(String line);
 
 /// Shows DartClaw status: data directory info, session count, worker path.
@@ -22,7 +24,7 @@ class StatusCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final config = _config ?? DartclawConfig.load(configPath: globalResults?['config'] as String?);
+    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
 
     for (final w in config.warnings) {
       _writeLine('WARNING: $w');

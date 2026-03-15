@@ -23,8 +23,6 @@ String? validateAllowlistEntry(String channelType, String entry) {
   }
 }
 
-final _uuidPattern = RegExp(
-  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-);
+final _uuidPattern = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
 
 final _googleChatSpaceUserPattern = RegExp(r'^spaces\/[^\/]+\/users\/[^\/]+$');

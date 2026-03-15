@@ -1,4 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 import '../api/config_api_routes.dart' show readRestartPending;
 import '../health/health_service.dart';

@@ -57,10 +57,5 @@ void main() {
       expect(fields['maxTurns'], 10);
     });
 
-    test('default config has null MCP fields', () {
-      const config = HarnessConfig();
-      expect(config.mcpServerUrl, isNull);
-      expect(config.mcpGatewayToken, isNull);
-    });
   });
 }

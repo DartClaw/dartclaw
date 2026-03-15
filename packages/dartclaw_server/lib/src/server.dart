@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner;
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -18,40 +22,44 @@ import 'api/session_routes.dart';
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
 import 'api/task_sse_routes.dart';
-import 'task/agent_observer.dart';
-import 'task/merge_executor.dart';
-import 'task/task_file_guard.dart';
-import 'task/worktree_manager.dart';
 import 'api/webhook_routes.dart';
-import 'restart_service.dart';
-import 'config/config_validator.dart';
-import 'config/config_writer.dart';
+import 'audit/audit_log_reader.dart';
 import 'auth/auth_middleware.dart';
 import 'auth/auth_rate_limiter.dart';
 import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
+import 'behavior/behavior_file_service.dart';
+import 'behavior/heartbeat_scheduler.dart';
+import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
+import 'harness_pool.dart';
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
+import 'observability/usage_tracker.dart';
+import 'params/display_params.dart';
+import 'restart_service.dart';
 import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
+import 'task/agent_observer.dart';
+import 'task/merge_executor.dart';
+import 'task/task_file_guard.dart';
+import 'task/task_review_service.dart';
+import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
-import 'harness_pool.dart';
 import 'turn_manager.dart';
-import 'web/signal_pairing_routes.dart';
 import 'web/dashboard_page.dart';
 import 'web/page_registry.dart';
+import 'web/signal_pairing_routes.dart';
 import 'web/system_pages.dart';
 import 'web/web_routes.dart';
 import 'web/web_utils.dart';
-import 'params/display_params.dart';
 import 'web/whatsapp_pairing.dart';
-import 'audit/audit_log_reader.dart';
+import 'workspace/workspace_git_sync.dart';
 
 /// Shelf-based HTTP server composing all DartClaw routes and middleware.
 class DartclawServer {
@@ -97,6 +105,7 @@ class DartclawServer {
   EventBus? _eventBus;
   GoalService? _goalService;
   TaskService? _taskService;
+  TaskReviewService? _taskReviewService;
   WorktreeManager? _worktreeManager;
   TaskFileGuard? _taskFileGuard;
   AgentObserver? _agentObserver;
@@ -121,6 +130,7 @@ class DartclawServer {
     EventBus? eventBus,
     GoalService? goalService,
     TaskService? taskService,
+    TaskReviewService? taskReviewService,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? agentObserver,
@@ -142,6 +152,7 @@ class DartclawServer {
     _eventBus = eventBus;
     _goalService = goalService;
     _taskService = taskService;
+    _taskReviewService = taskReviewService;
     _worktreeManager = worktreeManager;
     _taskFileGuard = taskFileGuard;
     _agentObserver = agentObserver;
@@ -210,6 +221,7 @@ class DartclawServer {
     String? gatewayToken,
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
+    EventBus? eventBus,
     bool authEnabled = true,
     HarnessPool? pool,
     ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -263,6 +275,7 @@ class DartclawServer {
       workspaceDisplay,
       appDisplay,
     );
+    server._eventBus = eventBus;
 
     registerSystemDashboardPages(
       server._pageRegistry,
@@ -304,6 +317,57 @@ class DartclawServer {
     _pageRegistry.register(page);
   }
 
+  /// Register a guard that is appended after the existing guard chain.
+  ///
+  /// Must be called before the server starts handling requests.
+  void registerGuard(Guard guard) {
+    if (_dashboardPagesLocked) {
+      throw StateError('Cannot register guards after the server has started handling requests');
+    }
+
+    final guardChain = _guardChain;
+    if (guardChain == null) {
+      throw StateError('Cannot register guards without a guard chain');
+    }
+
+    guardChain.addGuard(guard);
+  }
+
+  /// Register a channel with the configured [ChannelManager].
+  ///
+  /// This only adds the channel to the manager. It does not auto-connect the
+  /// channel or add any extra routes.
+  ///
+  /// Must be called before the server starts handling requests.
+  void registerChannel(Channel channel) {
+    if (_dashboardPagesLocked) {
+      throw StateError('Cannot register channels after the server has started handling requests');
+    }
+
+    final channelManager = _channelManager;
+    if (channelManager == null) {
+      throw StateError('Cannot register channels without a channel manager');
+    }
+
+    channelManager.registerChannel(channel);
+  }
+
+  /// Subscribe to runtime events emitted by the configured [EventBus].
+  ///
+  /// Must be called before the server starts handling requests.
+  StreamSubscription<T> onEvent<T extends DartclawEvent>(void Function(T event) callback) {
+    if (_dashboardPagesLocked) {
+      throw StateError('Cannot register event listeners after the server has started handling requests');
+    }
+
+    final eventBus = _eventBus;
+    if (eventBus == null) {
+      throw StateError('Cannot register event listeners without an event bus');
+    }
+
+    return eventBus.on<T>().listen(callback);
+  }
+
   /// The MCP protocol handler, exposed for testing.
   McpProtocolHandler get mcpHandler => _mcpHandler;
 
@@ -324,10 +388,7 @@ class DartclawServer {
   }
 
   Handler get handler => _requestHandler ??= (Request request) {
-    _builtHandler ??= () {
-      _validateRuntimeServices();
-      return _buildHandler();
-    }();
+    _builtHandler ??= _buildHandler();
     return _builtHandler!(request);
   };
 
@@ -615,6 +676,7 @@ class DartclawServer {
         taskService,
         eventBus,
         turns: _turns,
+        reviewService: _taskReviewService,
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
         mergeExecutor: _mergeExecutor,
@@ -670,6 +732,7 @@ class DartclawServer {
       goalService: _goalService,
       eventBus: _eventBus,
       agentObserver: _agentObserver,
+      kvService: _kvService,
     );
     router.mount('/', webRouter.call);
 

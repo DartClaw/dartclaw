@@ -3,9 +3,7 @@
 /// Note: These rules do NOT affect Docker Desktop VM container traffic.
 /// Container egress is controlled by `network:none` + credential proxy.
 /// These rules provide host-level defense-in-depth.
-String generatePfRules({
-  List<String> allowedHosts = const ['api.anthropic.com'],
-}) {
+String generatePfRules({List<String> allowedHosts = const ['api.anthropic.com']}) {
   final buffer = StringBuffer();
   buffer.writeln('# DartClaw egress allowlist — load via: sudo pfctl -f /path/to/pf.conf');
   buffer.writeln('# Host-level defense-in-depth (does not affect Docker VM traffic)');

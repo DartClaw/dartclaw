@@ -5,11 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] — 2026-03-15
+
+Package decomposition, SDK publish-readiness, channel-to-task integration, Google Chat enhancements, cookbook audit fixes.
+
+### Added
+
+#### Phase A — Package Decomposition
+- **Channel config decoupling** (S01): `ChannelConfigProvider` interface; `TextChunker`, `MentionGating`, `ChannelConfig` moved to core channel base; channel-specific configs isolated from core config barrel
+- **`dartclaw_security` package** (S02): guard framework extracted from core (~1,936 LOC); `Guard`, `GuardContext`, `GuardVerdict`, `GuardChain`, all concrete guards, `GuardAuditSubscriber`; callback-based decoupling for event firing (wired at server layer); zero dependency on core
+- **`dartclaw_whatsapp` package** (S03): WhatsApp channel extracted from core (~1,078 LOC); `WhatsAppChannel`, `WhatsAppConfig`, `GowaManager`, response formatter, media extractor
+- **`dartclaw_signal` package** (S04): Signal channel extracted from core (~1,000 LOC); `SignalChannel`, `SignalConfig`, `SignalCliManager`, `SignalSenderMap`, `SignalDmAccess`
+- **`dartclaw_google_chat` package** (S05): Google Chat channel extracted from core (~595 LOC); `GoogleChatChannel`, `GoogleChatConfig`, `GcpAuthService`, `GoogleChatRestClient`; removes `googleapis_auth` from core's transitive dependency graph
+- **Leaf services moved to server** (S06): `BehaviorFileService`, `HeartbeatScheduler`, `SelfImprovementService`, `WorkspaceService`, `WorkspaceGitSync`, `SessionMaintenanceService`, `UsageTracker` moved from core to server (~1,278 LOC); core reduced to ≤8,000 LOC
+- **`dartclaw_config` package** (S09): config subsystem extracted from server (~1,335 LOC); `ConfigMeta`, `ConfigValidator`, `ConfigWriter`, `ScopeReconciler`; usable from both server and CLI
+- **`dartclaw_testing` package** (S09): test doubles for SDK consumers; `FakeAgentHarness`, `InMemorySessionService`, `InMemoryTaskRepository`, `FakeChannel`, `FakeGuard`, `TestEventBus`, `FakeProcess`; example test in package
+- **Extension APIs** (S09): `server.registerGuard()`, `server.registerChannel()`, `server.onEvent<T>()` — power user hooks callable before `server.start()`; documented in umbrella README
+
+#### Phase B — SDK Publish-Readiness
+- **Package metadata** (S10): MIT LICENSE added to all packages; `repository`, `homepage`, `issue_tracker`, `topics` in all pubspecs; lock-step versioning strategy; per-package CHANGELOGs with 0.9.0 entries
+- **Package READMEs** (S11): focused READMEs for all packages (purpose, installation, minimal usage, API reference link); umbrella README rewritten as pub.dev landing page with architecture overview, quick start, package choice table; server + CLI framed as reference implementations
+- **Doc comments + pana** (S12): `///` doc comments on all barrel-exported symbols (~50); expanded doc comments on data model classes; `example/` directories with recognized entrypoints; pana validation on zero-dependency packages
+
+#### Phase C — SDK Documentation
+- **SDK documentation** (S13): Quick Start guide (`docs/sdk/quick-start.md`) — minimal working agent in <30 lines; Package Choice Guide (`docs/sdk/packages.md`) — decision tree for consumer profiles; `single_turn_cli` runnable example project; repo README with dual-track navigation (User Guide + SDK Guide)
+
+#### Phase D — Channel-to-Task Integration
+- **Task trigger config** (S14): per-channel `task_trigger` section in `dartclaw.yaml` (enabled, prefix, default_type, auto_start); `ConfigMeta` registration; trigger parser (prefix-based, case-insensitive, start-of-message only); config API and settings UI toggles
+- **Channel→task bridge + notifications** (S15): task trigger messages intercepted in `ChannelManager` before `MessageQueue`; task created via `TaskService.create()` with expanded `TaskOrigin` (recipientId, channelType, contactId); acknowledgment sent to originating channel; `TaskLifecycleEvent` notifications routed to originating channel only; best-effort delivery with logged failures
+- **Review-from-channel** (S16): accept/reject tasks via channel message; exact-match parsing ("accept"/"reject" with optional task ID); shared `TaskReviewService` extracted from HTTP route handler; disambiguation prompt for multiple tasks in review; merge conflict → "Review in web UI" fallback
+
+#### Phase E — Google Chat Enhancements
+- **Google Chat Cards v2** (S17): `ChatCardBuilder` in `dartclaw_google_chat`; task notification cards (title, status badge, description, Accept/Reject buttons); `CARD_CLICKED` webhook handling; button payloads use flat `Map<String, String>` parameters; plain text fallback; card description truncation at ~2,000 chars
+- **Google Chat slash commands** (S18): `/new [<type>:] <description>` → create task, `/reset` → archive session, `/status` → show active tasks/sessions; compatibility parser for both `MESSAGE+slashCommand` and `APP_COMMAND` event shapes; Cards v2 responses
+
+#### Cookbook Audit Fixes
+- **Announce delivery** (S19): `DeliveryService` class replaces standalone `deliverResult()` stub; cron job results broadcast to connected SSE web clients + active DM contacts on all registered channels; best-effort channel delivery with per-target error handling; deprecated `deliverResult()` retained for backward compat
+- **Memory consolidator extraction** (S19): `MemoryConsolidator` extracted from `HeartbeatScheduler`; shared between heartbeat and `ScheduleService`; post-cron consolidation runs after successful jobs when MEMORY.md exceeds threshold
+- **Memory config unification** (S19): `memory.max_bytes` as canonical nested key; backward-compatible fallback to top-level `memory_max_bytes` with deprecation warning; CLI override support for `memory.pruning.*` fields
+- **Contact identifier documentation** (S19): WhatsApp JID format (`<phone>@s.whatsapp.net`, `<group-id>@g.us`) documented in `whatsapp.md`; Google Chat resource names (`users/<id>`, `spaces/<id>`) documented in `google-chat.md`
+
+#### Use-Case Cookbook
+- **Personal Assistant composite guide**: `docs/guide/use-cases/00-personal-assistant.md` — turnkey setup combining morning briefing, knowledge inbox, daily journal, nightly reflection; "Day in the Life" 24-hour walkthrough; complete `dartclaw.yaml` + behavior files; step-by-step getting started
+- **Troubleshooting guide**: `docs/guide/use-cases/_troubleshooting.md` — common issues for scheduled jobs, memory, git sync, channels, cost optimization
+- **Common patterns expanded**: heartbeat vs cron comparison table; monitoring guide (dashboards, logs, agent metrics); concrete SOUL.md example; session maintenance reference; channel-to-task integration guide
+
+### Changed
+- **Umbrella re-exports**: `dartclaw` umbrella now re-exports core + security + all channel packages; individual package imports work independently
+- **Package DAG**: `dartclaw_core` reduced from ~12,500 LOC to ≤8,000 LOC; zero circular dependencies between extracted packages
+- **Config guide updated**: unified Memory section with `memory.max_bytes` (preferred) and `memory_max_bytes` (deprecated alias); `memory.pruning.*` documented
+- **Use-case guides updated to 0.9**: all 7 guides audited for config accuracy; `guards.content_guard` → `guards.content`; multi-channel references (WhatsApp/Signal/Google Chat); session scoping and maintenance config; task system and task triggers; announce delivery status noted
+- **Example configs updated**: `personal-assistant.yaml` expanded with sessions, maintenance, content guard, input sanitizer, multi-channel comments, task triggers; `production.yaml` model references simplified
+
+### Fixed
+- **`announce` delivery stub**: `delivery: announce` was a no-op since 0.2 — now routes results to SSE clients and channel DM contacts
+- **Memory consolidation gap**: consolidation only ran during heartbeat; now also runs after successful cron jobs via shared `MemoryConsolidator`
+- **`memory_max_bytes` schema inconsistency**: related memory settings split across top-level and nested config; unified under `memory:` section with backward compat
+- **Use-case guide `content_guard` references**: guides 04 and 05 used renamed config key `content_guard` instead of `content`
+- **Internal session keys exposed in guides**: removed `agent:main:cron:<jobId>:<ISO8601>` format from user-facing workflow descriptions
+
+### Documentation
+- **Architecture docs**: `system-architecture.md` updated with new package DAG; `security-architecture.md` updated for `dartclaw_security` package extraction
+- **SDK docs**: Quick Start, Package Choice Guide, runnable example project
+- **Channel guides**: WhatsApp JID format, Google Chat resource name format, contact identifier sections
+- **Configuration guide**: Memory section with `max_bytes` + `pruning`; deprecated `memory_max_bytes` documented
+- **Use-case cookbook**: 2 new guides (composite PA, troubleshooting); 9 existing guides updated for 0.9 accuracy
 
 ---
 
-## [0.8.0] — 2026-03-09
+## [0.8.0] — 2026-03-08
 
 Task orchestration, parallel execution, coding tasks with git worktree isolation, task dashboard, Google Chat channel, agent observability. Post-implementation security hardening, performance, and documentation.
 
@@ -35,7 +99,7 @@ Task orchestration, parallel execution, coding tasks with git worktree isolation
 - **Agent observability** (S19): `AgentObserver` tracks per-harness metrics (tokens, turns, errors, current task); `GET /api/agents` + `GET /api/agents/<id>` endpoints; pool status (active/available/max); agent overview section on `/tasks` with SSE live updates
 - **Google Chat user guide**: `docs/guide/google-chat.md` — setup, GCP auth, request verification modes, DM/group access, troubleshooting
 - **Tasks user guide**: `docs/guide/tasks.md` — task types, lifecycle, review workflow, coding tasks, scheduling integration, configuration
-- **Guard audit configurable retention**: `guard_audit.max_entries` config (default 10000); registered in `ConfigMeta`
+- **Guard audit configurable retention**: `guard_audit.max_retention_days` config (default 30); date-partitioned audit files with scheduled retention cleanup
 - **Task artifact disk reporting**: per-task `artifactDiskBytes` in task API responses; aggregate metric on health dashboard
 - **Merge conflict UX**: task detail shows conflicting files list + resolution instructions when conflict artifact exists
 - **Message tail-window loading**: `getMessagesTail()` + `getMessagesBefore()` APIs; initial chat/task-detail load returns last 200 messages; "Load earlier messages" button for backward pagination

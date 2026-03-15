@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -44,18 +46,21 @@ void main() {
   tearDownAll(() => resetTemplates());
 
   late Directory tempDir;
+  late KvService kvService;
   late SessionService sessions;
   late MessageService messages;
   late Handler handler;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_web_test_');
+    kvService = KvService(filePath: '${tempDir.path}/kv.json');
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
-    handler = webRoutes(sessions, messages).call;
+    handler = webRoutes(sessions, messages, kvService: kvService).call;
   });
 
   tearDown(() async {
+    await kvService.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -226,6 +231,26 @@ void main() {
     });
   });
 
+  group('GET /sessions/<id>/info', () {
+    test('renders stored per-session token totals when usage exists', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'hello');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'world');
+      await kvService.set(
+        'session_cost:${session.id}',
+        '{"input_tokens":3,"output_tokens":7,"total_tokens":10,"estimated_cost_usd":0.1,"turn_count":1}',
+      );
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('>3<'));
+      expect(body, contains('>7<'));
+      expect(body, contains('>10<'));
+    });
+  });
+
   group('GET /settings/channels/<type>', () {
     test('renders WhatsApp detail page when pairing is still needed', () async {
       final handler = webRoutes(
@@ -299,11 +324,10 @@ void main() {
       sessions,
       messages,
       config: const DartclawConfig(
-        googleChatConfig: GoogleChatConfig(
-          enabled: true,
-          requireMention: true,
-          dmAccess: DmAccessMode.open,
-          groupAccess: GroupAccessMode.disabled,
+        channelConfig: ChannelConfig(
+          channelConfigs: {
+            'google_chat': {'enabled': true, 'require_mention': true, 'dm_access': 'open', 'group_access': 'disabled'},
+          },
         ),
       ),
     ).call;

@@ -63,6 +63,7 @@ void main() {
 
     expect((await tasks.get('coding-task'))!.status, TaskStatus.running);
     expect((await tasks.get('research-task'))!.status, TaskStatus.failed);
+    expect((await tasks.get('research-task'))!.configJson['errorSummary'], 'Container is no longer running');
     expect(events.map((event) => event.taskId), contains('research-task'));
     expect(events.map((event) => event.taskId), isNot(contains('coding-task')));
   });

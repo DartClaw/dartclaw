@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -504,7 +506,7 @@ void main() {
     });
 
     test('does not persist pushBackComment when push_back loses a transition race', () async {
-      final repo = _InMemoryTaskRepository();
+      final repo = InMemoryTaskRepository();
       final racingTasks = TaskService(repo);
       addTearDown(racingTasks.dispose);
       final racingHandler = taskRoutes(racingTasks, eventBus).call;
@@ -574,6 +576,56 @@ void main() {
 
       expect(response.statusCode, 409);
       expect(await _errorCode(response), 'INVALID_TRANSITION');
+    });
+
+    test('returns review-specific failure messages for unexpected errors', () async {
+      await putTaskInReview('task-1');
+      await tasks.updateFields(
+        'task-1',
+        worktreeJson: const {
+          'path': '/tmp/worktree',
+          'branch': 'dartclaw/task-task-1',
+          'createdAt': '2026-03-10T10:00:00.000Z',
+        },
+      );
+      final failingHandler = taskRoutes(
+        tasks,
+        eventBus,
+        mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded')),
+      ).call;
+
+      final response = await failingHandler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
+
+      expect(response.statusCode, 500);
+      final body = _decodeObject(await response.readAsString());
+      expect(body['error']['code'], 'INTERNAL_ERROR');
+      expect(body['error']['message'], 'Review action failed. Please try again or use the web UI.');
+      expect((await tasks.get('task-1'))!.status, TaskStatus.review);
+    });
+
+    test('returns a clear failure when merge infrastructure is unavailable', () async {
+      await putTaskInReview('task-merge-missing');
+      await tasks.updateFields(
+        'task-merge-missing',
+        worktreeJson: const {
+          'path': '/tmp/worktree',
+          'branch': 'dartclaw/task-task-merge-missing',
+          'createdAt': '2026-03-10T10:00:00.000Z',
+        },
+      );
+
+      final response = await handler(
+        _jsonRequest('POST', '/api/tasks/task-merge-missing/review', {'action': 'accept'}),
+      );
+
+      expect(response.statusCode, 500);
+      final body = _decodeObject(await response.readAsString());
+      expect(body['error']['code'], 'INTERNAL_ERROR');
+      expect(
+        body['error']['message'],
+        'Merge infrastructure is not available. Use the web UI or configure merge support.',
+      );
+      expect((await tasks.get('task-merge-missing'))!.status, TaskStatus.review);
     });
 
     test('fires TaskStatusChangedEvent on accept', () async {
@@ -863,7 +915,7 @@ class _CancelTrackingTurns extends TurnManager {
   _CancelTrackingTurns()
     : super(
         messages: _ThrowingMessageService(),
-        worker: _NoOpHarness(),
+        worker: FakeAgentHarness(),
         behavior: BehaviorFileService(workspaceDir: Directory.systemTemp.path),
       );
 
@@ -875,144 +927,9 @@ class _CancelTrackingTurns extends TurnManager {
   }
 }
 
-class _NoOpHarness implements AgentHarness {
-  @override
-  Stream<BridgeEvent> get events => const Stream.empty();
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  Future<void> cancel() async {}
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-  }) async => const <String, dynamic>{};
-}
-
 class _ThrowingMessageService implements MessageService {
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
-}
-
-class _InMemoryTaskRepository implements TaskRepository {
-  final Map<String, Task> _tasks = <String, Task>{};
-  final Map<String, TaskArtifact> _artifacts = <String, TaskArtifact>{};
-  TaskStatus? concurrentStatusOnNextTransition;
-
-  @override
-  Future<void> delete(String id) async {
-    if (_tasks.remove(id) == null) {
-      throw ArgumentError('Task not found: $id');
-    }
-    _artifacts.removeWhere((_, artifact) => artifact.taskId == id);
-  }
-
-  @override
-  Future<void> deleteArtifact(String id) async {
-    _artifacts.remove(id);
-  }
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  Future<Task?> getById(String id) async => _tasks[id];
-
-  @override
-  Future<TaskArtifact?> getArtifactById(String id) async => _artifacts[id];
-
-  @override
-  Future<void> insert(Task task) async {
-    _tasks[task.id] = task;
-  }
-
-  @override
-  Future<void> insertArtifact(TaskArtifact artifact) async {
-    _artifacts[artifact.id] = artifact;
-  }
-
-  @override
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) async {
-    final tasks = _tasks.values.where((task) {
-      if (status != null && task.status != status) return false;
-      if (type != null && task.type != type) return false;
-      return true;
-    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return tasks;
-  }
-
-  @override
-  Future<List<TaskArtifact>> listArtifactsByTask(String taskId) async {
-    final artifacts = _artifacts.values.where((artifact) => artifact.taskId == taskId).toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    return artifacts;
-  }
-
-  @override
-  Future<bool> updateIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    final current = _tasks[task.id];
-    if (current == null) return false;
-
-    final concurrentStatus = concurrentStatusOnNextTransition;
-    if (concurrentStatus != null) {
-      concurrentStatusOnNextTransition = null;
-      _tasks[task.id] = current.copyWith(status: concurrentStatus);
-      return false;
-    }
-
-    if (current.status != expectedStatus) return false;
-
-    _tasks[task.id] = current.copyWith(
-      status: task.status,
-      configJson: task.configJson,
-      startedAt: task.startedAt,
-      completedAt: task.completedAt,
-    );
-    return true;
-  }
-
-  @override
-  Future<bool> updateMutableFieldsIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    final current = _tasks[task.id];
-    if (current == null || current.status != expectedStatus) {
-      return false;
-    }
-
-    _tasks[task.id] = current.copyWith(
-      title: task.title,
-      description: task.description,
-      acceptanceCriteria: task.acceptanceCriteria,
-      sessionId: task.sessionId,
-      configJson: task.configJson,
-      worktreeJson: task.worktreeJson,
-    );
-    return true;
-  }
-
-  @override
-  Future<void> update(Task task) async {
-    _tasks[task.id] = task;
-  }
 }
 
 class _MockMergeExecutor extends MergeExecutor {
@@ -1031,5 +948,22 @@ class _MockMergeExecutor extends MergeExecutor {
   }) async {
     callCount++;
     return result;
+  }
+}
+
+class _ThrowingMergeExecutor extends MergeExecutor {
+  final Object error;
+
+  _ThrowingMergeExecutor(this.error) : super(projectDir: '/mock');
+
+  @override
+  Future<MergeResult> merge({
+    required String branch,
+    required String baseRef,
+    required String taskId,
+    required String taskTitle,
+    MergeStrategy? strategy,
+  }) async {
+    throw error;
   }
 }

@@ -30,8 +30,14 @@ abstract class AgentHarness {
 
   /// Send a conversational turn and return the result.
   ///
+  /// [sessionId] identifies the SDK session to use for this turn. [messages]
+  /// contains the message history payload forwarded to the runtime.
+  /// [systemPrompt] is the effective behavior prompt for this turn.
+  /// [mcpServers] configures inline MCP servers for the request when supported.
   /// When [resume] is true, the harness resumes an existing SDK session
   /// instead of starting a fresh conversation (maps to `options.resume`).
+  /// [directory] overrides the working directory for this turn when supported.
+  /// [model] overrides the default model for this turn.
   Future<Map<String, dynamic>> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,

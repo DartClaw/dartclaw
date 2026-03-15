@@ -2,13 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'behavior/behavior_file_service.dart';
+import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/result_trimmer.dart';
 import 'logging/log_context.dart';
+import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_manager.dart';
 
@@ -28,6 +32,7 @@ class TurnRunner {
   final BehaviorFileService _behavior;
   final MemoryFileService? _memoryFile;
   final SessionService? _sessions;
+  final TurnStateStore? _turnState;
   final KvService? _kv;
   final GuardChain? _guardChain;
   final SessionLockManager _lockManager;
@@ -54,6 +59,7 @@ class TurnRunner {
     required BehaviorFileService behavior,
     MemoryFileService? memoryFile,
     SessionService? sessions,
+    TurnStateStore? turnState,
     KvService? kv,
     GuardChain? guardChain,
     SessionLockManager? lockManager,
@@ -70,6 +76,7 @@ class TurnRunner {
        _behavior = behavior,
        _memoryFile = memoryFile,
        _sessions = sessions,
+       _turnState = turnState,
        _kv = kv,
        _guardChain = guardChain,
        _lockManager = lockManager ?? SessionLockManager(),
@@ -110,25 +117,24 @@ class TurnRunner {
   Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) async {
     await _lockManager.acquire(sessionId);
     final turnId = _uuid.v4();
+    final startedAt = DateTime.now();
     _activeTurns[sessionId] = TurnContext(
       turnId: turnId,
       sessionId: sessionId,
       agentName: agentName,
-      startedAt: DateTime.now(),
+      startedAt: startedAt,
       directory: directory,
       model: model,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
 
-    final kv = _kv;
-    if (kv != null) {
+    final turnState = _turnState;
+    if (turnState != null) {
       unawaited(
-        kv
-            .set('turn:$sessionId', jsonEncode({'turnId': turnId, 'startedAt': DateTime.now().toIso8601String()}))
-            .catchError((e) {
-              _log.warning('Failed to persist turn state for crash recovery', e);
-            }),
+        turnState.set(sessionId, turnId, startedAt).catchError((Object e, StackTrace st) {
+          _log.warning('Failed to persist turn state for crash recovery', e, st);
+        }),
       );
     }
 
@@ -148,6 +154,14 @@ class TurnRunner {
 
   /// Rolls back a [reserveTurn] reservation without executing.
   void releaseTurn(String sessionId, String turnId) {
+    final turnState = _turnState;
+    if (turnState != null) {
+      unawaited(
+        turnState.delete(sessionId).catchError((Object e, StackTrace st) {
+          _log.warning('Failed to clean up turn state during release', e, st);
+        }),
+      );
+    }
     _activeTurns.remove(sessionId);
     _lockManager.release(sessionId);
     _outcomePending.remove(turnId)?.completeError(StateError('Turn released without execution'));
@@ -192,29 +206,24 @@ class TurnRunner {
     throw ArgumentError('Unknown turnId: $turnId');
   }
 
-  /// Scans KvService for orphaned turn:* entries from a previous crash.
+  /// Scans [TurnStateStore] for orphaned turns from a previous crash.
   Future<List<String>> detectAndCleanOrphanedTurns() async {
-    final kv = _kv;
-    if (kv == null) return [];
+    final turnState = _turnState;
+    if (turnState == null) return [];
 
     try {
-      final orphans = await kv.getByPrefix('turn:');
+      final orphans = await turnState.getAll();
       if (orphans.isEmpty) return [];
 
       final sessionIds = <String>[];
       for (final entry in orphans.entries) {
-        final sessionId = entry.key.substring('turn:'.length);
+        final sessionId = entry.key;
         sessionIds.add(sessionId);
 
-        Map<String, dynamic>? data;
-        try {
-          data = jsonDecode(entry.value) as Map<String, dynamic>;
-        } catch (_) {}
-
-        final turnId = data?['turnId'] as String? ?? 'unknown';
-        final startedAt = data?['startedAt'] as String? ?? 'unknown';
+        final turnId = entry.value.turnId;
+        final startedAt = entry.value.startedAt.toIso8601String();
         _log.warning('Orphaned turn detected: session=$sessionId, turn=$turnId, started=$startedAt');
-        await kv.delete(entry.key);
+        await turnState.delete(sessionId);
       }
 
       _recoveredSessions.addAll(sessionIds);
@@ -459,11 +468,11 @@ class TurnRunner {
       _activeTurns.remove(sessionId);
       _lockManager.release(sessionId);
 
-      final kv = _kv;
-      if (kv != null) {
+      final turnState = _turnState;
+      if (turnState != null) {
         unawaited(
-          kv.delete('turn:$sessionId').catchError((e) {
-            _log.warning('Failed to clean up turn state', e);
+          turnState.delete(sessionId).catchError((Object e, StackTrace st) {
+            _log.warning('Failed to clean up turn state', e, st);
           }),
         );
       }

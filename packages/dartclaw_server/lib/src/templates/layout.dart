@@ -9,13 +9,10 @@ import 'loader.dart';
 ///
 /// Callers should wrap `<main id="main-content" hx-history-elt>` in [body]
 /// for HTMX SPA navigation history tracking.
-String layoutTemplate({
-  required String title,
-  required String body,
-  String appName = 'DartClaw',
-}) {
-  return templateLoader.trellis.render(
-    templateLoader.source('layout'),
-    {'title': title, 'body': body, 'appName': appName},
-  );
+String layoutTemplate({required String title, required String body, String appName = 'DartClaw'}) {
+  return templateLoader.trellis.render(templateLoader.source('layout'), {
+    'title': title,
+    'body': body,
+    'appName': appName,
+  });
 }

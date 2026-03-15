@@ -26,10 +26,7 @@ void main() {
       kvService: kvService,
     );
 
-    final router = memoryRoutes(
-      statusService: statusService,
-      workspaceDir: workspaceDir,
-    );
+    final router = memoryRoutes(statusService: statusService, workspaceDir: workspaceDir);
     handler = router.call;
   });
 

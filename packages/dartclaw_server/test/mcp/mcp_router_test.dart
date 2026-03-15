@@ -20,8 +20,7 @@ class _EchoTool implements McpTool {
   };
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async =>
-      ToolResult.text(args['text'] as String);
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text(args['text'] as String);
 }
 
 void main() {
@@ -40,10 +39,7 @@ void main() {
       'POST',
       Uri.parse('http://localhost/mcp'),
       body: body,
-      headers: {
-        if (authToken != null) 'authorization': 'Bearer $authToken',
-        'content-type': contentType,
-      },
+      headers: {if (authToken != null) 'authorization': 'Bearer $authToken', 'content-type': contentType},
     );
   }
 
@@ -51,19 +47,13 @@ void main() {
     return Request(
       'GET',
       Uri.parse('http://localhost/mcp'),
-      headers: {
-        if (authToken != null) 'authorization': 'Bearer $authToken',
-      },
+      headers: {if (authToken != null) 'authorization': 'Bearer $authToken'},
     );
   }
 
   group('mcpRoute', () {
     test('POST with valid token returns JSON-RPC response', () async {
-      final body = jsonEncode({
-        'jsonrpc': '2.0',
-        'method': 'initialize',
-        'id': 1,
-      });
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'initialize', 'id': 1});
       final response = await handler(post(body, authToken: token));
       expect(response.statusCode, 200);
       final responseBody = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -90,10 +80,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/mcp'),
         body: body,
-        headers: {
-          'authorization': 'Basic dXNlcjpwYXNz',
-          'content-type': 'application/json',
-        },
+        headers: {'authorization': 'Basic dXNlcjpwYXNz', 'content-type': 'application/json'},
       );
       final response = await handler(request);
       expect(response.statusCode, 401);
@@ -111,20 +98,13 @@ void main() {
     });
 
     test('notification returns 202 Accepted', () async {
-      final body = jsonEncode({
-        'jsonrpc': '2.0',
-        'method': 'notifications/initialized',
-      });
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'notifications/initialized'});
       final response = await handler(post(body, authToken: token));
       expect(response.statusCode, 202);
     });
 
     test('tools/list returns registered tools', () async {
-      final body = jsonEncode({
-        'jsonrpc': '2.0',
-        'method': 'tools/list',
-        'id': 2,
-      });
+      final body = jsonEncode({'jsonrpc': '2.0', 'method': 'tools/list', 'id': 2});
       final response = await handler(post(body, authToken: token));
       expect(response.statusCode, 200);
       final responseBody = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
@@ -137,7 +117,10 @@ void main() {
       final body = jsonEncode({
         'jsonrpc': '2.0',
         'method': 'tools/call',
-        'params': {'name': 'echo', 'arguments': {'text': 'world'}},
+        'params': {
+          'name': 'echo',
+          'arguments': {'text': 'world'},
+        },
         'id': 3,
       });
       final response = await handler(post(body, authToken: token));

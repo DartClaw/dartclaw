@@ -28,7 +28,11 @@ class ContainerTaskFailureSubscriber {
     for (final task in runningTasks) {
       if (resolveProfile(task.type) != event.profileId) continue;
       try {
-        final failed = await _tasks.transition(task.id, TaskStatus.failed);
+        final failed = await _tasks.transition(
+          task.id,
+          TaskStatus.failed,
+          configJson: _withErrorSummary(task.configJson, event.error),
+        );
         eventBus.fire(
           TaskStatusChangedEvent(
             taskId: task.id,
@@ -42,5 +46,36 @@ class ContainerTaskFailureSubscriber {
         _log.warning('Failed to transition task ${task.id} after container crash', error, stackTrace);
       }
     }
+  }
+
+  Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String error) =>
+      Map<String, dynamic>.from(configJson)..['errorSummary'] = _sanitizeErrorSummary(error);
+
+  String _sanitizeErrorSummary(String message) {
+    final firstLine = message
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => 'Execution profile crashed');
+    var normalized = firstLine;
+    for (final prefix in const [
+      'Exception: ',
+      'StateError: ',
+      'Bad state: ',
+      'ArgumentError: ',
+      'Invalid argument(s): ',
+    ]) {
+      if (normalized.startsWith(prefix)) {
+        normalized = normalized.substring(prefix.length).trim();
+        break;
+      }
+    }
+    normalized = normalized.replaceFirst(RegExp(r'[.]+$'), '').trim();
+    if (normalized.isEmpty) {
+      normalized = 'Execution profile crashed';
+    }
+    if (normalized.length <= 200) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 197).trimRight()}...';
   }
 }

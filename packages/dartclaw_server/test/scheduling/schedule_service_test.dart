@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -171,6 +172,9 @@ void main() {
     late _FakeSessionService sessions;
     late ScheduledJob intervalJob;
     late ScheduledJob onceJob;
+    late Directory tempDir;
+    late List<(String, String)> consolidations;
+    late MemoryConsolidator consolidator;
 
     setUp(() {
       turns = _ConfigurableTurnManager();
@@ -187,6 +191,20 @@ void main() {
         scheduleType: ScheduleType.once,
         onceAt: DateTime.now().add(const Duration(milliseconds: 50)),
       );
+      tempDir = Directory.systemTemp.createTempSync('schedule_service_test_');
+      File('${tempDir.path}/MEMORY.md').writeAsStringSync('x' * 64);
+      consolidations = <(String, String)>[];
+      consolidator = MemoryConsolidator(
+        workspaceDir: tempDir.path,
+        threshold: 16,
+        dispatch: (sessionKey, message) async => consolidations.add((sessionKey, message)),
+      );
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
     });
 
     test('executeJobForTesting runs the job and records execution', () async {
@@ -194,6 +212,28 @@ void main() {
       service.start();
       await service.executeJobForTesting(intervalJob);
       expect(turns.startTurnCallCount, 1);
+      service.stop();
+    });
+
+    test('successful agent-backed job delivers assistant response text', () async {
+      final delivery = _RecordingDeliveryService(sessions: sessions);
+      turns.responseText = 'assistant summary';
+      final announceJob = ScheduledJob.fromConfig({
+        'id': 'announce-job',
+        'prompt': 'Summarize the latest updates',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'announce',
+      });
+
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
+      service.start();
+
+      await service.executeJobForTesting(announceJob);
+
+      expect(delivery.calls, hasLength(1));
+      expect(delivery.calls.single.mode, DeliveryMode.announce);
+      expect(delivery.calls.single.jobId, 'announce-job');
+      expect(delivery.calls.single.result, 'assistant summary');
       service.stop();
     });
 
@@ -262,13 +302,37 @@ void main() {
     test('failed turn outcome throws, triggering retry logic', () async {
       // Return a failed TurnOutcome — _executeWithRetry should throw
       turns.returnFailedOutcome = true;
-      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      final delivery = _RecordingDeliveryService(sessions: sessions);
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], delivery: delivery);
       service.start();
 
       // With retryAttempts = 0, one attempt is made and failure is logged (no throw to caller)
       await service.executeJobForTesting(intervalJob);
       expect(turns.startTurnCallCount, 1);
+      expect(delivery.calls, isEmpty);
 
+      service.stop();
+    });
+
+    test('successful job triggers consolidation', () async {
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], consolidator: consolidator);
+      service.start();
+
+      await service.executeJobForTesting(intervalJob);
+
+      expect(consolidations, hasLength(1));
+      expect(consolidations.single.$1, startsWith('agent:main:consolidation:'));
+      service.stop();
+    });
+
+    test('failed job does not trigger consolidation', () async {
+      turns.returnFailedOutcome = true;
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], consolidator: consolidator);
+      service.start();
+
+      await service.executeJobForTesting(intervalJob);
+
+      expect(consolidations, isEmpty);
       service.stop();
     });
   });
@@ -439,6 +503,7 @@ class _ConfigurableTurnManager implements TurnManager {
   int startTurnCallCount = 0;
   bool shouldFail = false;
   bool returnFailedOutcome = false;
+  String responseText = 'simulated assistant output';
 
   /// Optional hook called inside startTurn — use to block execution for concurrency tests.
   Future<void> Function(String sessionId)? onStartTurn;
@@ -473,6 +538,7 @@ class _ConfigurableTurnManager implements TurnManager {
       sessionId: sessionId,
       status: status,
       errorMessage: returnFailedOutcome ? 'simulated failure' : null,
+      responseText: returnFailedOutcome ? null : responseText,
       completedAt: DateTime.now(),
     );
     completer.complete(outcome);
@@ -489,6 +555,32 @@ class _ConfigurableTurnManager implements TurnManager {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+Future<String> _noopTestChannelDispatch(String sessionKey, String message, {String? senderJid}) async => '';
+
+class _RecordingDeliveryService extends DeliveryService {
+  final List<({DeliveryMode mode, String jobId, String result, String? webhookUrl})> calls =
+      <({DeliveryMode mode, String jobId, String result, String? webhookUrl})>[];
+
+  _RecordingDeliveryService({required super.sessions})
+    : super(
+        channelManager: ChannelManager(
+          queue: MessageQueue(dispatcher: _noopTestChannelDispatch),
+          config: const ChannelConfig.defaults(),
+        ),
+        sseBroadcast: SseBroadcast(),
+      );
+
+  @override
+  Future<void> deliver({
+    required DeliveryMode mode,
+    required String jobId,
+    required String result,
+    String? webhookUrl,
+  }) async {
+    calls.add((mode: mode, jobId: jobId, result: result, webhookUrl: webhookUrl));
+  }
 }
 
 class _FakeSessionService implements SessionService {

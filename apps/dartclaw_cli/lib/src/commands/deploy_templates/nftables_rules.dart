@@ -1,7 +1,5 @@
 /// Generates Linux nftables rules for egress allowlisting.
-String generateNftablesRules({
-  List<String> allowedHosts = const ['api.anthropic.com'],
-}) {
+String generateNftablesRules({List<String> allowedHosts = const ['api.anthropic.com']}) {
   final buffer = StringBuffer();
   buffer.writeln('#!/usr/sbin/nft -f');
   buffer.writeln('# DartClaw egress allowlist — apply via: sudo nft -f /path/to/nftables.conf');

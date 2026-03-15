@@ -1,66 +1,8 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import 'package:dartclaw_server/src/scheduling/scheduled_task_runner.dart';
-
-/// In-memory [TaskRepository] for testing.
-class _InMemoryTaskRepository implements TaskRepository {
-  final List<Task> _tasks = [];
-
-  @override
-  Future<void> insert(Task task) async => _tasks.add(task);
-
-  @override
-  Future<Task?> getById(String id) async => _tasks.where((t) => t.id == id).firstOrNull;
-
-  @override
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) async {
-    return _tasks.where((t) {
-      if (status != null && t.status != status) return false;
-      if (type != null && t.type != type) return false;
-      return true;
-    }).toList();
-  }
-
-  @override
-  Future<void> update(Task task) async {
-    final idx = _tasks.indexWhere((t) => t.id == task.id);
-    if (idx >= 0) _tasks[idx] = task;
-  }
-
-  @override
-  Future<bool> updateIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    final idx = _tasks.indexWhere((t) => t.id == task.id && t.status == expectedStatus);
-    if (idx < 0) return false;
-    _tasks[idx] = task;
-    return true;
-  }
-
-  @override
-  Future<bool> updateMutableFieldsIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    return updateIfStatus(task, expectedStatus: expectedStatus);
-  }
-
-  @override
-  Future<void> delete(String id) async {
-    _tasks.removeWhere((t) => t.id == id);
-  }
-
-  @override
-  Future<void> insertArtifact(TaskArtifact artifact) async {}
-
-  @override
-  Future<TaskArtifact?> getArtifactById(String id) async => null;
-
-  @override
-  Future<List<TaskArtifact>> listArtifactsByTask(String taskId) async => [];
-
-  @override
-  Future<void> deleteArtifact(String id) async {}
-
-  @override
-  Future<void> dispose() async {}
-}
 
 ScheduledTaskDefinition _makeDef({
   String id = 'test-schedule',
@@ -84,11 +26,11 @@ ScheduledTaskDefinition _makeDef({
 
 void main() {
   group('ScheduledTaskRunner', () {
-    late _InMemoryTaskRepository repo;
+    late InMemoryTaskRepository repo;
     late TaskService taskService;
 
     setUp(() {
-      repo = _InMemoryTaskRepository();
+      repo = InMemoryTaskRepository();
       taskService = TaskService(repo);
     });
 

@@ -1,6 +1,7 @@
 # DartClaw — Personal Assistant Config
 # Usage: dartclaw --config examples/personal-assistant.yaml serve
-# Long-running knowledge companion with journaling and git backup.
+# Long-running knowledge companion with journaling, research, and git backup.
+# See docs/guide/use-cases/00-personal-assistant.md for the full guide.
 
 name: Jarvis
 data_dir: ~/.dartclaw-assistant
@@ -8,8 +9,23 @@ data_dir: ~/.dartclaw-assistant
 agent:
   model: sonnet
   max_turns: 100
+  agents:
+    search:
+      tools: [WebSearch, WebFetch]
+      model: haiku
+    cron:
+      model: sonnet                    # cost-optimized for scheduled jobs
 
 memory_max_bytes: 65536
+
+sessions:
+  idle_timeout_minutes: 480
+  dm_scope: per-contact
+  group_scope: shared
+  maintenance:
+    mode: enforce
+    prune_after_days: 90
+    max_sessions: 500
 
 scheduling:
   heartbeat:
@@ -34,10 +50,31 @@ workspace:
     enabled: true
     push_enabled: true
 
-sessions:
-  idle_timeout_minutes: 480
-
 # Guards enabled but relaxed for personal use
 guards:
   enabled: true
   fail_open: false
+  content:
+    enabled: true
+    model: claude-haiku-4-5-20251001
+  input_sanitizer:
+    enabled: true
+    channels_only: true
+
+# Channels (uncomment to enable)
+# channels:
+#   whatsapp:
+#     enabled: true
+#     dm_access: pairing
+#     task_trigger:
+#       enabled: true
+#       prefix: "task:"
+#       auto_start: true
+#   signal:
+#     enabled: true
+#     phone_number: "+1234567890"
+#     dm_access: allowlist
+#   google_chat:
+#     enabled: true
+#     service_account: ${GOOGLE_CHAT_SERVICE_ACCOUNT}
+#     dm_access: allowlist

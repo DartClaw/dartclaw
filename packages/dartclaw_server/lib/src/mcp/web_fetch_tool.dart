@@ -24,11 +24,11 @@ class WebFetchTool implements McpTool {
     int defaultMaxLength = 50000,
     bool failOpenOnClassification = true,
     bool ssrfProtectionEnabled = true,
-  })  : _classifier = classifier,
-        _timeout = timeout,
-        _defaultMaxLength = defaultMaxLength,
-        _failOpenOnClassification = failOpenOnClassification,
-        _ssrfProtectionEnabled = ssrfProtectionEnabled;
+  }) : _classifier = classifier,
+       _timeout = timeout,
+       _defaultMaxLength = defaultMaxLength,
+       _failOpenOnClassification = failOpenOnClassification,
+       _ssrfProtectionEnabled = ssrfProtectionEnabled;
 
   @override
   String get name => 'web_fetch';
@@ -40,20 +40,16 @@ class WebFetchTool implements McpTool {
 
   @override
   Map<String, dynamic> get inputSchema => {
-        'type': 'object',
-        'properties': {
-          'url': {
-            'type': 'string',
-            'description': 'URL to fetch',
-          },
-          'maxLength': {
-            'type': 'integer',
-            'description':
-                'Maximum response length in characters (default: $_defaultMaxLength)',
-          },
-        },
-        'required': ['url'],
-      };
+    'type': 'object',
+    'properties': {
+      'url': {'type': 'string', 'description': 'URL to fetch'},
+      'maxLength': {
+        'type': 'integer',
+        'description': 'Maximum response length in characters (default: $_defaultMaxLength)',
+      },
+    },
+    'required': ['url'],
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
@@ -120,10 +116,7 @@ class WebFetchTool implements McpTool {
     final classifier = _classifier;
     if (classifier != null) {
       try {
-        final classification = await classifier.classify(
-          result,
-          timeout: _timeout,
-        );
+        final classification = await classifier.classify(result, timeout: _timeout);
         if (classification != 'safe') {
           return ToolResult.error('Content blocked: classified as $classification');
         }
@@ -147,21 +140,12 @@ class WebFetchTool implements McpTool {
       final response = await request.close().timeout(_timeout);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final body = await response
-            .transform(utf8.decoder)
-            .join()
-            .timeout(_timeout);
-        throw HttpException(
-          'HTTP ${response.statusCode}: ${response.reasonPhrase} — $body',
-        );
+        final body = await response.transform(utf8.decoder).join().timeout(_timeout);
+        throw HttpException('HTTP ${response.statusCode}: ${response.reasonPhrase} — $body');
       }
 
-      final contentType =
-          response.headers.contentType?.mimeType ?? 'text/html';
-      final body = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(_timeout);
+      final contentType = response.headers.contentType?.mimeType ?? 'text/html';
+      final body = await response.transform(utf8.decoder).join().timeout(_timeout);
 
       return _FetchResult(body: body, contentType: contentType);
     } finally {
@@ -255,9 +239,7 @@ class WebFetchTool implements McpTool {
         return 'Blocked: IPv6 ULA (${addr.address})';
       }
       // ::ffff:0:0/96 — IPv4-mapped IPv6
-      final isV4Mapped = bytes.sublist(0, 10).every((b) => b == 0) &&
-          bytes[10] == 0xFF &&
-          bytes[11] == 0xFF;
+      final isV4Mapped = bytes.sublist(0, 10).every((b) => b == 0) && bytes[10] == 0xFF && bytes[11] == 0xFF;
       if (isV4Mapped) {
         return checkIpv4Octets(bytes[12], bytes[13]);
       }
@@ -266,13 +248,10 @@ class WebFetchTool implements McpTool {
     return null;
   }
 
-  static bool _isHtml(String contentType) =>
-      contentType == 'text/html' || contentType == 'application/xhtml+xml';
+  static bool _isHtml(String contentType) => contentType == 'text/html' || contentType == 'application/xhtml+xml';
 
   static bool _isPlainText(String contentType) =>
-      contentType == 'text/plain' ||
-      contentType == 'text/markdown' ||
-      contentType == 'application/json';
+      contentType == 'text/plain' || contentType == 'text/markdown' || contentType == 'application/json';
 }
 
 class _FetchResult {

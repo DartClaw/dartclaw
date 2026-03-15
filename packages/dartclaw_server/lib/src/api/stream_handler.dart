@@ -14,8 +14,7 @@ String _sseHtmlFrame(String event, String htmlContent) {
 }
 
 /// Sanitizes a tool ID for use as an HTML element id attribute.
-String _sanitizeToolId(String raw) =>
-    'tool-${raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
+String _sanitizeToolId(String raw) => 'tool-${raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
 
 /// Returns an SSE [Response] that streams turn events in real time.
 Response sseStreamResponse(
@@ -63,10 +62,7 @@ Response sseStreamResponse(
       final id = _sanitizeToolId(event.toolId);
       final name = htmlEscape.convert(event.toolName);
       toolNames[event.toolId] = event.toolName;
-      frame = _sseHtmlFrame(
-        'tool_use',
-        '<div id="$id" class="tool-indicator pending">$name</div>',
-      );
+      frame = _sseHtmlFrame('tool_use', '<div id="$id" class="tool-indicator pending">$name</div>');
     } else if (event is ToolResultEvent) {
       final id = _sanitizeToolId(event.toolId);
       final name = htmlEscape.convert(toolNames[event.toolId] ?? 'Tool');
@@ -95,25 +91,13 @@ Response sseStreamResponse(
       } else {
         final message = result.errorMessage ?? 'Turn failed';
         controller.add(
-          utf8.encode(
-            _sseHtmlFrame(
-              'turn_error',
-              '<div class="turn-error">${htmlEscape.convert(message)}</div>',
-            ),
-          ),
+          utf8.encode(_sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>')),
         );
       }
     } catch (e) {
       if (!controller.isClosed) {
         try {
-          controller.add(
-            utf8.encode(
-              _sseHtmlFrame(
-                'turn_error',
-                '<div class="turn-error">Internal error</div>',
-              ),
-            ),
-          );
+          controller.add(utf8.encode(_sseHtmlFrame('turn_error', '<div class="turn-error">Internal error</div>')));
         } catch (_) {}
       }
     } finally {

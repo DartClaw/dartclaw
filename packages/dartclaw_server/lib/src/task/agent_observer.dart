@@ -50,9 +50,9 @@ class AgentObserver {
   final List<_MutableMetrics> _metrics;
 
   AgentObserver({required HarnessPool pool, EventBus? eventBus})
-      : _pool = pool,
-        _eventBus = eventBus,
-        _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i));
+    : _pool = pool,
+      _eventBus = eventBus,
+      _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i));
 
   /// Mark a runner as busy with an optional task/session ID.
   void markBusy(int runnerId, {String? taskId, String? sessionId}) {
@@ -61,12 +61,14 @@ class AgentObserver {
     m.state = AgentState.busy;
     m.currentTaskId = taskId;
     m.currentSessionId = sessionId;
-    _eventBus?.fire(AgentStateChangedEvent(
-      runnerId: runnerId,
-      state: AgentState.busy.name,
-      currentTaskId: taskId,
-      timestamp: DateTime.now(),
-    ));
+    _eventBus?.fire(
+      AgentStateChangedEvent(
+        runnerId: runnerId,
+        state: AgentState.busy.name,
+        currentTaskId: taskId,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   /// Mark a runner as idle, clearing task/session references.
@@ -76,11 +78,7 @@ class AgentObserver {
     m.state = AgentState.idle;
     m.currentTaskId = null;
     m.currentSessionId = null;
-    _eventBus?.fire(AgentStateChangedEvent(
-      runnerId: runnerId,
-      state: AgentState.idle.name,
-      timestamp: DateTime.now(),
-    ));
+    _eventBus?.fire(AgentStateChangedEvent(runnerId: runnerId, state: AgentState.idle.name, timestamp: DateTime.now()));
   }
 
   /// Record a completed turn for a runner, updating token and error counters.

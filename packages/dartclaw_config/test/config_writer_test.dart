@@ -28,7 +28,7 @@ port: 3000
 
 # Agent settings
 agent:
-  model: claude-sonnet-4-6  # default model
+  model: sonnet  # default model
   max_turns: 25
 
 # Unknown section
@@ -45,7 +45,7 @@ custom:
       expect(result, contains('# default model'));
       expect(result, contains('port: 3001'));
       expect(result, contains('agent:'));
-      expect(result, contains('model: claude-sonnet-4-6'));
+      expect(result, contains('model: sonnet'));
       expect(result, contains('max_turns: 25'));
       expect(result, contains('custom:'));
       expect(result, contains('foo: bar'));
@@ -73,11 +73,11 @@ another_unknown:
     test('creates nested path from empty file', () async {
       File(configPath).writeAsStringSync('');
 
-      await writer.updateFields({'agent.model': 'claude-sonnet-4-6'});
+      await writer.updateFields({'agent.model': 'sonnet'});
 
       final result = File(configPath).readAsStringSync();
       expect(result, contains('agent'));
-      expect(result, contains('model: claude-sonnet-4-6'));
+      expect(result, contains('model: sonnet'));
     });
 
     test('creates deeply nested path alongside existing keys', () async {
@@ -93,19 +93,19 @@ another_unknown:
     });
 
     test('adds sibling key without disturbing existing keys', () async {
-      File(configPath).writeAsStringSync('agent:\n  model: claude-sonnet-4-6\n');
+      File(configPath).writeAsStringSync('agent:\n  model: sonnet\n');
 
       await writer.updateFields({'agent.max_turns': 10});
 
       final result = File(configPath).readAsStringSync();
-      expect(result, contains('model: claude-sonnet-4-6'));
+      expect(result, contains('model: sonnet'));
       expect(result, contains('max_turns: 10'));
     });
   });
 
   group('value removal', () {
     test('removes existing key', () async {
-      File(configPath).writeAsStringSync('agent:\n  model: claude-sonnet-4-6\n  max_turns: 25\n');
+      File(configPath).writeAsStringSync('agent:\n  model: sonnet\n  max_turns: 25\n');
 
       await writer.updateFields({'agent.model': null});
 

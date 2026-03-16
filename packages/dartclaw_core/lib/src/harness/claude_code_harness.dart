@@ -20,7 +20,7 @@ import 'tool_policy.dart';
 // Claude CLI configuration
 // ---------------------------------------------------------------------------
 
-List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt, String? mcpConfigPath}) => [
+List<String> _buildClaudeArgs({String? model, String? effort, String? appendSystemPrompt, String? mcpConfigPath}) => [
   '--print',
   '--input-format',
   'stream-json',
@@ -32,7 +32,8 @@ List<String> _buildClaudeArgs({String? model, String? appendSystemPrompt, String
   '--permission-prompt-tool',
   'stdio',
   '--model',
-  model ?? 'sonnet',
+  model ?? 'opus[1m]',
+  if (effort != null) ...['--effort', effort],
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
 ];
@@ -78,6 +79,7 @@ class ClaudeCodeHarness implements AgentHarness {
   Completer<Map<String, dynamic>>? _turnCompleter;
   late String _processWorkingDirectory;
   String? _processModel;
+  String? _processEffort;
 
   /// Serializes mutating lifecycle ops.
   Future<void> _lock = Future<void>.value();
@@ -115,6 +117,7 @@ class ClaudeCodeHarness implements AgentHarness {
        _environment = environment ?? Platform.environment {
     _processWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
+    _processEffort = harnessConfig.effort;
   }
 
   @override
@@ -207,13 +210,16 @@ class ClaudeCodeHarness implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
     final desiredModel = _resolveModel(model);
+    final desiredEffort = _resolveEffort(effort);
     if (desiredWorkingDirectory != _processWorkingDirectory ||
         desiredModel != _processModel ||
+        desiredEffort != _processEffort ||
         _state == WorkerState.stopped) {
-      await _restartForExecution(workingDirectory: desiredWorkingDirectory, model: desiredModel);
+      await _restartForExecution(workingDirectory: desiredWorkingDirectory, model: desiredModel, effort: desiredEffort);
     }
 
     // Crash restart with exponential backoff.
@@ -357,6 +363,7 @@ class ClaudeCodeHarness implements AgentHarness {
     // Spawn claude process: containerized or direct.
     final args = _buildClaudeArgs(
       model: _processModel ?? harnessConfig.model,
+      effort: _processEffort ?? harnessConfig.effort,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
     );
@@ -436,17 +443,27 @@ class ClaudeCodeHarness implements AgentHarness {
     return harnessConfig.model;
   }
 
-  Future<void> _restartForExecution({required String workingDirectory, required String? model}) async {
+  String? _resolveEffort(String? override) {
+    final trimmed = override?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    return harnessConfig.effort;
+  }
+
+  Future<void> _restartForExecution({required String workingDirectory, required String? model, required String? effort}) async {
     await _withLock(() async {
       if (_state == WorkerState.busy) {
-        throw StateError('Cannot change working directory or model while harness is busy');
+        throw StateError('Cannot change working directory, model, or effort while harness is busy');
       }
-      if (_processWorkingDirectory == workingDirectory && _processModel == model && _state != WorkerState.stopped) {
+      if (_processWorkingDirectory == workingDirectory &&
+          _processModel == model &&
+          _processEffort == effort &&
+          _state != WorkerState.stopped) {
         return;
       }
       await _stopInternal();
       _processWorkingDirectory = workingDirectory;
       _processModel = model;
+      _processEffort = effort;
       await _startInternal();
     });
   }

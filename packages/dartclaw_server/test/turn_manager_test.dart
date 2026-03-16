@@ -70,6 +70,7 @@ class FakeWorkerService implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
@@ -138,6 +139,7 @@ class _AppendStrategyWorker implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) {
     lastSystemPrompt = systemPrompt;
     _turnCompleter = Completer<Map<String, dynamic>>();

@@ -62,15 +62,45 @@ scheduling:
 | `webhook` | Result POSTed to a configured URL |
 | `none` | Result logged but not delivered |
 
-### Isolated Sessions
+### Per-Job Model and Effort Overrides
 
-Each scheduled job runs in its own session, isolated from user conversations. Session keys follow the pattern `agent:main:cron:<job-name>:<ISO8601>`.
+Individual jobs can override the global `agent.model` and `agent.effort` settings:
 
-## Scheduled Task Templates
+```yaml
+scheduling:
+  jobs:
+    - name: daily-summary
+      schedule: "0 18 * * *"
+      prompt: "Summarize today's activity"
+      delivery: announce
+      model: claude-haiku-3   # override model for cost savings
+      effort: low             # override effort level (low | medium | high | max)
+```
 
-If you want the scheduler to create reviewable tasks instead of running prompt jobs directly, use `automation.scheduled_tasks`. Each entry creates a normal task template on a cron schedule, so the result goes through the standard `/tasks` review flow.
+If not specified, the job inherits the global `agent.model` and `agent.effort` values.
 
-See [Tasks](tasks.md) for the task lifecycle, worktree behavior, and the `automation.scheduled_tasks` schema.
+Each scheduled job runs in its own session, isolated from user conversations.
+
+## Scheduled Task Jobs
+
+To schedule reviewable tasks (instead of prompt jobs that run and deliver immediately), add a job with `type: task` to `scheduling.jobs`. The task goes through the standard `/tasks` review flow when it runs.
+
+```yaml
+scheduling:
+  jobs:
+    - id: daily-maintenance-review
+      type: task
+      schedule: "0 9 * * 1-5"
+      enabled: true
+      task:
+        title: Daily maintenance review
+        description: Review maintenance items and prepare a coding task if changes are needed.
+        type: coding
+        acceptance_criteria: Tests stay green and the worktree is ready for review.
+        auto_start: true
+```
+
+Task jobs identify by `id` (rather than `name`) and do not use the `delivery` or `prompt` fields. See [Tasks](tasks.md) for the task lifecycle, worktree behavior, and the full task job schema.
 
 ## Session Maintenance
 

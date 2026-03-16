@@ -157,12 +157,12 @@ void main() {
       description: 'Use a different model.',
       type: TaskType.research,
       autoStart: true,
-      configJson: const {'model': 'claude-opus-4-1'},
+      configJson: const {'model': 'opus'},
     );
 
     await executor.pollOnce();
 
-    expect(worker.lastModel, 'claude-opus-4-1');
+    expect(worker.lastModel, 'opus');
     expect((await tasks.get('task-model'))!.status, TaskStatus.review);
   });
 
@@ -408,6 +408,7 @@ class _FakeTaskWorker implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     onTurn?.call(sessionId);
     lastModel = model;
@@ -452,7 +453,7 @@ class _BusyOnceTurnManager extends TurnManager {
   Iterable<String> get activeSessionIds => const <String>[];
 
   @override
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) async {
     if (_busyOnce) {
       _busyOnce = false;
       throw BusyTurnException('shared harness busy', isSameSession: false);

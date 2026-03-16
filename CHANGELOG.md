@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-03-16
+
+Scheduling unification, model/effort overrides, config consistency fixes.
+
+### Added
+
+- **Unified scheduling** (F01): `scheduling.jobs` now supports both `prompt` and `task` job types via a `type` field; `automation.scheduled_tasks` is a deprecated alias — existing configs are converted automatically with a deprecation warning
+- **Per-job model/effort overrides** (F02): prompt jobs support `model` and `effort` fields; `ScheduleService` passes overrides to turn dispatch so individual cron jobs can run on a different model or effort level than the global default
+- **Per-task overrides** (F03): `ScheduledTaskDefinition` accepts `model`, `effort`, and `token_budget` fields; `ScheduledTaskRunner` merges these into task creation config
+- **`agent.effort` config field**: per-agent effort level (`low`, `medium`, `high`, `max`); propagated through `HarnessConfig` to the `--effort` flag on harness spawn
+- **Bare model aliases**: `opus`, `sonnet`, `haiku`, and context-window suffixes (`opus[1m]`) accepted as `model` values throughout config; mapped to full model IDs at harness spawn
+- **`ScheduledJobType` enum**: `ScheduledJob.fromConfig()` factory with unified `prompt`/`task` branching; task jobs carry a resolved `ScheduledTaskDefinition` instead of a prompt string
+- **Missing `ConfigMeta` fields registered**: `search.qmd.host`, `search.qmd.port`, `search.default_depth`, `logging.file`, `logging.redact_patterns`
+
+### Changed
+
+- **Session scope default**: `SessionScopeConfig.defaults()` now uses `DmScope.perChannelContact` (was `DmScope.perContact`); each channel gets its own DM session per contact
+- **Agent tool defaults**: non-search agents with no `tools` configured now default to an empty allowlist and log a startup warning; search agents (`id: search`) continue to default to `[WebSearch, WebFetch]`
+- **`agent.effort` is now a constrained enum** in `ConfigMeta` (`low`, `medium`, `high`, `max`); the settings UI renders it as a select instead of a free-text input
+- **Settings memory field corrected**: `memory_max_bytes` form field renamed to `memory.max_bytes` to match `ConfigMeta` and the config API JSON shape
+- **Task CRUD API unified**: `/api/scheduling/tasks` POST/PUT/DELETE now read and write `scheduling.jobs` (type=task entries) instead of the deprecated `automation.scheduled_tasks` path; task jobs created or edited through the web UI are stored under the canonical schema
+- **`delivery` not required for task jobs**: `POST /api/scheduling/jobs` with `type: task` no longer requires a `delivery` field
+- **Job lookup by `id` or `name`**: job CRUD routes (`PUT`/`DELETE /api/scheduling/jobs/<id>`) resolve jobs by either the `id` or `name` field, consistent with how docs-authored configs use `id:`
+- **Scope YAML normalization**: `DmScope` and `GroupScope` now accept both snake_case and kebab-case in YAML; values are normalized to kebab-case on parse
+
+### Fixed
+
+- **`configJson.budget` deprecation warning**: `TaskExecutor` logs a deprecation warning when a task config uses the old `budget` key; use `tokenBudget` instead
+- `memory_max_bytes` removed from `ConfigMeta` (superseded by `memory.max_bytes` since 0.6); submitting the old key via config API now returns a validation error instead of silently writing an unknown field
+
+### Removed
+
+- `context_1m` model alias removed from config parser (use `opus[1m]` or `sonnet[1m]`)
+
 ## [0.9.0] — 2026-03-15
 
 Package decomposition, SDK publish-readiness, channel-to-task integration, Google Chat enhancements, cookbook audit fixes.

@@ -23,6 +23,7 @@ Security-focused personal AI assistant runtime. This guide covers installation, 
 
 | Guide | What it covers |
 |-------|---------------|
+| [Agents](agents.md) | Subagent delegation, custom agents, task runners, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |

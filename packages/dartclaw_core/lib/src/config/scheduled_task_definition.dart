@@ -29,6 +29,15 @@ class ScheduledTaskDefinition {
   /// Whether created tasks auto-start (queue immediately). Default: true.
   final bool autoStart;
 
+  /// Optional model override for this task (e.g. 'claude-opus-4-5').
+  final String? model;
+
+  /// Optional effort level override for this task (e.g. 'high', 'low').
+  final String? effort;
+
+  /// Optional token budget override for this task.
+  final int? tokenBudget;
+
   const ScheduledTaskDefinition({
     required this.id,
     required this.cronExpression,
@@ -38,6 +47,9 @@ class ScheduledTaskDefinition {
     required this.type,
     this.acceptanceCriteria,
     this.autoStart = true,
+    this.model,
+    this.effort,
+    this.tokenBudget,
   });
 
   /// Parses a single entry from the `automation.scheduled_tasks` list.
@@ -80,9 +92,10 @@ class ScheduledTaskDefinition {
       return null;
     }
 
-    final typeStr = taskMap['type'];
-    if (typeStr is! String) {
-      warnings.add('Scheduled task "$id" missing "task.type" — skipping');
+    final typeStr = taskMap['task_type'] ?? taskMap['type'];
+    if (typeStr is! String || typeStr.isEmpty) {
+      final reason = typeStr == null ? 'missing' : 'invalid';
+      warnings.add('Scheduled task "$id" $reason "task.type" — skipping');
       return null;
     }
 
@@ -100,6 +113,9 @@ class ScheduledTaskDefinition {
     final acceptanceCriteria = taskMap['acceptance_criteria'] as String?;
     final autoStart = taskMap['auto_start'];
     final isAutoStart = autoStart is bool ? autoStart : true;
+    final model = taskMap['model'] as String?;
+    final effort = taskMap['effort'] as String?;
+    final tokenBudget = taskMap['token_budget'] as int?;
 
     return ScheduledTaskDefinition(
       id: id,
@@ -110,6 +126,9 @@ class ScheduledTaskDefinition {
       type: type,
       acceptanceCriteria: acceptanceCriteria,
       autoStart: isAutoStart,
+      model: model,
+      effort: effort,
+      tokenBudget: tokenBudget,
     );
   }
 
@@ -122,8 +141,12 @@ class ScheduledTaskDefinition {
       'title': title,
       'description': description,
       'type': type.name,
+      'task_type': type.name,
       if (acceptanceCriteria != null) 'acceptance_criteria': acceptanceCriteria,
       if (!autoStart) 'auto_start': autoStart,
+      if (model != null) 'model': model,
+      if (effort != null) 'effort': effort,
+      if (tokenBudget != null) 'token_budget': tokenBudget,
     },
   };
 }

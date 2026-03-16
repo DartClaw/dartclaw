@@ -34,6 +34,7 @@ class _FakeWorkerService implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     return {'ok': true};
   }

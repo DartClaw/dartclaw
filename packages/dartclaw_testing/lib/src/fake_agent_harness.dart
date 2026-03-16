@@ -101,6 +101,7 @@ class FakeAgentHarness implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) {
     turnCallCount += 1;
     lastSessionId = sessionId;

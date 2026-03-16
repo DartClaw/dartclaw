@@ -112,13 +112,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
     ),
-    'memory_max_bytes': FieldMeta(
-      yamlPath: 'memory_max_bytes',
-      jsonKey: 'memoryMaxBytes',
-      type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
-      min: 1,
-    ),
     'memory.max_bytes': FieldMeta(
       yamlPath: 'memory.max_bytes',
       jsonKey: 'memory.maxBytes',
@@ -135,6 +128,14 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    'agent.effort': FieldMeta(
+      yamlPath: 'agent.effort',
+      jsonKey: 'agent.effort',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+      allowedValues: ['', 'low', 'medium', 'high', 'max'],
+    ),
     'agent.max_turns': FieldMeta(
       yamlPath: 'agent.max_turns',
       jsonKey: 'agent.maxTurns',
@@ -142,12 +143,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
       min: 1,
-    ),
-    'agent.context_1m': FieldMeta(
-      yamlPath: 'agent.context_1m',
-      jsonKey: 'agent.context1m',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
     ),
     'auth.cookie_secure': FieldMeta(
       yamlPath: 'auth.cookie_secure',
@@ -310,6 +305,20 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       allowedValues: ['human', 'json'],
     ),
+    'logging.file': FieldMeta(
+      yamlPath: 'logging.file',
+      jsonKey: 'logging.file',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'logging.redact_patterns': FieldMeta(
+      yamlPath: 'logging.redact_patterns',
+      jsonKey: 'logging.redactPatterns',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
 
     // Scheduling / heartbeat
     'scheduling.heartbeat.interval_minutes': FieldMeta(
@@ -344,6 +353,26 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.enum_,
       mutability: ConfigMutability.restart,
       allowedValues: ['fts5', 'qmd'],
+    ),
+    'search.qmd.host': FieldMeta(
+      yamlPath: 'search.qmd.host',
+      jsonKey: 'search.qmd.host',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'search.qmd.port': FieldMeta(
+      yamlPath: 'search.qmd.port',
+      jsonKey: 'search.qmd.port',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+      max: 65535,
+    ),
+    'search.default_depth': FieldMeta(
+      yamlPath: 'search.default_depth',
+      jsonKey: 'search.defaultDepth',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
     ),
 
     // Guards (flat settings — writable, restart-required)

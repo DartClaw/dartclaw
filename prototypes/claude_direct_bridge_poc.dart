@@ -31,7 +31,7 @@ const _claudeArgs = [
   '--include-partial-messages',
   '--no-session-persistence',
   '--permission-prompt-tool', 'stdio', // Enables control_request for tool approval
-  '--model', 'claude-haiku-4-5-20251001',
+  '--model', 'haiku',
 ];
 
 /// Env vars to clear to prevent claude nesting detection.

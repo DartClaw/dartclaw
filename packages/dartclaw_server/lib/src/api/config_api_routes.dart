@@ -163,8 +163,6 @@ Router configApiRoutes({
     // Validate required fields
     final name = body['name'];
     final schedule = body['schedule'];
-    final prompt = body['prompt'];
-    final delivery = body['delivery'];
 
     if (name is! String || name.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"name" is required and must be a non-empty string');
@@ -172,11 +170,40 @@ Router configApiRoutes({
     if (schedule is! String || schedule.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"schedule" is required and must be a non-empty string');
     }
-    if (prompt is! String || prompt.trim().isEmpty) {
-      return errorResponse(400, 'INVALID_INPUT', '"prompt" is required and must be a non-empty string');
+
+    // Validate type and type-specific fields
+    final typeStr = body['type'] as String? ?? 'prompt';
+    if (typeStr != 'prompt' && typeStr != 'task') {
+      return errorResponse(400, 'INVALID_INPUT', '"type" must be "prompt" or "task"');
     }
-    if (delivery is! String || !const {'announce', 'webhook', 'none'}.contains(delivery)) {
-      return errorResponse(400, 'INVALID_INPUT', '"delivery" must be one of: announce, webhook, none');
+
+    if (typeStr == 'prompt') {
+      final delivery = body['delivery'];
+      if (delivery is! String || !const {'announce', 'webhook', 'none'}.contains(delivery)) {
+        return errorResponse(400, 'INVALID_INPUT', '"delivery" must be one of: announce, webhook, none');
+      }
+      final prompt = body['prompt'];
+      if (prompt is! String || prompt.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', '"prompt" is required for type: prompt');
+      }
+    } else {
+      // type: task
+      final task = body['task'];
+      if (task is! Map) {
+        return errorResponse(400, 'INVALID_INPUT', '"task" object is required for type: task');
+      }
+      final taskTitle = task['title'];
+      final taskDesc = task['description'];
+      final taskType = task['task_type'] ?? task['type'];
+      if (taskTitle is! String || taskTitle.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', '"task.title" is required');
+      }
+      if (taskDesc is! String || taskDesc.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', '"task.description" is required');
+      }
+      if (taskType is! String || taskType.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', '"task.task_type" is required');
+      }
     }
 
     // Validate cron expression
@@ -188,11 +215,20 @@ Router configApiRoutes({
 
     // Check uniqueness — read fresh from YAML (not startup snapshot).
     final currentJobs = await writer.readSchedulingJobs();
-    if (currentJobs.any((j) => j['name'] == name)) {
+    if (currentJobs.any((j) => j['name'] == name || j['id'] == name)) {
       return errorResponse(409, 'CONFLICT', 'Job "$name" already exists');
     }
 
-    final newJob = <String, dynamic>{'name': name, 'schedule': schedule, 'prompt': prompt, 'delivery': delivery};
+    final newJob = <String, dynamic>{
+      'name': name,
+      'schedule': schedule,
+      'type': typeStr,
+      if (typeStr == 'prompt') 'delivery': body['delivery'],
+      if (typeStr == 'prompt') 'prompt': body['prompt'],
+      if (typeStr == 'task') 'task': body['task'],
+      if (body['model'] != null) 'model': body['model'],
+      if (body['effort'] != null) 'effort': body['effort'],
+    };
 
     // Build updated array and write
     final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
@@ -219,10 +255,14 @@ Router configApiRoutes({
 
     // Read fresh from YAML (not startup snapshot) to avoid overwrite races.
     final currentJobs = await writer.readSchedulingJobs();
-    final idx = currentJobs.indexWhere((j) => j['name'] == name);
+    final idx = currentJobs.indexWhere((j) => j['name'] == name || j['id'] == name);
     if (idx == -1) {
       return errorResponse(404, 'NOT_FOUND', 'Job "$name" not found');
     }
+
+    // Determine effective type: use body['type'] if provided, else fall back to existing job's type.
+    final existingJob = currentJobs[idx];
+    final effectiveType = body['type'] as String? ?? existingJob['type'] as String? ?? 'prompt';
 
     // Validate changed fields
     if (body.containsKey('schedule')) {
@@ -236,10 +276,23 @@ Router configApiRoutes({
         return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
       }
     }
+    if (body.containsKey('type')) {
+      if (effectiveType != 'prompt' && effectiveType != 'task') {
+        return errorResponse(400, 'INVALID_INPUT', '"type" must be "prompt" or "task"');
+      }
+    }
     if (body.containsKey('prompt')) {
+      if (effectiveType != 'prompt') {
+        return errorResponse(400, 'INVALID_INPUT', '"prompt" is only valid for type: prompt');
+      }
       final prompt = body['prompt'];
       if (prompt is! String || prompt.trim().isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', '"prompt" must be a non-empty string');
+      }
+    }
+    if (body.containsKey('task')) {
+      if (effectiveType != 'task') {
+        return errorResponse(400, 'INVALID_INPUT', '"task" is only valid for type: task');
       }
     }
     if (body.containsKey('delivery')) {
@@ -273,7 +326,7 @@ Router configApiRoutes({
   router.delete('/api/scheduling/jobs/<name>', (Request request, String name) async {
     // Read fresh from YAML (not startup snapshot) to avoid overwrite races.
     final currentJobs = await writer.readSchedulingJobs();
-    final idx = currentJobs.indexWhere((j) => j['name'] == name);
+    final idx = currentJobs.indexWhere((j) => j['name'] == name || j['id'] == name);
     if (idx == -1) {
       return errorResponse(404, 'NOT_FOUND', 'Job "$name" not found');
     }
@@ -332,14 +385,15 @@ Router configApiRoutes({
       return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
     }
 
-    // Check uniqueness
-    final currentTasks = await writer.readAutomationTasks();
-    if (currentTasks.any((t) => t['id'] == id)) {
+    // Check uniqueness — read fresh from YAML (not startup snapshot).
+    final currentJobs = await writer.readSchedulingJobs();
+    if (currentJobs.where((j) => j['type'] == 'task').any((j) => j['id'] == id || j['name'] == id)) {
       return errorResponse(409, 'CONFLICT', 'Scheduled task "$id" already exists');
     }
 
-    final newTask = <String, dynamic>{
+    final newJob = <String, dynamic>{
       'id': id,
+      'type': 'task',
       'schedule': schedule,
       'enabled': body['enabled'] ?? true,
       'task': <String, dynamic>{
@@ -352,19 +406,19 @@ Router configApiRoutes({
       },
     };
 
-    final updatedTasks = [...currentTasks.map((t) => Map<String, dynamic>.from(t)), newTask];
+    final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
 
     try {
-      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+      await writer.updateFields({'scheduling.jobs': updatedJobs});
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
     }
 
-    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+    writeRestartPending(dataDir, ['scheduling.jobs']);
 
-    return jsonResponse(201, {'task': newTask, 'pendingRestart': true});
+    return jsonResponse(201, {'task': newJob, 'pendingRestart': true});
   });
 
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
@@ -374,8 +428,8 @@ Router configApiRoutes({
       return errorResponse(400, 'INVALID_INPUT', 'Request body must be a non-empty JSON object');
     }
 
-    final currentTasks = await writer.readAutomationTasks();
-    final idx = currentTasks.indexWhere((t) => t['id'] == id);
+    final currentJobs = await writer.readSchedulingJobs();
+    final idx = currentJobs.indexWhere((j) => j['type'] == 'task' && (j['id'] == id || j['name'] == id));
     if (idx == -1) {
       return errorResponse(404, 'NOT_FOUND', 'Scheduled task "$id" not found');
     }
@@ -394,13 +448,13 @@ Router configApiRoutes({
     }
 
     // Merge updates
-    final updatedTasks = currentTasks.map((t) => Map<String, dynamic>.from(t)).toList();
-    final task = updatedTasks[idx];
-    if (body.containsKey('schedule')) task['schedule'] = body['schedule'];
-    if (body.containsKey('enabled')) task['enabled'] = body['enabled'];
+    final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
+    final job = updatedJobs[idx];
+    if (body.containsKey('schedule')) job['schedule'] = body['schedule'];
+    if (body.containsKey('enabled')) job['enabled'] = body['enabled'];
 
     // Update nested task fields
-    final taskMap = task['task'] is Map ? Map<String, dynamic>.from(task['task'] as Map) : <String, dynamic>{};
+    final taskMap = job['task'] is Map ? Map<String, dynamic>.from(job['task'] as Map) : <String, dynamic>{};
     if (body.containsKey('title')) taskMap['title'] = body['title'];
     if (body.containsKey('description')) taskMap['description'] = body['description'];
     if (body.containsKey('type')) taskMap['type'] = body['type'];
@@ -408,41 +462,41 @@ Router configApiRoutes({
       taskMap['acceptance_criteria'] = body['acceptanceCriteria'];
     }
     if (body.containsKey('autoStart')) taskMap['auto_start'] = body['autoStart'];
-    task['task'] = taskMap;
+    job['task'] = taskMap;
 
     try {
-      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+      await writer.updateFields({'scheduling.jobs': updatedJobs});
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
     }
 
-    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+    writeRestartPending(dataDir, ['scheduling.jobs']);
 
-    return jsonResponse(200, {'task': task, 'pendingRestart': true});
+    return jsonResponse(200, {'task': job, 'pendingRestart': true});
   });
 
   // DELETE /api/scheduling/tasks/<id>
   router.delete('/api/scheduling/tasks/<id>', (Request request, String id) async {
-    final currentTasks = await writer.readAutomationTasks();
-    final idx = currentTasks.indexWhere((t) => t['id'] == id);
+    final currentJobs = await writer.readSchedulingJobs();
+    final idx = currentJobs.indexWhere((j) => j['type'] == 'task' && (j['id'] == id || j['name'] == id));
     if (idx == -1) {
       return errorResponse(404, 'NOT_FOUND', 'Scheduled task "$id" not found');
     }
 
-    final updatedTasks = currentTasks.map((t) => Map<String, dynamic>.from(t)).toList();
-    updatedTasks.removeAt(idx);
+    final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
+    updatedJobs.removeAt(idx);
 
     try {
-      await writer.updateFields({'automation.scheduled_tasks': updatedTasks});
+      await writer.updateFields({'scheduling.jobs': updatedJobs});
     } on StateError catch (e) {
       return errorResponse(500, 'BACKUP_FAILED', e.message);
     } on FileSystemException catch (e) {
       return errorResponse(500, 'WRITE_FAILED', 'Config write failed: ${e.message}');
     }
 
-    writeRestartPending(dataDir, ['automation.scheduled_tasks']);
+    writeRestartPending(dataDir, ['scheduling.jobs']);
 
     return jsonResponse(200, {'deleted': true, 'pendingRestart': true});
   });

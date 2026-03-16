@@ -37,9 +37,12 @@
             <input type="number" class="form-input" id="field-agent-max-turns" placeholder="Loading..." disabled>
             <div class="form-error"></div>
           </div>
-          <div class="form-group form-group-checkbox" data-field="agent.context_1m">
-            <input type="checkbox" id="field-agent-context-1m" disabled>
-            <label class="form-label" for="field-agent-context-1m">Context 1M</label>
+          <div class="form-group" data-field="agent.effort">
+            <label class="form-label" for="field-agent-effort">Effort</label>
+            <select class="form-select" id="field-agent-effort" disabled>
+              <option value="">—</option>
+            </select>
+            <div class="form-error"></div>
           </div>
           <div class="form-actions">
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
@@ -136,7 +139,7 @@
           <span class="card-title">Memory Configuration</span>
         </div>
         <form class="settings-form" data-section="memory">
-          <div class="form-group" data-field="memory_max_bytes">
+          <div class="form-group" data-field="memory.max_bytes">
             <label class="form-label" for="field-memory-max-bytes">Max Bytes</label>
             <input type="number" class="form-input" id="field-memory-max-bytes" placeholder="Loading..." disabled>
             <div class="form-error"></div>

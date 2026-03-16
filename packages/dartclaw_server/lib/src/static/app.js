@@ -1107,9 +1107,9 @@ async function toggleScheduledTask(taskId) {
       return;
     }
     const config = await configResp.json();
-    const tasks = config.automation?.scheduledTasks || [];
-    const task = tasks.find(function(t) { return t.id === taskId; });
-    if (!task) {
+    const jobs = config.scheduling?.jobs || [];
+    const job = jobs.find(function(j) { return j.type === 'task' && j.id === taskId; });
+    if (!job) {
       showToast('error', 'Task not found');
       return;
     }
@@ -1117,10 +1117,10 @@ async function toggleScheduledTask(taskId) {
     const resp = await fetch('/api/scheduling/tasks/' + encodeURIComponent(taskId) + apiQs(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !task.enabled }),
+      body: JSON.stringify({ enabled: !job.enabled }),
     });
     if (resp.ok) {
-      showToast('success', 'Task ' + (!task.enabled ? 'enabled' : 'disabled') + ' — restart required');
+      showToast('success', 'Task ' + (!job.enabled ? 'enabled' : 'disabled') + ' — restart required');
       setTimeout(() => window.location.reload(), 1000);
     } else {
       const data = await resp.json().catch(() => ({}));
@@ -1140,12 +1140,13 @@ async function editScheduledTask(taskId) {
       return;
     }
     const config = await configResp.json();
-    const tasks = config.automation?.scheduledTasks || [];
-    const task = tasks.find(function(t) { return t.id === taskId; });
-    if (!task) {
+    const jobs = config.scheduling?.jobs || [];
+    const job = jobs.find(function(j) { return j.type === 'task' && j.id === taskId; });
+    if (!job) {
       showToast('error', 'Task not found in config');
       return;
     }
+    const taskDef = job.task || {};
 
     // Show and populate form
     const form = document.getElementById('task-form');
@@ -1153,22 +1154,23 @@ async function editScheduledTask(taskId) {
     const titleEl = document.getElementById('task-form-title');
     if (titleEl) titleEl.textContent = 'Edit Scheduled Task';
     document.getElementById('task-edit-id').value = taskId;
-    document.getElementById('task-id').value = task.id;
+    document.getElementById('task-id').value = job.id;
     document.getElementById('task-id').disabled = true;
-    document.getElementById('task-schedule').value = task.cronExpression || '';
-    document.getElementById('task-title').value = task.title || '';
-    document.getElementById('task-description').value = task.description || '';
+    document.getElementById('task-schedule').value = job.schedule || '';
+    document.getElementById('task-title').value = taskDef.title || '';
+    document.getElementById('task-description').value = taskDef.description || '';
     const typeSelect = document.getElementById('task-type');
-    if (typeSelect && task.type) {
+    const taskType = taskDef.type || taskDef.task_type;
+    if (typeSelect && taskType) {
       for (var i = 0; i < typeSelect.options.length; i++) {
-        if (typeSelect.options[i].value === task.type) {
+        if (typeSelect.options[i].value === taskType) {
           typeSelect.selectedIndex = i;
           break;
         }
       }
     }
-    document.getElementById('task-acceptance').value = task.acceptanceCriteria || '';
-    document.getElementById('task-enabled').checked = task.enabled !== false;
+    document.getElementById('task-acceptance').value = taskDef.acceptance_criteria || '';
+    document.getElementById('task-enabled').checked = job.enabled !== false;
   } catch (_) {
     showToast('error', 'Failed to reach server');
   }

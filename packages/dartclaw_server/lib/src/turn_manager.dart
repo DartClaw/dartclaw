@@ -30,6 +30,9 @@ class TurnContext {
   /// Optional per-turn model override for task execution.
   final String? model;
 
+  /// Optional per-turn reasoning effort override.
+  final String? effort;
+
   TurnContext({
     required this.turnId,
     required this.sessionId,
@@ -37,6 +40,7 @@ class TurnContext {
     required this.startedAt,
     this.directory,
     this.model,
+    this.effort,
   });
 }
 
@@ -168,8 +172,8 @@ class TurnManager {
     return null;
   }
 
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) =>
-      _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model);
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) =>
+      _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model, effort: effort);
 
   void executeTurn(
     String sessionId,
@@ -187,7 +191,8 @@ class TurnManager {
     String? source,
     String agentName = 'main',
     String? model,
-  }) => _primary.startTurn(sessionId, messages, source: source, agentName: agentName, model: model);
+    String? effort,
+  }) => _primary.startTurn(sessionId, messages, source: source, agentName: agentName, model: model, effort: effort);
 
   Future<void> cancelTurn(String sessionId) async {
     for (final runner in _pool.runners) {

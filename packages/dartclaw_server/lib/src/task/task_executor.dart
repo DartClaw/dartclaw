@@ -183,8 +183,8 @@ class TaskExecutor {
     return _executeCore(
       runningTask,
       runnerIndex: runnerIndex,
-      reserveTurn: (sessionId, {String? directory, String? model}) =>
-          runner.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model),
+      reserveTurn: (sessionId, {String? directory, String? model, String? effort}) =>
+          runner.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model, effort: effort),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
     );
@@ -195,8 +195,8 @@ class TaskExecutor {
     return _executeCore(
       runningTask,
       runnerIndex: 0,
-      reserveTurn: (sessionId, {String? directory, String? model}) =>
-          _reserveSharedTurn(sessionId, directory: directory, model: model),
+      reserveTurn: (sessionId, {String? directory, String? model, String? effort}) =>
+          _reserveSharedTurn(sessionId, directory: directory, model: model, effort: effort),
       executeTurn: _turns.executeTurn,
       waitForOutcome: _turns.waitForOutcome,
     );
@@ -206,7 +206,7 @@ class TaskExecutor {
   Future<void> _executeCore(
     Task runningTask, {
     required int runnerIndex,
-    required Future<String> Function(String sessionId, {String? directory, String? model}) reserveTurn,
+    required Future<String> Function(String sessionId, {String? directory, String? model, String? effort}) reserveTurn,
     required void Function(
       String sessionId,
       String turnId,
@@ -243,6 +243,7 @@ class TaskExecutor {
         return;
       }
       final modelOverride = _modelOverride(task);
+      final effortOverride = _effortOverride(task);
       final tokenBudget = _tokenBudget(task);
 
       await _messages.insertMessage(sessionId: session.id, role: 'user', content: pendingMessage);
@@ -267,7 +268,7 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
-      final turnId = await reserveTurn(session.id, directory: worktreeInfo?.path, model: modelOverride);
+      final turnId = await reserveTurn(session.id, directory: worktreeInfo?.path, model: modelOverride, effort: effortOverride);
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
       _observer?.recordTurn(
@@ -316,10 +317,10 @@ class TaskExecutor {
     }
   }
 
-  Future<String> _reserveSharedTurn(String sessionId, {String? directory, String? model}) async {
+  Future<String> _reserveSharedTurn(String sessionId, {String? directory, String? model, String? effort}) async {
     while (true) {
       try {
-        return await _turns.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model);
+        return await _turns.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model, effort: effort);
       } on BusyTurnException {
         await Future<void>.delayed(pollInterval);
       }
@@ -424,12 +425,31 @@ class TaskExecutor {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  String? _effortOverride(Task task) {
+    final raw = task.configJson['effort'];
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   int? _tokenBudget(Task task) {
-    final value = task.configJson['tokenBudget'] ?? task.configJson['budget'];
-    if (value is int && value > 0) return value;
-    if (value is num) {
-      final intValue = value.toInt();
-      return intValue > 0 ? intValue : null;
+    final primary = task.configJson['tokenBudget'];
+    if (primary != null) {
+      if (primary is int && primary > 0) return primary;
+      if (primary is num) {
+        final intValue = primary.toInt();
+        return intValue > 0 ? intValue : null;
+      }
+      return null;
+    }
+    final legacy = task.configJson['budget'];
+    if (legacy != null) {
+      _log.warning('Task ${task.id}: "budget" config key is deprecated — use "tokenBudget"');
+      if (legacy is int && legacy > 0) return legacy;
+      if (legacy is num) {
+        final intValue = legacy.toInt();
+        return intValue > 0 ? intValue : null;
+      }
     }
     return null;
   }

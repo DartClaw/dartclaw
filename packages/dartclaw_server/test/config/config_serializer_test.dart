@@ -35,7 +35,7 @@ void main() {
       final agent = json['agent'] as Map<String, dynamic>;
       expect(agent['model'], isNull);
       expect(agent['maxTurns'], isNull);
-      expect(agent['context1m'], false);
+      expect(agent['effort'], isNull);
 
       final auth = json['auth'] as Map<String, dynamic>;
       expect(auth['cookieSecure'], false);
@@ -139,7 +139,7 @@ void main() {
 
       final json = serializer.toJson(config, runtime: runtime);
       final sessions = json['sessions'] as Map<String, dynamic>;
-      expect(sessions['dmScope'], 'per-contact');
+      expect(sessions['dmScope'], 'per-channel-contact');
       expect(sessions['groupScope'], 'shared');
       expect(sessions['channels'], isEmpty);
     });
@@ -416,17 +416,14 @@ void main() {
       expect(taskArtifactsRetention['max'], 3650);
     });
 
-    test('memory.max_bytes metadata is exposed alongside the legacy root key', () {
+    test('memory.max_bytes metadata is exposed; legacy root key is not present', () {
       final meta = serializer.metaJson();
       final nested = meta['memory.max_bytes'] as Map<String, dynamic>;
       expect(nested['type'], 'int');
       expect(nested['mutable'], 'restart');
       expect(nested['min'], 1);
 
-      final legacy = meta['memory_max_bytes'] as Map<String, dynamic>;
-      expect(legacy['type'], 'int');
-      expect(legacy['mutable'], 'restart');
-      expect(legacy['min'], 1);
+      expect(meta.containsKey('memory_max_bytes'), isFalse);
     });
 
     test('enum entries have allowedValues', () {

@@ -22,7 +22,7 @@ void main() {
   UsageEvent makeEvent({
     String sessionId = 'sess-1',
     String agentName = 'main',
-    String? model = 'claude-sonnet-4-6',
+    String? model = 'sonnet',
     int inputTokens = 100,
     int outputTokens = 50,
     int durationMs = 1200,
@@ -46,7 +46,7 @@ void main() {
         timestamp: now,
         sessionId: 'sess-1',
         agentName: 'main',
-        model: 'claude-sonnet-4-6',
+        model: 'sonnet',
         inputTokens: 100,
         outputTokens: 50,
         durationMs: 1200,
@@ -56,7 +56,7 @@ void main() {
       expect(json['timestamp'], now.toIso8601String());
       expect(json['session_id'], 'sess-1');
       expect(json['agent_name'], 'main');
-      expect(json['model'], 'claude-sonnet-4-6');
+      expect(json['model'], 'sonnet');
       expect(json['input_tokens'], 100);
       expect(json['output_tokens'], 50);
       expect(json['duration_ms'], 1200);

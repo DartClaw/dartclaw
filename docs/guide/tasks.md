@@ -57,12 +57,56 @@ Content-Type: application/json
 
 Tasks can also be linked to a goal with `goalId`.
 
+### Per-Task Overrides
+
+When creating a task (via API or web UI), you can set per-task overrides in `configJson`:
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `model` | `string` | global `agent.model` | Model override for this specific task |
+| `tokenBudget` | `int` | unlimited | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias) |
+
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "title": "Deep security audit of auth module",
+  "description": "Analyze all auth code paths for vulnerabilities.",
+  "type": "analysis",
+  "autoStart": true,
+  "configJson": {
+    "model": "opus",
+    "tokenBudget": 500000
+  }
+}
+```
+
+The web UI's **New Task** dialog exposes these as "Advanced" fields.
+
 ## Execution Model
 
-- `tasks.max_concurrent` controls how many background task runners are started
-- the primary interactive chat runner is separate from the background task pool
-- each task type maps to a security profile, so task execution can be isolated differently from the main chat flow
+Tasks run on dedicated harness instances from the `HarnessPool`, separate from the primary harness used for interactive chat, cron, and channels. For a full comparison of task runners vs subagents (the other agent model), see [Agents](agents.md).
+
+- `tasks.max_concurrent` controls how many background task runners are started (each is an independent claude binary subprocess)
+- the primary interactive chat runner (index 0) is never acquired by the task executor
+- each task type maps to a container security profile (see below)
 - `/tasks` shows runner state through the agent pool and runner metrics panels
+
+### Container Profile Routing
+
+Each task type maps to a security profile that determines container isolation:
+
+| Task Type | Profile | Mounts |
+|-----------|---------|--------|
+| `research` | `restricted` | No workspace mount |
+| `coding` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `writing` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `analysis` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
+
+In pool mode, the task executor matches a task's profile to a runner started with that profile. A `research` task will only run on a `restricted`-profile runner -- it won't accidentally get a `workspace` runner with filesystem access.
 
 ## Coding Tasks and Worktrees
 
@@ -95,7 +139,7 @@ Coding tasks typically attach a structured diff artifact for review. If the fina
 
 ## Automation and Scheduling
 
-Recurring task creation uses `automation.scheduled_tasks`. This is separate from `scheduling.jobs`, which runs prompt-based jobs directly.
+Recurring tasks are scheduled using `type: task` jobs under `scheduling.jobs`. This is the unified model — both prompt-based jobs and task-based jobs live in the same `scheduling.jobs` list.
 
 ```yaml
 tasks:
@@ -105,9 +149,10 @@ tasks:
     stale_timeout_hours: 24
     merge_strategy: squash
 
-automation:
-  scheduled_tasks:
+scheduling:
+  jobs:
     - id: daily-maintenance-review
+      type: task
       schedule: "0 9 * * 1-5"
       enabled: true
       task:
@@ -116,6 +161,21 @@ automation:
         type: coding
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
+```
+
+Task jobs can also override `effort` at the job level:
+
+```yaml
+scheduling:
+  jobs:
+    - id: quick-analysis
+      type: task
+      schedule: "0 10 * * *"
+      effort: low
+      task:
+        title: Quick analysis
+        description: Run a lightweight daily analysis.
+        type: analysis
 ```
 
 See [Scheduling](scheduling.md) for the broader scheduler model.
@@ -134,6 +194,6 @@ These task-specific runtime keys come from `DartclawConfig`:
 - `tasks.worktree.base_ref`
 - `tasks.worktree.stale_timeout_hours`
 - `tasks.worktree.merge_strategy`
-- `automation.scheduled_tasks`
+- `scheduling.jobs` (with `type: task` entries for scheduled recurring tasks)
 
 See also [Configuration](configuration.md), [Scheduling](scheduling.md), and [Web UI & API](web-ui-and-api.md).

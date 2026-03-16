@@ -42,6 +42,7 @@ class _FakeWorkerService extends FakeAgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async => {'ok': true};
 }
 

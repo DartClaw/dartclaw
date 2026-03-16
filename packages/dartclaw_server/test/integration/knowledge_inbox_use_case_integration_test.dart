@@ -83,6 +83,7 @@ class _KnowledgeInboxWorker implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     turnCallCount++;
     savedFindings = 0;

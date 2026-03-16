@@ -64,8 +64,6 @@ agent:
     search:
       tools: [WebSearch, WebFetch]
       model: haiku                      # cheap + fast for web lookups
-    cron:
-      model: sonnet                     # cost-optimized for scheduled jobs
 
 # --- Memory ---
 memory_max_bytes: 65536               # 64KB -- consolidation triggers above this
@@ -171,7 +169,7 @@ guards:
   fail_open: false
   content:
     enabled: true
-    model: claude-haiku-4-5-20251001
+    model: haiku
   input_sanitizer:
     enabled: true
     channels_only: true               # only scan channel messages; web UI bypasses
@@ -331,7 +329,7 @@ With `task_trigger` enabled on a channel, send messages like `task: Research Dar
 
 ### Use a cheaper model for scheduled jobs
 
-The `agent.agents.cron.model` setting applies to all cron jobs. Sonnet is a good balance of quality and cost for routine analysis. For deeper research, override specific jobs or use the web UI with the main model.
+Cron jobs use the global `agent.model` setting. If you want cheaper scheduled jobs, set `agent.model: haiku` and use a more capable model only for interactive chat via per-task `configJson.model` overrides. See [Agents](../agents.md) for the full model hierarchy.
 
 ### Add a contact/CRM tracker
 
@@ -379,4 +377,4 @@ For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patter
 - **Memory consolidation runs during heartbeat only**: Consolidation only triggers when MEMORY.md exceeds `memory_max_bytes` and a heartbeat cycle runs. High-frequency journaling may temporarily exceed the cap
 - **Content-guard may truncate web content**: Large pages fetched by the search agent are filtered by content-guard. The knowledge inbox agent should note when a source was truncated
 - **Git sync requires a remote**: Run `git remote add origin <url>` in your workspace directory before enabling `push_enabled`
-- **Model override scope**: `agent.agents.cron.model` applies to ALL cron jobs. If a specific job needs a different model, use the main agent for that job and override the cron model only for cost-sensitive jobs
+- **Model override scope**: Cron jobs use the global `agent.model` -- there is no per-job model override. All cron jobs, heartbeat, and interactive chat share the same model. To reduce cron costs, lower `agent.model` globally or reduce cron frequency

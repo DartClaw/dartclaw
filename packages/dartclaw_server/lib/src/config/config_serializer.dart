@@ -36,7 +36,7 @@ class ConfigSerializer {
       'dataDir': config.dataDir,
       'workerTimeout': config.workerTimeout,
       'memoryMaxBytes': config.memoryMaxBytes,
-      'agent': {'model': config.agentModel, 'maxTurns': config.agentMaxTurns, 'context1m': config.agentContext1m},
+      'agent': {'model': config.agentModel, 'effort': config.agentEffort, 'maxTurns': config.agentMaxTurns},
       'auth': {'cookieSecure': config.cookieSecure, 'trustedProxies': config.trustedProxies},
       'concurrency': {'maxParallelTurns': config.maxParallelTurns},
       'guardAudit': {'maxRetentionDays': config.guardAuditMaxRetentionDays},
@@ -148,22 +148,6 @@ class ConfigSerializer {
         'authMode': config.gatewayAuthMode,
         'token': config.gatewayToken != null ? '***' : null,
         'hsts': config.gatewayHsts,
-      },
-      'automation': {
-        'scheduledTasks': config.automationScheduledTasks
-            .map(
-              (d) => {
-                'id': d.id,
-                'cronExpression': d.cronExpression,
-                'enabled': d.enabled,
-                'title': d.title,
-                'description': d.description,
-                'type': d.type.name,
-                'acceptanceCriteria': d.acceptanceCriteria,
-                'autoStart': d.autoStart,
-              },
-            )
-            .toList(),
       },
     };
   }

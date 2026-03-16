@@ -167,6 +167,7 @@ class _FakeWorker implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
   }

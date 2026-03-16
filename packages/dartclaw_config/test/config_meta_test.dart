@@ -32,10 +32,11 @@ void main() {
         expect(ConfigMeta.fields, contains('host'));
         expect(ConfigMeta.fields, contains('data_dir'));
         expect(ConfigMeta.fields, contains('worker_timeout'));
-        expect(ConfigMeta.fields, contains('memory_max_bytes'));
+        // memory_max_bytes was removed — top-level field no longer registered
+        expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
         expect(ConfigMeta.fields, contains('agent.model'));
         expect(ConfigMeta.fields, contains('agent.max_turns'));
-        expect(ConfigMeta.fields, contains('agent.context_1m'));
+        expect(ConfigMeta.fields, contains('agent.effort'));
         expect(ConfigMeta.fields, contains('auth.cookie_secure'));
         expect(ConfigMeta.fields, contains('auth.trusted_proxies'));
         expect(ConfigMeta.fields, contains('tasks.max_concurrent'));
@@ -53,6 +54,11 @@ void main() {
         expect(ConfigMeta.fields, contains('context.reserve_tokens'));
         expect(ConfigMeta.fields, contains('context.max_result_bytes'));
         expect(ConfigMeta.fields, contains('search.backend'));
+        expect(ConfigMeta.fields, contains('search.qmd.host'));
+        expect(ConfigMeta.fields, contains('search.qmd.port'));
+        expect(ConfigMeta.fields, contains('search.default_depth'));
+        expect(ConfigMeta.fields, contains('logging.file'));
+        expect(ConfigMeta.fields, contains('logging.redact_patterns'));
         expect(ConfigMeta.fields, contains('guards.content.enabled'));
         expect(ConfigMeta.fields, contains('guards.content.classifier'));
         expect(ConfigMeta.fields, contains('guards.content.model'));

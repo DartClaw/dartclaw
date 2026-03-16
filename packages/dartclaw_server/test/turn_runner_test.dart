@@ -206,6 +206,7 @@ class _FakeWorker implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async {
     if (delayMs > 0) {
       await Future<void>.delayed(Duration(milliseconds: delayMs));

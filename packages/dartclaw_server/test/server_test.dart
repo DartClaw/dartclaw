@@ -46,6 +46,7 @@ class FakeWorkerService implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnStarted.isCompleted) {

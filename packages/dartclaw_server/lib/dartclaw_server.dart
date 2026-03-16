@@ -68,7 +68,7 @@ export 'src/runtime_config.dart' show RuntimeConfig;
 export 'src/scheduling/cron_parser.dart' show CronExpression;
 export 'src/scheduling/delivery.dart' show DeliveryMode, DeliveryService;
 export 'src/scheduling/schedule_service.dart' show ScheduleService;
-export 'src/scheduling/scheduled_job.dart' show ScheduleType, ScheduledJob;
+export 'src/scheduling/scheduled_job.dart' show ScheduleType, ScheduledJob, ScheduledJobType;
 export 'src/scheduling/scheduled_task_runner.dart' show ScheduledTaskRunner;
 
 // MCP

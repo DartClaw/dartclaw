@@ -38,7 +38,7 @@ class DartclawConfig implements ChannelConfigProvider {
   final List<String> agentDisallowedTools;
   final int? agentMaxTurns;
   final String? agentModel;
-  final bool agentContext1m;
+  final String? agentEffort;
   final Map<String, dynamic>? agentAgents;
   final bool cookieSecure;
   final List<String> trustedProxies;
@@ -121,7 +121,7 @@ class DartclawConfig implements ChannelConfigProvider {
     this.agentDisallowedTools = const [],
     this.agentMaxTurns,
     this.agentModel,
-    this.agentContext1m = false,
+    this.agentEffort,
     this.agentAgents,
     this.cookieSecure = false,
     this.trustedProxies = const [],
@@ -148,7 +148,7 @@ class DartclawConfig implements ChannelConfigProvider {
     this.searchDefaultDepth = 'standard',
     this.contentGuardEnabled = true,
     this.contentGuardClassifier = 'claude_binary',
-    this.contentGuardModel = 'claude-haiku-4-5-20251001',
+    this.contentGuardModel = 'haiku',
     this.contentGuardMaxBytes = 50 * 1024,
     this.inputSanitizerEnabled = true,
     this.inputSanitizerChannelsOnly = true,
@@ -234,7 +234,6 @@ class DartclawConfig implements ChannelConfigProvider {
     final concurrency = _parseConcurrency(yaml, defaults, warns);
     final guardAudit = _parseGuardAudit(yaml, defaults, warns);
     final tasks = _parseTasks(yaml, defaults, warns);
-    final automation = _parseAutomation(yaml, warns);
 
     final config = DartclawConfig(
       port: top.port,
@@ -255,7 +254,7 @@ class DartclawConfig implements ChannelConfigProvider {
       agentDisallowedTools: agent.disallowedTools,
       agentMaxTurns: agent.maxTurns,
       agentModel: agent.model,
-      agentContext1m: agent.context1m,
+      agentEffort: agent.effort,
       agentAgents: agent.agents,
       agentDefinitions: agent.definitions,
       devMode: top.devMode,
@@ -301,7 +300,7 @@ class DartclawConfig implements ChannelConfigProvider {
       tasksWorktreeBaseRef: tasks.worktreeBaseRef,
       tasksWorktreeStaleTimeoutHours: tasks.worktreeStaleTimeoutHours,
       tasksWorktreeMergeStrategy: tasks.worktreeMergeStrategy,
-      automationScheduledTasks: automation,
+      automationScheduledTasks: scheduling.taskDefinitions,
       warnings: warns,
     );
 
@@ -459,7 +458,7 @@ class DartclawConfig implements ChannelConfigProvider {
     List<String> disallowedTools,
     int? maxTurns,
     String? model,
-    bool context1m,
+    String? effort,
     Map<String, dynamic>? agents,
     List<AgentDefinition> definitions,
   })
@@ -467,7 +466,7 @@ class DartclawConfig implements ChannelConfigProvider {
     var disallowedTools = defaults.agentDisallowedTools;
     int? maxTurns = defaults.agentMaxTurns;
     String? model = defaults.agentModel;
-    var context1m = defaults.agentContext1m;
+    String? effort = defaults.agentEffort;
     Map<String, dynamic>? agents = defaults.agentAgents;
 
     final agentRaw = yaml['agent'];
@@ -490,9 +489,11 @@ class DartclawConfig implements ChannelConfigProvider {
         } else if (modelVal != null) {
           warns.add('Invalid type for agent.model: "${modelVal.runtimeType}" — ignoring');
         }
-        final ctx = agentMap['context_1m'];
-        if (ctx is bool) {
-          context1m = ctx;
+        final effortVal = agentMap['effort'];
+        if (effortVal is String) {
+          effort = effortVal;
+        } else if (effortVal != null) {
+          warns.add('Invalid type for agent.effort: "${effortVal.runtimeType}" — ignoring');
         }
         final agentsVal = agentMap['agents'];
         if (agentsVal is Map) {
@@ -519,7 +520,7 @@ class DartclawConfig implements ChannelConfigProvider {
       disallowedTools: disallowedTools,
       maxTurns: maxTurns,
       model: model,
-      context1m: context1m,
+      effort: effort,
       agents: agents,
       definitions: definitions,
     );
@@ -844,11 +845,13 @@ class DartclawConfig implements ChannelConfigProvider {
     return (gitSyncEnabled: gitSyncEnabled, gitSyncPushEnabled: gitSyncPushEnabled);
   }
 
-  static ({List<Map<String, dynamic>> jobs, bool heartbeatEnabled, int heartbeatIntervalMinutes}) _parseScheduling(
-    Map<String, dynamic> yaml,
-    DartclawConfig defaults,
-    List<String> warns,
-  ) {
+  static ({
+    List<Map<String, dynamic>> jobs,
+    List<ScheduledTaskDefinition> taskDefinitions,
+    bool heartbeatEnabled,
+    int heartbeatIntervalMinutes,
+  })
+  _parseScheduling(Map<String, dynamic> yaml, DartclawConfig defaults, List<String> warns) {
     var jobs = <Map<String, dynamic>>[];
     var heartbeatEnabled = defaults.heartbeatEnabled;
     var heartbeatIntervalMinutes = defaults.heartbeatIntervalMinutes;
@@ -885,7 +888,56 @@ class DartclawConfig implements ChannelConfigProvider {
       warns.add('Invalid type for scheduling: "${schedulingRaw.runtimeType}" — using defaults');
     }
 
-    return (jobs: jobs, heartbeatEnabled: heartbeatEnabled, heartbeatIntervalMinutes: heartbeatIntervalMinutes);
+    // Extract ScheduledTaskDefinition objects from type:task entries in jobs
+    final taskDefs = <ScheduledTaskDefinition>[];
+    for (final jobMap in jobs) {
+      final typeStr = jobMap['type'] as String?;
+      if (typeStr == 'task') {
+        final taskRaw = jobMap['task'];
+        if (taskRaw is! Map) {
+          warns.add(
+            'Scheduling job "${jobMap['id'] ?? jobMap['name']}" (type: task) missing "task" section — skipping',
+          );
+          continue;
+        }
+        final id = (jobMap['id'] ?? jobMap['name']) as String? ?? '';
+
+        // Extract cron expression from schedule (may be bare string or map)
+        final scheduleRaw = jobMap['schedule'];
+        final String cronExpr;
+        if (scheduleRaw is String) {
+          cronExpr = scheduleRaw.trim();
+        } else if (scheduleRaw is Map) {
+          cronExpr = (scheduleRaw['expression'] as String? ?? '').trim();
+        } else {
+          warns.add('Scheduling job "$id" (type: task) missing schedule — skipping');
+          continue;
+        }
+
+        final syntheticYaml = <String, dynamic>{
+          'id': id,
+          'schedule': cronExpr,
+          'enabled': jobMap['enabled'] ?? true,
+          'task': taskRaw,
+        };
+        final def = ScheduledTaskDefinition.fromYaml(syntheticYaml, warns);
+        if (def != null) taskDefs.add(def);
+      }
+    }
+
+    // Deprecated alias: automation.scheduled_tasks
+    final automationResult = _parseAutomation(yaml, warns);
+    if (automationResult.taskDefs.isNotEmpty) {
+      taskDefs.addAll(automationResult.taskDefs);
+      jobs.addAll(automationResult.convertedJobs);
+    }
+
+    return (
+      jobs: jobs,
+      taskDefinitions: taskDefs,
+      heartbeatEnabled: heartbeatEnabled,
+      heartbeatIntervalMinutes: heartbeatIntervalMinutes,
+    );
   }
 
   static ({
@@ -1272,22 +1324,28 @@ class DartclawConfig implements ChannelConfigProvider {
     );
   }
 
-  static List<ScheduledTaskDefinition> _parseAutomation(Map<String, dynamic> yaml, List<String> warns) {
+  static ({List<Map<String, dynamic>> convertedJobs, List<ScheduledTaskDefinition> taskDefs}) _parseAutomation(
+    Map<String, dynamic> yaml,
+    List<String> warns,
+  ) {
+    const empty = (convertedJobs: <Map<String, dynamic>>[], taskDefs: <ScheduledTaskDefinition>[]);
     final automationRaw = yaml['automation'];
-    if (automationRaw == null) return const [];
+    if (automationRaw == null) return empty;
     if (automationRaw is! Map) {
       warns.add('Invalid type for automation: "${automationRaw.runtimeType}" — using defaults');
-      return const [];
+      return empty;
     }
 
     final tasksRaw = automationRaw['scheduled_tasks'];
-    if (tasksRaw == null) return const [];
+    if (tasksRaw == null) return empty;
     if (tasksRaw is! List) {
       warns.add('Invalid type for automation.scheduled_tasks: "${tasksRaw.runtimeType}" — expected list');
-      return const [];
+      return empty;
     }
 
-    final results = <ScheduledTaskDefinition>[];
+    warns.add('automation.scheduled_tasks is deprecated — move entries to scheduling.jobs with type: task');
+
+    final taskDefs = <ScheduledTaskDefinition>[];
     for (final entry in tasksRaw) {
       if (entry is! Map) {
         warns.add('Invalid automation.scheduled_tasks entry: "${entry.runtimeType}" — skipping');
@@ -1295,11 +1353,17 @@ class DartclawConfig implements ChannelConfigProvider {
       }
       final parsed = ScheduledTaskDefinition.fromYaml(Map<String, dynamic>.from(entry), warns);
       if (parsed != null) {
-        results.add(parsed);
+        taskDefs.add(parsed);
       }
     }
 
-    return results;
+    // Produce unified raw job maps for the scheduling.jobs list.
+    // toJson() already produces the right structure — just add the 'type' key.
+    final convertedJobs = <Map<String, dynamic>>[
+      for (final def in taskDefs) {'type': 'task', ...def.toJson()},
+    ];
+
+    return (convertedJobs: convertedJobs, taskDefs: taskDefs);
   }
 
   // --- Private helpers ---

@@ -59,7 +59,7 @@ guards:
       - api.example.com
   content:
     enabled: true
-    model: claude-haiku-4-5-20251001
+    model: haiku
     max_bytes: 51200             # 50KB truncation before classification
 
 guard_audit:
@@ -75,7 +75,6 @@ memory:
     enabled: true                # archive + dedupe MEMORY.md on a schedule
     archive_after_days: 30
     schedule: "0 3 * * *"
-memory_max_bytes: 32768          # deprecated alias for memory.max_bytes
 
 # --- Scheduling ---
 scheduling:
@@ -100,19 +99,19 @@ scheduling:
 concurrency:
   max_parallel_turns: 3
 sessions:
-  idle_timeout_minutes: 0        # disabled by default (opt-in; e.g. 1440 for 24h)
+  idle_timeout_minutes: 0        # disabled by default (opt-in; e.g. 1440 for 24h); no upper limit — large values effectively disable the timeout
   reset_hour: 4                  # 4 AM local
   # NOTE: daily/idle reset only applies to main, channel, and cron sessions.
   # User-created sessions are never auto-reset.
 
   # --- Session Scoping (0.7) ---
-  dm_scope: per_channel_contact  # shared | per_contact | per_channel_contact (default)
-  group_scope: shared            # shared | per_member (default: shared)
+  dm_scope: per-channel-contact  # shared | per-contact | per-channel-contact (default)
+  group_scope: shared            # shared | per-member (default: shared)
   channels:                      # optional per-channel overrides
     whatsapp:
-      dm_scope: per_contact      # overrides global dm_scope for WhatsApp
+      dm_scope: per-contact      # overrides global dm_scope for WhatsApp
     signal:
-      group_scope: per_member    # overrides global group_scope for Signal
+      group_scope: per-member    # overrides global group_scope for Signal
 
   # --- Session Maintenance (0.7) ---
   maintenance:
@@ -183,14 +182,24 @@ tasks:
 agent:
   claude_executable: claude
   max_turns: 50
-  model: sonnet                  # passed to claude binary
+  model: opus[1m]                # default; supports: haiku, sonnet, opus, opus[1m]
+  effort: high                   # reasoning effort: low, medium, high, max
   disallowed_tools: []
-  agents:
-    search:
+  agents:                        # subagent definitions — see Agents guide for details
+    search:                      # built-in default; omit to use defaults
+      model: haiku               # per-agent model override
+      effort: low                # per-agent effort override
       tools: [WebSearch, WebFetch]
       max_spawn_depth: 0
       max_concurrent: 2
       max_response_bytes: 5242880
+    # Custom subagents — define any number with unique IDs:
+    # summarizer:
+    #   description: "Summarizes documents"
+    #   prompt: "You are a summarization specialist..."
+    #   tools: [Read]
+    #   model: haiku
+    #   max_concurrent: 1
 
 # --- Context Management ---
 context:
@@ -225,8 +234,11 @@ automation:
         auto_start: true
 ```
 
-Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias, and
-`memory.pruning.*` configures the scheduled MEMORY.md cleanup job.
+Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a deprecated alias (see [Deprecated Keys](#deprecated-keys)), and `memory.pruning.*` configures the scheduled MEMORY.md cleanup job.
+
+**Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
+
+**Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Subagents under `agent.agents` can override the model individually. Task runners also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
 ## Environment Variables
 
@@ -293,22 +305,22 @@ See [Workspace](workspace.md) for detailed descriptions and prompt assembly orde
 
 ## Session Scoping
 
-By default, each channel contact gets their own session (`per_channel_contact`). You can change this globally or per-channel.
+By default, each channel contact gets their own session (`per-channel-contact`). You can change this globally or per-channel.
 
 ### DM Scope Options
 
 | Value | Behavior |
 |-------|----------|
 | `shared` | All DM contacts share one session |
-| `per_contact` | One session per contact (across all channels) |
-| `per_channel_contact` | One session per contact per channel type (default) |
+| `per-contact` | One session per contact (across all channels) |
+| `per-channel-contact` | One session per contact per channel type **(default)** |
 
 ### Group Scope Options
 
 | Value | Behavior |
 |-------|----------|
-| `shared` | One session per group (default) |
-| `per_member` | One session per member in each group |
+| `shared` | One session per group **(default)** |
+| `per-member` | One session per member in each group |
 
 Per-channel overrides in `sessions.channels.<type>` take precedence over the global setting.
 
@@ -339,6 +351,16 @@ dartclaw sessions cleanup [--dry-run] [--enforce]
 - `--dry-run` — preview what would be archived/deleted (overrides config mode to `warn`)
 - `--enforce` — apply changes regardless of config mode
 - Default: uses the `mode` from config (`warn` or `enforce`)
+
+## Deprecated Keys
+
+The following configuration keys are deprecated. They still work but will be removed in a future version.
+
+| Deprecated Key | Use Instead | Notes |
+|---|---|---|
+| `memory_max_bytes` | `memory.max_bytes` | Top-level alias |
+| `guard_audit.max_entries` | `guard_audit.max_retention_days` | Parsed but ignored |
+| `budget` (task `configJson`) | `tokenBudget` | Task `configJson` field |
 
 ## Network Exposure Warning
 

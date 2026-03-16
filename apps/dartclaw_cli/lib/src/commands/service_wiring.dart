@@ -240,8 +240,8 @@ class ServiceWiring {
       ),
       maxTurns: config.agentMaxTurns,
       model: config.agentModel,
+      effort: config.agentEffort,
       agents: agentsPayload,
-      context1m: config.agentContext1m,
       appendSystemPrompt: staticPrompt,
       mcpServerUrl: resolvedGatewayToken != null ? 'http://127.0.0.1:$port/mcp' : null,
       mcpGatewayToken: resolvedGatewayToken,
@@ -872,8 +872,13 @@ class ServiceWiring {
     }
 
     // Mutable display list for scheduling UI (includes both user-configured
-    // and built-in jobs). Starts as a copy of the raw config maps.
-    final displayJobs = config.schedulingJobs.map((j) => Map<String, dynamic>.of(j)).toList();
+    // and built-in jobs). Starts as a copy of the raw config maps, excluding
+    // task-type entries (those appear in the scheduledTasks section instead).
+    final displayJobs =
+        config.schedulingJobs
+            .where((j) => (j['type'] as String?) != 'task')
+            .map((j) => Map<String, dynamic>.of(j))
+            .toList();
     // Names of system-registered jobs (rendered read-only with SYSTEM badge).
     final systemJobNames = <String>['heartbeat'];
 
@@ -1014,11 +1019,15 @@ class ServiceWiring {
 
     final sseBroadcast = SseBroadcast();
 
-    // Parse scheduled jobs from config
+    // Parse scheduled jobs from config.
+    // Task-type jobs are handled by ScheduledTaskRunner below — skip them here.
     final scheduledJobs = <ScheduledJob>[];
     for (final jobConfig in config.schedulingJobs) {
       try {
-        scheduledJobs.add(ScheduledJob.fromConfig(jobConfig));
+        final job = ScheduledJob.fromConfig(jobConfig);
+        if (job.jobType != ScheduledJobType.task) {
+          scheduledJobs.add(job);
+        }
       } catch (e) {
         _log.warning('Invalid scheduled job config: $e — skipping');
       }
@@ -1127,7 +1136,10 @@ class ServiceWiring {
       }
     }
 
-    // Register automation scheduled tasks (S13)
+    // Register automation scheduled tasks (S13).
+    // Task definitions are displayed in the scheduledTasks section of the
+    // scheduling template (via config.automationScheduledTasks), so no
+    // displayJobs entries are added here.
     if (config.automationScheduledTasks.isNotEmpty) {
       final taskRunner = ScheduledTaskRunner(
         taskService: taskService,
@@ -1136,14 +1148,6 @@ class ServiceWiring {
       );
       final taskJobs = taskRunner.buildJobs();
       scheduledJobs.addAll(taskJobs);
-      for (final def in config.automationScheduledTasks) {
-        displayJobs.add({
-          'name': def.id,
-          'schedule': def.cronExpression,
-          'delivery': 'task',
-          'status': def.enabled ? 'active' : 'disabled',
-        });
-      }
       if (taskJobs.isNotEmpty) {
         _log.info('Registered ${taskJobs.length} automation scheduled task(s)');
       }

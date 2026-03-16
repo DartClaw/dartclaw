@@ -15,33 +15,25 @@ void main() {
       expect(fields.containsKey('disallowedTools'), isFalse);
       expect(fields.containsKey('model'), isFalse);
       expect(fields.containsKey('agents'), isFalse);
-      expect(fields.containsKey('context1m'), isFalse);
     });
 
     test('all fields included when set', () {
       final config = HarnessConfig(
         disallowedTools: ['Computer', 'Bash'],
         maxTurns: 25,
-        model: 'claude-sonnet-4-6',
+        model: 'sonnet',
         agents: {'search': {'description': 'Search agent'}},
-        context1m: true,
       );
       final fields = config.toInitializeFields();
       expect(fields['disallowedTools'], ['Computer', 'Bash']);
       expect(fields['maxTurns'], 25);
-      expect(fields['model'], 'claude-sonnet-4-6');
+      expect(fields['model'], 'sonnet');
       expect(fields['agents'], {'search': {'description': 'Search agent'}});
-      expect(fields['context1m'], true);
     });
 
     test('empty disallowedTools list is omitted', () {
       const config = HarnessConfig(disallowedTools: []);
       expect(config.toInitializeFields().containsKey('disallowedTools'), isFalse);
-    });
-
-    test('context1m false is omitted', () {
-      const config = HarnessConfig(context1m: false);
-      expect(config.toInitializeFields().containsKey('context1m'), isFalse);
     });
 
     test('mcpServerUrl and mcpGatewayToken excluded from toInitializeFields', () {

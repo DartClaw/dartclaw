@@ -33,7 +33,7 @@ class ClaudeBinaryClassifier implements ContentClassifier {
   /// Creates a classifier backed by `claude --print`.
   ClaudeBinaryClassifier({
     this.claudeExecutable = 'claude',
-    this.model = 'claude-haiku-4-5-20251001',
+    this.model = 'haiku',
     ClassifierProcessFactory? processFactory,
   }) : _processFactory = processFactory ?? Process.start;
 

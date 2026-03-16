@@ -44,7 +44,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       expect(dispatched, hasLength(1));
-      expect(dispatched.first.$1, startsWith('agent:main:dm:contact:'));
+      expect(dispatched.first.$1, startsWith('agent:main:dm:whatsapp:'));
       expect(dispatched.first.$1, contains(Uri.encodeComponent('sender@s.whatsapp.net')));
       expect(dispatched.first.$2, 'hello');
     });
@@ -92,8 +92,8 @@ void main() {
       final dmKey = manager.deriveSessionKey(dm);
       final groupKey = manager.deriveSessionKey(group);
 
-      // Default dmScope is perContact
-      expect(dmKey, startsWith('agent:main:dm:contact:'));
+      // Default dmScope is perChannelContact
+      expect(dmKey, startsWith('agent:main:dm:whatsapp:'));
       // Default groupScope is shared — sender NOT in key (P0 fix)
       expect(groupKey, startsWith('agent:main:group:'));
       expect(groupKey, contains(Uri.encodeComponent('group@g.us')));

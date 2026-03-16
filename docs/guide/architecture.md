@@ -250,6 +250,8 @@ Key components:
 
 Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
 
+For a user-facing comparison of task runners vs subagent delegation (the two agent execution models), see the [Agents guide](agents.md).
+
 ## Container Isolation
 
 When Docker is enabled, DartClaw runs agent processes inside containers with kernel-level isolation. Containers are organized by **security profile** — each profile defines what the agent can access at the OS level.
@@ -324,8 +326,8 @@ Built-in MCP tools:
 | Tool | Purpose |
 |------|---------|
 | `memory_save` / `memory_search` | Persistent memory with FTS5 search |
-| `sessions_send` | Send a message to another session |
-| `sessions_spawn` | Create a new agent session |
+| `sessions_send` | Synchronous delegation to a subagent (blocks until complete) |
+| `sessions_spawn` | Async delegation to a subagent (returns session ID immediately) |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |
 | `brave_search` / `tavily_search` | Web search via configurable provider |
 

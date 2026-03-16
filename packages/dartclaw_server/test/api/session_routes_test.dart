@@ -34,7 +34,7 @@ class FakeTurnManager extends TurnManager {
   void clearBusy() => _busy = false;
 
   @override
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) async {
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);
     }

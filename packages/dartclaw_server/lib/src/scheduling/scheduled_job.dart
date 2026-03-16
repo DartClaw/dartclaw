@@ -1,8 +1,13 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+
 import 'cron_parser.dart';
 import 'delivery.dart';
 
 /// Scheduling strategy for a job.
 enum ScheduleType { cron, interval, once }
+
+/// The execution mode for a scheduled job.
+enum ScheduledJobType { prompt, task }
 
 /// Callback for built-in jobs that execute directly without an agent turn.
 typedef JobCallback = Future<String> Function();
@@ -26,6 +31,18 @@ class ScheduledJob {
   final int retryAttempts;
   final int retryDelaySeconds;
 
+  /// The execution mode for this job.
+  final ScheduledJobType jobType;
+
+  /// Optional model override (e.g. 'claude-opus-4-5').
+  final String? model;
+
+  /// Optional effort level override (e.g. 'high', 'low').
+  final String? effort;
+
+  /// When [jobType] is [ScheduledJobType.task], the task definition to create.
+  final ScheduledTaskDefinition? taskDefinition;
+
   /// If non-null, the job runs this callback directly instead of dispatching
   /// through the agent turn system. The returned string is the job result.
   final JobCallback? onExecute;
@@ -41,15 +58,32 @@ class ScheduledJob {
     this.webhookUrl,
     this.retryAttempts = 0,
     this.retryDelaySeconds = 60,
+    this.jobType = ScheduledJobType.prompt,
+    this.model,
+    this.effort,
+    this.taskDefinition,
     this.onExecute,
   });
 
   /// Parses a job from a YAML config map.
-  factory ScheduledJob.fromConfig(Map<String, dynamic> config) {
+  ///
+  /// Optional [warnings] list receives non-fatal parse warnings (e.g. from
+  /// parsing a nested [ScheduledTaskDefinition]).
+  factory ScheduledJob.fromConfig(
+    Map<String, dynamic> config, [
+    List<String>? warnings,
+  ]) {
     final id = (config['id'] ?? config['name']) as String? ?? '';
-    final prompt = config['prompt'] as String? ?? '';
     if (id.isEmpty) throw FormatException('Job missing "id"');
-    if (prompt.isEmpty) throw FormatException('Job "$id" missing "prompt"');
+
+    final jobTypeStr = config['type'] as String? ?? 'prompt';
+    final jobType =
+        jobTypeStr == 'task' ? ScheduledJobType.task : ScheduledJobType.prompt;
+
+    final prompt = config['prompt'] as String? ?? '';
+    if (jobType == ScheduledJobType.prompt && prompt.isEmpty) {
+      throw FormatException('Job "$id" missing "prompt"');
+    }
 
     final scheduleRaw = config['schedule'];
     final schedule = switch (scheduleRaw) {
@@ -93,6 +127,30 @@ class ScheduledJob {
     final webhookUrl = config['webhook_url'] as String?;
     final retry = config['retry'] as Map<String, dynamic>?;
 
+    final model = config['model'] as String?;
+    final effort = config['effort'] as String?;
+
+    ScheduledTaskDefinition? taskDefinition;
+    if (jobType == ScheduledJobType.task) {
+      final taskRaw = config['task'];
+      if (taskRaw == null) {
+        throw FormatException('Job "$id" (type: task) missing "task" section');
+      }
+      // Extract the bare cron expression from the already-parsed schedule map.
+      final cronExpr = schedule['expression'] as String?;
+      final localWarnings = warnings ?? <String>[];
+      final syntheticYaml = <dynamic, dynamic>{
+        'id': id,
+        'schedule': cronExpr ?? '',
+        'enabled': config['enabled'] ?? true,
+        'task': taskRaw,
+      };
+      taskDefinition = ScheduledTaskDefinition.fromYaml(syntheticYaml, localWarnings);
+      if (taskDefinition == null) {
+        throw FormatException('Job "$id" has invalid task definition');
+      }
+    }
+
     return ScheduledJob(
       id: id,
       prompt: prompt,
@@ -104,6 +162,10 @@ class ScheduledJob {
       webhookUrl: webhookUrl,
       retryAttempts: retry?['attempts'] as int? ?? 0,
       retryDelaySeconds: retry?['delay_seconds'] as int? ?? 60,
+      jobType: jobType,
+      model: model,
+      effort: effort,
+      taskDefinition: taskDefinition,
     );
   }
 }

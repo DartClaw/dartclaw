@@ -94,7 +94,7 @@ void main() {
     group('string fields — valid', () {
       test('non-empty strings and nullable strings pass', () {
         expect(validator.validate({'host': 'localhost'}), isEmpty);
-        expect(validator.validate({'agent.model': 'claude-sonnet-4-6'}), isEmpty);
+        expect(validator.validate({'agent.model': 'sonnet'}), isEmpty);
         expect(validator.validate({'agent.model': null}), isEmpty);
         expect(validator.validate({'channels.whatsapp.task_trigger.prefix': 'task:'}), isEmpty);
       });
@@ -136,13 +136,12 @@ void main() {
 
     group('bool fields', () {
       test('valid bool values pass', () {
-        expect(validator.validate({'agent.context_1m': true}), isEmpty);
-        expect(validator.validate({'agent.context_1m': false}), isEmpty);
         expect(validator.validate({'scheduling.heartbeat.enabled': true}), isEmpty);
+        expect(validator.validate({'scheduling.heartbeat.enabled': false}), isEmpty);
       });
 
-      test('agent.context_1m string type mismatch', () {
-        final errors = validator.validate({'agent.context_1m': 'true'});
+      test('scheduling.heartbeat.enabled string type mismatch', () {
+        final errors = validator.validate({'scheduling.heartbeat.enabled': 'true'});
         expect(errors, hasLength(1));
         expect(errors.first.message, contains('must be a boolean'));
         expect(errors.first.message, contains('String'));

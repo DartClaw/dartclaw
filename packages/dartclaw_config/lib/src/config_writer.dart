@@ -36,7 +36,7 @@ class ConfigWriter {
   /// Updates config fields and writes to disk.
   ///
   /// [updates] maps dot-separated YAML paths to new values.
-  /// Example: `{'agent.model': 'claude-sonnet-4-6', 'port': 3001}`
+  /// Example: `{'agent.model': 'sonnet', 'port': 3001}`
   ///
   /// A null value removes the key.
   /// Throws [FileSystemException] if the config file doesn't exist.

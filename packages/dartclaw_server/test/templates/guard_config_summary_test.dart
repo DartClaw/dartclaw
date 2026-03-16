@@ -154,7 +154,7 @@ void main() {
         contentGuardDisplay: const ContentGuardDisplayParams(
           enabled: true,
           classifier: 'claude_binary',
-          model: 'claude-sonnet-4-5-20250514',
+          model: 'sonnet',
           maxBytes: 50 * 1024,
           apiKeyConfigured: false,
         ),
@@ -169,7 +169,7 @@ void main() {
       expect(apiKeyItem.style, 'badge-muted');
 
       final modelItem = configSection.items.firstWhere((i) => i.label == 'Model');
-      expect(modelItem.value, 'claude-sonnet-4-5-20250514');
+      expect(modelItem.value, 'sonnet');
     });
 
     test('anthropic_api classifier with no key shows Not configured', () {

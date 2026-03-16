@@ -36,6 +36,9 @@ class AgentDefinition {
   /// Optional model override for this agent.
   final String? model;
 
+  /// Optional reasoning effort override for this agent.
+  final String? effort;
+
   /// Extra initialize payload fields preserved from configuration.
   final Map<String, dynamic> extra;
 
@@ -52,6 +55,7 @@ class AgentDefinition {
     this.sessionStorePath = '',
     this.maxResponseBytes = 5 * 1024 * 1024,
     this.model,
+    this.effort,
     this.extra = const {},
   });
 
@@ -95,11 +99,17 @@ class AgentDefinition {
       deniedTools.addAll(denied.whereType<String>());
     }
 
+    final resolvedTools = allowedTools.isEmpty && id == 'search'
+        ? const {'WebSearch', 'WebFetch'}
+        : allowedTools;
+    if (resolvedTools.isEmpty && id != 'search') {
+      warns.add('Agent "$id" has no tools configured — it will not be able to use any tools');
+    }
     return AgentDefinition(
       id: id,
       description: yaml['description'] as String? ?? 'Agent: $id',
       prompt: yaml['prompt'] as String? ?? _defaultSearchPrompt,
-      allowedTools: allowedTools.isEmpty ? const {'WebSearch', 'WebFetch'} : allowedTools,
+      allowedTools: resolvedTools,
       deniedTools: deniedTools,
       maxSpawnDepth: yaml['max_spawn_depth'] as int? ?? 0,
       maxConcurrent: yaml['max_concurrent'] as int? ?? 1,
@@ -107,6 +117,7 @@ class AgentDefinition {
       sessionStorePath: yaml['session_store_path'] as String? ?? 'agents/$id/sessions',
       maxResponseBytes: yaml['max_response_bytes'] as int? ?? 5 * 1024 * 1024,
       model: yaml['model'] as String?,
+      effort: yaml['effort'] as String?,
       extra: _extractExtra(yaml),
     );
   }
@@ -117,6 +128,7 @@ class AgentDefinition {
       'description': description,
       'prompt': prompt,
       if (model != null) 'model': model,
+      if (effort != null) 'effort': effort,
       if (deniedTools.isNotEmpty) 'disallowedTools': deniedTools.toList(),
       ...extra,
     };
@@ -129,6 +141,7 @@ class AgentDefinition {
       'description',
       'prompt',
       'model',
+      'effort',
       'max_spawn_depth',
       'max_concurrent',
       'max_children_per_agent',

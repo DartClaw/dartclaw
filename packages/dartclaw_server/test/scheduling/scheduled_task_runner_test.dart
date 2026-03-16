@@ -13,6 +13,9 @@ ScheduledTaskDefinition _makeDef({
   TaskType type = TaskType.research,
   String? acceptanceCriteria,
   bool autoStart = true,
+  String? model,
+  String? effort,
+  int? tokenBudget,
 }) => ScheduledTaskDefinition(
   id: id,
   cronExpression: cron,
@@ -22,6 +25,9 @@ ScheduledTaskDefinition _makeDef({
   type: type,
   acceptanceCriteria: acceptanceCriteria,
   autoStart: autoStart,
+  model: model,
+  effort: effort,
+  tokenBudget: tokenBudget,
 );
 
 void main() {
@@ -201,6 +207,39 @@ void main() {
 
       final task = (await taskService.list()).first;
       expect(task.id, startsWith('sched-my-sched-'));
+    });
+
+    group('configJson override merging', () {
+      test('configJson contains model/effort/tokenBudget when set', () async {
+        final def = _makeDef(
+          id: 'override-sched',
+          model: 'claude-haiku-4-5',
+          effort: 'low',
+          tokenBudget: 50000,
+        );
+        final runner = ScheduledTaskRunner(taskService: taskService, definitions: [def]);
+        final jobs = runner.buildJobs();
+        await jobs.first.onExecute!();
+
+        final task = (await taskService.list()).first;
+        expect(task.configJson['scheduleId'], 'override-sched');
+        expect(task.configJson['model'], 'claude-haiku-4-5');
+        expect(task.configJson['effort'], 'low');
+        expect(task.configJson['tokenBudget'], 50000);
+      });
+
+      test('configJson omits model/effort/tokenBudget when not set', () async {
+        final def = _makeDef(id: 'minimal-sched');
+        final runner = ScheduledTaskRunner(taskService: taskService, definitions: [def]);
+        final jobs = runner.buildJobs();
+        await jobs.first.onExecute!();
+
+        final task = (await taskService.list()).first;
+        expect(task.configJson, containsPair('scheduleId', 'minimal-sched'));
+        expect(task.configJson.containsKey('model'), isFalse);
+        expect(task.configJson.containsKey('effort'), isFalse);
+        expect(task.configJson.containsKey('tokenBudget'), isFalse);
+      });
     });
   });
 }

@@ -211,7 +211,14 @@ class ScheduleService {
 
     final userMessage = <String, dynamic>{'role': 'user', 'content': job.prompt};
 
-    final turnId = await _turns.startTurn(session.id, [userMessage], source: 'cron', agentName: 'cron:${job.id}');
+    final turnId = await _turns.startTurn(
+      session.id,
+      [userMessage],
+      source: 'cron',
+      agentName: 'cron:${job.id}',
+      model: job.model,
+      effort: job.effort,
+    );
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 
     if (outcome.status == TurnStatus.failed) {

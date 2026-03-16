@@ -38,6 +38,7 @@ class FakeWorkerService implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) {
     final completer = Completer<Map<String, dynamic>>();
     _turnCompleters[sessionId] = completer;

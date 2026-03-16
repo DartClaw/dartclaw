@@ -9,7 +9,7 @@ A nightly cron job that reviews the day's errors and learnings, synthesizes patt
 - [Cron scheduling](../scheduling.md) -- triggers nightly reflection
 - [Self-improvement files](../workspace.md) -- errors.md (auto-populated on failures) and learnings.md (populated via memory_save)
 - [MEMORY.md](../workspace.md) -- stores reflection insights for persistence
-- Model override -- uses Sonnet (cheaper than Opus for routine analysis)
+- Global model selection -- Sonnet recommended for cost-efficient routine analysis
 
 ## Configuration
 
@@ -36,11 +36,9 @@ scheduling:
         expression: "0 3 * * *"
       delivery: none
 
-# Model override: use Sonnet for routine analysis (cost optimization)
+# Cron jobs use the global agent.model (there is no per-job model override)
 agent:
-  agents:
-    cron:
-      model: sonnet
+  model: sonnet                  # applies to all turns: chat, cron, heartbeat
 ```
 
 ## Behavior Files
@@ -88,7 +86,7 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 - **Change timing**: `0 23 * * *` runs at 11 PM (same-day reflection). `0 6 * * *` runs at 6 AM (review yesterday before starting)
 - **Add delivery**: Set `delivery: announce` to push the reflection summary to WhatsApp, Signal, Google Chat, or the web UI
 - **Weekly instead of nightly**: Change to `0 3 * * 0` (Sunday at 3 AM) for weekly reflection with broader pattern analysis
-- **Use Opus for deeper analysis**: Change `model: opus` in the cron agent config if you want more thorough analysis (higher cost)
+- **Use Opus for deeper analysis**: Change `agent.model: opus` globally if you want more thorough analysis across all turns including reflection (higher cost). There is no per-cron-job model override
 - **Add git sync**: Enable `workspace.git_sync: true` so reflections are committed alongside other workspace changes during heartbeat
 - **Customize error categories**: Update SOUL.md reflection guidelines to prioritize certain error types over others
 
@@ -97,6 +95,6 @@ The prompt is defined in the `dartclaw.yaml` config above. It instructs the agen
 - **errors.md is capped at 50 entries**: SelfImprovementService trims oldest entries when the cap is reached. If your system generates many errors, older ones may be lost before the nightly reflection runs. Consider running reflection more frequently in high-error environments
 - **learnings.md must be explicitly populated**: Unlike errors.md (auto-populated), learnings.md only gets entries when the agent explicitly uses memory_save with `category='learning'`. If your workflow doesn't generate learnings, this file will be empty
 - **Empty files = no-op**: The prompt instructs the agent to skip reflection if both files are empty. This is intentional -- no wasted tokens on days with no activity
-- **Model override scope**: The `agent.agents.cron.model` setting applies to ALL cron jobs, not just reflection. If you have other cron jobs that need a different model, consider using the main agent model for those and only applying the cost-optimized model to cron
+- **Model override scope**: Cron jobs use the global `agent.model` -- there is no per-job model override. All cron jobs share the same model as interactive chat. To reduce reflection costs without changing the chat model, reduce reflection frequency rather than trying to set a per-job model
 - **Timezone is server-local**: The 3 AM cron uses server time. Adjust for your timezone if the server is in a different location
 - **No errors.md cleanup**: The reflection job reads but does not modify errors.md or learnings.md. These files continue to accumulate until their caps are reached or you manually clear them

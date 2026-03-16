@@ -20,7 +20,7 @@ class AnthropicApiClassifier implements ContentClassifier {
 
   static const _apiUrl = 'api.anthropic.com';
   static const _apiVersion = '2023-06-01';
-  static const _defaultModel = 'claude-haiku-4-5-20251001';
+  static const _defaultModel = 'haiku';
 
   static const classificationPrompt = '''
 You are a content safety classifier. Classify the following web content into exactly one category.

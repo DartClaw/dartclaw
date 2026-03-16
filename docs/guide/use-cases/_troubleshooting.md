@@ -102,7 +102,7 @@ If/when announce routing is implemented:
 ### High API costs
 
 1. **Check cron frequency**: A 5-minute interval job makes ~288 API calls/day. Consider whether you need that frequency
-2. **Use cheaper models for scheduled jobs**: Set `agent.agents.cron.model: sonnet` or `haiku` for routine work
+2. **Use a cheaper global model**: Set `agent.model: haiku` to reduce costs across all turns (cron, heartbeat, and chat share the same model). Use per-task `configJson.model` overrides for work that needs a more capable model
 3. **Check `max_turns`**: High `max_turns` values allow the agent to use more tool calls per session. Lower values cap API usage per job
 4. **Review heartbeat interval**: A 30-minute heartbeat with an active HEARTBEAT.md checklist also consumes tokens. Consider 60 or 120 minutes if your checklist is simple
 5. **Monitor usage**: Check the memory dashboard at `/memory` for token usage trends (if `usage.budget_warning_tokens` is configured)

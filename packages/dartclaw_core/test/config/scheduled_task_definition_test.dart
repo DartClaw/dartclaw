@@ -190,6 +190,131 @@ void main() {
     });
   });
 
+  group('model/effort/tokenBudget fields', () {
+    test('parses model, effort, token_budget from task map', () {
+      final yaml = {
+        'id': 'test-task',
+        'schedule': '0 0 * * *',
+        'task': {
+          'title': 'Test',
+          'description': 'Test task',
+          'task_type': 'research',
+          'model': 'claude-haiku-4-5',
+          'effort': 'low',
+          'token_budget': 10000,
+        },
+      };
+      final warns = <String>[];
+      final def = ScheduledTaskDefinition.fromYaml(yaml, warns);
+      expect(def, isNotNull);
+      expect(def!.model, equals('claude-haiku-4-5'));
+      expect(def.effort, equals('low'));
+      expect(def.tokenBudget, equals(10000));
+      expect(warns, isEmpty);
+    });
+
+    test('fields are null when not specified', () {
+      final yaml = {
+        'id': 'test-task',
+        'schedule': '0 0 * * *',
+        'task': {
+          'title': 'Test',
+          'description': 'Test task',
+          'type': 'research',
+        },
+      };
+      final warns = <String>[];
+      final def = ScheduledTaskDefinition.fromYaml(yaml, warns);
+      expect(def, isNotNull);
+      expect(def!.model, isNull);
+      expect(def.effort, isNull);
+      expect(def.tokenBudget, isNull);
+    });
+
+    test('toJson round-trip includes new fields when set', () {
+      final original = ScheduledTaskDefinition(
+        id: 'new-fields',
+        cronExpression: '0 0 * * *',
+        title: 'New Fields Task',
+        description: 'Task with new fields',
+        type: TaskType.research,
+        model: 'claude-haiku-4-5',
+        effort: 'low',
+        tokenBudget: 5000,
+      );
+
+      final json = original.toJson();
+      final taskMap = json['task'] as Map;
+      expect(taskMap['model'], equals('claude-haiku-4-5'));
+      expect(taskMap['effort'], equals('low'));
+      expect(taskMap['token_budget'], equals(5000));
+      // Both 'type' and 'task_type' are output
+      expect(taskMap['type'], equals('research'));
+      expect(taskMap['task_type'], equals('research'));
+
+      // Re-parse and verify round-trip
+      final warns = <String>[];
+      final reparsed = ScheduledTaskDefinition.fromYaml(json, warns);
+      expect(warns, isEmpty);
+      expect(reparsed, isNotNull);
+      expect(reparsed!.model, equals('claude-haiku-4-5'));
+      expect(reparsed.effort, equals('low'));
+      expect(reparsed.tokenBudget, equals(5000));
+    });
+
+    test('toJson omits new fields when null', () {
+      final def = ScheduledTaskDefinition(
+        id: 'no-overrides',
+        cronExpression: '0 0 * * *',
+        title: 'Plain Task',
+        description: 'No model overrides',
+        type: TaskType.analysis,
+      );
+
+      final json = def.toJson();
+      final taskMap = json['task'] as Map;
+      expect(taskMap.containsKey('model'), isFalse);
+      expect(taskMap.containsKey('effort'), isFalse);
+      expect(taskMap.containsKey('token_budget'), isFalse);
+    });
+
+    test('task_type alias accepted in place of type', () {
+      final yaml = {
+        'id': 'alias-test',
+        'schedule': '0 0 * * *',
+        'task': {
+          'title': 'Alias Test',
+          'description': 'Uses task_type key',
+          'task_type': 'coding',
+        },
+      };
+      final warns = <String>[];
+      final def = ScheduledTaskDefinition.fromYaml(yaml, warns);
+      expect(def, isNotNull);
+      expect(def!.type, equals(TaskType.coding));
+      expect(warns, isEmpty);
+    });
+
+    test('task_type takes precedence over type when both present', () {
+      final yaml = {
+        'id': 'precedence-test',
+        'schedule': '0 0 * * *',
+        'task': {
+          'title': 'Precedence Test',
+          'description': 'Both keys present',
+          'task_type': 'research',
+          'type': 'analysis',
+        },
+      };
+      final warns = <String>[];
+      final def = ScheduledTaskDefinition.fromYaml(yaml, warns);
+      expect(def, isNotNull);
+      // task_type wins over type
+      expect(def!.type, equals(TaskType.research));
+      expect(warns, isEmpty);
+    });
+  });
+
   group('ScheduledTaskDefinition.toJson', () {
     test('round-trips correctly', () {
       final def = ScheduledTaskDefinition(

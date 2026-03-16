@@ -10,12 +10,15 @@ enum DmScope {
   perChannelContact;
 
   /// Parses a YAML kebab-case value. Returns `null` for unknown values.
-  static DmScope? fromYaml(String value) => switch (value) {
-    'shared' => DmScope.shared,
-    'per-contact' => DmScope.perContact,
-    'per-channel-contact' => DmScope.perChannelContact,
-    _ => null,
-  };
+  static DmScope? fromYaml(String value) {
+    final normalized = value.replaceAll('_', '-');
+    return switch (normalized) {
+      'shared' => DmScope.shared,
+      'per-contact' => DmScope.perContact,
+      'per-channel-contact' => DmScope.perChannelContact,
+      _ => null,
+    };
+  }
 
   /// Returns the YAML kebab-case representation.
   String toYaml() => switch (this) {
@@ -34,11 +37,14 @@ enum GroupScope {
   perMember;
 
   /// Parses a YAML kebab-case value. Returns `null` for unknown values.
-  static GroupScope? fromYaml(String value) => switch (value) {
-    'shared' => GroupScope.shared,
-    'per-member' => GroupScope.perMember,
-    _ => null,
-  };
+  static GroupScope? fromYaml(String value) {
+    final normalized = value.replaceAll('_', '-');
+    return switch (normalized) {
+      'shared' => GroupScope.shared,
+      'per-member' => GroupScope.perMember,
+      _ => null,
+    };
+  }
 
   /// Returns the YAML kebab-case representation.
   String toYaml() => switch (this) {
@@ -87,9 +93,9 @@ class SessionScopeConfig {
   /// Creates a session scope configuration.
   const SessionScopeConfig({required this.dmScope, required this.groupScope, this.channels = const {}});
 
-  /// Default scope configuration: per-contact DMs, shared groups.
+  /// Default scope configuration: per-channel-contact DMs, shared groups.
   const SessionScopeConfig.defaults()
-    : dmScope = DmScope.perContact,
+    : dmScope = DmScope.perChannelContact,
       groupScope = GroupScope.shared,
       channels = const {};
 

@@ -38,6 +38,7 @@ abstract class AgentHarness {
   /// instead of starting a fresh conversation (maps to `options.resume`).
   /// [directory] overrides the working directory for this turn when supported.
   /// [model] overrides the default model for this turn.
+  /// [effort] overrides the reasoning effort level for this turn.
   Future<Map<String, dynamic>> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
@@ -46,6 +47,7 @@ abstract class AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   });
 
   /// Cancel the current in-progress turn.

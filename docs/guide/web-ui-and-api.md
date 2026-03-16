@@ -194,7 +194,7 @@ Returns the current server configuration with metadata (allowed values, restart-
 PATCH /api/config
 Content-Type: application/json
 
-{"agent.model": "claude-sonnet-4-20250514", "server.port": 3333}
+{"agent.model": "sonnet", "server.port": 3333}
 ```
 
 Validates and applies configuration changes. Fields requiring restart are flagged in the response metadata. Returns `422` with field-level errors on validation failure.

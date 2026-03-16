@@ -122,6 +122,7 @@ class _MinimalHarness implements AgentHarness {
     bool resume = false,
     String? directory,
     String? model,
+    String? effort,
   }) async => {};
   @override
   Future<void> cancel() async {}

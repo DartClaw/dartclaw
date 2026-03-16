@@ -42,6 +42,32 @@ void main() {
         }, warns);
         expect(agent.model, isNull);
       });
+
+      test('non-search agent with no tools gets empty allowedTools and warning', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('summarizer', {'prompt': 'Summarize this'}, warns);
+        expect(agent.allowedTools, isEmpty);
+        expect(warns, hasLength(1));
+        expect(warns.first, contains('summarizer'));
+        expect(warns.first, contains('no tools'));
+      });
+
+      test('search agent with no tools gets WebSearch and WebFetch defaults', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('search', {'prompt': 'Search the web'}, warns);
+        expect(agent.allowedTools, equals({'WebSearch', 'WebFetch'}));
+        expect(warns, isEmpty);
+      });
+
+      test('non-search agent with explicit tools keeps them without warning', () {
+        final warns = <String>[];
+        final agent = AgentDefinition.fromYaml('custom', {
+          'prompt': 'Do work',
+          'tools': ['Bash', 'Read'],
+        }, warns);
+        expect(agent.allowedTools, equals({'Bash', 'Read'}));
+        expect(warns, isEmpty);
+      });
     });
 
     group('toInitializePayload', () {

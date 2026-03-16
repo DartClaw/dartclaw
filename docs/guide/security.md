@@ -48,7 +48,7 @@ guards:
     allowed_hosts: [api.anthropic.com, github.com]
   content:
     enabled: true
-    model: claude-haiku-4-5-20251001
+    model: haiku
 ```
 
 The **InputSanitizer** ships with built-in patterns for 4 injection categories and requires no configuration for baseline protection. Set `channels_only: false` to also scan web UI messages.

@@ -32,7 +32,7 @@ agent:
 guards:
   content:
     enabled: true
-    model: claude-haiku-4-5-20251001
+    model: haiku
 
 memory_max_bytes: 65536
 

@@ -644,6 +644,197 @@ workspace:
     });
   });
 
+  /// Writes task jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
+  /// returns them (tests that need pre-existing task jobs must call this).
+  void writeTaskJobsToYaml(List<Map<String, dynamic>> jobs) {
+    final buffer = StringBuffer();
+    buffer.writeln('port: 3000');
+    buffer.writeln('host: localhost');
+    buffer.writeln('scheduling:');
+    buffer.writeln('  heartbeat:');
+    buffer.writeln('    enabled: true');
+    buffer.writeln('    interval_minutes: 30');
+    buffer.writeln('  jobs:');
+    for (final j in jobs) {
+      buffer.writeln('  - id: ${j['id']}');
+      buffer.writeln('    type: task');
+      buffer.writeln('    schedule: "${j['schedule']}"');
+      buffer.writeln('    enabled: ${j['enabled'] ?? true}');
+      if (j['task'] != null) {
+        final t = j['task'] as Map<String, dynamic>;
+        buffer.writeln('    task:');
+        buffer.writeln('      title: "${t['title']}"');
+        buffer.writeln('      description: "${t['description']}"');
+        buffer.writeln('      type: ${t['type']}');
+      }
+    }
+    buffer.writeln('workspace:');
+    buffer.writeln('  git_sync:');
+    buffer.writeln('    enabled: true');
+    buffer.writeln('    push_enabled: true');
+    File(configPath).writeAsStringSync(buffer.toString());
+  }
+
+  group('Task Job CRUD via scheduling.jobs', () {
+    test('POST /api/scheduling/tasks creates entry under scheduling.jobs', () async {
+      final router = createRouter();
+      final response = await post(router, '/api/scheduling/tasks', {
+        'id': 'daily-review',
+        'schedule': '0 9 * * 1-5',
+        'title': 'Daily review',
+        'description': 'Review open items',
+        'type': 'research',
+      });
+
+      expect(response.statusCode, 201);
+      final json = await readJson(response);
+      expect(json['task']['id'], 'daily-review');
+      expect(json['task']['type'], 'task');
+      expect(json['pendingRestart'], true);
+
+      // Verify restart.pending written with scheduling.jobs
+      final pendingFile = File(p.join(dataDir, 'restart.pending'));
+      expect(pendingFile.existsSync(), true);
+      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
+      expect(pending['fields'], contains('scheduling.jobs'));
+      expect(pending['fields'], isNot(contains('automation.scheduled_tasks')));
+    });
+
+    test('POST /api/scheduling/tasks with duplicate id returns 409', () async {
+      writeTaskJobsToYaml([
+        {
+          'id': 'existing-task',
+          'schedule': '0 9 * * *',
+          'task': {'title': 'Existing', 'description': 'Desc', 'type': 'research'},
+        },
+      ]);
+      final router = createRouter();
+      final response = await post(router, '/api/scheduling/tasks', {
+        'id': 'existing-task',
+        'schedule': '0 10 * * *',
+        'title': 'Another',
+        'description': 'Desc',
+        'type': 'research',
+      });
+
+      expect(response.statusCode, 409);
+    });
+
+    test('PUT /api/scheduling/tasks/<id> updates task job in scheduling.jobs', () async {
+      writeTaskJobsToYaml([
+        {
+          'id': 'my-task',
+          'schedule': '0 9 * * *',
+          'task': {'title': 'Old title', 'description': 'Desc', 'type': 'research'},
+        },
+      ]);
+      final router = createRouter();
+      final response = await put(router, '/api/scheduling/tasks/my-task', {
+        'enabled': false,
+        'title': 'New title',
+      });
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['task']['enabled'], false);
+      expect(json['task']['task']['title'], 'New title');
+      expect(json['pendingRestart'], true);
+
+      // Verify restart.pending uses scheduling.jobs key
+      final pendingFile = File(p.join(dataDir, 'restart.pending'));
+      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
+      expect(pending['fields'], contains('scheduling.jobs'));
+    });
+
+    test('PUT /api/scheduling/tasks/<id> returns 404 for missing task', () async {
+      final router = createRouter();
+      final response = await put(router, '/api/scheduling/tasks/nonexistent', {'enabled': false});
+
+      expect(response.statusCode, 404);
+    });
+
+    test('DELETE /api/scheduling/tasks/<id> removes from scheduling.jobs', () async {
+      writeTaskJobsToYaml([
+        {
+          'id': 'removable-task',
+          'schedule': '0 9 * * *',
+          'task': {'title': 'Remove me', 'description': 'Desc', 'type': 'automation'},
+        },
+      ]);
+      final router = createRouter();
+      final response = await delete(router, '/api/scheduling/tasks/removable-task');
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['deleted'], true);
+      expect(json['pendingRestart'], true);
+
+      // Verify restart.pending uses scheduling.jobs key
+      final pendingFile = File(p.join(dataDir, 'restart.pending'));
+      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
+      expect(pending['fields'], contains('scheduling.jobs'));
+    });
+
+    test('DELETE /api/scheduling/tasks/<id> returns 404 for missing task', () async {
+      final router = createRouter();
+      final response = await delete(router, '/api/scheduling/tasks/nonexistent');
+
+      expect(response.statusCode, 404);
+    });
+
+    test('POST /api/scheduling/jobs with type: task does not require delivery', () async {
+      final router = createRouter();
+      final response = await post(router, '/api/scheduling/jobs', {
+        'name': 'scheduled-coding-task',
+        'type': 'task',
+        'schedule': '0 10 * * *',
+        'task': {
+          'title': 'Coding task',
+          'description': 'Do some coding',
+          'task_type': 'coding',
+        },
+      });
+
+      expect(response.statusCode, 201);
+      final json = await readJson(response);
+      expect(json['job']['name'], 'scheduled-coding-task');
+      expect(json['job']['type'], 'task');
+      // delivery should not be present for task-type jobs
+      expect(json['job'].containsKey('delivery'), isFalse);
+    });
+
+    test('PUT /api/scheduling/jobs/<id> finds a job by id field', () async {
+      // Write a job that uses 'id' instead of 'name'
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs:
+  - id: job-with-id
+    type: task
+    schedule: "0 9 * * *"
+    enabled: true
+    task:
+      title: Original
+      description: Desc
+      type: research
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await put(router, '/api/scheduling/jobs/job-with-id', {'enabled': false});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['job']['enabled'], false);
+    });
+  });
+
   group('GET after PATCH — round-trip', () {
     test('restart.pending reflected in _meta after PATCH', () async {
       final router = createRouter();

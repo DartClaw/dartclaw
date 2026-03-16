@@ -335,6 +335,26 @@ void main() {
       expect(consolidations, isEmpty);
       service.stop();
     });
+
+    test('model and effort from job are passed through to startTurn', () async {
+      final jobWithOverrides = ScheduledJob.fromConfig({
+        'id': 'override-job',
+        'prompt': 'Do something with overrides',
+        'schedule': {'type': 'interval', 'minutes': 60},
+        'delivery': 'none',
+        'model': 'claude-haiku-4-5',
+        'effort': 'low',
+      });
+
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+      await service.executeJobForTesting(jobWithOverrides);
+
+      expect(turns.startTurnCallCount, 1);
+      expect(turns.lastModel, 'claude-haiku-4-5');
+      expect(turns.lastEffort, 'low');
+      service.stop();
+    });
   });
 
   group('ScheduleService', () {
@@ -505,6 +525,10 @@ class _ConfigurableTurnManager implements TurnManager {
   bool returnFailedOutcome = false;
   String responseText = 'simulated assistant output';
 
+  /// Captured model/effort from the most recent startTurn call.
+  String? lastModel;
+  String? lastEffort;
+
   /// Optional hook called inside startTurn — use to block execution for concurrency tests.
   Future<void> Function(String sessionId)? onStartTurn;
 
@@ -517,8 +541,11 @@ class _ConfigurableTurnManager implements TurnManager {
     String? source,
     String agentName = 'main',
     String? model,
+    String? effort,
   }) async {
     startTurnCallCount++;
+    lastModel = model;
+    lastEffort = effort;
     final turnId = 'fake-turn-$startTurnCallCount';
 
     if (shouldFail) {

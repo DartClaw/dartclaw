@@ -56,7 +56,7 @@ guards:
   fail_open: false
   content:
     enabled: true
-    model: claude-haiku-4-5-20251001
+    model: haiku
   input_sanitizer:
     enabled: true
     channels_only: true

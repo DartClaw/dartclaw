@@ -114,7 +114,7 @@ class TurnRunner {
   /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
   /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model}) async {
+  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) async {
     await _lockManager.acquire(sessionId);
     final turnId = _uuid.v4();
     final startedAt = DateTime.now();
@@ -125,6 +125,7 @@ class TurnRunner {
       startedAt: startedAt,
       directory: directory,
       model: model,
+      effort: effort,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
@@ -173,8 +174,9 @@ class TurnRunner {
     String? source,
     String agentName = 'main',
     String? model,
+    String? effort,
   }) async {
-    final turnId = await reserveTurn(sessionId, agentName: agentName, model: model);
+    final turnId = await reserveTurn(sessionId, agentName: agentName, model: model, effort: effort);
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
   }
@@ -342,6 +344,7 @@ class TurnRunner {
           systemPrompt: systemPrompt,
           directory: turnCtx?.directory,
           model: turnCtx?.model,
+          effort: turnCtx?.effort,
         );
         final accumulated = buffer.toString();
 

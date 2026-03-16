@@ -7,13 +7,16 @@ class HarnessConfig {
   final int? maxTurns;
 
   /// Optional model override for spawned turns.
+  ///
+  /// Supports bare names (`opus`, `sonnet`, `haiku`) and context-window
+  /// suffixes (`opus[1m]`). When null, the harness falls back to `opus[1m]`.
   final String? model;
+
+  /// Optional reasoning effort level (`low`, `medium`, `high`, `max`).
+  final String? effort;
 
   /// Optional sub-agent configuration forwarded during initialization.
   final Map<String, dynamic>? agents;
-
-  /// Whether to request the 1M-token context window from the runtime.
-  final bool context1m;
 
   /// Content to pass via --append-system-prompt CLI flag at spawn.
   /// Null means no flag (replace-mode harnesses use per-turn JSONL instead).
@@ -52,8 +55,8 @@ class HarnessConfig {
     this.disallowedTools = const [],
     this.maxTurns,
     this.model,
+    this.effort,
     this.agents,
-    this.context1m = false,
     this.appendSystemPrompt,
     this.mcpServerUrl,
     this.mcpGatewayToken,
@@ -65,8 +68,8 @@ class HarnessConfig {
       if (disallowedTools.isNotEmpty) 'disallowedTools': disallowedTools,
       if (maxTurns != null) 'maxTurns': maxTurns,
       if (model != null) 'model': model,
+      if (effort != null) 'effort': effort,
       if (agents != null) 'agents': agents,
-      if (context1m) 'context1m': true,
     };
   }
 }

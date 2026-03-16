@@ -77,7 +77,12 @@ class ScheduledTaskRunner {
       type: def.type,
       acceptanceCriteria: def.acceptanceCriteria,
       autoStart: def.autoStart,
-      configJson: {'scheduleId': def.id},
+      configJson: {
+        'scheduleId': def.id,
+        if (def.model != null) 'model': def.model,
+        if (def.effort != null) 'effort': def.effort,
+        if (def.tokenBudget != null) 'tokenBudget': def.tokenBudget,
+      },
     );
     _fireTaskCreatedEvent(task, trigger: 'system');
 

@@ -574,7 +574,7 @@ void main() {
 
       test('default config has SessionScopeConfig.defaults()', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
         expect(config.sessionScopeConfig.channels, isEmpty);
       });
@@ -627,7 +627,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
       });
 
@@ -639,7 +639,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
       });
 
@@ -827,7 +827,7 @@ void main() {
       test('default config has SessionScopeConfig.defaults()', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
         expect(config.sessionScopeConfig, const SessionScopeConfig.defaults());
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
       });
 
@@ -881,7 +881,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
       });
 
@@ -893,7 +893,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
       });
 
@@ -925,6 +925,115 @@ void main() {
         // Invalid value ignored, channel not added (no valid overrides)
         expect(config.sessionScopeConfig.channels, isEmpty);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.channels.signal.dm_scope')));
+      });
+    });
+
+    group('automation.scheduled_tasks deprecated alias', () {
+      test('entries from automation.scheduled_tasks appear in automationScheduledTasks', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return '''
+automation:
+  scheduled_tasks:
+    - id: legacy-task-1
+      schedule: "0 9 * * 1"
+      task:
+        title: Legacy Task
+        description: A legacy task
+        type: research
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.automationScheduledTasks, hasLength(1));
+        expect(config.automationScheduledTasks.first.id, 'legacy-task-1');
+        expect(config.automationScheduledTasks.first.title, 'Legacy Task');
+        expect(config.automationScheduledTasks.first.type, TaskType.research);
+      });
+
+      test('deprecation warning generated for automation.scheduled_tasks', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return '''
+automation:
+  scheduled_tasks:
+    - id: legacy-warn
+      schedule: "0 9 * * 1"
+      task:
+        title: Warn Task
+        description: Triggers a warning
+        type: analysis
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(
+          config.warnings,
+          anyElement(allOf(contains('automation.scheduled_tasks'), contains('deprecated'))),
+        );
+      });
+
+      test('coexistence: both scheduling.jobs[type:task] and automation.scheduled_tasks work', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return '''
+scheduling:
+  jobs:
+    - id: modern-task-job
+      prompt: unused
+      type: task
+      schedule: "0 10 * * *"
+      task:
+        title: Modern Task
+        description: A modern task
+        type: coding
+automation:
+  scheduled_tasks:
+    - id: legacy-coexist
+      schedule: "0 9 * * 1"
+      task:
+        title: Legacy Coexist
+        description: A legacy task alongside modern
+        type: research
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.automationScheduledTasks, hasLength(2));
+        final ids = config.automationScheduledTasks.map((d) => d.id).toSet();
+        expect(ids, containsAll(['modern-task-job', 'legacy-coexist']));
+      });
+
+      test('legacy task.type field works (from automation.scheduled_tasks)', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return '''
+automation:
+  scheduled_tasks:
+    - id: legacy-type-field
+      schedule: "0 9 * * 1"
+      task:
+        title: Type Field Task
+        description: Uses task.type not task_type
+        type: analysis
+''';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.automationScheduledTasks, hasLength(1));
+        expect(config.automationScheduledTasks.first.type, TaskType.analysis);
       });
     });
 

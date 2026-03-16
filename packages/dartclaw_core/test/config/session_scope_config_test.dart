@@ -15,6 +15,14 @@ void main() {
       expect(DmScope.fromYaml('perContact'), isNull);
     });
 
+    test('fromYaml accepts snake_case variants', () {
+      expect(DmScope.fromYaml('per_contact'), DmScope.perContact);
+      expect(DmScope.fromYaml('per_channel_contact'), DmScope.perChannelContact);
+      // kebab-case still works
+      expect(DmScope.fromYaml('per-contact'), DmScope.perContact);
+      expect(DmScope.fromYaml('per-channel-contact'), DmScope.perChannelContact);
+    });
+
     test('toYaml round-trips correctly', () {
       for (final scope in DmScope.values) {
         expect(DmScope.fromYaml(scope.toYaml()), scope);
@@ -31,12 +39,18 @@ void main() {
         expect(GroupScope.fromYaml(scope.toYaml()), scope);
       }
     });
+
+    test('fromYaml accepts snake_case variants', () {
+      expect(GroupScope.fromYaml('per_member'), GroupScope.perMember);
+      // kebab-case still works
+      expect(GroupScope.fromYaml('per-member'), GroupScope.perMember);
+    });
   });
 
   group('SessionScopeConfig', () {
     test('defaults() has expected values', () {
       const config = SessionScopeConfig.defaults();
-      expect(config.dmScope, DmScope.perContact);
+      expect(config.dmScope, DmScope.perChannelContact);
       expect(config.groupScope, GroupScope.shared);
       expect(config.channels, isEmpty);
     });
@@ -45,7 +59,7 @@ void main() {
       test('no override returns global defaults', () {
         const config = SessionScopeConfig.defaults();
         final result = config.forChannel('whatsapp');
-        expect(result.dmScope, DmScope.perContact);
+        expect(result.dmScope, DmScope.perChannelContact);
         expect(result.groupScope, GroupScope.shared);
       });
 

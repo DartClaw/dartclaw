@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory;
 import 'package:logging/logging.dart';
 
 /// Status record returned by [GowaManager.getStatus].

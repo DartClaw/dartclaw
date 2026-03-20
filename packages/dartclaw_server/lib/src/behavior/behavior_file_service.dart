@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show SessionKey;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -9,13 +10,33 @@ class BehaviorFileService {
   static final _log = Logger('BehaviorFileService');
   static const defaultPrompt = 'You are a helpful, capable AI assistant.';
 
+  /// Default compact instructions used when no custom value is configured.
+  static const defaultCompactInstructions =
+      'When compacting context, preserve:\n'
+      '1. All user instructions, preferences, and decisions\n'
+      '2. Current task state, goals, and acceptance criteria\n'
+      '3. Key code patterns, file paths, and architectural decisions discussed\n'
+      '4. Error messages and their resolutions\n'
+      '5. Tool output summaries (not raw output)\n'
+      'Prioritize preserving WHY decisions were made over WHAT was done.';
+
   final String workspaceDir;
   final String? projectDir;
   final int? maxMemoryBytes;
 
-  BehaviorFileService({required this.workspaceDir, this.projectDir, this.maxMemoryBytes});
+  /// Custom compact instructions to include in system prompts for long-running sessions.
+  ///
+  /// When null, [defaultCompactInstructions] is used.
+  final String? compactInstructions;
 
-  Future<String> composeSystemPrompt() async {
+  BehaviorFileService({required this.workspaceDir, this.projectDir, this.maxMemoryBytes, this.compactInstructions});
+
+  /// Composes the full system prompt.
+  ///
+  /// When [sessionId] is provided, compact instructions are included based
+  /// on the session scope. Task sessions skip compact instructions (short-lived).
+  /// When [sessionId] is null, compact instructions are included by default.
+  Future<String> composeSystemPrompt({String? sessionId}) async {
     final parts = await _loadCoreParts();
 
     // MEMORY.md — workspace only
@@ -32,7 +53,28 @@ class BehaviorFileService {
       parts.add(memory);
     }
 
+    // Compact instructions — skip for task sessions (short-lived, compaction never triggers)
+    if (_shouldIncludeCompactInstructions(sessionId)) {
+      final instructions = compactInstructions ?? defaultCompactInstructions;
+      parts.add('# Compact instructions\n$instructions');
+    }
+
     return parts.join('\n\n');
+  }
+
+  /// Whether compact instructions should be included for this session scope.
+  ///
+  /// Includes for: web, dm, group, cron (multi-turn, may hit compaction).
+  /// Skips for: task (single-turn execution, compaction never triggers).
+  /// Defaults to true when sessionId is null or unparseable (conservative).
+  static bool _shouldIncludeCompactInstructions(String? sessionId) {
+    if (sessionId == null) return true;
+    try {
+      final key = SessionKey.parse(sessionId);
+      return key.scope != 'task';
+    } catch (_) {
+      return true;
+    }
   }
 
   /// Composes static prompt content for append-mode harnesses.

@@ -42,10 +42,15 @@ String schedulingTemplate({
     };
 
     final statusDotClass = switch (jobStatus) {
-      'active' => 'active',
-      'error' => 'error',
-      'paused' => 'paused',
-      _ => '',
+      'active' => 'status-dot--live',
+      'error' => 'status-dot--error',
+      _ => 'status-dot--idle',
+    };
+
+    final statusBadgeClass = switch (jobStatus) {
+      'active' => 'status-badge-success',
+      'error' => 'status-badge-error',
+      _ => 'status-badge-muted',
     };
 
     return <String, dynamic>{
@@ -55,6 +60,7 @@ String schedulingTemplate({
       'status': jobStatus,
       'deliveryBadgeClass': deliveryBadgeClass,
       'statusDotClass': statusDotClass,
+      'statusBadgeClass': statusBadgeClass,
       'rowClass': isSystem ? 'row-system' : (jobStatus == 'error' ? 'row-error' : ''),
       'isActive': jobStatus == 'active',
       'isSystem': isSystem,
@@ -76,7 +82,7 @@ String schedulingTemplate({
       'schedule': def.cronExpression,
       'type': def.type.name,
       'enabled': def.enabled,
-      'statusDotClass': def.enabled ? 'active' : 'paused',
+      'statusDotClass': def.enabled ? 'status-dot--live' : 'status-dot--idle',
       'statusText': def.enabled ? 'enabled' : 'disabled',
       'cronHuman': cronHuman,
       'description': def.description,

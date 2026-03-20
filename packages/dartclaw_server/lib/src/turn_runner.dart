@@ -6,11 +6,12 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'api/sse_broadcast.dart';
 import 'behavior/behavior_file_service.dart';
 import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
-import 'context/result_trimmer.dart';
+import 'context/exploration_summarizer.dart';
 import 'logging/log_context.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
@@ -38,10 +39,11 @@ class TurnRunner {
   final SessionLockManager _lockManager;
   final SessionResetService? _resetService;
   final ContextMonitor _contextMonitor;
-  final ResultTrimmer _resultTrimmer;
+  final ExplorationSummarizer _explorationSummarizer;
   final MessageRedactor? _redactor;
   final SelfImprovementService? _selfImprovement;
   final UsageTracker? _usageTracker;
+  final SseBroadcast? _sseBroadcast;
   final Duration _outcomeTtl;
 
   /// Security profile this runner's harness executes in (e.g. 'workspace', 'restricted').
@@ -65,10 +67,11 @@ class TurnRunner {
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
-    ResultTrimmer? resultTrimmer,
+    ExplorationSummarizer? explorationSummarizer,
     MessageRedactor? redactor,
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
+    SseBroadcast? sseBroadcast,
     Duration outcomeTtl = const Duration(seconds: 30),
     this.profileId = 'workspace',
   }) : _worker = harness,
@@ -82,10 +85,11 @@ class TurnRunner {
        _lockManager = lockManager ?? SessionLockManager(),
        _resetService = resetService,
        _contextMonitor = contextMonitor ?? ContextMonitor(),
-       _resultTrimmer = resultTrimmer ?? const ResultTrimmer(),
+       _explorationSummarizer = explorationSummarizer ?? const ExplorationSummarizer(),
        _redactor = redactor,
        _selfImprovement = selfImprovement,
        _usageTracker = usageTracker,
+       _sseBroadcast = sseBroadcast,
        _outcomeTtl = outcomeTtl;
 
   // ---------------------------------------------------------------------------
@@ -114,7 +118,13 @@ class TurnRunner {
   /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
   /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) async {
+  Future<String> reserveTurn(
+    String sessionId, {
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+  }) async {
     await _lockManager.acquire(sessionId);
     final turnId = _uuid.v4();
     final startedAt = DateTime.now();
@@ -246,10 +256,10 @@ class TurnRunner {
   // Internal
   // ---------------------------------------------------------------------------
 
-  Future<String> _buildSystemPrompt() async {
+  Future<String> _buildSystemPrompt(String sessionId) async {
     if (_worker.promptStrategy == PromptStrategy.append) return '';
 
-    final behaviorPrompt = await _behavior.composeSystemPrompt();
+    final behaviorPrompt = await _behavior.composeSystemPrompt(sessionId: sessionId);
 
     final memFile = _memoryFile;
     if (memFile != null) {
@@ -336,7 +346,7 @@ class TurnRunner {
           }
         }
 
-        final systemPrompt = await _buildSystemPrompt();
+        final systemPrompt = await _buildSystemPrompt(sessionId);
         final turnCtx = _activeTurns[sessionId];
         final result = await _worker.turn(
           sessionId: sessionId,
@@ -378,6 +388,22 @@ class TurnRunner {
           );
         }
 
+        // Check context warning threshold (one-shot per session).
+        try {
+          if (_contextMonitor.checkThreshold(sessionId: sessionId)) {
+            final percent = _contextMonitor.usagePercent ?? 0;
+            _sseBroadcast?.broadcast('context_warning', {
+              'sessionId': sessionId,
+              'usagePercent': percent,
+              'message':
+                  'Context window $percent% used — consider starting '
+                  'a new session or saving context to memory.',
+            });
+          }
+        } catch (e) {
+          _log.fine('Failed to emit context warning: $e');
+        }
+
         if (chain != null && accumulated.isNotEmpty) {
           final sendVerdict = await chain.evaluateBeforeAgentSend(accumulated, sessionId: sessionId);
           if (sendVerdict.isBlock) {
@@ -406,7 +432,7 @@ class TurnRunner {
         }
 
         final redacted = _redactor?.redact(accumulated) ?? accumulated;
-        final trimmed = _resultTrimmer.trim(redacted);
+        final trimmed = _explorationSummarizer.summarizeOrTrim(redacted, fileHint: _lastToolFileHint(toolEvents));
         await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: trimmed);
         await _sessions?.touchUpdatedAt(sessionId);
         outcome = TurnOutcome(
@@ -574,7 +600,7 @@ class TurnRunner {
   Future<void> _runFlushTurn(String sessionId) async {
     _contextMonitor.markFlushStarted();
     try {
-      final systemPrompt = await _buildSystemPrompt();
+      final systemPrompt = await _buildSystemPrompt(sessionId);
       final flushMessage = <String, dynamic>{'role': 'user', 'content': _flushPrompt};
       await _worker.turn(sessionId: sessionId, messages: [flushMessage], systemPrompt: systemPrompt);
       _log.info('Pre-compaction flush completed for session $sessionId');
@@ -584,6 +610,29 @@ class TurnRunner {
   }
 
   static String _truncate(String s, int maxLen) => s.length <= maxLen ? s : '${s.substring(0, maxLen)}...';
+
+  /// Extracts a file path hint from the last tool use event for type detection.
+  ///
+  /// Returns the file path if the last tool was a file-reading tool, or null
+  /// if no hint can be extracted.
+  static String? _lastToolFileHint(List<ToolUseEvent> toolEvents) {
+    if (toolEvents.isEmpty) return null;
+    final last = toolEvents.last;
+    final name = last.toolName.toLowerCase();
+    if (name == 'read' || name == 'view') {
+      final path = last.input['file_path'];
+      if (path is String) return path;
+    }
+    if (name == 'bash' || name == 'shell') {
+      // Best-effort: look for a file path in the command (e.g. "cat /path/to/file.json")
+      final cmd = last.input['command'];
+      if (cmd is String) {
+        final match = RegExp(r'[\w./\-]+\.\w+').firstMatch(cmd);
+        if (match != null) return match.group(0);
+      }
+    }
+    return null;
+  }
 
   void _evictExpiredOutcomes() {
     final now = DateTime.now();

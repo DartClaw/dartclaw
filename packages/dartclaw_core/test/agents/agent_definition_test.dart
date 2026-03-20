@@ -25,10 +25,7 @@ void main() {
     group('fromYaml', () {
       test('parses model field and keeps extra keys out of model', () {
         final warns = <String>[];
-        final agent = AgentDefinition.fromYaml('search', {
-          'model': 'haiku',
-          'custom_key': 'custom_value',
-        }, warns);
+        final agent = AgentDefinition.fromYaml('search', {'model': 'haiku', 'custom_key': 'custom_value'}, warns);
         expect(agent.model, 'haiku');
         expect(agent.extra, isNot(contains('model')));
         expect(agent.extra['custom_key'], 'custom_value');
@@ -37,9 +34,7 @@ void main() {
 
       test('model is null when not specified', () {
         final warns = <String>[];
-        final agent = AgentDefinition.fromYaml('search', {
-          'description': 'Test agent',
-        }, warns);
+        final agent = AgentDefinition.fromYaml('search', {'description': 'Test agent'}, warns);
         expect(agent.model, isNull);
       });
 
@@ -78,11 +73,7 @@ void main() {
       });
 
       test('excludes model when null', () {
-        const agent = AgentDefinition(
-          id: 'test',
-          description: 'Test',
-          prompt: 'Test prompt',
-        );
+        const agent = AgentDefinition(id: 'test', description: 'Test', prompt: 'Test prompt');
         final payload = agent.toInitializePayload();
         expect(payload.containsKey('model'), isFalse);
       });

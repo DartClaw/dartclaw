@@ -28,7 +28,7 @@ void main() {
       final output = <String>[];
       final globalDir = '${Directory.systemTemp.path}/dartclaw-status-missing-${DateTime.now().microsecondsSinceEpoch}';
 
-      final config = DartclawConfig(dataDir: globalDir);
+      final config = DartclawConfig(server: ServerConfig(dataDir: globalDir));
       final command = StatusCommand(config: config, writeLine: output.add);
 
       await command.run();
@@ -51,7 +51,7 @@ void main() {
         }
       });
 
-      final config = DartclawConfig(dataDir: tmp.path, claudeExecutable: '/usr/local/bin/claude');
+      final config = DartclawConfig(server: ServerConfig(dataDir: tmp.path, claudeExecutable: '/usr/local/bin/claude'));
       final command = StatusCommand(config: config, writeLine: output.add);
 
       await command.run();

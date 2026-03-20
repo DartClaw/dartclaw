@@ -97,7 +97,7 @@
                 <span class="cron-human" tl:text="${job.cronHuman}"></span>
               </td>
               <td><span tl:classappend="${job.deliveryBadgeClass}" class="delivery-badge" tl:text="${job.delivery}">none</span></td>
-              <td><span tl:classappend="${job.statusDotClass}" class="status-dot" tl:text="${job.status}">active</span></td>
+              <td><span tl:classappend="${job.statusDotClass}" class="status-dot"></span> <span tl:text="${job.status}">active</span></td>
               <td tl:if="${job.hasActions}">
                 <div class="action-btns">
                   <button class="btn-icon-sm"
@@ -193,7 +193,7 @@
                 <span class="cron-human" tl:text="${task.cronHuman}"></span>
               </td>
               <td><span class="delivery-badge" tl:text="${task.type}">type</span></td>
-              <td><span tl:classappend="${task.statusDotClass}" class="status-dot" tl:text="${task.statusText}">enabled</span></td>
+              <td><span tl:classappend="${task.statusDotClass}" class="status-dot"></span> <span tl:text="${task.statusText}">enabled</span></td>
               <td>
                 <div class="action-btns">
                   <button class="btn-icon-sm"

@@ -6,6 +6,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../task/agent_observer.dart';
+import '../task/task_service.dart';
 
 /// Creates a [Router] with the task SSE endpoint.
 ///

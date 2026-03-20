@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
+import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';

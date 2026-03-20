@@ -41,9 +41,9 @@ channels:
   Router createRouter({DmAccessController? waController, DmAccessController? sigController}) {
     final cfg = const DartclawConfig.defaults();
     final rc = RuntimeConfig(
-      heartbeatEnabled: cfg.heartbeatEnabled,
-      gitSyncEnabled: cfg.gitSyncEnabled,
-      gitSyncPushEnabled: cfg.gitSyncPushEnabled,
+      heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+      gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+      gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
     );
     final writer = ConfigWriter(configPath: configPath);
 

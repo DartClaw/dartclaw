@@ -131,10 +131,12 @@ void main() {
       });
 
       final config = DartclawConfig(
-        host: '0.0.0.0',
-        dataDir: tempDir.path,
-        staticDir: Directory.current.path,
-        templatesDir: _templatesDir(),
+        server: ServerConfig(
+          host: '0.0.0.0',
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+        ),
       );
 
       final command = ServeCommand(
@@ -167,7 +169,7 @@ void main() {
               lockManager,
               resetService,
               contextMonitor,
-              resultTrimmer,
+              explorationSummarizer,
               channelManager,
               whatsAppChannel,
               googleChatWebhookHandler,
@@ -199,7 +201,7 @@ void main() {
               lockManager: lockManager,
               resetService: resetService,
               contextMonitor: contextMonitor,
-              resultTrimmer: resultTrimmer,
+              explorationSummarizer: explorationSummarizer,
               redactor: redactor,
               gatewayToken: gatewayToken,
               eventBus: eventBus,
@@ -283,7 +285,7 @@ channels:
               lockManager,
               resetService,
               contextMonitor,
-              resultTrimmer,
+              explorationSummarizer,
               channelManager,
               whatsAppChannel,
               googleChatWebhookHandler,
@@ -315,7 +317,7 @@ channels:
               lockManager: lockManager,
               resetService: resetService,
               contextMonitor: contextMonitor,
-              resultTrimmer: resultTrimmer,
+              explorationSummarizer: explorationSummarizer,
               redactor: redactor,
               gatewayToken: gatewayToken,
               eventBus: eventBus,
@@ -352,9 +354,11 @@ channels:
       });
 
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        staticDir: Directory.current.path,
-        templatesDir: _templatesDir(),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+        ),
       );
 
       final command = ServeCommand(
@@ -387,7 +391,7 @@ channels:
               lockManager,
               resetService,
               contextMonitor,
-              resultTrimmer,
+              explorationSummarizer,
               channelManager,
               whatsAppChannel,
               googleChatWebhookHandler,
@@ -419,7 +423,7 @@ channels:
               lockManager: lockManager,
               resetService: resetService,
               contextMonitor: contextMonitor,
-              resultTrimmer: resultTrimmer,
+              explorationSummarizer: explorationSummarizer,
               redactor: redactor,
               gatewayToken: gatewayToken,
               eventBus: eventBus,
@@ -448,9 +452,11 @@ channels:
       });
 
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        staticDir: Directory.current.path,
-        templatesDir: _templatesDir(),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+        ),
       );
       final kvFile = File(config.kvPath);
       kvFile.writeAsStringSync(
@@ -491,7 +497,7 @@ channels:
               lockManager,
               resetService,
               contextMonitor,
-              resultTrimmer,
+              explorationSummarizer,
               channelManager,
               whatsAppChannel,
               googleChatWebhookHandler,
@@ -523,7 +529,7 @@ channels:
               lockManager: lockManager,
               resetService: resetService,
               contextMonitor: contextMonitor,
-              resultTrimmer: resultTrimmer,
+              explorationSummarizer: explorationSummarizer,
               redactor: redactor,
               gatewayToken: gatewayToken,
               eventBus: eventBus,
@@ -558,7 +564,7 @@ channels:
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(dataDir: tempDir.path, templatesDir: _templatesDir());
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()));
 
       final command = ServeCommand(
         config: config,
@@ -586,7 +592,7 @@ channels:
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(dataDir: tempDir.path, templatesDir: _templatesDir());
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()));
 
       final command = ServeCommand(
         config: config,
@@ -620,10 +626,12 @@ channels:
       });
 
       final config = DartclawConfig(
-        contentGuardEnabled: true,
-        dataDir: tempDir.path,
-        staticDir: Directory.current.path,
-        templatesDir: _templatesDir(),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+        ),
+        security: SecurityConfig(contentGuardEnabled: true),
       );
       final worker = _FakeWorkerService();
 
@@ -657,7 +665,7 @@ channels:
               lockManager,
               resetService,
               contextMonitor,
-              resultTrimmer,
+              explorationSummarizer,
               channelManager,
               whatsAppChannel,
               googleChatWebhookHandler,
@@ -689,7 +697,7 @@ channels:
               lockManager: lockManager,
               resetService: resetService,
               contextMonitor: contextMonitor,
-              resultTrimmer: resultTrimmer,
+              explorationSummarizer: explorationSummarizer,
               redactor: redactor,
               gatewayToken: gatewayToken,
               eventBus: eventBus,

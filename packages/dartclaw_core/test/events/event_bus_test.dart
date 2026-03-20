@@ -14,22 +14,21 @@ void main() {
 
   final now = DateTime.now();
 
-  GuardBlockEvent guardEvent({String guard = 'InputSanitizer', String verdict = 'block'}) =>
-      GuardBlockEvent(
-        guardName: guard,
-        guardCategory: 'test',
-        verdict: verdict,
-        hookPoint: 'messageReceived',
-        timestamp: now,
-      );
+  GuardBlockEvent guardEvent({String guard = 'InputSanitizer', String verdict = 'block'}) => GuardBlockEvent(
+    guardName: guard,
+    guardCategory: 'test',
+    verdict: verdict,
+    hookPoint: 'messageReceived',
+    timestamp: now,
+  );
 
   ConfigChangedEvent configEvent() => ConfigChangedEvent(
-        changedKeys: ['agent.model'],
-        oldValues: {'agent.model': 'old'},
-        newValues: {'agent.model': 'new'},
-        requiresRestart: false,
-        timestamp: now,
-      );
+    changedKeys: ['agent.model'],
+    oldValues: {'agent.model': 'old'},
+    newValues: {'agent.model': 'new'},
+    requiresRestart: false,
+    timestamp: now,
+  );
 
   SessionCreatedEvent createdEvent({String id = 's1'}) =>
       SessionCreatedEvent(sessionId: id, sessionType: 'web', timestamp: now);
@@ -185,5 +184,4 @@ void main() {
       expect(errors, hasLength(1));
     });
   });
-
 }

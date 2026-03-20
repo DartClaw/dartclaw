@@ -22,10 +22,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final result = await delegate.handleSessionsSend({
-        'agent': 'search',
-        'message': 'What is Dart?',
-      });
+      final result = await delegate.handleSessionsSend({'agent': 'search', 'message': 'What is Dart?'});
 
       expect(result['isError'], isNull);
       final content = result['content'] as List;
@@ -39,10 +36,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final result = await delegate.handleSessionsSend({
-        'agent': 'nonexistent',
-        'message': 'test',
-      });
+      final result = await delegate.handleSessionsSend({'agent': 'nonexistent', 'message': 'test'});
 
       expect(result['isError'], isTrue);
       final content = result['content'] as List;
@@ -57,10 +51,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final result = await delegate.handleSessionsSend({
-        'agent': 'search',
-        'message': 'test',
-      });
+      final result = await delegate.handleSessionsSend({'agent': 'search', 'message': 'test'});
 
       expect(result['isError'], isTrue);
       final content = result['content'] as List;
@@ -94,10 +85,7 @@ void main() {
         agents: {'search': smallAgent},
       );
 
-      final result = await delegate.handleSessionsSend({
-        'agent': 'search',
-        'message': 'test',
-      });
+      final result = await delegate.handleSessionsSend({'agent': 'search', 'message': 'test'});
 
       final content = result['content'] as List;
       final text = content.first['text'] as String;
@@ -115,10 +103,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final result = await delegate.handleSessionsSpawn({
-        'agent': 'search',
-        'message': 'background search',
-      });
+      final result = await delegate.handleSessionsSpawn({'agent': 'search', 'message': 'background search'});
 
       expect(result['isError'], isNull);
       final content = result['content'] as List;
@@ -151,10 +136,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final result = await delegate.handleSessionsSend({
-        'agent': 'search',
-        'message': 'test',
-      });
+      final result = await delegate.handleSessionsSend({'agent': 'search', 'message': 'test'});
 
       expect(result['isError'], isTrue);
       expect(limits.totalActive, 0);
@@ -167,10 +149,7 @@ void main() {
         agents: {'search': searchAgent},
       );
 
-      final sendResult = await delegate.handleSessionsSend({
-        'agent': 'search',
-        'message': 'test query',
-      });
+      final sendResult = await delegate.handleSessionsSend({'agent': 'search', 'message': 'test query'});
       expect(sendResult['isError'], isNull);
       final text = (sendResult['content'] as List).first['text'] as String;
       expect(text, contains('result text'));

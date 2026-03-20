@@ -55,7 +55,7 @@ void main() {
       runtimeConfig: RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false),
       memoryStatusService: MemoryStatusService(
         workspaceDir: workspaceDir,
-        config: DartclawConfig(dataDir: tempDir.path),
+        config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
         kvService: kvService,
       ),
     );

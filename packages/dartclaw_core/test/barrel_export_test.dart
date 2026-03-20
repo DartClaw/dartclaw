@@ -5,8 +5,26 @@
 /// appears in the `show` clause.
 library;
 
+import 'dart:io';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/container/credential_proxy.dart';
+import 'package:dartclaw_core/src/container/security_profile.dart';
 import 'package:test/test.dart';
+
+Future<Process> _unexpectedProcessStart(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  bool includeParentEnvironment = true,
+}) => throw UnimplementedError();
+
+Future<ProcessResult> _unexpectedCommandProbe(String executable, List<String> arguments) => throw UnimplementedError();
+
+Future<void> _noopDelay(Duration duration) async {}
+
+Future<bool> _healthy() async => true;
 
 void main() {
   group('barrel exports — sealed class accessibility', () {
@@ -87,7 +105,6 @@ void main() {
       );
       expect(artifact.kind, ArtifactKind.diff);
       expect(TaskRepository, isNotNull);
-      expect(TaskService, isNotNull);
 
       final goal = Goal(
         id: 'goal-1',
@@ -97,7 +114,6 @@ void main() {
       );
       expect(goal.title, 'Ship 0.8');
       expect(GoalRepository, isNotNull);
-      expect(GoalService, isNotNull);
     });
 
     test('SessionKey constructable', () {
@@ -107,15 +123,22 @@ void main() {
 
     test('container symbols importable', () {
       const config = ContainerConfig(enabled: true);
+      final manager = ContainerManager(
+        config: config,
+        containerName: 'dartclaw-test-workspace',
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        proxySocketDir: '/tmp',
+      );
       const profile = SecurityProfile.restricted;
       expect(config.enabled, isTrue);
-      expect(ContainerManager, isNotNull);
+      expect(manager.containerName, 'dartclaw-test-workspace');
       expect(CredentialProxy, isNotNull);
       expect(profile.id, 'restricted');
     });
 
     test('channel provider and shared channel symbols importable', () {
-      final ChannelConfigProvider provider = const DartclawConfig.defaults();
+      final provider = const DartclawConfig.defaults().channelConfigProvider;
       final gating = MentionGating(requireMention: true, mentionPatterns: ['@dartclaw'], ownJid: 'wa:bot');
       final message = ChannelMessage(
         channelType: ChannelType.whatsapp,
@@ -133,6 +156,7 @@ void main() {
       const config = TaskTriggerConfig(enabled: true);
       const parser = TaskTriggerParser();
       final result = parser.parse('task: ship it', config);
+      final review = const ReviewCommandParser().parse('accept task-123');
       const origin = TaskOrigin(
         channelType: 'whatsapp',
         sessionKey: 'agent:main:dm:contact:wa%3Auser',
@@ -141,7 +165,22 @@ void main() {
 
       expect(result, isNotNull);
       expect(result!.type, TaskType.research);
+      expect(review?.taskId, 'task-123');
       expect(origin.recipientId, 'wa:user');
+    });
+
+    test('harness operational types importable', () {
+      ProcessFactory processFactory() => _unexpectedProcessStart;
+      CommandProbe commandProbe() => _unexpectedCommandProbe;
+      DelayFactory delayFactory() => _noopDelay;
+      HealthProbe healthProbe() => _healthy;
+
+      expect(processFactory(), isA<ProcessFactory>());
+      expect(commandProbe(), isA<CommandProbe>());
+      expect(delayFactory(), isA<DelayFactory>());
+      expect(healthProbe(), isA<HealthProbe>());
+      expect(ToolApprovalPolicy.allowAll, ToolApprovalPolicy.allowAll);
+      expect(WorkerState.idle.name, 'idle');
     });
   });
 }

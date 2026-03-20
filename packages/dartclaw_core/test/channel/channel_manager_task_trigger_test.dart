@@ -9,7 +9,7 @@ void main() {
     late _RecordingMessageQueue queue;
     late FakeChannel channel;
     late InMemoryTaskRepository repo;
-    late TaskService tasks;
+    late _TaskOps tasks;
     late EventBus eventBus;
     late ChannelManager manager;
 
@@ -17,12 +17,12 @@ void main() {
       queue = _RecordingMessageQueue();
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
-      tasks = TaskService(repo);
+      tasks = _TaskOps(repo);
       eventBus = EventBus();
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskCreator: tasks.create,
         triggerParser: const TaskTriggerParser(),
         eventBus: eventBus,
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
@@ -81,7 +81,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskCreator: tasks.create,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
       );
@@ -180,7 +180,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: failingService,
+        taskCreator: failingService.create,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
       );
@@ -204,7 +204,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskCreator: tasks.create,
         triggerParser: const TaskTriggerParser(),
         eventBus: eventBus,
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true, autoStart: false)},
@@ -234,7 +234,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskCreator: tasks.create,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
       );
@@ -259,13 +259,13 @@ void main() {
 
     test('uses spaceName recipient ids for google chat messages', () async {
       final googleChatQueue = _RecordingMessageQueue();
-      final googleChatTasks = TaskService(InMemoryTaskRepository());
+      final googleChatTasks = _TaskOps(InMemoryTaskRepository());
       addTearDown(googleChatTasks.dispose);
       final googleChatChannel = FakeChannel(type: ChannelType.googlechat, ownedJids: {'spaces/AAAA'});
       final googleChatManager = ChannelManager(
         queue: googleChatQueue,
         config: const ChannelConfig.defaults(),
-        taskService: googleChatTasks,
+        taskCreator: googleChatTasks.create,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
       );
@@ -319,7 +319,46 @@ class _RecordingMessageQueue extends MessageQueue {
   void dispose() {}
 }
 
-class _FailingTaskService extends TaskService {
+class _TaskOps {
+  final InMemoryTaskRepository _repo;
+
+  _TaskOps(this._repo);
+
+  Future<Task> create({
+    required String id,
+    required String title,
+    required String description,
+    required TaskType type,
+    bool autoStart = false,
+    String? goalId,
+    String? acceptanceCriteria,
+    Map<String, dynamic> configJson = const {},
+    DateTime? now,
+  }) async {
+    final timestamp = now ?? DateTime.now();
+    var task = Task(
+      id: id,
+      title: title,
+      description: description,
+      type: type,
+      goalId: goalId,
+      acceptanceCriteria: acceptanceCriteria,
+      configJson: configJson,
+      createdAt: timestamp,
+    );
+    if (autoStart) {
+      task = task.transition(TaskStatus.queued, now: timestamp);
+    }
+    await _repo.insert(task);
+    return task;
+  }
+
+  Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
+
+  Future<void> dispose() => _repo.dispose();
+}
+
+class _FailingTaskService extends _TaskOps {
   _FailingTaskService() : super(InMemoryTaskRepository());
 
   @override

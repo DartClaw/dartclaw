@@ -38,8 +38,8 @@ class _TokenShowCommand extends Command<void> {
   @override
   void run() {
     final config = loadCliConfig(configPath: globalResults?['config'] as String?);
-    final dataDir = config.dataDir;
-    final token = config.gatewayToken ?? TokenService.loadFromFile(dataDir);
+    final dataDir = config.server.dataDir;
+    final token = config.gateway.token ?? TokenService.loadFromFile(dataDir);
     if (token == null) {
       _stderrLine('No token configured. Run `dartclaw serve` to auto-generate one.');
     } else {
@@ -65,7 +65,7 @@ class _TokenRotateCommand extends Command<void> {
   @override
   void run() {
     final config = loadCliConfig(configPath: globalResults?['config'] as String?);
-    final dataDir = config.dataDir;
+    final dataDir = config.server.dataDir;
     final newToken = TokenService.rotateToken(dataDir);
     _stdoutLine(newToken);
     _stderrLine('Token rotated. All existing sessions invalidated.');

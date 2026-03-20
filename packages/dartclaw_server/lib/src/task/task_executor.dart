@@ -1,6 +1,9 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/container/container_dispatcher.dart';
 import 'package:logging/logging.dart';
 
 import '../harness_pool.dart';
@@ -8,8 +11,10 @@ import '../turn_manager.dart';
 import '../turn_runner.dart';
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
+import 'goal_service.dart';
 import 'task_event_helpers.dart';
 import 'task_file_guard.dart';
+import 'task_service.dart';
 import 'worktree_manager.dart';
 
 /// Executes queued tasks against the harness pool.
@@ -268,7 +273,12 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
-      final turnId = await reserveTurn(session.id, directory: worktreeInfo?.path, model: modelOverride, effort: effortOverride);
+      final turnId = await reserveTurn(
+        session.id,
+        directory: worktreeInfo?.path,
+        model: modelOverride,
+        effort: effortOverride,
+      );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
       _observer?.recordTurn(
@@ -320,7 +330,13 @@ class TaskExecutor {
   Future<String> _reserveSharedTurn(String sessionId, {String? directory, String? model, String? effort}) async {
     while (true) {
       try {
-        return await _turns.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model, effort: effort);
+        return await _turns.reserveTurn(
+          sessionId,
+          agentName: 'task',
+          directory: directory,
+          model: model,
+          effort: effort,
+        );
       } on BusyTurnException {
         await Future<void>.delayed(pollInterval);
       }

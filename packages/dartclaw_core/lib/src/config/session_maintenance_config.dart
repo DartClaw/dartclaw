@@ -16,10 +16,10 @@ enum MaintenanceMode {
   ///
   /// Returns `null` for unknown values.
   static MaintenanceMode? fromYaml(String value) => switch (value) {
-        'warn' => MaintenanceMode.warn,
-        'enforce' => MaintenanceMode.enforce,
-        _ => null,
-      };
+    'warn' => MaintenanceMode.warn,
+    'enforce' => MaintenanceMode.enforce,
+    _ => null,
+  };
 
   /// Returns the YAML representation.
   String toYaml() => name;
@@ -69,14 +69,7 @@ class SessionMaintenanceConfig {
           schedule == other.schedule;
 
   @override
-  int get hashCode => Object.hash(
-        mode,
-        pruneAfterDays,
-        maxSessions,
-        maxDiskMb,
-        cronRetentionHours,
-        schedule,
-      );
+  int get hashCode => Object.hash(mode, pruneAfterDays, maxSessions, maxDiskMb, cronRetentionHours, schedule);
 
   @override
   String toString() =>

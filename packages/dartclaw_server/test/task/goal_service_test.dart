@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/src/task/goal_service.dart';
 import 'package:test/test.dart';
 
 void main() {

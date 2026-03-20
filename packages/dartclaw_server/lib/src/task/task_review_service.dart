@@ -1,3 +1,5 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import 'merge_executor.dart';
 import 'task_event_helpers.dart';
 import 'task_file_guard.dart';
+import 'task_service.dart';
 import 'worktree_manager.dart';
 
 /// Result of a task review action.

@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.9**
+> Current through: **0.10.1**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. The `claude` CLI binary handles agent reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -9,7 +9,7 @@ DartClaw is a 2-layer agent runtime where each layer has a distinct role and tru
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 1: Dart Host (AOT-compiled binary)               │
-│  ────────────────────────────────────────                │
+│  ────────────────────────────────────────               │
 │  Owns: storage, HTTP API, web UI, turn orchestration,   │
 │        security policy, channels, tasks, scheduling     │
 │  Trust: FULL — this is your code                        │
@@ -17,10 +17,10 @@ DartClaw is a 2-layer agent runtime where each layer has a distinct role and tru
                          │ JSONL control protocol (stdin/stdout)
 ┌────────────────────────▼────────────────────────────────┐
 │  Layer 2: claude CLI Binary (Bun standalone)            │
-│  ───────────────────────────────────────────             │
+│  ───────────────────────────────────────────            │
 │  Owns: agent reasoning, tool execution,                 │
 │        bash commands, file operations                   │
-│  Trust: SANDBOXED — Docker container isolation           │
+│  Trust: SANDBOXED — Docker container isolation          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -242,11 +242,13 @@ draft → queued → running → review → accepted
 
 Key components:
 
-- **TaskService** — CRUD + state machine transitions, SQLite persistence
+- **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_server`
 - **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
 - **WorktreeManager** — for coding tasks, creates git worktrees so the agent works on an isolated branch. On accept, changes are merged (squash or merge). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
 - **AgentObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+
+Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
 
 Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
 

@@ -28,7 +28,7 @@ void main() {
 
     statusService = MemoryStatusService(
       workspaceDir: workspaceDir,
-      config: DartclawConfig(dataDir: tempDir.path),
+      config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
       kvService: kvService,
     );
   });

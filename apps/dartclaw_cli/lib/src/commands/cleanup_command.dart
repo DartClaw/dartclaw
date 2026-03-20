@@ -49,7 +49,7 @@ class CleanupCommand extends Command<void> {
     final sessions = SessionService(baseDir: config.sessionsDir);
 
     // Derive protected channel keys from config
-    final hasConfiguredChannels = config.channelConfig.channelConfigs.values.any((c) => c['enabled'] == true);
+    final hasConfiguredChannels = config.channels.channelConfigs.values.any((c) => c['enabled'] == true);
     final activeChannelKeys = <String>{};
     if (hasConfiguredChannels) {
       final channelSessions = await sessions.listSessions(type: SessionType.channel);
@@ -59,7 +59,7 @@ class CleanupCommand extends Command<void> {
     }
 
     // Derive active job IDs from config
-    final activeJobIds = config.schedulingJobs.map((j) => j['name'] as String?).whereType<String>().toSet();
+    final activeJobIds = config.scheduling.jobs.map((j) => j['name'] as String?).whereType<String>().toSet();
 
     // Determine mode override
     MaintenanceMode? modeOverride;
@@ -71,7 +71,7 @@ class CleanupCommand extends Command<void> {
 
     final maintenance = SessionMaintenanceService(
       sessions: sessions,
-      config: config.sessionMaintenanceConfig,
+      config: config.sessions.maintenanceConfig,
       activeChannelKeys: activeChannelKeys,
       activeJobIds: activeJobIds,
       sessionsDir: config.sessionsDir,

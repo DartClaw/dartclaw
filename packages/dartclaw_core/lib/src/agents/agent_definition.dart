@@ -99,9 +99,7 @@ class AgentDefinition {
       deniedTools.addAll(denied.whereType<String>());
     }
 
-    final resolvedTools = allowedTools.isEmpty && id == 'search'
-        ? const {'WebSearch', 'WebFetch'}
-        : allowedTools;
+    final resolvedTools = allowedTools.isEmpty && id == 'search' ? const {'WebSearch', 'WebFetch'} : allowedTools;
     if (resolvedTools.isEmpty && id != 'search') {
       warns.add('Agent "$id" has no tools configured — it will not be able to use any tools');
     }

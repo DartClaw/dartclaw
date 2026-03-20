@@ -13,7 +13,7 @@ ChannelMessage _googleChatMessage({String senderJid = 'users/123', String? group
 
 void main() {
   group('Google Chat session key derivation', () {
-    test('DM with perContact scope (default)', () {
+    test('DM with perChannelContact scope (default)', () {
       final config = const SessionScopeConfig.defaults();
       final manager = ChannelManager(
         queue: _NoopMessageQueue(),
@@ -26,7 +26,7 @@ void main() {
 
       expect(key, contains('users'));
       expect(key, contains('456'));
-      expect(key, isNot(contains('googlechat')));
+      expect(key, contains('googlechat'));
     });
 
     test('DM with perChannelContact scope override', () {

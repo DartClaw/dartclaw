@@ -203,7 +203,6 @@ void main() {
 
         expect(() => task.transition(TaskStatus.queued), throwsStateError);
       });
-
     });
 
     group('JSON serialization', () {

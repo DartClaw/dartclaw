@@ -32,6 +32,12 @@ Most applications start with this umbrella package. It re-exports
 `dartclaw_core`, `dartclaw_storage`, and the channel packages; `dartclaw_models`
 and `dartclaw_security` are available transitively through `dartclaw_core`.
 
+Operational internals in `dartclaw_core` are intentionally narrower now, but
+the public barrel still re-exports the types that appear in exported APIs.
+Use the umbrella or `dartclaw_core` barrel for normal SDK work; reach into
+`package:dartclaw_core/src/...` only for deeper internals such as docker
+validation, credential-proxy plumbing, or security-profile resolution.
+
 ## Quick Start
 
 Prerequisites: install the `claude` binary and set `ANTHROPIC_API_KEY`.

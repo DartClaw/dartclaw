@@ -30,11 +30,13 @@ void main() {
     int memoryMaxBytes = 32768,
   }) {
     return DartclawConfig(
-      dataDir: tempDir.path,
-      memoryPruningEnabled: pruningEnabled,
-      memoryPruningSchedule: pruningSchedule,
-      memoryArchiveAfterDays: archiveAfterDays,
-      memoryMaxBytes: memoryMaxBytes,
+      server: ServerConfig(dataDir: tempDir.path),
+      memory: MemoryConfig(
+        pruningEnabled: pruningEnabled,
+        pruningSchedule: pruningSchedule,
+        archiveAfterDays: archiveAfterDays,
+        maxBytes: memoryMaxBytes,
+      ),
     );
   }
 

@@ -53,6 +53,9 @@ void main() {
         expect(ConfigMeta.fields, contains('scheduling.heartbeat.interval_minutes'));
         expect(ConfigMeta.fields, contains('context.reserve_tokens'));
         expect(ConfigMeta.fields, contains('context.max_result_bytes'));
+        expect(ConfigMeta.fields, contains('context.warning_threshold'));
+        expect(ConfigMeta.fields, contains('context.exploration_summary_threshold'));
+        expect(ConfigMeta.fields, contains('context.compact_instructions'));
         expect(ConfigMeta.fields, contains('search.backend'));
         expect(ConfigMeta.fields, contains('search.qmd.host'));
         expect(ConfigMeta.fields, contains('search.qmd.port'));
@@ -119,6 +122,28 @@ void main() {
         expect(ConfigMeta.fields['gateway.hsts']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['tasks.artifact_retention_days']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['guard_audit.max_retention_days']!.mutability, ConfigMutability.restart);
+        expect(ConfigMeta.fields['context.exploration_summary_threshold']!.mutability, ConfigMutability.restart);
+        expect(ConfigMeta.fields['context.compact_instructions']!.mutability, ConfigMutability.restart);
+      });
+
+      test('context.warning_threshold is live-mutable with range 50-99', () {
+        final meta = ConfigMeta.fields['context.warning_threshold']!;
+        expect(meta.mutability, ConfigMutability.live);
+        expect(meta.type, ConfigFieldType.int_);
+        expect(meta.min, 50);
+        expect(meta.max, 99);
+      });
+
+      test('context.exploration_summary_threshold has min 1000', () {
+        final meta = ConfigMeta.fields['context.exploration_summary_threshold']!;
+        expect(meta.type, ConfigFieldType.int_);
+        expect(meta.min, 1000);
+      });
+
+      test('context.compact_instructions is nullable string', () {
+        final meta = ConfigMeta.fields['context.compact_instructions']!;
+        expect(meta.type, ConfigFieldType.string);
+        expect(meta.nullable, true);
       });
 
       test('classifies readonly fields correctly', () {
@@ -193,7 +218,7 @@ void main() {
 
       test('forMutability returns expected live fields', () {
         final live = ConfigMeta.forMutability(ConfigMutability.live).toList();
-        expect(live, hasLength(5));
+        expect(live, hasLength(6));
         final paths = live.map((f) => f.yamlPath).toSet();
         expect(
           paths,
@@ -203,6 +228,7 @@ void main() {
             'scheduling.heartbeat.enabled',
             'workspace.git_sync.enabled',
             'workspace.git_sync.push_enabled',
+            'context.warning_threshold',
           ]),
         );
       });

@@ -48,7 +48,7 @@ typedef ServerFactory =
       SessionLockManager? lockManager,
       SessionResetService? resetService,
       ContextMonitor? contextMonitor,
-      ResultTrimmer? resultTrimmer,
+      ExplorationSummarizer? explorationSummarizer,
       ChannelManager? channelManager,
       WhatsAppChannel? whatsAppChannel,
       GoogleChatWebhookHandler? googleChatWebhookHandler,
@@ -139,7 +139,7 @@ class ServeCommand extends Command<void> {
              lockManager,
              resetService,
              contextMonitor,
-             resultTrimmer,
+             explorationSummarizer,
              channelManager,
              whatsAppChannel,
              googleChatWebhookHandler,
@@ -171,7 +171,7 @@ class ServeCommand extends Command<void> {
              lockManager: lockManager,
              resetService: resetService,
              contextMonitor: contextMonitor,
-             resultTrimmer: resultTrimmer,
+             explorationSummarizer: explorationSummarizer,
              channelManager: channelManager,
              whatsAppChannel: whatsAppChannel,
              googleChatWebhookHandler: googleChatWebhookHandler,
@@ -243,8 +243,8 @@ class ServeCommand extends Command<void> {
       _stderrLine('WARNING: $w');
     }
 
-    final host = config.host;
-    final port = config.port;
+    final host = config.server.host;
+    final port = config.server.port;
 
     // Warn about network exposure
     if (host == '0.0.0.0') {
@@ -268,7 +268,7 @@ class ServeCommand extends Command<void> {
     }
 
     // Ensure data directory exists
-    final dataDir = config.dataDir;
+    final dataDir = config.server.dataDir;
     try {
       final dir = Directory(dataDir);
       if (!dir.existsSync()) {
@@ -281,7 +281,7 @@ class ServeCommand extends Command<void> {
 
     // Load and validate HTML templates
     try {
-      initTemplates(config.templatesDir, devMode: config.devMode);
+      initTemplates(config.server.templatesDir, devMode: config.server.devMode);
     } on StateError catch (e) {
       _stderrLine('ERROR: ${e.message}');
       _exitFn(1);
@@ -309,11 +309,11 @@ class ServeCommand extends Command<void> {
     T cliOr<T>(String flag, T configValue) =>
         _config == null && argResults!.wasParsed(flag) ? argResults![flag] as T : configValue;
 
-    final logFormat = cliOr('log-format', config.logFormat);
-    final logFile = cliOr<String?>('log-file', config.logFile);
-    final logLevel = cliOr('log-level', config.logLevel);
+    final logFormat = cliOr('log-format', config.logging.format);
+    final logFile = cliOr<String?>('log-file', config.logging.file);
+    final logLevel = cliOr('log-level', config.logging.level);
 
-    final messageRedactor = MessageRedactor(extraPatterns: config.redactPatterns);
+    final messageRedactor = MessageRedactor(extraPatterns: config.logging.redactPatterns);
     final logRedactor = LogRedactor(redactor: messageRedactor);
     final logService = LogService.fromConfig(
       format: logFormat,
@@ -362,20 +362,20 @@ class ServeCommand extends Command<void> {
           startupBanner(
             host: host,
             port: port,
-            name: config.name,
+            name: config.server.name,
             token: result.tokenService?.token,
             authEnabled: result.authEnabled,
-            guardsEnabled: config.guards.enabled,
-            containerEnabled: config.containerConfig.enabled,
+            guardsEnabled: config.security.guards.enabled,
+            containerEnabled: config.container.enabled,
             channels: [
-              if (config.channelConfig.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
-              if (config.channelConfig.channelConfigs['signal']?['enabled'] == true) 'Signal',
+              if (config.channels.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
+              if (config.channels.channelConfigs['signal']?['enabled'] == true) 'Signal',
             ],
             colorize: true,
           ),
         );
       } else {
-        _log.info('${config.name} v$dartclawVersion listening on http://$host:$port');
+        _log.info('${config.server.name} v$dartclawVersion listening on http://$host:$port');
       }
       result.resetService.start();
 

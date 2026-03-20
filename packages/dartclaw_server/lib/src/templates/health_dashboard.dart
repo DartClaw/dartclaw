@@ -100,10 +100,10 @@ String healthDashboardTemplate({
   ];
 
   final metrics = <Map<String, dynamic>>[
-    {'value': uptimeStr, 'label': 'Uptime'},
-    {'value': '$sessionCount', 'label': 'Sessions'},
-    {'value': dbSizeStr, 'label': 'DB Size'},
-    {'value': artifactDiskStr, 'label': 'Task Artifacts'},
+    {'value': uptimeStr, 'label': 'Uptime', 'metricClass': 'card-metric--accent'},
+    {'value': '$sessionCount', 'label': 'Sessions', 'metricClass': 'card-metric--info'},
+    {'value': dbSizeStr, 'label': 'DB Size', 'metricClass': 'card-metric--info'},
+    {'value': artifactDiskStr, 'label': 'Task Artifacts', 'metricClass': 'card-metric--info'},
   ];
 
   final auditSection = auditTableFragment(

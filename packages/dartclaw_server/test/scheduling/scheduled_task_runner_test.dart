@@ -3,6 +3,7 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import 'package:dartclaw_server/src/scheduling/scheduled_task_runner.dart';
+import 'package:dartclaw_server/src/task/task_service.dart';
 
 ScheduledTaskDefinition _makeDef({
   String id = 'test-schedule',
@@ -211,12 +212,7 @@ void main() {
 
     group('configJson override merging', () {
       test('configJson contains model/effort/tokenBudget when set', () async {
-        final def = _makeDef(
-          id: 'override-sched',
-          model: 'claude-haiku-4-5',
-          effort: 'low',
-          tokenBudget: 50000,
-        );
+        final def = _makeDef(id: 'override-sched', model: 'claude-haiku-4-5', effort: 'low', tokenBudget: 50000);
         final runner = ScheduledTaskRunner(taskService: taskService, definitions: [def]);
         final jobs = runner.buildJobs();
         await jobs.first.onExecute!();

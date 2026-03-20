@@ -5,6 +5,20 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'src/signal_config.dart';
 
+export 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        Channel,
+        ChannelManager,
+        ChannelMessage,
+        ChannelResponse,
+        ChannelType,
+        DelayFactory,
+        DmAccessController,
+        DmAccessMode,
+        HealthProbe,
+        ProcessFactory,
+        RetryPolicy,
+        TaskTriggerConfig;
 export 'src/signal_channel.dart' show SignalChannel;
 export 'src/signal_cli_manager.dart' show SignalCliManager;
 export 'src/signal_config.dart' show SignalConfig;

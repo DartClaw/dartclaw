@@ -1,4 +1,3 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
 

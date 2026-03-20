@@ -28,7 +28,7 @@
           </h3>
 
           <div tl:if="${group.isRunning}" class="task-running-cards">
-            <div tl:each="task : ${group.tasks}" class="card task-card-running">
+            <div tl:each="task : ${group.tasks}" class="card card-tint-accent task-card-running">
               <div class="task-card-title" tl:text="${task.title}">Task title</div>
               <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
               <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>

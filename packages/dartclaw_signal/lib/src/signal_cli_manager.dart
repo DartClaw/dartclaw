@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show DelayFactory, HealthProbe, ProcessFactory;
 import 'package:logging/logging.dart';
 
 /// Manages signal-cli as a subprocess in daemon HTTP mode.

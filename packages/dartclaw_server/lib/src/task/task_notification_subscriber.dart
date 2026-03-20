@@ -4,6 +4,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:logging/logging.dart';
 
+import 'task_service.dart';
+
 /// Sends channel notifications for channel-originated task status changes.
 class TaskNotificationSubscriber {
   static final _log = Logger('TaskNotificationSubscriber');

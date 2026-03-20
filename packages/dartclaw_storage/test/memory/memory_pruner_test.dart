@@ -427,9 +427,9 @@ void main() {
   group('config defaults', () {
     test('DartclawConfig has pruning defaults', () {
       final config = DartclawConfig.load(configPath: '/nonexistent');
-      expect(config.memoryPruningEnabled, isTrue);
-      expect(config.memoryArchiveAfterDays, 90);
-      expect(config.memoryPruningSchedule, '0 3 * * *');
+      expect(config.memory.pruningEnabled, isTrue);
+      expect(config.memory.archiveAfterDays, 90);
+      expect(config.memory.pruningSchedule, '0 3 * * *');
     });
 
     test('DartclawConfig parses pruning overrides from YAML', () {
@@ -444,9 +444,9 @@ memory:
       configFile.writeAsStringSync(yamlContent);
 
       final config = DartclawConfig.load(configPath: configFile.path);
-      expect(config.memoryPruningEnabled, isFalse);
-      expect(config.memoryArchiveAfterDays, 30);
-      expect(config.memoryPruningSchedule, '0 6 * * 1');
+      expect(config.memory.pruningEnabled, isFalse);
+      expect(config.memory.archiveAfterDays, 30);
+      expect(config.memory.pruningSchedule, '0 6 * * 1');
     });
   });
 }

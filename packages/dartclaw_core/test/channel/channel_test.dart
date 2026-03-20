@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/src/channel/channel_config.dart';
+import 'package:dartclaw_core/src/scoping/channel_config.dart';
 import 'package:test/test.dart';
 
 void main() {

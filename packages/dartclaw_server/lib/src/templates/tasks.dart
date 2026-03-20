@@ -67,6 +67,13 @@ String tasksPageTemplate({
           ...t,
           'typeLabel': _titleCase(t['type']?.toString() ?? ''),
           'statusBadgeClass': 'status-badge-$statusName',
+          'cardTintClass': switch (statusName) {
+            'running' => 'card-tint-accent',
+            'queued' || 'draft' => 'card-tint-info',
+            'failed' || 'cancelled' => 'card-tint-error',
+            'review' || 'interrupted' => 'card-tint-warning',
+            _ => '',
+          },
           'createdAtDisplay': _formatRelativeTime(t['createdAt']?.toString()),
           'detailHref': '/tasks/${t['id']}',
         };

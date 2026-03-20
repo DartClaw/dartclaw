@@ -1,9 +1,13 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
+
+import '../task/task_service.dart';
 
 /// Handles parsed Google Chat slash commands.
 class SlashCommandHandler {

@@ -3,7 +3,7 @@ import '../task/task_type.dart';
 /// A scheduled task template parsed from YAML config (`automation.scheduled_tasks`).
 ///
 /// When the cron fires, a [Task] is created from these template fields and
-/// submitted to [TaskService.create] with `autoStart: true`.
+/// submitted to the task creation service with `autoStart: true`.
 class ScheduledTaskDefinition {
   /// Unique schedule ID (user-defined).
   final String id;
@@ -55,10 +55,7 @@ class ScheduledTaskDefinition {
   /// Parses a single entry from the `automation.scheduled_tasks` list.
   ///
   /// Returns `null` and adds a warning if the entry is invalid.
-  static ScheduledTaskDefinition? fromYaml(
-    Map<dynamic, dynamic> yaml,
-    List<String> warnings,
-  ) {
+  static ScheduledTaskDefinition? fromYaml(Map<dynamic, dynamic> yaml, List<String> warnings) {
     final id = yaml['id'];
     if (id is! String || id.isEmpty) {
       warnings.add('Scheduled task missing or empty "id" — skipping');

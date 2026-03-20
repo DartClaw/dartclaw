@@ -63,7 +63,7 @@ void main() {
     });
 
     test('gateway.token masked as "***" when non-null', () {
-      final config = const DartclawConfig(gatewayToken: 'super-secret-token');
+      final config = const DartclawConfig(gateway: GatewayConfig(token: 'super-secret-token'));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
@@ -74,7 +74,7 @@ void main() {
     });
 
     test('gateway.hsts is serialized', () {
-      final config = const DartclawConfig(gatewayHsts: true);
+      final config = const DartclawConfig(gateway: GatewayConfig(hsts: true));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
@@ -84,14 +84,15 @@ void main() {
 
     test('auth cookie settings and retention config serialize custom values', () {
       final config = const DartclawConfig(
-        cookieSecure: true,
-        trustedProxies: ['192.168.1.100'],
-        guardAuditMaxRetentionDays: 14,
-        tasksMaxConcurrent: 5,
-        tasksArtifactRetentionDays: 90,
-        tasksWorktreeBaseRef: 'develop',
-        tasksWorktreeStaleTimeoutHours: 72,
-        tasksWorktreeMergeStrategy: 'merge',
+        auth: AuthConfig(cookieSecure: true, trustedProxies: ['192.168.1.100']),
+        security: SecurityConfig(guardAuditMaxRetentionDays: 14),
+        tasks: TaskConfig(
+          maxConcurrent: 5,
+          artifactRetentionDays: 90,
+          worktreeBaseRef: 'develop',
+          worktreeStaleTimeoutHours: 72,
+          worktreeMergeStrategy: 'merge',
+        ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
@@ -120,7 +121,10 @@ void main() {
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {
       // Config says enabled, but runtime says disabled
-      final config = const DartclawConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+      final config = const DartclawConfig(
+        scheduling: SchedulingConfig(heartbeatEnabled: true),
+        workspace: WorkspaceConfig(gitSyncEnabled: true, gitSyncPushEnabled: true),
+      );
       final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
 
       final json = serializer.toJson(config, runtime: runtime);
@@ -146,12 +150,14 @@ void main() {
 
     test('config with channel overrides serializes correctly', () {
       final config = DartclawConfig(
-        sessionScopeConfig: SessionScopeConfig(
-          dmScope: DmScope.shared,
-          groupScope: GroupScope.perMember,
-          channels: {
-            'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact, groupScope: GroupScope.shared),
-          },
+        sessions: SessionConfig(
+          scopeConfig: SessionScopeConfig(
+            dmScope: DmScope.shared,
+            groupScope: GroupScope.perMember,
+            channels: {
+              'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact, groupScope: GroupScope.shared),
+            },
+          ),
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
@@ -169,10 +175,12 @@ void main() {
 
     test('channel override with only one field omits the other', () {
       final config = DartclawConfig(
-        sessionScopeConfig: SessionScopeConfig(
-          dmScope: DmScope.perContact,
-          groupScope: GroupScope.shared,
-          channels: {'whatsapp': const ChannelScopeConfig(groupScope: GroupScope.perMember)},
+        sessions: SessionConfig(
+          scopeConfig: SessionScopeConfig(
+            dmScope: DmScope.perContact,
+            groupScope: GroupScope.shared,
+            channels: {'whatsapp': const ChannelScopeConfig(groupScope: GroupScope.perMember)},
+          ),
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
@@ -202,13 +210,15 @@ void main() {
 
     test('config with custom maintenance values serializes correctly', () {
       final config = DartclawConfig(
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(
-          mode: MaintenanceMode.enforce,
-          pruneAfterDays: 7,
-          maxSessions: 100,
-          maxDiskMb: 512,
-          cronRetentionHours: 48,
-          schedule: '0 4 * * *',
+        sessions: SessionConfig(
+          maintenanceConfig: const SessionMaintenanceConfig(
+            mode: MaintenanceMode.enforce,
+            pruneAfterDays: 7,
+            maxSessions: 100,
+            maxDiskMb: 512,
+            cronRetentionHours: 48,
+            schedule: '0 4 * * *',
+          ),
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
@@ -224,11 +234,41 @@ void main() {
       expect(maintenance['schedule'], '0 4 * * *');
     });
 
+    test('default config serializes context fields with correct defaults', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final context = json['context'] as Map<String, dynamic>;
+      expect(context['warningThreshold'], 80);
+      expect(context['explorationSummaryThreshold'], 25000);
+      expect(context['compactInstructions'], isNull);
+    });
+
+    test('custom context values serialize to camelCase JSON', () {
+      final config = const DartclawConfig(
+        context: ContextConfig(
+          warningThreshold: 90,
+          explorationSummaryThreshold: 50000,
+          compactInstructions: 'Preserve all user preferences and task state.',
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final context = json['context'] as Map<String, dynamic>;
+      expect(context['warningThreshold'], 90);
+      expect(context['explorationSummaryThreshold'], 50000);
+      expect(context['compactInstructions'], 'Preserve all user preferences and task state.');
+    });
+
     test('scheduling.jobs included from config', () {
       final config = DartclawConfig(
-        schedulingJobs: [
-          {'name': 'test-job', 'schedule': '0 7 * * *', 'prompt': 'hello', 'delivery': 'announce'},
-        ],
+        scheduling: SchedulingConfig(
+          jobs: [
+            {'name': 'test-job', 'schedule': '0 7 * * *', 'prompt': 'hello', 'delivery': 'announce'},
+          ],
+        ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
@@ -241,7 +281,7 @@ void main() {
 
     test('google chat config serializes with camelCase keys', () {
       final config = DartclawConfig(
-        channelConfig: ChannelConfig(
+        channels: ChannelConfig(
           channelConfigs: {
             'google_chat': _googleChatChannelConfig(
               const GoogleChatConfig(
@@ -297,7 +337,7 @@ void main() {
 
     test('google chat inline service account is redacted to client email', () {
       final config = DartclawConfig(
-        channelConfig: ChannelConfig(
+        channels: ChannelConfig(
           channelConfigs: {
             'google_chat': _googleChatChannelConfig(
               const GoogleChatConfig(
@@ -321,7 +361,7 @@ void main() {
 
     test('whatsapp config serializes from parsed typed config', () {
       final config = DartclawConfig(
-        channelConfig: const ChannelConfig(
+        channels: const ChannelConfig(
           channelConfigs: {
             'whatsapp': {
               'enabled': 'yes',
@@ -352,7 +392,7 @@ void main() {
 
     test('signal config serializes from parsed typed config', () {
       final config = DartclawConfig(
-        channelConfig: const ChannelConfig(
+        channels: const ChannelConfig(
           channelConfigs: {
             'signal': {
               'enabled': 'yes',

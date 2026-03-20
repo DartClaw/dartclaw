@@ -85,7 +85,8 @@ final class TurnResult extends ClaudeMessage {
   int get totalTokens => (inputTokens ?? 0) + (outputTokens ?? 0);
 
   @override
-  String toString() => 'TurnResult(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
+  String toString() =>
+      'TurnResult(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens)';
 }
 

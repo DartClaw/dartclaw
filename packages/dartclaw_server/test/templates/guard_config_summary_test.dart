@@ -40,9 +40,7 @@ void main() {
 
   group('CommandGuard extraction', () {
     test('shows pattern counts and pipe targets', () {
-      final chain = GuardChain(
-        guards: [CommandGuard(config: CommandGuardConfig.defaults())],
-      );
+      final chain = GuardChain(guards: [CommandGuard(config: CommandGuardConfig.defaults())]);
 
       final configs = extractGuardConfigs(chain);
       final cmd = configs.firstWhere((c) => c.guardKey == 'command');
@@ -64,9 +62,7 @@ void main() {
 
   group('FileGuard extraction', () {
     test('groups rules by access level', () {
-      final chain = GuardChain(
-        guards: [FileGuard(config: FileGuardConfig.defaults())],
-      );
+      final chain = GuardChain(guards: [FileGuard(config: FileGuardConfig.defaults())]);
 
       final configs = extractGuardConfigs(chain);
       final file = configs.firstWhere((c) => c.guardKey == 'file');
@@ -81,9 +77,7 @@ void main() {
 
   group('NetworkGuard extraction', () {
     test('shows domains and truncates at 15', () {
-      final chain = GuardChain(
-        guards: [NetworkGuard(config: NetworkGuardConfig.defaults())],
-      );
+      final chain = GuardChain(guards: [NetworkGuard(config: NetworkGuardConfig.defaults())]);
 
       final configs = extractGuardConfigs(chain);
       final net = configs.firstWhere((c) => c.guardKey == 'network');

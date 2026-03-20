@@ -29,7 +29,7 @@ void main() {
   }
 
   test('prints message when MEMORY.md is missing', () async {
-    final config = DartclawConfig(dataDir: tempDir.path);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
     expect(output, hasLength(1));
     expect(output[0], contains('No MEMORY.md found'));
@@ -38,7 +38,7 @@ void main() {
   test('prints message when MEMORY.md is empty', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('');
-    final config = DartclawConfig(dataDir: tempDir.path);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
     expect(output, hasLength(1));
     expect(output[0], contains('empty'));
@@ -47,7 +47,7 @@ void main() {
   test('prints message when MEMORY.md has headers only (no entries)', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('## general\n');
-    final config = DartclawConfig(dataDir: tempDir.path);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
     expect(output, hasLength(1));
     expect(output[0], contains('empty'));
@@ -64,7 +64,7 @@ void main() {
 ''';
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
-    final config = DartclawConfig(dataDir: tempDir.path);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
 
     // Use file-based DB so we can reopen after command closes it
     final dbPath = p.join(tempDir.path, 'search.db');
@@ -96,7 +96,7 @@ void main() {
 ''';
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync(memoryContent);
-    final config = DartclawConfig(dataDir: tempDir.path);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
 
     final dbPath = p.join(tempDir.path, 'search.db');
     final runner = DartclawRunner()

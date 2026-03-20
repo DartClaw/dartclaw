@@ -4,8 +4,8 @@ import 'dart:math';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import '../scoping/channel_config.dart';
 import 'channel.dart';
-import 'channel_config.dart';
 
 /// Callback for dispatching a coalesced message to the turn manager.
 /// Returns the response text to send back via the channel.

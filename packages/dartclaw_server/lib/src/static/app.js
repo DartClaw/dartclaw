@@ -92,10 +92,9 @@ function initThemeToggle() {
 
 function setSidebarOpen(open) {
   const sidebar = document.getElementById('sidebar');
-  const backdrop = document.getElementById('sidebar-backdrop');
   if (!sidebar) return;
   sidebar.classList.toggle('open', open);
-  if (backdrop) backdrop.classList.toggle('open', open);
+  // Scrim visibility is handled via CSS (~) combinator — no JS toggle needed
 }
 
 function initSidebar() {
@@ -108,24 +107,10 @@ function initSidebar() {
     menuToggle.addEventListener('click', () => setSidebarOpen(!sidebar.classList.contains('open')));
   }
 
-  const closeBtn = document.querySelector('.sidebar-close');
-  if (closeBtn && !closeBtn.dataset.sidebarInit) {
-    closeBtn.dataset.sidebarInit = '1';
-    closeBtn.addEventListener('click', () => setSidebarOpen(false));
-  }
-
-  // Click outside (overlay/backdrop) closes sidebar on mobile.
-  if (!document._dartclawSidebarClickBound) {
-    document._dartclawSidebarClickBound = true;
-    document.addEventListener('click', (event) => {
-      if (
-        sidebar.classList.contains('open') &&
-        !sidebar.contains(event.target) &&
-        !event.target.closest('.menu-toggle')
-      ) {
-        setSidebarOpen(false);
-      }
-    });
+  const scrim = document.querySelector('.sidebar-scrim');
+  if (scrim && !scrim.dataset.sidebarInit) {
+    scrim.dataset.sidebarInit = '1';
+    scrim.addEventListener('click', () => setSidebarOpen(false));
   }
 
   initArchiveCollapse();
@@ -823,11 +808,44 @@ function connectGlobalEvents() {
     showRestartOverlay();
   });
 
+  globalEventSource.addEventListener('context_warning', function(event) {
+    try {
+      var data = JSON.parse(event.data);
+      var currentSessionId = getCurrentSessionId();
+      if (!currentSessionId) return;
+      if (data.sessionId !== currentSessionId) return;
+      if (document.getElementById('context-warning-banner')) return;
+
+      var banner = document.createElement('div');
+      banner.id = 'context-warning-banner';
+      banner.className = 'banner banner-warning';
+      banner.setAttribute('role', 'status');
+      banner.setAttribute('aria-live', 'polite');
+
+      var safeMessage = String(data.message || 'Context window running low.')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      banner.innerHTML =
+        '<span>' + safeMessage + '</span>' +
+        '<button class="dismiss" aria-label="Dismiss">&#10005;</button>';
+
+      var chatArea = document.querySelector('.chat-area');
+      if (chatArea) { chatArea.prepend(banner); }
+    } catch (_) {}
+  });
+
   globalEventSource.onerror = () => {
     if (document.getElementById('restart-overlay')) {
       startRestartPolling();
     }
   };
+}
+
+function getCurrentSessionId() {
+  const match = window.location.pathname.match(/^\/sessions\/([^/]+)/);
+  return match ? match[1] : null;
 }
 
 function showRestartOverlay() {
@@ -919,23 +937,6 @@ function initSchedulingPage() {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.getAttribute('data-action');
-
-    // --- Job form ---
-    if (action === 'toggle-job-form') {
-      const form = document.getElementById('job-form');
-      if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
-    }
-    if (action === 'submit-job-form') {
-      submitJobForm();
-    }
-    if (action === 'edit-job') {
-      const name = btn.getAttribute('data-job-name');
-      if (name) editJob(name);
-    }
-    if (action === 'confirm-delete-job') {
-      const name = btn.getAttribute('data-job-name');
-      if (name && confirm('Delete job "' + name + '"?')) deleteJob(name);
-    }
 
     // --- Scheduled task form ---
     if (action === 'toggle-task-form') {

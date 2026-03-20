@@ -22,13 +22,17 @@ void main() {
         disallowedTools: ['Computer', 'Bash'],
         maxTurns: 25,
         model: 'sonnet',
-        agents: {'search': {'description': 'Search agent'}},
+        agents: {
+          'search': {'description': 'Search agent'},
+        },
       );
       final fields = config.toInitializeFields();
       expect(fields['disallowedTools'], ['Computer', 'Bash']);
       expect(fields['maxTurns'], 25);
       expect(fields['model'], 'sonnet');
-      expect(fields['agents'], {'search': {'description': 'Search agent'}});
+      expect(fields['agents'], {
+        'search': {'description': 'Search agent'},
+      });
     });
 
     test('empty disallowedTools list is omitted', () {
@@ -48,6 +52,5 @@ void main() {
       // Other fields still present.
       expect(fields['maxTurns'], 10);
     });
-
   });
 }

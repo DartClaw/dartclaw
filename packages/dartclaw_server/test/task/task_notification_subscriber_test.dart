@@ -21,7 +21,8 @@ void main() {
     channelManager = ChannelManager(
       queue: queue,
       config: const ChannelConfig.defaults(),
-      taskService: tasks,
+      taskCreator: tasks.create,
+      taskLister: tasks.list,
       triggerParser: const TaskTriggerParser(),
       eventBus: eventBus,
       taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},

@@ -4,51 +4,29 @@ import 'package:test/test.dart';
 void main() {
   group('SubagentLimits', () {
     test('canSpawn allows when below all limits', () {
-      final limits = SubagentLimits(
-        maxConcurrent: 3,
-        maxSpawnDepth: 2,
-        maxChildrenPerAgent: 2,
-      );
-      expect(
-        limits.canSpawn(parentAgentId: 'main', currentDepth: 0),
-        isTrue,
-      );
+      final limits = SubagentLimits(maxConcurrent: 3, maxSpawnDepth: 2, maxChildrenPerAgent: 2);
+      expect(limits.canSpawn(parentAgentId: 'main', currentDepth: 0), isTrue);
     });
 
     test('canSpawn denies when at maxConcurrent', () {
       final limits = SubagentLimits(maxConcurrent: 2);
       limits.recordSpawn('main');
       limits.recordSpawn('main');
-      expect(
-        limits.canSpawn(parentAgentId: 'main', currentDepth: 0),
-        isFalse,
-      );
+      expect(limits.canSpawn(parentAgentId: 'main', currentDepth: 0), isFalse);
     });
 
     test('canSpawn denies when at maxSpawnDepth', () {
       final limits = SubagentLimits(maxSpawnDepth: 1);
-      expect(
-        limits.canSpawn(parentAgentId: 'main', currentDepth: 1),
-        isFalse,
-      );
-      expect(
-        limits.canSpawn(parentAgentId: 'main', currentDepth: 0),
-        isTrue,
-      );
+      expect(limits.canSpawn(parentAgentId: 'main', currentDepth: 1), isFalse);
+      expect(limits.canSpawn(parentAgentId: 'main', currentDepth: 0), isTrue);
     });
 
     test('canSpawn denies when at maxChildrenPerAgent', () {
       final limits = SubagentLimits(maxChildrenPerAgent: 1, maxConcurrent: 10);
       limits.recordSpawn('main');
-      expect(
-        limits.canSpawn(parentAgentId: 'main', currentDepth: 0),
-        isFalse,
-      );
+      expect(limits.canSpawn(parentAgentId: 'main', currentDepth: 0), isFalse);
       // Different parent still ok
-      expect(
-        limits.canSpawn(parentAgentId: 'other', currentDepth: 0),
-        isTrue,
-      );
+      expect(limits.canSpawn(parentAgentId: 'other', currentDepth: 0), isTrue);
     });
 
     test('recordComplete frees slot', () {

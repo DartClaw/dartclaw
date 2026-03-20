@@ -8,8 +8,8 @@ void main() {
   group('ChannelManager review intercept', () {
     late _RecordingMessageQueue queue;
     late FakeChannel channel;
-    late TaskService tasks;
     late InMemoryTaskRepository repo;
+    late _TaskOps tasks;
     late _RecordingReviewHandler reviewHandler;
     late ChannelManager manager;
 
@@ -17,12 +17,12 @@ void main() {
       queue = _RecordingMessageQueue();
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
-      tasks = TaskService(repo);
+      tasks = _TaskOps(repo);
       reviewHandler = _RecordingReviewHandler();
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskLister: tasks.list,
         reviewCommandParser: const ReviewCommandParser(),
         reviewHandler: reviewHandler.call,
         triggerParser: const TaskTriggerParser(),
@@ -216,7 +216,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskLister: tasks.list,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
       );
@@ -236,7 +236,7 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskLister: tasks.list,
         reviewCommandParser: const ReviewCommandParser(),
         reviewHandler: reviewHandler.call,
         triggerParser: const _AlwaysTriggerParser(),
@@ -256,7 +256,7 @@ void main() {
   });
 }
 
-Future<Task> _createTask(TaskService tasks, String id, {required String title, required TaskStatus status}) async {
+Future<Task> _createTask(_TaskOps tasks, String id, {required String title, required TaskStatus status}) async {
   final task = await tasks.create(
     id: id,
     title: title,
@@ -282,7 +282,7 @@ Future<Task> _createTask(TaskService tasks, String id, {required String title, r
   throw UnimplementedError('Unsupported status for test helper: $status');
 }
 
-Future<Task> _putTaskInReview(TaskService tasks, String id, {required String title}) {
+Future<Task> _putTaskInReview(_TaskOps tasks, String id, {required String title}) {
   return _createTask(tasks, id, title: title, status: TaskStatus.review);
 }
 
@@ -315,6 +315,70 @@ class _RecordingMessageQueue extends MessageQueue {
 
   @override
   void dispose() {}
+}
+
+class _TaskOps {
+  final InMemoryTaskRepository _repo;
+
+  _TaskOps(this._repo);
+
+  Future<Task> create({
+    required String id,
+    required String title,
+    required String description,
+    required TaskType type,
+    bool autoStart = false,
+    String? goalId,
+    String? acceptanceCriteria,
+    Map<String, dynamic> configJson = const {},
+    DateTime? now,
+  }) async {
+    final timestamp = now ?? DateTime.now();
+    var task = Task(
+      id: id,
+      title: title,
+      description: description,
+      type: type,
+      goalId: goalId,
+      acceptanceCriteria: acceptanceCriteria,
+      configJson: configJson,
+      createdAt: timestamp,
+    );
+    if (autoStart) {
+      task = task.transition(TaskStatus.queued, now: timestamp);
+    }
+    await _repo.insert(task);
+    return task;
+  }
+
+  Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
+
+  Future<Task> transition(
+    String taskId,
+    TaskStatus newStatus, {
+    DateTime? now,
+    Map<String, dynamic>? configJson,
+  }) async {
+    final task = await _repo.getById(taskId);
+    if (task == null) {
+      throw ArgumentError('Task not found: $taskId');
+    }
+
+    final transitioned = task.transition(newStatus, now: now);
+    final persisted = task.copyWith(
+      status: transitioned.status,
+      configJson: configJson ?? transitioned.configJson,
+      startedAt: transitioned.startedAt,
+      completedAt: transitioned.completedAt,
+    );
+    final updated = await _repo.updateIfStatus(persisted, expectedStatus: task.status);
+    if (!updated) {
+      throw StateError('Task status changed concurrently.');
+    }
+    return persisted;
+  }
+
+  Future<void> dispose() => _repo.dispose();
 }
 
 class _RecordingReviewHandler {

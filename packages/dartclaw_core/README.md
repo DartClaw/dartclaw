@@ -1,6 +1,6 @@
 # dartclaw_core
 
-Shared library for DartClaw - DB, bridge protocol, models, services.
+Shared library for DartClaw - bridge protocol, runtime models, config, channels, and file-based services.
 
 `dartclaw_core` is the SQLite-free heart of the runtime. It provides the
 Claude subprocess harness, channel interfaces, config loading, events, session
@@ -51,8 +51,15 @@ Future<void> main() async {
 - `Guard`, `GuardChain`, `InputSanitizer`, `FileGuard`: security APIs re-exported from `dartclaw_security`.
 - `SessionService`, `MessageService`, `KvService`, `MemoryFileService`: file-based persistence with no SQLite dependency.
 - `DartclawConfig`, `AgentDefinition`, `ScheduledTaskDefinition`: runtime and agent configuration.
-- `Task`, `Goal`, `TaskService`, `GoalService`: task orchestration primitives.
+- `Task`, `Goal`, `TaskOrigin`, `TaskCreator`, `TaskLister`: task models plus channel/task callback contracts.
 - `BridgeEvent`, `EventBus`, `DartclawEvent`: protocol and application event streams.
+
+## API Surface
+
+- `package:dartclaw_core/dartclaw_core.dart`: the SDK-facing barrel. Prefer this for normal use.
+- The public barrel now includes the operational types that still appear in exported APIs, including task-trigger parsing, review-command parsing, worker state, harness process hooks, and harness/container wiring.
+- `package:dartclaw_core/src/...`: deeper internals such as docker validation, credential-proxy plumbing, security-profile resolution, and lifecycle subscribers. These imports are supported for power users and first-party packages, but they are not the stable barrel surface.
+- Task service implementations now live in `package:dartclaw_server`, not `dartclaw_core`.
 
 ## When to Use This Package
 

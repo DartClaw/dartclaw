@@ -16,8 +16,7 @@ class EventBus {
   static final _log = Logger('EventBus');
 
   /// Returns a filtered stream of events matching type [T].
-  Stream<T> on<T extends DartclawEvent>() =>
-      _controller.stream.where((e) => e is T).cast<T>();
+  Stream<T> on<T extends DartclawEvent>() => _controller.stream.where((e) => e is T).cast<T>();
 
   /// Fires an event to all current subscribers.
   ///
@@ -27,16 +26,9 @@ class EventBus {
       _log.warning('fire() called after dispose — event dropped: $event');
       return;
     }
-    runZonedGuarded(
-      () => _controller.add(event),
-      (error, stack) {
-        _log.severe(
-          'Subscriber threw during ${event.runtimeType}',
-          error,
-          stack,
-        );
-      },
-    );
+    runZonedGuarded(() => _controller.add(event), (error, stack) {
+      _log.severe('Subscriber threw during ${event.runtimeType}', error, stack);
+    });
   }
 
   /// Closes the underlying stream controller.

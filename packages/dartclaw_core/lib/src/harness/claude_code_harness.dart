@@ -372,7 +372,13 @@ class ClaudeCodeHarness implements AgentHarness {
       final containerExecutable = claudeExecutable.contains('/')
           ? claudeExecutable
           : ContainerManager.containerClaudeExecutable;
-      process = await cm.exec([containerExecutable, ...args], workingDirectory: _processWorkingDirectory);
+      // Restricted containers use simple mode — disables MCP, hooks, CLAUDE.md
+      final containerEnv = cm.profileId == 'restricted' ? {'CLAUDE_CODE_SIMPLE': '1'} : null;
+      process = await cm.exec(
+        [containerExecutable, ...args],
+        workingDirectory: _processWorkingDirectory,
+        env: containerEnv,
+      );
     } else {
       process = await _processFactory(
         claudeExecutable,
@@ -449,7 +455,11 @@ class ClaudeCodeHarness implements AgentHarness {
     return harnessConfig.effort;
   }
 
-  Future<void> _restartForExecution({required String workingDirectory, required String? model, required String? effort}) async {
+  Future<void> _restartForExecution({
+    required String workingDirectory,
+    required String? model,
+    required String? effort,
+  }) async {
     await _withLock(() async {
       if (_state == WorkerState.busy) {
         throw StateError('Cannot change working directory, model, or effort while harness is busy');

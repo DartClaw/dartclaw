@@ -25,7 +25,7 @@ void main() {
 
   /// Runs the cleanup command via a CommandRunner with the given [args].
   Future<void> runCleanup(List<String> args, {DartclawConfig? config}) async {
-    final cfg = config ?? DartclawConfig(dataDir: tempDir.path);
+    final cfg = config ?? DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final command = CleanupCommand(config: cfg, writeLine: output.add, exitFn: (code) => exitCode = code);
 
     final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(_TestSessionsCommand(command));
@@ -54,8 +54,8 @@ void main() {
 
     test('cleanup with --dry-run always uses warn mode', () async {
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce),
+        server: ServerConfig(dataDir: tempDir.path),
+        sessions: SessionConfig(maintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce)),
       );
 
       await runCleanup(['--dry-run'], config: config);
@@ -73,8 +73,8 @@ void main() {
 
     test('cleanup with no flags respects config mode', () async {
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce),
+        server: ServerConfig(dataDir: tempDir.path),
+        sessions: SessionConfig(maintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce)),
       );
 
       await runCleanup([], config: config);
@@ -108,8 +108,10 @@ void main() {
       _backdateSession(sessionsDir, s.id, const Duration(days: 60));
 
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+        server: ServerConfig(dataDir: tempDir.path),
+        sessions: SessionConfig(
+          maintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+        ),
       );
 
       await runCleanup([], config: config);
@@ -125,8 +127,10 @@ void main() {
       _backdateSession(sessionsDir, s.id, const Duration(days: 60));
 
       final config = DartclawConfig(
-        dataDir: tempDir.path,
-        sessionMaintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+        server: ServerConfig(dataDir: tempDir.path),
+        sessions: SessionConfig(
+          maintenanceConfig: const SessionMaintenanceConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 30),
+        ),
       );
 
       await runCleanup(['--dry-run'], config: config);

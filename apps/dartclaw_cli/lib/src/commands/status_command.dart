@@ -30,7 +30,7 @@ class StatusCommand extends Command<void> {
       _writeLine('WARNING: $w');
     }
 
-    final dataDir = config.dataDir;
+    final dataDir = config.server.dataDir;
 
     if (!Directory(dataDir).existsSync()) {
       _writeLine('No data directory found at $dataDir');
@@ -43,6 +43,6 @@ class StatusCommand extends Command<void> {
     _writeLine('DartClaw Status');
     _writeLine('  Data dir:  $dataDir');
     _writeLine('  Sessions:  ${sessionList.length}');
-    _writeLine('  Harness:   not running (executable: ${config.claudeExecutable})');
+    _writeLine('  Harness:   not running (executable: ${config.server.claudeExecutable})');
   }
 }

@@ -4,20 +4,21 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_models/dartclaw_models.dart';
+import '../runtime/channel_type.dart';
+import '../scoping/channel_config.dart';
+import '../scoping/live_scope_config.dart';
+import '../scoping/session_scope_config.dart';
+import '../task/task.dart';
+import '../task/task_status.dart';
 import 'channel.dart';
-import 'channel_config.dart';
 import 'message_queue.dart';
 import 'review_command_parser.dart';
 import 'task_origin.dart';
+import 'task_creator.dart';
 import 'task_trigger_config.dart';
 import 'task_trigger_parser.dart';
-import '../config/live_scope_config.dart';
-import '../config/session_scope_config.dart';
 import '../events/dartclaw_event.dart';
 import '../events/event_bus.dart';
-import '../task/task.dart';
-import '../task/task_service.dart';
-import '../task/task_status.dart';
 
 /// Manages channel registration, lifecycle, and inbound message routing.
 class ChannelManager {
@@ -26,7 +27,8 @@ class ChannelManager {
   final MessageQueue queue;
   final ChannelConfig config;
   final LiveScopeConfig liveScopeConfig;
-  final TaskService? _taskService;
+  final TaskCreator? _taskCreator;
+  final TaskLister? _taskLister;
   final ReviewCommandParser? _reviewCommandParser;
   final ChannelReviewHandler? _reviewHandler;
   final TaskTriggerParser? _triggerParser;
@@ -38,14 +40,16 @@ class ChannelManager {
     required this.queue,
     required this.config,
     LiveScopeConfig? liveScopeConfig,
-    TaskService? taskService,
+    TaskCreator? taskCreator,
+    TaskLister? taskLister,
     ReviewCommandParser? reviewCommandParser,
     ChannelReviewHandler? reviewHandler,
     TaskTriggerParser? triggerParser,
     EventBus? eventBus,
     Map<ChannelType, TaskTriggerConfig> taskTriggerConfigs = const {},
   }) : liveScopeConfig = liveScopeConfig ?? LiveScopeConfig(const SessionScopeConfig.defaults()),
-       _taskService = taskService,
+       _taskCreator = taskCreator,
+       _taskLister = taskLister,
        _reviewCommandParser = reviewCommandParser,
        _reviewHandler = reviewHandler,
        _triggerParser = triggerParser,
@@ -71,7 +75,7 @@ class ChannelManager {
     }
 
     final reviewCommandParser = _reviewCommandParser;
-    if (reviewCommandParser != null && _reviewHandler != null && _taskService != null) {
+    if (reviewCommandParser != null && _reviewHandler != null && _taskLister != null) {
       final reviewCommand = reviewCommandParser.parse(message.text);
       if (reviewCommand != null) {
         unawaited(_handleReviewCommand(message, channel, reviewCommand));
@@ -180,8 +184,8 @@ class ChannelManager {
       return;
     }
 
-    final taskService = _taskService;
-    if (taskService == null) {
+    final taskCreator = _taskCreator;
+    if (taskCreator == null) {
       await _sendBestEffort(
         channel,
         recipientId,
@@ -201,7 +205,7 @@ class ChannelManager {
     );
 
     try {
-      final task = await taskService.create(
+      final task = await taskCreator(
         id: const Uuid().v4(),
         title: trigger.description,
         description: trigger.description,
@@ -244,15 +248,15 @@ class ChannelManager {
   Future<void> _handleReviewCommand(ChannelMessage message, Channel channel, ReviewCommand command) async {
     final recipientId = _resolveRecipientId(message);
     final sourceMessageId = _resolveSourceMessageId(message);
-    final taskService = _taskService;
+    final taskLister = _taskLister;
     final reviewHandler = _reviewHandler;
-    if (taskService == null || reviewHandler == null) {
+    if (taskLister == null || reviewHandler == null) {
       _enqueueMessage(message, channel);
       return;
     }
 
     try {
-      final tasksInReview = await taskService.list(status: TaskStatus.review);
+      final tasksInReview = await taskLister(status: TaskStatus.review);
       if (tasksInReview.isEmpty && command.taskId == null) {
         _enqueueMessage(message, channel);
         return;
@@ -277,7 +281,7 @@ class ChannelManager {
           );
           return;
         } else {
-          final allMatches = _matchingTasks(await taskService.list(), requestedId);
+          final allMatches = _matchingTasks(await taskLister(), requestedId);
           if (allMatches.isEmpty) {
             await _sendBestEffort(
               channel,

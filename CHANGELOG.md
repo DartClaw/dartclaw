@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] — 2026-03-19
+
+Composed config model — decomposed `DartclawConfig` from a 72-field flat class into typed section classes.
+
+### Changed
+
+- **Typed config sections** (S01): 14 typed section classes extracted into `packages/dartclaw_core/lib/src/config/` — `ServerConfig`, `AgentConfig`, `AuthConfig`, `GatewayConfig`, `SessionConfig`, `ContextConfig`, `SecurityConfig`, `MemoryConfig`, `SearchConfig`, `TaskConfig`, `SchedulingConfig`, `WorkspaceConfig`, `LoggingConfig`, `UsageConfig`; each section owns its fields, defaults, and YAML parsing
+- **Composed `DartclawConfig`** (S02): `DartclawConfig` rewritten from 72 flat fields to 16 composed section fields; section accessors replace top-level getters
+- **Consumer migration** (S03): ~280 access sites across all packages migrated from flat-field access (`config.port`, `config.authToken`) to section-based access (`config.server.port`, `config.auth.token`)
+- **Config pipeline updated** (S04): `ConfigSerializer` updated for section-based serialization and deserialization; `ConfigMeta`, `ConfigValidator`, and `ConfigWriter` unchanged (operate on flat YAML paths as before)
+
+### Added
+
+- **Extension config registration** (S05): `registerExtensionParser()` API for P7 custom config sections; typed `extension<T>()` lookup on `DartclawConfig`; enables third-party packages to register and retrieve their own config sections without modifying core
+
+### Removed
+
+- **Deprecated forwarding getters** (S06): all `@Deprecated` flat-field forwarding getters on `DartclawConfig` removed; `dart analyze` clean across all packages; 2,205 tests pass
+
+---
+
+## [0.10.1] — 2026-03-17
+
+SDK architecture hardening before publish.
+
+### Changed
+
+- `dartclaw_core`: removed the config ↔ channel cycle by introducing a neutral `src/scoping/` module for channel config and session scope types, then removed the residual `channel ↔ scoping` edge by moving `ChannelType` to a neutral runtime module
+- `dartclaw_core`: narrowed the public barrel while keeping it self-contained; types still referenced by exported public APIs remain available from `package:dartclaw_core/dartclaw_core.dart`, while deeper internals continue to require `package:dartclaw_core/src/...` imports
+- `dartclaw_core`: `ChannelManager` now depends on `TaskCreator` / `TaskLister` callbacks instead of the concrete task service
+- `dartclaw_server`: `TaskService` and `GoalService` now live here instead of `dartclaw_core`
+
+### Fixed
+
+- First-party packages and tests now compile and run cleanly against the narrowed core barrel
+- Wrapper packages now re-export the core types their public APIs expose, so downstream consumers no longer need `dartclaw_core/src/...` imports for channel packages or `dartclaw_testing`
+- Google Chat session-key test expectation updated to match the current default DM scope (`perChannelContact`)
+
+## [0.10.0] — 2026-03-16
+
+Design system overhaul, context management foundations, restricted session hardening.
+
+### Added
+
+#### Phase A — Design System Implementation
+- **Token alignment** (S01): production `tokens.css` replaced with full design system spec — 7 surface levels (`pit` through `surface2`), hue-aware blue-violet tint shadows, snappy easing curve, `--transition-glow`, light theme semantic color alignment
+- **Base, shell & animations** (S02): body diagonal gradient background, mobile sidebar `translateX` slide animation (replacing instant show/hide), sidebar scrim `<button>` with opacity transition, logo gradient text animation (accent→info→accent, 6s)
+- **Container taxonomy** (S03): 4 well types (`.well`, `.well-deep`, `.well-content`, `.well-flush`) and 8 card types (default, sunken, elevated, active, panels, metric, tint, featured) with sub-elements, hover effects, and free nesting
+- **Status indicators & gradient dividers** (S04): status dots with glow animations (live/error/warning/idle), restyled status badges (pill shape, semantic variants, muted), status pills with gradient fill, scanning bar (animated gradient sweep), gradient dividers (fade and center)
+- **Accessibility & reduced motion** (S05): comprehensive `@media (prefers-reduced-motion: reduce)` disabling all animations and transitions; `.sr-only` utility; focus ring treatments on interactive elements; WCAG AA contrast verification for both themes
+- **Template migration** (S06): all 18 Trellis templates migrated to new container taxonomy — health dashboard metrics → `.card-metric`, settings cards → card with `.card-header`, task items → `.card-tint-*`, chat code blocks → `.well-deep`; legacy class aliases removed
+
+#### Phase B — Context Management Tier 1
+- **Compact instructions** (S07): `# Compact instructions` section appended to system prompt via `BehaviorFileService.composeSystemPrompt()`; configurable via `context.compact_instructions` in `dartclaw.yaml`; included for long-running sessions (web, channel DM, long cron), skipped for short-lived sessions; "Context" section in settings UI
+- **Exploration summaries** (S08): `ExplorationSummarizer` produces deterministic structural summaries for files exceeding `context.exploration_summary_threshold` (default 25K tokens); JSON/YAML → key-path + value-type schema; CSV/TSV → column names + row count + samples; source code → top-level declarations; silent fallback to `ResultTrimmer` head+tail for unrecognized types or parse failures
+- **Context warning banner** (S09): `ContextMonitor.checkThreshold()` emits SSE `context_warning` event when context usage exceeds `context.warning_threshold` (default 80%); dismissable web UI banner; one-shot per session; per-session scope; `ConfigMeta` registered as live-mutable
+
+#### Phase C — Restricted Session Hardening
+- **Restricted session env flag** (S10): `CLAUDE_CODE_SIMPLE=1` passed to `claude` binary for restricted container sessions; disables MCP server loading, hook execution, and CLAUDE.md file loading; workspace and direct sessions unaffected
+
+### Changed
+- **Design system tokens**: all CSS custom properties now follow the full design system spec palette; shadows use `rgba(9,9,26,...)` hue-aware tints instead of plain black
+- **Sidebar interaction model**: mobile sidebar uses CSS transform transitions instead of JS display toggle; scrim is a semantic `<button>` element driven by CSS combinators
+- **Status dot class names**: old `.status-dot.active` / `.status-dot.error` patterns replaced with BEM-style `.status-dot--live` / `.status-dot--error` modifiers (no aliases)
+
+### Fixed
+- TD-038: context window usage warning now surfaces to user before session becomes unresponsive
+
 ## [0.9.1] — 2026-03-16
 
 Scheduling unification, model/effort overrides, config consistency fixes.

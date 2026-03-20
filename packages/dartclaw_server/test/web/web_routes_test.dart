@@ -324,7 +324,7 @@ void main() {
       sessions,
       messages,
       config: const DartclawConfig(
-        channelConfig: ChannelConfig(
+        channels: ChannelConfig(
           channelConfigs: {
             'google_chat': {'enabled': true, 'require_mention': true, 'dm_access': 'open', 'group_access': 'disabled'},
           },

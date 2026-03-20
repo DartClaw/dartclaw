@@ -21,7 +21,8 @@ void main() {
 
   test('returns hardcoded default when no files exist', () async {
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), BehaviorFileService.defaultPrompt);
+    // Use task session to suppress compact instructions and test core default
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), BehaviorFileService.defaultPrompt);
   });
 
   test('missing optional files do not emit warning logs', () async {
@@ -47,14 +48,14 @@ void main() {
   test('returns global SOUL.md content', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('You are a pirate.');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), 'You are a pirate.');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'You are a pirate.');
   });
 
   test('concatenates global and project SOUL.md', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Global soul');
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Project soul');
     final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
-    expect(await service.composeSystemPrompt(), 'Global soul\n\nProject soul');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'Global soul\n\nProject soul');
   });
 
   test('composes all files in correct order', () async {
@@ -62,7 +63,7 @@ void main() {
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Project soul');
     File('${globalDir.path}/MEMORY.md').writeAsStringSync('Memory');
     final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
-    expect(await service.composeSystemPrompt(), 'Global soul\n\nProject soul\n\nMemory');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'Global soul\n\nProject soul\n\nMemory');
   });
 
   test('includes MEMORY.md in prompt', () async {
@@ -75,14 +76,14 @@ void main() {
   test('skips non-UTF-8 file gracefully', () async {
     File('${globalDir.path}/SOUL.md').writeAsBytesSync([0xFF, 0xFE]);
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), BehaviorFileService.defaultPrompt);
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), BehaviorFileService.defaultPrompt);
   });
 
   test('skips file with permission error', () async {
     final soulFile = File('${globalDir.path}/SOUL.md')..writeAsStringSync('content');
     Process.runSync('chmod', ['000', soulFile.path]);
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), BehaviorFileService.defaultPrompt);
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), BehaviorFileService.defaultPrompt);
     Process.runSync('chmod', ['644', soulFile.path]);
   }, testOn: 'mac-os || linux');
 
@@ -90,15 +91,15 @@ void main() {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Global only');
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Should not appear');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), 'Global only');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'Global only');
   });
 
   test('re-reads files on each call (live editing)', () async {
     final soulFile = File('${globalDir.path}/SOUL.md')..writeAsStringSync('Version 1');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(), 'Version 1');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'Version 1');
     soulFile.writeAsStringSync('Version 2');
-    expect(await service.composeSystemPrompt(), 'Version 2');
+    expect(await service.composeSystemPrompt(sessionId: 'agent:main:task:t1'), 'Version 2');
   });
 
   test('includes USER.md in prompt when present', () async {
@@ -168,10 +169,82 @@ void main() {
   test('missing USER.md and TOOLS.md do not error', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    final result = await service.composeSystemPrompt();
+    // Use task session to suppress compact instructions for exact match
+    final result = await service.composeSystemPrompt(sessionId: 'agent:main:task:t1');
     expect(result, 'Soul');
     expect(result, isNot(contains('## User Context')));
     expect(result, isNot(contains('## Environment Notes')));
+  });
+
+  group('compact instructions', () {
+    test('includes default compact instructions when none configured', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt();
+      expect(result, contains('# Compact instructions'));
+      expect(result, contains('When compacting context, preserve:'));
+    });
+
+    test('includes custom compact instructions when configured', () async {
+      final service = BehaviorFileService(
+        workspaceDir: globalDir.path,
+        compactInstructions: 'Custom instructions here',
+      );
+      final result = await service.composeSystemPrompt();
+      expect(result, contains('Custom instructions here'));
+      expect(result, isNot(contains('When compacting context, preserve:')));
+    });
+
+    test('skips compact instructions for task sessions', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'agent:main:task:abc123');
+      expect(result, isNot(contains('# Compact instructions')));
+    });
+
+    test('includes compact instructions for web sessions', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'agent:main:web:');
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('includes compact instructions for dm sessions', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'agent:main:dm:shared');
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('includes compact instructions for cron sessions', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'agent:main:cron:heartbeat');
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('includes compact instructions for group sessions', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'agent:main:group:whatsapp:groupId');
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('includes compact instructions when sessionId is null', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt();
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('includes compact instructions for unparseable sessionId', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt(sessionId: 'legacy-uuid-format');
+      expect(result, contains('# Compact instructions'));
+    });
+
+    test('compact instructions appear after MEMORY.md', () async {
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('Soul content');
+      File('${globalDir.path}/MEMORY.md').writeAsStringSync('Memory content');
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+      final result = await service.composeSystemPrompt();
+      final memIdx = result.indexOf('Memory content');
+      final compactIdx = result.indexOf('# Compact instructions');
+      expect(memIdx, lessThan(compactIdx));
+    });
   });
 
   group('composeAppendPrompt', () {
@@ -321,7 +394,8 @@ void main() {
           workspaceDir: dir.path,
           maxMemoryBytes: 80, // keep ~20 emoji
         );
-        final prompt = await service.composeSystemPrompt();
+        // Use task session to suppress compact instructions for precise byte check
+        final prompt = await service.composeSystemPrompt(sessionId: 'agent:main:task:t1');
         // Should not throw, and result should be within bounds
         final resultBytes = utf8.encode(prompt).length;
         expect(resultBytes, lessThanOrEqualTo(utf8.encode(BehaviorFileService.defaultPrompt).length + 2 + 80));

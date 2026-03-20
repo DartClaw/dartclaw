@@ -393,7 +393,7 @@ void main() {
           dispatcher: (sessionKey, message, {senderJid}) async => 'Queued reply',
         ),
         config: const ChannelConfig.defaults(),
-        taskService: tasks,
+        taskCreator: tasks.create,
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
       );

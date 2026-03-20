@@ -47,9 +47,9 @@ workspace:
     final rc =
         runtime ??
         RuntimeConfig(
-          heartbeatEnabled: cfg.heartbeatEnabled,
-          gitSyncEnabled: cfg.gitSyncEnabled,
-          gitSyncPushEnabled: cfg.gitSyncPushEnabled,
+          heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+          gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+          gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
         );
     final writer = ConfigWriter(configPath: configPath);
     final validator = const ConfigValidator();
@@ -72,9 +72,9 @@ workspace:
   Router createRouterWithPairing({required DmAccessController dmAccessController}) {
     final cfg = const DartclawConfig.defaults();
     final rc = RuntimeConfig(
-      heartbeatEnabled: cfg.heartbeatEnabled,
-      gitSyncEnabled: cfg.gitSyncEnabled,
-      gitSyncPushEnabled: cfg.gitSyncPushEnabled,
+      heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+      gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+      gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
     );
     final writer = ConfigWriter(configPath: configPath);
     final validator = const ConfigValidator();
@@ -249,7 +249,7 @@ workspace:
     enabled: true
     push_enabled: true
 ''');
-      final router = createRouter(config: const DartclawConfig(gatewayToken: 'secret-token'));
+      final router = createRouter(config: const DartclawConfig(gateway: GatewayConfig(token: 'secret-token')));
       final response = await get(router, '/api/config');
       final json = await readJson(response);
 
@@ -456,8 +456,10 @@ workspace:
       });
 
       final router = createRouter(
-        config: const DartclawConfig(
-          sessionScopeConfig: SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.shared),
+        config: DartclawConfig(
+          sessions: SessionConfig(
+            scopeConfig: const SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.shared),
+          ),
         ),
         eventBus: eventBus,
       );
@@ -484,9 +486,56 @@ workspace:
       expect(after, SessionKey.dmShared());
       expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
+
+    test('context.warning_threshold applied immediately via ConfigChangeSubscriber', () async {
+      final contextMonitor = ContextMonitor(warningThreshold: 80);
+      final eventBus = EventBus();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+      ConfigChangeSubscriber(runtimeConfig: runtime, contextMonitor: contextMonitor).subscribe(eventBus);
+      final router = createRouter(runtime: runtime, eventBus: eventBus);
+
+      final response = await patch(router, '/api/config', {'context.warning_threshold': 90});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], contains('context.warning_threshold'));
+      expect(json['pendingRestart'], isEmpty);
+      expect(contextMonitor.warningThreshold, 90);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
+
+      await eventBus.dispose();
+    });
   });
 
   group('PATCH /api/config — restart fields', () {
+    test('exploration_summary_threshold written to YAML and restart.pending created', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {'context.exploration_summary_threshold': 50000});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], isEmpty);
+      expect(json['pendingRestart'], contains('context.exploration_summary_threshold'));
+
+      final yaml = File(configPath).readAsStringSync();
+      expect(yaml, contains('50000'));
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
+    });
+
+    test('compact_instructions written to YAML and restart.pending created', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {'context.compact_instructions': 'Keep user prefs'});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], isEmpty);
+      expect(json['pendingRestart'], contains('context.compact_instructions'));
+
+      final yaml = File(configPath).readAsStringSync();
+      expect(yaml, contains('Keep user prefs'));
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
+    });
+
     test('port change written to YAML and restart.pending created', () async {
       final router = createRouter();
       final response = await patch(router, '/api/config', {'port': 3001});
@@ -562,7 +611,7 @@ workspace:
         {'name': 'existing', 'schedule': '0 7 * * *', 'prompt': 'hi', 'delivery': 'announce'},
       ];
       writeJobsToYaml(jobs);
-      final config = DartclawConfig(schedulingJobs: jobs);
+      final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
       final response = await post(router, '/api/scheduling/jobs', {
         'name': 'existing',
@@ -603,7 +652,7 @@ workspace:
         {'name': 'my-job', 'schedule': '0 7 * * *', 'prompt': 'hi', 'delivery': 'announce'},
       ];
       writeJobsToYaml(jobs);
-      final config = DartclawConfig(schedulingJobs: jobs);
+      final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
       final response = await put(router, '/api/scheduling/jobs/my-job', {'schedule': '0 8 * * *'});
 
@@ -626,7 +675,7 @@ workspace:
         {'name': 'my-job', 'schedule': '0 7 * * *', 'prompt': 'hi', 'delivery': 'announce'},
       ];
       writeJobsToYaml(jobs);
-      final config = DartclawConfig(schedulingJobs: jobs);
+      final config = DartclawConfig(scheduling: SchedulingConfig(jobs: jobs));
       final router = createRouter(config: config);
       final response = await delete(router, '/api/scheduling/jobs/my-job');
 
@@ -729,10 +778,7 @@ workspace:
         },
       ]);
       final router = createRouter();
-      final response = await put(router, '/api/scheduling/tasks/my-task', {
-        'enabled': false,
-        'title': 'New title',
-      });
+      final response = await put(router, '/api/scheduling/tasks/my-task', {'enabled': false, 'title': 'New title'});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -788,11 +834,7 @@ workspace:
         'name': 'scheduled-coding-task',
         'type': 'task',
         'schedule': '0 10 * * *',
-        'task': {
-          'title': 'Coding task',
-          'description': 'Do some coding',
-          'task_type': 'coding',
-        },
+        'task': {'title': 'Coding task', 'description': 'Do some coding', 'task_type': 'coding'},
       });
 
       expect(response.statusCode, 201);

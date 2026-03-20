@@ -15,6 +15,7 @@
       <a href="#server" class="settings-tab">Server</a>
       <a href="#sessions" class="settings-tab">Sessions</a>
       <a href="#memory" class="settings-tab">Memory</a>
+      <a href="#context" class="settings-tab">Context</a>
       <a href="#scheduling" class="settings-tab">Scheduling</a>
       <a href="#channels" class="settings-tab">Channels</a>
       <a href="#security" class="settings-tab">Security</a>
@@ -157,6 +158,41 @@
           </div>
         </form>
         <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+      </div>
+
+      <!-- Context (editable, restart-required) -->
+      <div id="context" class="card settings-card" data-tab="context">
+        <div class="card-header">
+          <span class="card-title">Context</span>
+        </div>
+        <form class="settings-form" data-section="context">
+          <div class="form-group" data-field="context.compact_instructions">
+            <label class="form-label" for="field-compact-instructions">Compact Instructions</label>
+            <textarea class="form-input form-textarea" id="field-compact-instructions"
+                      rows="6" placeholder="Loading..." disabled></textarea>
+            <p class="form-hint">Guides auto-compaction on what to preserve in long sessions. Leave empty for defaults.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="context.warning_threshold">
+            <label class="form-label" for="field-warning-threshold">Warning Threshold <span class="live-badge">live</span></label>
+            <input class="form-input" type="number" id="field-warning-threshold"
+                   min="50" max="99" placeholder="Loading..." disabled />
+            <p class="form-hint">Percentage of context window used before a warning banner is shown (50–99).</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-group" data-field="context.exploration_summary_threshold">
+            <label class="form-label" for="field-exploration-threshold">Exploration Summary Threshold</label>
+            <input class="form-input" type="number" id="field-exploration-threshold"
+                   min="1000" placeholder="Loading..." disabled />
+            <p class="form-hint">Token count above which large file output gets structural summaries instead of head+tail truncation.</p>
+            <div class="form-error"></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
+          </div>
+        </form>
+        <p class="section-note section-note-restart">&#9888; Compact Instructions changes require a server restart</p>
       </div>
 
       <!-- Scheduling (mixed: live toggles + restart fields) -->

@@ -64,10 +64,10 @@ void main() {
       expect(source, contains('btn.dataset.themeInit'));
     });
 
-    test('initSidebar guards menuToggle and closeBtn listeners', () {
+    test('initSidebar guards menuToggle and scrim listeners', () {
       final source = File(scriptPath).readAsStringSync();
       expect(source, contains('menuToggle.dataset.sidebarInit'));
-      expect(source, contains('closeBtn.dataset.sidebarInit'));
+      expect(source, contains('scrim.dataset.sidebarInit'));
     });
 
     test('initTextareaResize checks dataset.resizeInit', () {

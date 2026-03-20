@@ -137,19 +137,21 @@ void main() {
 
     expect((await turnState.getAll())[session.id]?.turnId, equals(turnId));
 
-    final outcomeExpectation = runner.waitForOutcome(session.id, turnId).then<void>(
-      (_) => fail('Expected released turn to fail the pending outcome'),
-      onError: (Object error, StackTrace _) {
-        expect(
-          error,
-          isA<StateError>().having(
-            (stateError) => stateError.message,
-            'message',
-            contains('released without execution'),
-          ),
+    final outcomeExpectation = runner
+        .waitForOutcome(session.id, turnId)
+        .then<void>(
+          (_) => fail('Expected released turn to fail the pending outcome'),
+          onError: (Object error, StackTrace _) {
+            expect(
+              error,
+              isA<StateError>().having(
+                (stateError) => stateError.message,
+                'message',
+                contains('released without execution'),
+              ),
+            );
+          },
         );
-      },
-    );
     runner.releaseTurn(session.id, turnId);
     await Future<void>.delayed(Duration.zero);
 

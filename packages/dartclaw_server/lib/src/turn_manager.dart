@@ -4,7 +4,7 @@ import 'behavior/behavior_file_service.dart';
 import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
-import 'context/result_trimmer.dart';
+import 'context/exploration_summarizer.dart';
 import 'harness_pool.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
@@ -107,7 +107,7 @@ class TurnManager {
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
-    ResultTrimmer? resultTrimmer,
+    ExplorationSummarizer? explorationSummarizer,
     MessageRedactor? redactor,
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
@@ -125,7 +125,7 @@ class TurnManager {
              lockManager: lockManager,
              resetService: resetService,
              contextMonitor: contextMonitor,
-             resultTrimmer: resultTrimmer,
+             explorationSummarizer: explorationSummarizer,
              redactor: redactor,
              selfImprovement: selfImprovement,
              usageTracker: usageTracker,
@@ -172,8 +172,13 @@ class TurnManager {
     return null;
   }
 
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) =>
-      _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model, effort: effort);
+  Future<String> reserveTurn(
+    String sessionId, {
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+  }) => _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model, effort: effort);
 
   void executeTurn(
     String sessionId,

@@ -1,5 +1,4 @@
-import 'goal.dart';
-import 'goal_repository.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show Goal, GoalRepository;
 
 const _goalContextCharBudget = 800;
 const _ellipsis = '...';

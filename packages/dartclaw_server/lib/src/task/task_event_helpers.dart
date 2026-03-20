@@ -1,5 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'task_service.dart';
+
 /// Fires task lifecycle events: [TaskStatusChangedEvent] always, plus
 /// [TaskReviewReadyEvent] when the new status is [TaskStatus.review].
 ///

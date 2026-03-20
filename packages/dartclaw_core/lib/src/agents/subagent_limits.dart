@@ -11,19 +11,12 @@ class SubagentLimits {
   final Map<String, int> _childrenCount = {};
   int _totalActive = 0;
 
-  SubagentLimits({
-    this.maxConcurrent = 3,
-    this.maxSpawnDepth = 1,
-    this.maxChildrenPerAgent = 2,
-  });
+  SubagentLimits({this.maxConcurrent = 3, this.maxSpawnDepth = 1, this.maxChildrenPerAgent = 2});
 
   int get totalActive => _totalActive;
 
   /// Check if a new agent can be spawned given current state.
-  bool canSpawn({
-    required String parentAgentId,
-    required int currentDepth,
-  }) {
+  bool canSpawn({required String parentAgentId, required int currentDepth}) {
     if (_totalActive >= maxConcurrent) {
       _log.warning('Cannot spawn: at max concurrent ($maxConcurrent)');
       return false;

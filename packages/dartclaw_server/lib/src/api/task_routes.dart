@@ -11,6 +11,7 @@ import '../task/merge_executor.dart';
 import '../task/task_event_helpers.dart';
 import '../task/task_file_guard.dart';
 import '../task/task_review_service.dart';
+import '../task/task_service.dart';
 import '../task/worktree_manager.dart';
 import '../turn_manager.dart';
 import 'api_helpers.dart';

@@ -67,9 +67,7 @@ void main() {
         final config = SessionScopeConfig(
           dmScope: DmScope.perContact,
           groupScope: GroupScope.shared,
-          channels: {
-            'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact),
-          },
+          channels: {'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact)},
         );
         final result = config.forChannel('signal');
         expect(result.dmScope, DmScope.perChannelContact);
@@ -80,12 +78,7 @@ void main() {
         final config = SessionScopeConfig(
           dmScope: DmScope.perContact,
           groupScope: GroupScope.shared,
-          channels: {
-            'signal': const ChannelScopeConfig(
-              dmScope: DmScope.shared,
-              groupScope: GroupScope.perMember,
-            ),
-          },
+          channels: {'signal': const ChannelScopeConfig(dmScope: DmScope.shared, groupScope: GroupScope.perMember)},
         );
         final result = config.forChannel('signal');
         expect(result.dmScope, DmScope.shared);
@@ -96,9 +89,7 @@ void main() {
         final config = SessionScopeConfig(
           dmScope: DmScope.perContact,
           groupScope: GroupScope.shared,
-          channels: {
-            'signal': const ChannelScopeConfig(dmScope: DmScope.shared),
-          },
+          channels: {'signal': const ChannelScopeConfig(dmScope: DmScope.shared)},
         );
         final result = config.forChannel('unknown');
         expect(result.dmScope, DmScope.perContact);

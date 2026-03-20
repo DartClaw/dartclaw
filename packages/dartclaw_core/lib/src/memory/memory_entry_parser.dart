@@ -26,12 +26,9 @@ List<MemoryEntry> parseMemoryEntries(String content) {
       final rawBlock = blockLines.join('\n');
       final rawText = currentText.toString().trim();
       if (rawText.isNotEmpty) {
-        entries.add(MemoryEntry(
-          timestamp: currentTimestamp,
-          category: currentCategory,
-          rawText: rawText,
-          rawBlock: rawBlock,
-        ));
+        entries.add(
+          MemoryEntry(timestamp: currentTimestamp, category: currentCategory, rawText: rawText, rawBlock: rawBlock),
+        );
       }
     }
     blockLines.clear();

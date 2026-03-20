@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'diff_generator.dart';
+import 'task_service.dart';
 import 'worktree_manager.dart';
 
 /// Collects task artifacts into `<dataDir>/tasks/<taskId>/artifacts/`.

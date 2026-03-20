@@ -9,44 +9,44 @@ void main() {
     group('defaults', () {
       test('all fields have expected default values', () {
         final config = const DartclawConfig.defaults();
-        expect(config.port, 3000);
-        expect(config.host, 'localhost');
-        expect(config.dataDir, '~/.dartclaw');
-        expect(config.workerTimeout, 600);
-        expect(config.claudeExecutable, 'claude');
-        expect(config.staticDir, 'packages/dartclaw_server/lib/src/static');
+        expect(config.server.port, 3000);
+        expect(config.server.host, 'localhost');
+        expect(config.server.dataDir, '~/.dartclaw');
+        expect(config.server.workerTimeout, 600);
+        expect(config.server.claudeExecutable, 'claude');
+        expect(config.server.staticDir, 'packages/dartclaw_server/lib/src/static');
         expect(config.warnings, isEmpty);
       });
     });
 
     group('derived getters', () {
       test('sessionsDir joins dataDir with sessions', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.sessionsDir, '/data/sessions');
       });
 
       test('searchDbPath joins dataDir with search.db', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.searchDbPath, '/data/search.db');
       });
 
       test('tasksDbPath joins dataDir with tasks.db', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.tasksDbPath, '/data/tasks.db');
       });
 
       test('kvPath joins dataDir with kv.json', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.kvPath, '/data/kv.json');
       });
 
       test('workspaceDir joins dataDir with workspace', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.workspaceDir, '/data/workspace');
       });
 
       test('logsDir joins dataDir with logs', () {
-        final config = DartclawConfig(dataDir: '/data');
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.logsDir, '/data/logs');
       });
     });
@@ -55,17 +55,18 @@ void main() {
       // No config file found -> defaults
       String? noFile(String path) => null;
 
-      test('implements ChannelConfigProvider', () {
+      test('exposes ChannelConfigProvider via adapter', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config, isA<ChannelConfigProvider>());
+        expect(config, isNot(isA<ChannelConfigProvider>()));
+        expect(config.channelConfigProvider, isA<ChannelConfigProvider>());
       });
 
       test('missing config file uses defaults', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.port, 3000);
-        expect(config.host, 'localhost');
-        expect(config.dataDir, '/home/user/.dartclaw');
-        expect(config.workerTimeout, 600);
+        expect(config.server.port, 3000);
+        expect(config.server.host, 'localhost');
+        expect(config.server.dataDir, '/home/user/.dartclaw');
+        expect(config.server.workerTimeout, 600);
         expect(config.warnings, isEmpty);
       });
 
@@ -79,11 +80,11 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 8080);
-        expect(config.host, '0.0.0.0');
-        expect(config.dataDir, '/custom/data');
-        expect(config.workerTimeout, 300);
-        expect(config.gatewayHsts, isTrue);
+        expect(config.server.port, 8080);
+        expect(config.server.host, '0.0.0.0');
+        expect(config.server.dataDir, '/custom/data');
+        expect(config.server.workerTimeout, 300);
+        expect(config.gateway.hsts, isTrue);
       });
 
       test('google chat parser works after explicit package registration', () {
@@ -113,17 +114,17 @@ void main() {
 
       test('gateway.hsts defaults to false when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.gatewayHsts, isFalse);
+        expect(config.gateway.hsts, isFalse);
       });
 
       test('auth.cookie_secure defaults to false when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.cookieSecure, isFalse);
+        expect(config.auth.cookieSecure, isFalse);
       });
 
       test('auth.trusted_proxies defaults to empty when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.trustedProxies, isEmpty);
+        expect(config.auth.trustedProxies, isEmpty);
       });
 
       test('auth.cookie_secure parses when configured', () {
@@ -134,7 +135,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.cookieSecure, isTrue);
+        expect(config.auth.cookieSecure, isTrue);
       });
 
       test('auth.trusted_proxies parses when configured', () {
@@ -147,7 +148,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.trustedProxies, ['192.168.1.100', '192.168.1.101']);
+        expect(config.auth.trustedProxies, ['192.168.1.100', '192.168.1.101']);
       });
 
       test('auth.cookie_secure invalid type collects warning and uses default', () {
@@ -158,7 +159,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.cookieSecure, isFalse);
+        expect(config.auth.cookieSecure, isFalse);
         expect(config.warnings, anyElement(contains('Invalid type for auth.cookie_secure')));
       });
 
@@ -170,7 +171,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.trustedProxies, isEmpty);
+        expect(config.auth.trustedProxies, isEmpty);
         expect(config.warnings, anyElement(contains('Invalid type for auth.trusted_proxies')));
       });
 
@@ -182,18 +183,13 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.gatewayHsts, isFalse);
+        expect(config.gateway.hsts, isFalse);
         expect(config.warnings, anyElement(contains('Invalid type for gateway.hsts')));
-      });
-
-      test('guard_audit.max_entries defaults to 10000 when unset', () {
-        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.guardAuditMaxEntries, 10000);
       });
 
       test('guard_audit.max_retention_days defaults to 30 when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.guardAuditMaxRetentionDays, 30);
+        expect(config.security.guardAuditMaxRetentionDays, 30);
       });
 
       test('guard_audit.max_entries is ignored with deprecation warning when configured', () {
@@ -204,11 +200,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guardAuditMaxEntries, 10000);
-        expect(
-          config.warnings,
-          anyElement(contains('guard_audit.max_entries is deprecated and ignored')),
-        );
+        expect(config.warnings, anyElement(contains('guard_audit.max_entries is deprecated and ignored')));
       });
 
       test('guard_audit.max_retention_days parses when configured', () {
@@ -219,7 +211,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guardAuditMaxRetentionDays, 7);
+        expect(config.security.guardAuditMaxRetentionDays, 7);
       });
 
       test('guard_audit.max_retention_days is clamped to 0..365', () {
@@ -238,8 +230,8 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(low.guardAuditMaxRetentionDays, 0);
-        expect(high.guardAuditMaxRetentionDays, 365);
+        expect(low.security.guardAuditMaxRetentionDays, 0);
+        expect(high.security.guardAuditMaxRetentionDays, 365);
       });
 
       test('guard_audit.max_entries invalid type is ignored with deprecation warning', () {
@@ -250,16 +242,12 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guardAuditMaxEntries, 10000);
-        expect(
-          config.warnings,
-          anyElement(contains('guard_audit.max_entries is deprecated and ignored')),
-        );
+        expect(config.warnings, anyElement(contains('guard_audit.max_entries is deprecated and ignored')));
       });
 
       test('tasks.artifact_retention_days defaults to 0 when unset', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.tasksArtifactRetentionDays, 0);
+        expect(config.tasks.artifactRetentionDays, 0);
       });
 
       test('tasks.artifact_retention_days parses when configured', () {
@@ -270,7 +258,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.tasksArtifactRetentionDays, 90);
+        expect(config.tasks.artifactRetentionDays, 90);
       });
 
       test('tasks.artifact_retention_days is clamped to 0..3650', () {
@@ -289,8 +277,8 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(low.tasksArtifactRetentionDays, 0);
-        expect(high.tasksArtifactRetentionDays, 3650);
+        expect(low.tasks.artifactRetentionDays, 0);
+        expect(high.tasks.artifactRetentionDays, 3650);
       });
 
       test('parses memory.max_bytes from nested config', () {
@@ -302,7 +290,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.memoryMaxBytes, 65536);
+        expect(config.memory.maxBytes, 65536);
       });
 
       test('falls back to top-level memory_max_bytes when memory.max_bytes is absent', () {
@@ -314,7 +302,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.memoryMaxBytes, 65536);
+        expect(config.memory.maxBytes, 65536);
       });
 
       test('CLI memory_max_bytes takes precedence over nested and top-level config', () {
@@ -329,7 +317,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.memoryMaxBytes, 262144);
+        expect(config.memory.maxBytes, 262144);
       });
 
       test('nested memory.max_bytes takes precedence over top-level memory_max_bytes', () {
@@ -343,7 +331,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.memoryMaxBytes, 65536);
+        expect(config.memory.maxBytes, 65536);
       });
 
       test('emits deprecation warning for top-level memory_max_bytes', () {
@@ -389,9 +377,9 @@ void main() {
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.memoryPruningEnabled, isFalse);
-        expect(config.memoryArchiveAfterDays, 7);
-        expect(config.memoryPruningSchedule, '0 4 * * *');
+        expect(config.memory.pruningEnabled, isFalse);
+        expect(config.memory.archiveAfterDays, 7);
+        expect(config.memory.pruningSchedule, '0 4 * * *');
       });
 
       test('resolution order: CLI > YAML > defaults', () {
@@ -404,11 +392,11 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         // CLI wins for port
-        expect(config.port, 9090);
+        expect(config.server.port, 9090);
         // YAML wins for host (no CLI override)
-        expect(config.host, '0.0.0.0');
+        expect(config.server.host, '0.0.0.0');
         // Default for workerTimeout (neither CLI nor YAML)
-        expect(config.workerTimeout, 600);
+        expect(config.server.workerTimeout, 600);
       });
 
       test('\${ENV_VAR} substitution in YAML string values', () {
@@ -419,7 +407,7 @@ void main() {
           },
           env: {'HOME': '/home/user', 'MY_HOST': 'custom.host'},
         );
-        expect(config.host, 'custom.host');
+        expect(config.server.host, 'custom.host');
       });
 
       test('unknown key collects warning', () {
@@ -441,7 +429,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('Invalid type for port')));
       });
 
@@ -453,7 +441,7 @@ void main() {
           },
           env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '/etc/dartclaw.yaml'},
         );
-        expect(config.port, 4444);
+        expect(config.server.port, 4444);
       });
 
       test('YAML parse error collects warning and uses defaults', () {
@@ -464,7 +452,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('YAML parse error')));
       });
 
@@ -476,7 +464,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.dataDir, '/home/user/my-data');
+        expect(config.server.dataDir, '/home/user/my-data');
       });
 
       test('YAML null value collects warning and uses default', () {
@@ -487,7 +475,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('null')));
       });
 
@@ -499,7 +487,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('not a map')));
       });
 
@@ -508,7 +496,7 @@ void main() {
           fileReader: noFile,
           env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '/no/such/file.yaml'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('non-existent file')));
       });
 
@@ -522,7 +510,7 @@ void main() {
           },
           env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '/env/config.yaml'},
         );
-        expect(config.port, 7777);
+        expect(config.server.port, 7777);
       });
 
       test('configPath pointing to non-existent file collects warning', () {
@@ -531,7 +519,7 @@ void main() {
           fileReader: noFile,
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 3000);
+        expect(config.server.port, 3000);
         expect(config.warnings, anyElement(contains('--config points to non-existent file')));
       });
 
@@ -545,7 +533,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.port, 5555);
+        expect(config.server.port, 5555);
       });
 
       test('claudeExecutable and staticDir only from CLI, not YAML', () {
@@ -558,14 +546,14 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.claudeExecutable, '/usr/local/bin/claude');
+        expect(config.server.claudeExecutable, '/usr/local/bin/claude');
         // staticDir uses default since no CLI override
-        expect(config.staticDir, 'packages/dartclaw_server/lib/src/static');
+        expect(config.server.staticDir, 'packages/dartclaw_server/lib/src/static');
       });
 
       test('default dataDir gets ~ expanded', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/testuser'});
-        expect(config.dataDir, '/home/testuser/.dartclaw');
+        expect(config.server.dataDir, '/home/testuser/.dartclaw');
       });
     });
 
@@ -574,9 +562,9 @@ void main() {
 
       test('default config has SessionScopeConfig.defaults()', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
-        expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
-        expect(config.sessionScopeConfig.channels, isEmpty);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.groupScope, GroupScope.shared);
+        expect(config.sessions.scopeConfig.channels, isEmpty);
       });
 
       test('sessions.dm_scope: shared parses to DmScope.shared', () {
@@ -587,7 +575,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.shared);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.shared);
       });
 
       test('sessions.group_scope: per-member parses to GroupScope.perMember', () {
@@ -600,7 +588,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.groupScope, GroupScope.perMember);
+        expect(config.sessions.scopeConfig.groupScope, GroupScope.perMember);
       });
 
       test('sessions.channels.signal.group_scope parses channel override', () {
@@ -613,8 +601,8 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.channels['signal']?.groupScope, GroupScope.perMember);
-        expect(config.sessionScopeConfig.channels['signal']?.dmScope, isNull);
+        expect(config.sessions.scopeConfig.channels['signal']?.groupScope, GroupScope.perMember);
+        expect(config.sessions.scopeConfig.channels['signal']?.dmScope, isNull);
       });
 
       test('invalid sessions.dm_scope produces warning and uses default', () {
@@ -627,7 +615,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
       });
 
@@ -639,7 +627,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
       });
 
@@ -653,7 +641,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.channels['unknown_channel']?.dmScope, DmScope.shared);
+        expect(config.sessions.scopeConfig.channels['unknown_channel']?.dmScope, DmScope.shared);
       });
     });
 
@@ -662,8 +650,8 @@ void main() {
 
       test('missing guards section uses GuardConfig.defaults()', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.guards.failOpen, isFalse);
-        expect(config.guards.enabled, isTrue);
+        expect(config.security.guards.failOpen, isFalse);
+        expect(config.security.guards.enabled, isTrue);
       });
 
       test('guards: {fail_open: true} parsed correctly', () {
@@ -674,8 +662,8 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guards.failOpen, isTrue);
-        expect(config.guards.enabled, isTrue);
+        expect(config.security.guards.failOpen, isTrue);
+        expect(config.security.guards.enabled, isTrue);
         expect(config.warnings, isEmpty);
       });
 
@@ -687,7 +675,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guards.enabled, isFalse);
+        expect(config.security.guards.enabled, isFalse);
       });
 
       test('guards: {unknown_key: x} produces warning, defaults used', () {
@@ -698,7 +686,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guards.failOpen, isFalse);
+        expect(config.security.guards.failOpen, isFalse);
         expect(config.warnings, anyElement(contains('Unknown guards config key')));
       });
 
@@ -710,7 +698,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.guards.failOpen, isFalse);
+        expect(config.security.guards.failOpen, isFalse);
         expect(config.warnings, anyElement(contains('Invalid type for guards')));
       });
     });
@@ -726,7 +714,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders, isEmpty);
+        expect(config.search.providers, isEmpty);
         expect(config.warnings, isEmpty);
       });
 
@@ -740,9 +728,9 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders, hasLength(1));
-        expect(config.searchProviders['brave']!.enabled, isTrue);
-        expect(config.searchProviders['brave']!.apiKey, 'my-key');
+        expect(config.search.providers, hasLength(1));
+        expect(config.search.providers['brave']!.enabled, isTrue);
+        expect(config.search.providers['brave']!.apiKey, 'my-key');
       });
 
       test('multiple providers parsed', () {
@@ -755,10 +743,10 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders, hasLength(2));
-        expect(config.searchProviders['brave']!.enabled, isTrue);
-        expect(config.searchProviders['tavily']!.enabled, isFalse);
-        expect(config.searchProviders['tavily']!.apiKey, 'tavily-key');
+        expect(config.search.providers, hasLength(2));
+        expect(config.search.providers['brave']!.enabled, isTrue);
+        expect(config.search.providers['tavily']!.enabled, isFalse);
+        expect(config.search.providers['tavily']!.apiKey, 'tavily-key');
       });
 
       test('provider with enabled: false parsed with enabled=false', () {
@@ -771,7 +759,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders['brave']!.enabled, isFalse);
+        expect(config.search.providers['brave']!.enabled, isFalse);
       });
 
       test('provider missing api_key skipped with warning', () {
@@ -784,7 +772,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders, isEmpty);
+        expect(config.search.providers, isEmpty);
         expect(config.warnings, anyElement(contains('missing "api_key"')));
       });
 
@@ -798,7 +786,7 @@ void main() {
           },
           env: {'HOME': '/home/user', 'BRAVE_API_KEY': 'resolved-key'},
         );
-        expect(config.searchProviders['brave']!.apiKey, 'resolved-key');
+        expect(config.search.providers['brave']!.apiKey, 'resolved-key');
       });
 
       test('invalid providers type produces warning', () {
@@ -811,13 +799,13 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.searchProviders, isEmpty);
+        expect(config.search.providers, isEmpty);
         expect(config.warnings, anyElement(contains('Invalid type for search.providers')));
       });
 
       test('no search section returns empty providers', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.searchProviders, isEmpty);
+        expect(config.search.providers, isEmpty);
       });
     });
 
@@ -826,9 +814,9 @@ void main() {
 
       test('default config has SessionScopeConfig.defaults()', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.sessionScopeConfig, const SessionScopeConfig.defaults());
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
-        expect(config.sessionScopeConfig.groupScope, GroupScope.shared);
+        expect(config.sessions.scopeConfig, const SessionScopeConfig.defaults());
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.groupScope, GroupScope.shared);
       });
 
       test('sessions.dm_scope: shared parses to DmScope.shared', () {
@@ -839,7 +827,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.shared);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.shared);
         expect(config.warnings, isEmpty);
       });
 
@@ -851,7 +839,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.groupScope, GroupScope.perMember);
+        expect(config.sessions.scopeConfig.groupScope, GroupScope.perMember);
         expect(config.warnings, isEmpty);
       });
 
@@ -865,9 +853,9 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perContact);
-        expect(config.sessionScopeConfig.channels, hasLength(1));
-        final signalScope = config.sessionScopeConfig.forChannel('signal');
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perContact);
+        expect(config.sessions.scopeConfig.channels, hasLength(1));
+        final signalScope = config.sessions.scopeConfig.forChannel('signal');
         expect(signalScope.groupScope, GroupScope.perMember);
         expect(signalScope.dmScope, DmScope.perContact);
         expect(config.warnings, isEmpty);
@@ -881,7 +869,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.dm_scope')));
       });
 
@@ -893,7 +881,7 @@ void main() {
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionScopeConfig.dmScope, DmScope.perChannelContact);
+        expect(config.sessions.scopeConfig.dmScope, DmScope.perChannelContact);
         expect(config.warnings, anyElement(contains('Invalid type for sessions.dm_scope')));
       });
 
@@ -908,8 +896,8 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         // Still parses the override — unknown channel names are not rejected
-        expect(config.sessionScopeConfig.channels, hasLength(1));
-        expect(config.sessionScopeConfig.channels['unknown']?.dmScope, DmScope.shared);
+        expect(config.sessions.scopeConfig.channels, hasLength(1));
+        expect(config.sessions.scopeConfig.channels['unknown']?.dmScope, DmScope.shared);
       });
 
       test('invalid channel override value produces warning', () {
@@ -923,7 +911,7 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         // Invalid value ignored, channel not added (no valid overrides)
-        expect(config.sessionScopeConfig.channels, isEmpty);
+        expect(config.sessions.scopeConfig.channels, isEmpty);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.channels.signal.dm_scope')));
       });
     });
@@ -948,10 +936,10 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.automationScheduledTasks, hasLength(1));
-        expect(config.automationScheduledTasks.first.id, 'legacy-task-1');
-        expect(config.automationScheduledTasks.first.title, 'Legacy Task');
-        expect(config.automationScheduledTasks.first.type, TaskType.research);
+        expect(config.scheduling.taskDefinitions, hasLength(1));
+        expect(config.scheduling.taskDefinitions.first.id, 'legacy-task-1');
+        expect(config.scheduling.taskDefinitions.first.title, 'Legacy Task');
+        expect(config.scheduling.taskDefinitions.first.type, TaskType.research);
       });
 
       test('deprecation warning generated for automation.scheduled_tasks', () {
@@ -973,10 +961,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(
-          config.warnings,
-          anyElement(allOf(contains('automation.scheduled_tasks'), contains('deprecated'))),
-        );
+        expect(config.warnings, anyElement(allOf(contains('automation.scheduled_tasks'), contains('deprecated'))));
       });
 
       test('coexistence: both scheduling.jobs[type:task] and automation.scheduled_tasks work', () {
@@ -1008,8 +993,8 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.automationScheduledTasks, hasLength(2));
-        final ids = config.automationScheduledTasks.map((d) => d.id).toSet();
+        expect(config.scheduling.taskDefinitions, hasLength(2));
+        final ids = config.scheduling.taskDefinitions.map((d) => d.id).toSet();
         expect(ids, containsAll(['modern-task-job', 'legacy-coexist']));
       });
 
@@ -1032,21 +1017,21 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.automationScheduledTasks, hasLength(1));
-        expect(config.automationScheduledTasks.first.type, TaskType.analysis);
+        expect(config.scheduling.taskDefinitions, hasLength(1));
+        expect(config.scheduling.taskDefinitions.first.type, TaskType.analysis);
       });
     });
 
     group('session maintenance config parsing', () {
       test('default config has SessionMaintenanceConfig.defaults()', () {
         final config = const DartclawConfig.defaults();
-        expect(config.sessionMaintenanceConfig, const SessionMaintenanceConfig.defaults());
-        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.warn);
-        expect(config.sessionMaintenanceConfig.pruneAfterDays, 30);
-        expect(config.sessionMaintenanceConfig.maxSessions, 500);
-        expect(config.sessionMaintenanceConfig.maxDiskMb, 0);
-        expect(config.sessionMaintenanceConfig.cronRetentionHours, 24);
-        expect(config.sessionMaintenanceConfig.schedule, '0 3 * * *');
+        expect(config.sessions.maintenanceConfig, const SessionMaintenanceConfig.defaults());
+        expect(config.sessions.maintenanceConfig.mode, MaintenanceMode.warn);
+        expect(config.sessions.maintenanceConfig.pruneAfterDays, 30);
+        expect(config.sessions.maintenanceConfig.maxSessions, 500);
+        expect(config.sessions.maintenanceConfig.maxDiskMb, 0);
+        expect(config.sessions.maintenanceConfig.cronRetentionHours, 24);
+        expect(config.sessions.maintenanceConfig.schedule, '0 3 * * *');
       });
 
       test('sessions.maintenance.mode: enforce parses correctly', () {
@@ -1059,7 +1044,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.enforce);
+        expect(config.sessions.maintenanceConfig.mode, MaintenanceMode.enforce);
       });
 
       test('sessions.maintenance.prune_after_days: 7 parses correctly', () {
@@ -1072,7 +1057,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.pruneAfterDays, 7);
+        expect(config.sessions.maintenanceConfig.pruneAfterDays, 7);
       });
 
       test('all maintenance int fields parse correctly', () {
@@ -1085,9 +1070,9 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.maxSessions, 100);
-        expect(config.sessionMaintenanceConfig.maxDiskMb, 512);
-        expect(config.sessionMaintenanceConfig.cronRetentionHours, 48);
+        expect(config.sessions.maintenanceConfig.maxSessions, 100);
+        expect(config.sessions.maintenanceConfig.maxDiskMb, 512);
+        expect(config.sessions.maintenanceConfig.cronRetentionHours, 48);
       });
 
       test('sessions.maintenance.schedule parses correctly', () {
@@ -1100,7 +1085,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.schedule, '0 4 * * *');
+        expect(config.sessions.maintenanceConfig.schedule, '0 4 * * *');
       });
 
       test('invalid sessions.maintenance.mode warns and uses default', () {
@@ -1113,7 +1098,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.mode, MaintenanceMode.warn);
+        expect(config.sessions.maintenanceConfig.mode, MaintenanceMode.warn);
         expect(config.warnings, anyElement(contains('Invalid value for sessions.maintenance.mode')));
       });
 
@@ -1127,7 +1112,7 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig.pruneAfterDays, 30);
+        expect(config.sessions.maintenanceConfig.pruneAfterDays, 30);
         expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance.prune_after_days')));
       });
 
@@ -1141,9 +1126,239 @@ automation:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.sessionMaintenanceConfig, const SessionMaintenanceConfig.defaults());
+        expect(config.sessions.maintenanceConfig, const SessionMaintenanceConfig.defaults());
         expect(config.warnings, anyElement(contains('Invalid type for sessions.maintenance')));
       });
     });
+
+    // -------------------------------------------------------------------------
+    // Extension registration (S05 / P7)
+    // -------------------------------------------------------------------------
+
+    group('extension registration', () {
+      setUp(DartclawConfig.clearExtensionParsers);
+      tearDown(DartclawConfig.clearExtensionParsers);
+
+      // TC-E01: registered parser is called and result is accessible
+      test('registered parser is invoked and result accessible via extension<T>()', () {
+        DartclawConfig.registerExtensionParser(
+          'slack',
+          (yaml, warns) => _SlackConfig(webhook: yaml['webhook'] as String? ?? ''),
+        );
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'slack:\n  webhook: https://hooks.example.com/abc\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.warnings, isEmpty);
+        final slack = config.extension<_SlackConfig>('slack');
+        expect(slack.webhook, 'https://hooks.example.com/abc');
+      });
+
+      // TC-E02: unknown key without parser produces warning and stores raw map
+      test('unknown key without parser produces warning and stores raw map', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'my_custom_section:\n  foo: bar\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.warnings, anyElement(contains('Unknown config key: my_custom_section')));
+        final raw = config.extensions['my_custom_section'];
+        expect(raw, isA<Map<String, dynamic>>());
+        expect((raw as Map<String, dynamic>)['foo'], 'bar');
+      });
+
+      // TC-E03: extension<T>() throws StateError for missing key
+      test('extension<T>() throws StateError when key not present', () {
+        final config = const DartclawConfig.defaults();
+        expect(() => config.extension<_SlackConfig>('slack'), throwsStateError);
+      });
+
+      // TC-E04: extension<T>() throws ArgumentError for wrong type
+      test('extension<T>() throws ArgumentError for type mismatch', () {
+        final config = DartclawConfig(
+          extensions: {'slack': _SlackConfig(webhook: 'x')},
+        );
+        expect(() => config.extension<String>('slack'), throwsArgumentError);
+      });
+
+      // TC-E05: registerExtensionParser throws for built-in key
+      test('registerExtensionParser throws ArgumentError for built-in key', () {
+        expect(
+          () => DartclawConfig.registerExtensionParser('agent', (a, b) => {}),
+          throwsArgumentError,
+        );
+      });
+
+      // TC-E06: parser throwing stores raw map and adds warning
+      test('parser exception falls back to raw map and warns', () {
+        DartclawConfig.registerExtensionParser('bad_ext', (yaml, warns) {
+          throw Exception('parse failed');
+        });
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'bad_ext:\n  x: 1\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.warnings, anyElement(contains('Error parsing extension "bad_ext"')));
+        final raw = config.extensions['bad_ext'];
+        expect(raw, isA<Map<String, dynamic>>());
+      });
+
+      // TC-E07: empty YAML section produces empty map for registered parser
+      test('empty YAML section passes empty map to parser', () {
+        final captured = <String, dynamic>{};
+        DartclawConfig.registerExtensionParser('empty_ext', (yaml, warns) {
+          captured.addAll(yaml);
+          return _SlackConfig(webhook: '');
+        });
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'empty_ext:\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.warnings, isEmpty);
+        expect(captured, isEmpty);
+        expect(config.extension<_SlackConfig>('empty_ext').webhook, '');
+      });
+
+      // TC-E08: multiple extensions are all parsed independently
+      test('multiple extensions are all parsed and retrievable', () {
+        DartclawConfig.registerExtensionParser(
+          'ext_a',
+          (yaml, warns) => _SlackConfig(webhook: yaml['url'] as String? ?? ''),
+        );
+        DartclawConfig.registerExtensionParser(
+          'ext_b',
+          (yaml, warns) => _SlackConfig(webhook: yaml['endpoint'] as String? ?? ''),
+        );
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'ext_a:\n  url: http://a\next_b:\n  endpoint: http://b\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.extension<_SlackConfig>('ext_a').webhook, 'http://a');
+        expect(config.extension<_SlackConfig>('ext_b').webhook, 'http://b');
+      });
+
+      // TC-E10: scalar extension value preserved losslessly (no coercion to {})
+      test('scalar extension value is preserved losslessly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'feature_flag: true\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.extensions['feature_flag'], isTrue);
+        expect(config.warnings, anyElement(contains('Unknown config key: feature_flag')));
+      });
+
+      // TC-E11: list extension value preserved losslessly
+      test('list extension value is preserved losslessly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'custom_list:\n  - alpha\n  - beta\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        final raw = config.extensions['custom_list'];
+        expect(raw, isA<List<dynamic>>());
+        expect(raw as List<dynamic>, ['alpha', 'beta']);
+      });
+
+      // TC-E12: null extension value preserved losslessly
+      test('null extension value is preserved losslessly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'placeholder_section:\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.extensions.containsKey('placeholder_section'), isTrue);
+        expect(config.extensions['placeholder_section'], isNull);
+      });
+
+      // TC-E13: registered parser with non-map value warns and stores raw
+      test('registered parser with non-map value warns and preserves raw', () {
+        DartclawConfig.registerExtensionParser(
+          'flag_ext',
+          (yaml, warns) => _SlackConfig(webhook: 'parsed'),
+        );
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'flag_ext: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.warnings, anyElement(contains('Extension "flag_ext" expected a map')));
+        // Raw scalar preserved, parser was NOT invoked
+        expect(config.extensions['flag_ext'], 42);
+      });
+
+      // TC-E14: extension<T>() works with null values (distinguishes missing vs null)
+      test('extension<T>() distinguishes missing key from null value', () {
+        final config = DartclawConfig(extensions: {'present_null': null});
+        // Missing key → StateError
+        expect(() => config.extension<Object?>('absent'), throwsStateError);
+        // Present null key → returns null (not StateError)
+        expect(config.extension<Object?>('present_null'), isNull);
+      });
+
+      // TC-E09: clearExtensionParsers resets registry so subsequent load ignores parser
+      test('clearExtensionParsers removes all registered parsers', () {
+        DartclawConfig.registerExtensionParser(
+          'gone',
+          (yaml, warns) => _SlackConfig(webhook: 'x'),
+        );
+        DartclawConfig.clearExtensionParsers();
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'gone:\n  x: 1\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        // With no parser, the unknown key should warn and be stored as raw map
+        expect(config.warnings, anyElement(contains('Unknown config key: gone')));
+        expect(config.extensions['gone'], isA<Map<String, dynamic>>());
+      });
+    });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Test helper types
+// ---------------------------------------------------------------------------
+
+class _SlackConfig {
+  final String webhook;
+  const _SlackConfig({required this.webhook});
 }

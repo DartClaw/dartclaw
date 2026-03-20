@@ -30,11 +30,7 @@ void main() {
 
     test('fromYaml handles invalid types gracefully', () {
       final warns = <String>[];
-      final config = ContainerConfig.fromYaml({
-        'enabled': 'yes',
-        'image': 123,
-        'mounts': 'not-a-list',
-      }, warns);
+      final config = ContainerConfig.fromYaml({'enabled': 'yes', 'image': 123, 'mounts': 'not-a-list'}, warns);
       expect(config.enabled, isFalse);
       expect(config.image, 'dartclaw-agent:latest');
       expect(config.extraMounts, isEmpty);

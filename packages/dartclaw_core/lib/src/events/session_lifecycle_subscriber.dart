@@ -29,9 +29,7 @@ class SessionLifecycleSubscriber {
             '(type: ${event.sessionType})',
           );
         case SessionErrorEvent():
-          _log.warning(
-            'Session error: ${event.sessionId} — ${event.error}',
-          );
+          _log.warning('Session error: ${event.sessionId} — ${event.error}');
       }
     });
   }

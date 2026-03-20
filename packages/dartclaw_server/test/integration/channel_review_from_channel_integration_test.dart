@@ -38,7 +38,8 @@ void main() {
     manager = ChannelManager(
       queue: queue,
       config: const ChannelConfig.defaults(),
-      taskService: tasks,
+      taskCreator: tasks.create,
+      taskLister: tasks.list,
       reviewCommandParser: const ReviewCommandParser(),
       reviewHandler: reviewService.channelReviewHandler(trigger: 'channel'),
       triggerParser: const TaskTriggerParser(),

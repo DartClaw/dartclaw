@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 
 import 'cron_parser.dart';
 import 'scheduled_job.dart';
+import '../task/task_service.dart';
 
 final _log = Logger('ScheduledTaskRunner');
 

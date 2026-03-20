@@ -6,14 +6,18 @@ void main() {
     test('global deny blocks tool regardless of agent allow', () {
       final cascade = ToolPolicyCascade(
         globalDeny: {'Bash'},
-        agentAllow: {'search': {'Bash', 'WebSearch'}},
+        agentAllow: {
+          'search': {'Bash', 'WebSearch'},
+        },
       );
       expect(cascade.isAllowed('search', 'Bash'), isFalse);
     });
 
     test('agent deny blocks tool for that agent only', () {
       final cascade = ToolPolicyCascade(
-        agentDeny: {'search': {'FileRead'}},
+        agentDeny: {
+          'search': {'FileRead'},
+        },
         agentAllow: {
           'search': {'WebSearch', 'FileRead'},
           'main': {'FileRead', 'WebSearch'},
@@ -25,7 +29,9 @@ void main() {
 
     test('sandbox allow: tool in set passes', () {
       final cascade = ToolPolicyCascade(
-        agentAllow: {'search': {'WebSearch', 'WebFetch'}},
+        agentAllow: {
+          'search': {'WebSearch', 'WebFetch'},
+        },
       );
       expect(cascade.isAllowed('search', 'WebSearch'), isTrue);
       expect(cascade.isAllowed('search', 'WebFetch'), isTrue);
@@ -33,7 +39,9 @@ void main() {
 
     test('sandbox allow: tool NOT in set is denied', () {
       final cascade = ToolPolicyCascade(
-        agentAllow: {'search': {'WebSearch', 'WebFetch'}},
+        agentAllow: {
+          'search': {'WebSearch', 'WebFetch'},
+        },
       );
       expect(cascade.isAllowed('search', 'Bash'), isFalse);
       expect(cascade.isAllowed('search', 'FileRead'), isFalse);
@@ -41,7 +49,9 @@ void main() {
 
     test('no sandbox for agent allows all tools', () {
       final cascade = ToolPolicyCascade(
-        agentAllow: {'search': {'WebSearch'}},
+        agentAllow: {
+          'search': {'WebSearch'},
+        },
       );
       // 'main' has no sandbox defined
       expect(cascade.isAllowed('main', 'Bash'), isTrue);
@@ -51,8 +61,12 @@ void main() {
     test('cascade: most restrictive wins', () {
       final cascade = ToolPolicyCascade(
         globalDeny: {'DangerousTool'},
-        agentDeny: {'search': {'SemiDangerous'}},
-        agentAllow: {'search': {'WebSearch', 'DangerousTool', 'SemiDangerous'}},
+        agentDeny: {
+          'search': {'SemiDangerous'},
+        },
+        agentAllow: {
+          'search': {'WebSearch', 'DangerousTool', 'SemiDangerous'},
+        },
       );
       // DangerousTool: in allow set but globally denied
       expect(cascade.isAllowed('search', 'DangerousTool'), isFalse);
@@ -64,7 +78,9 @@ void main() {
 
     test('empty global deny + empty agent deny + tool in allow passes', () {
       final cascade = ToolPolicyCascade(
-        agentAllow: {'search': {'WebSearch'}},
+        agentAllow: {
+          'search': {'WebSearch'},
+        },
       );
       expect(cascade.isAllowed('search', 'WebSearch'), isTrue);
     });
@@ -74,7 +90,9 @@ void main() {
     test('passes when no active agent', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(
-          agentAllow: {'search': {'WebSearch'}},
+          agentAllow: {
+            'search': {'WebSearch'},
+          },
         ),
       );
       final context = GuardContext(
@@ -90,7 +108,9 @@ void main() {
     test('blocks tool not in agent sandbox', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(
-          agentAllow: {'search': {'WebSearch'}},
+          agentAllow: {
+            'search': {'WebSearch'},
+          },
         ),
       );
       final context = GuardContext(
@@ -107,7 +127,9 @@ void main() {
     test('allows tool in agent sandbox', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(
-          agentAllow: {'search': {'WebSearch'}},
+          agentAllow: {
+            'search': {'WebSearch'},
+          },
         ),
       );
       final context = GuardContext(
@@ -124,7 +146,9 @@ void main() {
     test('passes non-beforeToolCall hooks', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(
-          agentAllow: {'search': {'WebSearch'}},
+          agentAllow: {
+            'search': {'WebSearch'},
+          },
         ),
       );
       final context = GuardContext(

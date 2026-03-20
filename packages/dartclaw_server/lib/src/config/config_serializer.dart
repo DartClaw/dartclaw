@@ -1,3 +1,5 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:convert';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
@@ -30,77 +32,86 @@ class ConfigSerializer {
     final signalConfig = config.getChannelConfig<SignalConfig>(ChannelType.signal);
     final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
     return {
-      'port': config.port,
-      'host': config.host,
-      'name': config.name,
-      'dataDir': config.dataDir,
-      'workerTimeout': config.workerTimeout,
-      'memoryMaxBytes': config.memoryMaxBytes,
-      'agent': {'model': config.agentModel, 'effort': config.agentEffort, 'maxTurns': config.agentMaxTurns},
-      'auth': {'cookieSecure': config.cookieSecure, 'trustedProxies': config.trustedProxies},
-      'concurrency': {'maxParallelTurns': config.maxParallelTurns},
-      'guardAudit': {'maxRetentionDays': config.guardAuditMaxRetentionDays},
+      'port': config.server.port,
+      'host': config.server.host,
+      'name': config.server.name,
+      'dataDir': config.server.dataDir,
+      'workerTimeout': config.server.workerTimeout,
+      'memoryMaxBytes': config.memory.maxBytes,
+      'agent': {'model': config.agent.model, 'effort': config.agent.effort, 'maxTurns': config.agent.maxTurns},
+      'auth': {'cookieSecure': config.auth.cookieSecure, 'trustedProxies': config.auth.trustedProxies},
+      'concurrency': {'maxParallelTurns': config.server.maxParallelTurns},
+      'guardAudit': {'maxRetentionDays': config.security.guardAuditMaxRetentionDays},
       'tasks': {
-        'maxConcurrent': config.tasksMaxConcurrent,
-        'artifactRetentionDays': config.tasksArtifactRetentionDays,
+        'maxConcurrent': config.tasks.maxConcurrent,
+        'artifactRetentionDays': config.tasks.artifactRetentionDays,
         'worktree': {
-          'baseRef': config.tasksWorktreeBaseRef,
-          'staleTimeoutHours': config.tasksWorktreeStaleTimeoutHours,
-          'mergeStrategy': config.tasksWorktreeMergeStrategy,
+          'baseRef': config.tasks.worktreeBaseRef,
+          'staleTimeoutHours': config.tasks.worktreeStaleTimeoutHours,
+          'mergeStrategy': config.tasks.worktreeMergeStrategy,
         },
       },
       'sessions': {
-        'resetHour': config.sessionResetHour,
-        'idleTimeoutMinutes': config.sessionIdleTimeoutMinutes,
-        'dmScope': config.sessionScopeConfig.dmScope.toYaml(),
-        'groupScope': config.sessionScopeConfig.groupScope.toYaml(),
+        'resetHour': config.sessions.resetHour,
+        'idleTimeoutMinutes': config.sessions.idleTimeoutMinutes,
+        'dmScope': config.sessions.scopeConfig.dmScope.toYaml(),
+        'groupScope': config.sessions.scopeConfig.groupScope.toYaml(),
         'channels': {
-          for (final entry in config.sessionScopeConfig.channels.entries)
+          for (final entry in config.sessions.scopeConfig.channels.entries)
             entry.key: {
               if (entry.value.dmScope != null) 'dmScope': entry.value.dmScope!.toYaml(),
               if (entry.value.groupScope != null) 'groupScope': entry.value.groupScope!.toYaml(),
             },
         },
         'maintenance': {
-          'mode': config.sessionMaintenanceConfig.mode.toYaml(),
-          'pruneAfterDays': config.sessionMaintenanceConfig.pruneAfterDays,
-          'maxSessions': config.sessionMaintenanceConfig.maxSessions,
-          'maxDiskMb': config.sessionMaintenanceConfig.maxDiskMb,
-          'cronRetentionHours': config.sessionMaintenanceConfig.cronRetentionHours,
-          'schedule': config.sessionMaintenanceConfig.schedule,
+          'mode': config.sessions.maintenanceConfig.mode.toYaml(),
+          'pruneAfterDays': config.sessions.maintenanceConfig.pruneAfterDays,
+          'maxSessions': config.sessions.maintenanceConfig.maxSessions,
+          'maxDiskMb': config.sessions.maintenanceConfig.maxDiskMb,
+          'cronRetentionHours': config.sessions.maintenanceConfig.cronRetentionHours,
+          'schedule': config.sessions.maintenanceConfig.schedule,
         },
       },
-      'logging': {'level': config.logLevel, 'format': config.logFormat},
+      'logging': {'level': config.logging.level, 'format': config.logging.format},
       'scheduling': {
         'heartbeat': {
           // Live-mutable: read from RuntimeConfig
           'enabled': runtime.heartbeatEnabled,
-          'intervalMinutes': config.heartbeatIntervalMinutes,
+          'intervalMinutes': config.scheduling.heartbeatIntervalMinutes,
         },
-        'jobs': config.schedulingJobs,
+        'jobs': config.scheduling.jobs,
       },
-      'context': {'reserveTokens': config.contextReserveTokens, 'maxResultBytes': config.contextMaxResultBytes},
-      'search': {'backend': config.searchBackend},
+      'context': {
+        'reserveTokens': config.context.reserveTokens,
+        'maxResultBytes': config.context.maxResultBytes,
+        'warningThreshold': config.context.warningThreshold,
+        'explorationSummaryThreshold': config.context.explorationSummaryThreshold,
+        'compactInstructions': config.context.compactInstructions,
+      },
+      'search': {'backend': config.search.backend},
       'guards': {
         'content': {
-          'enabled': config.contentGuardEnabled,
-          'classifier': config.contentGuardClassifier,
-          'model': config.contentGuardModel,
-          'maxBytes': config.contentGuardMaxBytes,
+          'enabled': config.security.contentGuardEnabled,
+          'classifier': config.security.contentGuardClassifier,
+          'model': config.security.contentGuardModel,
+          'maxBytes': config.security.contentGuardMaxBytes,
         },
-        'inputSanitizer': {'enabled': config.inputSanitizerEnabled, 'channelsOnly': config.inputSanitizerChannelsOnly},
+        'inputSanitizer': {
+          'enabled': config.security.inputSanitizerEnabled,
+          'channelsOnly': config.security.inputSanitizerChannelsOnly,
+        },
       },
       'memory': {
-        'maxBytes': config.memoryMaxBytes,
+        'maxBytes': config.memory.maxBytes,
         'pruning': {
-          'enabled': config.memoryPruningEnabled,
-          'archiveAfterDays': config.memoryArchiveAfterDays,
-          'schedule': config.memoryPruningSchedule,
+          'enabled': config.memory.pruningEnabled,
+          'archiveAfterDays': config.memory.archiveAfterDays,
+          'schedule': config.memory.pruningSchedule,
         },
       },
       'usage': {
-        'budgetWarningTokens': config.usageBudgetWarningTokens,
-        'maxFileSizeBytes': config.usageMaxFileSizeBytes,
+        'budgetWarningTokens': config.usage.budgetWarningTokens,
+        'maxFileSizeBytes': config.usage.maxFileSizeBytes,
       },
       'workspace': {
         'gitSync': {
@@ -145,9 +156,9 @@ class ConfigSerializer {
         },
       },
       'gateway': {
-        'authMode': config.gatewayAuthMode,
-        'token': config.gatewayToken != null ? '***' : null,
-        'hsts': config.gatewayHsts,
+        'authMode': config.gateway.authMode,
+        'token': config.gateway.token != null ? '***' : null,
+        'hsts': config.gateway.hsts,
       },
     };
   }

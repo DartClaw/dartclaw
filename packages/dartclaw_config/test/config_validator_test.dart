@@ -370,6 +370,58 @@ void main() {
       });
     });
 
+    group('context fields — valid', () {
+      test('valid context values pass', () {
+        expect(validator.validate({'context.warning_threshold': 80}), isEmpty);
+        expect(validator.validate({'context.warning_threshold': 50}), isEmpty);
+        expect(validator.validate({'context.warning_threshold': 99}), isEmpty);
+        expect(validator.validate({'context.exploration_summary_threshold': 25000}), isEmpty);
+        expect(validator.validate({'context.exploration_summary_threshold': 1000}), isEmpty);
+        expect(validator.validate({'context.compact_instructions': 'Preserve key findings'}), isEmpty);
+        expect(validator.validate({'context.compact_instructions': null}), isEmpty);
+      });
+    });
+
+    group('context fields — invalid', () {
+      test('warning_threshold below 50', () {
+        final errors = validator.validate({'context.warning_threshold': 49});
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'context.warning_threshold');
+        expect(errors.first.message, contains('between 50 and 99'));
+      });
+
+      test('warning_threshold above 99', () {
+        final errors = validator.validate({'context.warning_threshold': 100});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('between 50 and 99'));
+      });
+
+      test('warning_threshold type mismatch', () {
+        final errors = validator.validate({'context.warning_threshold': 'high'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be an integer'));
+      });
+
+      test('exploration_summary_threshold below 1000', () {
+        final errors = validator.validate({'context.exploration_summary_threshold': 999});
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'context.exploration_summary_threshold');
+        expect(errors.first.message, contains('>= 1000'));
+      });
+
+      test('exploration_summary_threshold type mismatch', () {
+        final errors = validator.validate({'context.exploration_summary_threshold': 'large'});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be an integer'));
+      });
+
+      test('compact_instructions type mismatch', () {
+        final errors = validator.validate({'context.compact_instructions': 123});
+        expect(errors, hasLength(1));
+        expect(errors.first.message, contains('must be a string'));
+      });
+    });
+
     group('session maintenance fields', () {
       test('valid mode values pass', () {
         expect(validator.validate({'sessions.maintenance.mode': 'warn'}), isEmpty);

@@ -13,25 +13,11 @@ class MemoryEntry {
   /// Full raw block including `- [timestamp] ` prefix and continuation lines.
   final String rawBlock;
 
-  MemoryEntry({
-    required this.timestamp,
-    required this.category,
-    required this.rawText,
-    required this.rawBlock,
-  });
+  MemoryEntry({required this.timestamp, required this.category, required this.rawText, required this.rawBlock});
 
   /// Creates an entry without a recognized timestamp.
-  factory MemoryEntry.undated({
-    required String category,
-    required String rawText,
-    required String rawBlock,
-  }) {
-    return MemoryEntry(
-      timestamp: null,
-      category: category,
-      rawText: rawText,
-      rawBlock: rawBlock,
-    );
+  factory MemoryEntry.undated({required String category, required String rawText, required String rawBlock}) {
+    return MemoryEntry(timestamp: null, category: category, rawText: rawText, rawBlock: rawBlock);
   }
 
   /// Normalized text for deduplication: trimmed and whitespace-collapsed.

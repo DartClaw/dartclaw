@@ -1,3 +1,5 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -27,6 +29,8 @@ import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
 import '../task/agent_observer.dart';
+import '../task/goal_service.dart';
+import '../task/task_service.dart';
 import '../turn_manager.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';

@@ -13,7 +13,7 @@
         <h2 class="section-label">Overview</h2>
         <div class="metrics-grid metrics-grid-5">
 
-          <div class="metric-card">
+          <div class="card card-metric card-metric--accent">
             <div class="metric-value" tl:text="${memorySizeStr}">0 B</div>
             <div class="metric-label">Memory Size</div>
             <div class="budget-bar-wrapper">
@@ -28,17 +28,17 @@
             </div>
           </div>
 
-          <div class="metric-card">
+          <div class="card card-metric card-metric--info">
             <div class="metric-value" tl:text="${entryCount}">0</div>
             <div class="metric-label">Active Entries</div>
           </div>
 
-          <div class="metric-card">
+          <div class="card card-metric card-metric--info">
             <div class="metric-value" tl:text="${archivedCount}">0</div>
             <div class="metric-label">Archived Entries</div>
           </div>
 
-          <div class="metric-card">
+          <div class="card card-metric card-metric--error">
             <div class="metric-value"><span tl:text="${errorsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${errorsCap}">50</span></span></div>
             <div class="metric-label">Errors</div>
             <div class="fill-indicator">
@@ -48,7 +48,7 @@
             </div>
           </div>
 
-          <div class="metric-card">
+          <div class="card card-metric card-metric--accent">
             <div class="metric-value"><span tl:text="${learningsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${learningsCap}">50</span></span></div>
             <div class="metric-label">Learnings</div>
             <div class="fill-indicator">

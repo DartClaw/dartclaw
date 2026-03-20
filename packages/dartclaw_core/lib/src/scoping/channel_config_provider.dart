@@ -1,4 +1,6 @@
-import 'channel.dart';
+import '../runtime/channel_type.dart';
+
+export '../runtime/channel_type.dart' show ChannelType;
 
 /// Provides typed access to channel-specific configuration.
 abstract interface class ChannelConfigProvider {

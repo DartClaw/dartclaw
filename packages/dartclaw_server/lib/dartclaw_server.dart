@@ -42,6 +42,7 @@ export 'src/concurrency/session_lock_manager.dart' show SessionLockManager;
 
 // Context
 export 'src/context/context_monitor.dart' show ContextMonitor;
+export 'src/context/exploration_summarizer.dart' show ExplorationSummarizer;
 export 'src/context/result_trimmer.dart' show ResultTrimmer;
 
 // Health
@@ -109,6 +110,7 @@ export 'src/task/agent_observer.dart' show AgentObserver, AgentMetrics, AgentSta
 export 'src/task/artifact_collector.dart' show ArtifactCollector;
 export 'src/task/container_task_failure_subscriber.dart' show ContainerTaskFailureSubscriber;
 export 'src/task/diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
+export 'src/task/goal_service.dart' show GoalService;
 export 'src/task/merge_executor.dart' show MergeExecutor, MergeResult, MergeSuccess, MergeConflict, MergeStrategy;
 export 'src/task/task_executor.dart' show TaskExecutor;
 export 'src/task/task_file_guard.dart' show TaskFileGuard;
@@ -123,6 +125,7 @@ export 'src/task/task_review_service.dart'
         ReviewInvalidTransition,
         ReviewInvalidRequest,
         ReviewActionFailed;
+export 'src/task/task_service.dart' show TaskService;
 export 'src/task/worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
 
 // Session

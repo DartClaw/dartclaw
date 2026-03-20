@@ -5,6 +5,22 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'src/whatsapp_config.dart';
 
+export 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        Channel,
+        ChannelManager,
+        ChannelMessage,
+        ChannelResponse,
+        ChannelType,
+        DelayFactory,
+        DmAccessController,
+        DmAccessMode,
+        GroupAccessMode,
+        HealthProbe,
+        MentionGating,
+        ProcessFactory,
+        RetryPolicy,
+        TaskTriggerConfig;
 export 'src/gowa_manager.dart' show GowaLoginQr, GowaManager, GowaStatus;
 export 'src/media_extractor.dart' show MediaExtraction, extractMediaDirectives;
 export 'src/response_formatter.dart' show formatResponse;

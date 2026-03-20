@@ -35,11 +35,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'minimal',
         'schedule': '* * * * *',
-        'task': {
-          'title': 'Minimal Task',
-          'description': 'A simple task',
-          'type': 'analysis',
-        },
+        'task': {'title': 'Minimal Task', 'description': 'A simple task', 'type': 'analysis'},
       }, warnings);
 
       expect(def, isNotNull);
@@ -55,11 +51,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'auto',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def!.autoStart, true);
@@ -70,11 +62,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'test',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def!.enabled, true);
@@ -84,11 +72,7 @@ void main() {
       final warnings = <String>[];
       final def = ScheduledTaskDefinition.fromYaml({
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def, isNull);
@@ -101,11 +85,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': '',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def, isNull);
@@ -116,11 +96,7 @@ void main() {
       final warnings = <String>[];
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'test',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def, isNull);
@@ -133,10 +109,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'test',
         'schedule': '0 0 * * *',
-        'task': {
-          'description': 'Desc',
-          'type': 'research',
-        },
+        'task': {'description': 'Desc', 'type': 'research'},
       }, warnings);
 
       expect(def, isNull);
@@ -149,10 +122,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'test',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'type': 'research',
-        },
+        'task': {'title': 'Task', 'type': 'research'},
       }, warnings);
 
       expect(def, isNull);
@@ -165,11 +135,7 @@ void main() {
       final def = ScheduledTaskDefinition.fromYaml({
         'id': 'test',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Task',
-          'description': 'Desc',
-          'type': 'nonexistent',
-        },
+        'task': {'title': 'Task', 'description': 'Desc', 'type': 'nonexistent'},
       }, warnings);
 
       expect(def, isNull);
@@ -179,10 +145,7 @@ void main() {
 
     test('rejects entry with missing task section', () {
       final warnings = <String>[];
-      final def = ScheduledTaskDefinition.fromYaml({
-        'id': 'test',
-        'schedule': '0 0 * * *',
-      }, warnings);
+      final def = ScheduledTaskDefinition.fromYaml({'id': 'test', 'schedule': '0 0 * * *'}, warnings);
 
       expect(def, isNull);
       expect(warnings, hasLength(1));
@@ -217,11 +180,7 @@ void main() {
       final yaml = {
         'id': 'test-task',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Test',
-          'description': 'Test task',
-          'type': 'research',
-        },
+        'task': {'title': 'Test', 'description': 'Test task', 'type': 'research'},
       };
       final warns = <String>[];
       final def = ScheduledTaskDefinition.fromYaml(yaml, warns);
@@ -282,11 +241,7 @@ void main() {
       final yaml = {
         'id': 'alias-test',
         'schedule': '0 0 * * *',
-        'task': {
-          'title': 'Alias Test',
-          'description': 'Uses task_type key',
-          'task_type': 'coding',
-        },
+        'task': {'title': 'Alias Test', 'description': 'Uses task_type key', 'task_type': 'coding'},
       };
       final warns = <String>[];
       final def = ScheduledTaskDefinition.fromYaml(yaml, warns);

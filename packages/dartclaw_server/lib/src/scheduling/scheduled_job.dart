@@ -69,16 +69,12 @@ class ScheduledJob {
   ///
   /// Optional [warnings] list receives non-fatal parse warnings (e.g. from
   /// parsing a nested [ScheduledTaskDefinition]).
-  factory ScheduledJob.fromConfig(
-    Map<String, dynamic> config, [
-    List<String>? warnings,
-  ]) {
+  factory ScheduledJob.fromConfig(Map<String, dynamic> config, [List<String>? warnings]) {
     final id = (config['id'] ?? config['name']) as String? ?? '';
     if (id.isEmpty) throw FormatException('Job missing "id"');
 
     final jobTypeStr = config['type'] as String? ?? 'prompt';
-    final jobType =
-        jobTypeStr == 'task' ? ScheduledJobType.task : ScheduledJobType.prompt;
+    final jobType = jobTypeStr == 'task' ? ScheduledJobType.task : ScheduledJobType.prompt;
 
     final prompt = config['prompt'] as String? ?? '';
     if (jobType == ScheduledJobType.prompt && prompt.isEmpty) {

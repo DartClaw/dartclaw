@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../behavior/heartbeat_scheduler.dart';
+import '../context/context_monitor.dart';
 import '../runtime_config.dart';
 import '../workspace/workspace_git_sync.dart';
 
@@ -13,9 +14,10 @@ class ConfigChangeSubscriber {
   final RuntimeConfig runtimeConfig;
   final HeartbeatScheduler? heartbeat;
   final WorkspaceGitSync? gitSync;
+  final ContextMonitor? contextMonitor;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
-  ConfigChangeSubscriber({required this.runtimeConfig, this.heartbeat, this.gitSync});
+  ConfigChangeSubscriber({required this.runtimeConfig, this.heartbeat, this.gitSync, this.contextMonitor});
 
   /// Start listening on the given [EventBus].
   void subscribe(EventBus bus) {
@@ -40,6 +42,11 @@ class ConfigChangeSubscriber {
           final enabled = value as bool;
           if (gitSync != null) gitSync!.pushEnabled = enabled;
           runtimeConfig.gitSyncPushEnabled = enabled;
+        case 'context.warning_threshold':
+          if (value is int) {
+            final clamped = value.clamp(50, 99);
+            if (contextMonitor != null) contextMonitor!.warningThreshold = clamped;
+          }
       }
     }
   }

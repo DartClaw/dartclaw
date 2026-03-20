@@ -3,6 +3,8 @@ import 'package:shelf/shelf.dart';
 
 import '../params/display_params.dart';
 import '../task/agent_observer.dart';
+import '../task/goal_service.dart';
+import '../task/task_service.dart';
 import '../templates/sidebar.dart';
 
 /// Base class for pages rendered in the dashboard shell.

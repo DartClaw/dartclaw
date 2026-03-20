@@ -1,11 +1,11 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../task/goal_service.dart';
 import 'api_helpers.dart';
 
 final _log = Logger('GoalRoutes');

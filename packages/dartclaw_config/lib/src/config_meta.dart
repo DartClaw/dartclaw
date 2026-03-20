@@ -345,6 +345,28 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
     ),
+    'context.exploration_summary_threshold': FieldMeta(
+      yamlPath: 'context.exploration_summary_threshold',
+      jsonKey: 'context.explorationSummaryThreshold',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1000,
+    ),
+    'context.compact_instructions': FieldMeta(
+      yamlPath: 'context.compact_instructions',
+      jsonKey: 'context.compactInstructions',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'context.warning_threshold': FieldMeta(
+      yamlPath: 'context.warning_threshold',
+      jsonKey: 'context.warningThreshold',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.live,
+      min: 50,
+      max: 99,
+    ),
 
     // Search
     'search.backend': FieldMeta(

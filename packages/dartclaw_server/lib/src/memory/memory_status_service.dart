@@ -54,7 +54,7 @@ class MemoryStatusService {
       'search': search,
       'pruner': pruner,
       'dailyLogs': dailyLogs,
-      'config': {'memoryMaxBytes': config.memoryMaxBytes},
+      'config': {'memoryMaxBytes': config.memory.maxBytes},
     };
   }
 
@@ -67,7 +67,7 @@ class MemoryStatusService {
         'entryCount': 0,
         'oldestEntry': null,
         'newestEntry': null,
-        'budgetBytes': config.memoryMaxBytes,
+        'budgetBytes': config.memory.maxBytes,
         'categories': <Map<String, dynamic>>[],
       };
     }
@@ -106,7 +106,7 @@ class MemoryStatusService {
         'entryCount': entries.length,
         'oldestEntry': oldest?.toIso8601String(),
         'newestEntry': newest?.toIso8601String(),
-        'budgetBytes': config.memoryMaxBytes,
+        'budgetBytes': config.memory.maxBytes,
         'categories': categories,
         'undatedCount': undatedCount,
       };
@@ -117,7 +117,7 @@ class MemoryStatusService {
         'entryCount': 0,
         'oldestEntry': null,
         'newestEntry': null,
-        'budgetBytes': config.memoryMaxBytes,
+        'budgetBytes': config.memory.maxBytes,
         'categories': <Map<String, dynamic>>[],
       };
     }
@@ -166,20 +166,20 @@ class MemoryStatusService {
       final dbSizeBytes = _getSearchDbSize();
 
       return {
-        'backend': config.searchBackend,
-        'depth': config.searchDefaultDepth,
+        'backend': config.search.backend,
+        'depth': config.search.defaultDepth,
         'indexEntries': indexEntries,
         'indexArchived': indexArchived,
         'dbSizeBytes': dbSizeBytes,
-        'qmdConfig': config.searchBackend == 'qmd'
-            ? {'host': config.searchQmdHost, 'port': config.searchQmdPort}
+        'qmdConfig': config.search.backend == 'qmd'
+            ? {'host': config.search.qmdHost, 'port': config.search.qmdPort}
             : null,
       };
     } catch (e) {
       _log.warning('Failed to read search status: $e');
       return {
-        'backend': config.searchBackend,
-        'depth': config.searchDefaultDepth,
+        'backend': config.search.backend,
+        'depth': config.search.defaultDepth,
         'indexEntries': 0,
         'indexArchived': 0,
         'dbSizeBytes': 0,
@@ -207,8 +207,8 @@ class MemoryStatusService {
   }
 
   Future<Map<String, dynamic>> _getPrunerStatus() async {
-    final enabled = config.memoryPruningEnabled;
-    final schedule = config.memoryPruningSchedule;
+    final enabled = config.memory.pruningEnabled;
+    final schedule = config.memory.pruningSchedule;
 
     // Read prune history from KV
     List<dynamic> history = [];
@@ -260,7 +260,7 @@ class MemoryStatusService {
     return {
       'enabled': enabled,
       'schedule': schedule,
-      'archiveAfterDays': config.memoryArchiveAfterDays,
+      'archiveAfterDays': config.memory.archiveAfterDays,
       'lastRun': lastRunTimestamp,
       'nextRun': nextRun,
       'status': status,

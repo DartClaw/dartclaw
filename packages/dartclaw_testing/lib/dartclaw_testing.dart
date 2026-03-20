@@ -4,6 +4,25 @@
 /// doubles that are reused across package test suites are exported here.
 library;
 
+export 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        AgentHarness,
+        BridgeEvent,
+        Channel,
+        ChannelMessage,
+        ChannelResponse,
+        ChannelType,
+        DartclawEvent,
+        EventBus,
+        PromptStrategy,
+        SessionService,
+        Task,
+        TaskArtifact,
+        TaskRepository,
+        TaskStatus,
+        TaskType,
+        WorkerState;
+export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
 export 'src/fake_channel.dart' show FakeChannel;
 export 'src/fake_guard.dart' show FakeGuard;

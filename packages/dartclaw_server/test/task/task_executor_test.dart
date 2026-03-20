@@ -453,7 +453,13 @@ class _BusyOnceTurnManager extends TurnManager {
   Iterable<String> get activeSessionIds => const <String>[];
 
   @override
-  Future<String> reserveTurn(String sessionId, {String agentName = 'main', String? directory, String? model, String? effort}) async {
+  Future<String> reserveTurn(
+    String sessionId, {
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+  }) async {
     if (_busyOnce) {
       _busyOnce = false;
       throw BusyTurnException('shared harness busy', isSameSession: false);

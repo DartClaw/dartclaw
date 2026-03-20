@@ -81,7 +81,7 @@ String sidebarTemplate({
 
   final archiveContainsActive = activeSessionId != null && archivedEntries.any((e) => e.id == activeSessionId);
 
-  return templateLoader.trellis.renderFragment(
+  final aside = templateLoader.trellis.renderFragment(
     templateLoader.source('sidebar'),
     fragment: 'sidebar',
     context: {
@@ -126,6 +126,10 @@ String sidebarTemplate({
       }).toList(),
     },
   );
+  // The scrim must be a sibling of <aside class="sidebar"> so the CSS combinator
+  // `.sidebar.open ~ .sidebar-scrim` can show it. Appending here covers all
+  // render paths (direct string injection in web_routes.dart and tl:utext in HTML templates).
+  return '$aside<button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
 }
 
 String _escapeHtml(String text) {

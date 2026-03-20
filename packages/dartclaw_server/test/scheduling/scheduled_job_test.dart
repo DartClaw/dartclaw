@@ -30,11 +30,7 @@ void main() {
         'id': 'nightly-analysis',
         'type': 'task',
         'schedule': '0 2 * * *',
-        'task': {
-          'title': 'Nightly analysis',
-          'description': 'Run nightly analysis',
-          'task_type': 'research',
-        },
+        'task': {'title': 'Nightly analysis', 'description': 'Run nightly analysis', 'task_type': 'research'},
       });
       expect(job.jobType, equals(ScheduledJobType.task));
       expect(job.taskDefinition, isNotNull);
@@ -48,11 +44,7 @@ void main() {
           'id': 'task-job',
           'type': 'task',
           'schedule': '0 * * * *',
-          'task': {
-            'title': 'T',
-            'description': 'D',
-            'task_type': 'research',
-          },
+          'task': {'title': 'T', 'description': 'D', 'task_type': 'research'},
         }),
         returnsNormally,
       );
@@ -60,11 +52,7 @@ void main() {
 
     test('type: prompt still requires prompt', () {
       expect(
-        () => ScheduledJob.fromConfig({
-          'id': 'prompt-job',
-          'type': 'prompt',
-          'schedule': '0 * * * *',
-        }),
+        () => ScheduledJob.fromConfig({'id': 'prompt-job', 'type': 'prompt', 'schedule': '0 * * * *'}),
         throwsFormatException,
       );
     });
@@ -84,20 +72,12 @@ void main() {
 
     test('taskDefinition populated for task jobs', () {
       final warnings = <String>[];
-      final job = ScheduledJob.fromConfig(
-        {
-          'id': 'task-job',
-          'type': 'task',
-          'schedule': '0 0 * * *',
-          'task': {
-            'title': 'My Task',
-            'description': 'Description',
-            'task_type': 'coding',
-            'model': 'claude-sonnet-4-6',
-          },
-        },
-        warnings,
-      );
+      final job = ScheduledJob.fromConfig({
+        'id': 'task-job',
+        'type': 'task',
+        'schedule': '0 0 * * *',
+        'task': {'title': 'My Task', 'description': 'Description', 'task_type': 'coding', 'model': 'claude-sonnet-4-6'},
+      }, warnings);
       expect(job.taskDefinition, isNotNull);
       expect(job.taskDefinition!.model, equals('claude-sonnet-4-6'));
       expect(warnings, isEmpty);
@@ -108,11 +88,7 @@ void main() {
         'id': 'research-task',
         'type': 'task',
         'schedule': '0 6 * * *',
-        'task': {
-          'title': 'Research Task',
-          'description': 'Do some research',
-          'task_type': 'research',
-        },
+        'task': {'title': 'Research Task', 'description': 'Do some research', 'task_type': 'research'},
       });
       expect(job.taskDefinition, isNotNull);
       expect(job.taskDefinition!.title, equals('Research Task'));
@@ -120,11 +96,7 @@ void main() {
 
     test('task job missing task section throws FormatException', () {
       expect(
-        () => ScheduledJob.fromConfig({
-          'id': 'broken-task',
-          'type': 'task',
-          'schedule': '0 0 * * *',
-        }),
+        () => ScheduledJob.fromConfig({'id': 'broken-task', 'type': 'task', 'schedule': '0 0 * * *'}),
         throwsFormatException,
       );
     });
@@ -145,11 +117,7 @@ void main() {
         'id': 'cron-task',
         'type': 'task',
         'schedule': '30 8 * * 1',
-        'task': {
-          'title': 'Weekly Coding Task',
-          'description': 'Weekly code review',
-          'task_type': 'coding',
-        },
+        'task': {'title': 'Weekly Coding Task', 'description': 'Weekly code review', 'task_type': 'coding'},
       });
       expect(job.scheduleType, equals(ScheduleType.cron));
       expect(job.cronExpression, isNotNull);

@@ -7,6 +7,10 @@ import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/container/credential_proxy.dart';
+import 'package:dartclaw_core/src/container/docker_validator.dart';
+import 'package:dartclaw_core/src/container/security_profile.dart';
+import 'package:dartclaw_core/src/events/session_lifecycle_subscriber.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -153,9 +157,9 @@ class ServiceWiring {
     final taskService = TaskService(taskRepository);
 
     late final TurnStateStore turnStateStore;
-    final stateDbPath = p.join(config.dataDir, 'state.db');
+    final stateDbPath = p.join(config.server.dataDir, 'state.db');
     try {
-      Directory(config.dataDir).createSync(recursive: true);
+      Directory(config.server.dataDir).createSync(recursive: true);
       final stateDb = sqlite3.open(stateDbPath);
       try {
         turnStateStore = TurnStateStore(stateDb);
@@ -176,8 +180,8 @@ class ServiceWiring {
 
     // QMD hybrid search (optional -- requires `qmd` binary)
     QmdManager? qmdManager;
-    if (config.searchBackend == 'qmd') {
-      final mgr = QmdManager(host: config.searchQmdHost, port: config.searchQmdPort, workspaceDir: config.workspaceDir);
+    if (config.search.backend == 'qmd') {
+      final mgr = QmdManager(host: config.search.qmdHost, port: config.search.qmdPort, workspaceDir: config.workspaceDir);
       if (await mgr.isAvailable()) {
         try {
           await mgr.start();
@@ -192,10 +196,10 @@ class ServiceWiring {
     }
 
     final searchBackend = createSearchBackend(
-      backend: config.searchBackend,
+      backend: config.search.backend,
       memoryService: memory,
       qmdManager: qmdManager,
-      defaultDepth: config.searchDefaultDepth,
+      defaultDepth: config.search.defaultDepth,
     );
     final selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir);
     final handlers = createMemoryHandlers(
@@ -208,22 +212,23 @@ class ServiceWiring {
     final behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       projectDir: p.join(Directory.current.path, '.dartclaw'),
-      maxMemoryBytes: config.memoryMaxBytes,
+      maxMemoryBytes: config.memory.maxBytes,
+      compactInstructions: config.context.compactInstructions,
     );
 
     final staticPrompt = await behavior.composeStaticPrompt();
 
     // Build agent definitions before HarnessConfig so default search agent
     // model is included in the initialize handshake.
-    final agentDefs = config.agentDefinitions.isNotEmpty ? config.agentDefinitions : [AgentDefinition.searchAgent()];
+    final agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
     final agentMap = {for (final a in agentDefs) a.id: a};
     final agentsPayload = {for (final a in agentDefs) a.id: a.toInitializePayload()};
 
     // Resolve gateway token early so it's available for MCP config in HarnessConfig.
-    final authEnabled = config.gatewayAuthMode != 'none';
+    final authEnabled = config.gateway.authMode != 'none';
     String? resolvedGatewayToken;
     if (authEnabled) {
-      resolvedGatewayToken = config.gatewayToken ?? TokenService.loadFromFile(dataDir);
+      resolvedGatewayToken = config.gateway.token ?? TokenService.loadFromFile(dataDir);
       if (resolvedGatewayToken == null) {
         final ts = TokenService();
         resolvedGatewayToken = ts.token;
@@ -236,11 +241,11 @@ class ServiceWiring {
       disallowedTools: mcpDisallowedTools(
         mcpEnabled: mcpEnabled,
         searchEnabled: _hasSearchProvider(config),
-        userDisallowed: config.agentDisallowedTools,
+        userDisallowed: config.agent.disallowedTools,
       ),
-      maxTurns: config.agentMaxTurns,
-      model: config.agentModel,
-      effort: config.agentEffort,
+      maxTurns: config.agent.maxTurns,
+      model: config.agent.model,
+      effort: config.agent.effort,
       agents: agentsPayload,
       appendSystemPrompt: staticPrompt,
       mcpServerUrl: resolvedGatewayToken != null ? 'http://127.0.0.1:$port/mcp' : null,
@@ -250,8 +255,8 @@ class ServiceWiring {
     CredentialProxy? credentialProxy;
     ContainerHealthMonitor? containerHealthMonitor;
     final containerManagers = <String, ContainerManager>{};
-    if (config.containerConfig.enabled) {
-      final validationErrors = DockerValidator.validate(config.containerConfig);
+    if (config.container.enabled) {
+      final validationErrors = DockerValidator.validate(config.container);
       if (validationErrors.isNotEmpty) {
         for (final err in validationErrors) {
           _log.severe('Container config rejected: $err');
@@ -262,7 +267,7 @@ class ServiceWiring {
       final apiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
       String? hostClaudeJsonPath;
       if (apiKey == null || apiKey.isEmpty) {
-        final authResult = await Process.run(config.claudeExecutable, ['auth', 'status']);
+        final authResult = await Process.run(config.server.claudeExecutable, ['auth', 'status']);
         if (authResult.exitCode != 0) {
           _log.severe('Container mode requires ANTHROPIC_API_KEY or Claude OAuth/setup-token auth');
           _log.severe('Configure auth with `claude login`, `claude setup-token`, or ANTHROPIC_API_KEY');
@@ -300,7 +305,7 @@ class ServiceWiring {
       final proxySocketDir = p.join(dataDir, 'proxy');
       for (final profile in profiles) {
         containerManagers[profile.id] = ContainerManager(
-          config: config.containerConfig,
+          config: config.container,
           containerName: ContainerManager.generateName(dataDir, profile.id),
           profileId: profile.id,
           workspaceMounts: profile.workspaceMounts,
@@ -347,7 +352,7 @@ class ServiceWiring {
       containerHealthMonitor.start();
 
       _log.info(
-        'Container isolation enabled — ${containerManagers.length} profiles (image: ${config.containerConfig.image})',
+        'Container isolation enabled — ${containerManagers.length} profiles (image: ${config.container.image})',
       );
     } else {
       _log.warning(
@@ -359,8 +364,8 @@ class ServiceWiring {
 
     final harness = harnessFactory(
       Directory.current.path,
-      claudeExecutable: config.claudeExecutable,
-      turnTimeout: Duration(seconds: config.workerTimeout),
+      claudeExecutable: config.server.claudeExecutable,
+      turnTimeout: Duration(seconds: config.server.workerTimeout),
       onMemorySave: handlers.onSave,
       onMemorySearch: handlers.onSearch,
       onMemoryRead: handlers.onRead,
@@ -387,7 +392,7 @@ class ServiceWiring {
     // `tasks.max_concurrent` excludes the primary interactive runner.
     final taskHarnesses = <AgentHarness>[];
     final taskProfileIds = <String>[];
-    final maxConcurrent = config.tasksMaxConcurrent;
+    final maxConcurrent = config.tasks.maxConcurrent;
     final profileIds = containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
     final taskRunnerCount = maxConcurrent == 0
         ? 0
@@ -397,8 +402,8 @@ class ServiceWiring {
       final containerManager = containerManagers[profileId] ?? containerManagers['workspace'];
       final taskHarness = harnessFactory(
         Directory.current.path,
-        claudeExecutable: config.claudeExecutable,
-        turnTimeout: Duration(seconds: config.workerTimeout),
+        claudeExecutable: config.server.claudeExecutable,
+        turnTimeout: Duration(seconds: config.server.workerTimeout),
         onMemorySave: handlers.onSave,
         onMemorySearch: handlers.onSearch,
         onMemoryRead: handlers.onRead,
@@ -426,43 +431,43 @@ class ServiceWiring {
       if (agent.deniedTools.isNotEmpty) agentDeny[agent.id] = agent.deniedTools;
     }
     final toolPolicyCascade = ToolPolicyCascade(
-      globalDeny: config.agentDisallowedTools.toSet(),
+      globalDeny: config.agent.disallowedTools.toSet(),
       agentDeny: agentDeny,
       agentAllow: agentAllow,
     );
 
     // Construct guard chain with per-guard YAML configs
     final auditLogger = GuardAuditLogger(dataDir: dataDir);
-    final guardChain = config.guards.enabled
+    final guardChain = config.security.guards.enabled
         ? GuardChain(
-            failOpen: config.guards.failOpen,
+            failOpen: config.security.guards.failOpen,
             guards: [
               InputSanitizer(
-                config: config.guardsYaml['input_sanitizer'] is Map
+                config: config.security.guardsYaml['input_sanitizer'] is Map
                     ? InputSanitizerConfig.fromYaml(
-                        Map<String, dynamic>.from(config.guardsYaml['input_sanitizer'] as Map),
+                        Map<String, dynamic>.from(config.security.guardsYaml['input_sanitizer'] as Map),
                       )
                     : InputSanitizerConfig(
-                        enabled: config.inputSanitizerEnabled,
-                        channelsOnly: config.inputSanitizerChannelsOnly,
+                        enabled: config.security.inputSanitizerEnabled,
+                        channelsOnly: config.security.inputSanitizerChannelsOnly,
                         patterns: InputSanitizerConfig.defaults().patterns,
                       ),
               ),
               CommandGuard(
-                config: config.guardsYaml['command'] is Map
-                    ? CommandGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['command'] as Map))
+                config: config.security.guardsYaml['command'] is Map
+                    ? CommandGuardConfig.fromYaml(Map<String, dynamic>.from(config.security.guardsYaml['command'] as Map))
                     : CommandGuardConfig.defaults(),
               ),
               FileGuard(
                 config:
-                    (config.guardsYaml['file'] is Map
-                            ? FileGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['file'] as Map))
+                    (config.security.guardsYaml['file'] is Map
+                            ? FileGuardConfig.fromYaml(Map<String, dynamic>.from(config.security.guardsYaml['file'] as Map))
                             : FileGuardConfig.defaults())
                         .withSelfProtection(p.join(dataDir, 'dartclaw.yaml')),
               ),
               NetworkGuard(
-                config: config.guardsYaml['network'] is Map
-                    ? NetworkGuardConfig.fromYaml(Map<String, dynamic>.from(config.guardsYaml['network'] as Map))
+                config: config.security.guardsYaml['network'] is Map
+                    ? NetworkGuardConfig.fromYaml(Map<String, dynamic>.from(config.security.guardsYaml['network'] as Map))
                     : NetworkGuardConfig.defaults(),
               ),
               ToolPolicyGuard(cascade: toolPolicyCascade),
@@ -497,11 +502,11 @@ class ServiceWiring {
     ContentClassifier? contentClassifier;
     var contentGuardFailOpen = false;
     ContentGuard? contentGuard;
-    if (config.contentGuardEnabled) {
-      if (config.contentGuardClassifier == 'anthropic_api') {
+    if (config.security.contentGuardEnabled) {
+      if (config.security.contentGuardClassifier == 'anthropic_api') {
         final apiKey = Platform.environment['ANTHROPIC_API_KEY'];
         if (apiKey != null && apiKey.isNotEmpty) {
-          contentClassifier = AnthropicApiClassifier(apiKey: apiKey, model: config.contentGuardModel);
+          contentClassifier = AnthropicApiClassifier(apiKey: apiKey, model: config.security.contentGuardModel);
         } else {
           _log.warning(
             'ANTHROPIC_API_KEY not set — content guard disabled. '
@@ -511,8 +516,8 @@ class ServiceWiring {
       } else {
         // Default: claude_binary -- works with OAuth, no API key needed
         contentClassifier = ClaudeBinaryClassifier(
-          claudeExecutable: config.claudeExecutable,
-          model: config.contentGuardModel,
+          claudeExecutable: config.server.claudeExecutable,
+          model: config.security.contentGuardModel,
         );
         contentGuardFailOpen = true;
       }
@@ -520,7 +525,7 @@ class ServiceWiring {
       if (contentClassifier != null) {
         contentGuard = ContentGuard(
           classifier: contentClassifier,
-          maxContentBytes: config.contentGuardMaxBytes,
+          maxContentBytes: config.security.contentGuardMaxBytes,
           failOpen: contentGuardFailOpen,
         );
       }
@@ -587,8 +592,8 @@ class ServiceWiring {
     final usageTracker = UsageTracker(
       dataDir: dataDir,
       kv: kvService,
-      budgetWarningTokens: config.usageBudgetWarningTokens,
-      maxFileSizeBytes: config.usageMaxFileSizeBytes,
+      budgetWarningTokens: config.usage.budgetWarningTokens,
+      maxFileSizeBytes: config.usage.maxFileSizeBytes,
     );
 
     // Health service
@@ -596,7 +601,7 @@ class ServiceWiring {
       worker: harness,
       searchDbPath: config.searchDbPath,
       sessionsDir: config.sessionsDir,
-      tasksDir: p.join(config.dataDir, 'tasks'),
+      tasksDir: p.join(config.server.dataDir, 'tasks'),
       usageTracker: usageTracker,
     );
 
@@ -606,7 +611,7 @@ class ServiceWiring {
     if (authEnabled) {
       tokenService = TokenService(token: resolvedGatewayToken!);
     } else {
-      final host = config.host;
+      final host = config.server.host;
       final isLoopback = host == 'localhost' || host == '127.0.0.1';
       if (isLoopback) {
         _log.warning('Auth disabled on loopback — acceptable for local dev only');
@@ -616,28 +621,34 @@ class ServiceWiring {
     }
 
     // Context management
-    final contextMonitor = ContextMonitor(reserveTokens: config.contextReserveTokens);
-    final resultTrimmer = ResultTrimmer(maxBytes: config.contextMaxResultBytes);
+    final contextMonitor = ContextMonitor(
+      reserveTokens: config.context.reserveTokens,
+      warningThreshold: config.context.warningThreshold,
+    );
+    final explorationSummarizer = ExplorationSummarizer(
+      trimmer: ResultTrimmer(maxBytes: config.context.maxResultBytes),
+      thresholdTokens: config.context.explorationSummaryThreshold,
+    );
 
     // Concurrency + reset
-    final lockManager = SessionLockManager(maxParallel: config.maxParallelTurns);
+    final lockManager = SessionLockManager(maxParallel: config.server.maxParallelTurns);
     final resetService = SessionResetService(
       sessions: sessions,
       messages: messages,
-      resetHour: config.sessionResetHour,
-      idleTimeoutMinutes: config.sessionIdleTimeoutMinutes,
+      resetHour: config.sessions.resetHour,
+      idleTimeoutMinutes: config.sessions.idleTimeoutMinutes,
     );
 
     final mergeExecutor = MergeExecutor(
       projectDir: Directory.current.path,
-      defaultStrategy: config.tasksWorktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+      defaultStrategy: config.tasks.worktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
     );
     final taskFileGuard = TaskFileGuard();
     final worktreeManager = WorktreeManager(
       dataDir: dataDir,
       projectDir: Directory.current.path,
-      baseRef: config.tasksWorktreeBaseRef,
-      staleTimeoutHours: config.tasksWorktreeStaleTimeoutHours,
+      baseRef: config.tasks.worktreeBaseRef,
+      staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
     );
     await worktreeManager.detectStaleWorktrees();
@@ -648,14 +659,14 @@ class ServiceWiring {
       taskFileGuard: taskFileGuard,
       mergeExecutor: mergeExecutor,
       dataDir: dataDir,
-      mergeStrategy: config.tasksWorktreeMergeStrategy,
-      baseRef: config.tasksWorktreeBaseRef,
+      mergeStrategy: config.tasks.worktreeMergeStrategy,
+      baseRef: config.tasks.worktreeBaseRef,
     );
     final reviewHandler = taskReviewService.channelReviewHandler(trigger: 'channel');
 
     // Channel + message queue (H-01: S14-S15 wiring)
-    final waConfig = config.channelConfig.channelConfigs['whatsapp'];
-    final sigConfig = config.channelConfig.channelConfigs['signal'];
+    final waConfig = config.channels.channelConfigs['whatsapp'];
+    final sigConfig = config.channels.channelConfigs['signal'];
     final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
     WhatsAppConfig? parsedWhatsAppConfig;
     SignalConfig? parsedSignalConfig;
@@ -688,7 +699,7 @@ class ServiceWiring {
     GoogleChatWebhookHandler? googleChatWebhookHandler;
     SignalChannel? signalChannel;
     String? webhookSecret;
-    final liveScopeConfig = LiveScopeConfig(config.sessionScopeConfig);
+    final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
 
     if (waEnabled || sigEnabled || googleChatEnabled) {
       channelManager = _buildChannelManager(
@@ -698,7 +709,8 @@ class ServiceWiring {
         messages: messages,
         serverRef: () => serverRef,
         redactor: messageRedactor,
-        taskService: taskService,
+        taskCreator: taskService.create,
+        taskLister: taskService.list,
         reviewCommandParser: const ReviewCommandParser(),
         reviewHandler: reviewHandler,
         eventBus: eventBus,
@@ -720,7 +732,7 @@ class ServiceWiring {
           port: parsedConfig.gowaPort,
           dbUri: parsedConfig.gowaDbUri,
           webhookUrl: webhookUrl,
-          osName: config.name,
+          osName: config.server.name,
         );
         final waChannel = WhatsAppChannel(
           gowa: gowaManager,
@@ -795,7 +807,7 @@ class ServiceWiring {
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
           eventBus: eventBus,
-          trustedProxies: config.trustedProxies,
+          trustedProxies: config.auth.trustedProxies,
           slashCommandParser: slashCommandParser,
           slashCommandHandler: slashCommandHandler,
           dispatchMessage: (message) => _dispatchInboundChannelMessage(
@@ -874,13 +886,16 @@ class ServiceWiring {
     // Mutable display list for scheduling UI (includes both user-configured
     // and built-in jobs). Starts as a copy of the raw config maps, excluding
     // task-type entries (those appear in the scheduledTasks section instead).
-    final displayJobs =
-        config.schedulingJobs
-            .where((j) => (j['type'] as String?) != 'task')
-            .map((j) => Map<String, dynamic>.of(j))
-            .toList();
+    final displayJobs = config.scheduling.jobs
+        .where((j) => (j['type'] as String?) != 'task')
+        .map((j) => Map<String, dynamic>.of(j))
+        .toList();
     // Names of system-registered jobs (rendered read-only with SYSTEM badge).
     final systemJobNames = <String>['heartbeat'];
+
+    // SSE broadcast instance — shared across runners so any runner can emit
+    // global events (e.g., context_warning) to all connected web clients.
+    final sseBroadcast = SseBroadcast();
 
     // Build HarnessPool: primary runner (index 0) + task runners (1..N-1).
     // All runners share the same service instances (SessionLockManager prevents
@@ -898,10 +913,11 @@ class ServiceWiring {
         lockManager: lockManager,
         resetService: resetService,
         contextMonitor: contextMonitor,
-        resultTrimmer: resultTrimmer,
+        explorationSummarizer: explorationSummarizer,
         redactor: messageRedactor,
         selfImprovement: selfImprovement,
         usageTracker: usageTracker,
+        sseBroadcast: sseBroadcast,
       ),
       for (var i = 0; i < taskHarnesses.length; i++)
         TurnRunner(
@@ -916,10 +932,11 @@ class ServiceWiring {
           lockManager: lockManager,
           resetService: resetService,
           contextMonitor: contextMonitor,
-          resultTrimmer: resultTrimmer,
+          explorationSummarizer: explorationSummarizer,
           redactor: messageRedactor,
           selfImprovement: selfImprovement,
           usageTracker: usageTracker,
+          sseBroadcast: sseBroadcast,
           profileId: taskProfileIds[i],
         ),
     ];
@@ -929,7 +946,7 @@ class ServiceWiring {
       sessions: sessions,
       messages: messages,
       worker: harness,
-      staticDir: config.staticDir,
+      staticDir: config.server.staticDir,
       behavior: behavior,
       memoryFile: memoryFile,
       guardChain: guardChain,
@@ -939,7 +956,7 @@ class ServiceWiring {
       lockManager: lockManager,
       resetService: resetService,
       contextMonitor: contextMonitor,
-      resultTrimmer: resultTrimmer,
+      explorationSummarizer: explorationSummarizer,
       channelManager: channelManager,
       whatsAppChannel: whatsAppChannel,
       googleChatWebhookHandler: googleChatWebhookHandler,
@@ -953,26 +970,26 @@ class ServiceWiring {
       authEnabled: authEnabled,
       pool: pool,
       contentGuardDisplay: ContentGuardDisplayParams(
-        enabled: config.contentGuardEnabled,
-        classifier: config.contentGuardClassifier,
-        model: config.contentGuardModel,
-        maxBytes: config.contentGuardMaxBytes,
+        enabled: config.security.contentGuardEnabled,
+        classifier: config.security.contentGuardClassifier,
+        model: config.security.contentGuardModel,
+        maxBytes: config.security.contentGuardMaxBytes,
         apiKeyConfigured:
-            config.contentGuardClassifier == 'claude_binary' ||
+            config.security.contentGuardClassifier == 'claude_binary' ||
             (Platform.environment['ANTHROPIC_API_KEY']?.isNotEmpty ?? false),
         failOpen: contentGuardFailOpen,
       ),
       heartbeatDisplay: HeartbeatDisplayParams(
-        enabled: config.heartbeatEnabled,
-        intervalMinutes: config.heartbeatIntervalMinutes,
+        enabled: config.scheduling.heartbeatEnabled,
+        intervalMinutes: config.scheduling.heartbeatIntervalMinutes,
       ),
       schedulingDisplay: SchedulingDisplayParams(
         jobs: displayJobs,
         systemJobNames: systemJobNames,
-        scheduledTasks: config.automationScheduledTasks,
+        scheduledTasks: config.scheduling.taskDefinitions,
       ),
       workspaceDisplay: WorkspaceDisplayParams(path: config.workspaceDir),
-      appDisplay: AppDisplayParams(name: config.name, dataDir: dataDir),
+      appDisplay: AppDisplayParams(name: config.server.name, dataDir: dataDir),
     );
 
     // Set the mutable reference so the delegate closure can resolve it.
@@ -987,7 +1004,7 @@ class ServiceWiring {
     server.registerTool(WebFetchTool(classifier: contentClassifier, failOpenOnClassification: contentGuardFailOpen));
 
     // Register search tools based on config
-    for (final entry in config.searchProviders.entries) {
+    for (final entry in config.search.providers.entries) {
       final providerName = entry.key;
       final providerConfig = entry.value;
       if (!providerConfig.enabled || providerConfig.apiKey.isEmpty) continue;
@@ -1017,12 +1034,10 @@ class ServiceWiring {
     // Detect orphaned turns from previous crash
     await server.turns.detectAndCleanOrphanedTurns();
 
-    final sseBroadcast = SseBroadcast();
-
     // Parse scheduled jobs from config.
     // Task-type jobs are handled by ScheduledTaskRunner below — skip them here.
     final scheduledJobs = <ScheduledJob>[];
-    for (final jobConfig in config.schedulingJobs) {
+    for (final jobConfig in config.scheduling.jobs) {
       try {
         final job = ScheduledJob.fromConfig(jobConfig);
         if (job.jobType != ScheduledJobType.task) {
@@ -1035,17 +1050,17 @@ class ServiceWiring {
 
     // Register memory pruner as a built-in scheduled job
     MemoryPruner? memoryPruner;
-    if (config.memoryPruningEnabled) {
+    if (config.memory.pruningEnabled) {
       final pruner = memoryPruner = MemoryPruner(
         workspaceDir: config.workspaceDir,
         memoryService: memory,
-        archiveAfterDays: config.memoryArchiveAfterDays,
+        archiveAfterDays: config.memory.archiveAfterDays,
       );
       scheduledJobs.add(
         ScheduledJob(
           id: 'memory-pruner',
           scheduleType: ScheduleType.cron,
-          cronExpression: CronExpression.parse(config.memoryPruningSchedule),
+          cronExpression: CronExpression.parse(config.memory.pruningSchedule),
           onExecute: () async {
             final result = await pruner.prune();
             await _persistPruneResult(kvService, result);
@@ -1060,19 +1075,19 @@ class ServiceWiring {
       );
       displayJobs.add({
         'name': 'memory-pruner',
-        'schedule': config.memoryPruningSchedule,
+        'schedule': config.memory.pruningSchedule,
         'delivery': 'none',
         'status': 'active',
       });
       systemJobNames.add('memory-pruner');
       _log.info(
-        'Memory pruner scheduled (${config.memoryPruningSchedule}, '
-        'archive after ${config.memoryArchiveAfterDays}d)',
+        'Memory pruner scheduled (${config.memory.pruningSchedule}, '
+        'archive after ${config.memory.archiveAfterDays}d)',
       );
     }
 
     // Register session maintenance as a built-in scheduled job (F13)
-    final maintSchedule = config.sessionMaintenanceConfig.schedule;
+    final maintSchedule = config.sessions.maintenanceConfig.schedule;
     if (maintSchedule.isNotEmpty && maintSchedule != 'disabled') {
       try {
         final cronExpr = CronExpression.parse(maintSchedule);
@@ -1095,13 +1110,13 @@ class ServiceWiring {
 
               final maintenance = SessionMaintenanceService(
                 sessions: sessions,
-                config: config.sessionMaintenanceConfig,
+                config: config.sessions.maintenanceConfig,
                 activeChannelKeys: activeChannelKeys,
                 activeJobIds: scheduledJobs.map((j) => j.id).toSet(),
                 sessionsDir: config.sessionsDir,
                 taskService: taskService,
-                artifactRetentionDays: config.tasksArtifactRetentionDays,
-                dataDir: config.dataDir,
+                artifactRetentionDays: config.tasks.artifactRetentionDays,
+                dataDir: config.server.dataDir,
               );
               final report = await maintenance.run();
               _log.info(
@@ -1115,8 +1130,8 @@ class ServiceWiring {
               for (final w in report.warnings) {
                 _log.warning('Maintenance warning: $w');
               }
-              if (config.guardAuditMaxRetentionDays > 0) {
-                final deletedAuditFiles = await auditLogger.cleanOldFiles(config.guardAuditMaxRetentionDays);
+              if (config.security.guardAuditMaxRetentionDays > 0) {
+                final deletedAuditFiles = await auditLogger.cleanOldFiles(config.security.guardAuditMaxRetentionDays);
                 _log.info('Audit cleanup: $deletedAuditFiles old files deleted');
               }
               return 'archived=${report.sessionsArchived} deleted=${report.sessionsDeleted}';
@@ -1138,12 +1153,12 @@ class ServiceWiring {
 
     // Register automation scheduled tasks (S13).
     // Task definitions are displayed in the scheduledTasks section of the
-    // scheduling template (via config.automationScheduledTasks), so no
+    // scheduling template (via config.scheduling.taskDefinitions), so no
     // displayJobs entries are added here.
-    if (config.automationScheduledTasks.isNotEmpty) {
+    if (config.scheduling.taskDefinitions.isNotEmpty) {
       final taskRunner = ScheduledTaskRunner(
         taskService: taskService,
-        definitions: config.automationScheduledTasks,
+        definitions: config.scheduling.taskDefinitions,
         eventBus: eventBus,
       );
       final taskJobs = taskRunner.buildJobs();
@@ -1168,7 +1183,7 @@ class ServiceWiring {
     final memoryConsolidator = MemoryConsolidator(
       workspaceDir: config.workspaceDir,
       dispatch: dispatchSystemTurn,
-      threshold: config.memoryMaxBytes,
+      threshold: config.memory.maxBytes,
     );
 
     // Start cron scheduler
@@ -1198,8 +1213,8 @@ class ServiceWiring {
 
     // Workspace git sync
     WorkspaceGitSync? gitSync;
-    if (config.gitSyncEnabled) {
-      gitSync = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.gitSyncPushEnabled);
+    if (config.workspace.gitSyncEnabled) {
+      gitSync = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.workspace.gitSyncPushEnabled);
       if (await gitSync.isGitAvailable()) {
         await gitSync.initIfNeeded();
         _log.info('Workspace git sync enabled');
@@ -1210,16 +1225,16 @@ class ServiceWiring {
 
     // Heartbeat scheduler
     HeartbeatScheduler? heartbeat;
-    if (config.heartbeatEnabled) {
+    if (config.scheduling.heartbeatEnabled) {
       heartbeat = HeartbeatScheduler(
-        interval: Duration(minutes: config.heartbeatIntervalMinutes),
+        interval: Duration(minutes: config.scheduling.heartbeatIntervalMinutes),
         workspaceDir: config.workspaceDir,
         dispatch: dispatchSystemTurn,
         gitSync: gitSync,
         consolidator: memoryConsolidator,
       );
       heartbeat.start();
-      _log.info('Heartbeat scheduler started (${config.heartbeatIntervalMinutes}m interval)');
+      _log.info('Heartbeat scheduler started (${config.scheduling.heartbeatIntervalMinutes}m interval)');
     }
 
     // Memory status service -- gathers metrics for the dashboard API.
@@ -1242,7 +1257,7 @@ class ServiceWiring {
       dataDir: dataDir,
       workspaceDir: Directory.current.path,
       diffGenerator: diffGenerator,
-      baseRef: config.tasksWorktreeBaseRef,
+      baseRef: config.tasks.worktreeBaseRef,
     );
     final containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: taskService);
     containerTaskFailureSubscriber.subscribe(eventBus);
@@ -1289,9 +1304,9 @@ class ServiceWiring {
     // based on these services, so they must be wired before server.handler
     // is evaluated.
     final runtimeConfig = RuntimeConfig(
-      heartbeatEnabled: config.heartbeatEnabled,
-      gitSyncEnabled: config.gitSyncEnabled,
-      gitSyncPushEnabled: config.gitSyncPushEnabled,
+      heartbeatEnabled: config.scheduling.heartbeatEnabled,
+      gitSyncEnabled: config.workspace.gitSyncEnabled,
+      gitSyncPushEnabled: config.workspace.gitSyncPushEnabled,
     );
 
     // Wire config change subscriber — handles live field side-effects.
@@ -1299,6 +1314,7 @@ class ServiceWiring {
       runtimeConfig: runtimeConfig,
       heartbeat: heartbeat,
       gitSync: gitSync,
+      contextMonitor: contextMonitor,
     );
     configChangeSubscriber.subscribe(eventBus);
     final scopeReconciler = config_tools.ScopeReconciler(liveScopeConfig: liveScopeConfig);
@@ -1363,8 +1379,8 @@ class ServiceWiring {
       taskFileGuard: taskFileGuard,
       agentObserver: agentObserver,
       mergeExecutor: mergeExecutor,
-      mergeStrategy: config.tasksWorktreeMergeStrategy,
-      baseRef: config.tasksWorktreeBaseRef,
+      mergeStrategy: config.tasks.worktreeMergeStrategy,
+      baseRef: config.tasks.worktreeBaseRef,
     );
 
     return WiringResult(
@@ -1422,17 +1438,18 @@ class ServiceWiring {
     required MessageService messages,
     required DartclawServer? Function() serverRef,
     MessageRedactor? redactor,
-    TaskService? taskService,
+    TaskCreator? taskCreator,
+    TaskLister? taskLister,
     ReviewCommandParser? reviewCommandParser,
     ChannelReviewHandler? reviewHandler,
     EventBus? eventBus,
     Map<ChannelType, TaskTriggerConfig> taskTriggerConfigs = const {},
   }) {
     final messageQueue = MessageQueue(
-      debounceWindow: config.channelConfig.debounceWindow,
-      maxConcurrentTurns: config.maxParallelTurns,
-      maxQueueDepth: config.channelConfig.maxQueueDepth,
-      defaultRetryPolicy: config.channelConfig.defaultRetryPolicy,
+      debounceWindow: config.channels.debounceWindow,
+      maxConcurrentTurns: config.server.maxParallelTurns,
+      maxQueueDepth: config.channels.maxQueueDepth,
+      defaultRetryPolicy: config.channels.defaultRetryPolicy,
       redactor: redactor,
       dispatcher: (sessionKey, message, {String? senderJid}) async {
         return _dispatchChannelTurn(
@@ -1447,9 +1464,10 @@ class ServiceWiring {
     );
     return ChannelManager(
       queue: messageQueue,
-      config: config.channelConfig,
+      config: config.channels,
       liveScopeConfig: liveScopeConfig,
-      taskService: taskService,
+      taskCreator: taskCreator,
+      taskLister: taskLister,
       reviewCommandParser: reviewCommandParser,
       reviewHandler: reviewHandler,
       triggerParser: const TaskTriggerParser(),
@@ -1624,7 +1642,7 @@ class ServiceWiring {
 
 /// Whether any search provider is enabled with a non-empty API key.
 bool _hasSearchProvider(DartclawConfig config) {
-  return config.searchProviders.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
+  return config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);
 }
 
 String _formatBytes(int bytes) {

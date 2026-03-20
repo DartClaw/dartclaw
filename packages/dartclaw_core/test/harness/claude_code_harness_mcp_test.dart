@@ -370,4 +370,121 @@ void main() {
       await harness.dispose();
     });
   });
+
+  // These tests verify that DartClaw passes CLAUDE_CODE_SIMPLE=1 to
+  // restricted containers only. The actual behavioral lockdown — disabling
+  // MCP server loading, hook execution, and CLAUDE.md file loading — is
+  // enforced by the claude binary itself, not by DartClaw code. DartClaw's
+  // responsibility is limited to setting the env var correctly based on the
+  // container profile. See: docs/specs/0.10/fis/s10-restricted-session-hardening.md
+  group('CLAUDE_CODE_SIMPLE for restricted containers', () {
+    ContainerManager makeContainerManager(String profileId, List<String> capturedArgs) {
+      final fake = _bufferedFakeProcess();
+      return ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test1234-$profileId',
+        profileId: profileId,
+        workspaceMounts: const [],
+        proxySocketDir: '/tmp/proxy',
+        workingDir: '/tmp',
+        runCommand: (exe, args) async {
+          if (args.first == 'inspect') return ProcessResult(0, 0, 'true\n', '');
+          return ProcessResult(0, 0, '', '');
+        },
+        startCommand:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedArgs.addAll(args);
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
+      );
+    }
+
+    test('passes CLAUDE_CODE_SIMPLE=1 to exec for restricted container', () async {
+      final capturedArgs = <String>[];
+      final containerManager = makeContainerManager('restricted', capturedArgs);
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      // docker exec args contain -e CLAUDE_CODE_SIMPLE=1
+      final envIdx = capturedArgs.indexOf('-e');
+      expect(envIdx, isNot(-1), reason: 'expected -e flag in docker exec args');
+      expect(capturedArgs[envIdx + 1], equals('CLAUDE_CODE_SIMPLE=1'));
+
+      await harness.dispose();
+    });
+
+    test('does not pass CLAUDE_CODE_SIMPLE for workspace container', () async {
+      final capturedArgs = <String>[];
+      final containerManager = makeContainerManager('workspace', capturedArgs);
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      // docker exec args should NOT contain CLAUDE_CODE_SIMPLE
+      expect(capturedArgs, isNot(contains('CLAUDE_CODE_SIMPLE=1')));
+
+      await harness.dispose();
+    });
+
+    test('does not pass CLAUDE_CODE_SIMPLE for direct (no container) execution', () async {
+      Map<String, String>? capturedEnvironment;
+      final fake = _bufferedFakeProcess();
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedEnvironment = environment;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        harnessConfig: const HarnessConfig(),
+      );
+
+      await harness.start();
+
+      // No CLAUDE_CODE_SIMPLE in environment for direct execution
+      expect(capturedEnvironment, isNotNull);
+      expect(capturedEnvironment!.containsKey('CLAUDE_CODE_SIMPLE'), isFalse);
+
+      await harness.dispose();
+    });
+  });
 }

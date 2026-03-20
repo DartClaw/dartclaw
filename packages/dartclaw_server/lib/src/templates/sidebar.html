@@ -1,7 +1,6 @@
 <aside tl:fragment="sidebar" class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <span class="logo" tl:text="'❯ ' + ${appName}">❯ DartClaw</span>
-    <button class="btn btn-icon btn-ghost sidebar-close" aria-label="Close sidebar">&#215;</button>
   </div>
 
   <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
@@ -90,3 +89,4 @@
       tl:text="${nav.label}">Link</a>
   </nav>
 </aside>
+<button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>

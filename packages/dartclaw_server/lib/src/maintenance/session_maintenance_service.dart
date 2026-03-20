@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 
+import '../task/task_service.dart';
+
 /// A single action taken or planned during maintenance.
 class MaintenanceAction {
   final String sessionId;

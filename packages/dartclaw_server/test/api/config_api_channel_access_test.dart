@@ -102,11 +102,11 @@ channels:
         'task_trigger': {'enabled': true, 'prefix': 'create:', 'default_type': 'automation', 'auto_start': true},
       },
     };
-    final cfg = config ?? DartclawConfig(channelConfig: ChannelConfig(channelConfigs: channelConfigs));
+    final cfg = config ?? DartclawConfig(channels: ChannelConfig(channelConfigs: channelConfigs));
     final rc = RuntimeConfig(
-      heartbeatEnabled: cfg.heartbeatEnabled,
-      gitSyncEnabled: cfg.gitSyncEnabled,
-      gitSyncPushEnabled: cfg.gitSyncPushEnabled,
+      heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+      gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+      gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
     );
 
     return configApiRoutes(

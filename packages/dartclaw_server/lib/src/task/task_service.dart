@@ -1,8 +1,5 @@
-import 'task.dart';
-import 'task_artifact.dart';
-import 'task_repository.dart';
-import 'task_status.dart';
-import 'task_type.dart';
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show ArtifactKind, Task, TaskArtifact, TaskRepository, TaskStatus, TaskType;
 
 /// Business logic layer for task CRUD and lifecycle operations.
 class TaskService {

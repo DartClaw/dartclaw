@@ -33,7 +33,7 @@ import 'behavior/heartbeat_scheduler.dart';
 import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
-import 'context/result_trimmer.dart';
+import 'context/exploration_summarizer.dart';
 import 'harness_pool.dart';
 import 'health/health_service.dart';
 import 'memory/memory_status_service.dart';
@@ -46,9 +46,11 @@ import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
 import 'task/agent_observer.dart';
+import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
+import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
 import 'turn_manager.dart';
@@ -211,7 +213,7 @@ class DartclawServer {
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
-    ResultTrimmer? resultTrimmer,
+    ExplorationSummarizer? explorationSummarizer,
     ChannelManager? channelManager,
     WhatsAppChannel? whatsAppChannel,
     GoogleChatWebhookHandler? googleChatWebhookHandler,
@@ -243,7 +245,7 @@ class DartclawServer {
             lockManager: lockManager,
             resetService: resetService,
             contextMonitor: contextMonitor,
-            resultTrimmer: resultTrimmer,
+            explorationSummarizer: explorationSummarizer,
             redactor: redactor,
             selfImprovement: selfImprovement,
             usageTracker: usageTracker,
@@ -448,7 +450,7 @@ class DartclawServer {
       webhookSecret: _webhookSecret,
       googleChat: _googleChatWebhookHandler,
       eventBus: _eventBus,
-      trustedProxies: _config?.trustedProxies ?? const [],
+      trustedProxies: _config?.auth.trustedProxies ?? const [],
     );
     router.mount('/', webhookRouter.call);
 
@@ -719,8 +721,8 @@ class DartclawServer {
       turns: _turns,
       runtimeConfig: _runtimeConfig,
       memoryStatusService: _memoryStatusService,
-      cookieSecure: _config?.cookieSecure ?? false,
-      trustedProxies: _config?.trustedProxies ?? const [],
+      cookieSecure: _config?.auth.cookieSecure ?? false,
+      trustedProxies: _config?.auth.trustedProxies ?? const [],
       contentGuardDisplay: _contentGuardDisplay,
       heartbeatDisplay: _heartbeatDisplay,
       schedulingDisplay: _schedulingDisplay,
@@ -738,7 +740,7 @@ class DartclawServer {
 
     var pipeline = const Pipeline()
         .addMiddleware(logRequests(logger: _sanitizedLogger))
-        .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gatewayHsts ?? false))
+        .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gateway.hsts ?? false))
         .addMiddleware(_corsMiddleware());
     if (_tokenService != null && _gatewayToken != null) {
       pipeline = pipeline.addMiddleware(
@@ -746,8 +748,8 @@ class DartclawServer {
           tokenService: _tokenService,
           gatewayToken: _gatewayToken,
           enabled: _authEnabled,
-          cookieSecure: _config?.cookieSecure ?? false,
-          trustedProxies: _config?.trustedProxies ?? const [],
+          cookieSecure: _config?.auth.cookieSecure ?? false,
+          trustedProxies: _config?.auth.trustedProxies ?? const [],
           eventBus: _eventBus,
           rateLimiter: _authRateLimiter,
           publicPaths: [if (_googleChatWebhookHandler != null) _googleChatWebhookHandler.config.webhookPath],

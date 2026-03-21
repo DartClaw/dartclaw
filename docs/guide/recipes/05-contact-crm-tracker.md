@@ -1,4 +1,4 @@
-# Use-Case 5: Contact/CRM Tracker
+# Recipe 5: Contact/CRM Tracker
 
 ## Overview
 
@@ -110,7 +110,7 @@ Always include the sender name and date in saved entries.
 
 ## Cron Prompts
 
-This use-case is event-driven -- the agent responds when messages arrive from allowlisted contacts. No cron jobs are required.
+This recipe is event-driven -- the agent responds when messages arrive from allowlisted contacts. No cron jobs are required.
 
 Optionally, add a daily summary job:
 

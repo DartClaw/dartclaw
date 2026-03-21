@@ -674,6 +674,73 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
     ),
 
+    // Channels — Google Chat — Pub/Sub
+    'channels.google_chat.pubsub.project_id': FieldMeta(
+      yamlPath: 'channels.google_chat.pubsub.project_id',
+      jsonKey: 'channels.googleChat.pubsub.projectId',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.pubsub.subscription': FieldMeta(
+      yamlPath: 'channels.google_chat.pubsub.subscription',
+      jsonKey: 'channels.googleChat.pubsub.subscription',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.pubsub.poll_interval_seconds': FieldMeta(
+      yamlPath: 'channels.google_chat.pubsub.poll_interval_seconds',
+      jsonKey: 'channels.googleChat.pubsub.pollIntervalSeconds',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+      max: 60,
+    ),
+    'channels.google_chat.pubsub.max_messages_per_pull': FieldMeta(
+      yamlPath: 'channels.google_chat.pubsub.max_messages_per_pull',
+      jsonKey: 'channels.googleChat.pubsub.maxMessagesPerPull',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 1,
+      max: 100,
+    ),
+
+    // Channels — Google Chat — Space Events
+    'channels.google_chat.space_events.enabled': FieldMeta(
+      yamlPath: 'channels.google_chat.space_events.enabled',
+      jsonKey: 'channels.googleChat.spaceEvents.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.space_events.pubsub_topic': FieldMeta(
+      yamlPath: 'channels.google_chat.space_events.pubsub_topic',
+      jsonKey: 'channels.googleChat.spaceEvents.pubsubTopic',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.space_events.event_types': FieldMeta(
+      yamlPath: 'channels.google_chat.space_events.event_types',
+      jsonKey: 'channels.googleChat.spaceEvents.eventTypes',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'channels.google_chat.space_events.include_resource': FieldMeta(
+      yamlPath: 'channels.google_chat.space_events.include_resource',
+      jsonKey: 'channels.googleChat.spaceEvents.includeResource',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.space_events.auth_mode': FieldMeta(
+      yamlPath: 'channels.google_chat.space_events.auth_mode',
+      jsonKey: 'channels.googleChat.spaceEvents.authMode',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['user', 'app'],
+    ),
+
     // Automation — scheduled tasks (restart-required, list type)
     // Individual entries validated during parsing — registered as a section marker.
 

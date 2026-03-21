@@ -1,6 +1,6 @@
-# Use-Case Cookbook
+# Recipes
 
-Practical workflow guides for common DartClaw automation patterns. Each use-case is self-contained with copy-pasteable configuration, behavior file examples, and step-by-step workflow descriptions.
+Practical workflow recipes for common DartClaw automation patterns. Each recipe is self-contained with copy-pasteable configuration, behavior file examples, and step-by-step workflow descriptions.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ Practical workflow guides for common DartClaw automation patterns. Each use-case
 
 ## Decision Tree
 
-Already know what you want? Pick a specific use-case:
+Already know what you want? Pick a specific recipe:
 
 - Want a **daily briefing** delivered to your phone or web UI?
   --> [Morning Briefing](01-morning-briefing.md)
@@ -39,7 +39,7 @@ Already know what you want? Pick a specific use-case:
 - Want a **nightly reflection** that reviews errors and learnings?
   --> [Nightly Reflection](07-nightly-reflection.md)
 
-## Use-Cases
+## Recipes
 
 | # | Name | Features Used | Complexity |
 |---|------|---------------|------------|
@@ -54,7 +54,7 @@ Already know what you want? Pick a specific use-case:
 
 ## Shared Patterns
 
-See [Common Patterns](_common-patterns.md) for reusable templates, cron testing guides, heartbeat vs cron comparison, monitoring guidance, and memory consolidation details shared across use-cases.
+See [Common Patterns](_common-patterns.md) for reusable templates, cron testing guides, heartbeat vs cron comparison, monitoring guidance, and memory consolidation details shared across recipes.
 
 ## Troubleshooting
 

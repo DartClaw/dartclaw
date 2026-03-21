@@ -3,6 +3,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show PubSubHealthReporter;
 import 'package:path/path.dart' as p;
 
 import '../observability/usage_tracker.dart';
@@ -17,6 +18,7 @@ class HealthService {
   final String _sessionsDir;
   final String _tasksDir;
   final UsageTracker? _usageTracker;
+  PubSubHealthReporter? _pubsubReporter;
   final DateTime _startedAt;
 
   int _cachedSessionCount = 0;
@@ -30,13 +32,21 @@ class HealthService {
     required String sessionsDir,
     String? tasksDir,
     UsageTracker? usageTracker,
+    PubSubHealthReporter? pubsubReporter,
     DateTime? startedAt,
   }) : _worker = worker,
        _searchDbPath = searchDbPath,
        _sessionsDir = sessionsDir,
        _tasksDir = tasksDir ?? p.join(p.dirname(sessionsDir), 'tasks'),
        _usageTracker = usageTracker,
+       _pubsubReporter = pubsubReporter,
        _startedAt = startedAt ?? DateTime.now();
+
+  /// Sets the Pub/Sub health reporter (late injection for wiring order).
+  set pubsubReporter(PubSubHealthReporter? reporter) => _pubsubReporter = reporter;
+
+  /// Returns the current Pub/Sub health status, or null if not configured.
+  Map<String, dynamic>? get pubsubHealth => _pubsubReporter?.getStatus();
 
   Future<Map<String, dynamic>> getStatus() async {
     _refreshCacheIfNeeded();
@@ -65,6 +75,11 @@ class HealthService {
       } catch (_) {
         // Omit daily_usage if unavailable
       }
+    }
+
+    final pubsubReporter = _pubsubReporter;
+    if (pubsubReporter != null) {
+      result['pubsub'] = pubsubReporter.getStatus();
     }
 
     return result;

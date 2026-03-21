@@ -1,4 +1,4 @@
-# Use-Case 4: Knowledge Inbox
+# Recipe 4: Knowledge Inbox
 
 ## Overview
 

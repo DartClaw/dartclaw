@@ -4,7 +4,7 @@
 
 A turnkey personal AI assistant that remembers, researches, and reports -- combining DartClaw's core building blocks into a single coherent setup. This composite guide gives you a complete `dartclaw.yaml` and behavior files to get a daily-driver assistant running immediately, with scheduled briefings, knowledge curation, journaling, and self-improvement.
 
-This guide combines patterns from four individual use-cases:
+This guide combines patterns from four individual recipes:
 - [Morning Briefing](01-morning-briefing.md) -- daily summary delivered to your phone or web UI
 - [Daily Memory Journal](02-daily-memory-journal.md) -- end-of-day knowledge consolidation
 - [Knowledge Inbox](04-knowledge-inbox.md) -- automated web monitoring and curation
@@ -337,7 +337,7 @@ Add the [Contact/CRM Tracker](05-contact-crm-tracker.md) pattern alongside this 
 
 ## Going Deeper
 
-### Individual use-case guides
+### Individual recipe guides
 
 Each pillar is documented in full detail in its own guide -- configuration options, workflow steps, gotchas, and customization tips:
 

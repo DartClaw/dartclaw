@@ -1,7 +1,7 @@
 # DartClaw — Personal Assistant Config
 # Usage: dartclaw --config examples/personal-assistant.yaml serve
 # Long-running knowledge companion with journaling, research, and git backup.
-# See docs/guide/use-cases/00-personal-assistant.md for the full guide.
+# See docs/guide/recipes/00-personal-assistant.md for the full guide.
 
 name: Jarvis
 data_dir: ~/.dartclaw-assistant

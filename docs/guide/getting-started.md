@@ -175,6 +175,6 @@ Run `dart pub get` first. Check Dart SDK >= 3.7.0.
 - **[Search & Memory](search.md)** -- search agent, content-guard, FTS5/QMD
 - **[Deployment](deployment.md)** -- LaunchDaemon, systemd, egress firewall
 - **[Customization](customization.md)** -- L1-L5 customization ladder
-- **[Use-Case Cookbook](use-cases/)** -- practical workflow guides: briefing, journaling, task automation
+- **[Recipes](recipes/)** -- practical workflow recipes: briefing, journaling, task automation
 - **[Web UI & API](web-ui-and-api.md)** -- interface features, REST endpoints
 - **[Architecture](architecture.md)** -- 2-layer model, design decisions

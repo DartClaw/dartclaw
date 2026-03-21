@@ -1,10 +1,10 @@
 # Common Patterns
 
-Reusable snippets and patterns shared across use-cases. For full details on behavior files, see [Workspace](../workspace.md). For scheduling configuration, see [Scheduling](../scheduling.md).
+Reusable snippets and patterns shared across recipes. For full details on behavior files, see [Workspace](../workspace.md). For scheduling configuration, see [Scheduling](../scheduling.md).
 
 ## SOUL.md Template
 
-A starting template for agent identity. Customize the personality, expertise, and communication style for your use-case.
+A starting template for agent identity. Customize the personality, expertise, and communication style for your recipe.
 
 ```markdown
 # Agent Identity
@@ -12,7 +12,7 @@ A starting template for agent identity. Customize the personality, expertise, an
 You are [role description -- e.g., "a personal assistant", "a system administrator"].
 
 ## Expertise
-- [Domain expertise relevant to the use-case]
+- [Domain expertise relevant to the recipe]
 - [Tools and systems you work with]
 
 ## Communication Style

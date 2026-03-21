@@ -13,11 +13,17 @@ import '../page_support.dart';
 import '../web_utils.dart';
 
 class HealthDashboardPage extends DashboardPage {
-  HealthDashboardPage({this.healthService, this.workerStateGetter, this.auditReader});
+  HealthDashboardPage({
+    this.healthService,
+    this.workerStateGetter,
+    this.auditReader,
+    this.pubsubHealthGetter,
+  });
 
   final HealthService? healthService;
   final WorkerState? Function()? workerStateGetter;
   final AuditLogReader? auditReader;
+  final Map<String, dynamic> Function()? pubsubHealthGetter;
 
   @override
   String get route => '/health-dashboard';
@@ -39,6 +45,7 @@ class HealthDashboardPage extends DashboardPage {
     final totalArtifactDiskBytes = await _totalArtifactDiskBytes(context.appDisplay.dataDir);
     final auditPage =
         await auditReader?.read(verdictFilter: verdictFilter, guardFilter: guardFilter) ?? AuditPage.empty;
+    final pubsubHealth = pubsubHealthGetter?.call();
 
     final page = healthDashboardTemplate(
       status: status['status'] as String? ?? 'healthy',
@@ -55,6 +62,7 @@ class HealthDashboardPage extends DashboardPage {
       guardFilter: guardFilter,
       bannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
+      pubsubHealth: pubsubHealth,
     );
 
     return Response.ok(page, headers: htmlHeaders);

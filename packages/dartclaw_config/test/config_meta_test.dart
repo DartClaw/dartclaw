@@ -98,6 +98,18 @@ void main() {
         expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.default_type'));
         expect(ConfigMeta.fields, contains('channels.google_chat.task_trigger.auto_start'));
 
+        // Google Chat — Pub/Sub
+        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.project_id'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.subscription'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.poll_interval_seconds'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.pubsub.max_messages_per_pull'));
+        // Google Chat — Space Events
+        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.enabled'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.pubsub_topic'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.event_types'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.include_resource'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.space_events.auth_mode'));
+
         // Readonly fields
         expect(ConfigMeta.fields, contains('gateway.auth_mode'));
         expect(ConfigMeta.fields, contains('gateway.token'));

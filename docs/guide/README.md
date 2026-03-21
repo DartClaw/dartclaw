@@ -7,7 +7,7 @@ Security-focused personal AI assistant runtime. This guide covers installation, 
 | If you want to... | Read this |
 |---|---|
 | Get DartClaw running for the first time | [Getting Started](getting-started.md) |
-| Set up a personal assistant with scheduled briefings, journaling, and research | [Personal Assistant Guide](use-cases/00-personal-assistant.md) |
+| Set up a personal assistant with scheduled briefings, journaling, and research | [Personal Assistant Guide](recipes/00-personal-assistant.md) |
 | Understand how DartClaw works | [Architecture](architecture.md) |
 
 ## Core Guides
@@ -37,22 +37,22 @@ Security-focused personal AI assistant runtime. This guide covers installation, 
 | [Signal](signal.md) | signal-cli setup, registration, sealed-sender, voice verification |
 | [Google Chat](google-chat.md) | GCP service account, JWT verification, Cards v2, slash commands |
 
-## Use-Case Cookbook
+## Recipes
 
-Ready-to-use workflow guides with copy-pasteable configs:
+Ready-to-use workflow recipes with copy-pasteable configs:
 
 | Guide | Description |
 |-------|-------------|
-| [**Personal Assistant**](use-cases/00-personal-assistant.md) | Turnkey setup: briefings + journaling + research + reflection |
-| [Morning Briefing](use-cases/01-morning-briefing.md) | Daily news/weather delivery |
-| [Daily Memory Journal](use-cases/02-daily-memory-journal.md) | End-of-day knowledge consolidation |
-| [Scheduled Task Queue](use-cases/03-scheduled-task-queue.md) | Multi-job automation pipeline |
-| [Knowledge Inbox](use-cases/04-knowledge-inbox.md) | Automated web monitoring |
-| [Contact/CRM Tracker](use-cases/05-contact-crm-tracker.md) | WhatsApp/Signal contact management |
-| [Research Assistant](use-cases/06-research-assistant.md) | Interactive research with persistent memory |
-| [Nightly Reflection](use-cases/07-nightly-reflection.md) | Self-improvement via error/learning analysis |
+| [**Personal Assistant**](recipes/00-personal-assistant.md) | Turnkey setup: briefings + journaling + research + reflection |
+| [Morning Briefing](recipes/01-morning-briefing.md) | Daily news/weather delivery |
+| [Daily Memory Journal](recipes/02-daily-memory-journal.md) | End-of-day knowledge consolidation |
+| [Scheduled Task Queue](recipes/03-scheduled-task-queue.md) | Multi-job automation pipeline |
+| [Knowledge Inbox](recipes/04-knowledge-inbox.md) | Automated web monitoring |
+| [Contact/CRM Tracker](recipes/05-contact-crm-tracker.md) | WhatsApp/Signal contact management |
+| [Research Assistant](recipes/06-research-assistant.md) | Interactive research with persistent memory |
+| [Nightly Reflection](recipes/07-nightly-reflection.md) | Self-improvement via error/learning analysis |
 
-See also: [Common Patterns](use-cases/_common-patterns.md) | [Troubleshooting](use-cases/_troubleshooting.md)
+See also: [Common Patterns](recipes/_common-patterns.md) | [Troubleshooting](recipes/_troubleshooting.md)
 
 ## Extending
 

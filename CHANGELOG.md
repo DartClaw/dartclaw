@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-03-21
+
+Google Chat Space full participation — DartClaw can now receive ALL messages in Google Chat Spaces without requiring @mention, using Google Workspace Events API + Cloud Pub/Sub.
+
+### Added
+
+#### Phase 1 — Foundation
+- **Configuration model extension** (S01): `PubSubConfig` and `SpaceEventsConfig` nested config sections on `GoogleChatConfig`; `ConfigMeta` registration; cross-field validation (enabling space events requires Pub/Sub fields); all new sections default to disabled — fully backward compatible
+- **Cloud Pub/Sub pull client** (S02): `PubSubClient` (401 LOC) — REST API v1 pull client with configurable poll interval, batch pull (up to 100 messages), immediate ack/nack, exponential backoff on transient errors (429, 5xx, max 32s), graceful shutdown (drain in-flight within 5s), health reporting (last pull timestamp, consecutive error count); zero new dependencies — direct REST via `GcpAuthService`
+
+#### Phase 2 — Core Pipeline
+- **Workspace Events subscription manager** (S03): `WorkspaceEventsManager` (591 LOC) — creates/renews/deletes Google Workspace Events API subscriptions; persists subscription metadata to JSON with atomic writes; proactive renewal at 75% of TTL (1-hour buffer on 4-hour default); startup reconciliation (renew active, recreate expired, prune orphaned); rate-limit aware
+- **CloudEvent message adapter** (S04): `CloudEventAdapter` (300 LOC) — parses Pub/Sub CloudEvent payloads into `ChannelMessage` objects; handles `google.workspace.chat.message.v1.created` events; filters bot self-messages; batch processing support
+- **Message deduplication** (S05): `MessageDeduplicator` (60 LOC) in `dartclaw_core` — bounded FIFO with configurable capacity (default 1000); first-seen-wins prevents double-processing when @mentioned messages arrive via both webhook and Pub/Sub paths
+
+#### Phase 3 — Integration & Hardening
+- **Space join/leave automation + API** (S06): `ADDED_TO_SPACE` webhook auto-subscribes via `WorkspaceEventsManager`; `REMOVED_FROM_SPACE` auto-unsubscribes; REST API endpoints (`GET/POST /api/google-chat/subscriptions`, `DELETE` with body-based `spaceId`) for manual operator control
+- **Graceful degradation + health** (S07): `PubSubHealthReporter` tracks Pub/Sub status and surfaces it to health endpoint and dashboard; automatic fallback to webhook-only mode if Pub/Sub becomes unavailable; auto-recovery when connectivity restores
+
+### Changed
+
+- **Health dashboard**: Pub/Sub status section added — shows pull status, last pull timestamp, active subscription count, degradation warnings
+- **`docs/guide/use-cases/`** renamed to **`docs/guide/recipes/`**
+
+---
+
 ## [0.10.2] — 2026-03-19
 
 Composed config model — decomposed `DartclawConfig` from a 72-field flat class into typed section classes.
@@ -147,9 +173,9 @@ Package decomposition, SDK publish-readiness, channel-to-task integration, Googl
 - **Memory config unification** (S19): `memory.max_bytes` as canonical nested key; backward-compatible fallback to top-level `memory_max_bytes` with deprecation warning; CLI override support for `memory.pruning.*` fields
 - **Contact identifier documentation** (S19): WhatsApp JID format (`<phone>@s.whatsapp.net`, `<group-id>@g.us`) documented in `whatsapp.md`; Google Chat resource names (`users/<id>`, `spaces/<id>`) documented in `google-chat.md`
 
-#### Use-Case Cookbook
-- **Personal Assistant composite guide**: `docs/guide/use-cases/00-personal-assistant.md` — turnkey setup combining morning briefing, knowledge inbox, daily journal, nightly reflection; "Day in the Life" 24-hour walkthrough; complete `dartclaw.yaml` + behavior files; step-by-step getting started
-- **Troubleshooting guide**: `docs/guide/use-cases/_troubleshooting.md` — common issues for scheduled jobs, memory, git sync, channels, cost optimization
+#### Recipes
+- **Personal Assistant composite guide**: `docs/guide/recipes/00-personal-assistant.md` — turnkey setup combining morning briefing, knowledge inbox, daily journal, nightly reflection; "Day in the Life" 24-hour walkthrough; complete `dartclaw.yaml` + behavior files; step-by-step getting started
+- **Troubleshooting guide**: `docs/guide/recipes/_troubleshooting.md` — common issues for scheduled jobs, memory, git sync, channels, cost optimization
 - **Common patterns expanded**: heartbeat vs cron comparison table; monitoring guide (dashboards, logs, agent metrics); concrete SOUL.md example; session maintenance reference; channel-to-task integration guide
 
 ### Changed

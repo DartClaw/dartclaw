@@ -1,4 +1,4 @@
-# Use-Case 1: Morning Briefing
+# Recipe 1: Morning Briefing
 
 ## Overview
 

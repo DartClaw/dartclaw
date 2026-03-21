@@ -32,9 +32,15 @@ void registerSystemDashboardPages(
   SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
   WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
   AuditLogReader? auditReader,
+  Map<String, dynamic> Function()? pubsubHealthGetter,
 }) {
   registry.register(
-    HealthDashboardPage(healthService: healthService, workerStateGetter: workerStateGetter, auditReader: auditReader),
+    HealthDashboardPage(
+      healthService: healthService,
+      workerStateGetter: workerStateGetter,
+      auditReader: auditReader,
+      pubsubHealthGetter: pubsubHealthGetter,
+    ),
   );
   registry.register(
     SettingsPage(

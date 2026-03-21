@@ -15,6 +15,8 @@ import 'package:shelf_static/shelf_static.dart';
 import 'api/agent_routes.dart';
 import 'api/config_api_routes.dart';
 import 'api/config_routes.dart';
+import 'api/google_chat_space_events_wiring.dart';
+import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
@@ -114,6 +116,7 @@ class DartclawServer {
   MergeExecutor? _mergeExecutor;
   String? _mergeStrategy;
   String? _baseRef;
+  GoogleChatSpaceEventsWiring? _spaceEventsWiring;
 
   /// Inject runtime services for toggle control. Must be called after
   /// service creation in serve_command.dart.
@@ -139,6 +142,7 @@ class DartclawServer {
     MergeExecutor? mergeExecutor,
     String? mergeStrategy,
     String? baseRef,
+    GoogleChatSpaceEventsWiring? spaceEventsWiring,
   }) {
     _heartbeat = heartbeat;
     _scheduleService = scheduleService;
@@ -161,6 +165,7 @@ class DartclawServer {
     _mergeExecutor = mergeExecutor;
     _mergeStrategy = mergeStrategy;
     _baseRef = baseRef;
+    _spaceEventsWiring = spaceEventsWiring;
   }
 
   // Config values forwarded to webRoutes for accurate page rendering.
@@ -294,6 +299,9 @@ class DartclawServer {
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,
       auditReader: appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null,
+      pubsubHealthGetter: healthService != null
+          ? () => healthService.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
+          : null,
     );
 
     return server;
@@ -377,6 +385,7 @@ class DartclawServer {
     for (final sessionId in _turns.activeSessionIds.toList()) {
       await _turns.cancelTurn(sessionId);
     }
+    await _spaceEventsWiring?.stop();
     await _sseBroadcast?.dispose();
     await _channelManager?.dispose();
     if (_pool != null) {
@@ -687,6 +696,15 @@ class DartclawServer {
         baseRef: _baseRef ?? 'main',
       );
       router.mount('/', taskRouter.call);
+    }
+
+    // Google Chat subscription API routes.
+    final sew = _spaceEventsWiring;
+    {
+      final subRouter = googleChatSubscriptionRoutes(
+        subscriptionManager: sew?.subscriptionManager,
+      );
+      router.mount('/', subRouter.call);
     }
 
     // Agent overview API routes.

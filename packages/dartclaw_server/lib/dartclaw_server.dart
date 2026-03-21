@@ -13,6 +13,8 @@ library;
 export 'src/api/agent_routes.dart' show agentRoutes;
 export 'src/api/config_api_routes.dart' show configApiRoutes, writeRestartPending, readRestartPending;
 export 'src/api/config_routes.dart' show configRoutes;
+export 'src/api/google_chat_space_events_wiring.dart' show GoogleChatSpaceEventsWiring;
+export 'src/api/google_chat_subscription_routes.dart' show googleChatSubscriptionRoutes;
 export 'src/api/google_chat_webhook.dart' show GoogleChatWebhookHandler, GoogleChatMessageDispatcher;
 export 'src/api/goal_routes.dart' show goalRoutes;
 export 'src/api/slash_command_handler.dart' show SlashCommandHandler;

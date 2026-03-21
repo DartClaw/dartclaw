@@ -116,7 +116,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md` (identity), `AGENTS.md` (s
 - **[WhatsApp](docs/guide/whatsapp.md)** / **[Signal](docs/guide/signal.md)** / **[Google Chat](docs/guide/google-chat.md)** -- channel setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** -- heartbeat, cron jobs
 - **[Search & Memory](docs/guide/search.md)** -- search agent, FTS5/QMD
-- **[Use-Case Cookbook](docs/guide/use-cases/)** -- **[Personal Assistant](docs/guide/use-cases/00-personal-assistant.md)**, morning briefings, journaling, research, CRM tracking
+- **[Recipes](docs/guide/recipes/)** -- **[Personal Assistant](docs/guide/recipes/00-personal-assistant.md)**, morning briefings, journaling, research, CRM tracking
 - **[Deployment](docs/guide/deployment.md)** -- LaunchDaemon, systemd, egress firewall
 - **[Customization](docs/guide/customization.md)** -- L1-L5 customization ladder
 

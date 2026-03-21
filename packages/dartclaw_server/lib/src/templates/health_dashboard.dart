@@ -22,6 +22,7 @@ String healthDashboardTemplate({
   String? guardFilter,
   String bannerHtml = '',
   String appName = 'DartClaw',
+  Map<String, dynamic>? pubsubHealth,
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
   final dbSizeStr = formatBytes(dbSizeBytes);
@@ -99,6 +100,51 @@ String healthDashboardTemplate({
     },
   ];
 
+  if (pubsubHealth != null) {
+    final pubsubStatus = pubsubHealth['status'] as String? ?? 'disabled';
+    final pubsubEnabled = pubsubHealth['enabled'] as bool? ?? false;
+    final lastPull = pubsubHealth['last_successful_pull'] as String?;
+    final errors = pubsubHealth['consecutive_errors'] as int? ?? 0;
+    final activeSubs = pubsubHealth['active_subscriptions'] as int? ?? 0;
+
+    final pubsubBadgeClass = switch (pubsubStatus) {
+      'healthy' => 'badge-success',
+      'degraded' => 'badge-warning',
+      'unavailable' => 'badge-error',
+      _ => 'badge-muted',
+    };
+    final pubsubBadgeText = switch (pubsubStatus) {
+      'disabled' => 'off',
+      _ => pubsubStatus,
+    };
+
+    final lastPullDisplay = _formatLastPull(lastPull);
+
+    final pubsubRows = <Map<String, dynamic>>[
+      {
+        'label': 'Status',
+        'value': pubsubEnabled ? pubsubStatus : 'Not configured',
+        'valueClass': switch (pubsubStatus) {
+          'healthy' => 'text-success',
+          'degraded' => 'text-warning',
+          'unavailable' || 'disabled' => 'text-muted',
+          _ => '',
+        },
+      },
+      {'label': 'Last Pull', 'value': lastPullDisplay, 'valueClass': ''},
+      {'label': 'Subscriptions', 'value': '$activeSubs active', 'valueClass': ''},
+      if (errors > 0)
+        {'label': 'Errors', 'value': '$errors consecutive', 'valueClass': 'text-warning'},
+    ];
+
+    cards.add({
+      'title': 'Pub/Sub',
+      'badgeClass': pubsubBadgeClass,
+      'badgeText': pubsubBadgeText,
+      'rows': pubsubRows,
+    });
+  }
+
   final metrics = <Map<String, dynamic>>[
     {'value': uptimeStr, 'label': 'Uptime', 'metricClass': 'card-metric--accent'},
     {'value': '$sessionCount', 'label': 'Sessions', 'metricClass': 'card-metric--info'},
@@ -128,4 +174,18 @@ String healthDashboardTemplate({
   });
 
   return layoutTemplate(title: 'Health', body: body, appName: appName);
+}
+
+String _formatLastPull(String? isoTimestamp) {
+  if (isoTimestamp == null) return 'never';
+  try {
+    final dt = DateTime.parse(isoTimestamp);
+    final diff = DateTime.now().toUtc().difference(dt);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  } catch (_) {
+    return 'unknown';
+  }
 }

@@ -754,6 +754,7 @@ class ServiceWiring {
       }
     }
 
+    GoogleChatSpaceEventsWiring? spaceEventsWiring;
     if (googleChatEnabled && channelManager != null) {
       try {
         final activeChannelManager = channelManager;
@@ -798,6 +799,40 @@ class ServiceWiring {
           defaultTaskType: googleChatConfig.taskTrigger.defaultType,
           autoStartTasks: googleChatConfig.taskTrigger.autoStart,
         );
+
+        // Phase 1: Create dedup + subscription manager before webhook handler
+        // so they can be passed as optional dependencies.
+        MessageDeduplicator? deduplicator;
+        WorkspaceEventsManager? subscriptionManager;
+        if (googleChatConfig.spaceEvents.enabled && googleChatConfig.pubsub.isConfigured) {
+          try {
+            deduplicator = MessageDeduplicator();
+            final pubsubAuthClient = await GcpAuthService(
+              serviceAccountJson: credentialJson,
+              scopes: const [
+                'https://www.googleapis.com/auth/chat.bot',
+                'https://www.googleapis.com/auth/chat.spaces.readonly',
+                'https://www.googleapis.com/auth/pubsub',
+              ],
+            ).initialize();
+            subscriptionManager = WorkspaceEventsManager(
+              authClient: pubsubAuthClient,
+              config: googleChatConfig.spaceEvents,
+              dataDir: dataDir,
+            );
+            _log.info('Space Events infrastructure initialized (dedup + subscription manager)');
+          } catch (e) {
+            _log.warning('Failed to initialize Space Events infrastructure: $e — space events disabled');
+            deduplicator = null;
+            subscriptionManager = null;
+          }
+        } else if (googleChatConfig.spaceEvents.enabled && !googleChatConfig.pubsub.isConfigured) {
+          _log.warning(
+            'space_events.enabled is true but pubsub is not configured — '
+            'Space Events disabled. Configure pubsub.project_id and pubsub.subscription.',
+          );
+        }
+
         final webhookHandler = GoogleChatWebhookHandler(
           channel: channel,
           jwtVerifier: GoogleJwtVerifier(audience: audience),
@@ -810,6 +845,8 @@ class ServiceWiring {
           trustedProxies: config.auth.trustedProxies,
           slashCommandParser: slashCommandParser,
           slashCommandHandler: slashCommandHandler,
+          deduplicator: deduplicator,
+          subscriptionManager: subscriptionManager,
           dispatchMessage: (message) => _dispatchInboundChannelMessage(
             channelManager: activeChannelManager,
             sessions: sessions,
@@ -818,6 +855,50 @@ class ServiceWiring {
             message: message,
           ),
         );
+
+        // Phase 2: Create PubSubClient + full wiring (needs dedup, adapter, channelManager).
+        if (deduplicator != null && subscriptionManager != null) {
+          try {
+            final adapter = CloudEventAdapter(botUser: googleChatConfig.botUser);
+            // Auth client for PubSub was already created above; subscription manager holds it.
+            // Create a fresh PubSub-scoped auth client here using the same credentials.
+            final pubsubAuthClient = await GcpAuthService(
+              serviceAccountJson: credentialJson,
+              scopes: const [
+                'https://www.googleapis.com/auth/chat.bot',
+                'https://www.googleapis.com/auth/chat.spaces.readonly',
+                'https://www.googleapis.com/auth/pubsub',
+              ],
+            ).initialize();
+            final pubSubClient = PubSubClient.fromConfig(
+              authClient: pubsubAuthClient,
+              config: googleChatConfig.pubsub,
+              onMessage: (message) async {
+                final wiring = spaceEventsWiring;
+                if (wiring == null) return true;
+                return wiring.processMessage(message);
+              },
+            );
+            spaceEventsWiring = GoogleChatSpaceEventsWiring(
+              pubSubClient: pubSubClient,
+              subscriptionManager: subscriptionManager,
+              adapter: adapter,
+              deduplicator: deduplicator,
+              channelManager: activeChannelManager,
+            );
+            _log.info('Space Events Pub/Sub wiring created');
+
+            // Inject Pub/Sub health reporter now that wiring is available.
+            final activeSubManager = subscriptionManager;
+            healthService.pubsubReporter = PubSubHealthReporter(
+              client: pubSubClient,
+              subscriptionCount: () => activeSubManager.activeSubscriptionCount,
+              enabled: true,
+            );
+          } catch (e) {
+            _log.warning('Failed to create Space Events Pub/Sub wiring: $e');
+          }
+        }
 
         activeChannelManager.registerChannel(channel);
         googleChatChannel = channel;
@@ -1381,7 +1462,13 @@ class ServiceWiring {
       mergeExecutor: mergeExecutor,
       mergeStrategy: config.tasks.worktreeMergeStrategy,
       baseRef: config.tasks.worktreeBaseRef,
+      spaceEventsWiring: spaceEventsWiring,
     );
+
+    // Start Space Events pipeline (Pub/Sub pull loop + subscription reconciliation).
+    if (spaceEventsWiring != null) {
+      await spaceEventsWiring.start();
+    }
 
     return WiringResult(
       server: server,
@@ -1401,6 +1488,7 @@ class ServiceWiring {
       eventBus: eventBus,
       containerManagers: containerManagers,
       shutdownExtras: () async {
+        await spaceEventsWiring?.dispose();
         await taskExecutor.stop();
         agentObserver.dispose();
         await taskNotificationSubscriber?.dispose();

@@ -1,8 +1,8 @@
-# Use-Case 7: Nightly Reflection
+# Recipe 7: Nightly Reflection
 
 ## Overview
 
-A nightly cron job that reviews the day's errors and learnings, synthesizes patterns, and saves actionable insights to memory. This was originally planned as a built-in feature (F06) but was demoted to a cookbook use-case -- the infrastructure is general-purpose (cron scheduling + errors.md + learnings.md + memory_save), and reflection is simply a configured use of those building blocks.
+A nightly cron job that reviews the day's errors and learnings, synthesizes patterns, and saves actionable insights to memory. This was originally planned as a built-in feature (F06) but was demoted to a recipe -- the infrastructure is general-purpose (cron scheduling + errors.md + learnings.md + memory_save), and reflection is simply a configured use of those building blocks.
 
 ## Features Used
 

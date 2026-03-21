@@ -1,5 +1,176 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show DmAccessMode, GroupAccessMode, TaskTriggerConfig;
 
+/// Configuration for the Cloud Pub/Sub pull client.
+class PubSubConfig {
+  /// GCP project ID.
+  final String? projectId;
+
+  /// Pub/Sub subscription name.
+  final String? subscription;
+
+  /// Poll interval in seconds.
+  final int pollIntervalSeconds;
+
+  /// Maximum number of messages to pull per request.
+  final int maxMessagesPerPull;
+
+  /// Creates immutable Cloud Pub/Sub pull client configuration.
+  const PubSubConfig({
+    this.projectId,
+    this.subscription,
+    this.pollIntervalSeconds = 2,
+    this.maxMessagesPerPull = 100,
+  });
+
+  /// Creates a disabled (all-defaults) Pub/Sub configuration.
+  const PubSubConfig.disabled() : this();
+
+  /// Whether both [projectId] and [subscription] are configured.
+  bool get isConfigured =>
+      projectId != null &&
+      projectId!.isNotEmpty &&
+      subscription != null &&
+      subscription!.isNotEmpty;
+
+  /// Parses Pub/Sub configuration from YAML, appending warnings to [warns].
+  factory PubSubConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+    final projectIdRaw = yaml['project_id'];
+    String? projectId;
+    if (projectIdRaw is String) {
+      projectId = projectIdRaw;
+    } else if (projectIdRaw != null) {
+      warns.add('Invalid type for google_chat.pubsub.project_id: "${projectIdRaw.runtimeType}" — using default');
+    }
+
+    final subscriptionRaw = yaml['subscription'];
+    String? subscription;
+    if (subscriptionRaw is String) {
+      subscription = subscriptionRaw;
+    } else if (subscriptionRaw != null) {
+      warns.add('Invalid type for google_chat.pubsub.subscription: "${subscriptionRaw.runtimeType}" — using default');
+    }
+
+    var pollIntervalSeconds = 2;
+    final pollIntervalRaw = yaml['poll_interval_seconds'];
+    if (pollIntervalRaw is int) {
+      pollIntervalSeconds = pollIntervalRaw < 1 ? 1 : pollIntervalRaw;
+      if (pollIntervalRaw < 1) {
+        warns.add('google_chat.pubsub.poll_interval_seconds must be >= 1 — clamped to 1');
+      }
+    } else if (pollIntervalRaw != null) {
+      warns.add('Invalid type for google_chat.pubsub.poll_interval_seconds: "${pollIntervalRaw.runtimeType}" — using default');
+    }
+
+    var maxMessagesPerPull = 100;
+    final maxMessagesRaw = yaml['max_messages_per_pull'];
+    if (maxMessagesRaw is int) {
+      if (maxMessagesRaw < 1) {
+        maxMessagesPerPull = 1;
+        warns.add('google_chat.pubsub.max_messages_per_pull must be >= 1 — clamped to 1');
+      } else if (maxMessagesRaw > 100) {
+        maxMessagesPerPull = 100;
+        warns.add('google_chat.pubsub.max_messages_per_pull must be <= 100 — clamped to 100');
+      } else {
+        maxMessagesPerPull = maxMessagesRaw;
+      }
+    } else if (maxMessagesRaw != null) {
+      warns.add('Invalid type for google_chat.pubsub.max_messages_per_pull: "${maxMessagesRaw.runtimeType}" — using default');
+    }
+
+    return PubSubConfig(
+      projectId: projectId,
+      subscription: subscription,
+      pollIntervalSeconds: pollIntervalSeconds,
+      maxMessagesPerPull: maxMessagesPerPull,
+    );
+  }
+}
+
+/// Configuration for Workspace Events API subscriptions.
+class SpaceEventsConfig {
+  /// Whether Workspace Events subscriptions are enabled.
+  final bool enabled;
+
+  /// Target Pub/Sub topic for Workspace Events notifications.
+  final String? pubsubTopic;
+
+  /// Event types to subscribe to.
+  final List<String> eventTypes;
+
+  /// Whether to include the full resource in event payloads.
+  final bool includeResource;
+
+  /// Auth mode: 'user' (GA) or 'app' (Developer Preview).
+  final String authMode;
+
+  /// Creates immutable Workspace Events subscription configuration.
+  const SpaceEventsConfig({
+    this.enabled = false,
+    this.pubsubTopic,
+    this.eventTypes = const ['message.created'],
+    this.includeResource = true,
+    this.authMode = 'user',
+  });
+
+  /// Creates a disabled (all-defaults) Space Events configuration.
+  const SpaceEventsConfig.disabled() : this();
+
+  /// Parses Space Events configuration from YAML, appending warnings to [warns].
+  factory SpaceEventsConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+    var enabled = false;
+    final enabledRaw = yaml['enabled'];
+    if (enabledRaw is bool) {
+      enabled = enabledRaw;
+    } else if (enabledRaw != null) {
+      warns.add('Invalid type for google_chat.space_events.enabled: "${enabledRaw.runtimeType}" — using default');
+    }
+
+    final pubsubTopicRaw = yaml['pubsub_topic'];
+    String? pubsubTopic;
+    if (pubsubTopicRaw is String) {
+      pubsubTopic = pubsubTopicRaw;
+    } else if (pubsubTopicRaw != null) {
+      warns.add('Invalid type for google_chat.space_events.pubsub_topic: "${pubsubTopicRaw.runtimeType}" — using default');
+    }
+
+    var eventTypes = const <String>['message.created'];
+    final eventTypesRaw = yaml['event_types'];
+    if (eventTypesRaw is List) {
+      eventTypes = eventTypesRaw.whereType<String>().toList();
+    } else if (eventTypesRaw != null) {
+      warns.add('Invalid type for google_chat.space_events.event_types: "${eventTypesRaw.runtimeType}" — using default');
+    }
+
+    var includeResource = true;
+    final includeResourceRaw = yaml['include_resource'];
+    if (includeResourceRaw is bool) {
+      includeResource = includeResourceRaw;
+    } else if (includeResourceRaw != null) {
+      warns.add('Invalid type for google_chat.space_events.include_resource: "${includeResourceRaw.runtimeType}" — using default');
+    }
+
+    var authMode = 'user';
+    final authModeRaw = yaml['auth_mode'];
+    if (authModeRaw is String) {
+      if (authModeRaw == 'user' || authModeRaw == 'app') {
+        authMode = authModeRaw;
+      } else {
+        warns.add('Invalid value for google_chat.space_events.auth_mode: "$authModeRaw" — using default');
+      }
+    } else if (authModeRaw != null) {
+      warns.add('Invalid type for google_chat.space_events.auth_mode: "${authModeRaw.runtimeType}" — using default');
+    }
+
+    return SpaceEventsConfig(
+      enabled: enabled,
+      pubsubTopic: pubsubTopic,
+      eventTypes: eventTypes,
+      includeResource: includeResource,
+      authMode: authMode,
+    );
+  }
+}
+
 /// Audience format used when validating Google Chat JWT tokens.
 enum GoogleChatAudienceMode {
   /// Audience is the HTTPS app URL configured for the Chat app.
@@ -59,6 +230,12 @@ class GoogleChatConfig {
   /// Per-channel task trigger configuration.
   final TaskTriggerConfig taskTrigger;
 
+  /// Cloud Pub/Sub pull client configuration.
+  final PubSubConfig pubsub;
+
+  /// Workspace Events subscription configuration.
+  final SpaceEventsConfig spaceEvents;
+
   /// Creates immutable Google Chat channel configuration.
   const GoogleChatConfig({
     this.enabled = false,
@@ -73,6 +250,8 @@ class GoogleChatConfig {
     this.groupAllowlist = const [],
     this.requireMention = true,
     this.taskTrigger = const TaskTriggerConfig.disabled(),
+    this.pubsub = const PubSubConfig.disabled(),
+    this.spaceEvents = const SpaceEventsConfig.disabled(),
   });
 
   /// Creates a disabled Google Chat configuration.
@@ -151,6 +330,22 @@ class GoogleChatConfig {
       warns.add('Invalid type for google_chat.task_trigger: "${taskTriggerRaw.runtimeType}" — using default');
     }
 
+    var pubsub = const PubSubConfig.disabled();
+    final pubsubRaw = yaml['pubsub'];
+    if (pubsubRaw is Map) {
+      pubsub = PubSubConfig.fromYaml(Map<String, dynamic>.from(pubsubRaw), warns);
+    } else if (pubsubRaw != null) {
+      warns.add('Invalid type for google_chat.pubsub: "${pubsubRaw.runtimeType}" — using default');
+    }
+
+    var spaceEvents = const SpaceEventsConfig.disabled();
+    final spaceEventsRaw = yaml['space_events'];
+    if (spaceEventsRaw is Map) {
+      spaceEvents = SpaceEventsConfig.fromYaml(Map<String, dynamic>.from(spaceEventsRaw), warns);
+    } else if (spaceEventsRaw != null) {
+      warns.add('Invalid type for google_chat.space_events: "${spaceEventsRaw.runtimeType}" — using default');
+    }
+
     final normalizedServiceAccount = serviceAccount is String ? serviceAccount.trim() : null;
     final parsedServiceAccount = normalizedServiceAccount == null || normalizedServiceAccount.isEmpty
         ? null
@@ -161,6 +356,24 @@ class GoogleChatConfig {
     }
     if (parsedEnabled && audience == null) {
       warns.add('Missing or invalid google_chat.audience when channel is enabled');
+    }
+
+    if (spaceEvents.enabled) {
+      if (pubsub.projectId == null || pubsub.projectId!.trim().isEmpty) {
+        warns.add('Missing required google_chat.pubsub.project_id when space_events is enabled');
+      }
+      if (pubsub.subscription == null || pubsub.subscription!.trim().isEmpty) {
+        warns.add('Missing required google_chat.pubsub.subscription when space_events is enabled');
+      }
+      if (spaceEvents.pubsubTopic == null || spaceEvents.pubsubTopic!.trim().isEmpty) {
+        warns.add('Missing required google_chat.space_events.pubsub_topic when space_events is enabled');
+      }
+      if (spaceEvents.authMode == 'app') {
+        warns.add(
+          'google_chat.space_events.auth_mode "app" is Developer Preview and not yet supported — '
+          'service-account auth with chat.bot scope will be used',
+        );
+      }
     }
 
     return GoogleChatConfig(
@@ -176,6 +389,8 @@ class GoogleChatConfig {
       groupAllowlist: _parseStringList(yaml['group_allowlist']),
       requireMention: requireMention,
       taskTrigger: taskTrigger,
+      pubsub: pubsub,
+      spaceEvents: spaceEvents,
     );
   }
 

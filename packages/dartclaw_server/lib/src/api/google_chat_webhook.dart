@@ -34,6 +34,8 @@ class GoogleChatWebhookHandler {
   final ChatCardBuilder _cardBuilder;
   final SlashCommandParser? _slashCommandParser;
   final SlashCommandHandler? _slashCommandHandler;
+  final MessageDeduplicator? _deduplicator;
+  final WorkspaceEventsManager? _subscriptionManager;
 
   GoogleChatWebhookHandler({
     required this.channel,
@@ -50,10 +52,14 @@ class GoogleChatWebhookHandler {
     ChatCardBuilder? cardBuilder,
     SlashCommandParser? slashCommandParser,
     SlashCommandHandler? slashCommandHandler,
+    MessageDeduplicator? deduplicator,
+    WorkspaceEventsManager? subscriptionManager,
   }) : _reviewHandler = reviewHandler,
        _cardBuilder = cardBuilder ?? const ChatCardBuilder(),
        _slashCommandParser = slashCommandParser,
-       _slashCommandHandler = slashCommandHandler;
+       _slashCommandHandler = slashCommandHandler,
+       _deduplicator = deduplicator,
+       _subscriptionManager = subscriptionManager;
 
   Future<Response> handle(Request request) async {
     final authHeader = request.headers['authorization'];
@@ -83,6 +89,7 @@ class GoogleChatWebhookHandler {
     return switch (payload['type']) {
       'MESSAGE' => _handleMessage(payload),
       'ADDED_TO_SPACE' => _handleAddedToSpace(payload),
+      'REMOVED_FROM_SPACE' => _handleRemovedFromSpace(payload),
       'CARD_CLICKED' => _handleCardClicked(payload),
       'APP_COMMAND' => _handleAppCommand(payload),
       _ => () {
@@ -190,6 +197,16 @@ class GoogleChatWebhookHandler {
 
     final manager = channelManager;
     if (manager != null) {
+      // Dedup check — skip if this message already arrived via Pub/Sub.
+      final dedup = _deduplicator;
+      final messageName = channelMessage.metadata['messageName'] as String?;
+      if (dedup != null && messageName != null && messageName.isNotEmpty) {
+        if (!dedup.tryProcess(messageName)) {
+          _log.fine('Duplicate message $messageName (already seen via Pub/Sub) — skipping webhook processing');
+          return _jsonResponse(const {});
+        }
+      }
+
       if (config.typingIndicator) {
         final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
         if (placeholderName != null) {
@@ -245,6 +262,35 @@ class GoogleChatWebhookHandler {
     if (spaceName != null && spaceName.isNotEmpty) {
       await channel.restClient.sendMessage(spaceName, _welcomeMessage);
       _log.info('Google Chat bot added to $spaceName');
+
+      // Auto-subscribe to space events when enabled
+      final subscriptionManager = _subscriptionManager;
+      if (subscriptionManager != null && config.spaceEvents.enabled) {
+        try {
+          await subscriptionManager.subscribe(spaceName);
+          _log.info('Subscribed to space events for $spaceName');
+        } catch (e, st) {
+          _log.warning('Failed to subscribe to space events for $spaceName', e, st);
+        }
+      }
+    }
+    return _jsonResponse(const {});
+  }
+
+  Future<Response> _handleRemovedFromSpace(Map<String, dynamic> payload) async {
+    final space = _asMap(payload['space']);
+    final spaceName = space?['name'] as String?;
+    if (spaceName != null && spaceName.isNotEmpty) {
+      _log.info('Google Chat bot removed from $spaceName');
+      final subscriptionManager = _subscriptionManager;
+      if (subscriptionManager != null) {
+        try {
+          await subscriptionManager.unsubscribe(spaceName);
+          _log.info('Unsubscribed from space events for $spaceName');
+        } catch (e, st) {
+          _log.warning('Failed to unsubscribe from space events for $spaceName', e, st);
+        }
+      }
     }
     return _jsonResponse(const {});
   }

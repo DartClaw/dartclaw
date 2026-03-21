@@ -227,6 +227,87 @@ void main() {
       });
     });
 
+    group('space events cross-field validation', () {
+      test('no error when space_events.enabled is false', () {
+        expect(
+          validator.validate({'channels.google_chat.space_events.enabled': false}),
+          isEmpty,
+        );
+      });
+
+      test('errors when space_events enabled without pubsub.project_id', () {
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+          currentValues: {
+            'channels.google_chat.pubsub.subscription': 'my-sub',
+            'channels.google_chat.space_events.pubsub_topic': 'projects/p/topics/t',
+          },
+        );
+        final fields = errors.map((e) => e.field).toSet();
+        expect(fields, contains('channels.google_chat.pubsub.project_id'));
+        expect(fields, isNot(contains('channels.google_chat.pubsub.subscription')));
+        expect(fields, isNot(contains('channels.google_chat.space_events.pubsub_topic')));
+      });
+
+      test('errors when space_events enabled without pubsub.subscription', () {
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+          currentValues: {
+            'channels.google_chat.pubsub.project_id': 'my-project',
+            'channels.google_chat.space_events.pubsub_topic': 'projects/p/topics/t',
+          },
+        );
+        final fields = errors.map((e) => e.field).toSet();
+        expect(fields, contains('channels.google_chat.pubsub.subscription'));
+        expect(fields, isNot(contains('channels.google_chat.pubsub.project_id')));
+      });
+
+      test('errors when space_events enabled without pubsub_topic', () {
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+          currentValues: {
+            'channels.google_chat.pubsub.project_id': 'my-project',
+            'channels.google_chat.pubsub.subscription': 'my-sub',
+          },
+        );
+        final fields = errors.map((e) => e.field).toSet();
+        expect(fields, contains('channels.google_chat.space_events.pubsub_topic'));
+      });
+
+      test('no errors when space_events enabled with all required fields', () {
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+          currentValues: {
+            'channels.google_chat.pubsub.project_id': 'my-project',
+            'channels.google_chat.pubsub.subscription': 'my-sub',
+            'channels.google_chat.space_events.pubsub_topic': 'projects/p/topics/t',
+          },
+        );
+        expect(errors, isEmpty);
+      });
+
+      test('uses currentValues for pre-existing fields', () {
+        final errors = validator.validate(
+          {
+            'channels.google_chat.space_events.enabled': true,
+            'channels.google_chat.space_events.pubsub_topic': 'projects/p/topics/t',
+          },
+          currentValues: {
+            'channels.google_chat.pubsub.project_id': 'my-project',
+            'channels.google_chat.pubsub.subscription': 'my-sub',
+          },
+        );
+        expect(errors, isEmpty);
+      });
+
+      test('error message references space_events.enabled as trigger', () {
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+        );
+        expect(errors.any((e) => e.message.contains('space_events.enabled')), isTrue);
+      });
+    });
+
     group('session scope enum fields — valid', () {
       test('all valid dm_scope and group_scope values pass', () {
         expect(validator.validate({'sessions.dm_scope': 'per-contact'}), isEmpty);

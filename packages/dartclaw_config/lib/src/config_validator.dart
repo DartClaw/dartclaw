@@ -58,6 +58,7 @@ class ConfigValidator {
     }
 
     _validateGoogleChatRequirements(updates, currentValues, errors);
+    _validateSpaceEventsRequirements(updates, currentValues, errors);
     return errors;
   }
 
@@ -91,6 +92,41 @@ class ConfigValidator {
     );
   }
 
+  void _validateSpaceEventsRequirements(
+    Map<String, dynamic> updates,
+    Map<String, dynamic> currentValues,
+    List<ValidationError> errors,
+  ) {
+    final enabled = _mergedValue<bool>(
+      'channels.google_chat.space_events.enabled',
+      updates,
+      currentValues,
+    );
+    if (enabled != true) return;
+
+    _requireNonBlankString(
+      field: 'channels.google_chat.pubsub.project_id',
+      updates: updates,
+      currentValues: currentValues,
+      errors: errors,
+      requiredByField: 'channels.google_chat.space_events.enabled',
+    );
+    _requireNonBlankString(
+      field: 'channels.google_chat.pubsub.subscription',
+      updates: updates,
+      currentValues: currentValues,
+      errors: errors,
+      requiredByField: 'channels.google_chat.space_events.enabled',
+    );
+    _requireNonBlankString(
+      field: 'channels.google_chat.space_events.pubsub_topic',
+      updates: updates,
+      currentValues: currentValues,
+      errors: errors,
+      requiredByField: 'channels.google_chat.space_events.enabled',
+    );
+  }
+
   T? _mergedValue<T>(String field, Map<String, dynamic> updates, Map<String, dynamic> currentValues) {
     final source = updates.containsKey(field) ? updates : currentValues;
     final value = source[field];
@@ -102,6 +138,7 @@ class ConfigValidator {
     required Map<String, dynamic> updates,
     required Map<String, dynamic> currentValues,
     required List<ValidationError> errors,
+    String requiredByField = 'channels.google_chat.enabled',
   }) {
     final source = updates.containsKey(field) ? updates : currentValues;
     final value = source[field];
@@ -112,7 +149,7 @@ class ConfigValidator {
       return;
     }
     errors.add(
-      ValidationError(field: field, message: "Field '$field' is required when channels.google_chat.enabled is true"),
+      ValidationError(field: field, message: "Field '$field' is required when $requiredByField is true"),
     );
   }
 

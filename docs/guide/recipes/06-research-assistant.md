@@ -89,7 +89,7 @@ When asked a research question:
 
 ## Cron Prompts
 
-This use-case is interactive (driven by user questions in the web UI), not cron-driven. However, you can add a scheduled research job for recurring topics:
+This recipe is interactive (driven by user questions in the web UI), not cron-driven. However, you can add a scheduled research job for recurring topics:
 
 ```yaml
 scheduling:

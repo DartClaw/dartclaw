@@ -8,7 +8,6 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../task/merge_executor.dart';
-import '../task/task_event_helpers.dart';
 import '../task/task_file_guard.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
@@ -20,8 +19,10 @@ final _log = Logger('TaskRoutes');
 
 /// Creates a [Router] exposing task CRUD and lifecycle API endpoints.
 Router taskRoutes(
-  TaskService tasks,
-  EventBus eventBus, {
+  TaskService tasks, {
+  // eventBus is accepted for API compatibility but events are now fired by TaskService.
+  @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
+  EventBus? eventBus,
   TurnManager? turns,
   TaskReviewService? reviewService,
   WorktreeManager? worktreeManager,
@@ -36,7 +37,6 @@ Router taskRoutes(
       reviewService ??
       TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
         worktreeManager: worktreeManager,
         taskFileGuard: taskFileGuard,
         mergeExecutor: mergeExecutor,
@@ -88,6 +88,8 @@ Router taskRoutes(
       }
       final configJson = _jsonMapOrEmpty(body.value!['configJson']);
 
+      final createdByRaw = _stringOrNull(body.value!['createdBy']);
+      final createdBy = (createdByRaw != null && createdByRaw.trim().isNotEmpty) ? createdByRaw.trim() : 'operator';
       final task = await tasks.create(
         id: const Uuid().v4(),
         title: title,
@@ -96,17 +98,11 @@ Router taskRoutes(
         autoStart: autoStart,
         goalId: goalId,
         acceptanceCriteria: acceptanceCriteria,
+        createdBy: createdBy,
         configJson: configJson,
-      );
-
-      await fireTaskLifecycleEvents(
-        tasks: tasks,
-        eventBus: eventBus,
-        taskId: task.id,
-        oldStatus: TaskStatus.draft,
-        newStatus: task.status,
         trigger: 'user',
       );
+
       return jsonResponse(201, task.toJson());
     } catch (e, st) {
       _log.warning('Failed to create task: $e', e, st);
@@ -149,7 +145,6 @@ Router taskRoutes(
   router.post('/api/tasks/<id>/start', (Request request, String id) async {
     return _transitionTask(
       tasks: tasks,
-      eventBus: eventBus,
       taskId: id,
       targetStatus: TaskStatus.queued,
       errorCode: 'INVALID_TRANSITION',
@@ -161,7 +156,6 @@ Router taskRoutes(
   router.post('/api/tasks/<id>/checkout', (Request request, String id) async {
     return _transitionTask(
       tasks: tasks,
-      eventBus: eventBus,
       taskId: id,
       targetStatus: TaskStatus.running,
       errorCode: 'CHECKOUT_CONFLICT',
@@ -174,7 +168,6 @@ Router taskRoutes(
     final task = await tasks.get(id);
     final response = await _transitionTask(
       tasks: tasks,
-      eventBus: eventBus,
       taskId: id,
       targetStatus: TaskStatus.cancelled,
       errorCode: 'INVALID_TRANSITION',
@@ -294,7 +287,6 @@ Router taskRoutes(
 
 Future<Response> _transitionTask({
   required TaskService tasks,
-  required EventBus eventBus,
   required String taskId,
   required TaskStatus targetStatus,
   required String errorCode,
@@ -307,18 +299,14 @@ Future<Response> _transitionTask({
 
     final oldStatus = task.status;
     try {
-      final updated = await tasks.transition(taskId, targetStatus);
-      await fireTaskLifecycleEvents(
-        tasks: tasks,
-        eventBus: eventBus,
-        taskId: taskId,
-        oldStatus: oldStatus,
-        newStatus: updated.status,
-        trigger: trigger,
-      );
+      final updated = await tasks.transition(taskId, targetStatus, trigger: trigger);
       return jsonResponse(200, updated.toJson());
     } on ArgumentError {
       return _taskNotFound();
+    } on VersionConflictException catch (e) {
+      return errorResponse(409, 'VERSION_CONFLICT', 'Task was modified concurrently. Refresh and retry.', {
+        'currentVersion': e.currentVersion,
+      });
     } on StateError {
       final current = await tasks.get(taskId);
       return errorResponse(409, errorCode, 'Cannot transition from ${oldStatus.name} to ${targetStatus.name}', {

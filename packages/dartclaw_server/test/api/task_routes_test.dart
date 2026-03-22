@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
@@ -36,9 +35,9 @@ void main() {
 
   setUp(() {
     db = openTaskDbInMemory();
-    tasks = TaskService(SqliteTaskRepository(db));
     eventBus = EventBus();
-    handler = taskRoutes(tasks, eventBus).call;
+    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    handler = taskRoutes(tasks).call;
   });
 
   tearDown(() async {
@@ -149,21 +148,9 @@ void main() {
       expect(await _errorCode(response), 'INVALID_INPUT');
     });
 
-    test('fires TaskStatusChangedEvent on create', () async {
-      final events = <TaskStatusChangedEvent>[];
-      eventBus.on<TaskStatusChangedEvent>().listen(events.add);
-
-      final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {'title': 'Task', 'description': 'Describe the work', 'type': 'coding'}),
-      );
-      expect(response.statusCode, 201);
-      await Future<void>.delayed(Duration.zero);
-
-      expect(events, hasLength(1));
-      expect(events.single.oldStatus, TaskStatus.draft);
-      expect(events.single.newStatus, TaskStatus.draft);
-      expect(events.single.trigger, 'user');
-    });
+    // Note: draft-only creation (autoStart:false) does not fire a TaskStatusChangedEvent.
+    // Events are fired by TaskService.transition() on status changes only.
+    // See task_service_events_test.dart for event centralization tests.
   });
 
   group('GET /api/tasks', () {
@@ -246,7 +233,6 @@ void main() {
 
       final response = await taskRoutes(
         tasks,
-        eventBus,
         dataDir: tempDir.path,
       ).call(Request('GET', Uri.parse('http://localhost/api/tasks')));
 
@@ -280,7 +266,6 @@ void main() {
 
       final response = await taskRoutes(
         tasks,
-        eventBus,
         dataDir: tempDir.path,
       ).call(Request('GET', Uri.parse('http://localhost/api/tasks/task-detail')));
 
@@ -436,7 +421,7 @@ void main() {
 
     test('cancels the active turn for running tasks with sessions', () async {
       final turns = _CancelTrackingTurns();
-      handler = taskRoutes(tasks, eventBus, turns: turns).call;
+      handler = taskRoutes(tasks, turns: turns).call;
       await createTask('task-1', autoStart: true);
       await tasks.transition('task-1', TaskStatus.running);
       await tasks.updateFields('task-1', sessionId: 'session-123');
@@ -478,7 +463,7 @@ void main() {
 
       expect(response.statusCode, 200);
       final body = _decodeObject(await response.readAsString());
-      expect(body['status'], 'queued');
+      expect(body['status'], 'running');
       expect((body['configJson'] as Map<String, dynamic>)['pushBackCount'], 1);
       expect((body['configJson'] as Map<String, dynamic>)['pushBackComment'], 'try again');
     });
@@ -509,7 +494,7 @@ void main() {
       final repo = InMemoryTaskRepository();
       final racingTasks = TaskService(repo);
       addTearDown(racingTasks.dispose);
-      final racingHandler = taskRoutes(racingTasks, eventBus).call;
+      final racingHandler = taskRoutes(racingTasks).call;
 
       await racingTasks.create(
         id: 'task-1',
@@ -590,7 +575,6 @@ void main() {
       );
       final failingHandler = taskRoutes(
         tasks,
-        eventBus,
         mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded')),
       ).call;
 
@@ -670,7 +654,6 @@ void main() {
         );
         final mergeHandler = taskRoutes(
           tasks,
-          eventBus,
           mergeExecutor: mockMerge,
           dataDir: tempDir.path,
           mergeStrategy: 'squash',
@@ -703,7 +686,6 @@ void main() {
         );
         final mergeHandler = taskRoutes(
           tasks,
-          eventBus,
           mergeExecutor: mockMerge,
           dataDir: tempDir.path,
           mergeStrategy: 'squash',
@@ -738,7 +720,6 @@ void main() {
         );
         final mergeHandler = taskRoutes(
           tasks,
-          eventBus,
           mergeExecutor: mockMerge,
           dataDir: tempDir.path,
           mergeStrategy: 'squash',
@@ -774,7 +755,6 @@ void main() {
         );
         final mergeHandler = taskRoutes(
           tasks,
-          eventBus,
           mergeExecutor: mockMerge,
           dataDir: tempDir.path,
           mergeStrategy: 'squash',
@@ -799,7 +779,6 @@ void main() {
         );
         final mergeHandler = taskRoutes(
           tasks,
-          eventBus,
           mergeExecutor: mockMerge,
           dataDir: tempDir.path,
           mergeStrategy: 'squash',

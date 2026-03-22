@@ -14,6 +14,7 @@ class ChatCardBuilder {
     required String status,
     String? description,
     String? errorSummary,
+    String? requestedBy,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool includeReviewButtons = false,
@@ -43,6 +44,12 @@ class ChatCardBuilder {
     }
 
     final timestampWidgets = <Map<String, dynamic>>[];
+    final trimmedRequestedBy = requestedBy?.trim();
+    if (trimmedRequestedBy != null && trimmedRequestedBy.isNotEmpty) {
+      timestampWidgets.add({
+        'decoratedText': {'topLabel': 'Requested by', 'text': _escapeText(trimmedRequestedBy)},
+      });
+    }
     if (createdAt != null) {
       timestampWidgets.add({
         'decoratedText': {'topLabel': 'Created', 'text': _formatTimestamp(createdAt)},

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
@@ -16,7 +16,7 @@ void main() {
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       queue = MessageQueue(
         debounceWindow: const Duration(milliseconds: 50),
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           dispatched.add((sessionKey, message));
           return 'ok';
         },
@@ -114,7 +114,7 @@ void main() {
     ChannelManager buildManager({SessionScopeConfig? scopeConfig, LiveScopeConfig? liveScopeConfig}) {
       final queue = MessageQueue(
         debounceWindow: const Duration(milliseconds: 50),
-        dispatcher: (sessionKey, message, {String? senderJid}) async => 'ok',
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
       );
       return ChannelManager(
         queue: queue,
@@ -361,4 +361,170 @@ void main() {
       explicitManager.dispose();
     });
   });
+
+  // TI10: bridge + manager routing precedence integration tests
+  group('ChannelManager + ChannelTaskBridge routing precedence', () {
+    late _RecordingMessageQueue queue;
+    late FakeChannel channel;
+    late InMemoryTaskRepository repo;
+    late ChannelManager manager;
+
+    setUp(() {
+      queue = _RecordingMessageQueue();
+      channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
+      repo = InMemoryTaskRepository();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+      await repo.dispose();
+    });
+
+    test('non-task messages enqueue normally when bridge is wired', () async {
+      manager = ChannelManager(
+        queue: queue,
+        config: const ChannelConfig.defaults(),
+        taskBridge: ChannelTaskBridge(
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
+      );
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'hello'),
+      );
+      await _flushAsync();
+
+      expect(queue.enqueued, hasLength(1));
+    });
+
+    test('all messages enqueue normally when bridge is null', () async {
+      manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'task: do it'),
+      );
+      // No flushAsync needed — synchronous path when no bridge
+      expect(queue.enqueued, hasLength(1));
+    });
+
+    test('review commands handled before task triggers when bridge wired', () async {
+      // Insert a task in review state directly
+      final task = Task(
+        id: 'abc12300-0000-0000-0000-000000000000',
+        title: 'Fix login',
+        description: 'Fix login',
+        type: TaskType.research,
+        status: TaskStatus.review,
+        configJson: const {},
+        createdAt: DateTime.parse('2026-03-13T10:00:00Z'),
+      );
+      await repo.insert(task);
+
+      final reviewHandler = _RecordingReviewHandler();
+      reviewHandler.result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
+
+      manager = ChannelManager(
+        queue: queue,
+        config: const ChannelConfig.defaults(),
+        taskBridge: ChannelTaskBridge(
+          taskLister: ({status, type}) => repo.list(status: status, type: type),
+          reviewCommandParser: const ReviewCommandParser(),
+          reviewHandler: reviewHandler.call,
+          triggerParser: const _AlwaysTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
+      );
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'accept'),
+      );
+      await _flushAsync();
+
+      expect(reviewHandler.calls, [(task.id, 'accept')]);
+      expect(queue.enqueued, isEmpty);
+    });
+
+    test('bridge receives correct sessionKey derived by ChannelManager', () async {
+      String? receivedSessionKey;
+      final capturingBridge = _SessionKeyCapturingBridge(onHandle: (key) => receivedSessionKey = key);
+
+      manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults(), taskBridge: capturingBridge);
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'hello'),
+      );
+      await _flushAsync();
+
+      expect(receivedSessionKey, isNotNull);
+      expect(receivedSessionKey, contains('whatsapp'));
+      expect(receivedSessionKey, contains(Uri.encodeComponent('sender@s.whatsapp.net')));
+    });
+  });
+}
+
+Future<void> _flushAsync() async {
+  await Future<void>.delayed(Duration.zero);
+  await Future<void>.delayed(Duration.zero);
+}
+
+class _RecordingMessageQueue extends MessageQueue {
+  final List<(ChannelMessage, Channel, String)> enqueued = [];
+
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
+
+  @override
+  void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
+    enqueued.add((message, sourceChannel, sessionKey));
+  }
+
+  @override
+  void dispose() {}
+}
+
+class _AlwaysTriggerParser extends TaskTriggerParser {
+  const _AlwaysTriggerParser();
+
+  @override
+  TaskTriggerResult? parse(String message, TaskTriggerConfig config, {bool emptyDescriptionError = false}) {
+    if (message.trim().toLowerCase() != 'accept') {
+      return null;
+    }
+    return const TaskTriggerResult(description: 'should not run', type: TaskType.research, autoStart: true);
+  }
+}
+
+class _RecordingReviewHandler {
+  final List<(String, String)> calls = [];
+  ChannelReviewResult result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
+
+  Future<ChannelReviewResult> call(String taskId, String action, {String? comment}) async {
+    calls.add((taskId, action));
+    return result;
+  }
+}
+
+/// A minimal bridge that captures the sessionKey passed to tryHandle and
+/// always returns false (falls through to queue).
+class _SessionKeyCapturingBridge extends ChannelTaskBridge {
+  final void Function(String sessionKey) onHandle;
+
+  _SessionKeyCapturingBridge({required this.onHandle});
+
+  @override
+  Future<bool> tryHandle(
+    ChannelMessage message,
+    Channel channel, {
+    required String sessionKey,
+    void Function(ChannelMessage, Channel, String)? enqueue,
+    String? boundTaskId,
+    ThreadBinding? boundThreadBinding,
+  }) async {
+    onHandle(sessionKey);
+    return false;
+  }
 }

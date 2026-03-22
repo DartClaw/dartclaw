@@ -76,7 +76,7 @@ Response sseStreamResponse(
     }
     try {
       controller.add(utf8.encode(frame));
-    } catch (_) {
+    } catch (e) {
       // Controller closed between isClosed check and add — safe to ignore.
     }
   });
@@ -98,7 +98,9 @@ Response sseStreamResponse(
       if (!controller.isClosed) {
         try {
           controller.add(utf8.encode(_sseHtmlFrame('turn_error', '<div class="turn-error">Internal error</div>')));
-        } catch (_) {}
+        } catch (e) {
+          // Controller closed — safe to ignore.
+        }
       }
     } finally {
       await eventSub?.cancel();

@@ -1,9 +1,12 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../task/task_service.dart';
+
+final _log = Logger('SessionMaintenanceService');
 
 /// A single action taken or planned during maintenance.
 class MaintenanceAction {
@@ -176,7 +179,9 @@ class SessionMaintenanceService {
       if (key.scope == 'cron') {
         return Uri.decodeComponent(key.identifiers);
       }
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Failed to parse session key for job extraction: $e');
+    }
     return null;
   }
 
@@ -402,8 +407,8 @@ class SessionMaintenanceService {
           totalBytes += entity.statSync().size;
         }
       }
-    } catch (_) {
-      // Best effort
+    } catch (e) {
+      _log.fine('Failed to compute dir size for $dirPath: $e');
     }
     return totalBytes;
   }

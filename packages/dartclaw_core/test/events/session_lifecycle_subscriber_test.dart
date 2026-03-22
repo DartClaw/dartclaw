@@ -1,5 +1,4 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/events/session_lifecycle_subscriber.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 

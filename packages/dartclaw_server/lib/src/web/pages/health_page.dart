@@ -1,8 +1,6 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:io';
 
-import 'package:dartclaw_core/src/worker/worker_state.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkerState;
 import 'package:shelf/shelf.dart';
 
 import '../../audit/audit_log_reader.dart';

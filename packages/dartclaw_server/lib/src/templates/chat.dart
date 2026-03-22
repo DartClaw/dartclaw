@@ -9,16 +9,25 @@ final _turnFailedPattern = RegExp(r'^\[Turn failed(?::\s*(.+))?\]$', dotAll: tru
 enum MessageType { user, assistant, guardBlock, turnFailed }
 
 /// Classified message with type and extracted detail (for guard-block / turn-failed).
-typedef ClassifiedMessage = ({String id, String role, String content, MessageType messageType, String? detail});
+typedef ClassifiedMessage = ({String id, String role, String content, MessageType messageType, String? detail, String? senderName});
 
 /// Classifies a raw message into one of the four message types.
 ///
 /// User messages are always [MessageType.user]. Assistant messages are checked
 /// against guard-block and turn-failed patterns; unmatched ones are
 /// [MessageType.assistant].
-ClassifiedMessage classifyMessage({required String id, required String role, required String content}) {
+///
+/// [senderName] is an optional display name for user messages — shown as a
+/// prefix in the task detail chat view when present (e.g. "Alice: fix the
+/// login bug"). Pass `null` for web/operator turns.
+ClassifiedMessage classifyMessage({
+  required String id,
+  required String role,
+  required String content,
+  String? senderName,
+}) {
   if (role == 'user') {
-    return (id: id, role: role, content: content, messageType: MessageType.user, detail: null);
+    return (id: id, role: role, content: content, messageType: MessageType.user, detail: null, senderName: senderName);
   }
 
   final guardMatch = _guardBlockPattern.firstMatch(content);
@@ -29,15 +38,23 @@ ClassifiedMessage classifyMessage({required String id, required String role, req
       content: content,
       messageType: MessageType.guardBlock,
       detail: guardMatch.group(1) ?? content,
+      senderName: null,
     );
   }
 
   final failedMatch = _turnFailedPattern.firstMatch(content);
   if (failedMatch != null) {
-    return (id: id, role: role, content: content, messageType: MessageType.turnFailed, detail: failedMatch.group(1));
+    return (
+      id: id,
+      role: role,
+      content: content,
+      messageType: MessageType.turnFailed,
+      detail: failedMatch.group(1),
+      senderName: null,
+    );
   }
 
-  return (id: id, role: role, content: content, messageType: MessageType.assistant, detail: null);
+  return (id: id, role: role, content: content, messageType: MessageType.assistant, detail: null, senderName: null);
 }
 
 /// Renders a list of messages as HTML fragments.
@@ -53,7 +70,13 @@ String messagesHtmlFragment(List<ClassifiedMessage> messages) {
   for (final m in messages) {
     switch (m.messageType) {
       case MessageType.user:
-        buffer.write(trellis.renderFragment(src, fragment: 'userMessage', context: {'content': m.content}));
+        buffer.write(
+          trellis.renderFragment(src, fragment: 'userMessage', context: {
+            'content': m.content,
+            'senderName': m.senderName,
+            'hasSenderName': m.senderName != null && m.senderName!.isNotEmpty,
+          }),
+        );
       case MessageType.assistant:
         buffer.write(trellis.renderFragment(src, fragment: 'assistantMessage', context: {'content': m.content}));
       case MessageType.guardBlock:

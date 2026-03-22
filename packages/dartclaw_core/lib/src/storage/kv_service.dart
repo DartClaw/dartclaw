@@ -31,9 +31,9 @@ class KvService {
       try {
         await atomicWriteJson(file, nextMap);
         _cache = nextMap;
-      } catch (_) {
+      } catch (e, st) {
         _cache = null;
-        rethrow;
+        Error.throwWithStackTrace(e, st);
       }
     });
     _queue.add(op);
@@ -66,9 +66,9 @@ class KvService {
       try {
         await atomicWriteJson(file, nextMap);
         _cache = nextMap;
-      } catch (_) {
+      } catch (e, st) {
         _cache = null;
-        rethrow;
+        Error.throwWithStackTrace(e, st);
       }
     });
     _queue.add(op);

@@ -1,5 +1,3 @@
-// ignore_for_file: implementation_imports
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -36,7 +34,7 @@ Future<ChannelStatus> whatsAppChannelStatus(WhatsAppChannel? channel) async {
   try {
     final status = await gowa.getStatus();
     return status.isLoggedIn ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
-  } catch (_) {
+  } catch (e) {
     return ChannelStatus.pairingNeeded;
   }
 }
@@ -51,7 +49,7 @@ Future<ChannelStatus> signalChannelStatus(SignalChannel? channel) async {
   try {
     final registered = await sidecar.isAccountRegistered();
     return registered ? ChannelStatus.connected : ChannelStatus.pairingNeeded;
-  } catch (_) {
+  } catch (e) {
     return ChannelStatus.pairingNeeded;
   }
 }

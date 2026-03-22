@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:yaml_edit/yaml_edit.dart';
+
+final _log = Logger('ConfigWriter');
 
 class _WriteOp {
   final Future<void> Function() fn;
@@ -140,7 +143,8 @@ class ConfigWriter {
       }).toList();
     } on ArgumentError {
       return []; // 'scheduling.jobs' path doesn't exist in YAML
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Failed to read scheduling jobs: $e');
       return [];
     }
   }
@@ -160,7 +164,8 @@ class ConfigWriter {
       return value.whereType<String>().toList();
     } on ArgumentError {
       return [];
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Failed to read channel allowlist: $e');
       return [];
     }
   }
@@ -185,7 +190,8 @@ class ConfigWriter {
       }).toList();
     } on ArgumentError {
       return [];
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Failed to read automation tasks: $e');
       return [];
     }
   }

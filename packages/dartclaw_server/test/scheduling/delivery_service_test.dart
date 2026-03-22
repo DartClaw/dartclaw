@@ -188,7 +188,7 @@ DeliveryService _makeService({
   required List<Channel> channels,
 }) {
   final manager = ChannelManager(
-    queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid}) async => 'ok'),
+    queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok'),
     config: const ChannelConfig.defaults(),
   );
   for (final channel in channels) {

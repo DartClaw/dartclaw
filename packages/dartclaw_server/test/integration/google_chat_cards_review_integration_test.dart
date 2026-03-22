@@ -66,8 +66,8 @@ void main() {
   late GoogleChatWebhookHandler webhookHandler;
 
   setUp(() {
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
     eventBus = EventBus();
+    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
     restClient = _FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
@@ -110,21 +110,20 @@ void main() {
       now: DateTime.parse('2026-03-13T10:00:00Z'),
     );
     await tasks.transition(task.id, TaskStatus.running);
-    final review = await tasks.transition(task.id, TaskStatus.review);
-
-    eventBus.fire(
-      TaskStatusChangedEvent(
-        taskId: task.id,
-        oldStatus: TaskStatus.running,
-        newStatus: review.status,
-        trigger: 'system',
-        timestamp: DateTime.parse('2026-03-13T11:00:00Z'),
-      ),
-    );
+    await tasks.transition(task.id, TaskStatus.review);
+    // TaskService.transition() now fires TaskStatusChangedEvent automatically.
+    // Allow async review-ready event to complete.
     await _flushAsync();
 
-    expect(restClient.sentCards, hasLength(1));
-    final notificationPayload = restClient.sentCards.single.$2;
+    // At least one notification card was sent for the running→review transition.
+    // (There may also be a card for queued→running.)
+    final reviewCards = restClient.sentCards.where((c) {
+      final card = ((c.$2['cardsV2'] as List).single as Map<String, dynamic>)['card'] as Map<String, dynamic>;
+      final header = card['header'] as Map<String, dynamic>;
+      return header['subtitle'] == 'Needs Review';
+    }).toList();
+    expect(reviewCards, hasLength(1));
+    final notificationPayload = reviewCards.single.$2;
     final reviewCard =
         ((notificationPayload['cardsV2'] as List).single as Map<String, dynamic>)['card'] as Map<String, dynamic>;
     final sections = reviewCard['sections'] as List;
@@ -175,7 +174,9 @@ void main() {
 
     expect((await tasks.get(task.id))!.status, TaskStatus.accepted);
     expect(body['cardsV2'], isA<List<dynamic>>());
-    expect(restClient.sentCards, hasLength(2));
+    // 3 cards total: queued→running, running→review, review→accepted.
+    // TaskService.transition() fires events for all status changes.
+    expect(restClient.sentCards, hasLength(3));
     final acceptedNotification =
         ((restClient.sentCards.last.$2['cardsV2'] as List).single as Map<String, dynamic>)['card']
             as Map<String, dynamic>;
@@ -198,7 +199,7 @@ Future<void> _flushAsync() async {
 }
 
 class _RecordingMessageQueue extends MessageQueue {
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void dispose() {}

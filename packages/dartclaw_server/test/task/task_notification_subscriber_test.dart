@@ -21,11 +21,12 @@ void main() {
     channelManager = ChannelManager(
       queue: queue,
       config: const ChannelConfig.defaults(),
-      taskCreator: tasks.create,
-      taskLister: tasks.list,
-      triggerParser: const TaskTriggerParser(),
-      eventBus: eventBus,
-      taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+      taskBridge: ChannelTaskBridge(
+        taskCreator: tasks.create,
+        taskLister: tasks.list,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+      ),
     );
     channelManager.registerChannel(channel);
     subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: channelManager);
@@ -326,7 +327,7 @@ class _FakeChannel extends Channel {
 class _RecordingMessageQueue extends MessageQueue {
   final List<(ChannelMessage, Channel, String)> enqueued = [];
 
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {

@@ -94,7 +94,9 @@ class WorkspaceService {
       // Rollback: remove workspace dir to leave MVP layout intact
       try {
         Directory(workspaceDir).deleteSync(recursive: true);
-      } catch (_) {}
+      } catch (cleanupErr) {
+        _log.fine('Migration rollback cleanup failed: $cleanupErr');
+      }
 
       if (e is WorkspaceMigrationException) rethrow;
       throw WorkspaceMigrationException('Migration failed: $e');

@@ -18,15 +18,15 @@ final _log = Logger('ScheduledTaskRunner');
 class ScheduledTaskRunner {
   final TaskService _taskService;
   final List<ScheduledTaskDefinition> _definitions;
-  final EventBus? _eventBus;
 
   ScheduledTaskRunner({
     required TaskService taskService,
     required List<ScheduledTaskDefinition> definitions,
+    // eventBus is accepted for API compatibility but events are now fired by TaskService.
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
     EventBus? eventBus,
   }) : _taskService = taskService,
-       _definitions = definitions,
-       _eventBus = eventBus;
+       _definitions = definitions;
 
   /// Converts each enabled [ScheduledTaskDefinition] into a [ScheduledJob].
   List<ScheduledJob> buildJobs() {
@@ -84,25 +84,11 @@ class ScheduledTaskRunner {
         if (def.effort != null) 'effort': def.effort,
         if (def.tokenBudget != null) 'tokenBudget': def.tokenBudget,
       },
+      trigger: 'system',
     );
-    _fireTaskCreatedEvent(task, trigger: 'system');
 
     _log.info('Created scheduled task "${task.id}" from schedule "${def.id}"');
     return 'Created task ${task.id} from schedule "${def.id}"';
-  }
-
-  void _fireTaskCreatedEvent(Task task, {required String trigger}) {
-    final eventBus = _eventBus;
-    if (eventBus == null) return;
-    eventBus.fire(
-      TaskStatusChangedEvent(
-        taskId: task.id,
-        oldStatus: TaskStatus.draft,
-        newStatus: task.status,
-        trigger: trigger,
-        timestamp: DateTime.now(),
-      ),
-    );
   }
 
   static String _generateTaskId(String scheduleId) {

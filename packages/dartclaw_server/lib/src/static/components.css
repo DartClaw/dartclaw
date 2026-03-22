@@ -676,6 +676,15 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   flex-shrink: 0;
 }
 
+@media (max-width: 768px) {
+  .banner { flex-wrap: wrap; }
+  .banner-restart .banner-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 /* === RESTART OVERLAY === */
 .restart-overlay {
   position: fixed;
@@ -2292,6 +2301,23 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 .settings-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .settings-tabs { position: relative; }
+  .settings-tabs::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 32px;
+    background: linear-gradient(to right, transparent, var(--bg-base));
+    pointer-events: none;
+    z-index: 11;
+  }
+  .settings-tab {
+    padding: var(--sp-1) var(--sp-2);
+    font-size: var(--text-xs);
+  }
 }
 
 /* Card-level restart/live notice (replaces per-field badges) */

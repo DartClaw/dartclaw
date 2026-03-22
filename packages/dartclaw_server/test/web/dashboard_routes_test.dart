@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -36,29 +35,26 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
 
-    server = DartclawServer(
-      sessions: sessions,
-      messages: messages,
-      worker: FakeAgentHarness(),
-      staticDir: _staticDir(),
-      behavior: BehaviorFileService(workspaceDir: workspaceDir),
-      appDisplay: AppDisplayParams(dataDir: tempDir.path),
-      workspaceDisplay: WorkspaceDisplayParams(path: workspaceDir),
-      schedulingDisplay: SchedulingDisplayParams(
-        jobs: [
-          {'name': 'daily-summary', 'schedule': '0 8 * * *', 'delivery': 'announce', 'status': 'active'},
-        ],
-      ),
-    );
-
-    server.setRuntimeServices(
-      runtimeConfig: RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false),
-      memoryStatusService: MemoryStatusService(
-        workspaceDir: workspaceDir,
-        config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
-        kvService: kvService,
-      ),
-    );
+    server = (DartclawServerBuilder()
+          ..sessions = sessions
+          ..messages = messages
+          ..worker = FakeAgentHarness()
+          ..staticDir = _staticDir()
+          ..behavior = BehaviorFileService(workspaceDir: workspaceDir)
+          ..appDisplay = AppDisplayParams(dataDir: tempDir.path)
+          ..workspaceDisplay = WorkspaceDisplayParams(path: workspaceDir)
+          ..schedulingDisplay = SchedulingDisplayParams(
+            jobs: [
+              {'name': 'daily-summary', 'schedule': '0 8 * * *', 'delivery': 'announce', 'status': 'active'},
+            ],
+          )
+          ..runtimeConfig = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false)
+          ..memoryStatusService = MemoryStatusService(
+            workspaceDir: workspaceDir,
+            config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
+            kvService: kvService,
+          ))
+        .build();
     handler = server.handler;
   });
 

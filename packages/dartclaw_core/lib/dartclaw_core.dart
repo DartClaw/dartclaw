@@ -26,8 +26,10 @@ export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEven
 export 'src/runtime/channel_type.dart' show ChannelType;
 export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
 export 'src/channel/channel_manager.dart' show ChannelManager;
+export 'src/channel/channel_task_bridge.dart' show ChannelTaskBridge, ReservedCommandHandler;
+export 'src/channel/recipient_resolver.dart' show resolveRecipientId;
 export 'src/channel/mention_gating.dart' show MentionGating;
-export 'src/channel/message_queue.dart' show MessageQueue, TurnDispatcher;
+export 'src/channel/message_queue.dart' show MessageQueue, TurnDispatcher, BudgetExhaustedError;
 export 'src/channel/review_command_parser.dart'
     show
         ReviewCommand,
@@ -43,6 +45,8 @@ export 'src/channel/task_trigger_config.dart' show TaskTriggerConfig;
 export 'src/channel/task_trigger_parser.dart' show TaskTriggerParser, TaskTriggerResult;
 export 'src/channel/text_chunking.dart' show chunkText;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
+export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId;
+export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
 
 // Shared channel DM access
 export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, PairingCode;
@@ -86,12 +90,28 @@ export 'src/config/workspace_config.dart' show WorkspaceConfig;
 export 'src/config/dartclaw_config.dart' show DartclawConfig;
 export 'src/config/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/container/container_config.dart' show ContainerConfig;
+export 'src/container/container_dispatcher.dart' show resolveProfile;
 export 'src/container/container_manager.dart' show ContainerManager, RunCommand, StartCommand;
+export 'src/container/credential_proxy.dart' show CredentialProxy;
+export 'src/container/docker_validator.dart' show DockerValidator;
+export 'src/container/security_profile.dart' show SecurityProfile;
 export 'src/scoping/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
 export 'src/scoping/channel_config_provider.dart' show ChannelConfigProvider;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
 export 'src/scoping/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
+export 'src/config/governance_config.dart'
+    show
+        GovernanceConfig,
+        RateLimitsConfig,
+        PerSenderRateLimitConfig,
+        GlobalRateLimitConfig,
+        BudgetConfig,
+        BudgetAction,
+        LoopDetectionConfig,
+        LoopAction;
+export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
+export 'src/utils/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 
 // Agents
 export 'src/agents/agent_definition.dart' show AgentDefinition;
@@ -113,6 +133,7 @@ export 'src/search/search_backend.dart' show SearchBackend;
 
 // Events
 export 'src/events/event_bus.dart' show EventBus;
+export 'src/events/session_lifecycle_subscriber.dart' show SessionLifecycleSubscriber;
 export 'src/events/dartclaw_event.dart'
     show
         DartclawEvent,
@@ -131,7 +152,13 @@ export 'src/events/dartclaw_event.dart'
         ContainerStoppedEvent,
         ContainerCrashedEvent,
         AgentLifecycleEvent,
-        AgentStateChangedEvent;
+        AgentStateChangedEvent,
+        LoopDetectedEvent,
+        EmergencyStopEvent;
+
+// Governance
+export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;
+export 'src/governance/loop_detector.dart' show LoopDetector;
 
 // Utilities
 export 'src/utils/path_utils.dart' show expandHome;

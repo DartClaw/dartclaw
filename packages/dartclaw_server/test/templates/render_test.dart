@@ -595,7 +595,7 @@ void main() {
         context: {'content': 'Hello <world>'},
       );
       expect(html, contains('msg-user'));
-      expect(html, contains('You'));
+      expect(html, contains('operator'));
       expect(html, contains('Hello &lt;world&gt;'));
     });
 

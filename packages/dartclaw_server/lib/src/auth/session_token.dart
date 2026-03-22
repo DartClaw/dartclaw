@@ -49,7 +49,7 @@ bool validateSessionToken(String token, String gatewayToken, {Duration ttl = ses
     final iat = payload['iat'] as int;
     final issuedAt = DateTime.fromMillisecondsSinceEpoch(iat);
     return DateTime.now().difference(issuedAt) <= ttl;
-  } catch (_) {
+  } catch (e) {
     return false;
   }
 }

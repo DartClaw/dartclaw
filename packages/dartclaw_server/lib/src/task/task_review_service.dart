@@ -1,5 +1,3 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,10 +7,20 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'merge_executor.dart';
-import 'task_event_helpers.dart';
 import 'task_file_guard.dart';
 import 'task_service.dart';
 import 'worktree_manager.dart';
+
+/// Callback to deliver push-back feedback as a new turn message.
+///
+/// Invoked by [TaskReviewService] after a `push_back` transitions a task
+/// from `review` to `running`. Delivery is best-effort — a failed callback
+/// does not roll back the state transition.
+typedef PushBackFeedbackDelivery = Future<void> Function({
+  required String taskId,
+  required String sessionKey,
+  required String feedback,
+});
 
 /// Result of a task review action.
 sealed class ReviewResult {
@@ -84,36 +92,40 @@ class TaskReviewService {
   static final _log = Logger('TaskReviewService');
 
   final TaskService _tasks;
-  final EventBus _eventBus;
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
   final MergeExecutor? _mergeExecutor;
   final String? _dataDir;
   final String _mergeStrategy;
   final String _baseRef;
+  final PushBackFeedbackDelivery? _pushBackFeedbackDelivery;
   final Map<String, Future<void>> _reviewLocks = <String, Future<void>>{};
 
   TaskReviewService({
     required TaskService tasks,
-    required EventBus eventBus,
+    // eventBus is accepted for API compatibility but events are now fired by TaskService.
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
+    EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     MergeExecutor? mergeExecutor,
     String? dataDir,
     String mergeStrategy = 'squash',
     String baseRef = 'main',
+    PushBackFeedbackDelivery? pushBackFeedbackDelivery,
   }) : _tasks = tasks,
-       _eventBus = eventBus,
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
        _mergeExecutor = mergeExecutor,
        _dataDir = dataDir,
        _mergeStrategy = mergeStrategy,
-       _baseRef = baseRef;
+       _baseRef = baseRef,
+       _pushBackFeedbackDelivery = pushBackFeedbackDelivery;
 
   /// Builds a channel-facing review handler backed by this service.
   ChannelReviewHandler channelReviewHandler({String trigger = 'channel'}) {
-    return (taskId, action) => reviewForChannel(taskId, action, trigger: trigger);
+    return (taskId, action, {String? comment}) =>
+        reviewForChannel(taskId, action, comment: comment, trigger: trigger);
   }
 
   /// Executes a review action for [taskId].
@@ -122,8 +134,13 @@ class TaskReviewService {
   }
 
   /// Executes a review action and maps the outcome to a channel response.
-  Future<ChannelReviewResult> reviewForChannel(String taskId, String action, {String trigger = 'channel'}) async {
-    final result = await review(taskId, action, trigger: trigger);
+  Future<ChannelReviewResult> reviewForChannel(
+    String taskId,
+    String action, {
+    String? comment,
+    String trigger = 'channel',
+  }) async {
+    final result = await review(taskId, action, comment: comment, trigger: trigger);
     return switch (result) {
       ReviewSuccess(:final task) => ChannelReviewSuccess(taskTitle: task.title, action: action),
       ReviewMergeConflict(:final taskTitle) => ChannelReviewMergeConflict(taskTitle: taskTitle),
@@ -142,7 +159,7 @@ class TaskReviewService {
     final targetStatus = switch (action) {
       'accept' => TaskStatus.accepted,
       'reject' => TaskStatus.rejected,
-      'push_back' => TaskStatus.queued,
+      'push_back' => TaskStatus.running,
       _ => null,
     };
     if (targetStatus == null) {
@@ -150,7 +167,7 @@ class TaskReviewService {
     }
 
     final trimmedComment = comment?.trim();
-    if (targetStatus == TaskStatus.queued && (trimmedComment == null || trimmedComment.isEmpty)) {
+    if (targetStatus == TaskStatus.running && action == 'push_back' && (trimmedComment == null || trimmedComment.isEmpty)) {
       return const ReviewInvalidRequest('comment must not be empty for push_back');
     }
 
@@ -201,20 +218,37 @@ class TaskReviewService {
       }
 
       final transitionTime = DateTime.now();
-      final transitionConfig = targetStatus == TaskStatus.queued
+      final transitionConfig = (targetStatus == TaskStatus.running && action == 'push_back')
           ? _withPushBackComment(task.transition(targetStatus, now: transitionTime).configJson, trimmedComment!)
           : null;
 
-      final updated = await _tasks.transition(taskId, targetStatus, now: transitionTime, configJson: transitionConfig);
-
-      await fireTaskLifecycleEvents(
-        tasks: _tasks,
-        eventBus: _eventBus,
-        taskId: taskId,
-        oldStatus: oldStatus,
-        newStatus: updated.status,
+      final updated = await _tasks.transition(
+        taskId,
+        targetStatus,
+        now: transitionTime,
+        configJson: transitionConfig,
         trigger: trigger,
       );
+
+      // Deliver push-back feedback as a new turn message to the task's session.
+      if (targetStatus == TaskStatus.running && action == 'push_back' && trimmedComment != null) {
+        final delivery = _pushBackFeedbackDelivery;
+        if (delivery != null) {
+          final sessionKey = _extractSessionKey(task);
+          if (sessionKey != null) {
+            try {
+              await delivery(taskId: taskId, sessionKey: sessionKey, feedback: trimmedComment);
+            } catch (error, stackTrace) {
+              _log.warning(
+                'Failed to deliver push-back feedback for task $taskId',
+                error,
+                stackTrace,
+              );
+              // Non-fatal — task is already transitioned. Feedback delivery is best-effort.
+            }
+          }
+        }
+      }
 
       if ((targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) && task.worktreeJson != null) {
         await _cleanupWorktree(taskId);
@@ -223,6 +257,8 @@ class TaskReviewService {
       return ReviewSuccess(updated);
     } on ArgumentError {
       return ReviewNotFound(taskId);
+    } on VersionConflictException {
+      return const ReviewActionFailed('Task was modified concurrently. Please refresh and try again.');
     } on StateError {
       final currentTask = await _tasks.get(taskId);
       final previousStatus = oldStatus ?? currentTask?.status ?? TaskStatus.draft;
@@ -283,8 +319,13 @@ class TaskReviewService {
 
   String _displayAction(String action) => action == 'push_back' ? 'push back' : action;
 
-  Map<String, dynamic> _withPushBackComment(Map<String, dynamic> configJson, String comment) =>
-      Map<String, dynamic>.from(configJson)..['pushBackComment'] = comment;
+  Map<String, dynamic> _withPushBackComment(Map<String, dynamic> configJson, String comment) {
+    final updated = Map<String, dynamic>.from(configJson);
+    final currentCount = updated['pushBackCount'];
+    updated['pushBackCount'] = (currentCount is num ? currentCount.toInt() : 0) + 1;
+    updated['pushBackComment'] = comment;
+    return updated;
+  }
 
   Future<void> _cleanupWorktree(String taskId) async {
     try {
@@ -293,6 +334,13 @@ class TaskReviewService {
       _log.warning('Failed to cleanup worktree for task $taskId: $error');
     }
     _taskFileGuard?.deregister(taskId);
+  }
+
+  /// Extracts the session key from a task's [TaskOrigin] stored in [configJson].
+  String? _extractSessionKey(Task task) {
+    final origin = task.configJson['origin'];
+    if (origin is! Map) return null;
+    return origin['sessionKey'] as String?;
   }
 
   String _shortTaskId(String taskId) {

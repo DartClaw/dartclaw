@@ -3,12 +3,15 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show KvService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../memory/memory_status_service.dart';
 import 'api_helpers.dart';
+
+final _log = Logger('memory_routes');
 
 /// File name to workspace-relative path mapping for the file endpoint.
 const _fileMap = {
@@ -100,7 +103,9 @@ Future<void> _appendPruneHistory(
       final parsed = jsonDecode(existing);
       if (parsed is List) history = parsed;
     }
-  } catch (_) {}
+  } catch (e) {
+    _log.fine('Could not read prune history, starting fresh: $e');
+  }
 
   history.add({
     'timestamp': DateTime.now().toUtc().toIso8601String(),

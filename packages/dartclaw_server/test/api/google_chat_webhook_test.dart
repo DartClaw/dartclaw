@@ -56,16 +56,21 @@ Map<String, dynamic> _payload({
   String senderName = 'users/123',
   String userName = 'users/123',
   String spaceType = 'DM',
+  String? senderAvatarUrl,
+  String? threadName,
   List<Map<String, dynamic>> annotations = const [],
 }) {
   final message = <String, dynamic>{
     'name': 'spaces/AAAA/messages/BBBB',
-    'sender': {'name': senderName, 'type': senderType},
+    'sender': {'name': senderName, 'type': senderType, 'avatarUrl': ?senderAvatarUrl},
     'text': text,
     'annotations': annotations,
   };
   if (argumentText != null) {
     message['argumentText'] = argumentText;
+  }
+  if (threadName != null) {
+    message['thread'] = {'name': threadName};
   }
 
   return {
@@ -94,7 +99,7 @@ ChannelManager _buildChannelManager({
   final queue = MessageQueue(
     debounceWindow: Duration.zero,
     maxConcurrentTurns: 1,
-    dispatcher: (sessionKey, message, {senderJid}) async {
+    dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async {
       final dispatched = ChannelMessage(
         id: sessionKey,
         channelType: ChannelType.googlechat,
@@ -184,6 +189,21 @@ void main() {
       expect(dispatchedMessage, isNotNull);
       expect(dispatchedMessage!.senderJid, 'users/123');
       expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+    });
+
+    test('captures thread and avatar metadata from webhook ingress', () async {
+      await _post(
+        handler,
+        body: _payload(
+          spaceType: 'ROOM',
+          senderAvatarUrl: 'https://example.com/avatar.png',
+          threadName: 'spaces/AAAA/threads/CCCC',
+        ),
+      );
+
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.metadata['senderAvatarUrl'], 'https://example.com/avatar.png');
+      expect(dispatchedMessage!.metadata['threadName'], 'spaces/AAAA/threads/CCCC');
     });
 
     test('prefers argumentText over raw text when present', () async {
@@ -390,12 +410,14 @@ void main() {
         queue: MessageQueue(
           debounceWindow: Duration.zero,
           maxConcurrentTurns: 1,
-          dispatcher: (sessionKey, message, {senderJid}) async => 'Queued reply',
+          dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'Queued reply',
         ),
         config: const ChannelConfig.defaults(),
-        taskCreator: tasks.create,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: tasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+        ),
       );
       addTearDown(() => manager.dispose());
       manager.registerChannel(channel);

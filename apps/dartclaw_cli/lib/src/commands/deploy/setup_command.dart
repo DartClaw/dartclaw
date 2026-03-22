@@ -44,7 +44,7 @@ class SetupCommand extends Command<void> {
         _hint('Start Docker Desktop or install: https://docs.docker.com/get-docker/');
         allPassed = false;
       }
-    } catch (_) {
+    } catch (e) {
       _fail('Docker not found');
       _hint('Install Docker: https://docs.docker.com/get-docker/');
       allPassed = false;
@@ -58,7 +58,7 @@ class SetupCommand extends Command<void> {
       } else {
         _warn('dartclaw binary returned non-zero');
       }
-    } catch (_) {
+    } catch (e) {
       _warn('dartclaw binary not in PATH (will use full path)');
     }
 

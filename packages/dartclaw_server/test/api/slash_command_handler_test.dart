@@ -13,18 +13,24 @@ void main() {
   late SessionService sessions;
   late ChannelManager channelManager;
   late SlashCommandHandler handler;
+  late int emergencyStopCalls;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('slash_command_handler_test_');
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
     sessions = SessionService(baseDir: tempDir.path, eventBus: eventBus);
     channelManager = ChannelManager(queue: _NoopMessageQueue(), config: const ChannelConfig.defaults());
+    emergencyStopCalls = 0;
     handler = SlashCommandHandler(
       taskService: tasks,
       sessionService: sessions,
       eventBus: eventBus,
       channelManager: channelManager,
+      onEmergencyStop: (stoppedBy) async {
+        emergencyStopCalls++;
+        return const EmergencyStopResult(turnsCancelled: 2, tasksCancelled: 1);
+      },
     );
   });
 
@@ -208,6 +214,55 @@ void main() {
     expect(await sessions.getSession(activeSession.id), isNotNull);
   });
 
+  test('/stop executes emergency stop for admin senders', () async {
+    handler = SlashCommandHandler(
+      taskService: tasks,
+      sessionService: sessions,
+      channelManager: channelManager,
+      isAdmin: (senderId) => senderId == 'users/123',
+      onEmergencyStop: (stoppedBy) async {
+        emergencyStopCalls++;
+        expect(stoppedBy, 'Alice');
+        return const EmergencyStopResult(turnsCancelled: 2, tasksCancelled: 1);
+      },
+    );
+
+    final response = await handler.handle(
+      const SlashCommand(name: 'stop', arguments: ''),
+      spaceName: 'spaces/AAAA',
+      senderJid: 'users/123',
+      senderDisplayName: 'Alice',
+      spaceType: 'ROOM',
+    );
+
+    expect(emergencyStopCalls, 1);
+    final card = _singleCard(response);
+    expect(card['header'], {'title': 'Emergency Stop', 'subtitle': 'Confirmation'});
+    expect(_sectionText(response), contains('All activity stopped by Alice.'));
+  });
+
+  test('/stop rejects non-admin senders', () async {
+    handler = SlashCommandHandler(
+      taskService: tasks,
+      isAdmin: (_) => false,
+      onEmergencyStop: (stoppedBy) async {
+        emergencyStopCalls++;
+        return const EmergencyStopResult(turnsCancelled: 0, tasksCancelled: 0);
+      },
+    );
+
+    final response = await handler.handle(
+      const SlashCommand(name: 'stop', arguments: ''),
+      spaceName: 'spaces/AAAA',
+      senderJid: 'users/999',
+    );
+
+    expect(emergencyStopCalls, 0);
+    final card = _singleCard(response);
+    expect(card['header'], {'title': 'Permission Denied', 'subtitle': 'Error'});
+    expect(_sectionText(response), contains('Only admin senders can stop the agent.'));
+  });
+
   test('unknown commands return the available command list', () async {
     final response = await handler.handle(
       const SlashCommand(name: 'foo', arguments: ''),
@@ -218,7 +273,10 @@ void main() {
 
     final card = _singleCard(response);
     expect(card['header'], {'title': 'Unknown Command', 'subtitle': 'Error'});
-    expect(_sectionText(response), contains('Unknown command. Available: /new, /reset, /status'));
+    expect(
+      _sectionText(response),
+      contains('Unknown command. Available: /new, /reset, /status, /stop, /pause, /resume'),
+    );
   });
 }
 
@@ -245,7 +303,7 @@ String _sectionText(Map<String, dynamic> response) {
 }
 
 class _NoopMessageQueue extends MessageQueue {
-  _NoopMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => '');
+  _NoopMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
 
   @override
   void enqueue(ChannelMessage message, Channel channel, String sessionKey) {}

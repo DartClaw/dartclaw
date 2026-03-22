@@ -39,6 +39,9 @@ Already know what you want? Pick a specific recipe:
 - Want a **nightly reflection** that reviews errors and learnings?
   --> [Nightly Reflection](07-nightly-reflection.md)
 
+- Want to run a **crowd coding session** with multiple people steering one agent?
+  --> [Crowd Coding](08-crowd-coding.md)
+
 ## Recipes
 
 | # | Name | Features Used | Complexity |
@@ -51,6 +54,7 @@ Already know what you want? Pick a specific recipe:
 | 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat DM allowlist, memory_save, memory search | Medium |
 | 6 | [Research Assistant](06-research-assistant.md) | Search agent (tool policy cascade), memory, web UI | Medium |
 | 7 | [Nightly Reflection](07-nightly-reflection.md) | Cron scheduling, errors.md, learnings.md, memory_save | Low |
+| 8 | [Crowd Coding](08-crowd-coding.md) | Google Chat Spaces, task triggers, governance, thread binding, emergency controls | Medium |
 
 ## Shared Patterns
 

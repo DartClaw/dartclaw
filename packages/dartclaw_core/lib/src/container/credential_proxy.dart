@@ -65,7 +65,9 @@ class CredentialProxy {
     try {
       final socketFile = File(socketPath);
       if (socketFile.existsSync()) socketFile.deleteSync();
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Failed to delete proxy socket file: $e');
+    }
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -122,7 +124,9 @@ class CredentialProxy {
         request.response.statusCode = 502;
         request.response.write('Bad Gateway');
         await request.response.close();
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to send 502 error response to client: $e');
+      }
     }
   }
 }

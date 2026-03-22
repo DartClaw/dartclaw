@@ -12,6 +12,12 @@ class InMemoryTaskRepository implements TaskRepository {
   /// Simulates a concurrent status change during the next transition write.
   TaskStatus? concurrentStatusOnNextTransition;
 
+  /// Simulates a concurrent version conflict during the next transition write.
+  ///
+  /// When set, the repository bumps the stored version before the write check,
+  /// causing a version mismatch that returns false from [updateIfStatus].
+  bool concurrentVersionOnNextTransition = false;
+
   /// Simulates a concurrent status change during the next mutable update write.
   TaskStatus? concurrentStatusOnNextMutableUpdate;
 
@@ -53,10 +59,11 @@ class InMemoryTaskRepository implements TaskRepository {
 
   @override
   Future<void> update(Task task) async {
-    if (!_tasks.containsKey(task.id)) {
+    final current = _tasks[task.id];
+    if (current == null) {
       throw ArgumentError('Task not found: ${task.id}');
     }
-    _tasks[task.id] = task;
+    _tasks[task.id] = task.copyWith(version: current.version + 1);
   }
 
   @override
@@ -73,7 +80,18 @@ class InMemoryTaskRepository implements TaskRepository {
       return false;
     }
 
+    if (concurrentVersionOnNextTransition) {
+      concurrentVersionOnNextTransition = false;
+      // Bump the stored version to simulate a concurrent write.
+      _tasks[task.id] = current.copyWith(version: current.version + 1);
+      return false;
+    }
+
     if (current.status != expectedStatus) {
+      return false;
+    }
+
+    if (current.version != task.version) {
       return false;
     }
 
@@ -82,6 +100,7 @@ class InMemoryTaskRepository implements TaskRepository {
       configJson: task.configJson,
       startedAt: task.startedAt,
       completedAt: task.completedAt,
+      version: current.version + 1,
     );
     if (taskReturnedOnNextReadAfterSuccessfulTransition != null) {
       _spoofNextReadAfterSuccessfulTransition = true;

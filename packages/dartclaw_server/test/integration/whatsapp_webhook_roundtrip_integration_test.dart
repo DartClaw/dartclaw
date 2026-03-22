@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -143,7 +142,7 @@ void main() {
     queue = MessageQueue(
       debounceWindow: const Duration(milliseconds: 10),
       maxConcurrentTurns: 1,
-      dispatcher: (sessionKey, message, {String? senderJid}) async {
+      dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
         final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
         final turnId = await turns.startTurn(session.id, [
           {'role': 'user', 'content': message},

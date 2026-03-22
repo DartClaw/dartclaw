@@ -24,7 +24,9 @@ class SlashCommandParser {
   final Map<int, String> commandIdMap;
 
   /// Creates a slash command parser with an optional command ID mapping.
-  const SlashCommandParser({this.commandIdMap = const {1: 'new', 2: 'reset', 3: 'status'}});
+  const SlashCommandParser({
+    this.commandIdMap = const {1: 'new', 2: 'reset', 3: 'status', 4: 'stop', 5: 'pause', 6: 'resume'},
+  });
 
   /// Parses a slash command from a `MESSAGE` event payload.
   SlashCommand? parseFromMessage(Map<String, dynamic> payload) {

@@ -27,7 +27,7 @@ void main() {
           TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
           TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
           TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued},
+          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
         };
 
         for (final from in expected.keys) {
@@ -44,7 +44,6 @@ void main() {
         expect(TaskStatus.queued.canTransitionTo(TaskStatus.accepted), isFalse);
         expect(TaskStatus.running.canTransitionTo(TaskStatus.queued), isFalse);
         expect(TaskStatus.running.canTransitionTo(TaskStatus.accepted), isFalse);
-        expect(TaskStatus.review.canTransitionTo(TaskStatus.running), isFalse);
         expect(TaskStatus.review.canTransitionTo(TaskStatus.interrupted), isFalse);
       });
 
@@ -67,7 +66,7 @@ void main() {
           TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
           TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
           TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued},
+          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
           TaskStatus.accepted: const {},
           TaskStatus.rejected: const {},
           TaskStatus.cancelled: const {},

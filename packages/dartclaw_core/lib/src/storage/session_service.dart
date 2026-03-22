@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -15,6 +16,7 @@ class SessionService {
   final String baseDir;
   final EventBus? eventBus;
   static const _uuid = Uuid();
+  static final _log = Logger('SessionService');
 
   SessionService({required this.baseDir, this.eventBus});
 
@@ -68,8 +70,8 @@ class SessionService {
         if (type != null && session.type != type) continue;
         if (types != null && !types.contains(session.type)) continue;
         sessions.add(session);
-      } catch (_) {
-        // Skip malformed session dirs
+      } catch (e) {
+        _log.fine('Skipping malformed session dir: $e');
       }
     }
     sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -111,7 +113,9 @@ class SessionService {
       try {
         final raw = jsonDecode(await indexFile.readAsString());
         if (raw is Map) keyIndex = Map<String, String>.from(raw);
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Session key index corrupted or unreadable — using empty index: $e');
+      }
     }
 
     // Check if key already maps to a session

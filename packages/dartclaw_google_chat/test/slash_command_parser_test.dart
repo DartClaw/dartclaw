@@ -76,6 +76,19 @@ void main() {
       expect(command.arguments, isEmpty);
     });
 
+    test('maps /stop command IDs through the default parser table', () {
+      final command = parser.parseFromMessage({
+        'message': {
+          'slashCommand': {'commandId': 4},
+          'text': '/stop',
+        },
+      });
+
+      expect(command, isNotNull);
+      expect(command!.name, 'stop');
+      expect(command.arguments, isEmpty);
+    });
+
     test('returns synthetic names for unknown numeric MESSAGE command IDs', () {
       final command = parser.parseFromMessage({
         'message': {
@@ -133,6 +146,18 @@ void main() {
 
       expect(command, isNotNull);
       expect(command!.name, 'status');
+    });
+
+    test('maps APP_COMMAND stop IDs through the default parser table', () {
+      const parser = SlashCommandParser();
+      final command = parser.parseFromAppCommand({
+        'appCommandMetadata': {'appCommandId': 4},
+        'message': {'argumentText': ''},
+      });
+
+      expect(command, isNotNull);
+      expect(command!.name, 'stop');
+      expect(command.arguments, isEmpty);
     });
 
     test('returns synthetic names for unknown numeric APP_COMMAND IDs', () {

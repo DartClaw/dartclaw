@@ -10,7 +10,6 @@ void main() {
     late FakeChannel channel;
     late InMemoryTaskRepository repo;
     late _TaskOps tasks;
-    late EventBus eventBus;
     late ChannelManager manager;
 
     setUp(() {
@@ -18,29 +17,24 @@ void main() {
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
       tasks = _TaskOps(repo);
-      eventBus = EventBus();
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskCreator: tasks.create,
-        triggerParser: const TaskTriggerParser(),
-        eventBus: eventBus,
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: tasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
     });
 
     tearDown(() async {
       await manager.dispose();
-      await eventBus.dispose();
       await tasks.dispose();
     });
 
     test('creates task, bypasses queue, stores origin, and sends acknowledgement', () async {
-      final events = <TaskStatusChangedEvent>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().listen(events.add);
-      addTearDown(sub.cancel);
-
       manager.handleInboundMessage(
         ChannelMessage(
           channelType: ChannelType.whatsapp,
@@ -71,19 +65,19 @@ void main() {
         'Task created: fix login redirect [research] -- ID: ${_shortTaskId(created.id)}',
       );
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
-      expect(events, hasLength(1));
-      expect(events.single.oldStatus, TaskStatus.draft);
-      expect(events.single.newStatus, TaskStatus.queued);
-      expect(events.single.trigger, 'channel');
+      // Note: TaskStatusChangedEvent is now fired by TaskService, not ChannelManager.
+      // Event firing tests belong in task_service_events_test.dart.
     });
 
     test('does not intercept when trigger is disabled', () async {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskCreator: tasks.create,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: tasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -94,6 +88,7 @@ void main() {
           text: 'task: fix login redirect',
         ),
       );
+      await _flushAsync();
 
       expect(queue.enqueued, hasLength(1));
       expect((await tasks.list()), isEmpty);
@@ -108,6 +103,7 @@ void main() {
           text: 'just a normal message',
         ),
       );
+      await _flushAsync();
 
       expect(queue.enqueued, hasLength(1));
       expect((await tasks.list()), isEmpty);
@@ -154,8 +150,10 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -180,9 +178,11 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskCreator: failingService.create,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: failingService.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -204,10 +204,11 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskCreator: tasks.create,
-        triggerParser: const TaskTriggerParser(),
-        eventBus: eventBus,
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true, autoStart: false)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: tasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true, autoStart: false)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -234,9 +235,11 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskCreator: tasks.create,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: tasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -265,9 +268,11 @@ void main() {
       final googleChatManager = ChannelManager(
         queue: googleChatQueue,
         config: const ChannelConfig.defaults(),
-        taskCreator: googleChatTasks.create,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskCreator: googleChatTasks.create,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+        ),
       );
       addTearDown(() => googleChatManager.dispose());
       googleChatManager.registerChannel(googleChatChannel);
@@ -308,7 +313,7 @@ String _shortTaskId(String taskId) => taskId.replaceAll('-', '').substring(0, 6)
 class _RecordingMessageQueue extends MessageQueue {
   final List<(ChannelMessage, Channel, String)> enqueued = [];
 
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
@@ -332,8 +337,10 @@ class _TaskOps {
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
+    String? createdBy,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
+    String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
     var task = Task(
@@ -343,6 +350,7 @@ class _TaskOps {
       type: type,
       goalId: goalId,
       acceptanceCriteria: acceptanceCriteria,
+      createdBy: createdBy,
       configJson: configJson,
       createdAt: timestamp,
     );
@@ -370,8 +378,10 @@ class _FailingTaskService extends _TaskOps {
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
+    String? createdBy,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
+    String trigger = 'system',
   }) {
     throw StateError('service unavailable');
   }

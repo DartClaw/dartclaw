@@ -1,5 +1,3 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:convert';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
@@ -211,7 +209,7 @@ class ConfigSerializer {
           return clientEmail.trim();
         }
       }
-    } catch (_) {
+    } catch (e) {
       // Fall through to a generic redaction marker for malformed inline JSON.
     }
 

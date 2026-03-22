@@ -1,10 +1,9 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:logging/logging.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
@@ -21,6 +20,8 @@ import '../scheduling/schedule_service.dart';
 import 'allowlist_validator.dart';
 import 'api_helpers.dart';
 import 'sse_broadcast.dart';
+
+final _log = Logger('ConfigApiRoutes');
 
 /// Config read/write API endpoints.
 ///
@@ -211,7 +212,7 @@ Router configApiRoutes({
     // Validate cron expression
     try {
       CronExpression.parse(schedule);
-    } catch (_) {
+    } catch (e) {
       return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
     }
 
@@ -274,7 +275,7 @@ Router configApiRoutes({
       }
       try {
         CronExpression.parse(schedule);
-      } catch (_) {
+      } catch (e) {
         return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
       }
     }
@@ -383,7 +384,7 @@ Router configApiRoutes({
     // Validate cron expression
     try {
       CronExpression.parse(schedule);
-    } catch (_) {
+    } catch (e) {
       return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
     }
 
@@ -444,7 +445,7 @@ Router configApiRoutes({
       }
       try {
         CronExpression.parse(schedule);
-      } catch (_) {
+      } catch (e) {
         return errorResponse(400, 'INVALID_INPUT', 'Invalid cron expression: "$schedule"');
       }
     }
@@ -903,8 +904,8 @@ void writeRestartPending(String dataDir, List<String> fields) {
       if (raw is List) {
         existingFields = raw.whereType<String>().toList();
       }
-    } catch (_) {
-      // Corrupted file — overwrite
+    } catch (e) {
+      _log.fine('Corrupted restart fields file — overwriting: $e');
     }
   }
 
@@ -925,7 +926,8 @@ Map<String, dynamic>? readRestartPending(String dataDir) {
   if (!file.existsSync()) return null;
   try {
     return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-  } catch (_) {
+  } catch (e) {
+    _log.fine('Failed to read restart.pending: $e');
     return null;
   }
 }
@@ -939,7 +941,8 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
     final parsed = jsonDecode(body);
     if (parsed is Map<String, dynamic>) return parsed;
     return null;
-  } catch (_) {
+  } catch (e) {
+    _log.fine('Failed to parse JSON request body: $e');
     return null;
   }
 }

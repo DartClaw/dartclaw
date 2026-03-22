@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
 import '../../templates/chat.dart';
@@ -9,6 +10,8 @@ import '../../templates/task_detail.dart';
 import '../../templates/tasks.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
+
+final _log = Logger('TasksPage');
 
 class TasksPage extends DashboardPage {
   @override
@@ -124,8 +127,8 @@ class TasksPage extends DashboardPage {
             map['content'] = '(File too large to display: ${(bytes / 1024).toStringAsFixed(1)} KB)';
           }
         }
-      } catch (_) {
-        // Content unavailable — leave content as null.
+      } catch (e) {
+        _log.fine('Artifact content unavailable for ${artifact.id}: $e');
       }
       artifactMaps.add(map);
     }
@@ -135,9 +138,15 @@ class TasksPage extends DashboardPage {
     if (task.sessionId != null && context.messages != null) {
       try {
         final msgs = await context.messages!.getMessagesTail(task.sessionId!);
-        final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
+        final messageList = msgs.map((m) => classifyMessage(
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          senderName: _parseSenderDisplayName(m.metadata),
+        )).toList();
         messagesHtml = messagesHtmlFragment(messageList);
-      } catch (_) {
+      } catch (e) {
+        _log.warning('Failed to load messages for session ${task.sessionId}: $e');
         messagesHtml = '<div class="empty-state-text">Failed to load session messages.</div>';
       }
     }
@@ -172,6 +181,7 @@ class TasksPage extends DashboardPage {
       'sessionId': task.sessionId,
       'createdAt': task.createdAt.toIso8601String(),
       'startedAt': task.startedAt?.toIso8601String(),
+      if (task.createdBy != null) 'createdBy': task.createdBy,
     };
   }
 
@@ -235,7 +245,8 @@ class TasksPage extends DashboardPage {
         buffer.write('</section>');
       }
       return buffer.toString();
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to render diff HTML: $e');
       return null;
     }
   }
@@ -246,8 +257,21 @@ class TasksPage extends DashboardPage {
       final files =
           (decoded['conflictingFiles'] as List?)?.map((entry) => entry.toString()).toList() ?? const <String>[];
       return {'conflictingFiles': files, 'details': decoded['details']?.toString()};
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to parse conflict data: $e');
       return null;
     }
+  }
+
+  static String? _parseSenderDisplayName(String? metadata) {
+    if (metadata == null || metadata.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(metadata) as Map<String, dynamic>;
+      final name = decoded['senderDisplayName'];
+      if (name is String && name.isNotEmpty) return name;
+    } catch (e) {
+      _log.fine('Failed to parse message metadata for sender name: $e');
+    }
+    return null;
   }
 }

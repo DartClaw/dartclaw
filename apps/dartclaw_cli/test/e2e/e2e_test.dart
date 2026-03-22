@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
@@ -52,13 +51,13 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeAgentHarness();
-    server = DartclawServer(
-      sessions: sessions,
-      messages: messages,
-      worker: worker,
-      staticDir: _staticDir(),
-      behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-    );
+    server = (DartclawServerBuilder()
+          ..sessions = sessions
+          ..messages = messages
+          ..worker = worker
+          ..staticDir = _staticDir()
+          ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
+        .build();
   });
 
   tearDown(() async {
@@ -194,19 +193,16 @@ void main() {
       final sessions2 = SessionService(baseDir: tempDir2.path);
       final messages2 = MessageService(baseDir: tempDir2.path);
       final worker2 = FakeAgentHarness();
-      final server2 = DartclawServer(
-        sessions: sessions2,
-        messages: messages2,
-        worker: worker2,
-        staticDir: _staticDir(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        authEnabled: false,
-      );
+      final server2 = (DartclawServerBuilder()
+            ..sessions = sessions2
+            ..messages = messages2
+            ..worker = worker2
+            ..staticDir = _staticDir()
+            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+            ..authEnabled = false
+            ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false))
+          .build();
       addTearDown(() => server2.shutdown());
-
-      // Inject runtime services BEFORE accessing handler — mirrors the fix
-      // in serve_command.dart.
-      server2.setRuntimeServices(runtimeConfig: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
 
       final handler = server2.handler;
 
@@ -227,17 +223,17 @@ void main() {
       final sessions3 = SessionService(baseDir: tempDir3.path);
       final messages3 = MessageService(baseDir: tempDir3.path);
       final worker3 = FakeAgentHarness();
-      final server3 = DartclawServer(
-        sessions: sessions3,
-        messages: messages3,
-        worker: worker3,
-        staticDir: _staticDir(),
-        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-        authEnabled: false,
-      );
+      // Deliberately do NOT set runtimeConfig — simulates the old bug.
+      final server3 = (DartclawServerBuilder()
+            ..sessions = sessions3
+            ..messages = messages3
+            ..worker = worker3
+            ..staticDir = _staticDir()
+            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+            ..authEnabled = false)
+          .build();
       addTearDown(() => server3.shutdown());
 
-      // Deliberately do NOT call setRuntimeServices — simulates the old bug.
       final handler = server3.handler;
 
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/settings/runtime')));

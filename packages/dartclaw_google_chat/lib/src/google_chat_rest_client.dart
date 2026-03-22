@@ -174,6 +174,100 @@ class GoogleChatRestClient {
     }
   }
 
+  /// Sends a text message to [spaceName] in a new or existing thread.
+  ///
+  /// [threadKey] is used with `messageReplyOption:
+  /// REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD` to create a new thread on the first
+  /// send and reply to it on subsequent sends with the same key.
+  ///
+  /// Returns the message name and server-assigned thread name from the API
+  /// response. Both fields are `null` on failure.
+  Future<({String? messageName, String? threadName})> sendMessageInThread(
+    String spaceName,
+    String text, {
+    required String threadKey,
+  }) async {
+    if (!_spaceNamePattern.hasMatch(spaceName)) {
+      _log.warning('Rejected Google Chat threaded send for invalid space name "$spaceName"');
+      return (messageName: null, threadName: null);
+    }
+
+    return _queueFor(spaceName).enqueue(() async {
+      try {
+        final response = await _client.post(
+          Uri.parse('$_apiBase/$spaceName/messages'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode({
+            'text': text,
+            'thread': {'threadKey': threadKey},
+            'messageReplyOption': 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD',
+          }),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat threaded send failed for $spaceName with HTTP ${response.statusCode}');
+          return (messageName: null, threadName: null);
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          return (messageName: null, threadName: null);
+        }
+        final messageName = decoded['name'] as String?;
+        final thread = decoded['thread'];
+        final threadName = (thread is Map) ? thread['name'] as String? : null;
+        return (messageName: messageName, threadName: threadName);
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat threaded send failed for $spaceName', error, stackTrace);
+        return (messageName: null, threadName: null);
+      }
+    });
+  }
+
+  /// Sends a structured Cards v2 message to [spaceName] in a new or existing
+  /// thread identified by [threadKey].
+  ///
+  /// Returns the message name and server-assigned thread name from the API
+  /// response. Both fields are `null` on failure.
+  Future<({String? messageName, String? threadName})> sendCardInThread(
+    String spaceName,
+    Map<String, dynamic> cardPayload, {
+    required String threadKey,
+  }) async {
+    if (!_spaceNamePattern.hasMatch(spaceName)) {
+      _log.warning('Rejected Google Chat threaded card send for invalid space name "$spaceName"');
+      return (messageName: null, threadName: null);
+    }
+
+    return _queueFor(spaceName).enqueue(() async {
+      try {
+        final body = Map<String, dynamic>.of(cardPayload)
+          ..['thread'] = {'threadKey': threadKey}
+          ..['messageReplyOption'] = 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
+        final response = await _client.post(
+          Uri.parse('$_apiBase/$spaceName/messages'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode(body),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning(
+            'Google Chat threaded card send failed for $spaceName with HTTP ${response.statusCode}',
+          );
+          return (messageName: null, threadName: null);
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          return (messageName: null, threadName: null);
+        }
+        final messageName = decoded['name'] as String?;
+        final thread = decoded['thread'];
+        final threadName = (thread is Map) ? thread['name'] as String? : null;
+        return (messageName: messageName, threadName: threadName);
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat threaded card send failed for $spaceName', error, stackTrace);
+        return (messageName: null, threadName: null);
+      }
+    });
+  }
+
   /// Flushes pending writes and closes the underlying HTTP client.
   Future<void> close() async {
     final flushes = _spaceQueues.values.map((queue) => queue.flush()).toList(growable: false);

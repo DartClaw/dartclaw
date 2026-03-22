@@ -122,7 +122,15 @@ void main() {
         await repository.update(updated);
         final loaded = await repository.getById(task.id);
 
-        expect(loaded?.toJson(), updated.toJson());
+        // update() increments version; compare excluding version.
+        expect(loaded?.title, updated.title);
+        expect(loaded?.description, updated.description);
+        expect(loaded?.status, updated.status);
+        expect(loaded?.sessionId, updated.sessionId);
+        expect(loaded?.configJson, updated.configJson);
+        expect(loaded?.worktreeJson, updated.worktreeJson);
+        expect(loaded?.startedAt, updated.startedAt);
+        expect(loaded?.version, task.version + 1);
       });
 
       test('update throws for missing task', () async {
@@ -141,7 +149,9 @@ void main() {
           await repository.insert(task);
           await repository.update(task.copyWith(title: 'Fresh title'));
 
-          final transitioned = task
+          // Re-fetch after update() to get the incremented version.
+          final current = (await repository.getById(task.id))!;
+          final transitioned = current
               .transition(TaskStatus.queued, now: DateTime.parse('2026-03-10T10:05:00Z'))
               .copyWith(sessionId: 'session-2', configJson: const {'pushBackCount': 99, 'budget': 5});
           final updated = await repository.updateIfStatus(transitioned, expectedStatus: TaskStatus.review);

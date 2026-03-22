@@ -55,6 +55,12 @@ class TurnOutcome {
   final int outputTokens;
   final DateTime completedAt;
 
+  /// Non-null when the turn was cancelled due to mid-turn loop detection.
+  ///
+  /// [TaskExecutor] checks this field to distinguish loop-caused cancellation
+  /// from user-initiated cancellation, and transitions the task to `failed`.
+  final LoopDetection? loopDetection;
+
   int get totalTokens => inputTokens + outputTokens;
 
   TurnOutcome({
@@ -66,6 +72,7 @@ class TurnOutcome {
     this.inputTokens = 0,
     this.outputTokens = 0,
     required this.completedAt,
+    this.loopDetection,
   });
 }
 
@@ -178,7 +185,15 @@ class TurnManager {
     String? directory,
     String? model,
     String? effort,
-  }) => _primary.reserveTurn(sessionId, agentName: agentName, directory: directory, model: model, effort: effort);
+    bool isHumanInput = false,
+  }) => _primary.reserveTurn(
+    sessionId,
+    agentName: agentName,
+    directory: directory,
+    model: model,
+    effort: effort,
+    isHumanInput: isHumanInput,
+  );
 
   void executeTurn(
     String sessionId,
@@ -197,7 +212,16 @@ class TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
-  }) => _primary.startTurn(sessionId, messages, source: source, agentName: agentName, model: model, effort: effort);
+    bool isHumanInput = false,
+  }) => _primary.startTurn(
+    sessionId,
+    messages,
+    source: source,
+    agentName: agentName,
+    model: model,
+    effort: effort,
+    isHumanInput: isHumanInput,
+  );
 
   Future<void> cancelTurn(String sessionId) async {
     for (final runner in _pool.runners) {

@@ -1,13 +1,45 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ArtifactKind, Task, TaskArtifact, TaskRepository, TaskStatus, TaskType;
+    show
+        ArtifactKind,
+        EventBus,
+        Task,
+        TaskArtifact,
+        TaskRepository,
+        TaskReviewReadyEvent,
+        TaskStatus,
+        TaskStatusChangedEvent,
+        TaskType;
+
+/// Thrown when a task transition fails because the stored version does not
+/// match the expected version (concurrent modification detected).
+class VersionConflictException implements Exception {
+  final String taskId;
+  final int expectedVersion;
+  final int currentVersion;
+
+  const VersionConflictException({
+    required this.taskId,
+    required this.expectedVersion,
+    required this.currentVersion,
+  });
+
+  @override
+  String toString() =>
+      'VersionConflictException: task $taskId was modified concurrently '
+      '(expected version $expectedVersion, found $currentVersion)';
+}
 
 /// Business logic layer for task CRUD and lifecycle operations.
 class TaskService {
   final TaskRepository _repo;
+  final EventBus? _eventBus;
 
-  TaskService(this._repo);
+  TaskService(this._repo, {EventBus? eventBus}) : _eventBus = eventBus;
 
   /// Creates a new task.
+  ///
+  /// When [autoStart] is true the task is queued immediately and a
+  /// [TaskStatusChangedEvent] is fired for the draft→queued transition.
   Future<Task> create({
     required String id,
     required String title,
@@ -16,8 +48,10 @@ class TaskService {
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
+    String? createdBy,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
+    String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
     var task = Task(
@@ -29,11 +63,23 @@ class TaskService {
       acceptanceCriteria: acceptanceCriteria,
       configJson: configJson,
       createdAt: timestamp,
+      createdBy: createdBy,
     );
     if (autoStart) {
       task = task.transition(TaskStatus.queued, now: timestamp);
     }
     await _repo.insert(task);
+    if (autoStart) {
+      _fireEvent(
+        TaskStatusChangedEvent(
+          taskId: task.id,
+          oldStatus: TaskStatus.draft,
+          newStatus: task.status,
+          trigger: trigger,
+          timestamp: timestamp,
+        ),
+      );
+    }
     return task;
   }
 
@@ -44,13 +90,22 @@ class TaskService {
   Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
 
   /// Applies a lifecycle transition.
+  ///
+  /// Fires [TaskStatusChangedEvent] (and [TaskReviewReadyEvent] when entering
+  /// review) after a successful repository write.
+  ///
+  /// Throws [VersionConflictException] when the row was modified concurrently
+  /// (version mismatch). Throws [StateError] when the status changed
+  /// concurrently. Throws [ArgumentError] when the task does not exist.
   Future<Task> transition(
     String taskId,
     TaskStatus newStatus, {
     DateTime? now,
     Map<String, dynamic>? configJson,
+    String trigger = 'system',
   }) async {
     final task = await _requireTask(taskId);
+    final oldStatus = task.status;
     final transitioned = task.transition(newStatus, now: now);
     final persistedTransition = task.copyWith(
       status: transitioned.status,
@@ -64,7 +119,26 @@ class TaskService {
       if (current == null) {
         throw ArgumentError('Task not found: $taskId');
       }
+      if (current.version != task.version) {
+        throw VersionConflictException(
+          taskId: taskId,
+          expectedVersion: task.version,
+          currentVersion: current.version,
+        );
+      }
       throw StateError('Task status changed concurrently: expected ${task.status.name}, found ${current.status.name}');
+    }
+    _fireEvent(
+      TaskStatusChangedEvent(
+        taskId: taskId,
+        oldStatus: oldStatus,
+        newStatus: newStatus,
+        trigger: trigger,
+        timestamp: now ?? DateTime.now(),
+      ),
+    );
+    if (newStatus == TaskStatus.review) {
+      _fireReviewReadyEvent(taskId);
     }
     return persistedTransition;
   }
@@ -160,5 +234,29 @@ class TaskService {
       throw ArgumentError('Task not found: $taskId');
     }
     return task;
+  }
+
+  void _fireEvent(TaskStatusChangedEvent event) {
+    _eventBus?.fire(event);
+  }
+
+  void _fireReviewReadyEvent(String taskId) {
+    final eventBus = _eventBus;
+    if (eventBus == null) return;
+    // Fire asynchronously to avoid blocking transition(); artifact lookup is
+    // best-effort — a missing or empty artifact list is still valid.
+    _repo.listArtifactsByTask(taskId).then((artifacts) {
+      final artifactKinds = artifacts.map((a) => a.kind.name).toSet().toList()..sort();
+      eventBus.fire(
+        TaskReviewReadyEvent(
+          taskId: taskId,
+          artifactCount: artifacts.length,
+          artifactKinds: artifactKinds,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }).catchError((_) {
+      // Best-effort: failure to list artifacts should not prevent the review ready notification.
+    });
   }
 }

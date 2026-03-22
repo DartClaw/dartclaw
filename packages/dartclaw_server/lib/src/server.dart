@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -62,17 +61,213 @@ import 'web/signal_pairing_routes.dart';
 import 'web/system_pages.dart';
 import 'web/web_routes.dart';
 import 'web/web_utils.dart';
-import 'web/whatsapp_pairing.dart';
+import 'web/whatsapp_pairing_routes.dart';
 import 'workspace/workspace_git_sync.dart';
+
+/// Builder for [DartclawServer].
+///
+/// Collects all dependencies in domain-grouped sections and produces a
+/// fully-initialized server. Replaces the two-phase factory +
+/// setRuntimeServices() pattern.
+class DartclawServerBuilder {
+  // Required core services
+  SessionService? sessions;
+  MessageService? messages;
+  AgentHarness? worker;
+  String? staticDir;
+  BehaviorFileService? behavior;
+
+  // Turn management (optional — if not set, uses sessions/worker/behavior)
+  HarnessPool? pool;
+  SessionService? sessionsForTurns;
+  SessionLockManager? lockManager;
+  ContextMonitor? contextMonitor;
+  ExplorationSummarizer? explorationSummarizer;
+
+  // Optional services (null = feature disabled)
+  MemoryFileService? memoryFile;
+  HealthService? healthService;
+  TokenService? tokenService;
+  SessionResetService? resetService;
+  GuardChain? guardChain;
+  KvService? kv;
+  MessageRedactor? redactor;
+  SelfImprovementService? selfImprovement;
+  UsageTracker? usageTracker;
+  EventBus? eventBus;
+
+  // Channels
+  ChannelManager? channelManager;
+  WhatsAppChannel? whatsAppChannel;
+  GoogleChatWebhookHandler? googleChatWebhookHandler;
+  SignalChannel? signalChannel;
+  String? webhookSecret;
+
+  // Runtime services
+  RuntimeConfig? runtimeConfig;
+  HeartbeatScheduler? heartbeat;
+  ScheduleService? scheduleService;
+  WorkspaceGitSync? gitSync;
+  MemoryStatusService? memoryStatusService;
+  MemoryPruner? memoryPruner;
+  ConfigWriter? configWriter;
+  DartclawConfig? config;
+  RestartService? restartService;
+  SseBroadcast? sseBroadcast;
+
+  // Tasks
+  GoalService? goalService;
+  TaskService? taskService;
+  TaskReviewService? taskReviewService;
+  WorktreeManager? worktreeManager;
+  TaskFileGuard? taskFileGuard;
+  AgentObserver? agentObserver;
+  MergeExecutor? mergeExecutor;
+  String? mergeStrategy;
+  String? baseRef;
+
+  // Google Chat
+  GoogleChatSpaceEventsWiring? spaceEventsWiring;
+
+  // Auth & gateway
+  String? gatewayToken;
+  bool authEnabled = true;
+
+  // Display params
+  ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams();
+  HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams();
+  SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams();
+  WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams();
+  AppDisplayParams appDisplay = const AppDisplayParams();
+
+  TurnManager? _cachedTurns;
+
+  /// Returns the [TurnManager] that will be used by the built server.
+  ///
+  /// May be called before [build] to wire services that need turn access.
+  /// Caches the result — calling multiple times returns the same instance.
+  ///
+  /// Throws [StateError] if required deps (sessions, messages, worker,
+  /// behavior) are not yet set.
+  TurnManager buildTurns() {
+    if (_cachedTurns != null) return _cachedTurns!;
+    final s = sessions ?? (throw StateError('sessions is required'));
+    final m = messages ?? (throw StateError('messages is required'));
+    final w = worker ?? (throw StateError('worker is required'));
+    final b = behavior ?? (throw StateError('behavior is required'));
+    _cachedTurns = pool != null
+        ? TurnManager.fromPool(pool: pool!)
+        : TurnManager(
+            messages: m,
+            worker: w,
+            behavior: b,
+            memoryFile: memoryFile,
+            sessions: sessionsForTurns ?? s,
+            kv: kv,
+            guardChain: guardChain,
+            lockManager: lockManager,
+            resetService: resetService,
+            contextMonitor: contextMonitor,
+            explorationSummarizer: explorationSummarizer,
+            redactor: redactor,
+            selfImprovement: selfImprovement,
+            usageTracker: usageTracker,
+          );
+    return _cachedTurns!;
+  }
+
+  /// Build the [DartclawServer] with all configured dependencies.
+  ///
+  /// Throws [StateError] if required dependencies are missing.
+  DartclawServer build() {
+    final s = sessions ?? (throw StateError('sessions is required'));
+    final m = messages ?? (throw StateError('messages is required'));
+    final w = worker ?? (throw StateError('worker is required'));
+    final sd = staticDir ?? (throw StateError('staticDir is required'));
+
+    final turns = buildTurns();
+
+    final server = DartclawServer._(
+      sessions: s,
+      messages: m,
+      worker: w,
+      pool: pool,
+      turns: turns,
+      memoryFile: memoryFile,
+      healthService: healthService,
+      tokenService: tokenService,
+      resetService: resetService,
+      authEnabled: authEnabled,
+      staticDir: sd,
+      channelManager: channelManager,
+      whatsAppChannel: whatsAppChannel,
+      googleChatWebhookHandler: googleChatWebhookHandler,
+      signalChannel: signalChannel,
+      guardChain: guardChain,
+      webhookSecret: webhookSecret,
+      redactor: redactor,
+      gatewayToken: gatewayToken,
+      runtimeConfig: runtimeConfig,
+      heartbeat: heartbeat,
+      scheduleService: scheduleService,
+      gitSync: gitSync,
+      memoryStatusService: memoryStatusService,
+      memoryPruner: memoryPruner,
+      kvService: kv,
+      configWriter: configWriter,
+      config: config,
+      restartService: restartService,
+      sseBroadcast: sseBroadcast,
+      eventBus: eventBus,
+      goalService: goalService,
+      taskService: taskService,
+      taskReviewService: taskReviewService,
+      worktreeManager: worktreeManager,
+      taskFileGuard: taskFileGuard,
+      agentObserver: agentObserver,
+      mergeExecutor: mergeExecutor,
+      mergeStrategy: mergeStrategy,
+      baseRef: baseRef,
+      spaceEventsWiring: spaceEventsWiring,
+      contentGuardDisplay: contentGuardDisplay,
+      heartbeatDisplay: heartbeatDisplay,
+      schedulingDisplay: schedulingDisplay,
+      workspaceDisplay: workspaceDisplay,
+      appDisplay: appDisplay,
+    );
+
+    registerSystemDashboardPages(
+      server._pageRegistry,
+      healthService: healthService,
+      workerStateGetter: () => w.state,
+      whatsAppChannel: whatsAppChannel,
+      signalChannel: signalChannel,
+      googleChatChannel: googleChatWebhookHandler?.channel,
+      guardChain: guardChain,
+      runtimeConfigGetter: () => server._runtimeConfig,
+      memoryStatusServiceGetter: () => server._memoryStatusService,
+      contentGuardDisplay: contentGuardDisplay,
+      heartbeatDisplay: heartbeatDisplay,
+      schedulingDisplay: schedulingDisplay,
+      workspaceDisplay: workspaceDisplay,
+      auditReader: appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null,
+      pubsubHealthGetter: healthService != null
+          ? () => healthService!.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
+          : null,
+    );
+
+    return server;
+  }
+}
 
 /// Shelf-based HTTP server composing all DartClaw routes and middleware.
 class DartclawServer {
+  // Core services — all final
   final SessionService _sessions;
   final MessageService _messages;
   final AgentHarness _worker;
   final HarnessPool? _pool;
   final TurnManager _turns;
-  TurnManager get turns => _turns;
   final MemoryFileService? _memoryFile;
   final HealthService? _healthService;
   final TokenService? _tokenService;
@@ -88,224 +283,141 @@ class DartclawServer {
   final MessageRedactor? _redactor;
   final McpProtocolHandler _mcpHandler;
   final String? _gatewayToken;
-  final PageRegistry _pageRegistry = PageRegistry();
-  final AuthRateLimiter _authRateLimiter = AuthRateLimiter();
-  Handler? _builtHandler;
-  Handler? _requestHandler;
-  bool _dashboardPagesLocked = false;
 
-  // Runtime toggle state + service references (injected after construction).
-  RuntimeConfig? _runtimeConfig;
-  HeartbeatScheduler? _heartbeat;
-  ScheduleService? _scheduleService;
-  WorkspaceGitSync? _gitSync;
-  MemoryStatusService? _memoryStatusService;
-  MemoryPruner? _memoryPruner;
-  KvService? _kvService;
-  ConfigWriter? _configWriter;
-  DartclawConfig? _config;
-  RestartService? _restartService;
-  SseBroadcast? _sseBroadcast;
-  EventBus? _eventBus;
-  GoalService? _goalService;
-  TaskService? _taskService;
-  TaskReviewService? _taskReviewService;
-  WorktreeManager? _worktreeManager;
-  TaskFileGuard? _taskFileGuard;
-  AgentObserver? _agentObserver;
-  MergeExecutor? _mergeExecutor;
-  String? _mergeStrategy;
-  String? _baseRef;
-  GoogleChatSpaceEventsWiring? _spaceEventsWiring;
+  // Runtime services — all final
+  final RuntimeConfig? _runtimeConfig;
+  final HeartbeatScheduler? _heartbeat;
+  final ScheduleService? _scheduleService;
+  final WorkspaceGitSync? _gitSync;
+  final MemoryStatusService? _memoryStatusService;
+  final MemoryPruner? _memoryPruner;
+  final KvService? _kvService;
+  final ConfigWriter? _configWriter;
+  final DartclawConfig? _config;
+  final RestartService? _restartService;
+  final SseBroadcast? _sseBroadcast;
+  final EventBus? _eventBus;
+  final GoalService? _goalService;
+  final TaskService? _taskService;
+  final TaskReviewService? _taskReviewService;
+  final WorktreeManager? _worktreeManager;
+  final TaskFileGuard? _taskFileGuard;
+  final AgentObserver? _agentObserver;
+  final MergeExecutor? _mergeExecutor;
+  final String? _mergeStrategy;
+  final String? _baseRef;
+  final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
 
-  /// Inject runtime services for toggle control. Must be called after
-  /// service creation in serve_command.dart.
-  void setRuntimeServices({
-    HeartbeatScheduler? heartbeat,
-    ScheduleService? scheduleService,
-    WorkspaceGitSync? gitSync,
-    RuntimeConfig? runtimeConfig,
-    MemoryStatusService? memoryStatusService,
-    MemoryPruner? memoryPruner,
-    KvService? kvService,
-    ConfigWriter? configWriter,
-    DartclawConfig? config,
-    RestartService? restartService,
-    SseBroadcast? sseBroadcast,
-    EventBus? eventBus,
-    GoalService? goalService,
-    TaskService? taskService,
-    TaskReviewService? taskReviewService,
-    WorktreeManager? worktreeManager,
-    TaskFileGuard? taskFileGuard,
-    AgentObserver? agentObserver,
-    MergeExecutor? mergeExecutor,
-    String? mergeStrategy,
-    String? baseRef,
-    GoogleChatSpaceEventsWiring? spaceEventsWiring,
-  }) {
-    _heartbeat = heartbeat;
-    _scheduleService = scheduleService;
-    _gitSync = gitSync;
-    _runtimeConfig = runtimeConfig;
-    _memoryStatusService = memoryStatusService;
-    _memoryPruner = memoryPruner;
-    _kvService = kvService;
-    _configWriter = configWriter;
-    _config = config;
-    _restartService = restartService;
-    _sseBroadcast = sseBroadcast;
-    _eventBus = eventBus;
-    _goalService = goalService;
-    _taskService = taskService;
-    _taskReviewService = taskReviewService;
-    _worktreeManager = worktreeManager;
-    _taskFileGuard = taskFileGuard;
-    _agentObserver = agentObserver;
-    _mergeExecutor = mergeExecutor;
-    _mergeStrategy = mergeStrategy;
-    _baseRef = baseRef;
-    _spaceEventsWiring = spaceEventsWiring;
-  }
-
-  // Config values forwarded to webRoutes for accurate page rendering.
+  // Display params — all final
   final ContentGuardDisplayParams _contentGuardDisplay;
   final HeartbeatDisplayParams _heartbeatDisplay;
   final SchedulingDisplayParams _schedulingDisplay;
   final WorkspaceDisplayParams _workspaceDisplay;
   final AppDisplayParams _appDisplay;
 
-  DartclawServer._(
-    this._sessions,
-    this._messages,
-    this._worker,
-    this._pool,
-    this._turns,
-    this._memoryFile,
-    this._healthService,
-    this._tokenService,
-    this._resetService,
-    this._authEnabled,
-    this._staticDir,
-    this._channelManager,
-    this._whatsAppChannel,
-    this._googleChatWebhookHandler,
-    this._signalChannel,
-    this._guardChain,
-    this._webhookSecret,
-    this._redactor,
-    this._mcpHandler,
-    this._gatewayToken,
-    this._contentGuardDisplay,
-    this._heartbeatDisplay,
-    this._schedulingDisplay,
-    this._workspaceDisplay,
-    this._appDisplay,
-  );
+  final PageRegistry _pageRegistry = PageRegistry();
+  final AuthRateLimiter _authRateLimiter = AuthRateLimiter();
+  Handler? _builtHandler;
+  Handler? _requestHandler;
+  bool _registrationLocked = false;
 
-  factory DartclawServer({
+  TurnManager get turns => _turns;
+
+  /// Internal constructor — use [DartclawServerBuilder] to create instances.
+  DartclawServer._({
     required SessionService sessions,
     required MessageService messages,
     required AgentHarness worker,
+    required HarnessPool? pool,
+    required TurnManager turns,
+    required MemoryFileService? memoryFile,
+    required HealthService? healthService,
+    required TokenService? tokenService,
+    required SessionResetService? resetService,
+    required bool authEnabled,
     required String staticDir,
-    required BehaviorFileService behavior,
-    MemoryFileService? memoryFile,
-    SessionService? sessionsForTurns,
-    GuardChain? guardChain,
-    KvService? kv,
-    HealthService? healthService,
-    TokenService? tokenService,
-    SessionLockManager? lockManager,
-    SessionResetService? resetService,
-    ContextMonitor? contextMonitor,
-    ExplorationSummarizer? explorationSummarizer,
-    ChannelManager? channelManager,
-    WhatsAppChannel? whatsAppChannel,
-    GoogleChatWebhookHandler? googleChatWebhookHandler,
-    SignalChannel? signalChannel,
-    String? webhookSecret,
-    MessageRedactor? redactor,
-    String? gatewayToken,
-    SelfImprovementService? selfImprovement,
-    UsageTracker? usageTracker,
-    EventBus? eventBus,
-    bool authEnabled = true,
-    HarnessPool? pool,
-    ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
-    HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
-    SchedulingDisplayParams schedulingDisplay = const SchedulingDisplayParams(),
-    WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
-    AppDisplayParams appDisplay = const AppDisplayParams(),
-  }) {
-    final turns = pool != null
-        ? TurnManager.fromPool(pool: pool)
-        : TurnManager(
-            messages: messages,
-            worker: worker,
-            behavior: behavior,
-            memoryFile: memoryFile,
-            sessions: sessionsForTurns ?? sessions,
-            kv: kv,
-            guardChain: guardChain,
-            lockManager: lockManager,
-            resetService: resetService,
-            contextMonitor: contextMonitor,
-            explorationSummarizer: explorationSummarizer,
-            redactor: redactor,
-            selfImprovement: selfImprovement,
-            usageTracker: usageTracker,
-          );
-    final server = DartclawServer._(
-      sessions,
-      messages,
-      worker,
-      pool,
-      turns,
-      memoryFile,
-      healthService,
-      tokenService,
-      resetService,
-      authEnabled,
-      staticDir,
-      channelManager,
-      whatsAppChannel,
-      googleChatWebhookHandler,
-      signalChannel,
-      guardChain,
-      webhookSecret,
-      redactor,
-      McpProtocolHandler(),
-      gatewayToken,
-      contentGuardDisplay,
-      heartbeatDisplay,
-      schedulingDisplay,
-      workspaceDisplay,
-      appDisplay,
-    );
-    server._eventBus = eventBus;
-
-    registerSystemDashboardPages(
-      server._pageRegistry,
-      healthService: healthService,
-      workerStateGetter: () => worker.state,
-      whatsAppChannel: whatsAppChannel,
-      signalChannel: signalChannel,
-      googleChatChannel: googleChatWebhookHandler?.channel,
-      guardChain: guardChain,
-      runtimeConfigGetter: () => server._runtimeConfig,
-      memoryStatusServiceGetter: () => server._memoryStatusService,
-      contentGuardDisplay: contentGuardDisplay,
-      heartbeatDisplay: heartbeatDisplay,
-      schedulingDisplay: schedulingDisplay,
-      workspaceDisplay: workspaceDisplay,
-      auditReader: appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null,
-      pubsubHealthGetter: healthService != null
-          ? () => healthService.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
-          : null,
-    );
-
-    return server;
-  }
+    required ChannelManager? channelManager,
+    required WhatsAppChannel? whatsAppChannel,
+    required GoogleChatWebhookHandler? googleChatWebhookHandler,
+    required SignalChannel? signalChannel,
+    required GuardChain? guardChain,
+    required String? webhookSecret,
+    required MessageRedactor? redactor,
+    required String? gatewayToken,
+    required RuntimeConfig? runtimeConfig,
+    required HeartbeatScheduler? heartbeat,
+    required ScheduleService? scheduleService,
+    required WorkspaceGitSync? gitSync,
+    required MemoryStatusService? memoryStatusService,
+    required MemoryPruner? memoryPruner,
+    required KvService? kvService,
+    required ConfigWriter? configWriter,
+    required DartclawConfig? config,
+    required RestartService? restartService,
+    required SseBroadcast? sseBroadcast,
+    required EventBus? eventBus,
+    required GoalService? goalService,
+    required TaskService? taskService,
+    required TaskReviewService? taskReviewService,
+    required WorktreeManager? worktreeManager,
+    required TaskFileGuard? taskFileGuard,
+    required AgentObserver? agentObserver,
+    required MergeExecutor? mergeExecutor,
+    required String? mergeStrategy,
+    required String? baseRef,
+    required GoogleChatSpaceEventsWiring? spaceEventsWiring,
+    required ContentGuardDisplayParams contentGuardDisplay,
+    required HeartbeatDisplayParams heartbeatDisplay,
+    required SchedulingDisplayParams schedulingDisplay,
+    required WorkspaceDisplayParams workspaceDisplay,
+    required AppDisplayParams appDisplay,
+  }) : _sessions = sessions,
+       _messages = messages,
+       _worker = worker,
+       _pool = pool,
+       _turns = turns,
+       _memoryFile = memoryFile,
+       _healthService = healthService,
+       _tokenService = tokenService,
+       _resetService = resetService,
+       _authEnabled = authEnabled,
+       _staticDir = staticDir,
+       _channelManager = channelManager,
+       _whatsAppChannel = whatsAppChannel,
+       _googleChatWebhookHandler = googleChatWebhookHandler,
+       _signalChannel = signalChannel,
+       _guardChain = guardChain,
+       _webhookSecret = webhookSecret,
+       _redactor = redactor,
+       _gatewayToken = gatewayToken,
+       _mcpHandler = McpProtocolHandler(),
+       _runtimeConfig = runtimeConfig,
+       _heartbeat = heartbeat,
+       _scheduleService = scheduleService,
+       _gitSync = gitSync,
+       _memoryStatusService = memoryStatusService,
+       _memoryPruner = memoryPruner,
+       _kvService = kvService,
+       _configWriter = configWriter,
+       _config = config,
+       _restartService = restartService,
+       _sseBroadcast = sseBroadcast,
+       _eventBus = eventBus,
+       _goalService = goalService,
+       _taskService = taskService,
+       _taskReviewService = taskReviewService,
+       _worktreeManager = worktreeManager,
+       _taskFileGuard = taskFileGuard,
+       _agentObserver = agentObserver,
+       _mergeExecutor = mergeExecutor,
+       _mergeStrategy = mergeStrategy,
+       _baseRef = baseRef,
+       _spaceEventsWiring = spaceEventsWiring,
+       _contentGuardDisplay = contentGuardDisplay,
+       _heartbeatDisplay = heartbeatDisplay,
+       _schedulingDisplay = schedulingDisplay,
+       _workspaceDisplay = workspaceDisplay,
+       _appDisplay = appDisplay;
 
   /// Register an MCP tool that will be exposed to agents via the MCP endpoint.
   ///
@@ -321,7 +433,7 @@ class DartclawServer {
   ///
   /// Must be called before the server starts handling requests.
   void registerDashboardPage(DashboardPage page) {
-    if (_dashboardPagesLocked) {
+    if (_registrationLocked) {
       throw StateError('Cannot register dashboard pages after the server has started handling requests');
     }
     _pageRegistry.register(page);
@@ -331,7 +443,7 @@ class DartclawServer {
   ///
   /// Must be called before the server starts handling requests.
   void registerGuard(Guard guard) {
-    if (_dashboardPagesLocked) {
+    if (_registrationLocked) {
       throw StateError('Cannot register guards after the server has started handling requests');
     }
 
@@ -350,7 +462,7 @@ class DartclawServer {
   ///
   /// Must be called before the server starts handling requests.
   void registerChannel(Channel channel) {
-    if (_dashboardPagesLocked) {
+    if (_registrationLocked) {
       throw StateError('Cannot register channels after the server has started handling requests');
     }
 
@@ -366,7 +478,7 @@ class DartclawServer {
   ///
   /// Must be called before the server starts handling requests.
   StreamSubscription<T> onEvent<T extends DartclawEvent>(void Function(T event) callback) {
-    if (_dashboardPagesLocked) {
+    if (_registrationLocked) {
       throw StateError('Cannot register event listeners after the server has started handling requests');
     }
 
@@ -403,7 +515,7 @@ class DartclawServer {
     return _builtHandler!(request);
   };
 
-  void _validateRuntimeServices() {
+  void _validateDependencies() {
     if (_taskService != null) {
       if (_worktreeManager == null) {
         throw StateError('taskService requires worktreeManager');
@@ -430,11 +542,30 @@ class DartclawServer {
   }
 
   Handler _buildHandler() {
-    _validateRuntimeServices();
-    _dashboardPagesLocked = true;
+    _validateDependencies();
+    _registrationLocked = true;
     final router = Router();
 
-    // Health endpoint (unauthenticated, before other routes).
+    _mountHealthRoutes(router);
+    _mountMcpRoutes(router);
+    _mountStaticRoutes(router);
+    _mountWebhookRoutes(router);
+    _mountWhatsAppPairingRoutes(router);
+    _mountSignalPairingRoutes(router);
+    _mountConfigRoutes(router);
+    _mountConfigApiRoutes(router);
+    _mountMemoryRoutes(router);
+    _mountGoalRoutes(router);
+    _mountTaskRoutes(router);
+    _mountGoogleChatSubscriptionRoutes(router);
+    _mountAgentRoutes(router);
+    _mountSessionRoutes(router);
+    _mountWebRoutes(router);
+
+    return _buildPipeline(router);
+  }
+
+  void _mountHealthRoutes(Router router) {
     final hs = _healthService;
     if (hs != null) {
       router.get('/health', (Request request) async {
@@ -442,18 +573,21 @@ class DartclawServer {
         return Response.ok(jsonEncode(status), headers: {'Content-Type': 'application/json'});
       });
     }
+  }
 
-    // MCP endpoint (bearer token auth — before session auth middleware).
+  void _mountMcpRoutes(Router router) {
     final gt = _gatewayToken;
     if (gt != null) {
       router.post('/mcp', mcpRoute(_mcpHandler, gatewayToken: gt));
     }
+  }
 
-    // Static files at /static/ prefix.
+  void _mountStaticRoutes(Router router) {
     final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
     router.mount('/static/', staticHandler);
+  }
 
-    // Webhook routes (unauthenticated — before auth middleware).
+  void _mountWebhookRoutes(Router router) {
     final webhookRouter = webhookRoutes(
       whatsApp: _whatsAppChannel,
       webhookSecret: _webhookSecret,
@@ -462,155 +596,22 @@ class DartclawServer {
       trustedProxies: _config?.auth.trustedProxies ?? const [],
     );
     router.mount('/', webhookRouter.call);
+  }
 
-    // WhatsApp pairing page.
+  void _mountWhatsAppPairingRoutes(Router router) {
     final waChannel = _whatsAppChannel;
-
     if (waChannel != null) {
-      router.get('/whatsapp/pairing', (Request request) async {
-        final sidebarData = await buildSidebarData(_sessions);
-        final fragment = wantsFragment(request);
-        final pairingCode = request.requestedUri.queryParameters['code'];
-
-        // Sidecar crashed / restarting
-        if (!waChannel.gowa.isRunning && waChannel.gowa.restartCount > 0) {
-          return Response.ok(
-            whatsappPairingTemplate(
-              showReconnecting: true,
-              restartAttempt: waChannel.gowa.restartCount,
-              maxRestartAttempts: waChannel.gowa.maxRestartAttempts,
-              sidebarData: sidebarData,
-              navItems: _pageRegistry.navItems(activePage: 'Settings'),
-              fragmentOnly: fragment,
-              appName: _appDisplay.name,
-            ),
-            headers: htmlHeaders,
-          );
-        }
-
-        try {
-          final status = await waChannel.gowa.getStatus();
-          if (status.isLoggedIn) {
-            return Response.ok(
-              whatsappPairingTemplate(
-                isConnected: true,
-                connectedPhone: jidToPhone(waChannel.gowa.pairedJid ?? status.deviceId),
-                sidebarData: sidebarData,
-                navItems: _pageRegistry.navItems(activePage: 'Settings'),
-                fragmentOnly: fragment,
-              ),
-              headers: htmlHeaders,
-            );
-          }
-          // GOWA reachable but not logged in — show QR + pairing code
-          final loginQr = await waChannel.gowa.getLoginQr();
-          // Use local proxy URL to avoid CSP img-src blocking.
-          final proxyUrl = loginQr.url != null ? '/whatsapp/pairing/qr' : null;
-          return Response.ok(
-            whatsappPairingTemplate(
-              qrImageUrl: proxyUrl,
-              qrDuration: loginQr.durationSeconds,
-              pairingCode: pairingCode,
-              sidebarData: sidebarData,
-              navItems: _pageRegistry.navItems(activePage: 'Settings'),
-              fragmentOnly: fragment,
-              appName: _appDisplay.name,
-            ),
-            headers: htmlHeaders,
-          );
-        } catch (e) {
-          return Response.ok(
-            whatsappPairingTemplate(
-              error: 'Failed to check GOWA status: $e',
-              sidebarData: sidebarData,
-              navItems: _pageRegistry.navItems(activePage: 'Settings'),
-              fragmentOnly: fragment,
-              appName: _appDisplay.name,
-            ),
-            headers: htmlHeaders,
-          );
-        }
-      });
-
-      // GET /whatsapp/pairing/qr — proxy QR image from GOWA to avoid CSP issues.
-      router.get('/whatsapp/pairing/qr', (Request request) async {
-        try {
-          final loginQr = await waChannel.gowa.getLoginQr();
-          if (loginQr.url == null) return Response.notFound('No QR available');
-          final client = HttpClient();
-          try {
-            final req = await client.getUrl(Uri.parse(loginQr.url!));
-            final resp = await req.close().timeout(const Duration(seconds: 10));
-            final bytes = await resp.fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
-            return Response.ok(bytes, headers: {'content-type': 'image/png', 'cache-control': 'no-store'});
-          } finally {
-            client.close();
-          }
-        } catch (_) {
-          return Response.internalServerError(body: 'Failed to fetch QR');
-        }
-      });
-
-      // GET /whatsapp/pairing/poll — lightweight status check for HTMX polling.
-      // Returns 204 while waiting (HTMX skips swap), or renders full page
-      // when pairing completes.
-      router.get('/whatsapp/pairing/poll', (Request request) async {
-        try {
-          final status = await waChannel.gowa.getStatus();
-          if (!status.isLoggedIn) return Response(204);
-          // Connected — render full page.
-          final sidebarData = await buildSidebarData(_sessions);
-          return Response.ok(
-            whatsappPairingTemplate(
-              isConnected: true,
-              connectedPhone: jidToPhone(waChannel.gowa.pairedJid ?? status.deviceId),
-              sidebarData: sidebarData,
-              navItems: _pageRegistry.navItems(activePage: 'Settings'),
-              fragmentOnly: wantsFragment(request),
-              appName: _appDisplay.name,
-            ),
-            headers: htmlHeaders,
-          );
-        } catch (_) {
-          return Response(204);
-        }
-      });
-
-      // POST /whatsapp/pairing/disconnect — reset GOWA and restart for re-pairing.
-      router.post('/whatsapp/pairing/disconnect', (Request request) async {
-        try {
-          await waChannel.disconnect();
-          await waChannel.connect();
-          return Response.found('/whatsapp/pairing');
-        } catch (e) {
-          final msg = Uri.encodeQueryComponent('Failed to disconnect: $e');
-          return Response.found('/whatsapp/pairing?error=$msg');
-        }
-      });
-
-      // POST /whatsapp/pairing/code — request pairing code for a phone number.
-      router.post('/whatsapp/pairing/code', (Request request) async {
-        try {
-          final body = await request.readAsString();
-          final params = Uri.splitQueryString(body);
-          final phone = params['phone'] ?? '';
-          if (phone.isEmpty) {
-            return Response.found('/whatsapp/pairing?error=${Uri.encodeQueryComponent('Phone number is required')}');
-          }
-          final result = await waChannel.gowa.requestPairingCode(phone);
-          final code = result['code']?.toString() ?? result['pairing_code']?.toString();
-          if (code != null) {
-            return Response.found('/whatsapp/pairing?code=${Uri.encodeQueryComponent(code)}');
-          }
-          return Response.found('/whatsapp/pairing?error=${Uri.encodeQueryComponent('No pairing code returned')}');
-        } catch (e) {
-          final msg = Uri.encodeQueryComponent('Failed to get pairing code: $e');
-          return Response.found('/whatsapp/pairing?error=$msg');
-        }
-      });
+      final waRouter = whatsappPairingRoutes(
+        whatsAppChannel: waChannel,
+        sessions: _sessions,
+        pageRegistry: _pageRegistry,
+        appName: _appDisplay.name,
+      );
+      router.mount('/whatsapp', waRouter.call);
     }
+  }
 
-    // Signal pairing page + registration routes (extracted for testability).
+  void _mountSignalPairingRoutes(Router router) {
     final sigChannel = _signalChannel;
     if (sigChannel != null) {
       final sigRouter = signalPairingRoutes(
@@ -621,8 +622,9 @@ class DartclawServer {
       );
       router.mount('/signal', sigRouter.call);
     }
+  }
 
-    // Config toggle routes (must be before session routes to avoid path conflicts).
+  void _mountConfigRoutes(Router router) {
     final rc = _runtimeConfig;
     if (rc != null) {
       final cfgRouter = configRoutes(
@@ -635,10 +637,12 @@ class DartclawServer {
       );
       router.mount('/', cfgRouter.call);
     }
+  }
 
-    // Config API routes (persistent config editing — after toggle routes).
+  void _mountConfigApiRoutes(Router router) {
     final cw = _configWriter;
     final cfg = _config;
+    final rc = _runtimeConfig;
     final dd = _appDisplay.dataDir;
     if (cw != null && cfg != null && rc != null && dd != null) {
       final cfgApiRouter = configApiRoutes(
@@ -657,8 +661,9 @@ class DartclawServer {
       );
       router.mount('/', cfgApiRouter.call);
     }
+  }
 
-    // Memory API routes (prefixed /api/memory/).
+  void _mountMemoryRoutes(Router router) {
     final memStatus = _memoryStatusService;
     final wp = _workspaceDisplay.path;
     if (memStatus != null && wp != null) {
@@ -670,14 +675,17 @@ class DartclawServer {
       );
       router.mount('/', memRouter.call);
     }
+  }
 
-    // API routes (prefixed /api/ — no collision with web routes).
+  void _mountGoalRoutes(Router router) {
     final goalService = _goalService;
     if (goalService != null) {
       final goalRouter = goalRoutes(goalService);
       router.mount('/', goalRouter.call);
     }
+  }
 
+  void _mountTaskRoutes(Router router) {
     final taskService = _taskService;
     final eventBus = _eventBus;
     if (taskService != null && eventBus != null) {
@@ -685,7 +693,6 @@ class DartclawServer {
       router.mount('/', taskSseRouter.call);
       final taskRouter = taskRoutes(
         taskService,
-        eventBus,
         turns: _turns,
         reviewService: _taskReviewService,
         worktreeManager: _worktreeManager,
@@ -697,23 +704,24 @@ class DartclawServer {
       );
       router.mount('/', taskRouter.call);
     }
+  }
 
-    // Google Chat subscription API routes.
-    final sew = _spaceEventsWiring;
-    {
-      final subRouter = googleChatSubscriptionRoutes(
-        subscriptionManager: sew?.subscriptionManager,
-      );
-      router.mount('/', subRouter.call);
-    }
+  void _mountGoogleChatSubscriptionRoutes(Router router) {
+    final subRouter = googleChatSubscriptionRoutes(
+      subscriptionManager: _spaceEventsWiring?.subscriptionManager,
+    );
+    router.mount('/', subRouter.call);
+  }
 
-    // Agent overview API routes.
+  void _mountAgentRoutes(Router router) {
     final agentObs = _agentObserver;
     if (agentObs != null) {
       final agentRouter = agentRoutes(agentObs);
       router.mount('/', agentRouter.call);
     }
+  }
 
+  void _mountSessionRoutes(Router router) {
     final sessionRouter = sessionRoutes(
       _sessions,
       _messages,
@@ -723,8 +731,9 @@ class DartclawServer {
       redactor: _redactor,
     );
     router.mount('/', sessionRouter.call);
+  }
 
-    // Web/HTML routes (/, /sessions/*, /login).
+  void _mountWebRoutes(Router router) {
     final webRouter = webRoutes(
       _sessions,
       _messages,
@@ -755,7 +764,9 @@ class DartclawServer {
       kvService: _kvService,
     );
     router.mount('/', webRouter.call);
+  }
 
+  Handler _buildPipeline(Router router) {
     var pipeline = const Pipeline()
         .addMiddleware(logRequests(logger: _sanitizedLogger))
         .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gateway.hsts ?? false))

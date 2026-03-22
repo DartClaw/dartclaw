@@ -12,6 +12,8 @@ import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
+import 'governance/budget_enforcer.dart';
+import 'governance/budget_exhausted_exception.dart';
 import 'logging/log_context.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
@@ -44,7 +46,18 @@ class TurnRunner {
   final SelfImprovementService? _selfImprovement;
   final UsageTracker? _usageTracker;
   final SseBroadcast? _sseBroadcast;
+  final SlidingWindowRateLimiter? _globalRateLimiter;
+  final BudgetEnforcer? _budgetEnforcer;
+  final LoopDetector? _loopDetector;
+  final LoopAction? _loopAction;
+  final EventBus? _eventBus;
+  Future<void> Function(String sessionId, BudgetCheckResult result)? _budgetWarningNotifier;
+  Future<void> Function(String sessionId, LoopDetection detection, String action)? _loopDetectionNotifier;
   final Duration _outcomeTtl;
+  bool _rateLimitWarningEmitted = false;
+
+  /// Tracks turn IDs that were cancelled due to mid-turn loop detection.
+  final Map<String, LoopDetection> _loopDetectedTurns = {};
 
   /// Security profile this runner's harness executes in (e.g. 'workspace', 'restricted').
   final String profileId;
@@ -72,7 +85,13 @@ class TurnRunner {
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
     SseBroadcast? sseBroadcast,
+    SlidingWindowRateLimiter? globalRateLimiter,
+    BudgetEnforcer? budgetEnforcer,
+    LoopDetector? loopDetector,
+    LoopAction? loopAction,
+    EventBus? eventBus,
     Duration outcomeTtl = const Duration(seconds: 30),
+    Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
     this.profileId = 'workspace',
   }) : _worker = harness,
        _messages = messages,
@@ -90,6 +109,12 @@ class TurnRunner {
        _selfImprovement = selfImprovement,
        _usageTracker = usageTracker,
        _sseBroadcast = sseBroadcast,
+       _globalRateLimiter = globalRateLimiter,
+       _budgetEnforcer = budgetEnforcer,
+       _loopDetector = loopDetector,
+       _loopAction = loopAction,
+       _eventBus = eventBus,
+       _budgetWarningNotifier = budgetWarningNotifier,
        _outcomeTtl = outcomeTtl;
 
   // ---------------------------------------------------------------------------
@@ -124,7 +149,21 @@ class TurnRunner {
     String? directory,
     String? model,
     String? effort,
+    bool isHumanInput = false,
   }) async {
+    // Budget check — before acquiring the session lock to avoid holding the lock
+    // while blocked.
+    await _checkBudget(sessionId);
+
+    // Loop detection — pre-turn checks.
+    await _checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
+
+    // Global rate limit check — defer until window capacity opens.
+    final rateLimiter = _globalRateLimiter;
+    if (rateLimiter != null) {
+      await _awaitRateLimitWindow(rateLimiter);
+    }
+
     await _lockManager.acquire(sessionId);
     final turnId = _uuid.v4();
     final startedAt = DateTime.now();
@@ -185,8 +224,15 @@ class TurnRunner {
     String agentName = 'main',
     String? model,
     String? effort,
+    bool isHumanInput = false,
   }) async {
-    final turnId = await reserveTurn(sessionId, agentName: agentName, model: model, effort: effort);
+    final turnId = await reserveTurn(
+      sessionId,
+      agentName: agentName,
+      model: model,
+      effort: effort,
+      isHumanInput: isHumanInput,
+    );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;
   }
@@ -252,9 +298,156 @@ class TurnRunner {
     return _recoveredSessions.remove(sessionId);
   }
 
+  /// Configures a best-effort notifier for newly emitted budget warnings.
+  set budgetWarningNotifier(Future<void> Function(String sessionId, BudgetCheckResult result)? notifier) {
+    _budgetWarningNotifier = notifier;
+  }
+
+  /// Configures a best-effort notifier for loop detection events.
+  set loopDetectionNotifier(
+    Future<void> Function(String sessionId, LoopDetection detection, String action)? notifier,
+  ) {
+    _loopDetectionNotifier = notifier;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  /// Checks the daily token budget before reserving a turn.
+  ///
+  /// Broadcasts a one-time SSE warning at 80% usage. Throws
+  /// [BudgetExhaustedException] when budget is exhausted and action is
+  /// [BudgetAction.block].
+  Future<void> _checkBudget(String sessionId) async {
+    final enforcer = _budgetEnforcer;
+    if (enforcer == null) return;
+
+    final result = await enforcer.check();
+
+    if (result.warningIsNew && result.decision != BudgetDecision.allow) {
+      _log.warning(
+        'Daily token budget at ${result.percentage}% '
+        '(${result.tokensUsed}/${result.budget} tokens)',
+      );
+      _sseBroadcast?.broadcast('budget_warning', {
+        'tokens_used': result.tokensUsed,
+        'budget': result.budget,
+        'percentage': result.percentage,
+        'action': result.decision == BudgetDecision.block ? 'block' : 'warn',
+      });
+
+      final notifier = _budgetWarningNotifier;
+      if (notifier != null) {
+        try {
+          await notifier(sessionId, result);
+        } catch (error, stackTrace) {
+          _log.warning('Failed to deliver channel budget warning for $sessionId', error, stackTrace);
+        }
+      }
+    }
+
+    if (result.decision == BudgetDecision.block) {
+      throw BudgetExhaustedException(tokensUsed: result.tokensUsed, budget: result.budget);
+    }
+  }
+
+  /// Pre-turn loop detection checks (Mechanisms 1 and 2).
+  ///
+  /// Resets the turn chain on human input; increments on autonomous turns.
+  /// Checks token velocity. Throws [LoopDetectedException] if action is abort.
+  Future<void> _checkLoopPreTurn(String sessionId, {required bool isHumanInput}) async {
+    final detector = _loopDetector;
+    if (detector == null || !detector.enabled) return;
+
+    if (isHumanInput) {
+      detector.resetTurnChain(sessionId);
+      // Human input resets the chain but is not itself counted as an autonomous
+      // turn — skip recordTurnStart so the next autonomous turn starts at depth=1.
+    }
+
+    // Check turn chain depth (autonomous turns only).
+    final chainDetection = isHumanInput ? null : detector.recordTurnStart(sessionId);
+    if (chainDetection != null) {
+      _handleLoopDetection(chainDetection, sessionId);
+      if (_loopAction == LoopAction.abort) {
+        throw LoopDetectedException(chainDetection.message, chainDetection);
+      }
+    }
+
+    // Check token velocity.
+    try {
+      final velDetection = detector.checkTokenVelocity(sessionId);
+      if (velDetection != null) {
+        _handleLoopDetection(velDetection, sessionId);
+        if (_loopAction == LoopAction.abort) {
+          throw LoopDetectedException(velDetection.message, velDetection);
+        }
+      }
+    } catch (e) {
+      if (e is LoopDetectedException) rethrow;
+      _log.fine('Loop velocity pre-check failed (non-fatal): $e');
+    }
+  }
+
+  /// Handles a loop detection result: logs, fires EventBus event, broadcasts
+  /// SSE, and notifies the originating channel.
+  void _handleLoopDetection(LoopDetection detection, String sessionId) {
+    _log.warning('Loop detected: ${detection.message}');
+    final action = _loopAction == LoopAction.abort ? 'abort' : 'warn';
+    _eventBus?.fire(
+      LoopDetectedEvent(
+        sessionId: sessionId,
+        mechanism: detection.mechanism.name,
+        message: detection.message,
+        action: action,
+        detail: detection.detail,
+        timestamp: DateTime.now(),
+      ),
+    );
+    _sseBroadcast?.broadcast('loop_detected', {
+      'sessionId': sessionId,
+      'mechanism': detection.mechanism.name,
+      'message': detection.message,
+      'action': action,
+      ...detection.detail,
+    });
+
+    final notifier = _loopDetectionNotifier;
+    if (notifier != null) {
+      notifier(sessionId, detection, action).catchError((Object error, StackTrace stackTrace) {
+        _log.warning('Failed to deliver loop detection notification for $sessionId', error, stackTrace);
+      });
+    }
+  }
+
+  /// Defers until global turn rate limit capacity opens.
+  ///
+  /// Emits a one-shot SSE warning at 80% usage (with hysteresis: resets when
+  /// usage drops below 60%). Polls every second while at limit.
+  Future<void> _awaitRateLimitWindow(SlidingWindowRateLimiter limiter) async {
+    // Emit warning at 80% capacity (once, with hysteresis).
+    if (limiter.usage('global') >= 0.8 && !_rateLimitWarningEmitted) {
+      _rateLimitWarningEmitted = true;
+      _log.warning('Global turn rate at ${(limiter.usage('global') * 100).round()}% of limit');
+      _sseBroadcast?.broadcast('rate_limit_warning', {
+        'type': 'global_turn',
+        'usage': limiter.usage('global'),
+        'message': 'Global turn rate approaching limit (80%)',
+      });
+    }
+
+    // Wait for window capacity — each failing check does NOT record an event.
+    while (!limiter.check('global')) {
+      _log.info('Global turn rate limit reached — deferring turn reservation');
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    // Reset warning when usage drops to 60% or below.
+    if (limiter.usage('global') < 0.6) {
+      _rateLimitWarningEmitted = false;
+    }
+  }
 
   Future<String> _buildSystemPrompt(String sessionId) async {
     if (_worker.promptStrategy == PromptStrategy.append) return '';
@@ -311,6 +504,15 @@ class TurnRunner {
         buffer.write(event.text);
       } else if (event is ToolUseEvent) {
         toolEvents.add(event);
+        // Tool-call fingerprint loop detection (mid-turn, mechanism 3).
+        final fpDetection = _loopDetector?.recordToolCall(turnId, sessionId, event.toolName, event.input);
+        if (fpDetection != null) {
+          _handleLoopDetection(fpDetection, sessionId);
+          if (_loopAction == LoopAction.abort) {
+            _loopDetectedTurns[turnId] = fpDetection;
+            unawaited(cancelTurn(sessionId));
+          }
+        }
       } else if (event is SystemInitEvent) {
         _contextMonitor.update(contextWindow: event.contextWindow);
       }
@@ -384,8 +586,21 @@ class TurnRunner {
                     durationMs: durationMs,
                   ),
                 )
-                .catchError((_) {}),
+                .catchError((Object e) { _log.fine('Failed to record usage', e); }),
           );
+
+          // Post-hoc token velocity check (Mechanism 2).
+          try {
+            _loopDetector?.recordTokens(sessionId, inputTokens + outputTokens);
+            final velDetection = _loopDetector?.checkTokenVelocity(sessionId);
+            if (velDetection != null) {
+              _handleLoopDetection(velDetection, sessionId);
+              // Velocity detection post-hoc: fire warn event even in abort mode
+              // (tokens already spent). Next pre-turn check will abort if still over.
+            }
+          } catch (e) {
+            _log.fine('Loop velocity check failed (non-fatal): $e');
+          }
         }
 
         // Check context warning threshold (one-shot per session).
@@ -465,24 +680,30 @@ class TurnRunner {
         }
       } catch (e, st) {
         final wasCancelled = _cancelledTurns.remove(turnId);
+        final loopDetection = _loopDetectedTurns.remove(turnId);
         _log.warning('Turn $turnId ${wasCancelled ? 'cancelled' : 'failed'}', e, st);
         try {
           var partial = buffer.toString();
           if (partial.isNotEmpty && _redactor != null) {
             partial = _redactor.redact(partial);
           }
+          // Post loop detection message if this was a loop-cancelled turn.
+          final loopMsg = loopDetection != null ? '[Loop detected: ${loopDetection.message}]' : null;
           await _messages.insertMessage(
             sessionId: sessionId,
             role: 'assistant',
-            content: partial.isNotEmpty ? partial : (wasCancelled ? '[Turn cancelled]' : '[Turn failed]'),
+            content: loopMsg ?? (partial.isNotEmpty ? partial : (wasCancelled ? '[Turn cancelled]' : '[Turn failed]')),
           );
-        } catch (_) {}
+        } catch (e) {
+          _log.warning('Failed to persist partial message after turn failure: $e');
+        }
         outcome = TurnOutcome(
           turnId: turnId,
           sessionId: sessionId,
           status: wasCancelled ? TurnStatus.cancelled : TurnStatus.failed,
           errorMessage: wasCancelled ? null : 'Turn execution failed',
           completedAt: DateTime.now(),
+          loopDetection: loopDetection,
         );
         unawaited(
           _selfImprovement?.appendError(
@@ -496,6 +717,8 @@ class TurnRunner {
       await eventSub.cancel();
       _activeTurns.remove(sessionId);
       _lockManager.release(sessionId);
+      // Clean up loop detection state for this turn.
+      _loopDetector?.cleanupTurn(turnId);
 
       final turnState = _turnState;
       if (turnState != null) {
@@ -564,7 +787,9 @@ class TurnRunner {
         final session = await sessions.getSession(sessionId);
         final t = session?.title;
         if (t != null && t.isNotEmpty) title = t;
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to fetch session title for daily log: $e');
+      }
     }
 
     final seen = <String>{};

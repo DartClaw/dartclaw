@@ -8,8 +8,6 @@ library;
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/container/credential_proxy.dart';
-import 'package:dartclaw_core/src/container/security_profile.dart';
 import 'package:test/test.dart';
 
 Future<Process> _unexpectedProcessStart(

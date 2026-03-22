@@ -20,7 +20,7 @@ abstract final class JsonSummarizer {
       } else {
         parsed = jsonDecode(content);
       }
-    } catch (_) {
+    } catch (e) {
       return null;
     }
 

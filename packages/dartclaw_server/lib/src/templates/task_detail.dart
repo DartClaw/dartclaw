@@ -80,6 +80,7 @@ String taskDetailPageTemplate({
     'hasPushBacks': pushBackCount > 0,
     'showPushBackWarning': showPushBackWarning,
     'createdAtDisplay': _formatRelativeTime(task['createdAt']?.toString()),
+    'createdByDisplay': task['createdBy']?.toString() ?? '—',
     'startedAtDisplay': _formatRelativeTime(task['startedAt']?.toString()),
     'completedAtDisplay': _formatRelativeTime(task['completedAt']?.toString()),
     'startedAtIso': task['startedAt']?.toString(),
@@ -119,7 +120,7 @@ String _formatRelativeTime(String? iso) {
     if (diff.inHours > 0) return '${diff.inHours}h ago';
     if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
     return 'just now';
-  } catch (_) {
+  } catch (e) {
     return '';
   }
 }

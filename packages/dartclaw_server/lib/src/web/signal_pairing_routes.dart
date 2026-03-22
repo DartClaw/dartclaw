@@ -82,7 +82,7 @@ Router signalPairingRoutes({
       if (!reachable || !await signalChannel.sidecar.isAccountRegistered()) {
         return Response(204);
       }
-    } catch (_) {
+    } catch (e) {
       return Response(204);
     }
     // Connected — render full page so HTMX can swap to "Connected" state.
@@ -181,7 +181,7 @@ Router signalPairingRoutes({
       final uri = await signalChannel.sidecar.getLinkDeviceUri();
       if (uri == null) return Response.notFound('No link URI available');
       return Response.ok(_buildQrSvg(uri), headers: {'content-type': 'image/svg+xml'});
-    } catch (_) {
+    } catch (e) {
       return Response.internalServerError(body: 'Failed to generate QR');
     }
   });

@@ -22,6 +22,7 @@ class SqliteTaskRepository implements TaskRepository {
         description TEXT NOT NULL,
         type TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'draft',
+        version INTEGER NOT NULL DEFAULT 1,
         goal_id TEXT,
         session_id TEXT,
         acceptance_criteria TEXT,
@@ -29,12 +30,21 @@ class SqliteTaskRepository implements TaskRepository {
         worktree_json TEXT,
         created_at TEXT NOT NULL,
         started_at TEXT,
-        completed_at TEXT
+        completed_at TEXT,
+        created_by TEXT
       )
     ''');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status_type ON tasks(status, type)');
+    // Migrations: add columns to existing databases that don't have them.
+    final columns = _db.select('PRAGMA table_info(tasks)').map((row) => row['name'] as String).toSet();
+    if (!columns.contains('version')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!columns.contains('created_by')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN created_by TEXT');
+    }
     _db.execute('''
       CREATE TABLE IF NOT EXISTS task_artifacts (
         id TEXT PRIMARY KEY,
@@ -53,10 +63,10 @@ class SqliteTaskRepository implements TaskRepository {
   Future<void> insert(Task task) async {
     final stmt = _db.prepare('''
       INSERT INTO tasks (
-        id, title, description, type, status, goal_id, session_id,
+        id, title, description, type, status, version, goal_id, session_id,
         acceptance_criteria, config_json, worktree_json,
-        created_at, started_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, started_at, completed_at, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -65,6 +75,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.description,
         task.type.name,
         task.status.name,
+        1, // new tasks always start at version 1
         task.goalId,
         task.sessionId,
         task.acceptanceCriteria,
@@ -73,6 +84,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.createdAt.toIso8601String(),
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
+        task.createdBy,
       ]);
     } finally {
       stmt.close();
@@ -125,6 +137,7 @@ class SqliteTaskRepository implements TaskRepository {
         description = ?,
         type = ?,
         status = ?,
+        version = version + 1,
         goal_id = ?,
         session_id = ?,
         acceptance_criteria = ?,
@@ -132,7 +145,7 @@ class SqliteTaskRepository implements TaskRepository {
         worktree_json = ?,
         started_at = ?,
         completed_at = ?
-      WHERE id = ?
+      WHERE id = ? AND version = ?
     ''');
     try {
       stmt.execute([
@@ -148,6 +161,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
         task.id,
+        task.version,
       ]);
       if (_db.updatedRows == 0) {
         throw ArgumentError('Task not found: ${task.id}');
@@ -163,10 +177,11 @@ class SqliteTaskRepository implements TaskRepository {
       UPDATE tasks
       SET
         status = ?,
+        version = version + 1,
         config_json = ?,
         started_at = ?,
         completed_at = ?
-      WHERE id = ? AND status = ?
+      WHERE id = ? AND status = ? AND version = ?
     ''');
     try {
       stmt.execute([
@@ -176,6 +191,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.completedAt?.toIso8601String(),
         task.id,
         expectedStatus.name,
+        task.version,
       ]);
       return _db.updatedRows > 0;
     } finally {
@@ -289,6 +305,7 @@ class SqliteTaskRepository implements TaskRepository {
       description: row['description'] as String,
       type: TaskType.values.byName(row['type'] as String),
       status: TaskStatus.values.byName(row['status'] as String),
+      version: (row['version'] as int?) ?? 1,
       goalId: row['goal_id'] as String?,
       sessionId: row['session_id'] as String?,
       acceptanceCriteria: row['acceptance_criteria'] as String?,
@@ -297,6 +314,7 @@ class SqliteTaskRepository implements TaskRepository {
       createdAt: DateTime.parse(row['created_at'] as String),
       startedAt: _decodeDateTime(row['started_at']),
       completedAt: _decodeDateTime(row['completed_at']),
+      createdBy: row['created_by'] as String?,
     );
   }
 

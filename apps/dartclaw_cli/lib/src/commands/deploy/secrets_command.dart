@@ -126,7 +126,7 @@ class SecretsCommand extends Command<void> {
           client.close();
           return true;
         }
-      } catch (_) {
+      } catch (e) {
         // Retry
       }
       await Future<void>.delayed(const Duration(seconds: 1));

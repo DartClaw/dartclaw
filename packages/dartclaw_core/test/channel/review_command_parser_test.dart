@@ -56,4 +56,63 @@ void main() {
       expect(parser.parse('reject one two'), isNull);
     });
   });
+
+  group('ReviewCommandParser — push back', () {
+    test('parses bare push back with feedback', () {
+      final cmd = parser.parse('push back: please add tests');
+
+      expect(cmd?.action, 'push_back');
+      expect(cmd?.taskId, isNull);
+      expect(cmd?.comment, 'please add tests');
+    });
+
+    test('parses push back with task id', () {
+      final cmd = parser.parse('push back abc123: please add tests');
+
+      expect(cmd?.action, 'push_back');
+      expect(cmd?.taskId, 'abc123');
+      expect(cmd?.comment, 'please add tests');
+    });
+
+    test('normalizes case in push back prefix', () {
+      final cmd = parser.parse('PUSH BACK: do it again');
+
+      expect(cmd?.action, 'push_back');
+      expect(cmd?.comment, 'do it again');
+    });
+
+    test('preserves feedback text verbatim (including colons)', () {
+      final cmd = parser.parse('push back: fix the auth: use token not password');
+
+      expect(cmd?.action, 'push_back');
+      expect(cmd?.comment, 'fix the auth: use token not password');
+    });
+
+    test('trims leading/trailing whitespace from feedback', () {
+      final cmd = parser.parse('push back:   lots of spaces   ');
+
+      expect(cmd?.comment, 'lots of spaces');
+    });
+
+    test('returns null for bare push back with no colon', () {
+      expect(parser.parse('push back'), isNull);
+      expect(parser.parse('push back abc123'), isNull);
+    });
+
+    test('returns null for push back with empty feedback', () {
+      expect(parser.parse('push back:'), isNull);
+      expect(parser.parse('push back:   '), isNull);
+      expect(parser.parse('push back abc123:'), isNull);
+    });
+
+    test('returns null for push back with multi-word id', () {
+      expect(parser.parse('push back abc 123: do it again'), isNull);
+    });
+
+    test('normalizes task id to lower case', () {
+      final cmd = parser.parse('push back ABC123: redo this');
+
+      expect(cmd?.taskId, 'abc123');
+    });
+  });
 }

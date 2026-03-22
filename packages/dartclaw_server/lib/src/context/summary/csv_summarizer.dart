@@ -4,7 +4,7 @@ abstract final class CsvSummarizer {
   static String? summarize(String content, int estimatedTokens, {String delimiter = ','}) {
     try {
       return _summarize(content, estimatedTokens, delimiter);
-    } catch (_) {
+    } catch (e) {
       return null;
     }
   }

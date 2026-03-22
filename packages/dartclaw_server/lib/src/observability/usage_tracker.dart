@@ -104,6 +104,44 @@ class UsageTracker {
     return jsonDecode(raw) as Map<String, dynamic>;
   }
 
+  /// Returns the daily usage aggregate for the given [dateKey].
+  ///
+  /// The [dateKey] format matches [_dailyKey] output: `usage_daily:YYYY-MM-DD`.
+  /// Returns null if no data exists for that date or KV is unavailable.
+  Future<Map<String, dynamic>?> dailySummaryForDate(String dateKey) async {
+    final kv = _kv;
+    if (kv == null) return null;
+    final raw = await kv.get(dateKey);
+    if (raw == null) return null;
+    return jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  /// Returns `true` when the daily aggregate already recorded a posted
+  /// budget warning for [dateKey].
+  Future<bool> hasBudgetWarningPosted(String dateKey) async {
+    final summary = await dailySummaryForDate(dateKey);
+    return summary?['budget_warning_posted_at'] is String;
+  }
+
+  /// Marks the daily aggregate for [dateKey] as having posted its budget warning.
+  ///
+  /// The marker lives alongside the persisted daily token totals so the
+  /// once-per-day warning semantics survive process restarts.
+  Future<void> markBudgetWarningPosted(String dateKey, {DateTime? timestamp}) async {
+    final kv = _kv;
+    if (kv == null) return;
+
+    final summary =
+        await dailySummaryForDate(dateKey) ??
+        <String, dynamic>{'total_input_tokens': 0, 'total_output_tokens': 0, 'by_agent': <String, dynamic>{}};
+    if (summary['budget_warning_posted_at'] is String) {
+      return;
+    }
+
+    summary['budget_warning_posted_at'] = (timestamp ?? DateTime.now()).toIso8601String();
+    await kv.set(dateKey, jsonEncode(summary));
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

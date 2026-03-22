@@ -1,5 +1,9 @@
+import 'package:logging/logging.dart';
+
 import 'guard.dart';
 import 'guard_verdict.dart';
+
+final _log = Logger('CommandGuard');
 
 // ---------------------------------------------------------------------------
 // CommandGuardConfig
@@ -57,8 +61,8 @@ class CommandGuardConfig {
         if (p is String) {
           try {
             extraPatterns.add(RegExp(p));
-          } catch (_) {
-            // Skip malformed regex
+          } catch (e) {
+            _log.warning('Skipping malformed extra_blocked_patterns regex "$p": $e');
           }
         }
       }

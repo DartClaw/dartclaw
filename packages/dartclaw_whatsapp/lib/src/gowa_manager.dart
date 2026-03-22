@@ -290,8 +290,8 @@ class GowaManager {
         } on HttpException {
           // Any HTTP error (e.g. DEVICE_ID_REQUIRED, DEVICE_NOT_FOUND) means GOWA is up.
           return true;
-        } catch (_) {
-          // Connection failed — retry after delay
+        } catch (e) {
+          _log.fine('GOWA health probe attempt $i failed: $e');
         }
       }
       await _delay(const Duration(seconds: 1));
@@ -310,7 +310,8 @@ class GowaManager {
     } on HttpException {
       // The sidecar is reachable even if the specific request requires a device.
       return true;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('GOWA service not reachable: $e');
       return false;
     }
   }
@@ -320,7 +321,8 @@ class GowaManager {
     try {
       final status = await getStatus();
       return status.isConnected;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('GOWA health check failed: $e');
       return false;
     }
   }

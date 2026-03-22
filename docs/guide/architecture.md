@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.10.1**
+> Current through: **0.12**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. The `claude` CLI binary handles agent reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -223,6 +223,10 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
 
+For crowd-coding flows in Google Chat, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which allows task discussion and review commands such as `accept`, `reject`, and `push back` to stay scoped to the task instead of falling back to the shared room session.
+
+Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
+
 The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, and Google Chat integrations live in their own packages.
 
 For channel setup, see the [WhatsApp](whatsapp.md), [Signal](signal.md), and [Configuration](configuration.md) guides.
@@ -284,7 +288,7 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 | **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
 | **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |
-| **Usage tracking** | Per-agent token attribution and budget warnings |
+| **Usage tracking** | Per-agent token attribution, daily budget enforcement, and budget warnings posted to SSE and originating channels |
 | **Mount allowlist** | Only approved directories visible inside containers |
 | **XSS prevention** | Server-side HTML escaping (Trellis `tl:text`) + client-side DOMPurify |
 

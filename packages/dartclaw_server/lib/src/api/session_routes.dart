@@ -151,7 +151,7 @@ Router sessionRoutes(
       // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
       final String turnId;
       try {
-        turnId = await turns.reserveTurn(id);
+        turnId = await turns.reserveTurn(id, isHumanInput: true);
       } on BusyTurnException {
         return errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
       }
@@ -268,7 +268,7 @@ Map<String, dynamic> _messageToJson(Message m) => {
 dynamic _tryParseJson(String s) {
   try {
     return jsonDecode(s);
-  } catch (_) {
+  } catch (e) {
     return s;
   }
 }

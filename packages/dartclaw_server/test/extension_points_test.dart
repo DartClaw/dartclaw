@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
@@ -107,16 +106,16 @@ void main() {
   late _FakeWorkerService worker;
 
   DartclawServer buildServer({GuardChain? guardChain, ChannelManager? channelManager, EventBus? eventBus}) {
-    return DartclawServer(
-      sessions: sessions,
-      messages: messages,
-      worker: worker,
-      staticDir: _staticDir(),
-      behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
-      guardChain: guardChain,
-      channelManager: channelManager,
-      eventBus: eventBus,
-    );
+    return (DartclawServerBuilder()
+          ..sessions = sessions
+          ..messages = messages
+          ..worker = worker
+          ..staticDir = _staticDir()
+          ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+          ..guardChain = guardChain
+          ..channelManager = channelManager
+          ..eventBus = eventBus)
+        .build();
   }
 
   setUp(() {
@@ -194,7 +193,7 @@ void main() {
   group('registerChannel', () {
     test('registers channels before the first request without auto-connecting', () {
       final channelManager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid}) async => 'ok'),
+        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok'),
         config: const ChannelConfig.defaults(),
       );
       final server = buildServer(channelManager: channelManager);
@@ -210,7 +209,7 @@ void main() {
 
     test('throws after the first served request', () async {
       final channelManager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid}) async => 'ok'),
+        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok'),
         config: const ChannelConfig.defaults(),
       );
       final server = buildServer(channelManager: channelManager);

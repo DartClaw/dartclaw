@@ -6,10 +6,25 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import '../scoping/channel_config.dart';
 import 'channel.dart';
+import 'recipient_resolver.dart';
+
+// ---------------------------------------------------------------------------
+// BudgetExhaustedError
+// ---------------------------------------------------------------------------
+
+/// Marker interface for budget exhaustion errors.
+///
+/// [MessageQueue] checks for this type to skip retry and send a polite
+/// rejection. Implemented by `BudgetExhaustedException` in `dartclaw_server`.
+/// Using an abstract interface avoids a circular package dependency.
+abstract interface class BudgetExhaustedError {
+  int get tokensUsed;
+  int get budget;
+}
 
 /// Callback for dispatching a coalesced message to the turn manager.
 /// Returns the response text to send back via the channel.
-typedef TurnDispatcher = Future<String> Function(String sessionKey, String message, {String? senderJid});
+typedef TurnDispatcher = Future<String> Function(String sessionKey, String message, {String? senderJid, String? senderDisplayName});
 
 class _QueueEntry {
   final ChannelMessage message;
@@ -73,7 +88,7 @@ class MessageQueue {
     final queue = _sessionQueues[sessionKey];
     if (queue != null && queue.length >= maxQueueDepth) {
       _log.warning('Queue full for $sessionKey (${queue.length}/$maxQueueDepth) — sending busy response');
-      _sendBusy(sourceChannel, _resolveRecipientJid(message));
+      _sendBusy(sourceChannel, resolveRecipientId(message));
       return;
     }
 
@@ -144,7 +159,7 @@ class MessageQueue {
 
     if (queue.length >= maxQueueDepth) {
       _log.warning('Queue full for ${entry.sessionKey} — sending busy response');
-      _sendBusy(entry.sourceChannel, _resolveRecipientJid(entry.message));
+      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message));
       return;
     }
 
@@ -175,7 +190,12 @@ class MessageQueue {
 
         final entry = queue.removeFirst();
         try {
-          var response = await _dispatcher(entry.sessionKey, entry.message.text, senderJid: entry.message.senderJid);
+          var response = await _dispatcher(
+            entry.sessionKey,
+            entry.message.text,
+            senderJid: entry.message.senderJid,
+            senderDisplayName: entry.message.senderDisplayName,
+          );
           response = _redactor?.redact(response) ?? response;
           final formatted = entry.sourceChannel
               .formatResponse(response)
@@ -186,9 +206,28 @@ class MessageQueue {
                   metadata: {...chunk.metadata, sourceMessageIdMetadataKey: entry.message.id},
                 ),
               );
-          final recipientJid = _resolveRecipientJid(entry.message);
+          final recipientJid = resolveRecipientId(entry.message);
           for (final chunk in formatted) {
             await entry.sourceChannel.sendMessage(recipientJid, chunk);
+          }
+        } on BudgetExhaustedError catch (e) {
+          // Budget exhausted — no retry; send a polite rejection.
+          _log.warning(
+            'Turn blocked for ${entry.sessionKey}: daily token budget exhausted '
+            '(${e.tokensUsed}/${e.budget} tokens)',
+          );
+          try {
+            final recipientJid = resolveRecipientId(entry.message);
+            await entry.sourceChannel.sendMessage(
+              recipientJid,
+              ChannelResponse(
+                text: 'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
+                    'New turns are blocked until the daily budget resets. '
+                    'An admin can increase the budget via the web dashboard.',
+              ),
+            );
+          } catch (sendErr) {
+            _log.warning('Failed to send budget-exhaustion notification', sendErr);
           }
         } catch (e, st) {
           entry.attempt++;
@@ -210,7 +249,7 @@ class MessageQueue {
               st,
             );
             try {
-              final recipientJid = _resolveRecipientJid(entry.message);
+              final recipientJid = resolveRecipientId(entry.message);
               await entry.sourceChannel.sendMessage(
                 recipientJid,
                 const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
@@ -268,13 +307,6 @@ class MessageQueue {
     }
   }
 
-  String _resolveRecipientJid(ChannelMessage message) {
-    final metadataRecipient = message.metadata['spaceName'];
-    if (metadataRecipient is String && metadataRecipient.isNotEmpty) {
-      return metadataRecipient;
-    }
-    return message.groupJid ?? message.senderJid;
-  }
 }
 
 class _DebounceBuffer {

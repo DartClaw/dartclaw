@@ -44,7 +44,7 @@ class _FakeGowaManager extends GowaManager {
 class _FakeChannelManager extends ChannelManager {
   _FakeChannelManager()
     : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid}) async => '', maxConcurrentTurns: 1),
+        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
         config: const ChannelConfig.defaults(),
       );
 

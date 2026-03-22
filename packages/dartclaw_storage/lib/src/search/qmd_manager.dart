@@ -49,7 +49,8 @@ class QmdManager {
     try {
       final result = await _run(qmdExecutable, ['--version']);
       return result.exitCode == 0;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('QMD not available: $e');
       return false;
     }
   }
@@ -102,8 +103,8 @@ class QmdManager {
       }
       _log.info('QMD daemon stopped via HTTP');
       return;
-    } catch (_) {
-      // Shutdown endpoint may not exist — fall through
+    } catch (e) {
+      _log.fine('QMD HTTP shutdown not available: $e');
     }
 
     // Fallback: try daemon stop command
@@ -111,8 +112,8 @@ class QmdManager {
       await _run(qmdExecutable, ['daemon', 'stop'], workingDirectory: workspaceDir);
       _log.info('QMD daemon stopped via command');
       return;
-    } catch (_) {
-      // Command may not exist — fall through
+    } catch (e) {
+      _log.fine('QMD daemon stop command not available: $e');
     }
 
     _log.warning('QMD daemon stop: neither HTTP shutdown nor daemon stop succeeded');
@@ -127,7 +128,8 @@ class QmdManager {
           .timeout(const Duration(seconds: 3));
       final response = await request.close().timeout(const Duration(seconds: 3));
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('QMD health check failed: $e');
       return false;
     } finally {
       client.close(force: true);

@@ -1,9 +1,8 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show PubSubHealthReporter;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../observability/usage_tracker.dart';
@@ -11,6 +10,7 @@ import '../version.dart';
 
 /// Collects runtime health metrics: uptime, worker state, session count, DB size.
 class HealthService {
+  static final _log = Logger('HealthService');
   static const _cacheTtl = Duration(seconds: 60);
 
   final AgentHarness _worker;
@@ -72,8 +72,8 @@ class HealthService {
       try {
         final daily = await tracker.dailySummary();
         if (daily != null) result['daily_usage'] = daily;
-      } catch (_) {
-        // Omit daily_usage if unavailable
+      } catch (e) {
+        _log.fine('Daily usage summary unavailable: $e');
       }
     }
 
@@ -98,7 +98,8 @@ class HealthService {
   int _countSessions() {
     try {
       return Directory(_sessionsDir).listSync().whereType<Directory>().length;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to count sessions: $e');
       return 0;
     }
   }
@@ -106,7 +107,8 @@ class HealthService {
   int _dbSize() {
     try {
       return File(_searchDbPath).lengthSync();
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to get db size: $e');
       return 0;
     }
   }
@@ -130,7 +132,8 @@ class HealthService {
         }
       }
       return total;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to compute artifact disk bytes: $e');
       return 0;
     }
   }

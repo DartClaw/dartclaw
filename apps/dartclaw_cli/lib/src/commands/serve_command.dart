@@ -1,17 +1,9 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_server/src/behavior/behavior_file_service.dart';
-import 'package:dartclaw_server/src/behavior/self_improvement_service.dart';
-import 'package:dartclaw_server/src/observability/usage_tracker.dart';
-import 'package:dartclaw_server/src/workspace/workspace_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -32,41 +24,7 @@ typedef HarnessFactory =
       HarnessConfig? harnessConfig,
       ContainerManager? containerManager,
     });
-typedef ServerFactory =
-    DartclawServer Function({
-      required SessionService sessions,
-      required MessageService messages,
-      required AgentHarness worker,
-      required String staticDir,
-      required BehaviorFileService behavior,
-      MemoryFileService? memoryFile,
-      SessionService? sessionsForTurns,
-      GuardChain? guardChain,
-      KvService? kv,
-      HealthService? healthService,
-      TokenService? tokenService,
-      SessionLockManager? lockManager,
-      SessionResetService? resetService,
-      ContextMonitor? contextMonitor,
-      ExplorationSummarizer? explorationSummarizer,
-      ChannelManager? channelManager,
-      WhatsAppChannel? whatsAppChannel,
-      GoogleChatWebhookHandler? googleChatWebhookHandler,
-      SignalChannel? signalChannel,
-      String? webhookSecret,
-      MessageRedactor? redactor,
-      String? gatewayToken,
-      SelfImprovementService? selfImprovement,
-      UsageTracker? usageTracker,
-      EventBus? eventBus,
-      bool authEnabled,
-      HarnessPool? pool,
-      ContentGuardDisplayParams contentGuardDisplay,
-      HeartbeatDisplayParams heartbeatDisplay,
-      SchedulingDisplayParams schedulingDisplay,
-      WorkspaceDisplayParams workspaceDisplay,
-      AppDisplayParams appDisplay,
-    });
+typedef ServerFactory = DartclawServer Function(DartclawServerBuilder builder);
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
 typedef WriteLine = void Function(String line);
 typedef ExitFn = Never Function(int code);
@@ -122,74 +80,7 @@ class ServeCommand extends Command<void> {
              harnessConfig: harnessConfig ?? const HarnessConfig(),
              containerManager: containerManager,
            )),
-       _serverFactory =
-           serverFactory ??
-           (({
-             required sessions,
-             required messages,
-             required worker,
-             required staticDir,
-             required behavior,
-             memoryFile,
-             sessionsForTurns,
-             guardChain,
-             kv,
-             healthService,
-             tokenService,
-             lockManager,
-             resetService,
-             contextMonitor,
-             explorationSummarizer,
-             channelManager,
-             whatsAppChannel,
-             googleChatWebhookHandler,
-             signalChannel,
-             webhookSecret,
-             redactor,
-             gatewayToken,
-             selfImprovement,
-             usageTracker,
-             eventBus,
-             authEnabled = true,
-             pool,
-             contentGuardDisplay = const ContentGuardDisplayParams(),
-             heartbeatDisplay = const HeartbeatDisplayParams(),
-             schedulingDisplay = const SchedulingDisplayParams(),
-             workspaceDisplay = const WorkspaceDisplayParams(),
-             appDisplay = const AppDisplayParams(),
-           }) => DartclawServer(
-             sessions: sessions,
-             messages: messages,
-             worker: worker,
-             staticDir: staticDir,
-             behavior: behavior,
-             memoryFile: memoryFile,
-             guardChain: guardChain,
-             kv: kv,
-             healthService: healthService,
-             tokenService: tokenService,
-             lockManager: lockManager,
-             resetService: resetService,
-             contextMonitor: contextMonitor,
-             explorationSummarizer: explorationSummarizer,
-             channelManager: channelManager,
-             whatsAppChannel: whatsAppChannel,
-             googleChatWebhookHandler: googleChatWebhookHandler,
-             signalChannel: signalChannel,
-             webhookSecret: webhookSecret,
-             redactor: redactor,
-             gatewayToken: gatewayToken,
-             selfImprovement: selfImprovement,
-             usageTracker: usageTracker,
-             eventBus: eventBus,
-             authEnabled: authEnabled,
-             pool: pool,
-             contentGuardDisplay: contentGuardDisplay,
-             heartbeatDisplay: heartbeatDisplay,
-             schedulingDisplay: schedulingDisplay,
-             workspaceDisplay: workspaceDisplay,
-             appDisplay: appDisplay,
-           )),
+       _serverFactory = serverFactory ?? ((builder) => builder.build()),
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit {
@@ -347,10 +238,10 @@ class ServeCommand extends Command<void> {
       late HttpServer httpServer;
       try {
         httpServer = await _serveFn(result.server.handler, host, port);
-      } on SocketException catch (_) {
+      } on SocketException catch (e) {
         _log.severe(
           'Cannot bind to $host:$port — is another process already '
-          'using this port? Try: lsof -ti :$port | xargs kill',
+          'using this port? Try: lsof -ti :$port | xargs kill ($e)',
         );
         await ServiceWiring.teardown(result.server, result.searchDb, result.harness, result.taskService);
         await result.shutdownExtras();

@@ -43,7 +43,7 @@ class TokenService {
     if (!Platform.isWindows) {
       try {
         Process.runSync('chmod', ['600', target.path]);
-      } catch (_) {
+      } catch (e) {
         // chmod not available — non-critical
       }
     }

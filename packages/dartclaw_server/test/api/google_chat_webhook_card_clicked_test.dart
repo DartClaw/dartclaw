@@ -64,7 +64,7 @@ void main() {
       channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: _FakeGoogleChatRestClient()),
       jwtVerifier: _FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(),
-      reviewHandler: (taskId, action) async {
+      reviewHandler: (taskId, action, {String? comment}) async {
         reviewCalls.add((taskId, action));
         return reviewResult;
       },

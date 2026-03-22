@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
@@ -12,8 +13,10 @@ void main() {
     late _TaskOps tasks;
     late _RecordingReviewHandler reviewHandler;
     late ChannelManager manager;
+    late Directory tempDir;
 
     setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('channel_manager_review_test_');
       queue = _RecordingMessageQueue();
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
@@ -22,11 +25,13 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskLister: tasks.list,
-        reviewCommandParser: const ReviewCommandParser(),
-        reviewHandler: reviewHandler.call,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskLister: tasks.list,
+          reviewCommandParser: const ReviewCommandParser(),
+          reviewHandler: reviewHandler.call,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
     });
@@ -34,6 +39,9 @@ void main() {
     tearDown(() async {
       await manager.dispose();
       await tasks.dispose();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
     });
 
     test('accepts a single review task without enqueueing', () async {
@@ -216,9 +224,11 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskLister: tasks.list,
-        triggerParser: const TaskTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskLister: tasks.list,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -236,11 +246,13 @@ void main() {
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
-        taskLister: tasks.list,
-        reviewCommandParser: const ReviewCommandParser(),
-        reviewHandler: reviewHandler.call,
-        triggerParser: const _AlwaysTriggerParser(),
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        taskBridge: ChannelTaskBridge(
+          taskLister: tasks.list,
+          reviewCommandParser: const ReviewCommandParser(),
+          reviewHandler: reviewHandler.call,
+          triggerParser: const _AlwaysTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        ),
       );
       manager.registerChannel(channel);
 
@@ -252,6 +264,55 @@ void main() {
       expect(reviewHandler.calls, [(existing.id, 'accept')]);
       expect((await tasks.list()), hasLength(1));
       expect(queue.enqueued, isEmpty);
+    });
+
+    test('bound thread accept targets the bound task without enqueueing', () async {
+      final task = await _putTaskInReview(tasks, 'abc12300-0000-0000-0000-000000000000', title: 'Fix login');
+      reviewHandler.result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
+
+      final threadBindings = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
+      await threadBindings.load();
+      await threadBindings.create(
+        ThreadBinding(
+          channelType: ChannelType.googlechat.name,
+          threadId: 'spaces/AAAA/threads/THREAD-1',
+          taskId: task.id,
+          sessionKey: 'bound-session-key',
+          createdAt: DateTime.parse('2026-03-21T10:00:00Z'),
+          lastActivity: DateTime.parse('2026-03-21T10:00:00Z'),
+        ),
+      );
+
+      manager = ChannelManager(
+        queue: queue,
+        config: const ChannelConfig.defaults(),
+        taskBridge: ChannelTaskBridge(
+          taskLister: tasks.list,
+          reviewCommandParser: const ReviewCommandParser(),
+          reviewHandler: reviewHandler.call,
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.googlechat: TaskTriggerConfig(enabled: true)},
+          threadBindings: threadBindings,
+          threadBindingEnabled: true,
+        ),
+      );
+      channel = FakeChannel(ownedJids: {'users/123', 'spaces/AAAA'}, type: ChannelType.googlechat);
+      manager.registerChannel(channel);
+
+      manager.handleInboundMessage(
+        ChannelMessage(
+          channelType: ChannelType.googlechat,
+          senderJid: 'users/123',
+          groupJid: 'spaces/AAAA',
+          text: 'accept',
+          metadata: const {'spaceName': 'spaces/AAAA', 'threadName': 'spaces/AAAA/threads/THREAD-1'},
+        ),
+      );
+      await _flushAsync();
+
+      expect(reviewHandler.calls, [(task.id, 'accept')]);
+      expect(queue.enqueued, isEmpty);
+      expect(channel.sentMessages.single.$2.text, "Task 'Fix login' accepted.");
     });
   });
 }
@@ -306,7 +367,7 @@ class _AlwaysTriggerParser extends TaskTriggerParser {
 class _RecordingMessageQueue extends MessageQueue {
   final List<(ChannelMessage, Channel, String)> enqueued = [];
 
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
@@ -330,6 +391,7 @@ class _TaskOps {
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
+    String? createdBy,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
   }) async {
@@ -341,6 +403,7 @@ class _TaskOps {
       type: type,
       goalId: goalId,
       acceptanceCriteria: acceptanceCriteria,
+      createdBy: createdBy,
       configJson: configJson,
       createdAt: timestamp,
     );
@@ -385,7 +448,7 @@ class _RecordingReviewHandler {
   final List<(String, String)> calls = [];
   ChannelReviewResult result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
 
-  Future<ChannelReviewResult> call(String taskId, String action) async {
+  Future<ChannelReviewResult> call(String taskId, String action, {String? comment}) async {
     calls.add((taskId, action));
     return result;
   }

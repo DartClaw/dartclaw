@@ -51,9 +51,9 @@ List<MemoryEntry> parseMemoryEntries(String content) {
         final timePart = match.group(2)!;
         try {
           currentTimestamp = DateTime.parse('${datePart}T$timePart:00');
-        } catch (_) {
+        } catch (e) {
           currentTimestamp = null;
-          _log.warning('Failed to parse timestamp from line: $line');
+          _log.warning('Failed to parse timestamp from line: $line ($e)');
         }
         // Extract text after "] "
         final closeBracket = line.indexOf('] ', 2);

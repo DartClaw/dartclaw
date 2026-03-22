@@ -1,5 +1,3 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -114,6 +112,7 @@ class GoogleChatWebhookHandler {
     final senderJid = (user['name'] as String?) ?? (sender?['name'] as String?);
     final spaceName = space['name'] as String?;
     final spaceType = space['type'] as String?;
+    final thread = _asMap(message['thread']);
     if (senderJid == null || senderJid.isEmpty || spaceName == null || spaceName.isEmpty) {
       return _jsonResponse(const {});
     }
@@ -127,6 +126,7 @@ class GoogleChatWebhookHandler {
           slashCommand,
           spaceName: spaceName,
           senderJid: senderJid,
+          senderDisplayName: user['displayName'] as String?,
           spaceType: spaceType,
           sourceMessageId: _resolveMessageId(message),
         );
@@ -154,7 +154,9 @@ class GoogleChatWebhookHandler {
         'spaceName': spaceName,
         if (spaceType case final String resolvedSpaceType) 'spaceType': resolvedSpaceType,
         if (user['displayName'] case final String displayName) 'senderDisplayName': displayName,
+        if (sender?['avatarUrl'] case final String avatarUrl when avatarUrl.isNotEmpty) 'senderAvatarUrl': avatarUrl,
         if (message['name'] case final String messageName) 'messageName': messageName,
+        if (thread?['name'] case final String threadName when threadName.isNotEmpty) 'threadName': threadName,
       },
     );
 
@@ -378,6 +380,7 @@ class GoogleChatWebhookHandler {
       slashCommand,
       spaceName: spaceName,
       senderJid: senderJid,
+      senderDisplayName: user?['displayName'] as String?,
       spaceType: spaceType,
       sourceMessageId: _resolveMessageId(message),
     );

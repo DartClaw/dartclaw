@@ -464,7 +464,7 @@ workspace:
         eventBus: eventBus,
       );
       final manager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid}) async => ''),
+        queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => ''),
         config: const ChannelConfig.defaults(),
         liveScopeConfig: liveScopeConfig,
       );

@@ -13,15 +13,21 @@ class TaskNotificationSubscriber {
   final TaskService _tasks;
   final ChannelManager _channelManager;
   final ChatCardBuilder _googleChatCardBuilder;
+  final ThreadBindingStore? _threadBindings;
+  final bool _threadBindingEnabled;
   StreamSubscription<TaskStatusChangedEvent>? _subscription;
 
   TaskNotificationSubscriber({
     required TaskService tasks,
     required ChannelManager channelManager,
     ChatCardBuilder? googleChatCardBuilder,
+    ThreadBindingStore? threadBindings,
+    bool threadBindingEnabled = false,
   }) : _tasks = tasks,
        _channelManager = channelManager,
-       _googleChatCardBuilder = googleChatCardBuilder ?? const ChatCardBuilder();
+       _googleChatCardBuilder = googleChatCardBuilder ?? const ChatCardBuilder(),
+       _threadBindings = threadBindings,
+       _threadBindingEnabled = threadBindingEnabled;
 
   void subscribe(EventBus eventBus) {
     _subscription ??= eventBus.on<TaskStatusChangedEvent>().listen((event) {
@@ -69,6 +75,56 @@ class TaskNotificationSubscriber {
 
     final response = _buildNotificationResponse(channelType: channelType, task: task, event: event, fallbackText: text);
 
+    // For Google Chat with crowd coding: send in a new or existing thread and
+    // create a thread binding on the initial notification.
+    if (_threadBindingEnabled && channelType == ChannelType.googlechat && channel is GoogleChatChannel) {
+      final threadKey = 'task-${task.id}';
+
+      if (_isInitialNotification(event)) {
+        // First notification: send in a new thread and capture the thread name.
+        final threadName = await channel.sendMessageWithThread(
+          origin.recipientId,
+          response,
+          threadKey: threadKey,
+        );
+        if (threadName != null) {
+          final threadBindings = _threadBindings;
+          if (threadBindings != null) {
+            final now = DateTime.now();
+            try {
+              await threadBindings.create(ThreadBinding(
+                channelType: origin.channelType,
+                threadId: threadName,
+                taskId: task.id,
+                sessionKey: origin.sessionKey,
+                createdAt: now,
+                lastActivity: now,
+              ));
+            } catch (error, stackTrace) {
+              _log.warning(
+                'Failed to create thread binding for task ${task.id} thread $threadName',
+                error,
+                stackTrace,
+              );
+            }
+          }
+        } else {
+          _log.warning(
+            'Thread send returned null thread name for task ${task.id} — binding not created',
+          );
+        }
+        return;
+      }
+
+      // Subsequent notifications: send to the existing thread if bound.
+      final existingBinding = _threadBindings?.lookupByTask(task.id);
+      if (existingBinding != null) {
+        await channel.sendMessageWithThread(origin.recipientId, response, threadKey: threadKey);
+        return;
+      }
+    }
+
+    // Default: send without thread.
     try {
       await channel.sendMessage(origin.recipientId, response);
     } catch (error, stackTrace) {
@@ -79,6 +135,9 @@ class TaskNotificationSubscriber {
       );
     }
   }
+
+  bool _isInitialNotification(TaskStatusChangedEvent event) =>
+      event.oldStatus == TaskStatus.queued && event.newStatus == TaskStatus.running;
 
   ChannelResponse _buildNotificationResponse({
     required ChannelType channelType,
@@ -99,6 +158,7 @@ class TaskNotificationSubscriber {
           status: event.newStatus.name,
           description: task.description,
           errorSummary: _errorSummary(task),
+          requestedBy: task.createdBy,
           createdAt: task.createdAt,
           updatedAt: event.timestamp,
           includeReviewButtons: event.newStatus == TaskStatus.review,

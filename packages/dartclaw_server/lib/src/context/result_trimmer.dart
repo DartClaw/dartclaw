@@ -40,7 +40,7 @@ class ResultTrimmer {
 
     try {
       return utf8.decode(encoded.sublist(start, end));
-    } catch (_) {
+    } catch (e) {
       // Fallback: use character-based substring
       final chars = text.length;
       if (startByte == 0) {

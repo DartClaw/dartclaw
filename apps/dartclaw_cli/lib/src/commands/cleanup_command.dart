@@ -1,10 +1,8 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_server/src/maintenance/session_maintenance_service.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
 
 import 'config_loader.dart';
 

@@ -1,10 +1,13 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 
 import '../scheduling/cron_parser.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
+
+final _log = Logger('scheduling_template');
 
 /// Renders the scheduling status page.
 String schedulingTemplate({
@@ -33,7 +36,9 @@ String schedulingTemplate({
     String cronHuman = '';
     try {
       cronHuman = CronExpression.parse(schedule).describe();
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Could not parse cron expression "$schedule": $e');
+    }
 
     final deliveryBadgeClass = switch (delivery) {
       'announce' => 'announce',
@@ -74,7 +79,9 @@ String schedulingTemplate({
     String cronHuman = '';
     try {
       cronHuman = CronExpression.parse(def.cronExpression).describe();
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Could not parse task cron expression "${def.cronExpression}": $e');
+    }
 
     return <String, dynamic>{
       'id': def.id,

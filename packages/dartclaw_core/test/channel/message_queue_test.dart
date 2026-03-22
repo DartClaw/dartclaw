@@ -61,7 +61,7 @@ void main() {
         maxQueueDepth: maxDepth,
         defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: const Duration(milliseconds: 10)),
         random: Random(42), // deterministic
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           if (dispatchGate != null) await dispatchGate!.future;
           if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
           dispatched.add((sessionKey, message));
@@ -130,7 +130,7 @@ void main() {
         maxConcurrentTurns: 2,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           activeCount++;
           if (activeCount > maxActive) maxActive = activeCount;
           final gate = Completer<void>();
@@ -166,7 +166,7 @@ void main() {
         maxConcurrentTurns: 3,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 3, baseDelay: Duration(milliseconds: 10)),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           if (failCount > 0) {
             failCount--;
             throw Exception('transient');
@@ -190,7 +190,7 @@ void main() {
         maxConcurrentTurns: 3,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 2, baseDelay: Duration(milliseconds: 10)),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           throw Exception('permanent');
         },
       );
@@ -213,7 +213,7 @@ void main() {
         maxQueueDepth: 1,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid}) async {
+        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
           await dispatchGate!.future; // block processing
           dispatched.add((sessionKey, message));
           return 'ok';

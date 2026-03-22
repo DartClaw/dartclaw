@@ -99,13 +99,31 @@ export 'src/audit/audit_log_reader.dart' show AuditLogReader, AuditPage;
 export 'src/audit/guard_audit_subscriber.dart' show GuardAuditSubscriber;
 
 // Behavior
+export 'src/behavior/behavior_file_service.dart' show BehaviorFileService;
+export 'src/behavior/heartbeat_scheduler.dart' show HeartbeatScheduler;
 export 'src/behavior/memory_consolidator.dart' show MemoryConsolidator;
+export 'src/behavior/self_improvement_service.dart' show SelfImprovementService;
+
+// Maintenance
+export 'src/maintenance/session_maintenance_service.dart' show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
+
+// Governance
+export 'src/governance/budget_enforcer.dart'
+    show BudgetEnforcer, BudgetCheckResult, BudgetDecision, BudgetStatus;
+export 'src/governance/budget_exhausted_exception.dart' show BudgetExhaustedException;
+export 'src/governance/pause_controller.dart' show PauseController, QueueResult;
+
+// Observability
+export 'src/observability/usage_tracker.dart' show UsageTracker;
 
 // Restart
 export 'src/restart_service.dart' show RestartService;
 
 // Server
-export 'src/server.dart' show DartclawServer;
+export 'src/server.dart' show DartclawServer, DartclawServerBuilder;
+
+// Emergency stop
+export 'src/emergency/emergency_stop_handler.dart' show EmergencyStopHandler, EmergencyStopResult;
 
 // Task execution
 export 'src/task/agent_observer.dart' show AgentObserver, AgentMetrics, AgentState;
@@ -120,6 +138,7 @@ export 'src/task/task_notification_subscriber.dart' show TaskNotificationSubscri
 export 'src/task/task_review_service.dart'
     show
         TaskReviewService,
+        PushBackFeedbackDelivery,
         ReviewResult,
         ReviewSuccess,
         ReviewMergeConflict,
@@ -143,6 +162,10 @@ export 'src/templates/loader.dart' show initTemplates, resetTemplates;
 
 // Container health
 export 'src/container/container_health_monitor.dart' show ContainerHealthMonitor;
+
+// Workspace
+export 'src/workspace/workspace_git_sync.dart' show WorkspaceGitSync;
+export 'src/workspace/workspace_service.dart' show WorkspaceService, WorkspaceMigrationException;
 
 // Harness pool
 export 'src/harness_pool.dart' show HarnessPool;

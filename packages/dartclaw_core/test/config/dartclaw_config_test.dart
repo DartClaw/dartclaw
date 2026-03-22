@@ -1351,6 +1351,61 @@ automation:
         expect(config.extensions['gone'], isA<Map<String, dynamic>>());
       });
     });
+
+    group('features namespace', () {
+      test('features.thread_binding.enabled parsed correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'features:\n  thread_binding:\n    enabled: true\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.features.threadBinding.enabled, isTrue);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('features.thread_binding.idle_timeout_minutes parsed correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'features:\n  thread_binding:\n    enabled: true\n    idle_timeout_minutes: 30\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.features.threadBinding.idleTimeoutMinutes, 30);
+      });
+
+      test('missing features section defaults to disabled', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'port: 3000\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.features.threadBinding.enabled, isFalse);
+        expect(config.features.threadBinding.idleTimeoutMinutes, 60);
+      });
+
+      test('old crowd_coding key produces unknown-key warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'crowd_coding:\n  enabled: true\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.features.threadBinding.enabled, isFalse);
+        expect(config.warnings, contains(contains('Unknown config key: crowd_coding')));
+      });
+    });
   });
 }
 

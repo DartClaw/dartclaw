@@ -76,7 +76,8 @@ class ContainerManager {
     try {
       final result = await _run('docker', ['version']);
       return result.exitCode == 0;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Docker not available: $e');
       return false;
     }
   }

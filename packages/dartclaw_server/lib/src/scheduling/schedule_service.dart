@@ -11,7 +11,7 @@ import 'scheduled_job.dart';
 
 final _log = Logger('ScheduleService');
 
-Future<String> _noopChannelDispatch(String sessionKey, String message, {String? senderJid}) async => '';
+Future<String> _noopChannelDispatch(String sessionKey, String message, {String? senderJid, String? senderDisplayName}) async => '';
 
 DeliveryService _defaultDeliveryService(SessionService sessions) {
   return DeliveryService(

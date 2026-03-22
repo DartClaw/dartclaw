@@ -357,7 +357,7 @@ class _RecordingChannel extends Channel {
 }
 
 class _RecordingMessageQueue extends MessageQueue {
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void dispose() {}
@@ -371,6 +371,7 @@ class _ThrowingChatCardBuilder extends ChatCardBuilder {
     required String status,
     String? description,
     String? errorSummary,
+    String? requestedBy,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool includeReviewButtons = false,

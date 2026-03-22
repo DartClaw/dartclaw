@@ -15,8 +15,8 @@ void main() {
 
   setUp(() {
     db = openTaskDbInMemory();
-    tasks = TaskService(SqliteTaskRepository(db));
     eventBus = EventBus();
+    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
   });
 
   tearDown(() async {
@@ -75,7 +75,7 @@ void main() {
       expect((await tasks.get('task-1'))!.status, TaskStatus.rejected);
     });
 
-    test('pushes tasks back to queued with comment metadata', () async {
+    test('pushes tasks back to running with comment metadata', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
 
@@ -83,7 +83,7 @@ void main() {
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       final updated = (await tasks.get('task-1'))!;
-      expect(updated.status, TaskStatus.queued);
+      expect(updated.status, TaskStatus.running);
       expect(updated.configJson['pushBackCount'], 1);
       expect(updated.configJson['pushBackComment'], 'try again');
     });
@@ -97,6 +97,76 @@ void main() {
       expect(result, const TypeMatcher<ReviewInvalidRequest>());
       expect((result as ReviewInvalidRequest).message, 'comment must not be empty for push_back');
       expect((await tasks.get('task-1'))!.status, TaskStatus.review);
+    });
+
+    test('push_back fires status event with running as new status', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final statusEvents = <TaskStatusChangedEvent>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
+      addTearDown(sub.cancel);
+
+      await service.review('task-1', 'push_back', comment: 'revise the auth logic');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(statusEvents, hasLength(1));
+      expect(statusEvents.single.oldStatus, TaskStatus.review);
+      expect(statusEvents.single.newStatus, TaskStatus.running);
+    });
+
+    test('push_back invokes PushBackFeedbackDelivery callback', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
+      final deliveries = <(String taskId, String feedback)>[];
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+          deliveries.add((taskId, feedback));
+        },
+      );
+
+      await service.review('task-1', 'push_back', comment: 'revise the auth logic');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(deliveries, hasLength(1));
+      expect(deliveries.single.$1, 'task-1');
+      expect(deliveries.single.$2, 'revise the auth logic');
+    });
+
+    test('push_back proceeds even when PushBackFeedbackDelivery callback throws', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+          throw StateError('delivery failed');
+        },
+      );
+
+      // Should not rethrow — delivery is best-effort.
+      final result = await service.review('task-1', 'push_back', comment: 'try again');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-1'))!.status, TaskStatus.running);
+    });
+
+    test('channelReviewHandler passes comment through for push_back', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
+      String? capturedComment;
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+          capturedComment = feedback;
+        },
+      );
+
+      final result = await service.channelReviewHandler()('task-1', 'push_back', comment: 'fix the tests');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result, const TypeMatcher<ChannelReviewSuccess>());
+      expect((result as ChannelReviewSuccess).action, 'push_back');
+      expect(capturedComment, 'fix the tests');
     });
 
     test('runs merge and cleans up worktrees for accepted coding tasks', () async {
@@ -300,7 +370,11 @@ Future<Task> _putTaskInReview(
   String id, {
   required String title,
   Map<String, dynamic>? worktreeJson,
+  String? sessionKey,
 }) async {
+  final configJson = sessionKey != null
+      ? <String, dynamic>{'origin': <String, dynamic>{'sessionKey': sessionKey}}
+      : null;
   await tasks.create(
     id: id,
     title: title,
@@ -308,6 +382,7 @@ Future<Task> _putTaskInReview(
     type: TaskType.coding,
     autoStart: true,
     now: DateTime.parse('2026-03-13T10:00:00Z'),
+    configJson: configJson ?? const {},
   );
   await tasks.transition(id, TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
   await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));

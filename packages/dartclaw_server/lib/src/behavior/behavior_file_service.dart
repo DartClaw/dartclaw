@@ -72,7 +72,7 @@ class BehaviorFileService {
     try {
       final key = SessionKey.parse(sessionId);
       return key.scope != 'task';
-    } catch (_) {
+    } catch (e) {
       return true;
     }
   }

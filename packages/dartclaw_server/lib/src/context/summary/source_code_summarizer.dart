@@ -6,7 +6,7 @@ abstract final class SourceCodeSummarizer {
   static String? summarize(String content, ContentType type, int estimatedTokens) {
     try {
       return _summarize(content, type, estimatedTokens);
-    } catch (_) {
+    } catch (e) {
       return null;
     }
   }

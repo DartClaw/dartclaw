@@ -1,5 +1,4 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/container/container_dispatcher.dart';
 import 'package:test/test.dart';
 
 void main() {

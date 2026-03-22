@@ -75,6 +75,7 @@ String tasksPageTemplate({
             _ => '',
           },
           'createdAtDisplay': _formatRelativeTime(t['createdAt']?.toString()),
+          'createdByDisplay': t['createdBy']?.toString() ?? '—',
           'detailHref': '/tasks/${t['id']}',
         };
       }).toList(),
@@ -214,7 +215,7 @@ String _formatRelativeTime(String? iso) {
     if (diff.inHours > 0) return '${diff.inHours}h ago';
     if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
     return 'just now';
-  } catch (_) {
+  } catch (e) {
     return '';
   }
 }

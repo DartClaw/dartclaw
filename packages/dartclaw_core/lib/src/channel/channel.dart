@@ -40,6 +40,25 @@ class ChannelMessage {
     this.metadata = const {},
   }) : id = id ?? const Uuid().v4(),
        timestamp = timestamp ?? DateTime.now();
+
+  /// Extracts a human-readable sender display name from channel-specific
+  /// [metadata] keys.
+  ///
+  /// Checks in priority order:
+  /// - `senderDisplayName` (Google Chat)
+  /// - `pushname` (WhatsApp)
+  /// - `sourceName` (Signal)
+  ///
+  /// Returns `null` if no display name is available.
+  String? get senderDisplayName {
+    final gchatName = metadata['senderDisplayName'];
+    if (gchatName is String && gchatName.isNotEmpty) return gchatName;
+    final waName = metadata['pushname'];
+    if (waName is String && waName.isNotEmpty) return waName;
+    final sigName = metadata['sourceName'];
+    if (sigName is String && sigName.isNotEmpty) return sigName;
+    return null;
+  }
 }
 
 /// Outbound response to send via a channel.

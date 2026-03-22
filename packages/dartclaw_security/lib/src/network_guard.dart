@@ -1,5 +1,9 @@
+import 'package:logging/logging.dart';
+
 import 'guard.dart';
 import 'guard_verdict.dart';
+
+final _log = Logger('NetworkGuard');
 
 // ---------------------------------------------------------------------------
 // NetworkGuardConfig
@@ -44,8 +48,8 @@ class NetworkGuardConfig {
         if (p is String) {
           try {
             extraExfil.add(RegExp(p));
-          } catch (_) {
-            // Skip malformed regex
+          } catch (e) {
+            _log.warning('Skipping malformed extra_exfil_patterns regex "$p": $e');
           }
         }
       }

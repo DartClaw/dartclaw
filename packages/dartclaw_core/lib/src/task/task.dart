@@ -45,6 +45,19 @@ class Task {
   /// Timestamp when the task reached a terminal or review-complete state.
   final DateTime? completedAt;
 
+  /// Optimistic locking version, incremented on each status transition.
+  ///
+  /// Starts at 1 for all new tasks. Existing tasks without a persisted version
+  /// default to 1 for backward compatibility.
+  final int version;
+
+  /// Display name of the person or system that requested this task.
+  ///
+  /// Set from channel sender metadata (WhatsApp pushname, Google Chat
+  /// displayName, Signal sourceName) when the task originates from a channel
+  /// message, or from the UI when created via the web interface.
+  final String? createdBy;
+
   /// Creates an immutable task record.
   Task({
     required this.id,
@@ -60,6 +73,8 @@ class Task {
     required this.createdAt,
     this.startedAt,
     this.completedAt,
+    this.version = 1,
+    this.createdBy,
   }) : configJson = _freezeJsonMap(configJson ?? const {}),
        worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson);
 
@@ -78,6 +93,8 @@ class Task {
     DateTime? createdAt,
     Object? startedAt = _sentinel,
     Object? completedAt = _sentinel,
+    int? version,
+    Object? createdBy = _sentinel,
   }) => Task(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -94,6 +111,8 @@ class Task {
     createdAt: createdAt ?? this.createdAt,
     startedAt: identical(startedAt, _sentinel) ? this.startedAt : startedAt as DateTime?,
     completedAt: identical(completedAt, _sentinel) ? this.completedAt : completedAt as DateTime?,
+    version: version ?? this.version,
+    createdBy: identical(createdBy, _sentinel) ? this.createdBy : createdBy as String?,
   );
 
   /// Applies a validated lifecycle transition and updates timestamps.
@@ -136,9 +155,11 @@ class Task {
     'description': description,
     'type': type.name,
     'status': status.name,
+    'version': version,
     if (goalId != null) 'goalId': goalId,
     if (acceptanceCriteria != null) 'acceptanceCriteria': acceptanceCriteria,
     if (sessionId != null) 'sessionId': sessionId,
+    if (createdBy != null) 'createdBy': createdBy,
     'configJson': _mutableJsonMap(configJson),
     if (worktreeJson != null) 'worktreeJson': _mutableJsonMap(worktreeJson!),
     'createdAt': createdAt.toIso8601String(),
@@ -153,6 +174,7 @@ class Task {
     description: json['description'] as String,
     type: TaskType.values.byName(json['type'] as String),
     status: _parseStatus(json['status']),
+    version: (json['version'] as int?) ?? 1,
     goalId: json['goalId'] as String?,
     acceptanceCriteria: json['acceptanceCriteria'] as String?,
     sessionId: json['sessionId'] as String?,
@@ -161,6 +183,7 @@ class Task {
     createdAt: DateTime.parse(json['createdAt'] as String),
     startedAt: _parseDateTime(json['startedAt']),
     completedAt: _parseDateTime(json['completedAt']),
+    createdBy: json['createdBy'] as String?,
   );
 }
 

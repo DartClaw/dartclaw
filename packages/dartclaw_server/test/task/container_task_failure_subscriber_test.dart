@@ -14,8 +14,8 @@ void main() {
 
   setUp(() {
     db = openTaskDbInMemory();
-    tasks = TaskService(SqliteTaskRepository(db));
     eventBus = EventBus();
+    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
     subscriber = ContainerTaskFailureSubscriber(tasks: tasks);
     subscriber.subscribe(eventBus);
   });

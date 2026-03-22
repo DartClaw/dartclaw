@@ -24,6 +24,8 @@ import 'search_config.dart';
 import 'security_config.dart';
 import 'server_config.dart';
 import 'session_config.dart';
+import 'features_config.dart';
+import 'governance_config.dart';
 import 'session_maintenance_config.dart';
 import 'task_config.dart';
 import 'usage_config.dart';
@@ -53,6 +55,8 @@ class DartclawConfig {
   final UsageConfig usage;
   final ContainerConfig container;
   final ChannelConfig channels;
+  final GovernanceConfig governance;
+  final FeaturesConfig features;
 
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
@@ -92,6 +96,8 @@ class DartclawConfig {
     this.usage = const UsageConfig.defaults(),
     this.container = const ContainerConfig.disabled(),
     this.channels = const ChannelConfig.defaults(),
+    this.governance = const GovernanceConfig.defaults(),
+    this.features = const FeaturesConfig(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -215,6 +221,8 @@ class DartclawConfig {
     final container = _parseContainer(yaml, warns);
     final channels = _parseChannels(yaml, warns);
     final tasks = _parseTasks(yaml, const TaskConfig.defaults(), warns);
+    final governance = _parseGovernance(yaml, const GovernanceConfig.defaults(), warns);
+    final features = _parseFeatures(yaml);
 
     // Parse extension sections — unknown YAML keys passed to registered parsers
     // or stored as raw values for lossless forward-compatibility.
@@ -269,6 +277,8 @@ class DartclawConfig {
       usage: usage,
       container: container,
       channels: channels,
+      governance: governance,
+      features: features,
       extensions: extensions,
       warnings: warns,
     );
@@ -1205,6 +1215,196 @@ class DartclawConfig {
     );
   }
 
+  static GovernanceConfig _parseGovernance(
+    Map<String, dynamic> yaml,
+    GovernanceConfig defaults,
+    List<String> warns,
+  ) {
+    final govMap = _sectionMap('governance', yaml, warns);
+    if (govMap == null) return defaults;
+
+    // admin_senders
+    var adminSenders = defaults.adminSenders;
+    final adminRaw = govMap['admin_senders'];
+    if (adminRaw is List) {
+      adminSenders = adminRaw.whereType<String>().toList();
+    } else if (adminRaw != null) {
+      warns.add('Invalid type for governance.admin_senders: "${adminRaw.runtimeType}" — using default');
+    }
+
+    // rate_limits
+    var rateLimits = defaults.rateLimits;
+    final rateLimitsRaw = govMap['rate_limits'];
+    if (rateLimitsRaw is Map) {
+      var perSender = rateLimits.perSender;
+      var global = rateLimits.global;
+
+      final perSenderRaw = rateLimitsRaw['per_sender'];
+      if (perSenderRaw is Map) {
+        final messages = _parseInt(
+          'governance.rate_limits.per_sender.messages',
+          null,
+          perSenderRaw['messages'],
+          perSender.messages,
+          warns,
+        );
+        final windowMinutes = _parseInt(
+          'governance.rate_limits.per_sender.window',
+          null,
+          _parseDurationMinutes(perSenderRaw['window']),
+          perSender.windowMinutes,
+          warns,
+        );
+        perSender = PerSenderRateLimitConfig(messages: messages, windowMinutes: windowMinutes);
+      } else if (perSenderRaw != null) {
+        warns.add('Invalid type for governance.rate_limits.per_sender: "${perSenderRaw.runtimeType}" — using defaults');
+      }
+
+      final globalRaw = rateLimitsRaw['global'];
+      if (globalRaw is Map) {
+        final turns = _parseInt(
+          'governance.rate_limits.global.turns',
+          null,
+          globalRaw['turns'],
+          global.turns,
+          warns,
+        );
+        final windowMinutes = _parseInt(
+          'governance.rate_limits.global.window',
+          null,
+          _parseDurationMinutes(globalRaw['window']),
+          global.windowMinutes,
+          warns,
+        );
+        global = GlobalRateLimitConfig(turns: turns, windowMinutes: windowMinutes);
+      } else if (globalRaw != null) {
+        warns.add('Invalid type for governance.rate_limits.global: "${globalRaw.runtimeType}" — using defaults');
+      }
+
+      rateLimits = RateLimitsConfig(perSender: perSender, global: global);
+    } else if (rateLimitsRaw != null) {
+      warns.add('Invalid type for governance.rate_limits: "${rateLimitsRaw.runtimeType}" — using defaults');
+    }
+
+    // budget
+    var budget = defaults.budget;
+    final budgetRaw = govMap['budget'];
+    if (budgetRaw is Map) {
+      final dailyTokens = _parseInt(
+        'governance.budget.daily_tokens',
+        null,
+        budgetRaw['daily_tokens'],
+        budget.dailyTokens,
+        warns,
+      );
+      var action = budget.action;
+      final actionRaw = budgetRaw['action'];
+      if (actionRaw is String) {
+        action = BudgetAction.fromYaml(actionRaw) ?? budget.action;
+        if (BudgetAction.fromYaml(actionRaw) == null) {
+          warns.add('Unknown governance.budget.action: "$actionRaw" — using default "${budget.action.name}"');
+        }
+      }
+      var timezone = budget.timezone;
+      final timezoneRaw = budgetRaw['timezone'];
+      if (timezoneRaw is String && timezoneRaw.isNotEmpty) timezone = timezoneRaw;
+
+      budget = BudgetConfig(dailyTokens: dailyTokens, action: action, timezone: timezone);
+    } else if (budgetRaw != null) {
+      warns.add('Invalid type for governance.budget: "${budgetRaw.runtimeType}" — using defaults');
+    }
+
+    // loop_detection
+    var loopDetection = defaults.loopDetection;
+    final loopRaw = govMap['loop_detection'];
+    if (loopRaw is Map) {
+      var enabled = loopDetection.enabled;
+      final enabledRaw = loopRaw['enabled'];
+      if (enabledRaw is bool) enabled = enabledRaw;
+
+      final maxConsecutiveTurns = _parseInt(
+        'governance.loop_detection.max_consecutive_turns',
+        null,
+        loopRaw['max_consecutive_turns'],
+        loopDetection.maxConsecutiveTurns,
+        warns,
+      );
+      final maxTokensPerMinute = _parseInt(
+        'governance.loop_detection.max_tokens_per_minute',
+        null,
+        loopRaw['max_tokens_per_minute'],
+        loopDetection.maxTokensPerMinute,
+        warns,
+      );
+      final velocityWindowMinutes = _parseInt(
+        'governance.loop_detection.velocity_window_minutes',
+        null,
+        loopRaw['velocity_window_minutes'],
+        loopDetection.velocityWindowMinutes,
+        warns,
+      );
+      final maxConsecutiveIdenticalToolCalls = _parseInt(
+        'governance.loop_detection.max_consecutive_identical_tool_calls',
+        null,
+        loopRaw['max_consecutive_identical_tool_calls'],
+        loopDetection.maxConsecutiveIdenticalToolCalls,
+        warns,
+      );
+
+      var action = loopDetection.action;
+      final actionRaw = loopRaw['action'];
+      if (actionRaw is String) {
+        action = LoopAction.fromYaml(actionRaw) ?? loopDetection.action;
+        if (LoopAction.fromYaml(actionRaw) == null) {
+          warns.add(
+            'Unknown governance.loop_detection.action: "$actionRaw" — using default "${loopDetection.action.name}"',
+          );
+        }
+      }
+
+      loopDetection = LoopDetectionConfig(
+        enabled: enabled,
+        maxConsecutiveTurns: maxConsecutiveTurns,
+        maxTokensPerMinute: maxTokensPerMinute,
+        velocityWindowMinutes: velocityWindowMinutes,
+        maxConsecutiveIdenticalToolCalls: maxConsecutiveIdenticalToolCalls,
+        action: action,
+      );
+    } else if (loopRaw != null) {
+      warns.add('Invalid type for governance.loop_detection: "${loopRaw.runtimeType}" — using defaults');
+    }
+
+    return GovernanceConfig(
+      adminSenders: adminSenders,
+      rateLimits: rateLimits,
+      budget: budget,
+      loopDetection: loopDetection,
+    );
+  }
+
+  /// Parses a YAML duration value to integer minutes.
+  ///
+  /// Accepts: integer (minutes), or string with suffix: '30s' (→ 0), '5m' (→ 5),
+  /// '1h' (→ 60), '2h' (→ 120). Returns null for unparseable values.
+  static int? _parseDurationMinutes(Object? value) {
+    if (value is int) return value;
+    if (value is! String) return null;
+    final s = value.trim().toLowerCase();
+    if (s.endsWith('m')) {
+      return int.tryParse(s.substring(0, s.length - 1));
+    }
+    if (s.endsWith('h')) {
+      final hours = int.tryParse(s.substring(0, s.length - 1));
+      return hours != null ? hours * 60 : null;
+    }
+    if (s.endsWith('s')) {
+      // Seconds < 60 round to 0 minutes — accepted for forward compatibility.
+      final secs = int.tryParse(s.substring(0, s.length - 1));
+      return secs != null ? secs ~/ 60 : null;
+    }
+    return int.tryParse(s);
+  }
+
   static ({List<Map<String, dynamic>> convertedJobs, List<ScheduledTaskDefinition> taskDefs}) _parseAutomation(
     Map<String, dynamic> yaml,
     List<String> warns,
@@ -1269,6 +1469,14 @@ class DartclawConfig {
     return null;
   }
 
+  static FeaturesConfig _parseFeatures(Map<String, dynamic> yaml) {
+    final raw = yaml['features'];
+    if (raw is Map) {
+      return FeaturesConfig.fromYaml(Map<String, dynamic>.from(raw));
+    }
+    return const FeaturesConfig();
+  }
+
   static const _knownKeys = {
     'port',
     'host',
@@ -1295,6 +1503,8 @@ class DartclawConfig {
     'memory',
     'tasks',
     'automation',
+    'governance',
+    'features',
   };
 
   static Map<String, dynamic> _loadYaml(

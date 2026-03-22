@@ -1,9 +1,6 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/container/container_dispatcher.dart';
 import 'package:logging/logging.dart';
 
 import 'task_service.dart';
@@ -19,7 +16,7 @@ class ContainerTaskFailureSubscriber {
 
   void subscribe(EventBus eventBus) {
     _subscription ??= eventBus.on<ContainerCrashedEvent>().listen((event) {
-      unawaited(_failAffectedTasks(event, eventBus));
+      unawaited(_failAffectedTasks(event));
     });
   }
 
@@ -28,24 +25,17 @@ class ContainerTaskFailureSubscriber {
     _subscription = null;
   }
 
-  Future<void> _failAffectedTasks(ContainerCrashedEvent event, EventBus eventBus) async {
+  Future<void> _failAffectedTasks(ContainerCrashedEvent event) async {
     final runningTasks = await _tasks.list(status: TaskStatus.running);
     for (final task in runningTasks) {
       if (resolveProfile(task.type) != event.profileId) continue;
       try {
-        final failed = await _tasks.transition(
+        // TaskService.transition() fires TaskStatusChangedEvent automatically.
+        await _tasks.transition(
           task.id,
           TaskStatus.failed,
           configJson: _withErrorSummary(task.configJson, event.error),
-        );
-        eventBus.fire(
-          TaskStatusChangedEvent(
-            taskId: task.id,
-            oldStatus: TaskStatus.running,
-            newStatus: failed.status,
-            trigger: 'system',
-            timestamp: DateTime.now(),
-          ),
+          trigger: 'system',
         );
       } on StateError catch (error, stackTrace) {
         _log.warning('Failed to transition task ${task.id} after container crash', error, stackTrace);

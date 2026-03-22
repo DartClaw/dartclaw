@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'guard.dart';
@@ -135,6 +136,8 @@ class FileGuard extends Guard {
   @override
   String get category => 'file';
 
+  static final _log = Logger('FileGuard');
+
   /// Protected path rules used for Bash and file-tool inspection.
   final FileGuardConfig config;
 
@@ -263,8 +266,9 @@ class FileGuard extends Guard {
       if (type != FileSystemEntityType.notFound) {
         return File(normalized).resolveSymbolicLinksSync();
       }
-    } catch (_) {
-      // Non-existent path or permission error — use as-is
+    } catch (e) {
+      // Non-existent path or permission error — use normalized path as-is
+      _log.fine('Path resolution failed for "$normalized": $e');
     }
     return normalized;
   }
@@ -308,7 +312,10 @@ class FileGuard extends Guard {
         if (type != FileSystemEntityType.notFound) {
           resolved = File(pattern).resolveSymbolicLinksSync();
         }
-      } catch (_) {}
+      } catch (e) {
+        // Pattern path resolution failed — use pattern as-is for matching
+        Logger('FileGuard').fine('Pattern path resolution failed for "$pattern": $e');
+      }
       return path == resolved || path.endsWith('/$resolved') || path.endsWith(p.separator + resolved);
     }
 

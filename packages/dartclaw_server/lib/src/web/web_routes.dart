@@ -1,5 +1,3 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -199,7 +197,7 @@ Router webRoutes(
 
       final sidebarData = await buildSidebarData(sessions);
       final msgs = await messages.getMessagesTail(id);
-      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
+      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null)).toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
@@ -268,7 +266,7 @@ Router webRoutes(
       final msgs = beforeCursor == null
           ? await messages.getMessagesTail(id)
           : await messages.getMessagesBefore(id, beforeCursor);
-      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content)).toList();
+      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null)).toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
       final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
@@ -521,7 +519,7 @@ Future<({int? inputTokens, int? outputTokens})> _readSessionUsage(KvService? kvS
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
     );
-  } catch (_) {
+  } catch (e) {
     return (inputTokens: null, outputTokens: null);
   }
 }
@@ -583,7 +581,7 @@ bool _isGroupChannel(String? channelKey) {
   if (channelKey == null) return false;
   try {
     return SessionKey.parse(channelKey).scope == 'group';
-  } catch (_) {
+  } catch (e) {
     return false;
   }
 }

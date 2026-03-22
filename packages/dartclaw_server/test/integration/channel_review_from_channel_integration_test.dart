@@ -19,8 +19,8 @@ void main() {
   late TaskNotificationSubscriber notificationSubscriber;
 
   setUp(() {
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
     eventBus = EventBus();
+    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
     queue = _RecordingMessageQueue();
     channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
     mergeExecutor = _RecordingMergeExecutor(
@@ -38,12 +38,14 @@ void main() {
     manager = ChannelManager(
       queue: queue,
       config: const ChannelConfig.defaults(),
-      taskCreator: tasks.create,
-      taskLister: tasks.list,
-      reviewCommandParser: const ReviewCommandParser(),
-      reviewHandler: reviewService.channelReviewHandler(trigger: 'channel'),
-      triggerParser: const TaskTriggerParser(),
-      taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+      taskBridge: ChannelTaskBridge(
+        taskCreator: tasks.create,
+        taskLister: tasks.list,
+        reviewCommandParser: const ReviewCommandParser(),
+        reviewHandler: reviewService.channelReviewHandler(trigger: 'channel'),
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+      ),
     );
     manager.registerChannel(channel);
     notificationSubscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
@@ -58,10 +60,6 @@ void main() {
   });
 
   test('accept from channel preserves provenance, notifies origin, and replies with confirmation', () async {
-    final statusEvents = <TaskStatusChangedEvent>[];
-    final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
-    addTearDown(statusSub.cancel);
-
     final task = await _putTaskInReview(
       tasks,
       'task-1',
@@ -80,6 +78,11 @@ void main() {
       },
     );
     taskFileGuard.register(task.id, '/tmp/worktree');
+
+    // Subscribe after setup — only capture the review→accepted transition from the channel handler.
+    final statusEvents = <TaskStatusChangedEvent>[];
+    final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
+    addTearDown(statusSub.cancel);
 
     manager.handleInboundMessage(
       ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'accept'),
@@ -139,7 +142,7 @@ Future<void> _flushAsync() async {
 class _RecordingMessageQueue extends MessageQueue {
   final List<(ChannelMessage, Channel, String)> enqueued = [];
 
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => 'ok');
+  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
 
   @override
   void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {

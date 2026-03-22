@@ -32,7 +32,7 @@ enum TaskStatus {
     TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
     TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
     TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-    TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued},
+    TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
   };
 
   /// Whether this state is terminal and has no outbound transitions.

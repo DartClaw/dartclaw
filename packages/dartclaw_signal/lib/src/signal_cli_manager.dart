@@ -227,7 +227,8 @@ class SignalCliManager {
         }
       }
       return false;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('isAccountRegistered check failed: $e');
       return false;
     }
   }
@@ -331,7 +332,8 @@ class SignalCliManager {
       } finally {
         client.close();
       }
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Signal health check failed: $e');
       return false;
     }
   }

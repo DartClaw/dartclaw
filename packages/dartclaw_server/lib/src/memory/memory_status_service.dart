@@ -193,7 +193,8 @@ class MemoryStatusService {
     if (counter == null) return 0;
     try {
       return counter(source);
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Search index count failed: $e');
       return 0;
     }
   }
@@ -201,7 +202,8 @@ class MemoryStatusService {
   int _getSearchDbSize() {
     try {
       return File(config.searchDbPath).lengthSync();
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to get search db size: $e');
       return 0;
     }
   }
@@ -241,8 +243,8 @@ class MemoryStatusService {
       try {
         final cron = CronExpression.parse(schedule);
         nextRun = cron.nextFrom(DateTime.now()).toIso8601String();
-      } catch (_) {
-        // Invalid cron expression
+      } catch (e) {
+        _log.fine('Invalid cron expression "$schedule": $e');
       }
     }
 
@@ -255,7 +257,9 @@ class MemoryStatusService {
         final entries = parseMemoryEntries(memFile.readAsStringSync());
         undatedCount = entries.where((e) => e.timestamp == null).length;
       }
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Failed to count undated MEMORY.md entries: $e');
+    }
 
     return {
       'enabled': enabled,
@@ -300,7 +304,8 @@ class MemoryStatusService {
       final first = cron.nextFrom(now);
       final second = cron.nextFrom(first);
       return second.difference(first);
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to estimate cron interval: $e');
       return null;
     }
   }
@@ -346,7 +351,8 @@ class MemoryStatusService {
       final parsed = jsonDecode(raw);
       if (parsed is List) return parsed;
       return null;
-    } catch (_) {
+    } catch (e) {
+      _log.fine('Failed to parse prune history JSON: $e');
       return null;
     }
   }

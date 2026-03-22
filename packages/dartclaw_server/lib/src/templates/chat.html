@@ -1,5 +1,5 @@
 <div tl:fragment="userMessage" class="msg msg-user">
-  <div class="msg-role">You</div>
+  <div class="msg-role"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">operator</span></div>
   <div class="msg-content"><p tl:text="${content}">Message</p></div>
 </div>
 
@@ -50,7 +50,7 @@
 
 <tl:block tl:fragment="sendResponse">
   <div class="msg msg-user">
-    <div class="msg-role">You</div>
+    <div class="msg-role">operator</div>
     <div class="msg-content"><p tl:text="${message}">message</p></div>
   </div>
   <div class="msg msg-assistant" id="streaming-msg"

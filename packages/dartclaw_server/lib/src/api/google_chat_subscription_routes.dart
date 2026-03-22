@@ -128,7 +128,7 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
     final parsed = jsonDecode(body);
     if (parsed is Map<String, dynamic>) return parsed;
     return null;
-  } catch (_) {
+  } catch (e) {
     return null;
   }
 }

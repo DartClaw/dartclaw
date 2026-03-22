@@ -38,7 +38,7 @@ class ExplorationSummarizer {
     try {
       final summary = _summarize(content, type, estimatedTokens);
       return summary ?? _trimmer.trim(content);
-    } on Exception catch (_) {
+    } on Exception {
       return _trimmer.trim(content);
     }
   }

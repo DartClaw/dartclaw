@@ -130,6 +130,26 @@ void main() {
     expect(_cardHeader(body), {'title': 'DartClaw Status', 'subtitle': 'Current overview'});
   });
 
+  test('MESSAGE /stop slash commands are routed to emergency stop handling', () async {
+    final response = await _post(handler, {
+      'type': 'MESSAGE',
+      'space': {'name': 'spaces/AAAA', 'type': 'ROOM'},
+      'message': {
+        'name': 'spaces/AAAA/messages/BBBB',
+        'sender': {'name': 'users/123', 'type': 'HUMAN'},
+        'slashCommand': {'commandId': 4},
+        'text': '/stop',
+      },
+      'user': {'name': 'users/123', 'displayName': 'Alice', 'type': 'HUMAN'},
+    });
+
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    expect(dispatchedMessage, isNull);
+    expect(body['cardsV2'], isA<List<dynamic>>());
+    expect(_cardHeader(body), {'title': 'Emergency Stop', 'subtitle': 'Confirmation'});
+  });
+
   test('unknown numeric MESSAGE slash commands are routed to unknown command handling', () async {
     final response = await _post(handler, {
       'type': 'MESSAGE',
@@ -277,6 +297,7 @@ GoogleChatWebhookHandler _buildHandler({
             sessionService: sessionService,
             eventBus: eventBus,
             channelManager: channelManager,
+            onEmergencyStop: (stoppedBy) async => const EmergencyStopResult(turnsCancelled: 1, tasksCancelled: 2),
           )
         : null,
   );
@@ -299,7 +320,7 @@ Map<String, dynamic> _cardHeader(Map<String, dynamic> responseBody) {
 }
 
 class _NoopMessageQueue extends MessageQueue {
-  _NoopMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid}) async => '');
+  _NoopMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
 
   @override
   void enqueue(ChannelMessage message, Channel channel, String sessionKey) {}

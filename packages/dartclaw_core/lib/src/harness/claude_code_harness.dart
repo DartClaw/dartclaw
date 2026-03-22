@@ -20,7 +20,13 @@ import 'tool_policy.dart';
 // Claude CLI configuration
 // ---------------------------------------------------------------------------
 
-List<String> _buildClaudeArgs({String? model, String? effort, String? appendSystemPrompt, String? mcpConfigPath}) => [
+List<String> _buildClaudeArgs({
+  String? model,
+  String? effort,
+  String? appendSystemPrompt,
+  String? mcpConfigPath,
+  bool settingSourcesProject = false,
+}) => [
   '--print',
   '--input-format',
   'stream-json',
@@ -31,6 +37,10 @@ List<String> _buildClaudeArgs({String? model, String? effort, String? appendSyst
   '--no-session-persistence',
   '--permission-prompt-tool',
   'stdio',
+  // Restrict to project-level settings only (non-containerized only) — prevents
+  // inherited user/enterprise marketplace plugins and SSH-backed git pulls from
+  // affecting harness startup. Containerized spawns already have filesystem isolation.
+  if (settingSourcesProject) ...['--setting-sources', 'project'],
   '--model',
   model ?? 'opus[1m]',
   if (effort != null) ...['--effort', effort],
@@ -150,7 +160,9 @@ class ClaudeCodeHarness implements AgentHarness {
     // JSONL protocol has no cancel command — close stdin and SIGTERM.
     try {
       await _process?.stdin.close();
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Failed to close stdin during cancel: $e');
+    }
     _process?.kill();
   }
 
@@ -161,7 +173,9 @@ class ClaudeCodeHarness implements AgentHarness {
     if (_state == WorkerState.busy) {
       try {
         await cancel();
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to cancel during stop: $e');
+      }
       await _delayFactory(const Duration(milliseconds: 500));
     }
     _state = WorkerState.stopped;
@@ -171,14 +185,18 @@ class ClaudeCodeHarness implements AgentHarness {
     _stderrSub = null;
     try {
       await _process?.stdin.close();
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Failed to close stdin during stop: $e');
+    }
     _process?.kill();
     _process = null;
     final containerMcpPath = _containerMcpConfigPath;
     if (containerMcpPath != null) {
       try {
         await containerManager?.deleteFileInContainer(containerMcpPath);
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to delete container MCP config: $e');
+      }
       _containerMcpConfigPath = null;
     }
     // Clean up MCP config temp file.
@@ -186,7 +204,9 @@ class ClaudeCodeHarness implements AgentHarness {
     if (mcpPath != null) {
       try {
         await File(mcpPath).delete();
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to delete MCP config temp file: $e');
+      }
       _mcpConfigPath = null;
     }
   }
@@ -247,7 +267,9 @@ class ClaudeCodeHarness implements AgentHarness {
       _log.warning('Turn timeout exceeded, cancelling...');
       try {
         await cancel();
-      } catch (_) {}
+      } catch (e) {
+        _log.fine('Failed to cancel during turn timeout: $e');
+      }
       await _delayFactory(const Duration(seconds: 5));
       _process?.kill();
     });
@@ -366,6 +388,9 @@ class ClaudeCodeHarness implements AgentHarness {
       effort: _processEffort ?? harnessConfig.effort,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
+      // Non-containerized only: restrict to project-level settings to avoid
+      // inheriting user/enterprise marketplace plugins or SSH git prompts.
+      settingSourcesProject: cm == null,
     );
     final Process process;
     if (cm != null) {
@@ -609,8 +634,9 @@ class ClaudeCodeHarness implements AgentHarness {
           _initCompleter!.complete(json);
           return;
         }
-      } catch (_) {
-        // Fall through to normal parsing.
+      } catch (e) {
+        // Not a control_response JSON — fall through to normal parsing.
+        _log.fine('Non-JSON or non-control_response line during init: $e');
       }
     }
 
@@ -735,7 +761,9 @@ class ClaudeCodeHarness implements AgentHarness {
     try {
       if (raw is Map) return Map<String, dynamic>.from(raw);
       if (raw is String) return Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    } catch (_) {}
+    } catch (e) {
+      _log.fine('Tool response parse failed: $e');
+    }
     return <String, dynamic>{};
   }
 

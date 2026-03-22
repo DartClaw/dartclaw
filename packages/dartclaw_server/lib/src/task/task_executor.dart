@@ -1,9 +1,6 @@
-// ignore_for_file: implementation_imports
-
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/container/container_dispatcher.dart';
 import 'package:logging/logging.dart';
 
 import '../harness_pool.dart';
@@ -12,7 +9,6 @@ import '../turn_runner.dart';
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
-import 'task_event_helpers.dart';
 import 'task_file_guard.dart';
 import 'task_service.dart';
 import 'worktree_manager.dart';
@@ -30,7 +26,9 @@ class TaskExecutor {
     required MessageService messages,
     required TurnManager turns,
     required ArtifactCollector artifactCollector,
-    required EventBus eventBus,
+    // eventBus is kept for API compatibility but events are now fired by TaskService.
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
+    EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? observer,
@@ -42,7 +40,6 @@ class TaskExecutor {
        _turns = turns,
        _pool = turns.pool,
        _artifactCollector = artifactCollector,
-       _eventBus = eventBus,
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
        _observer = observer;
@@ -56,7 +53,6 @@ class TaskExecutor {
   final TurnManager _turns;
   final HarnessPool _pool;
   final ArtifactCollector _artifactCollector;
-  final EventBus _eventBus;
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
   final AgentObserver? _observer;
@@ -168,16 +164,7 @@ class TaskExecutor {
 
   Future<Task?> _checkout(Task queuedTask) async {
     try {
-      final runningTask = await _tasks.transition(queuedTask.id, TaskStatus.running);
-      await fireTaskLifecycleEvents(
-        tasks: _tasks,
-        eventBus: _eventBus,
-        taskId: queuedTask.id,
-        oldStatus: queuedTask.status,
-        newStatus: runningTask.status,
-        trigger: 'system',
-      );
-      return runningTask;
+      return await _tasks.transition(queuedTask.id, TaskStatus.running, trigger: 'system');
     } on StateError {
       return null;
     }
@@ -302,19 +289,23 @@ class TaskExecutor {
           );
           return;
         }
-        final reviewed = await _tasks.transition(task.id, TaskStatus.review);
-        await fireTaskLifecycleEvents(
-          tasks: _tasks,
-          eventBus: _eventBus,
-          taskId: task.id,
-          oldStatus: TaskStatus.running,
-          newStatus: reviewed.status,
-          trigger: 'system',
-        );
+        await _tasks.transition(task.id, TaskStatus.review, trigger: 'system');
+        return;
+      }
+
+      // Mid-turn loop detection (tool fingerprinting) sets loopDetection on outcome.
+      if (outcome.loopDetection != null) {
+        _log.warning('Loop detected during task ${task.id}: ${outcome.loopDetection!.message}');
+        await _markFailed(task, errorSummary: 'Loop detected: ${outcome.loopDetection!.message}');
         return;
       }
 
       await _markFailed(task, errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status));
+      return;
+    } on LoopDetectedException catch (e) {
+      // Pre-turn loop detection (turn chain depth or token velocity).
+      _log.warning('Loop detected during task ${task.id}: ${e.message}');
+      await _markFailed(task, errorSummary: 'Loop detected: ${e.message}');
       return;
     } catch (error, stackTrace) {
       if (error is GitNotFoundException || error is WorktreeException) {
@@ -476,17 +467,10 @@ class TaskExecutor {
       if (current == null || current.status.terminal) {
         return;
       }
-      final failed = await _tasks.transition(
+      await _tasks.transition(
         task.id,
         TaskStatus.failed,
         configJson: errorSummary == null ? null : _withErrorSummary(current.configJson, errorSummary),
-      );
-      await fireTaskLifecycleEvents(
-        tasks: _tasks,
-        eventBus: _eventBus,
-        taskId: task.id,
-        oldStatus: TaskStatus.running,
-        newStatus: failed.status,
         trigger: 'system',
       );
     } on StateError catch (error, stackTrace) {

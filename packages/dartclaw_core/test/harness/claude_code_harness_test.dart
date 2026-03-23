@@ -8,6 +8,8 @@ import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -101,6 +103,22 @@ class _CapturingIOSink extends _NullIOSink {
         _captured.add(jsonDecode(line) as Map<String, dynamic>);
       } catch (_) {}
     }
+  }
+}
+
+class _RecordingGuard extends Guard {
+  GuardContext? lastContext;
+
+  @override
+  String get name => 'recording-guard';
+
+  @override
+  String get category => 'test';
+
+  @override
+  Future<GuardVerdict> evaluate(GuardContext context) async {
+    lastContext = context;
+    return GuardVerdict.pass();
   }
 }
 
@@ -335,6 +353,8 @@ void main() {
         expect(capturedArgs, contains('--print'));
         expect(capturedArgs, contains('--output-format'));
         expect(capturedArgs, contains('stream-json'));
+        expect(capturedArgs, contains('--dangerously-skip-permissions'));
+        expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
         // Nesting-detection env vars should be stripped.
         expect(capturedEnv, isNot(contains('CLAUDECODE')));
         expect(capturedEnv, isNot(contains('CLAUDE_CODE_ENTRYPOINT')));
@@ -596,6 +616,124 @@ void main() {
             reason: 'Append-strategy harness should not send system_prompt in JSONL',
           );
         }
+      });
+    });
+
+    group('hook callbacks', () {
+      test('PreToolUse maps Claude tool names before guard evaluation and preserves raw provider name', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+        final guard = _RecordingGuard();
+        late CapturingFakeProcess fake;
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [guard]),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-hook',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'Bash',
+                'tool_input': {'command': 'git status'},
+              },
+            },
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(guard.lastContext, isNotNull);
+        expect(guard.lastContext!.toolName, 'shell');
+        expect(guard.lastContext!.rawProviderToolName, 'Bash');
+        expect(guard.lastContext!.toolInput, {'command': 'git status'});
+        expect(
+          stdinLines,
+          contains(
+            containsPair(
+              'response',
+              containsPair('response', containsPair('hookSpecificOutput', containsPair('hookEventName', 'PreToolUse'))),
+            ),
+          ),
+        );
+      });
+
+      test('PreToolUse evaluates unmapped Claude tools under claude: prefix and logs warning', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+        final guard = _RecordingGuard();
+        final records = <LogRecord>[];
+        final oldLevel = Logger.root.level;
+        late CapturingFakeProcess fake;
+        Logger.root.level = Level.ALL;
+        final sub = Logger.root.onRecord.listen(records.add);
+        addTearDown(() async {
+          Logger.root.level = oldLevel;
+          await sub.cancel();
+        });
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          guardChain: GuardChain(guards: [guard]),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-hook-unmapped',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {
+                'hook_event_name': 'PreToolUse',
+                'tool_name': 'TodoWrite',
+                'tool_input': {'todos': []},
+              },
+            },
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(guard.lastContext, isNotNull);
+        expect(guard.lastContext!.toolName, 'claude:TodoWrite');
+        expect(guard.lastContext!.rawProviderToolName, 'TodoWrite');
+        expect(
+          records.any(
+            (record) =>
+                record.loggerName == 'ClaudeCodeHarness' &&
+                record.level == Level.WARNING &&
+                record.message.contains('Falling back to unmapped Claude tool name: TodoWrite -> claude:TodoWrite'),
+          ),
+          isTrue,
+        );
+        expect(stdinLines, isNotEmpty);
       });
     });
   });

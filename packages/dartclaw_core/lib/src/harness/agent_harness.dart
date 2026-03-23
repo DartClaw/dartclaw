@@ -19,6 +19,18 @@ abstract class AgentHarness {
   /// How this harness injects behavior content. Default: [PromptStrategy.replace].
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
+  /// Whether this harness reports per-turn cost information.
+  bool get supportsCostReporting => true;
+
+  /// Whether this harness can surface tool approval requests.
+  bool get supportsToolApproval => true;
+
+  /// Whether this harness emits streaming turn events.
+  bool get supportsStreaming => true;
+
+  /// Whether this harness reports cached token counts.
+  bool get supportsCachedTokens => false;
+
   /// Current lifecycle state of the harness.
   WorkerState get state;
 

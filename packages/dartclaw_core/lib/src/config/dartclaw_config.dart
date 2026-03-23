@@ -15,6 +15,7 @@ import '../utils/path_utils.dart';
 import 'agent_config.dart';
 import 'auth_config.dart';
 import 'context_config.dart';
+import 'credentials_config.dart';
 import 'gateway_config.dart';
 import 'logging_config.dart';
 import 'memory_config.dart';
@@ -26,6 +27,7 @@ import 'server_config.dart';
 import 'session_config.dart';
 import 'features_config.dart';
 import 'governance_config.dart';
+import 'providers_config.dart';
 import 'session_maintenance_config.dart';
 import 'task_config.dart';
 import 'usage_config.dart';
@@ -48,6 +50,8 @@ class DartclawConfig {
   final SecurityConfig security;
   final MemoryConfig memory;
   final SearchConfig search;
+  final ProvidersConfig providers;
+  final CredentialsConfig credentials;
   final TaskConfig tasks;
   final SchedulingConfig scheduling;
   final WorkspaceConfig workspace;
@@ -89,6 +93,8 @@ class DartclawConfig {
     this.security = const SecurityConfig.defaults(),
     this.memory = const MemoryConfig.defaults(),
     this.search = const SearchConfig.defaults(),
+    this.providers = const ProvidersConfig.defaults(),
+    this.credentials = const CredentialsConfig.defaults(),
     this.tasks = const TaskConfig.defaults(),
     this.scheduling = const SchedulingConfig.defaults(),
     this.workspace = const WorkspaceConfig.defaults(),
@@ -140,9 +146,7 @@ class DartclawConfig {
     Object Function(Map<String, dynamic> yaml, List<String> warns) parser,
   ) {
     if (_knownKeys.contains(name)) {
-      throw ArgumentError(
-        'Cannot register extension parser for built-in config key: "$name"',
-      );
+      throw ArgumentError('Cannot register extension parser for built-in config key: "$name"');
     }
     _extensionParsers[name] = parser;
   }
@@ -164,9 +168,7 @@ class DartclawConfig {
     }
     final ext = extensions[name];
     if (ext is T) return ext;
-    throw ArgumentError(
-      'Extension "$name" is ${ext.runtimeType}, not assignable to $T.',
-    );
+    throw ArgumentError('Extension "$name" is ${ext.runtimeType}, not assignable to $T.');
   }
 
   T getChannelConfig<T>(ChannelType channelType) {
@@ -215,6 +217,8 @@ class DartclawConfig {
     final workspace = _parseWorkspace(yaml, const WorkspaceConfig.defaults(), warns);
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
+    final providers = _parseProviders(yaml, const ProvidersConfig.defaults(), warns);
+    final credentials = _parseCredentials(yaml, environment, const CredentialsConfig.defaults(), warns);
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);
     final usage = _parseUsage(yaml, const UsageConfig.defaults(), warns);
     final memory = _parseMemory(yaml, cli, const MemoryConfig.defaults(), warns);
@@ -235,9 +239,7 @@ class DartclawConfig {
         // null means "empty section" in YAML — pass {} to parser (matches
         // built-in section convention where null → use defaults).
         if (rawValue is Map || rawValue == null) {
-          final rawMap = rawValue is Map
-              ? Map<String, dynamic>.from(rawValue)
-              : <String, dynamic>{};
+          final rawMap = rawValue is Map ? Map<String, dynamic>.from(rawValue) : <String, dynamic>{};
           try {
             extensions[key] = parser(rawMap, warns);
           } catch (e) {
@@ -254,9 +256,7 @@ class DartclawConfig {
         }
       } else {
         // No parser — preserve the raw value verbatim (map, scalar, list, or null).
-        extensions[key] = rawValue is Map
-            ? Map<String, dynamic>.from(rawValue)
-            : rawValue;
+        extensions[key] = rawValue is Map ? Map<String, dynamic>.from(rawValue) : rawValue;
       }
     }
 
@@ -270,6 +270,8 @@ class DartclawConfig {
       security: security,
       memory: memory,
       search: search,
+      providers: providers,
+      credentials: credentials,
       tasks: tasks,
       scheduling: scheduling,
       workspace: workspace,
@@ -421,6 +423,7 @@ class DartclawConfig {
   }
 
   static AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<String> warns) {
+    var provider = defaults.provider;
     var disallowedTools = defaults.disallowedTools;
     int? maxTurns = defaults.maxTurns;
     String? model = defaults.model;
@@ -431,6 +434,12 @@ class DartclawConfig {
       final disallowed = agentMap['disallowed_tools'];
       if (disallowed is List) {
         disallowedTools = disallowed.whereType<String>().toList();
+      }
+      final providerVal = agentMap['provider'];
+      if (providerVal is String) {
+        provider = providerVal;
+      } else if (providerVal != null) {
+        warns.add('Invalid type for agent.provider: "${providerVal.runtimeType}" — ignoring');
       }
       final mt = agentMap['max_turns'];
       if (mt is int) {
@@ -466,6 +475,7 @@ class DartclawConfig {
     }
 
     return AgentConfig(
+      provider: provider,
       model: model,
       effort: effort,
       maxTurns: maxTurns,
@@ -790,11 +800,7 @@ class DartclawConfig {
     return WorkspaceConfig(gitSyncEnabled: gitSyncEnabled, gitSyncPushEnabled: gitSyncPushEnabled);
   }
 
-  static SchedulingConfig _parseScheduling(
-    Map<String, dynamic> yaml,
-    SchedulingConfig defaults,
-    List<String> warns,
-  ) {
+  static SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig defaults, List<String> warns) {
     var jobs = <Map<String, dynamic>>[];
     var heartbeatEnabled = defaults.heartbeatEnabled;
     var heartbeatIntervalMinutes = defaults.heartbeatIntervalMinutes;
@@ -938,14 +944,97 @@ class DartclawConfig {
       }
     }
 
-    return SearchConfig(backend: backend, qmdHost: qmdHost, qmdPort: qmdPort, defaultDepth: defaultDepth, providers: providers);
+    return SearchConfig(
+      backend: backend,
+      qmdHost: qmdHost,
+      qmdPort: qmdPort,
+      defaultDepth: defaultDepth,
+      providers: providers,
+    );
   }
 
-  static SecurityConfig _parseSecurity(
+  static ProvidersConfig _parseProviders(Map<String, dynamic> yaml, ProvidersConfig defaults, List<String> warns) {
+    final providersRaw = yaml['providers'];
+    if (providersRaw == null) {
+      return defaults;
+    }
+    if (providersRaw is! Map) {
+      warns.add('Invalid type for providers: "${providersRaw.runtimeType}" — using defaults');
+      return defaults;
+    }
+
+    final entries = <String, ProviderEntry>{};
+    for (final entry in providersRaw.entries) {
+      final providerId = entry.key.toString();
+      final value = entry.value;
+      if (value is! Map) {
+        warns.add('Invalid type for providers.$providerId: "${value.runtimeType}" — skipping');
+        continue;
+      }
+
+      final providerMap = Map<String, dynamic>.from(value);
+      final executableRaw = providerMap['executable'];
+      if (executableRaw is! String || executableRaw.trim().isEmpty) {
+        warns.add('providers.$providerId missing "executable" — skipping');
+        continue;
+      }
+
+      var poolSize = 0;
+      final poolSizeRaw = providerMap['pool_size'];
+      if (poolSizeRaw is int) {
+        poolSize = poolSizeRaw;
+      } else if (poolSizeRaw != null) {
+        warns.add('Invalid type for providers.$providerId.pool_size: "${poolSizeRaw.runtimeType}" — using default');
+      }
+
+      final options = Map<String, dynamic>.from(providerMap)
+        ..remove('executable')
+        ..remove('pool_size');
+
+      entries[providerId] = ProviderEntry(executable: executableRaw.trim(), poolSize: poolSize, options: options);
+    }
+
+    return ProvidersConfig(entries: entries);
+  }
+
+  static CredentialsConfig _parseCredentials(
     Map<String, dynamic> yaml,
-    SecurityConfig defaults,
+    Map<String, String> env,
+    CredentialsConfig defaults,
     List<String> warns,
   ) {
+    final credentialsRaw = yaml['credentials'];
+    if (credentialsRaw == null) {
+      return defaults;
+    }
+    if (credentialsRaw is! Map) {
+      warns.add('Invalid type for credentials: "${credentialsRaw.runtimeType}" — using defaults');
+      return defaults;
+    }
+
+    final entries = <String, CredentialEntry>{};
+    for (final entry in credentialsRaw.entries) {
+      final credentialName = entry.key.toString();
+      final value = entry.value;
+      if (value is! Map) {
+        warns.add('Invalid type for credentials.$credentialName: "${value.runtimeType}" — skipping');
+        continue;
+      }
+
+      final credentialMap = Map<String, dynamic>.from(value);
+      final apiKeyRaw = credentialMap['api_key'];
+      if (apiKeyRaw is! String) {
+        warns.add('credentials.$credentialName missing "api_key" — skipping');
+        continue;
+      }
+
+      entries[credentialName] = CredentialEntry(apiKey: envSubstitute(apiKeyRaw, env: env));
+    }
+
+    return CredentialsConfig(entries: entries);
+  }
+
+  static SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults, List<String> warns) {
     // Guards
     final guardsRaw = yaml['guards'];
     final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
@@ -1157,7 +1246,6 @@ class DartclawConfig {
     return config;
   }
 
-
   static TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<String> warns) {
     var maxConcurrent = defaults.maxConcurrent;
     var artifactRetentionDays = defaults.artifactRetentionDays;
@@ -1215,11 +1303,7 @@ class DartclawConfig {
     );
   }
 
-  static GovernanceConfig _parseGovernance(
-    Map<String, dynamic> yaml,
-    GovernanceConfig defaults,
-    List<String> warns,
-  ) {
+  static GovernanceConfig _parseGovernance(Map<String, dynamic> yaml, GovernanceConfig defaults, List<String> warns) {
     final govMap = _sectionMap('governance', yaml, warns);
     if (govMap == null) return defaults;
 
@@ -1262,13 +1346,7 @@ class DartclawConfig {
 
       final globalRaw = rateLimitsRaw['global'];
       if (globalRaw is Map) {
-        final turns = _parseInt(
-          'governance.rate_limits.global.turns',
-          null,
-          globalRaw['turns'],
-          global.turns,
-          warns,
-        );
+        final turns = _parseInt('governance.rate_limits.global.turns', null, globalRaw['turns'], global.turns, warns);
         final windowMinutes = _parseInt(
           'governance.rate_limits.global.window',
           null,
@@ -1456,11 +1534,7 @@ class DartclawConfig {
 
   /// Reads a YAML section, validates it's a Map (or null), and warns on wrong type.
   /// Returns null if the key is absent, null-valued, or not a map.
-  static Map<String, dynamic>? _sectionMap(
-    String key,
-    Map<String, dynamic> yaml,
-    List<String> warns,
-  ) {
+  static Map<String, dynamic>? _sectionMap(String key, Map<String, dynamic> yaml, List<String> warns) {
     final raw = yaml[key];
     if (raw is Map) return Map<String, dynamic>.from(raw);
     if (raw != null) {
@@ -1496,6 +1570,8 @@ class DartclawConfig {
     'context',
     'container',
     'channels',
+    'providers',
+    'credentials',
     'workspace',
     'search',
     'usage',

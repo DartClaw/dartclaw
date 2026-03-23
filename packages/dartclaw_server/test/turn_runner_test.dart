@@ -1,12 +1,79 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+TurnRunner _buildRunner({
+  required AgentHarness harness,
+  required MessageService messages,
+  required String workspaceDir,
+  required SessionService sessions,
+  required TurnStateStore turnState,
+  required KvService kvService,
+  String providerId = 'claude',
+}) {
+  return TurnRunner(
+    harness: harness,
+    messages: messages,
+    behavior: BehaviorFileService(workspaceDir: workspaceDir),
+    sessions: sessions,
+    turnState: turnState,
+    kv: kvService,
+    providerId: providerId,
+  );
+}
+
+Map<String, dynamic> _turnResult({
+  int inputTokens = 0,
+  int outputTokens = 0,
+  double? totalCostUsd,
+  int? cachedInputTokens,
+}) {
+  final result = <String, dynamic>{'input_tokens': inputTokens, 'output_tokens': outputTokens};
+  if (totalCostUsd != null) {
+    result['total_cost_usd'] = totalCostUsd;
+  }
+  if (cachedInputTokens != null) {
+    result['cached_input_tokens'] = cachedInputTokens;
+  }
+  return result;
+}
+
+void _scheduleTurnCompletion(
+  FakeAgentHarness worker, {
+  String responseText = '',
+  Duration delay = Duration.zero,
+  Map<String, dynamic>? result,
+  Object? error,
+}) {
+  unawaited(() async {
+    await worker.turnInvoked;
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
+    if (error != null) {
+      worker.completeError(error);
+      return;
+    }
+    if (responseText.isNotEmpty) {
+      worker.emit(DeltaEvent(responseText));
+    }
+    worker.completeSuccess(result ?? _turnResult());
+  }());
+}
+
+Future<Map<String, dynamic>> _readSessionCost(KvService kvService, String sessionId) async {
+  final raw = await kvService.get('session_cost:$sessionId');
+  expect(raw, isNotNull);
+  return jsonDecode(raw!) as Map<String, dynamic>;
+}
 
 void main() {
   late Directory tempDir;
@@ -14,10 +81,11 @@ void main() {
   late String workspaceDir;
   late SessionService sessions;
   late MessageService messages;
-  late _FakeWorker worker;
+  late FakeAgentHarness worker;
   late TurnRunner runner;
   late Database turnStateDb;
   late TurnStateStore turnState;
+  late KvService kvService;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_turn_runner_test_');
@@ -28,15 +96,17 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    worker = _FakeWorker();
+    worker = FakeAgentHarness();
     turnStateDb = sqlite3.openInMemory();
     turnState = TurnStateStore(turnStateDb);
-    runner = TurnRunner(
+    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    runner = _buildRunner(
       harness: worker,
       messages: messages,
-      behavior: BehaviorFileService(workspaceDir: workspaceDir),
+      workspaceDir: workspaceDir,
       sessions: sessions,
       turnState: turnState,
+      kvService: kvService,
     );
   });
 
@@ -44,6 +114,7 @@ void main() {
     await messages.dispose();
     await worker.dispose();
     await turnState.dispose();
+    await kvService.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -58,7 +129,7 @@ void main() {
 
     // Execute the turn to complete it properly (releaseTurn fires an error on
     // the outcome completer which propagates as an unhandled async error).
-    worker.responseText = 'ok';
+    _scheduleTurnCompletion(worker, responseText: 'ok');
     runner.executeTurn(session.id, turnId, [
       {'role': 'user', 'content': 'test'},
     ]);
@@ -66,7 +137,7 @@ void main() {
   });
 
   test('executes turn and produces TurnOutcome.completed', () async {
-    worker.responseText = 'Hello from runner!';
+    _scheduleTurnCompletion(worker, responseText: 'Hello from runner!');
     final session = await sessions.getOrCreateMain();
     await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Hi');
 
@@ -82,7 +153,7 @@ void main() {
   });
 
   test('handles agent failure and produces TurnOutcome.failed', () async {
-    worker.shouldFail = true;
+    _scheduleTurnCompletion(worker, error: StateError('simulated crash'));
     final session = await sessions.getOrCreateMain();
 
     final turnId = await runner.startTurn(session.id, [
@@ -96,16 +167,13 @@ void main() {
   });
 
   test('cancels active turn', () async {
-    worker.delayMs = 500;
-    worker.responseText = 'Slow response';
     final session = await sessions.getOrCreateMain();
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Cancel me'},
     ]);
 
-    // Give the turn a moment to start.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await worker.turnInvoked;
     await runner.cancelTurn(session.id);
 
     final outcome = await runner.waitForOutcome(session.id, turnId);
@@ -113,7 +181,7 @@ void main() {
   });
 
   test('waitForOutcome returns completed outcome', () async {
-    worker.responseText = 'Done';
+    _scheduleTurnCompletion(worker, responseText: 'Done');
     final session = await sessions.getOrCreateMain();
 
     final turnId = await runner.startTurn(session.id, [
@@ -161,8 +229,7 @@ void main() {
 
   test('persists and cleans turn state via store', () async {
     final session = await sessions.getOrCreateMain();
-    worker.delayMs = 100;
-    worker.responseText = 'Tracked';
+    _scheduleTurnCompletion(worker, responseText: 'Tracked', delay: const Duration(milliseconds: 100));
 
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Track turn state'},
@@ -177,61 +244,163 @@ void main() {
     expect(outcome.status, TurnStatus.completed);
     expect(await turnState.getAll(), isNot(contains(session.id)));
   });
-}
 
-class _FakeWorker implements AgentHarness {
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
+  test('persists usage even when the harness does not report USD cost', () async {
+    final costWorker = FakeAgentHarness(supportsCostReporting: false);
+    addTearDown(() async => costWorker.dispose());
+    final costRunner = _buildRunner(
+      harness: costWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMain();
+    _scheduleTurnCompletion(
+      costWorker,
+      responseText: 'No cost',
+      result: _turnResult(inputTokens: 2, outputTokens: 3, totalCostUsd: 9.99),
+    );
 
-  String responseText = '';
-  bool shouldFail = false;
-  int delayMs = 0;
+    final turnId = await costRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Skip cost'},
+    ]);
 
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
+    final outcome = await costRunner.waitForOutcome(session.id, turnId);
 
-  @override
-  WorkerState get state => WorkerState.idle;
+    expect(outcome.status, TurnStatus.completed);
+    final usageData = await _readSessionCost(kvService, session.id);
+    expect(usageData['provider'], 'claude');
+    expect(usageData['input_tokens'], 2);
+    expect(usageData['output_tokens'], 3);
+    expect(usageData['total_tokens'], 5);
+    expect(usageData['cached_input_tokens'], 0);
+    expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(usageData['turn_count'], 1);
+  });
 
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
+  test('turn outcome carries cached_input_tokens when available', () async {
+    final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
+    addTearDown(() async => cachedWorker.dispose());
+    final cachedRunner = _buildRunner(
+      harness: cachedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMain();
+    _scheduleTurnCompletion(
+      cachedWorker,
+      responseText: 'Cached',
+      result: _turnResult(inputTokens: 1, outputTokens: 1, cachedInputTokens: 7),
+    );
 
-  @override
-  Future<void> start() async {}
+    final turnId = await cachedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Return cached tokens'},
+    ]);
 
-  @override
-  Future<Map<String, dynamic>> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    Map<String, dynamic>? mcpServers,
-    bool resume = false,
-    String? directory,
-    String? model,
-    String? effort,
-  }) async {
-    if (delayMs > 0) {
-      await Future<void>.delayed(Duration(milliseconds: delayMs));
-    }
-    if (shouldFail) {
-      throw StateError('simulated crash');
-    }
-    if (responseText.isNotEmpty) {
-      _eventsCtrl.add(DeltaEvent(responseText));
-    }
-    return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
-  }
+    final outcome = await cachedRunner.waitForOutcome(session.id, turnId);
 
-  @override
-  Future<void> cancel() async {
-    // Simulate cancellation by throwing.
-    shouldFail = true;
-  }
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.cachedInputTokens, 7);
+  });
 
-  @override
-  Future<void> stop() async {}
+  test('persists provider and accumulates cached input tokens across turns', () async {
+    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    addTearDown(() async => codexWorker.dispose());
+    final codexRunner = _buildRunner(
+      harness: codexWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'codex',
+    );
+    final session = await sessions.getOrCreateMain();
 
-  @override
-  Future<void> dispose() async {
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
-  }
+    _scheduleTurnCompletion(codexWorker, result: _turnResult(inputTokens: 2, outputTokens: 1, cachedInputTokens: 5));
+    final firstTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'first'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, firstTurnId);
+
+    _scheduleTurnCompletion(codexWorker, result: _turnResult(inputTokens: 3, outputTokens: 4, cachedInputTokens: 7));
+    final secondTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'second'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, secondTurnId);
+
+    final costData = await _readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'codex');
+    expect(costData['input_tokens'], 5);
+    expect(costData['output_tokens'], 5);
+    expect(costData['total_tokens'], 10);
+    expect(costData['cached_input_tokens'], 12);
+    expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(costData['turn_count'], 2);
+  });
+
+  test('preserves the first provider written for a session cost record', () async {
+    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    final claudeWorker = FakeAgentHarness();
+    addTearDown(() async => codexWorker.dispose());
+    addTearDown(() async => claudeWorker.dispose());
+    final codexRunner = _buildRunner(
+      harness: codexWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'codex',
+    );
+    final claudeRunner = _buildRunner(
+      harness: claudeWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'claude',
+    );
+    final session = await sessions.getOrCreateMain();
+
+    _scheduleTurnCompletion(
+      codexWorker,
+      result: _turnResult(inputTokens: 1, outputTokens: 1, totalCostUsd: 0.10, cachedInputTokens: 3),
+    );
+    final codexTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'codex'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, codexTurnId);
+
+    _scheduleTurnCompletion(claudeWorker, result: _turnResult(inputTokens: 2, outputTokens: 2, totalCostUsd: 0.20));
+    final claudeTurnId = await claudeRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'claude'},
+    ]);
+    await claudeRunner.waitForOutcome(session.id, claudeTurnId);
+
+    final costData = await _readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'codex');
+    expect(costData['cached_input_tokens'], 3);
+    expect(costData['turn_count'], 2);
+  });
+
+  test('defaults session cost provider to claude and treats missing cached_input_tokens as zero', () async {
+    final session = await sessions.getOrCreateMain();
+
+    _scheduleTurnCompletion(worker, result: _turnResult(inputTokens: 4, outputTokens: 6, totalCostUsd: 0.50));
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'default provider'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    final costData = await _readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'claude');
+    expect(costData['cached_input_tokens'], 0);
+  });
 }

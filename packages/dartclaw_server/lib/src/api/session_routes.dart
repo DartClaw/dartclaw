@@ -9,6 +9,7 @@ import 'package:shelf_router/shelf_router.dart';
 import '../session/session_reset_service.dart';
 import '../templates/loader.dart';
 import 'api_helpers.dart';
+import '../harness_pool.dart';
 import '../turn_manager.dart';
 import 'stream_handler.dart';
 
@@ -45,7 +46,15 @@ Router sessionRoutes(
   // POST /api/sessions
   router.post('/api/sessions', (Request request) async {
     try {
-      final session = await sessions.createSession();
+      final queryProvider = _trimmedOrNull(request.url.queryParameters['provider']);
+      final parsed = queryProvider == null
+          ? await _parseOptionalField(request, 'provider')
+          : (value: queryProvider, error: null);
+      if (parsed.error != null) return parsed.error!;
+      final providerValidation = _validateSessionProvider(parsed.value, turns.pool);
+      if (providerValidation != null) return providerValidation;
+
+      final session = await sessions.createSession(provider: parsed.value);
       return jsonResponse(201, session.toJson());
     } catch (e) {
       _log.warning('Failed to create session: $e', e);
@@ -137,6 +146,8 @@ Router sessionRoutes(
       if (session.type == SessionType.task) {
         return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
       }
+      final providerValidation = _validateSessionProviderForSend(session.provider, turns.pool);
+      if (providerValidation != null) return providerValidation;
 
       // 2. Parse + validate message
       final parsed = await _parseField(request, 'message');
@@ -153,6 +164,11 @@ Router sessionRoutes(
       try {
         turnId = await turns.reserveTurn(id, isHumanInput: true);
       } on BusyTurnException {
+        if (session.provider != null) {
+          return errorResponse(409, 'AGENT_BUSY_PROVIDER', 'No idle ${session.provider} workers available', {
+            'provider': session.provider,
+          });
+        }
         return errorResponse(409, 'AGENT_BUSY_GLOBAL', 'Agent is busy with another session');
       }
 
@@ -299,6 +315,16 @@ Future<({String? value, Response? error})> _parseField(Request request, String f
   return (value: null, error: errorResponse(415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported content type'));
 }
 
+Future<({String? value, Response? error})> _parseOptionalField(Request request, String field) async {
+  if ((request.contentLength ?? 0) == 0 && request.headers['content-type'] == null) {
+    return (value: null, error: null);
+  }
+
+  final parsed = await _parseField(request, field);
+  if (parsed.error != null) return parsed;
+  return (value: _trimmedOrNull(parsed.value), error: null);
+}
+
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
@@ -323,4 +349,37 @@ Response? _validateTitle(String? title) {
     return errorResponse(400, 'INVALID_INPUT', 'title must not exceed 120 characters', {'field': 'title'});
   }
   return null;
+}
+
+Response? _validateSessionProvider(String? provider, HarnessPool pool) {
+  if (provider == null) {
+    return null;
+  }
+  if (pool.hasTaskRunnerForProvider(provider)) {
+    return null;
+  }
+  return errorResponse(400, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {
+    'field': 'provider',
+    'provider': provider,
+  });
+}
+
+Response? _validateSessionProviderForSend(String? provider, HarnessPool pool) {
+  if (provider == null) {
+    return null;
+  }
+  if (pool.hasTaskRunnerForProvider(provider)) {
+    return null;
+  }
+  return errorResponse(409, 'PROVIDER_UNAVAILABLE', 'Provider "$provider" is not available for session overrides', {
+    'provider': provider,
+  });
+}
+
+String? _trimmedOrNull(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+  return trimmed;
 }

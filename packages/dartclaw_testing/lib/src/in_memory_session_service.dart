@@ -21,9 +21,16 @@ class InMemorySessionService implements SessionService {
   int _nextSessionNumber = 1;
 
   @override
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey}) async {
+  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
     final now = DateTime.now();
-    final session = Session(id: _createId(), type: type, channelKey: channelKey, createdAt: now, updatedAt: now);
+    final session = Session(
+      id: _createId(),
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      createdAt: now,
+      updatedAt: now,
+    );
     _sessionsById[session.id] = session;
     if (channelKey != null) {
       _sessionKeys[channelKey] = session.id;
@@ -84,13 +91,13 @@ class InMemorySessionService implements SessionService {
   }
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user}) async {
+  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
-        if (session.type != type || session.channelKey != key) {
-          final migrated = session.copyWith(type: type, channelKey: key, updatedAt: DateTime.now());
+        if (session.type != type || session.channelKey != key || session.provider != provider) {
+          final migrated = session.copyWith(type: type, channelKey: key, provider: provider, updatedAt: DateTime.now());
           _sessionsById[existingId] = migrated;
           return migrated;
         }
@@ -99,7 +106,7 @@ class InMemorySessionService implements SessionService {
       _sessionKeys.remove(key);
     }
 
-    return createSession(type: type, channelKey: key);
+    return createSession(type: type, channelKey: key, provider: provider);
   }
 
   @override
@@ -109,6 +116,17 @@ class InMemorySessionService implements SessionService {
       return null;
     }
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Session?> updateProvider(String id, String? provider) async {
+    final session = _sessionsById[id];
+    if (session == null) {
+      return null;
+    }
+    final updated = session.copyWith(provider: provider, updatedAt: DateTime.now());
     _sessionsById[id] = updated;
     return updated;
   }

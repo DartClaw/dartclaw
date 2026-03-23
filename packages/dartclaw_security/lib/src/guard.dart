@@ -14,6 +14,9 @@ class GuardContext {
   /// Non-null for 'beforeToolCall' hook.
   final String? toolName;
 
+  /// Raw provider-specific tool name preserved for audit logging.
+  final String? rawProviderToolName;
+
   /// Non-null for 'beforeToolCall' hook.
   final Map<String, dynamic>? toolInput;
 
@@ -39,6 +42,7 @@ class GuardContext {
   const GuardContext({
     required this.hookPoint,
     this.toolName,
+    this.rawProviderToolName,
     this.toolInput,
     this.messageContent,
     this.agentId,
@@ -103,11 +107,17 @@ class GuardChain {
   }
 
   /// Evaluates all guards for a 'beforeToolCall' hook point.
-  Future<GuardVerdict> evaluateBeforeToolCall(String toolName, Map<String, dynamic> toolInput, {String? sessionId}) {
+  Future<GuardVerdict> evaluateBeforeToolCall(
+    String toolName,
+    Map<dynamic, dynamic> toolInput, {
+    String? sessionId,
+    String? rawProviderToolName,
+  }) {
     final context = GuardContext(
       hookPoint: 'beforeToolCall',
       toolName: toolName,
-      toolInput: toolInput,
+      rawProviderToolName: rawProviderToolName,
+      toolInput: Map<String, dynamic>.from(toolInput),
       sessionId: sessionId,
       timestamp: DateTime.now(),
     );

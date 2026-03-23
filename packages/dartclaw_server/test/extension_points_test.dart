@@ -13,6 +13,18 @@ class _FakeWorkerService implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override
@@ -159,7 +171,7 @@ void main() {
         ),
       );
 
-      final verdict = await guardChain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await guardChain.evaluateBeforeToolCall('shell', {});
 
       expect(verdict.isBlock, isTrue);
       expect(verdict.message, 'added guard blocked');
@@ -193,7 +205,9 @@ void main() {
   group('registerChannel', () {
     test('registers channels before the first request without auto-connecting', () {
       final channelManager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok'),
+        queue: MessageQueue(
+          dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
+        ),
         config: const ChannelConfig.defaults(),
       );
       final server = buildServer(channelManager: channelManager);
@@ -209,7 +223,9 @@ void main() {
 
     test('throws after the first served request', () async {
       final channelManager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok'),
+        queue: MessageQueue(
+          dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
+        ),
         config: const ChannelConfig.defaults(),
       );
       final server = buildServer(channelManager: channelManager);

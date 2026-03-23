@@ -330,7 +330,7 @@ void main() {
       await harness.dispose();
     });
 
-    test('includes sdkMcpServers when mcpServerUrl is null', () async {
+    test('includes sdkMcpServers without double nesting when mcpServerUrl is null', () async {
       final fake = _bufferedCapturingFakeProcess();
 
       final harness = ClaudeCodeHarness(
@@ -365,7 +365,12 @@ void main() {
       );
       final request = initMsg['request'] as Map<String, dynamic>?;
       expect(request, isNotNull);
-      expect(request!.containsKey('sdkMcpServers'), isTrue);
+      final sdkMcpServers = request!['sdkMcpServers'] as Map<String, dynamic>?;
+      expect(sdkMcpServers, isNotNull);
+      expect(sdkMcpServers!.containsKey('dartclaw-memory'), isTrue);
+      expect(sdkMcpServers.containsKey('sdkMcpServers'), isFalse);
+      final memoryServer = sdkMcpServers['dartclaw-memory'] as Map<String, dynamic>;
+      expect(memoryServer['type'], equals('sdk_mcp_server'));
 
       await harness.dispose();
     });
@@ -427,6 +432,8 @@ void main() {
       final envIdx = capturedArgs.indexOf('-e');
       expect(envIdx, isNot(-1), reason: 'expected -e flag in docker exec args');
       expect(capturedArgs[envIdx + 1], equals('CLAUDE_CODE_SIMPLE=1'));
+      expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
+      expect(capturedArgs, containsAll(['--permission-prompt-tool', 'stdio']));
 
       await harness.dispose();
     });
@@ -448,6 +455,8 @@ void main() {
 
       // docker exec args should NOT contain CLAUDE_CODE_SIMPLE
       expect(capturedArgs, isNot(contains('CLAUDE_CODE_SIMPLE=1')));
+      expect(capturedArgs, contains('--dangerously-skip-permissions'));
+      expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
 
       await harness.dispose();
     });

@@ -1,3 +1,5 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -13,6 +15,7 @@ String taskDetailPageTemplate({
   String? messagesHtml,
   String bannerHtml = '',
   String appName = 'DartClaw',
+  String defaultProvider = 'claude',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final title = task['title']?.toString() ?? 'Task';
@@ -27,6 +30,7 @@ String taskDetailPageTemplate({
     'draft' || 'queued' || 'running' || 'interrupted' => true,
     _ => false,
   };
+  final provider = ProviderIdentity.normalize(task['provider']?.toString(), fallback: defaultProvider);
   final hasSession = task['sessionId'] != null && (task['sessionId'] as String).isNotEmpty;
   final pushBackCount = (task['pushBackCount'] as num?)?.toInt() ?? 0;
   final showPushBackWarning = pushBackCount >= 3;
@@ -73,6 +77,9 @@ String taskDetailPageTemplate({
     'status': statusName,
     'statusLabel': _titleCase(statusName),
     'statusBadgeClass': 'status-badge-$statusName',
+    'provider': provider,
+    'providerLabel': ProviderIdentity.displayName(provider),
+    'hasProvider': provider.isNotEmpty,
     'goalTitle': task['goalTitle']?.toString(),
     'description': task['description']?.toString() ?? '',
     'acceptanceCriteria': task['acceptanceCriteria']?.toString(),

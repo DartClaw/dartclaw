@@ -59,6 +59,7 @@ export 'src/logging/log_service.dart' show LogService;
 
 // Memory
 export 'src/api/memory_routes.dart' show memoryRoutes;
+export 'src/api/provider_routes.dart' show providerRoutes;
 export 'src/memory/memory_status_service.dart' show MemoryStatusService, SearchIndexCounter;
 
 // Memory handlers
@@ -105,16 +106,17 @@ export 'src/behavior/memory_consolidator.dart' show MemoryConsolidator;
 export 'src/behavior/self_improvement_service.dart' show SelfImprovementService;
 
 // Maintenance
-export 'src/maintenance/session_maintenance_service.dart' show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
+export 'src/maintenance/session_maintenance_service.dart'
+    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
 
 // Governance
-export 'src/governance/budget_enforcer.dart'
-    show BudgetEnforcer, BudgetCheckResult, BudgetDecision, BudgetStatus;
+export 'src/governance/budget_enforcer.dart' show BudgetEnforcer, BudgetCheckResult, BudgetDecision, BudgetStatus;
 export 'src/governance/budget_exhausted_exception.dart' show BudgetExhaustedException;
 export 'src/governance/pause_controller.dart' show PauseController, QueueResult;
 
 // Observability
 export 'src/observability/usage_tracker.dart' show UsageTracker;
+export 'src/provider_status_service.dart' show ProviderStatus, ProviderStatusService;
 
 // Restart
 export 'src/restart_service.dart' show RestartService;

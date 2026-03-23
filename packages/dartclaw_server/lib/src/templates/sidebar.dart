@@ -6,7 +6,7 @@ import 'loader.dart';
 typedef NavItem = ({String label, String href, bool active, String navGroup});
 
 /// Session entry for sidebar rendering, carrying type info.
-typedef SidebarSession = ({String id, String title, SessionType type});
+typedef SidebarSession = ({String id, String title, SessionType type, String provider});
 
 /// Partitioned session data for sidebar rendering.
 typedef SidebarData = ({
@@ -47,6 +47,8 @@ String sidebarTemplate({
       'title': trimmed.isEmpty ? 'Channel' : trimmed,
       'href': '/sessions/${ch.id}',
       'active': ch.id == activeSessionId,
+      'provider': ch.provider,
+      'providerLabel': ProviderIdentity.displayName(ch.provider),
     };
   }
 
@@ -63,6 +65,8 @@ String sidebarTemplate({
       'active': isActive,
       'extraClass': isActive ? 'active' : '',
       'title': trimmed.isEmpty ? 'New Session' : trimmed,
+      'provider': entry.provider,
+      'providerLabel': ProviderIdentity.displayName(entry.provider),
     };
   }).toList();
 
@@ -76,6 +80,8 @@ String sidebarTemplate({
       'active': isActive,
       'extraClass': isActive ? 'active' : '',
       'title': trimmed.isEmpty ? 'Archived session' : trimmed,
+      'provider': entry.provider,
+      'providerLabel': ProviderIdentity.displayName(entry.provider),
     };
   }).toList();
 
@@ -89,6 +95,8 @@ String sidebarTemplate({
       'mainSession': mainSession != null,
       'mainHref': mainSession != null ? '/sessions/${mainSession.id}' : '',
       'mainActive': mainSession != null && mainSession.id == activeSessionId,
+      'mainProvider': mainSession?.provider,
+      'mainProviderLabel': mainSession != null ? ProviderIdentity.displayName(mainSession.provider) : null,
       'noChannels': dmChannels.isEmpty && groupChannels.isEmpty,
       'noDmChannels': dmChannels.isEmpty,
       'hasGroupChannels': groupChannels.isNotEmpty,

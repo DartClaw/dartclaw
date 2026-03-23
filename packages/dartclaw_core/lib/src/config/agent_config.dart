@@ -2,6 +2,7 @@ import '../agents/agent_definition.dart';
 
 /// Configuration for the agent subsystem.
 class AgentConfig {
+  final String provider;
   final String? model;
   final String? effort;
   final int? maxTurns;
@@ -9,6 +10,7 @@ class AgentConfig {
   final List<AgentDefinition> definitions;
 
   const AgentConfig({
+    this.provider = 'claude',
     this.model,
     this.effort,
     this.maxTurns,

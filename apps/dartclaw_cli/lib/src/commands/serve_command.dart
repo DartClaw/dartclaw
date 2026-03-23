@@ -13,17 +13,6 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'config_loader.dart';
 import 'service_wiring.dart';
 
-typedef HarnessFactory =
-    AgentHarness Function(
-      String cwd, {
-      String? claudeExecutable,
-      Duration? turnTimeout,
-      Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave,
-      Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch,
-      Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead,
-      HarnessConfig? harnessConfig,
-      ContainerManager? containerManager,
-    });
 typedef ServerFactory = DartclawServer Function(DartclawServerBuilder builder);
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
 typedef WriteLine = void Function(String line);
@@ -59,27 +48,7 @@ class ServeCommand extends Command<void> {
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
-       _harnessFactory =
-           harnessFactory ??
-           ((
-             cwd, {
-             claudeExecutable,
-             turnTimeout,
-             onMemorySave,
-             onMemorySearch,
-             onMemoryRead,
-             harnessConfig,
-             containerManager,
-           }) => ClaudeCodeHarness(
-             claudeExecutable: claudeExecutable ?? 'claude',
-             cwd: cwd,
-             turnTimeout: turnTimeout ?? const Duration(seconds: 600),
-             onMemorySave: onMemorySave,
-             onMemorySearch: onMemorySearch,
-             onMemoryRead: onMemoryRead,
-             harnessConfig: harnessConfig ?? const HarnessConfig(),
-             containerManager: containerManager,
-           )),
+       _harnessFactory = harnessFactory ?? HarnessFactory(),
        _serverFactory = serverFactory ?? ((builder) => builder.build()),
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,

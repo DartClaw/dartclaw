@@ -17,11 +17,7 @@ class VersionConflictException implements Exception {
   final int expectedVersion;
   final int currentVersion;
 
-  const VersionConflictException({
-    required this.taskId,
-    required this.expectedVersion,
-    required this.currentVersion,
-  });
+  const VersionConflictException({required this.taskId, required this.expectedVersion, required this.currentVersion});
 
   @override
   String toString() =>
@@ -49,11 +45,17 @@ class TaskService {
     String? goalId,
     String? acceptanceCriteria,
     String? createdBy,
+    String? provider,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
     String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
+    final persistedProvider =
+        provider ??
+        ((configJson['provider'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (configJson['provider'] as String).trim());
     var task = Task(
       id: id,
       title: title,
@@ -64,6 +66,7 @@ class TaskService {
       configJson: configJson,
       createdAt: timestamp,
       createdBy: createdBy,
+      provider: persistedProvider,
     );
     if (autoStart) {
       task = task.transition(TaskStatus.queued, now: timestamp);
@@ -120,11 +123,7 @@ class TaskService {
         throw ArgumentError('Task not found: $taskId');
       }
       if (current.version != task.version) {
-        throw VersionConflictException(
-          taskId: taskId,
-          expectedVersion: task.version,
-          currentVersion: current.version,
-        );
+        throw VersionConflictException(taskId: taskId, expectedVersion: task.version, currentVersion: current.version);
       }
       throw StateError('Task status changed concurrently: expected ${task.status.name}, found ${current.status.name}');
     }
@@ -245,18 +244,21 @@ class TaskService {
     if (eventBus == null) return;
     // Fire asynchronously to avoid blocking transition(); artifact lookup is
     // best-effort — a missing or empty artifact list is still valid.
-    _repo.listArtifactsByTask(taskId).then((artifacts) {
-      final artifactKinds = artifacts.map((a) => a.kind.name).toSet().toList()..sort();
-      eventBus.fire(
-        TaskReviewReadyEvent(
-          taskId: taskId,
-          artifactCount: artifacts.length,
-          artifactKinds: artifactKinds,
-          timestamp: DateTime.now(),
-        ),
-      );
-    }).catchError((_) {
-      // Best-effort: failure to list artifacts should not prevent the review ready notification.
-    });
+    _repo
+        .listArtifactsByTask(taskId)
+        .then((artifacts) {
+          final artifactKinds = artifacts.map((a) => a.kind.name).toSet().toList()..sort();
+          eventBus.fire(
+            TaskReviewReadyEvent(
+              taskId: taskId,
+              artifactCount: artifacts.length,
+              artifactKinds: artifactKinds,
+              timestamp: DateTime.now(),
+            ),
+          );
+        })
+        .catchError((_) {
+          // Best-effort: failure to list artifacts should not prevent the review ready notification.
+        });
   }
 }

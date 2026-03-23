@@ -19,6 +19,7 @@ import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
+import 'api/provider_routes.dart';
 import 'api/session_routes.dart';
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
@@ -42,6 +43,7 @@ import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'observability/usage_tracker.dart';
 import 'params/display_params.dart';
+import 'provider_status_service.dart';
 import 'restart_service.dart';
 import 'runtime_config.dart';
 import 'scheduling/schedule_service.dart';
@@ -114,6 +116,7 @@ class DartclawServerBuilder {
   DartclawConfig? config;
   RestartService? restartService;
   SseBroadcast? sseBroadcast;
+  ProviderStatusService? providerStatus;
 
   // Tasks
   GoalService? goalService;
@@ -156,7 +159,7 @@ class DartclawServerBuilder {
     final w = worker ?? (throw StateError('worker is required'));
     final b = behavior ?? (throw StateError('behavior is required'));
     _cachedTurns = pool != null
-        ? TurnManager.fromPool(pool: pool!)
+        ? TurnManager.fromPool(pool: pool!, sessions: sessionsForTurns ?? s)
         : TurnManager(
             messages: m,
             worker: w,
@@ -218,6 +221,7 @@ class DartclawServerBuilder {
       config: config,
       restartService: restartService,
       sseBroadcast: sseBroadcast,
+      providerStatus: providerStatus,
       eventBus: eventBus,
       goalService: goalService,
       taskService: taskService,
@@ -244,6 +248,7 @@ class DartclawServerBuilder {
       signalChannel: signalChannel,
       googleChatChannel: googleChatWebhookHandler?.channel,
       guardChain: guardChain,
+      providerStatus: providerStatus,
       runtimeConfigGetter: () => server._runtimeConfig,
       memoryStatusServiceGetter: () => server._memoryStatusService,
       contentGuardDisplay: contentGuardDisplay,
@@ -296,6 +301,7 @@ class DartclawServer {
   final DartclawConfig? _config;
   final RestartService? _restartService;
   final SseBroadcast? _sseBroadcast;
+  final ProviderStatusService? _providerStatus;
   final EventBus? _eventBus;
   final GoalService? _goalService;
   final TaskService? _taskService;
@@ -322,6 +328,7 @@ class DartclawServer {
   bool _registrationLocked = false;
 
   TurnManager get turns => _turns;
+  ProviderStatusService? get providerStatus => _providerStatus;
 
   /// Internal constructor — use [DartclawServerBuilder] to create instances.
   DartclawServer._({
@@ -355,6 +362,7 @@ class DartclawServer {
     required DartclawConfig? config,
     required RestartService? restartService,
     required SseBroadcast? sseBroadcast,
+    required ProviderStatusService? providerStatus,
     required EventBus? eventBus,
     required GoalService? goalService,
     required TaskService? taskService,
@@ -402,6 +410,7 @@ class DartclawServer {
        _config = config,
        _restartService = restartService,
        _sseBroadcast = sseBroadcast,
+       _providerStatus = providerStatus,
        _eventBus = eventBus,
        _goalService = goalService,
        _taskService = taskService,
@@ -554,6 +563,7 @@ class DartclawServer {
     _mountSignalPairingRoutes(router);
     _mountConfigRoutes(router);
     _mountConfigApiRoutes(router);
+    _mountProviderRoutes(router);
     _mountMemoryRoutes(router);
     _mountGoalRoutes(router);
     _mountTaskRoutes(router);
@@ -677,6 +687,14 @@ class DartclawServer {
     }
   }
 
+  void _mountProviderRoutes(Router router) {
+    final providerStatus = _providerStatus;
+    if (providerStatus != null) {
+      final providerRouter = providerRoutes(providerStatus: providerStatus);
+      router.mount('/', providerRouter.call);
+    }
+  }
+
   void _mountGoalRoutes(Router router) {
     final goalService = _goalService;
     if (goalService != null) {
@@ -707,9 +725,7 @@ class DartclawServer {
   }
 
   void _mountGoogleChatSubscriptionRoutes(Router router) {
-    final subRouter = googleChatSubscriptionRoutes(
-      subscriptionManager: _spaceEventsWiring?.subscriptionManager,
-    );
+    final subRouter = googleChatSubscriptionRoutes(subscriptionManager: _spaceEventsWiring?.subscriptionManager);
     router.mount('/', subRouter.call);
   }
 

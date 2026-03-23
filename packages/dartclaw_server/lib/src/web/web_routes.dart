@@ -77,6 +77,7 @@ Router webRoutes(
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
+  final defaultProvider = _normalizedDefaultProvider(config?.agent.provider);
   final registry = pageRegistry ?? PageRegistry();
   if (pageRegistry == null) {
     registerSystemDashboardPages(
@@ -107,7 +108,7 @@ Router webRoutes(
     eventBus: eventBus,
     messages: messages,
     agentObserver: agentObserver,
-    buildSidebarData: () => buildSidebarData(sessions),
+    buildSidebarData: () => buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider),
     restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
     buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
   );
@@ -171,7 +172,7 @@ Router webRoutes(
       return _redirect(request, '/sessions/${all.first.id}');
     }
 
-    final sidebarData = await buildSidebarData(sessions);
+    final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
     final sidebar = sidebarTemplate(
       mainSession: sidebarData.main,
       dmChannels: sidebarData.dmChannels,
@@ -195,9 +196,11 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final sidebarData = await buildSidebarData(sessions);
+      final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
       final msgs = await messages.getMessagesTail(id);
-      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null)).toList();
+      final messageList = msgs
+          .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
+          .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
@@ -266,7 +269,9 @@ Router webRoutes(
       final msgs = beforeCursor == null
           ? await messages.getMessagesTail(id)
           : await messages.getMessagesBefore(id, beforeCursor);
-      final messageList = msgs.map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null)).toList();
+      final messageList = msgs
+          .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
+          .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
       final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
       final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
@@ -311,16 +316,20 @@ Router webRoutes(
           .reversed
           .toList();
 
-      final usage = await _readSessionUsage(kvService, id);
+      final usage = await _readSessionUsage(kvService, id, defaultProvider: defaultProvider);
       final page = sessionInfoTemplate(
         sessionId: id,
         sessionTitle: session.title ?? '',
         messageCount: msgs.length,
-        sidebarData: await buildSidebarData(sessions),
+        sidebarData: await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
+        defaultProvider: defaultProvider,
+        provider: usage.provider,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        estimatedCostUsd: usage.estimatedCostUsd,
+        cachedInputTokens: usage.cachedInputTokens,
         bannerHtml: restartBannerHtml(appDisplay.dataDir),
         recentTurns: recentTurns,
         appName: appDisplay.name,
@@ -358,7 +367,7 @@ Router webRoutes(
         return _htmlNotFound('Unknown channel type: $type');
       }
 
-      final sidebarData = await buildSidebarData(sessions);
+      final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
@@ -499,28 +508,59 @@ Router webRoutes(
   return router;
 }
 
-Future<({int? inputTokens, int? outputTokens})> _readSessionUsage(KvService? kvService, String sessionId) async {
+Future<({int? inputTokens, int? outputTokens, int? cachedInputTokens, double? estimatedCostUsd, String provider})>
+_readSessionUsage(KvService? kvService, String sessionId, {String defaultProvider = 'claude'}) async {
   if (kvService == null) {
-    return (inputTokens: null, outputTokens: null);
+    return (
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      estimatedCostUsd: null,
+      provider: defaultProvider,
+    );
   }
 
   final raw = await kvService.get('session_cost:$sessionId');
   if (raw == null) {
-    return (inputTokens: null, outputTokens: null);
+    return (
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      estimatedCostUsd: null,
+      provider: defaultProvider,
+    );
   }
 
   try {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic>) {
-      return (inputTokens: null, outputTokens: null);
+      return (
+        inputTokens: null,
+        outputTokens: null,
+        cachedInputTokens: null,
+        estimatedCostUsd: null,
+        provider: defaultProvider,
+      );
     }
 
     return (
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
+      cachedInputTokens: (decoded['cached_input_tokens'] as num?)?.toInt(),
+      estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
+      provider: switch (decoded['provider']) {
+        final String value when value.trim().isNotEmpty => value,
+        _ => defaultProvider,
+      },
     );
   } catch (e) {
-    return (inputTokens: null, outputTokens: null);
+    return (
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      estimatedCostUsd: null,
+      provider: defaultProvider,
+    );
   }
 }
 
@@ -537,7 +577,11 @@ String? _sanitizeNextPath(String? rawValue) {
 // ---------------------------------------------------------------------------
 
 /// Fetches and partitions all sessions for sidebar rendering.
-Future<SidebarData> buildSidebarData(SessionService sessions) async {
+Future<SidebarData> buildSidebarData(
+  SessionService sessions, {
+  KvService? kvService,
+  String defaultProvider = 'claude',
+}) async {
   final all = await sessions.listSessions();
   SidebarSession? main;
   final dmChannels = <SidebarSession>[];
@@ -546,7 +590,8 @@ Future<SidebarData> buildSidebarData(SessionService sessions) async {
   final archivedEntries = <SidebarSession>[];
 
   for (final s in all) {
-    final entry = (id: s.id, title: s.title ?? '', type: s.type);
+    final provider = await _resolveSidebarProvider(s, kvService, defaultProvider: defaultProvider);
+    final entry = (id: s.id, title: s.title ?? '', type: s.type, provider: provider);
     switch (s.type) {
       case SessionType.main:
         main = entry;
@@ -574,6 +619,20 @@ Future<SidebarData> buildSidebarData(SessionService sessions) async {
     activeEntries: activeEntries,
     archivedEntries: archivedEntries,
   );
+}
+
+Future<String> _resolveSidebarProvider(Session session, KvService? kvService, {String defaultProvider = 'claude'}) async {
+  final sessionProvider = session.provider?.trim();
+  if (sessionProvider != null && sessionProvider.isNotEmpty) {
+    return _normalizedDefaultProvider(sessionProvider);
+  }
+  final usage = await _readSessionUsage(kvService, session.id, defaultProvider: defaultProvider);
+  return usage.provider;
+}
+
+String _normalizedDefaultProvider(String? providerId) {
+  final trimmed = providerId?.trim().toLowerCase();
+  return trimmed == null || trimmed.isEmpty ? 'claude' : trimmed;
 }
 
 /// Returns true if the channel key represents a group session.

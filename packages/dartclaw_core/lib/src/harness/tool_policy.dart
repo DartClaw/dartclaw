@@ -2,6 +2,10 @@
 ///
 /// Phase 0 only supports [allowAll]; finer-grained policies (allowlist,
 /// interactive prompt, etc.) will be added in later phases.
+///
+/// Retained for compatibility with existing harness configuration and possible
+/// future Codex approval-policy work. Claude now relies on hook callbacks
+/// rather than `can_use_tool` permission prompts.
 enum ToolApprovalPolicy { allowAll }
 
 /// Builds a `control_response` for a `can_use_tool` control_request.

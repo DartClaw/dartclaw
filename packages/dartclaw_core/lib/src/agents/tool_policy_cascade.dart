@@ -57,7 +57,7 @@ class ToolPolicyGuard extends Guard {
     final agentId = context.agentId;
     if (agentId == null) return GuardVerdict.pass();
 
-    final toolName = context.toolName;
+    final toolName = context.rawProviderToolName ?? context.toolName;
     if (toolName == null) return GuardVerdict.pass();
 
     if (!cascade.isAllowed(agentId, toolName)) {

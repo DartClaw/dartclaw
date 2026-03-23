@@ -62,6 +62,9 @@ class TurnRunner {
   /// Security profile this runner's harness executes in (e.g. 'workspace', 'restricted').
   final String profileId;
 
+  /// Agent provider backing this runner's harness (e.g. 'claude', 'codex').
+  final String providerId;
+
   final Map<String, TurnContext> _activeTurns = {};
   final Set<String> _cancelledTurns = {};
   final Map<String, ({TurnOutcome outcome, DateTime expiresAt})> _recentOutcomes = {};
@@ -93,6 +96,7 @@ class TurnRunner {
     Duration outcomeTtl = const Duration(seconds: 30),
     Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
     this.profileId = 'workspace',
+    this.providerId = 'claude',
   }) : _worker = harness,
        _messages = messages,
        _behavior = behavior,
@@ -304,9 +308,7 @@ class TurnRunner {
   }
 
   /// Configures a best-effort notifier for loop detection events.
-  set loopDetectionNotifier(
-    Future<void> Function(String sessionId, LoopDetection detection, String action)? notifier,
-  ) {
+  set loopDetectionNotifier(Future<void> Function(String sessionId, LoopDetection detection, String action)? notifier) {
     _loopDetectionNotifier = notifier;
   }
 
@@ -559,12 +561,13 @@ class TurnRunner {
           effort: turnCtx?.effort,
         );
         final accumulated = buffer.toString();
+        final cachedInputTokens = _worker.supportsCachedTokens ? result['cached_input_tokens'] as int? : null;
 
         try {
-          await _trackCost(sessionId, result);
+          await _trackSessionUsage(sessionId, result, providerId);
           _contextMonitor.update(contextTokens: result['input_tokens'] as int?);
         } catch (e) {
-          _log.warning('Failed to track cost', e);
+          _log.warning('Failed to track usage', e);
         }
 
         final tracker = _usageTracker;
@@ -586,7 +589,9 @@ class TurnRunner {
                     durationMs: durationMs,
                   ),
                 )
-                .catchError((Object e) { _log.fine('Failed to record usage', e); }),
+                .catchError((Object e) {
+                  _log.fine('Failed to record usage', e);
+                }),
           );
 
           // Post-hoc token velocity check (Mechanism 2).
@@ -657,6 +662,7 @@ class TurnRunner {
           responseText: trimmed,
           inputTokens: result['input_tokens'] as int? ?? 0,
           outputTokens: result['output_tokens'] as int? ?? 0,
+          cachedInputTokens: cachedInputTokens,
           completedAt: DateTime.now(),
         );
 
@@ -742,7 +748,7 @@ class TurnRunner {
     }
   }
 
-  Future<void> _trackCost(String sessionId, Map<String, dynamic> result) async {
+  Future<void> _trackSessionUsage(String sessionId, Map<String, dynamic> result, String provider) async {
     final kv = _kv;
     if (kv == null) return;
 
@@ -757,13 +763,20 @@ class TurnRunner {
 
     final inputTokens = result['input_tokens'] as int? ?? 0;
     final outputTokens = result['output_tokens'] as int? ?? 0;
-    final costUsd = (result['total_cost_usd'] as num?)?.toDouble() ?? 0.0;
+    final cachedInputTokens = (result['cached_input_tokens'] as num?)?.toInt() ?? 0;
+    final costUsd = _worker.supportsCostReporting ? (result['total_cost_usd'] as num?)?.toDouble() ?? 0.0 : 0.0;
+    final existingProvider = switch (costData['provider']) {
+      final String value when value.trim().isNotEmpty => value,
+      _ => null,
+    };
 
-    costData['input_tokens'] = (costData['input_tokens'] as int) + inputTokens;
-    costData['output_tokens'] = (costData['output_tokens'] as int) + outputTokens;
-    costData['total_tokens'] = (costData['total_tokens'] as int) + inputTokens + outputTokens;
+    costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
+    costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
+    costData['cached_input_tokens'] = ((costData['cached_input_tokens'] as num?)?.toInt() ?? 0) + cachedInputTokens;
+    costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
-    costData['turn_count'] = (costData['turn_count'] as int) + 1;
+    costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
+    costData['provider'] = existingProvider ?? provider;
 
     await kv.set(key, jsonEncode(costData));
   }

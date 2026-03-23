@@ -201,6 +201,14 @@ class ServiceWiring {
       restartPendingFile.deleteSync();
     }
 
+    final providerStatus = ProviderStatusService(
+      providers: config.providers,
+      registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
+      defaultProvider: config.agent.provider,
+      pool: harness.pool,
+    );
+    await providerStatus.probe();
+
     final builder = DartclawServerBuilder()
       ..sessions = storage.sessions
       ..messages = storage.messages
@@ -334,6 +342,7 @@ class ServiceWiring {
       ..config = config
       ..restartService = restartService
       ..sseBroadcast = harness.sseBroadcast
+      ..providerStatus = providerStatus
       ..goalService = storage.goalService
       ..taskService = storage.taskService
       ..taskReviewService = task.taskReviewService

@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart';
+
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -17,9 +21,11 @@ String tasksPageTemplate({
   List<Map<String, dynamic>>? agentRunners,
   Map<String, dynamic>? agentPool,
   List<Map<String, String>> goalOptions = const [],
+  String defaultProvider = 'claude',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final topbar = pageTopbarTemplate(title: 'Tasks');
+  final normalizedDefaultProvider = ProviderIdentity.normalize(defaultProvider);
   const knownStatuses = [
     'draft',
     'queued',
@@ -63,9 +69,12 @@ String tasksPageTemplate({
       'isRunning': status == 'running',
       'tasks': groupTasks.map((t) {
         final statusName = t['status']?.toString() ?? 'draft';
+        final provider = ProviderIdentity.normalize(t['provider']?.toString(), fallback: normalizedDefaultProvider);
         return {
           ...t,
           'typeLabel': _titleCase(t['type']?.toString() ?? ''),
+          'provider': provider,
+          'providerLabel': ProviderIdentity.displayName(provider),
           'statusBadgeClass': 'status-badge-$statusName',
           'cardTintClass': switch (statusName) {
             'running' => 'card-tint-accent',
@@ -121,7 +130,9 @@ String tasksPageTemplate({
     'agentRunners': agentRunners,
     'agentPool': agentPool,
     'agentPoolBarHtml': hasAgentPool && !isSingleRunner ? _buildPoolBarHtml(agentPool) : null,
-    'agentOverviewHtml': hasAgentPool ? _buildAgentOverviewHtml(agentRunners, agentPool, isSingleRunner) : null,
+    'agentOverviewHtml': hasAgentPool
+        ? _buildAgentOverviewHtml(agentRunners, agentPool, isSingleRunner, defaultProvider: normalizedDefaultProvider)
+        : null,
   });
 
   return layoutTemplate(title: 'Tasks', body: body, appName: appName);
@@ -131,6 +142,13 @@ String _titleCase(String value) {
   if (value.isEmpty) return value;
   return value[0].toUpperCase() + value.substring(1);
 }
+
+String _classSuffix(String value) {
+  final sanitized = value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]'), '-');
+  return sanitized.isEmpty ? 'claude' : sanitized;
+}
+
+String _escapeHtml(String text) => const HtmlEscape().convert(text);
 
 String _buildPoolBarHtml(Map<String, dynamic> pool) {
   final size = pool['size'] as int? ?? 1;
@@ -144,7 +162,12 @@ String _buildPoolBarHtml(Map<String, dynamic> pool) {
       '<div class="agent-pool-label">$active/$size runners active</div>';
 }
 
-String _buildAgentOverviewHtml(List<Map<String, dynamic>>? runners, Map<String, dynamic> pool, bool isSingleRunner) {
+String _buildAgentOverviewHtml(
+  List<Map<String, dynamic>>? runners,
+  Map<String, dynamic> pool,
+  bool isSingleRunner, {
+  String defaultProvider = 'claude',
+}) {
   if (isSingleRunner) {
     return '<div class="agent-overview" id="agent-overview">'
         '<h3>Agent Pool</h3>'
@@ -166,6 +189,8 @@ String _buildAgentOverviewHtml(List<Map<String, dynamic>>? runners, Map<String, 
     final role = runner['role']?.toString() ?? 'task';
     final state = runner['state']?.toString() ?? 'idle';
     final taskId = runner['currentTaskId']?.toString();
+    final providerId = ProviderIdentity.normalize(runner['providerId']?.toString(), fallback: defaultProvider);
+    final providerLabel = ProviderIdentity.displayName(providerId);
     final tokens = runner['tokensConsumed'] as int? ?? 0;
     final turns = runner['turnsCompleted'] as int? ?? 0;
     final errors = runner['errorCount'] as int? ?? 0;
@@ -173,14 +198,21 @@ String _buildAgentOverviewHtml(List<Map<String, dynamic>>? runners, Map<String, 
 
     buf
       ..write('<div class="card agent-runner-card" data-runner-id="$runnerId">')
-      ..write('<div class="runner-label">$label</div>')
+      ..write('<div class="runner-label">${_escapeHtml(label)}</div>')
       ..write('<span class="status-badge agent-state-$state">${_titleCase(state)}</span>');
 
     if (state == 'busy' && taskId != null) {
-      buf.write('<div class="runner-metric"><a href="/tasks/$taskId">Task: ${_truncateId(taskId)}</a></div>');
+      final escapedTaskId = _escapeHtml(taskId);
+      buf.write(
+        '<div class="runner-metric"><a href="/tasks/$escapedTaskId">Task: ${_escapeHtml(_truncateId(taskId))}</a></div>',
+      );
     }
 
     buf
+      ..write(
+        '<div class="runner-metric"><span class="provider-badge provider-badge-${_classSuffix(providerId)}">'
+        '${_escapeHtml(providerLabel)}</span></div>',
+      )
       ..write('<div class="runner-metric">$turns turns</div>')
       ..write('<div class="runner-metric">${_formatTokens(tokens)} tokens</div>');
     if (errors > 0) {

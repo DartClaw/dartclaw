@@ -34,7 +34,7 @@ Future<void> main() async {
   );
 
   final verdict = await chain.evaluateBeforeToolCall(
-    'Bash',
+    'shell',
     {'command': 'rm -rf ~/.ssh'},
   );
 

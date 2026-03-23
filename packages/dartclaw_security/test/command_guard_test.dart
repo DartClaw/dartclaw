@@ -3,12 +3,12 @@ import 'package:test/test.dart';
 
 GuardContext _bash(String command) => GuardContext(
   hookPoint: 'beforeToolCall',
-  toolName: 'Bash',
+  toolName: 'shell',
   toolInput: {'command': command},
   timestamp: DateTime.now(),
 );
 
-GuardContext _nonBash({String hookPoint = 'beforeToolCall', String toolName = 'read_file'}) =>
+GuardContext _nonBash({String hookPoint = 'beforeToolCall', String toolName = 'file_read'}) =>
     GuardContext(hookPoint: hookPoint, toolName: toolName, toolInput: {}, timestamp: DateTime.now());
 
 void main() {
@@ -128,9 +128,9 @@ void main() {
     });
   });
 
-  group('CommandGuard — non-Bash tools', () {
-    test('passes for non-Bash toolName', () async {
-      final v = await guard.evaluate(_nonBash(toolName: 'read_file'));
+  group('CommandGuard — non-shell tools', () {
+    test('passes for non-shell toolName', () async {
+      final v = await guard.evaluate(_nonBash(toolName: 'file_read'));
       expect(v.isPass, isTrue);
     });
 
@@ -140,7 +140,12 @@ void main() {
     });
 
     test('passes for null command', () async {
-      final ctx = GuardContext(hookPoint: 'beforeToolCall', toolName: 'Bash', toolInput: {}, timestamp: DateTime.now());
+      final ctx = GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'shell',
+        toolInput: {},
+        timestamp: DateTime.now(),
+      );
       final v = await guard.evaluate(ctx);
       expect(v.isPass, isTrue);
     });

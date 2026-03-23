@@ -17,6 +17,16 @@ void main() {
         expect(config.server.staticDir, 'packages/dartclaw_server/lib/src/static');
         expect(config.warnings, isEmpty);
       });
+
+      test('providers, credentials, and agent.provider have expected defaults', () {
+        final config = const DartclawConfig.defaults();
+
+        expect(config.providers, const ProvidersConfig.defaults());
+        expect(config.providers.isEmpty, isTrue);
+        expect(config.credentials, const CredentialsConfig.defaults());
+        expect(config.credentials.isEmpty, isTrue);
+        expect(config.agent.provider, 'claude');
+      });
     });
 
     group('derived getters', () {
@@ -554,6 +564,49 @@ void main() {
       test('default dataDir gets ~ expanded', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/testuser'});
         expect(config.server.dataDir, '/home/testuser/.dartclaw');
+      });
+
+      test('existing config without providers or credentials loads successfully', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'agent:\n  model: sonnet\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.agent.model, 'sonnet');
+        expect(config.agent.provider, 'claude');
+        expect(config.providers, const ProvidersConfig.defaults());
+        expect(config.providers.isEmpty, isTrue);
+        expect(config.credentials, const CredentialsConfig.defaults());
+        expect(config.credentials.isEmpty, isTrue);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('parses agent.provider from YAML', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'agent:\n  provider: codex\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.agent.provider, 'codex');
+      });
+
+      test('invalid type for agent.provider produces warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'agent:\n  provider: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.agent.provider, 'claude');
+        expect(config.warnings, anyElement(contains('Invalid type for agent.provider')));
       });
     });
 
@@ -1184,18 +1237,13 @@ automation:
 
       // TC-E04: extension<T>() throws ArgumentError for wrong type
       test('extension<T>() throws ArgumentError for type mismatch', () {
-        final config = DartclawConfig(
-          extensions: {'slack': _SlackConfig(webhook: 'x')},
-        );
+        final config = DartclawConfig(extensions: {'slack': _SlackConfig(webhook: 'x')});
         expect(() => config.extension<String>('slack'), throwsArgumentError);
       });
 
       // TC-E05: registerExtensionParser throws for built-in key
       test('registerExtensionParser throws ArgumentError for built-in key', () {
-        expect(
-          () => DartclawConfig.registerExtensionParser('agent', (a, b) => {}),
-          throwsArgumentError,
-        );
+        expect(() => DartclawConfig.registerExtensionParser('agent', (a, b) => {}), throwsArgumentError);
       });
 
       // TC-E06: parser throwing stores raw map and adds warning
@@ -1305,10 +1353,7 @@ automation:
 
       // TC-E13: registered parser with non-map value warns and stores raw
       test('registered parser with non-map value warns and preserves raw', () {
-        DartclawConfig.registerExtensionParser(
-          'flag_ext',
-          (yaml, warns) => _SlackConfig(webhook: 'parsed'),
-        );
+        DartclawConfig.registerExtensionParser('flag_ext', (yaml, warns) => _SlackConfig(webhook: 'parsed'));
         final config = DartclawConfig.load(
           fileReader: (path) {
             if (path == 'dartclaw.yaml') return 'flag_ext: 42\n';
@@ -1332,10 +1377,7 @@ automation:
 
       // TC-E09: clearExtensionParsers resets registry so subsequent load ignores parser
       test('clearExtensionParsers removes all registered parsers', () {
-        DartclawConfig.registerExtensionParser(
-          'gone',
-          (yaml, warns) => _SlackConfig(webhook: 'x'),
-        );
+        DartclawConfig.registerExtensionParser('gone', (yaml, warns) => _SlackConfig(webhook: 'x'));
         DartclawConfig.clearExtensionParsers();
         final config = DartclawConfig.load(
           fileReader: (path) {

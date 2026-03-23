@@ -172,6 +172,7 @@ Run `dart pub get` first. Check Dart SDK >= 3.7.0.
 - **[Agents](agents.md)** -- subagent delegation, custom agents, task runners, model hierarchy
 - **[Scheduling](scheduling.md)** -- heartbeat, cron jobs, delivery modes
 - **[Tasks](tasks.md)** -- task lifecycle, review workflow, worktrees, automation
+- **[Projects & Git](projects-and-git.md)** -- project directory, git worktrees, branch management
 - **[Search & Memory](search.md)** -- search agent, content-guard, FTS5/QMD
 - **[Deployment](deployment.md)** -- LaunchDaemon, systemd, egress firewall
 - **[Customization](customization.md)** -- L1-L5 customization ladder

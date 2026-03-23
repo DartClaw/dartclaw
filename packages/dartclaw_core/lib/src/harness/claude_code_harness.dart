@@ -11,8 +11,10 @@ import '../bridge/bridge_events.dart';
 import '../container/container_manager.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
+import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
 import 'harness_config.dart';
+import 'protocol_message.dart' as proto;
 import 'process_types.dart';
 import 'tool_policy.dart';
 
@@ -26,6 +28,7 @@ List<String> _buildClaudeArgs({
   String? appendSystemPrompt,
   String? mcpConfigPath,
   bool settingSourcesProject = false,
+  bool skipNativePermissions = true,
 }) => [
   '--print',
   '--input-format',
@@ -35,8 +38,7 @@ List<String> _buildClaudeArgs({
   '--verbose',
   '--include-partial-messages',
   '--no-session-persistence',
-  '--permission-prompt-tool',
-  'stdio',
+  if (skipNativePermissions) '--dangerously-skip-permissions' else ...['--permission-prompt-tool', 'stdio'],
   // Restrict to project-level settings only (non-containerized only) — prevents
   // inherited user/enterprise marketplace plugins and SSH-backed git pulls from
   // affecting harness startup. Containerized spawns already have filesystem isolation.
@@ -54,7 +56,7 @@ List<String> _buildClaudeArgs({
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness implements AgentHarness {
+class ClaudeCodeHarness extends AgentHarness {
   final String claudeExecutable;
   final String cwd;
   final Duration turnTimeout;
@@ -69,6 +71,7 @@ class ClaudeCodeHarness implements AgentHarness {
   final GuardAuditLogger? auditLogger;
   final HarnessConfig harnessConfig;
   final ContainerManager? containerManager;
+  final ClaudeProtocolAdapter _adapter;
 
   /// Memory handler callbacks. Used for `sdkMcpServers` fallback in chat mode
   /// (no MCP server). When `harnessConfig.mcpServerUrl` is set, memory tools
@@ -121,10 +124,12 @@ class ClaudeCodeHarness implements AgentHarness {
     this.onMemoryRead,
     this.harnessConfig = const HarnessConfig(),
     this.containerManager,
+    ClaudeProtocolAdapter? protocolAdapter,
   }) : _processFactory = processFactory ?? Process.start,
        _commandProbe = commandProbe ?? Process.run,
        _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
-       _environment = environment ?? Platform.environment {
+       _environment = environment ?? Platform.environment,
+       _adapter = protocolAdapter ?? ClaudeProtocolAdapter() {
     _processWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
@@ -277,21 +282,12 @@ class ClaudeCodeHarness implements AgentHarness {
     _turnCompleter = Completer<Map<String, dynamic>>();
 
     try {
-      // Build the user message payload. The claude binary manages its own
-      // history within the subprocess session, so we send the last user
-      // message plus the system prompt (injected each turn since the binary
-      // doesn't persist it across turn boundaries).
-      final payload = <String, dynamic>{
-        'type': 'user',
-        'message': {'role': 'user', 'content': messages.last['content']},
-      };
-      // Only send system_prompt for replace-mode harnesses (append-mode uses CLI flag)
-      if (promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty) {
-        payload['system_prompt'] = systemPrompt;
-      }
-      if (resume) {
-        payload['resume'] = true;
-      }
+      final messageContent = messages.last['content'];
+      final payload = _adapter.buildTurnRequest(
+        message: messageContent is String ? messageContent : messageContent?.toString() ?? '',
+        systemPrompt: promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty ? systemPrompt : null,
+        resume: resume,
+      );
       _writeLine(payload);
 
       final result = await _turnCompleter!.future;
@@ -391,6 +387,10 @@ class ClaudeCodeHarness implements AgentHarness {
       // Non-containerized only: restrict to project-level settings to avoid
       // inheriting user/enterprise marketplace plugins or SSH git prompts.
       settingSourcesProject: cm == null,
+      // Restricted containers run in Claude simple mode, which disables hooks.
+      // They must keep native permission prompts enabled so tool requests still
+      // flow through the provider permission channel.
+      skipNativePermissions: cm?.profileId != 'restricted',
     );
     final Process process;
     if (cm != null) {
@@ -536,31 +536,30 @@ class ClaudeCodeHarness implements AgentHarness {
     final requestId = 'req_init_${DateTime.now().millisecondsSinceEpoch}';
     _log.info('Sending initialize (id: $requestId)...');
 
-    final initRequest = <String, dynamic>{
-      'subtype': 'initialize',
-      'hooks': {
-        'PreToolUse': [
-          {
-            'matcher': null,
-            'hookCallbackIds': ['hook_pre_tool'],
-            'timeout': 30,
-          },
-        ],
-        'PostToolUse': [
-          {
-            'matcher': null,
-            'hookCallbackIds': ['hook_post_tool'],
-            'timeout': 10,
-          },
-        ],
-      },
-      // Memory tools via sdkMcpServers fallback for chat mode (no MCP server).
-      // When mcpServerUrl is set (serve command), tools come from /mcp instead.
-      if (harnessConfig.mcpServerUrl == null) ..._buildMemorySdkMcpServers(),
-      ...harnessConfig.toInitializeFields(),
-    };
-
-    _writeLine({'type': 'control_request', 'request_id': requestId, 'request': initRequest});
+    final sdkMcpServers = _buildMemorySdkMcpServers();
+    _writeLine(
+      _adapter.buildInitializeRequest(
+        requestId: requestId,
+        hooks: {
+          'PreToolUse': [
+            {
+              'matcher': null,
+              'hookCallbackIds': ['hook_pre_tool'],
+              'timeout': 30,
+            },
+          ],
+          'PostToolUse': [
+            {
+              'matcher': null,
+              'hookCallbackIds': ['hook_post_tool'],
+              'timeout': 10,
+            },
+          ],
+        },
+        initializeFields: harnessConfig.toInitializeFields(),
+        sdkMcpServers: harnessConfig.mcpServerUrl == null && sdkMcpServers.isNotEmpty ? sdkMcpServers : null,
+      ),
+    );
 
     try {
       await _initCompleter!.future.timeout(const Duration(seconds: 10));
@@ -625,7 +624,7 @@ class ClaudeCodeHarness implements AgentHarness {
   // -------------------------------------------------------------------------
 
   void _handleLine(String line) {
-    // First check for control_response (not handled by parseJsonlLine, needed
+    // First check for control_response (handled before protocol parsing, needed
     // for the initialize handshake).
     if (_initCompleter != null && !_initCompleter!.isCompleted) {
       try {
@@ -640,23 +639,29 @@ class ClaudeCodeHarness implements AgentHarness {
       }
     }
 
-    final msg = parseJsonlLine(line);
+    final msg = _adapter.parseLine(line);
     if (msg == null) return;
 
     switch (msg) {
-      case StreamTextDelta(:final text):
+      case proto.TextDelta(:final text):
         _eventsCtrl.add(DeltaEvent(text));
 
-      case ToolUseBlock(:final name, :final id, :final input):
+      case proto.ToolUse(:final name, :final id, :final input):
         _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
 
-      case ToolResultBlock(:final toolId, :final output, :final isError):
+      case proto.ToolResult(:final toolId, :final output, :final isError):
         _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
-      case ControlRequest(:final requestId, :final subtype, :final data):
+      case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _handleControlRequest(requestId, subtype, data);
 
-      case TurnResult(:final stopReason, :final costUsd, :final durationMs, :final inputTokens, :final outputTokens):
+      case proto.TurnComplete(
+        :final stopReason,
+        :final costUsd,
+        :final durationMs,
+        :final inputTokens,
+        :final outputTokens,
+      ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           _turnCompleter!.complete({
             'stop_reason': stopReason,
@@ -667,7 +672,7 @@ class ClaudeCodeHarness implements AgentHarness {
           });
         }
 
-      case SystemInit(:final sessionId, :final toolCount, :final contextWindow):
+      case proto.SystemInit(:final sessionId, :final toolCount, :final contextWindow):
         _sessionId = sessionId;
         _log.info('Session init: id=$sessionId, tools=$toolCount, contextWindow=$contextWindow');
         if (contextWindow != null) {
@@ -683,15 +688,28 @@ class ClaudeCodeHarness implements AgentHarness {
   void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
     switch (subtype) {
       case 'can_use_tool':
+        final skipNativePermissions = containerManager?.profileId != 'restricted';
+        if (skipNativePermissions) {
+          // Defensive dead code: --dangerously-skip-permissions suppresses
+          // can_use_tool requests, and guard evaluation runs via PreToolUse hooks.
+          _log.warning('Unexpected can_use_tool request while permissions are skipped');
+          final toolUseId = data['tool_use_id'] as String?;
+          _writeLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: toolUseId));
+          return;
+        }
+
         final allow = toolPolicy == ToolApprovalPolicy.allowAll;
         final toolUseId = data['tool_use_id'] as String?;
-        _writeLine(buildToolResponse(requestId, allow: allow, toolUseId: toolUseId));
+        _writeLine(_adapter.buildApprovalResponse(requestId, allow: allow, toolUseId: toolUseId));
+        return;
 
       case 'hook_callback':
         _handleHookCallback(requestId, data);
+        return;
 
       default:
-        _writeLine(buildGenericResponse(requestId));
+        _writeLine(_adapter.buildGenericResponse(requestId));
+        return;
     }
   }
 
@@ -711,15 +729,26 @@ class ClaudeCodeHarness implements AgentHarness {
   }
 
   Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic>? hookInput) async {
-    final toolName = hookInput?['tool_name'] as String? ?? '';
+    final rawToolName = hookInput?['tool_name'] as String? ?? '';
     final toolInput = hookInput?['tool_input'] as Map<String, dynamic>? ?? {};
+    final canonicalTool = _adapter.mapToolName(rawToolName);
+    final guardToolName = canonicalTool?.stableName ?? 'claude:$rawToolName';
+
+    if (canonicalTool == null) {
+      _log.warning('Falling back to unmapped Claude tool name: $rawToolName -> $guardToolName');
+    }
 
     // Guard evaluation
     final chain = guardChain;
     if (chain != null) {
-      final verdict = await chain.evaluateBeforeToolCall(toolName, toolInput, sessionId: _sessionId);
+      final verdict = await chain.evaluateBeforeToolCall(
+        guardToolName,
+        toolInput,
+        sessionId: _sessionId,
+        rawProviderToolName: rawToolName,
+      );
       if (verdict.isBlock) {
-        _writeLine(buildHookResponse(requestId, allow: false));
+        _writeLine(_adapter.buildHookResponse(requestId, allow: false));
         return;
       }
     }
@@ -730,21 +759,11 @@ class ClaudeCodeHarness implements AgentHarness {
       final sanitizedEnv = Map<String, dynamic>.from(envMap)..remove('ANTHROPIC_API_KEY');
       final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
       _log.info('Stripped ANTHROPIC_API_KEY from bash env');
-      _writeLine({
-        'type': 'control_response',
-        'response': {
-          'subtype': 'success',
-          'request_id': requestId,
-          'response': {
-            'continue': true,
-            'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': updatedInput},
-          },
-        },
-      });
+      _writeLine(_adapter.buildCredentialStripResponse(requestId, updatedInput));
       return;
     }
 
-    _writeLine(buildHookResponse(requestId, allow: true));
+    _writeLine(_adapter.buildHookResponse(requestId, allow: true));
   }
 
   void _handlePostToolUseCallback(String requestId, Map<String, dynamic>? hookInput) {
@@ -754,7 +773,7 @@ class ClaudeCodeHarness implements AgentHarness {
     final success = toolResponse['error'] == null;
     auditLogger?.logPostToolUse(toolName: toolName, success: success, response: toolResponse);
 
-    _writeLine(buildHookResponse(requestId, allow: true));
+    _writeLine(_adapter.buildHookResponse(requestId, allow: true));
   }
 
   static Map<String, dynamic> _parseToolResponse(Object? raw) {

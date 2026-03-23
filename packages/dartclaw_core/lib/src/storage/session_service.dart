@@ -20,13 +20,20 @@ class SessionService {
 
   SessionService({required this.baseDir, this.eventBus});
 
-  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey}) async {
+  Future<Session> createSession({SessionType type = SessionType.user, String? channelKey, String? provider}) async {
     final id = _uuid.v4();
     final dir = Directory(p.join(baseDir, id));
     await dir.create(recursive: true);
 
     final now = DateTime.now();
-    final session = Session(id: id, type: type, channelKey: channelKey, createdAt: now, updatedAt: now);
+    final session = Session(
+      id: id,
+      type: type,
+      channelKey: channelKey,
+      provider: provider,
+      createdAt: now,
+      updatedAt: now,
+    );
     await atomicWriteJson(File(p.join(dir.path, 'meta.json')), session.toJson());
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
@@ -104,7 +111,7 @@ class SessionService {
   /// Creates or retrieves a session by deterministic external key.
   /// Maps external keys (e.g. 'cron:daily-summary') to internal UUID sessions
   /// via a key->UUID index file.
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user}) async {
+  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
     // Load existing index
@@ -124,8 +131,8 @@ class SessionService {
       final session = await getSession(existingId);
       if (session != null && session.type != SessionType.archive) {
         // Lazy migration: update type/channelKey if needed (e.g. old sessions without type)
-        if (session.type != type || session.channelKey != key) {
-          final migrated = session.copyWith(type: type, channelKey: key);
+        if (session.type != type || session.channelKey != key || session.provider != provider) {
+          final migrated = session.copyWith(type: type, channelKey: key, provider: provider);
           await _updateSession(migrated);
           return migrated;
         }
@@ -136,7 +143,7 @@ class SessionService {
     }
 
     // Create new session and record mapping
-    final session = await createSession(type: type, channelKey: key);
+    final session = await createSession(type: type, channelKey: key, provider: provider);
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);
     return session;
@@ -151,6 +158,19 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
+    await atomicWriteJson(metaFile, updated.toJson());
+    return updated;
+  }
+
+  /// Updates the persisted provider override for an existing session.
+  Future<Session?> updateProvider(String id, String? provider) async {
+    if (!isValidUuid(id)) return null;
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) return null;
+
+    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+    final session = Session.fromJson(json);
+    final updated = session.copyWith(provider: provider, updatedAt: DateTime.now());
     await atomicWriteJson(metaFile, updated.toJson());
     return updated;
   }

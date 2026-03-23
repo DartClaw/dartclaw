@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Controllable [AgentHarness] test double for turn-driven tests.
-class FakeAgentHarness implements AgentHarness {
+class FakeAgentHarness extends AgentHarness {
   final StreamController<BridgeEvent> _eventsController;
   final PromptStrategy _promptStrategy;
   final bool _autoTransitionState;
+  final bool _supportsCostReporting;
+  final bool _supportsToolApproval;
+  final bool _supportsStreaming;
+  final bool _supportsCachedTokens;
   WorkerState _state;
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvokedCompleter = Completer<void>();
@@ -16,10 +20,18 @@ class FakeAgentHarness implements AgentHarness {
     PromptStrategy promptStrategy = PromptStrategy.replace,
     WorkerState initialState = WorkerState.idle,
     bool autoTransitionState = true,
+    bool supportsCostReporting = true,
+    bool supportsToolApproval = true,
+    bool supportsStreaming = true,
+    bool supportsCachedTokens = false,
     StreamController<BridgeEvent>? eventsController,
   }) : _promptStrategy = promptStrategy,
        _state = initialState,
        _autoTransitionState = autoTransitionState,
+       _supportsCostReporting = supportsCostReporting,
+       _supportsToolApproval = supportsToolApproval,
+       _supportsStreaming = supportsStreaming,
+       _supportsCachedTokens = supportsCachedTokens,
        _eventsController = eventsController ?? StreamController<BridgeEvent>.broadcast();
 
   /// Whether [start] has been called.
@@ -58,8 +70,23 @@ class FakeAgentHarness implements AgentHarness {
   /// Most recent model override.
   String? lastModel;
 
+  /// Most recent effort override.
+  String? lastEffort;
+
   @override
   PromptStrategy get promptStrategy => _promptStrategy;
+
+  @override
+  bool get supportsCostReporting => _supportsCostReporting;
+
+  @override
+  bool get supportsToolApproval => _supportsToolApproval;
+
+  @override
+  bool get supportsStreaming => _supportsStreaming;
+
+  @override
+  bool get supportsCachedTokens => _supportsCachedTokens;
 
   @override
   WorkerState get state => _state;
@@ -115,6 +142,7 @@ class FakeAgentHarness implements AgentHarness {
     lastResume = resume;
     lastDirectory = directory;
     lastModel = model;
+    lastEffort = effort;
 
     if (_autoTransitionState) {
       _state = WorkerState.busy;

@@ -19,7 +19,7 @@ security.GuardChain _buildGuardChain() {
 
 void main() {
   group('GuardChain cross-package integration', () {
-    test('safe channel input and Bash command pass across core/security boundary', () async {
+    test('safe channel input and shell command pass across core/security boundary', () async {
       final guardChain = _buildGuardChain();
 
       final messageVerdict = await guardChain.evaluateMessageReceived(
@@ -33,7 +33,7 @@ void main() {
       final commandVerdict = await security.CommandGuard().evaluate(
         core.GuardContext(
           hookPoint: 'beforeToolCall',
-          toolName: 'Bash',
+          toolName: 'shell',
           toolInput: {'command': 'git status'},
           sessionId: 'session-safe',
           timestamp: DateTime.utc(2026, 3, 13),
@@ -42,10 +42,10 @@ void main() {
       expect(commandVerdict, isA<security.GuardPass>());
     });
 
-    test('destructive Bash command is blocked by security package guard chain', () async {
+    test('destructive shell command is blocked by security package guard chain', () async {
       final guardChain = _buildGuardChain();
 
-      final verdict = await guardChain.evaluateBeforeToolCall('Bash', {
+      final verdict = await guardChain.evaluateBeforeToolCall('shell', {
         'command': 'rm -rf /tmp/dartclaw-test',
       }, sessionId: 'session-block');
 

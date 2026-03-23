@@ -8,7 +8,7 @@ void main() {
   late AgentObserver observer;
 
   setUp(() {
-    final runners = [_FakeRunner(), _FakeRunner(), _FakeRunner()];
+    final runners = [_FakeRunner(), _FakeRunner(providerId: 'codex'), _FakeRunner()];
     pool = HarnessPool(runners: runners);
     eventBus = EventBus();
     observer = AgentObserver(pool: pool, eventBus: eventBus);
@@ -24,11 +24,14 @@ void main() {
     expect(metrics, hasLength(3));
     expect(metrics[0].runnerId, 0);
     expect(metrics[0].role, 'primary');
+    expect(metrics[0].providerId, 'claude');
     expect(metrics[0].state, AgentState.idle);
     expect(metrics[1].runnerId, 1);
     expect(metrics[1].role, 'task');
+    expect(metrics[1].providerId, 'codex');
     expect(metrics[2].runnerId, 2);
     expect(metrics[2].role, 'task');
+    expect(metrics[2].providerId, 'claude');
   });
 
   test('metricsFor returns null for out-of-range index', () {
@@ -84,6 +87,7 @@ void main() {
     final json = observer.metricsFor(1)!.toJson();
     expect(json['runnerId'], 1);
     expect(json['role'], 'task');
+    expect(json['providerId'], 'codex');
     expect(json['state'], 'busy');
     expect(json['currentTaskId'], 'task-x');
     expect(json['currentSessionId'], 'session-y');
@@ -94,7 +98,7 @@ void main() {
 }
 
 class _FakeRunner extends TurnRunner {
-  _FakeRunner()
+  _FakeRunner({super.providerId = 'claude'})
     : super(
         harness: _MinimalHarness(),
         messages: _NoOpMessages(),
@@ -104,6 +108,18 @@ class _FakeRunner extends TurnRunner {
 }
 
 class _MinimalHarness implements AgentHarness {
+  @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
+
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
   @override

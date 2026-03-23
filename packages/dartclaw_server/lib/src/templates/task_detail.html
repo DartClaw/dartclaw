@@ -16,6 +16,11 @@
             <span class="task-meta-label">Status</span>
             <span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">review</span>
           </div>
+          <div tl:if="${hasProvider}" class="task-meta-item">
+            <span class="task-meta-label">Provider</span>
+            <span class="provider-badge" tl:classappend="'provider-badge-' + ${provider}"
+                  tl:text="${providerLabel}">Claude</span>
+          </div>
           <div tl:if="${goalTitle}" class="task-meta-item">
             <span class="task-meta-label">Goal</span>
             <span tl:text="${goalTitle}">Goal title</span>

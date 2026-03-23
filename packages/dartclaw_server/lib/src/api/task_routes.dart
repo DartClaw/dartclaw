@@ -21,8 +21,7 @@ final _log = Logger('TaskRoutes');
 Router taskRoutes(
   TaskService tasks, {
   // eventBus is accepted for API compatibility but events are now fired by TaskService.
-  @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
-  EventBus? eventBus,
+  @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
   TurnManager? turns,
   TaskReviewService? reviewService,
   WorktreeManager? worktreeManager,
@@ -60,6 +59,8 @@ Router taskRoutes(
       if (goalIdFieldError != null) return goalIdFieldError;
       final acceptanceCriteriaFieldError = _validateStringFieldType(body.value!, 'acceptanceCriteria');
       if (acceptanceCriteriaFieldError != null) return acceptanceCriteriaFieldError;
+      final providerFieldError = _validateStringFieldType(body.value!, 'provider');
+      if (providerFieldError != null) return providerFieldError;
 
       final title = _trimmedStringOrNull(body.value!['title']);
       final description = _trimmedStringOrNull(body.value!['description']);
@@ -68,6 +69,7 @@ Router taskRoutes(
       final autoStart = body.value!['autoStart'] == true;
       final goalId = _stringOrNull(body.value!['goalId']);
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
+      final provider = _trimmedStringOrNull(body.value!['provider']);
 
       if (title == null || title.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'title must not be empty', {'field': 'title'});
@@ -99,6 +101,7 @@ Router taskRoutes(
         goalId: goalId,
         acceptanceCriteria: acceptanceCriteria,
         createdBy: createdBy,
+        provider: provider,
         configJson: configJson,
         trigger: 'user',
       );

@@ -124,6 +124,26 @@ void main() {
       expect(verdict.isBlock, isTrue);
     });
 
+    test('prefers raw provider tool name over canonical tool name', () async {
+      final guard = ToolPolicyGuard(
+        cascade: ToolPolicyCascade(
+          agentAllow: {
+            'search': {'Bash'},
+          },
+        ),
+      );
+      final context = GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'shell',
+        rawProviderToolName: 'Bash',
+        toolInput: {},
+        agentId: 'search',
+        timestamp: DateTime.now(),
+      );
+      final verdict = await guard.evaluate(context);
+      expect(verdict.isPass, isTrue);
+    });
+
     test('allows tool in agent sandbox', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(

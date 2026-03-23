@@ -118,7 +118,8 @@ class NetworkGuardConfig {
 
 /// Domain allowlisting + exfiltration pattern detection guard.
 ///
-/// Only evaluates on `beforeToolCall` for Bash and web_fetch tools.
+/// Only evaluates on `beforeToolCall` for canonical `shell` and `web_fetch`
+/// tools. `web_fetch` is already canonical and intentionally remains unchanged.
 class NetworkGuard extends Guard {
   @override
   String get name => 'network';
@@ -140,7 +141,7 @@ class NetworkGuard extends Guard {
     final toolInput = context.toolInput;
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
 
-    if (toolName == 'Bash') {
+    if (toolName == 'shell') {
       return _evaluateBash(toolInput['command'] as String? ?? '');
     }
 

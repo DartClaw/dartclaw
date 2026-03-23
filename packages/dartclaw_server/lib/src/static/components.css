@@ -2796,6 +2796,29 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
                           border-color: color-mix(in oklab, var(--bg-surface1) 50%, transparent); }
 .status-badge-failed    { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
                           border-color: color-mix(in srgb, var(--error) 22%, var(--bg-surface1)); }
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--sp-2);
+  padding: 1px var(--sp-1);
+  border-radius: 3px;
+  font-size: 0.625rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.provider-badge-claude {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-surface0));
+  color: var(--accent);
+}
+.provider-badge-codex,
+.provider-badge-codex-exec {
+  background: color-mix(in srgb, var(--info) 15%, var(--bg-surface0));
+  color: var(--info);
+}
 .nav-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 1.25rem; height: 1.25rem; padding: 0 0.35rem;

@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 
 GuardContext _bash(String command) => GuardContext(
   hookPoint: 'beforeToolCall',
-  toolName: 'Bash',
+  toolName: 'shell',
   toolInput: {'command': command},
   timestamp: DateTime.now(),
 );
@@ -70,15 +70,30 @@ void main() {
     });
   });
 
-  group('FileGuard — write_file / edit_file tools', () {
-    test('blocks write_file to .ssh path and edit_file on .env', () async {
+  group('FileGuard — file_write / file_edit tools', () {
+    test('blocks file_write to .ssh path and file_edit on .env', () async {
       final home = Platform.environment['HOME'] ?? '/home/user';
-      expect((await guard.evaluate(_tool('write_file', {'file_path': '$home/.ssh/config'}))).isBlock, isTrue);
-      expect((await guard.evaluate(_tool('edit_file', {'file_path': '.env'}))).isBlock, isTrue);
+      expect((await guard.evaluate(_tool('file_write', {'file_path': '$home/.ssh/config'}))).isBlock, isTrue);
+      expect((await guard.evaluate(_tool('file_edit', {'file_path': '.env'}))).isBlock, isTrue);
     });
 
-    test('allows write_file to safe path', () async {
-      final v = await guard.evaluate(_tool('write_file', {'file_path': '/tmp/test.txt'}));
+    test('blocks later protected paths in multi-change payloads', () async {
+      final v = await guard.evaluate(
+        _tool('file_write', {
+          'changes': [
+            {'kind': 'update', 'path': '/tmp/benign.txt'},
+            {'kind': 'update', 'path': '.env'},
+          ],
+        }),
+      );
+
+      expect(v.isBlock, isTrue);
+      expect(v.message, contains('read_only'));
+      expect(v.message, contains('.env'));
+    });
+
+    test('allows file_write to safe path', () async {
+      final v = await guard.evaluate(_tool('file_write', {'file_path': '/tmp/test.txt'}));
       expect(v.isPass, isTrue);
     });
   });
@@ -116,7 +131,7 @@ void main() {
   group('FileGuard — config self-protection', () {
     test('blocks writing to protected config path', () async {
       final configGuard = FileGuard(config: FileGuardConfig.defaults().withSelfProtection('/etc/dartclaw.yaml'));
-      final v = await configGuard.evaluate(_tool('write_file', {'file_path': '/etc/dartclaw.yaml'}));
+      final v = await configGuard.evaluate(_tool('file_write', {'file_path': '/etc/dartclaw.yaml'}));
       expect(v.isBlock, isTrue);
     });
   });

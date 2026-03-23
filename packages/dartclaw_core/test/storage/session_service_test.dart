@@ -32,6 +32,16 @@ void main() {
       final meta = File('${dir.path}/meta.json');
       expect(meta.existsSync(), isTrue);
     });
+
+    test('persists provider when supplied', () async {
+      final session = await sessions.createSession(provider: 'codex');
+
+      expect(session.provider, 'codex');
+
+      final fetched = await sessions.getSession(session.id);
+      expect(fetched, isNotNull);
+      expect(fetched!.provider, 'codex');
+    });
   });
 
   group('getSession', () {
@@ -131,6 +141,59 @@ void main() {
       final fetched = await sessions.getSession(keyed.id);
       expect(fetched, isNotNull);
       expect(fetched!.id, equals(keyed.id));
+    });
+
+    test('persists provider for keyed sessions', () async {
+      final session = await sessions.getOrCreateByKey('cron:provider', provider: 'codex');
+
+      expect(session.provider, 'codex');
+
+      final fetched = await sessions.getSession(session.id);
+      expect(fetched, isNotNull);
+      expect(fetched!.provider, 'codex');
+    });
+
+    test('migrates provider on existing keyed session', () async {
+      final first = await sessions.getOrCreateByKey('cron:migrate-provider');
+      expect(first.provider, isNull);
+
+      final migrated = await sessions.getOrCreateByKey('cron:migrate-provider', provider: 'codex');
+
+      expect(migrated.id, first.id);
+      expect(migrated.provider, 'codex');
+
+      final fetched = await sessions.getSession(first.id);
+      expect(fetched, isNotNull);
+      expect(fetched!.provider, 'codex');
+    });
+
+    test('clears provider on existing keyed session', () async {
+      final first = await sessions.getOrCreateByKey('cron:clear-provider', provider: 'codex');
+      expect(first.provider, 'codex');
+
+      final migrated = await sessions.getOrCreateByKey('cron:clear-provider', provider: null);
+
+      expect(migrated.id, first.id);
+      expect(migrated.provider, isNull);
+
+      final fetched = await sessions.getSession(first.id);
+      expect(fetched, isNotNull);
+      expect(fetched!.provider, isNull);
+    });
+  });
+
+  group('updateProvider', () {
+    test('can clear an existing provider override', () async {
+      final session = await sessions.createSession(provider: 'codex');
+
+      final updated = await sessions.updateProvider(session.id, null);
+
+      expect(updated, isNotNull);
+      expect(updated!.provider, isNull);
+
+      final fetched = await sessions.getSession(session.id);
+      expect(fetched, isNotNull);
+      expect(fetched!.provider, isNull);
     });
   });
 
@@ -250,6 +313,18 @@ void main() {
       final json = session.toJson();
       expect(json['type'], equals('channel'));
       expect(json['channelKey'], equals('wa:alice'));
+    });
+
+    test('Session.fromJson defaults missing provider to null', () {
+      final json = {
+        'id': '00000000-0000-0000-0000-000000000002',
+        'title': 'Old session',
+        'type': 'user',
+        'createdAt': '2025-01-01T00:00:00.000',
+        'updatedAt': '2025-01-01T00:00:00.000',
+      };
+      final session = Session.fromJson(json);
+      expect(session.provider, isNull);
     });
   });
 

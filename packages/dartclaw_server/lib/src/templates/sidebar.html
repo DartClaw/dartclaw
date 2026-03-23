@@ -9,7 +9,10 @@
     <a tl:attr="href=${mainHref},hx-get=${mainHref}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
-      <span class="session-item-title">Agent</span></a>
+      <span class="session-item-title">Agent</span>
+      <span tl:if="${mainProvider}" class="provider-badge"
+        tl:classappend="'provider-badge-' + ${mainProvider}"
+        tl:text="${mainProviderLabel}">Claude</span></a>
   </div>
 
   <hr class="sidebar-divider">
@@ -23,7 +26,10 @@
     <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
-      <span class="session-item-title" tl:text="${ch.title}">Channel</span></a>
+      <span class="session-item-title" tl:text="${ch.title}">Channel</span>
+      <span tl:if="${ch.provider}" class="provider-badge"
+        tl:classappend="'provider-badge-' + ${ch.provider}"
+        tl:text="${ch.providerLabel}">Claude</span></a>
   </div>
 
   <div tl:if="${hasGroupChannels}" class="sidebar-subsection-label">Groups</div>
@@ -32,7 +38,10 @@
     <a tl:attr="href=${ch.href},hx-get=${ch.href}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
-      <span class="session-item-title" tl:text="${ch.title}">Channel</span></a>
+      <span class="session-item-title" tl:text="${ch.title}">Channel</span>
+      <span tl:if="${ch.provider}" class="provider-badge"
+        tl:classappend="'provider-badge-' + ${ch.provider}"
+        tl:text="${ch.providerLabel}">Claude</span></a>
   </div>
 
   <hr class="sidebar-divider">
@@ -46,7 +55,10 @@
     <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
-      <span class="session-item-title" tl:text="${entry.title}">Session</span></a>
+      <span class="session-item-title" tl:text="${entry.title}">Session</span>
+      <span tl:if="${entry.provider}" class="provider-badge"
+        tl:classappend="'provider-badge-' + ${entry.provider}"
+        tl:text="${entry.providerLabel}">Claude</span></a>
     <button class="session-delete" data-action="delete-session"
       tl:attr="data-session-id=${entry.id}" aria-label="Delete session">&#215;</button>
   </div>
@@ -65,7 +77,10 @@
         <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
           hx-select-oob="#topbar,#sidebar">
-          <span class="session-item-title" tl:text="${entry.title}">Archived session</span></a>
+          <span class="session-item-title" tl:text="${entry.title}">Archived session</span>
+          <span tl:if="${entry.provider}" class="provider-badge"
+            tl:classappend="'provider-badge-' + ${entry.provider}"
+            tl:text="${entry.providerLabel}">Claude</span></a>
         <button class="session-delete" data-action="delete-session"
           tl:attr="data-session-id=${entry.id}" aria-label="Delete session">&#215;</button>
       </div>

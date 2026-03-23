@@ -73,7 +73,7 @@ void main() {
   group('GuardChain', () {
     test('empty chain returns pass', () async {
       final chain = buildChain([]);
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
       expect(verdict.isPass, isTrue);
       expect(verdicts, isEmpty);
     });
@@ -83,7 +83,7 @@ void main() {
         FakeGuard(verdict: GuardVerdict.pass()),
         FakeGuard(name: 'g2', verdict: GuardVerdict.pass()),
       ]);
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
       expect(verdict.isPass, isTrue);
       expect(verdicts, isEmpty);
     });
@@ -92,7 +92,7 @@ void main() {
       final chain = buildChain([FakeGuard(name: 'g1', verdict: GuardVerdict.pass())]);
       chain.addGuard(FakeGuard(name: 'added', verdict: GuardVerdict.block('added guard blocked')));
 
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
 
       expect(verdict.isBlock, isTrue);
       expect(verdict.message, 'added guard blocked');
@@ -121,7 +121,7 @@ void main() {
         ),
       );
 
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
 
       expect(verdict.isPass, isTrue);
       expect(evaluationOrder, equals(['initial', 'added']));
@@ -133,7 +133,7 @@ void main() {
         FakeGuard(name: 'blocker', verdict: GuardVerdict.block('nope')),
         FakeGuard(name: 'g3', verdict: GuardVerdict.pass()),
       ]);
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
       expect(verdict.isBlock, isTrue);
       expect(verdict.message, 'nope');
       expect(verdicts, hasLength(1));
@@ -163,7 +163,7 @@ void main() {
         FakeGuard(name: 'w1', verdict: GuardVerdict.warn('first')),
         FakeGuard(name: 'w2', verdict: GuardVerdict.warn('second')),
       ]);
-      final verdict = await chain.evaluateBeforeToolCall('Read', {});
+      final verdict = await chain.evaluateBeforeToolCall('file_read', {});
       expect(verdict.isWarn, isTrue);
       expect(verdict.message, 'first');
       expect(verdicts, hasLength(2));
@@ -176,7 +176,7 @@ void main() {
         FakeGuard(name: 'g1', verdict: GuardVerdict.pass()),
         FakeGuard(name: 'g2', verdict: GuardVerdict.warn('w')),
       ]);
-      await chain.evaluateBeforeToolCall('Bash', {});
+      await chain.evaluateBeforeToolCall('shell', {});
       expect(verdicts, hasLength(1));
       expect(verdicts[0].guardName, 'g2');
       expect(verdicts[0].verdict, 'warn');
@@ -213,7 +213,7 @@ void main() {
 
     test('failOpen: true treats guard exception as warn (not block)', () async {
       final chain = buildChain([ThrowingGuard()], failOpen: true);
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
       expect(verdict.isBlock, isFalse);
       expect(verdict.isWarn, isTrue);
       expect(verdicts, hasLength(1));
@@ -222,7 +222,7 @@ void main() {
 
     test('failOpen: false (default) treats guard exception as block', () async {
       final chain = buildChain([ThrowingGuard()]);
-      final verdict = await chain.evaluateBeforeToolCall('Bash', {});
+      final verdict = await chain.evaluateBeforeToolCall('shell', {});
       expect(verdict.isBlock, isTrue);
       expect(verdicts, hasLength(1));
       expect(verdicts[0].verdict, 'block');
@@ -273,7 +273,7 @@ void main() {
       final chain = buildChain([
         FakeGuard(name: 'test-guard', category: 'security', verdict: GuardVerdict.block('blocked reason')),
       ]);
-      await chain.evaluateBeforeToolCall('Bash', {}, sessionId: 'session-123');
+      await chain.evaluateBeforeToolCall('shell', {}, sessionId: 'session-123');
       expect(verdicts, hasLength(1));
       final verdict = verdicts[0];
       expect(verdict.guardName, 'test-guard');
@@ -282,6 +282,24 @@ void main() {
       expect(verdict.message, 'blocked reason');
       expect(verdict.context.hookPoint, 'beforeToolCall');
       expect(verdict.context.sessionId, 'session-123');
+    });
+
+    test('evaluateBeforeToolCall propagates rawProviderToolName into GuardContext', () async {
+      GuardContext? capturedContext;
+      final chain = buildChain([
+        FakeGuard(
+          evaluator: (context) {
+            capturedContext = context;
+            return GuardVerdict.pass();
+          },
+        ),
+      ]);
+
+      await Function.apply(chain.evaluateBeforeToolCall, ['shell', {}], {#rawProviderToolName: 'Bash'});
+
+      expect(capturedContext, isNotNull);
+      expect(capturedContext!.toolName, 'shell');
+      expect(capturedContext!.rawProviderToolName, 'Bash');
     });
   });
 }

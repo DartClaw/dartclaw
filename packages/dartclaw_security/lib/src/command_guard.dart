@@ -160,7 +160,7 @@ class CommandGuardConfig {
 
 /// Regex-based dangerous command blocking guard.
 ///
-/// Only evaluates on `beforeToolCall` for the `Bash` tool.
+/// Only evaluates on `beforeToolCall` for the canonical `shell` tool.
 /// Strips single-quoted strings, extracts pipe segments, and matches
 /// against configurable regex patterns.
 class CommandGuard extends Guard {
@@ -178,7 +178,7 @@ class CommandGuard extends Guard {
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {
-    if (context.hookPoint != 'beforeToolCall' || context.toolName != 'Bash') {
+    if (context.hookPoint != 'beforeToolCall' || context.toolName != 'shell') {
       return GuardVerdict.pass();
     }
 

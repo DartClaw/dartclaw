@@ -252,6 +252,10 @@ class ChannelTaskBridge {
       senderId: message.senderJid,
       senderAvatarUrl: senderAvatarUrl,
     );
+    final providerHint = switch (message.metadata['provider']) {
+      final String provider when provider.trim().isNotEmpty => provider.trim(),
+      _ => null,
+    };
 
     try {
       final task = await taskCreator(
@@ -261,7 +265,7 @@ class ChannelTaskBridge {
         type: trigger.type,
         autoStart: trigger.autoStart,
         createdBy: senderDisplayName,
-        configJson: {'origin': origin.toJson()},
+        configJson: {'origin': origin.toJson(), ...?providerHint == null ? null : {'provider': providerHint}},
         trigger: 'channel',
       );
 
@@ -525,5 +529,4 @@ class ChannelTaskBridge {
       _log.warning(failureMessage, error, stackTrace);
     }
   }
-
 }

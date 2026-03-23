@@ -5,6 +5,85 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+---
+
+## [0.13.0] — 2026-03-22
+
+Multi-provider support — DartClaw can now run Claude Code and Codex (OpenAI) as interchangeable agent harnesses, with heterogeneous worker pools and per-task/per-session provider overrides.
+
+### Added
+
+#### Phase 1 — Foundation
+- **Protocol adapter extraction + HarnessFactory** (S01): Extracted `ClaudeProtocolAdapter` from `ClaudeCodeHarness` behind a new `ProtocolAdapter` abstract interface; `HarnessFactory` instantiates harness implementations by provider identifier (`claude`, `codex`); `TurnRunner` and `HarnessPool` now use factory-based construction — zero direct `ClaudeCodeHarness` references remain
+- **Canonical tool taxonomy** (S02): `CanonicalTool` enum (`shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `mcp_call`) — provider-agnostic tool names; guards (`CommandGuard`, `FileGuard`, `NetworkGuard`) evaluate canonical names instead of raw provider strings; unmapped tools pass through with `provider:name` prefix and fail-closed on security-sensitive guards
+- **Provider config + credential registry** (S03): `providers` config section with per-provider `executable`, `pool_size`, and extensible settings; `credentials` config section with environment variable resolution; `CredentialRegistry` extending existing `CredentialProxy` for multi-provider API key management; startup binary/credential validation (missing default provider = error, secondary = warning)
+
+#### Phase 2 — Codex Core
+- **CodexProtocol + CodexHarness MVP** (S04): `CodexProtocolAdapter` for `codex app-server`'s bidirectional JSON-RPC JSONL protocol — handles `initialize`/`initialized` handshake, `thread/start`, streaming notifications (`item/agentMessage/delta`, `turn/completed`, `turn/failed`); Codex events map to standard `BridgeEvent` types; `FakeCodexProcess` test double for unit testing without the real binary
+- **CodexHarness turn lifecycle + environment** (S05): Thread-per-session management (first turn creates thread, subsequent turns reuse); message history replay from NDJSON store (Codex runs ephemeral — DartClaw owns continuity); system prompt injection via generated `config.toml` with `developer_instructions`; MCP server config pointing to DartClaw's `/mcp` endpoint; per-worker temp directory with `CODEX_HOME`
+- **Guard chain integration + approval flow** (S06): Codex approval requests routed through DartClaw's `GuardChain` with canonical tool names — allow → tool executes, deny → tool blocked; Claude Code switched from `--permission-prompt-tool stdio` to `--dangerously-skip-permissions` (hooks still fire — no security regression, eliminates one IPC round-trip per tool call)
+
+#### Phase 3 — Integration & Hardening
+- **Crash recovery + capability declaration** (S07): Exponential backoff restart on process exit (matching `ClaudeCodeHarness` pattern); post-crash: new thread created, history replayed, session resumes; harness capability getters (`supportsCostReporting`, `supportsToolApproval`, `supportsStreaming`, `supportsCachedTokens`) for graceful degradation
+- **Heterogeneous pool + provider overrides** (S08): Mixed Claude + Codex workers in `HarnessPool` based on per-provider `pool_size`; `tryAcquireForProvider()` routes to matching provider worker (rejects — never falls back to different provider); per-task provider override via `Task.provider` field; per-session provider override at creation time
+
+#### Phase 4 — Polish & Completeness
+- **Provider status API + settings page** (S09): `GET /api/providers` endpoint returning configured providers with binary version, credential status, pool size, and default flag; settings page "Providers" section with read-only status display and clear error states for missing binaries/credentials
+- **Provider indicators + cost display** (S10): Provider badge in session sidebar, task list, and task detail page; provider-aware cost display — USD cost for Claude, token counts with "cost unavailable" tooltip for Codex; `cached_input_tokens` displayed when available
+- **Exec-mode fallback + container support** (S11): Lightweight `CodexExecHarness` using `codex exec --json` for one-shot task execution — `--full-auto --ephemeral`, no approval chain; Dockerfile updated with both `claude` and `codex` binaries (multi-arch with `TARGETARCH` fallback); sandbox interaction matrix documented
+- **Architecture docs + ADR finalization** (S12): ADR-016 status set to "Accepted"; ADR-007 addendum documenting Codex prompt injection approach; `system-architecture.md`, `control-protocol.md`, `security-architecture.md` updated for multi-provider; all marked "Current through 0.13"
+
+### Changed
+
+- **Guard evaluation**: All guards now operate on canonical tool names instead of raw provider-specific strings
+- **Claude Code permission model**: Switched to `--dangerously-skip-permissions` — guard chain via hooks is the sole interception point (eliminates redundant `can_use_tool` handler)
+- **`ProviderIdentity` normalization**: Centralized provider family mapping (`codex-exec` → `codex`) for consistent credential lookup, validation, and UI labeling across the codebase
+- **Unmapped tool kind default**: `CodexProtocolAdapter.mapToolName()` maps unknown `file_change` kinds to `CanonicalTool.fileWrite` (fail-closed) instead of returning `null`; aligns exec-mode adapter with app-server adapter
+- **`CredentialEntry.toString()`**: Redacts API key value to prevent accidental log exposure
+- **Shared protocol utilities**: Extracted duplicated `_stringifyMessageContent` and `_mapValue` helpers into `codex_protocol_utils.dart`
+
+---
+
+## [0.12.0] — 2026-03-21
+
+Crowd Coding — multi-user collaborative AI agent steering via messaging channels. A group of people in a Google Chat Space (or WhatsApp/Signal group) can collaboratively drive an AI agent to build an application.
+
+### Added
+
+#### Phase 0 — Codebase Hardening
+- **DartclawServer builder refactor** (S01): Replaced two-phase construction (factory + `setRuntimeServices()`) with builder pattern; extracted route assembly into composable route groups; WhatsApp pairing routes extracted to dedicated file; `server.dart` reduced from 828 to ~400 LOC
+- **Task event centralization + optimistic locking** (S02): `TaskStatusChangedEvent` fired from `TaskService.updateStatus()` only — removed duplicate firing from scattered callers; `version` column on tasks table with conflict detection on stale updates; harness spawned with `--setting-sources` constraints
+- **ChannelTaskBridge extraction** (S03): Extracted task logic (trigger parsing, review dispatch, recipient resolution) from `ChannelManager` into dedicated `ChannelTaskBridge`; consolidated duplicate recipient resolution; `ChannelManager` reduced from 487 to ~200 LOC
+- **ServiceWiring decomposition** (S04): Split `service_wiring.dart` (1,741 LOC) into domain-specific modules (`SecurityWiring`, `ChannelWiring`, `TaskWiring`, `SchedulingWiring`, `StorageWiring`) with thin coordinator; cleaned 73 `catch (_)` silent catches; removed `ignore_for_file: implementation_imports` from all files
+
+#### Phase A — Sender Attribution & Identity
+- **Sender attribution end-to-end** (S05): `Task.createdBy` field with sender identity extraction from channel messages; "Created by" display in task list and Google Chat Cards v2 notifications; sender prefix in task detail chat view
+
+#### Phase B — Thread-Bound Task Sessions
+- **ThreadBinding model + thread-aware routing** (S06): Channel-agnostic `ThreadBinding` model mapping `(channelType, threadId) → (taskId, sessionKey)`; bound-thread messages route to task sessions, unbound messages route to shared session; JSON persistence with atomic writes
+- **Binding lifecycle + thread commands** (S07): Auto-unbind on terminal task states; idle timeout cleanup; thread commands (accept/reject/push back in bound threads without specifying task ID)
+
+#### Phase C — Runtime Governance
+- **Governance config + rate limiting** (S08): `GovernanceConfig` section; `SlidingWindowRateLimiter` — per-sender and global turn rate limiting (admin exempt); all governance features default disabled for backward compatibility
+- **Token budget enforcement** (S09): Daily token budget via existing `UsageTracker`; warn mode at 80%, block mode at 100%; midnight reset; per-sender budget tracking
+- **Loop detection** (S10): Three-mechanism `LoopDetector` — turn chain depth limit, token velocity tracking, tool fingerprinting (repeated tool call patterns); configurable thresholds, all default disabled
+
+#### Phase D — Emergency Controls
+- **Emergency stop** (S11): `/stop` slash command — aborts all in-flight turns, cancels running tasks, admin-only authorization
+- **Pause/resume** (S12): `/pause` and `/resume` slash commands — queues messages in-memory during pause, structured per-sender concatenation drain on resume, partitioned by session
+
+#### Phase F — Documentation
+- **Crowd coding recipe** (S13): User-facing recipe at `docs/guide/recipes/08-crowd-coding.md` — end-to-end crowd coding setup guide
+
+#### Phase G — Config Restructure
+- **`features:` config namespace** (S14): Crowd coding and thread binding config moved under `features:` namespace; prepares for future plugin system (`plugins:` reserved for third-party)
+
+### Changed
+
+- **Architecture docs updated**: `system-architecture.md`, `security-architecture.md`, `data-model.md` updated for crowd coding; new `crowd-coding.md` architecture deep-dive; all marked "Current through 0.12"
+
+---
+
 ## [0.11.0] — 2026-03-21
 
 Google Chat Space full participation — DartClaw can now receive ALL messages in Google Chat Spaces without requiring @mention, using Google Workspace Events API + Cloud Pub/Sub.

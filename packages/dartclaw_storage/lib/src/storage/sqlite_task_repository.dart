@@ -31,7 +31,8 @@ class SqliteTaskRepository implements TaskRepository {
         created_at TEXT NOT NULL,
         started_at TEXT,
         completed_at TEXT,
-        created_by TEXT
+        created_by TEXT,
+        provider TEXT
       )
     ''');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
@@ -44,6 +45,9 @@ class SqliteTaskRepository implements TaskRepository {
     }
     if (!columns.contains('created_by')) {
       _db.execute('ALTER TABLE tasks ADD COLUMN created_by TEXT');
+    }
+    if (!columns.contains('provider')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN provider TEXT');
     }
     _db.execute('''
       CREATE TABLE IF NOT EXISTS task_artifacts (
@@ -65,8 +69,8 @@ class SqliteTaskRepository implements TaskRepository {
       INSERT INTO tasks (
         id, title, description, type, status, version, goal_id, session_id,
         acceptance_criteria, config_json, worktree_json,
-        created_at, started_at, completed_at, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, started_at, completed_at, created_by, provider
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -85,6 +89,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
         task.createdBy,
+        task.provider,
       ]);
     } finally {
       stmt.close();
@@ -144,7 +149,8 @@ class SqliteTaskRepository implements TaskRepository {
         config_json = ?,
         worktree_json = ?,
         started_at = ?,
-        completed_at = ?
+        completed_at = ?,
+        provider = ?
       WHERE id = ? AND version = ?
     ''');
     try {
@@ -160,6 +166,7 @@ class SqliteTaskRepository implements TaskRepository {
         _encodeJsonNullable(task.worktreeJson),
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
+        task.provider,
         task.id,
         task.version,
       ]);
@@ -209,7 +216,8 @@ class SqliteTaskRepository implements TaskRepository {
         session_id = ?,
         acceptance_criteria = ?,
         config_json = ?,
-        worktree_json = ?
+        worktree_json = ?,
+        provider = ?
       WHERE id = ? AND status = ?
     ''');
     try {
@@ -220,6 +228,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.acceptanceCriteria,
         _encodeJson(task.configJson),
         _encodeJsonNullable(task.worktreeJson),
+        task.provider,
         task.id,
         expectedStatus.name,
       ]);
@@ -315,6 +324,7 @@ class SqliteTaskRepository implements TaskRepository {
       startedAt: _decodeDateTime(row['started_at']),
       completedAt: _decodeDateTime(row['completed_at']),
       createdBy: row['created_by'] as String?,
+      provider: row['provider'] as String?,
     );
   }
 

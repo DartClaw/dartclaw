@@ -31,6 +31,8 @@
             <div tl:each="task : ${group.tasks}" class="card card-tint-accent task-card-running">
               <div class="task-card-title" tl:text="${task.title}">Task title</div>
               <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
+              <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                    tl:text="${task.providerLabel}">Claude</span>
               <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
             </div>
           </div>
@@ -42,6 +44,7 @@
                   <tr>
                     <th>Title</th>
                     <th>Type</th>
+                    <th>Provider</th>
                     <th>Created by</th>
                     <th>Created</th>
                     <th>Status</th>
@@ -57,6 +60,8 @@
                       </div>
                     </td>
                     <td><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
+                    <td><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                              tl:text="${task.providerLabel}">Claude</span></td>
                     <td tl:text="${task.createdByDisplay}">—</td>
                     <td tl:text="${task.createdAtDisplay}">1h ago</td>
                     <td><span tl:classappend="${task.statusBadgeClass}" class="status-badge" tl:text="${task.status}">status</span></td>

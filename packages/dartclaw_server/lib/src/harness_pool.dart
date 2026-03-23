@@ -52,11 +52,32 @@ class HarnessPool {
   /// Returns null if no matching runner is available.
   TurnRunner? tryAcquireForProfile(String profileId) {
     if (_busy.length >= _maxConcurrentTasks) return null;
-    final runner = _available.cast<TurnRunner?>().firstWhere((r) => r!.profileId == profileId, orElse: () => null);
+    final runner = _takeMatchingRunner((runner) => runner.profileId == profileId);
     if (runner == null) return null;
-    _available.remove(runner);
-    _busy.add(runner);
     _log.fine('Acquired task runner for profile $profileId (busy: ${_busy.length}/$maxConcurrentTasks)');
+    return runner;
+  }
+
+  /// Acquires an idle task runner matching the given [providerId].
+  /// Returns null if no matching runner is available.
+  TurnRunner? tryAcquireForProvider(String providerId) {
+    if (_busy.length >= _maxConcurrentTasks) return null;
+    final runner = _takeMatchingRunner((runner) => runner.providerId == providerId);
+    if (runner == null) return null;
+    _log.fine('Acquired task runner for provider $providerId (busy: ${_busy.length}/$maxConcurrentTasks)');
+    return runner;
+  }
+
+  /// Acquires an idle task runner matching both [providerId] and [profileId].
+  /// Returns null if no matching runner is available.
+  TurnRunner? tryAcquireForProviderAndProfile(String providerId, String profileId) {
+    if (_busy.length >= _maxConcurrentTasks) return null;
+    final runner = _takeMatchingRunner((runner) => runner.providerId == providerId && runner.profileId == profileId);
+    if (runner == null) return null;
+    _log.fine(
+      'Acquired task runner for provider $providerId in profile $profileId '
+      '(busy: ${_busy.length}/$maxConcurrentTasks)',
+    );
     return runner;
   }
 
@@ -95,8 +116,33 @@ class HarnessPool {
     return false;
   }
 
+  /// Returns true when the task pool contains at least one runner for [providerId].
+  bool hasTaskRunnerForProvider(String providerId) {
+    for (var i = 1; i < _runners.length; i++) {
+      if (_runners[i].providerId == providerId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// Distinct security profiles available among task runners.
   Set<String> get taskProfiles => _runners.skip(1).map((runner) => runner.profileId).toSet();
+
+  /// Distinct provider IDs available among task runners.
+  Set<String> get taskProviders => _runners.skip(1).map((runner) => runner.providerId).toSet();
+
+  TurnRunner? _takeMatchingRunner(bool Function(TurnRunner runner) predicate) {
+    for (final runner in _available) {
+      if (!predicate(runner)) {
+        continue;
+      }
+      _available.remove(runner);
+      _busy.add(runner);
+      return runner;
+    }
+    return null;
+  }
 
   /// Graceful shutdown: stops and disposes all runners' harnesses.
   Future<void> dispose() async {

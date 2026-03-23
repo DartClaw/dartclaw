@@ -259,6 +259,18 @@ void main() {
 
 class _FakeHarness implements AgentHarness {
   @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override

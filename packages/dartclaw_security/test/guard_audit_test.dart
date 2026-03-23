@@ -75,6 +75,19 @@ void main() {
       expect(records.first.message, contains('msg=denied'));
     });
 
+    test('logVerdict accepts raw provider tool name', () {
+      logger.logVerdict(
+        verdict: GuardVerdict.block('denied'),
+        guardName: 'blockGuard',
+        guardCategory: 'security',
+        hookPoint: 'beforeToolCall',
+        timestamp: DateTime(2024, 1, 1),
+        rawProviderToolName: 'Bash',
+      );
+      expect(records, hasLength(1));
+      expect(records.first.message, contains('verdict=block'));
+    });
+
     test('logPostToolUse logs success at INFO', () {
       logger.logPostToolUse(toolName: 'Bash', success: true, response: {'output': 'ok'});
       expect(records, hasLength(1));
@@ -131,6 +144,7 @@ void main() {
         guardCategory: 'security',
         hookPoint: 'messageReceived',
         timestamp: timestamp,
+        rawProviderToolName: 'Bash',
         sessionId: 'abc-123',
         channel: 'whatsapp',
         peerId: '+1234567890',
@@ -150,6 +164,7 @@ void main() {
       expect(entry['hook'], 'messageReceived');
       expect(entry['verdict'], 'block');
       expect(entry['reason'], 'injection detected');
+      expect(entry['rawProviderToolName'], 'Bash');
       expect(entry['sessionId'], 'abc-123');
       expect(entry['channel'], 'whatsapp');
       expect(entry['peerId'], '+1234567890');
@@ -165,6 +180,7 @@ void main() {
         guardCategory: 'content',
         hookPoint: 'beforeAgentSend',
         timestamp: timestamp,
+        rawProviderToolName: 'WebFetch',
         sessionId: 'sess-1',
         channel: 'web',
         peerId: 'user-42',
@@ -180,6 +196,7 @@ void main() {
       expect(entry.containsKey('hook'), isTrue);
       expect(entry.containsKey('verdict'), isTrue);
       expect(entry.containsKey('reason'), isTrue);
+      expect(entry.containsKey('rawProviderToolName'), isTrue);
       expect(entry.containsKey('sessionId'), isTrue);
       expect(entry.containsKey('channel'), isTrue);
       expect(entry.containsKey('peerId'), isTrue);

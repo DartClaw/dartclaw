@@ -3,7 +3,7 @@ import 'package:test/test.dart';
 
 GuardContext _bash(String command) => GuardContext(
   hookPoint: 'beforeToolCall',
-  toolName: 'Bash',
+  toolName: 'shell',
   toolInput: {'command': command},
   timestamp: DateTime.now(),
 );
@@ -105,7 +105,7 @@ void main() {
 
       final nonNetwork = GuardContext(
         hookPoint: 'beforeToolCall',
-        toolName: 'read_file',
+        toolName: 'file_read',
         toolInput: {'file_path': '/tmp/test'},
         timestamp: DateTime.now(),
       );

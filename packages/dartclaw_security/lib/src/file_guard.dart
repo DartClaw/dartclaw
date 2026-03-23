@@ -128,7 +128,8 @@ class FileGuardConfig {
 
 /// Glob-based file path protection guard.
 ///
-/// Only evaluates on `beforeToolCall`. Handles Bash, write_file, and edit_file tools.
+/// Only evaluates on `beforeToolCall`. Handles canonical `shell`,
+/// `file_write`, and `file_edit` tools.
 class FileGuard extends Guard {
   @override
   String get name => 'file';
@@ -153,8 +154,8 @@ class FileGuard extends Guard {
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
 
     final pathOps = switch (toolName) {
-      'Bash' => _extractPathsFromBash(toolInput['command'] as String? ?? ''),
-      'write_file' || 'edit_file' => _extractPathsFromTool(toolInput),
+      'shell' => _extractPathsFromBash(toolInput['command'] as String? ?? ''),
+      'file_write' || 'file_edit' => _extractPathsFromTool(toolInput),
       _ => <_PathOp>[],
     };
 
@@ -172,9 +173,40 @@ class FileGuard extends Guard {
   // -------------------------------------------------------------------------
 
   List<_PathOp> _extractPathsFromTool(Map<String, dynamic> input) {
-    final filePath = input['file_path'] as String?;
-    if (filePath == null) return [];
-    return [_PathOp(filePath, FileOperation.write)];
+    final results = <_PathOp>[];
+
+    void addPath(Object? value) {
+      final path = _stringValue(value);
+      if (path != null && path.isNotEmpty) {
+        results.add(_PathOp(path, FileOperation.write));
+      }
+    }
+
+    addPath(input['file_path']);
+    addPath(input['path']);
+
+    final changes = input['changes'];
+    if (changes is List) {
+      for (final change in changes) {
+        final changeMap = _mapValue(change);
+        if (changeMap == null) continue;
+
+        addPath(changeMap['file_path']);
+        addPath(changeMap['path']);
+      }
+    }
+
+    return results;
+  }
+
+  static Map<String, dynamic>? _mapValue(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    return null;
   }
 
   static final _redirectPattern = RegExp(r'(?:>>|>|2>>|2>|&>)\s*(\S+)');
@@ -372,4 +404,11 @@ class _PathOp {
   final FileOperation operation;
 
   const _PathOp(this.path, this.operation);
+}
+
+String? _stringValue(Object? value) {
+  if (value is String) {
+    return value;
+  }
+  return null;
 }

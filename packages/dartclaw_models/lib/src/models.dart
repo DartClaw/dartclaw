@@ -1,3 +1,5 @@
+const _sessionFieldUnset = Object();
+
 /// Classification for how a [Session] was created.
 enum SessionType {
   /// A long-lived primary session created by the runtime itself.
@@ -33,6 +35,9 @@ class Session {
   /// Channel-specific routing key for sessions that originate from a channel.
   final String? channelKey;
 
+  /// Optional provider override pinned to this session.
+  final String? provider;
+
   /// When this session record was first created.
   final DateTime createdAt;
 
@@ -45,6 +50,7 @@ class Session {
     this.title,
     this.type = SessionType.user,
     this.channelKey,
+    this.provider,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -55,6 +61,7 @@ class Session {
     'title': title,
     'type': type.name,
     if (channelKey != null) 'channelKey': channelKey,
+    if (provider != null) 'provider': provider,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -65,6 +72,7 @@ class Session {
     title: json['title'] as String?,
     type: _parseSessionType(json['type']),
     channelKey: json['channelKey'] as String?,
+    provider: json['provider'] as String?,
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
   );
@@ -72,16 +80,18 @@ class Session {
   /// Returns a copy with selected fields replaced.
   Session copyWith({
     String? id,
-    String? title,
+    Object? title = _sessionFieldUnset,
     SessionType? type,
-    String? channelKey,
+    Object? channelKey = _sessionFieldUnset,
+    Object? provider = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Session(
     id: id ?? this.id,
-    title: title ?? this.title,
+    title: identical(title, _sessionFieldUnset) ? this.title : title as String?,
     type: type ?? this.type,
-    channelKey: channelKey ?? this.channelKey,
+    channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
+    provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );

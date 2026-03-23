@@ -37,6 +37,28 @@ void main() {
     expect(html, contains('Start Task'));
   });
 
+  test('renders provider badge in the task meta grid', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Provider-aware task',
+        'type': 'coding',
+        'status': 'review',
+        'provider': 'codex',
+        'providerLabel': 'Codex',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+    );
+
+    expect(html, contains('Provider'));
+    expect(html, contains('provider-badge-codex'));
+    expect(html, contains('Codex'));
+  });
+
   test('renders structured diff html when provided', () {
     final html = taskDetailPageTemplate(
       sidebarData: emptySidebar,

@@ -76,7 +76,7 @@ void main() {
       classifier.nextClassification = 'harmful_content';
       final context = GuardContext(
         hookPoint: 'beforeToolCall',
-        toolName: 'Bash',
+        toolName: 'shell',
         toolInput: {},
         timestamp: DateTime.now(),
       );

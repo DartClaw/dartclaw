@@ -38,6 +38,7 @@ class TasksPage extends DashboardPage {
     final params = request.url.queryParameters;
     final statusFilter = TaskStatus.values.asNameMap()[params['status']];
     final typeFilter = TaskType.values.asNameMap()[params['type']];
+    final defaultProvider = ProviderIdentity.normalize(context.config?.agent.provider);
 
     final taskService = context.taskService;
     List<Task> tasks;
@@ -79,7 +80,9 @@ class TasksPage extends DashboardPage {
     final page = tasksPageTemplate(
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
-      tasks: tasks.map((task) => _taskToMap(task, goalTitle: goalTitles[task.goalId])).toList(),
+      tasks: tasks
+          .map((task) => _taskToMap(task, goalTitle: goalTitles[task.goalId], defaultProvider: defaultProvider))
+          .toList(),
       statusFilter: params['status'],
       typeFilter: params['type'],
       reviewCount: reviewCount,
@@ -88,6 +91,7 @@ class TasksPage extends DashboardPage {
       agentRunners: agentRunners,
       agentPool: agentPool,
       goalOptions: goals.map((goal) => <String, String>{'value': goal.id, 'label': goal.title}).toList(growable: false),
+      defaultProvider: defaultProvider,
     );
 
     return Response.ok(page, headers: htmlHeaders);
@@ -95,6 +99,7 @@ class TasksPage extends DashboardPage {
 
   Future<Response> _handleDetailPage(String taskId, Request request, PageContext context) async {
     final taskService = context.taskService;
+    final defaultProvider = ProviderIdentity.normalize(context.config?.agent.provider);
     if (taskService == null) {
       return Response.notFound('Task system not configured', headers: htmlHeaders);
     }
@@ -138,12 +143,16 @@ class TasksPage extends DashboardPage {
     if (task.sessionId != null && context.messages != null) {
       try {
         final msgs = await context.messages!.getMessagesTail(task.sessionId!);
-        final messageList = msgs.map((m) => classifyMessage(
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          senderName: _parseSenderDisplayName(m.metadata),
-        )).toList();
+        final messageList = msgs
+            .map(
+              (m) => classifyMessage(
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                senderName: _parseSenderDisplayName(m.metadata),
+              ),
+            )
+            .toList();
         messagesHtml = messagesHtmlFragment(messageList);
       } catch (e) {
         _log.warning('Failed to load messages for session ${task.sessionId}: $e');
@@ -158,22 +167,27 @@ class TasksPage extends DashboardPage {
     final page = taskDetailPageTemplate(
       sidebarData: sidebarData,
       navItems: context.navItems(activePage: title),
-      task: _taskToDetailMap(task, goalTitle: goal?.title),
+      task: _taskToDetailMap(task, goalTitle: goal?.title, defaultProvider: defaultProvider),
       artifacts: artifactMaps,
       conflictData: conflictData,
       messagesHtml: messagesHtml,
       bannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
+      defaultProvider: defaultProvider,
     );
 
     return Response.ok(page, headers: htmlHeaders);
   }
 
-  static Map<String, dynamic> _taskToMap(Task task, {String? goalTitle}) {
+  static Map<String, dynamic> _taskToMap(Task task, {String? goalTitle, required String defaultProvider}) {
+    final provider = ProviderIdentity.normalize(task.provider, fallback: defaultProvider);
     return {
       'id': task.id,
       'title': task.title,
       'description': task.description,
+      'provider': provider,
+      'providerLabel': ProviderIdentity.displayName(provider),
+      'hasProvider': provider.isNotEmpty,
       'type': task.type.name,
       'status': task.status.name,
       'goalId': task.goalId,
@@ -185,9 +199,9 @@ class TasksPage extends DashboardPage {
     };
   }
 
-  static Map<String, dynamic> _taskToDetailMap(Task task, {String? goalTitle}) {
+  static Map<String, dynamic> _taskToDetailMap(Task task, {String? goalTitle, required String defaultProvider}) {
     return {
-      ..._taskToMap(task, goalTitle: goalTitle),
+      ..._taskToMap(task, goalTitle: goalTitle, defaultProvider: defaultProvider),
       'acceptanceCriteria': task.acceptanceCriteria,
       'completedAt': task.completedAt?.toIso8601String(),
       'pushBackCount': (task.configJson['pushBackCount'] as num?)?.toInt() ?? 0,

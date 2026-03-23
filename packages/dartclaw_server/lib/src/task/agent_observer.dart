@@ -9,6 +9,7 @@ enum AgentState { idle, busy, stopped, crashed }
 class AgentMetrics {
   final int runnerId;
   final String role;
+  final String providerId;
   final AgentState state;
   final String? currentTaskId;
   final String? currentSessionId;
@@ -19,6 +20,7 @@ class AgentMetrics {
   const AgentMetrics({
     required this.runnerId,
     required this.role,
+    required this.providerId,
     required this.state,
     this.currentTaskId,
     this.currentSessionId,
@@ -30,6 +32,7 @@ class AgentMetrics {
   Map<String, dynamic> toJson() => {
     'runnerId': runnerId,
     'role': role,
+    'providerId': providerId,
     'state': state.name,
     'currentTaskId': currentTaskId,
     'currentSessionId': currentSessionId,
@@ -52,7 +55,7 @@ class AgentObserver {
   AgentObserver({required HarnessPool pool, EventBus? eventBus})
     : _pool = pool,
       _eventBus = eventBus,
-      _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i));
+      _metrics = List.generate(pool.size, (i) => _MutableMetrics(runnerId: i, providerId: pool.runners[i].providerId));
 
   /// Mark a runner as busy with an optional task/session ID.
   void markBusy(int runnerId, {String? taskId, String? sessionId}) {
@@ -114,6 +117,7 @@ class AgentObserver {
 
 class _MutableMetrics {
   final int runnerId;
+  final String providerId;
   AgentState state = AgentState.idle;
   String? currentTaskId;
   String? currentSessionId;
@@ -121,11 +125,12 @@ class _MutableMetrics {
   int turnsCompleted = 0;
   int errorCount = 0;
 
-  _MutableMetrics({required this.runnerId});
+  _MutableMetrics({required this.runnerId, required this.providerId});
 
   AgentMetrics toSnapshot() => AgentMetrics(
     runnerId: runnerId,
     role: runnerId == 0 ? 'primary' : 'task',
+    providerId: providerId,
     state: state,
     currentTaskId: currentTaskId,
     currentSessionId: currentSessionId,

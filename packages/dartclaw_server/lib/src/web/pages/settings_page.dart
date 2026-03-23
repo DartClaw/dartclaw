@@ -6,6 +6,7 @@ import 'package:shelf/shelf.dart';
 
 import '../../health/health_service.dart';
 import '../../params/display_params.dart';
+import '../../provider_status_service.dart';
 import '../../templates/guard_config_summary.dart';
 import '../../templates/settings.dart';
 import '../dashboard_page.dart';
@@ -20,6 +21,7 @@ class SettingsPage extends DashboardPage {
     this.signalChannel,
     this.googleChatChannel,
     this.guardChain,
+    this.providerStatus,
     this.contentGuardDisplay = const ContentGuardDisplayParams(),
     this.workspaceDisplay = const WorkspaceDisplayParams(),
   });
@@ -30,6 +32,7 @@ class SettingsPage extends DashboardPage {
   final SignalChannel? signalChannel;
   final GoogleChatChannel? googleChatChannel;
   final GuardChain? guardChain;
+  final ProviderStatusService? providerStatus;
   final ContentGuardDisplayParams contentGuardDisplay;
   final WorkspaceDisplayParams workspaceDisplay;
 
@@ -52,6 +55,8 @@ class SettingsPage extends DashboardPage {
     final gc = guardChain;
     final guardsEnabled = gc != null;
     final guardConfigs = extractGuardConfigs(gc, contentGuardDisplay: contentGuardDisplay);
+    final providerCards = _buildProviderCards(providerStatus?.getAll() ?? const <ProviderStatus>[]);
+    final providerSummary = _buildProviderSummary(providerStatus?.getSummary());
     final waStatus = await whatsAppChannelStatus(whatsAppChannel);
     final sigStatus = await signalChannelStatus(signalChannel);
     final googleChatConfig =
@@ -66,6 +71,10 @@ class SettingsPage extends DashboardPage {
       sessionCount: status['session_count'] as int? ?? 0,
       workerState: status['worker_state'] as String? ?? 'unknown',
       version: status['version'] as String? ?? 'unknown',
+      providers: providerCards,
+      providerConfiguredCount: providerSummary.configured,
+      providerHealthyCount: providerSummary.healthy,
+      providerDegradedCount: providerSummary.degraded,
       whatsAppEnabled: whatsAppChannel != null,
       whatsAppStatusLabel: waStatus.label,
       whatsAppStatusClass: waStatus.badgeClass,
@@ -98,4 +107,108 @@ class SettingsPage extends DashboardPage {
 
     return Response.ok(page, headers: htmlHeaders);
   }
+}
+
+({int configured, int healthy, int degraded}) _buildProviderSummary(Map<String, dynamic>? summary) {
+  final counts = summary ?? const <String, dynamic>{};
+  return (
+    configured: _summaryCount(counts['configured']),
+    healthy: _summaryCount(counts['healthy']),
+    degraded: _summaryCount(counts['degraded']),
+  );
+}
+
+int _summaryCount(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  return int.tryParse('$value') ?? 0;
+}
+
+List<Map<String, Object?>> _buildProviderCards(List<ProviderStatus> providers) {
+  return providers.map(_buildProviderCard).toList(growable: false);
+}
+
+Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
+  final healthUi = _providerHealthUi(provider.health);
+  final credentialPresent = provider.credentialStatus == 'present';
+  final poolUsagePercent = _poolUsagePercent(activeWorkers: provider.activeWorkers, poolSize: provider.poolSize);
+
+  return <String, Object?>{
+    'id': provider.id,
+    'title': ProviderIdentity.displayName(provider.id),
+    'subtitle': 'Provider ID: ${provider.id}',
+    'iconLabel': _providerIconLabel(provider.id),
+    'iconClass': _providerIconClass(provider.id, binaryFound: provider.binaryFound),
+    'isDefault': provider.isDefault,
+    'healthLabel': healthUi.label,
+    'healthBadgeClass': healthUi.badgeClass,
+    'binaryStatusLabel': provider.binaryFound ? 'Found' : 'Not found',
+    'binaryStatusClass': provider.binaryFound ? 'detail-value-ok' : 'detail-value-error',
+    'executable': provider.executable,
+    'versionDisplay': provider.binaryFound ? (provider.version ?? 'unknown') : 'Not found',
+    'versionClass': provider.binaryFound ? '' : 'detail-value-error',
+    'credentialStatusLabel': credentialPresent ? 'Present' : 'Missing',
+    'credentialValueClass': credentialPresent ? 'detail-value-ok' : 'detail-value-error',
+    'credentialDotClass': credentialPresent ? 'credential-dot-ok' : 'credential-dot-missing',
+    'credentialEnvVarDisplay': provider.credentialEnvVar ?? 'Credential source not configured',
+    'poolUsageText': provider.poolSize > 0
+        ? '${provider.activeWorkers} of ${provider.poolSize} Task Workers busy'
+        : 'No Workers configured',
+    'poolUsageLabel': provider.poolSize > 0
+        ? '$poolUsagePercent% of Task Harness Pool in use'
+        : 'Configure pool_size to reserve task Workers',
+    'poolUsageWidthStyle': 'width: $poolUsagePercent%;',
+    'hasError': provider.errorMessage != null,
+    'errorTitle': _providerErrorTitle(provider),
+    'errorMessage': provider.errorMessage,
+  };
+}
+
+int _poolUsagePercent({required int activeWorkers, required int poolSize}) {
+  if (poolSize <= 0) {
+    return 0;
+  }
+  final percent = ((activeWorkers / poolSize) * 100).round();
+  return percent.clamp(0, 100).toInt();
+}
+
+({String label, String badgeClass}) _providerHealthUi(String health) {
+  return switch (health) {
+    'healthy' => (label: 'Healthy', badgeClass: 'status-badge-success'),
+    'degraded' => (label: 'Degraded', badgeClass: 'status-badge-warning'),
+    _ => (label: 'Unavailable', badgeClass: 'status-badge-error'),
+  };
+}
+
+String _providerIconLabel(String id) {
+  final normalized = id.trim().toUpperCase();
+  if (normalized.isEmpty) {
+    return '??';
+  }
+  if (normalized.length <= 2) {
+    return normalized;
+  }
+  return normalized.substring(0, 2);
+}
+
+String _providerIconClass(String id, {required bool binaryFound}) {
+  if (!binaryFound) {
+    return 'provider-icon-missing';
+  }
+  return switch (ProviderIdentity.family(id)) {
+    'claude' => 'provider-icon-claude',
+    'codex' => 'provider-icon-codex',
+    _ => 'provider-icon-generic',
+  };
+}
+
+String _providerErrorTitle(ProviderStatus provider) {
+  if (!provider.binaryFound) {
+    return 'Binary unavailable';
+  }
+  if (provider.credentialStatus == 'missing') {
+    return 'Credentials missing';
+  }
+  return 'Action required';
 }

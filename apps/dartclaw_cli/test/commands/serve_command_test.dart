@@ -45,6 +45,14 @@ class _FakeWorkerService extends FakeAgentHarness {
   }) async => {'ok': true};
 }
 
+const _missingBinary = 'dartclaw-definitely-missing-binary-12345';
+
+HarnessFactory _harnessFactoryFor(AgentHarness harness) {
+  final factory = HarnessFactory();
+  factory.register('claude', (_) => harness);
+  return factory;
+}
+
 void main() {
   late DartclawRunner runner;
   late ServeCommand serveCommand;
@@ -130,28 +138,20 @@ void main() {
       });
 
       final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           host: '0.0.0.0',
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
           templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
         ),
       );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory:
-            (
-              cwd, {
-              claudeExecutable,
-              turnTimeout,
-              onMemorySave,
-              onMemorySearch,
-              onMemoryRead,
-              harnessConfig,
-              containerManager,
-            }) => worker,
+        harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (builder) => builder.build(),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
@@ -182,6 +182,9 @@ void main() {
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
+credentials:
+  anthropic:
+    api_key: anthropic-key
 channels:
   google_chat:
     group_access: 123
@@ -197,6 +200,7 @@ channels:
           'data_dir': tempDir.path,
           'static_dir': Directory.current.path,
           'templates_dir': _templatesDir(),
+          'claude_executable': Platform.resolvedExecutable,
         },
         env: {'HOME': '/home/user'},
       );
@@ -204,17 +208,7 @@ channels:
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory:
-            (
-              cwd, {
-              claudeExecutable,
-              turnTimeout,
-              onMemorySave,
-              onMemorySearch,
-              onMemoryRead,
-              harnessConfig,
-              containerManager,
-            }) => worker,
+        harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (builder) => builder.build(),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
@@ -228,6 +222,97 @@ channels:
       expect(stderrLines.join('\n'), contains('WARNING: Invalid type for signal.port'));
       expect(worker.started, isTrue);
       expect(worker.stopped, isTrue);
+    });
+
+    test('legacy startup validation fails fast when default provider credentials are missing', () async {
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        agent: const AgentConfig(provider: 'claude'),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serverFactory: (builder) => builder.build(),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      expect(worker.started, isFalse);
+      expect(worker.stopped, isFalse);
+    });
+
+    test('secondary-provider validation warnings do not block startup', () async {
+      final logs = <LogRecord>[];
+      Logger.root.level = Level.ALL;
+      final logSub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() {
+        logSub.cancel();
+        Logger.root.level = Level.INFO;
+      });
+
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_test_');
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        agent: const AgentConfig(provider: 'claude'),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        providers: ProvidersConfig(
+          entries: {
+            'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1),
+            'codex': const ProviderEntry(executable: _missingBinary, poolSize: 0),
+          },
+        ),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: Directory.current.path,
+          templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serverFactory: (builder) => builder.build(),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+      expect(worker.started, isTrue);
+      expect(
+        logs.any(
+          (record) =>
+              record.loggerName == 'HarnessWiring' &&
+              record.level == Level.WARNING &&
+              record.message.contains("Provider 'codex': binary not found at '$_missingBinary'"),
+        ),
+        isTrue,
+      );
     });
 
     test('port-in-use path prints clear bind error', () async {
@@ -247,27 +332,19 @@ channels:
       });
 
       final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
           templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
         ),
       );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory:
-            (
-              cwd, {
-              claudeExecutable,
-              turnTimeout,
-              onMemorySave,
-              onMemorySearch,
-              onMemoryRead,
-              harnessConfig,
-              containerManager,
-            }) => worker,
+        harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (builder) => builder.build(),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
@@ -292,10 +369,12 @@ channels:
       });
 
       final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
           templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
         ),
       );
       final kvFile = File(config.kvPath);
@@ -310,17 +389,7 @@ channels:
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory:
-            (
-              cwd, {
-              claudeExecutable,
-              turnTimeout,
-              onMemorySave,
-              onMemorySearch,
-              onMemoryRead,
-              harnessConfig,
-              containerManager,
-            }) => worker,
+        harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (builder) => builder.build(),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},
@@ -351,7 +420,9 @@ channels:
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()));
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()),
+      );
 
       final command = ServeCommand(
         config: config,
@@ -379,7 +450,9 @@ channels:
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()));
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()),
+      );
 
       final command = ServeCommand(
         config: config,
@@ -413,10 +486,12 @@ channels:
       });
 
       final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
           templatesDir: _templatesDir(),
+          claudeExecutable: Platform.resolvedExecutable,
         ),
         security: SecurityConfig(contentGuardEnabled: true),
       );
@@ -425,17 +500,7 @@ channels:
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
-        harnessFactory:
-            (
-              cwd, {
-              claudeExecutable,
-              turnTimeout,
-              onMemorySave,
-              onMemorySearch,
-              onMemoryRead,
-              harnessConfig,
-              containerManager,
-            }) => worker,
+        harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (builder) => builder.build(),
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},

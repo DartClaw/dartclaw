@@ -615,7 +615,7 @@ class _FakeSessionService implements SessionService {
   final Map<String, Session> _keyedSessions = {};
 
   @override
-  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user}) async {
+  Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
     return _keyedSessions.putIfAbsent(
       key,
       () => Session(id: 'fake-uuid-for-$key', createdAt: DateTime.now(), updatedAt: DateTime.now()),

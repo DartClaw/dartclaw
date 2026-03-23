@@ -58,6 +58,9 @@ class Task {
   /// message, or from the UI when created via the web interface.
   final String? createdBy;
 
+  /// Optional provider override for executing this task.
+  final String? provider;
+
   /// Creates an immutable task record.
   Task({
     required this.id,
@@ -75,6 +78,7 @@ class Task {
     this.completedAt,
     this.version = 1,
     this.createdBy,
+    this.provider,
   }) : configJson = _freezeJsonMap(configJson ?? const {}),
        worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson);
 
@@ -95,6 +99,7 @@ class Task {
     Object? completedAt = _sentinel,
     int? version,
     Object? createdBy = _sentinel,
+    Object? provider = _sentinel,
   }) => Task(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -113,6 +118,7 @@ class Task {
     completedAt: identical(completedAt, _sentinel) ? this.completedAt : completedAt as DateTime?,
     version: version ?? this.version,
     createdBy: identical(createdBy, _sentinel) ? this.createdBy : createdBy as String?,
+    provider: identical(provider, _sentinel) ? this.provider : provider as String?,
   );
 
   /// Applies a validated lifecycle transition and updates timestamps.
@@ -160,6 +166,7 @@ class Task {
     if (acceptanceCriteria != null) 'acceptanceCriteria': acceptanceCriteria,
     if (sessionId != null) 'sessionId': sessionId,
     if (createdBy != null) 'createdBy': createdBy,
+    if (provider != null) 'provider': provider,
     'configJson': _mutableJsonMap(configJson),
     if (worktreeJson != null) 'worktreeJson': _mutableJsonMap(worktreeJson!),
     'createdAt': createdAt.toIso8601String(),
@@ -184,6 +191,7 @@ class Task {
     startedAt: _parseDateTime(json['startedAt']),
     completedAt: _parseDateTime(json['completedAt']),
     createdBy: json['createdBy'] as String?,
+    provider: json['provider'] as String?,
   );
 }
 

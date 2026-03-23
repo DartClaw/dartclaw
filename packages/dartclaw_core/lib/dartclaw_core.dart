@@ -53,10 +53,25 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/canonical_tool.dart' show CanonicalTool;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
+export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
+export 'src/harness/codex_config_generator.dart' show CodexConfigGenerator;
+export 'src/harness/codex_environment.dart' show CodexEnvironment;
+export 'src/harness/codex_exec_harness.dart' show CodexExecHarness;
+export 'src/harness/codex_harness.dart' show CodexHarness;
+export 'src/harness/codex_exec_protocol_adapter.dart' show CodexExecProtocolAdapter;
+export 'src/harness/codex_protocol_adapter.dart' show CodexProtocolAdapter;
+export 'src/harness/codex_settings.dart' show CodexSettings;
 export 'src/harness/harness_config.dart' show HarnessConfig;
+export 'src/harness/harness_factory.dart' show HarnessFactory, HarnessFactoryConfig;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
+export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
+// Protocol message boundary. `ToolResult` remains owned by `tool_result.dart`
+// in this barrel because it is already part of the MCP public API.
+export 'src/harness/protocol_message.dart'
+    show ProtocolMessage, TextDelta, ToolUse, ControlRequest, TurnComplete, SystemInit;
 export 'src/harness/tool_policy.dart' show ToolApprovalPolicy;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
 
@@ -73,10 +88,15 @@ export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTime
 
 // Config — section types
 export 'src/config/agent_config.dart' show AgentConfig;
+export 'src/config/credential_registry.dart' show CredentialRegistry;
+export 'src/config/credentials_config.dart' show CredentialsConfig, CredentialEntry;
+export 'src/config/provider_identity.dart' show ProviderIdentity;
 export 'src/config/auth_config.dart' show AuthConfig;
 export 'src/config/context_config.dart' show ContextConfig;
 export 'src/config/gateway_config.dart' show GatewayConfig;
 export 'src/config/logging_config.dart' show LoggingConfig;
+export 'src/config/provider_validator.dart' show ProviderValidator;
+export 'src/config/providers_config.dart' show ProviderEntry, ProvidersConfig;
 export 'src/config/memory_config.dart' show MemoryConfig;
 export 'src/config/scheduling_config.dart' show SchedulingConfig;
 export 'src/config/search_config.dart' show SearchConfig, SearchProviderEntry;

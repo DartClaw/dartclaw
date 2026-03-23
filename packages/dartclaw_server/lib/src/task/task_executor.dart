@@ -27,8 +27,7 @@ class TaskExecutor {
     required TurnManager turns,
     required ArtifactCollector artifactCollector,
     // eventBus is kept for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
-    EventBus? eventBus,
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? observer,
@@ -104,7 +103,7 @@ class TaskExecutor {
       var started = false;
       for (final task in queued) {
         final profile = resolveProfile(task.type);
-        final runner = _acquirePoolRunner(profile);
+        final runner = _acquirePoolRunner(profile, provider: task.provider);
         if (runner == null) {
           continue;
         }
@@ -334,7 +333,13 @@ class TaskExecutor {
     }
   }
 
-  TurnRunner? _acquirePoolRunner(String profile) {
+  TurnRunner? _acquirePoolRunner(String profile, {String? provider}) {
+    if (provider != null) {
+      if (!_pool.hasTaskRunnerForProvider(provider)) {
+        return null;
+      }
+      return _pool.tryAcquireForProviderAndProfile(provider, profile);
+    }
     if (_pool.hasTaskRunnerForProfile(profile)) {
       return _pool.tryAcquireForProfile(profile);
     }

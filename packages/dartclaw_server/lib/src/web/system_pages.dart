@@ -7,6 +7,7 @@ import '../audit/audit_log_reader.dart';
 import '../health/health_service.dart';
 import '../memory/memory_status_service.dart';
 import '../params/display_params.dart';
+import '../provider_status_service.dart';
 import '../runtime_config.dart';
 import 'page_registry.dart';
 import 'pages/health_page.dart';
@@ -23,6 +24,7 @@ void registerSystemDashboardPages(
   SignalChannel? signalChannel,
   GoogleChatChannel? googleChatChannel,
   GuardChain? guardChain,
+  ProviderStatusService? providerStatus,
   RuntimeConfig? Function()? runtimeConfigGetter,
   MemoryStatusService? Function()? memoryStatusServiceGetter,
   ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
@@ -48,6 +50,7 @@ void registerSystemDashboardPages(
       signalChannel: signalChannel,
       googleChatChannel: googleChatChannel,
       guardChain: guardChain,
+      providerStatus: providerStatus,
       contentGuardDisplay: contentGuardDisplay,
       workspaceDisplay: workspaceDisplay,
     ),

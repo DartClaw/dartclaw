@@ -25,6 +25,18 @@ class FakeWorkerService implements AgentHarness {
   bool disposeCalled = false;
 
   @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override

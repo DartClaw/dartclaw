@@ -1,12 +1,11 @@
 import 'dart:io';
 import 'dart:math';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import '../serve_command.dart' show HarnessFactory, ExitFn, mcpDisallowedTools;
+import '../serve_command.dart' show ExitFn, mcpDisallowedTools;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 
@@ -26,14 +25,14 @@ class HarnessWiring {
     required SecurityWiring security,
     required MessageRedactor messageRedactor,
     required EventBus eventBus,
-  })  : _dataDir = dataDir,
-        _port = port,
-        _harnessFactory = harnessFactory,
-        _exitFn = exitFn,
-        _storage = storage,
-        _security = security,
-        _messageRedactor = messageRedactor,
-        _eventBus = eventBus;
+  }) : _dataDir = dataDir,
+       _port = port,
+       _harnessFactory = harnessFactory,
+       _exitFn = exitFn,
+       _storage = storage,
+       _security = security,
+       _messageRedactor = messageRedactor,
+       _eventBus = eventBus;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -66,7 +65,8 @@ class HarnessWiring {
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  }) _memoryHandlers;
+  })
+  _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
   bool _authEnabled = false;
   TokenService? _tokenService;
@@ -91,7 +91,8 @@ class HarnessWiring {
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
     Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  }) get memoryHandlers => _memoryHandlers;
+  })
+  get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
@@ -117,9 +118,7 @@ class HarnessWiring {
       selfImprovement: _selfImprovement,
     );
 
-    _agentDefs = config.agent.definitions.isNotEmpty
-        ? config.agent.definitions
-        : [AgentDefinition.searchAgent()];
+    _agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
     _agentMap = {for (final a in _agentDefs) a.id: a};
     final agentsPayload = {for (final a in _agentDefs) a.id: a.toInitializePayload()};
 
@@ -158,17 +157,43 @@ class HarnessWiring {
       mcpGatewayToken: _resolvedGatewayToken,
     );
 
-    _harness = _harnessFactory(
-      Directory.current.path,
-      claudeExecutable: config.server.claudeExecutable,
-      turnTimeout: Duration(seconds: config.server.workerTimeout),
-      onMemorySave: _memoryHandlers.onSave,
-      onMemorySearch: _memoryHandlers.onSearch,
-      onMemoryRead: _memoryHandlers.onRead,
-      harnessConfig: _harnessConfig,
-      containerManager: _security.containerManagers['workspace'],
-    );
+    final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final defaultProviderId = config.agent.provider;
     try {
+      final validationProviders = config.providers.isEmpty
+          ? ProvidersConfig(
+              entries: {
+                defaultProviderId: ProviderEntry(executable: _resolveProviderExecutable(config, defaultProviderId)),
+              },
+            )
+          : config.providers;
+      final validation = await ProviderValidator.validate(
+        providers: validationProviders,
+        registry: credentialRegistry,
+        defaultProvider: defaultProviderId,
+      );
+      for (final warning in validation.warnings) {
+        _log.warning(warning);
+      }
+      if (validation.errors.isNotEmpty) {
+        throw StateError(validation.errors.join('\n'));
+      }
+
+      _harness = _harnessFactory.create(
+        defaultProviderId,
+        HarnessFactoryConfig(
+          cwd: Directory.current.path,
+          executable: _resolveProviderExecutable(config, defaultProviderId),
+          turnTimeout: Duration(seconds: config.server.workerTimeout),
+          onMemorySave: _memoryHandlers.onSave,
+          onMemorySearch: _memoryHandlers.onSearch,
+          onMemoryRead: _memoryHandlers.onRead,
+          harnessConfig: _harnessConfig,
+          providerOptions: _providerOptions(config, defaultProviderId),
+          containerManager: _security.containerManagers['workspace'],
+          environment: _providerEnvironment(defaultProviderId, credentialRegistry),
+        ),
+      );
       await _harness.start();
     } catch (e, st) {
       _log.severe('Failed to start harness', e, st);
@@ -188,37 +213,81 @@ class HarnessWiring {
 
     final taskHarnesses = <AgentHarness>[];
     final taskProfileIds = <String>[];
-    final maxConcurrent = config.tasks.maxConcurrent;
-    final profileIds = _security.containerManagers.isEmpty
-        ? ['workspace']
-        : ['workspace', 'restricted'];
-    final taskRunnerCount = maxConcurrent == 0
-        ? 0
-        : (_security.containerManagers.isEmpty
-            ? maxConcurrent
-            : max(maxConcurrent, profileIds.length));
+    final taskProviderIds = <String>[];
+    final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
+    final maxConcurrent = config.providers.isEmpty
+        ? config.tasks.maxConcurrent
+        : config.providers.entries.values.fold<int>(0, (sum, entry) => sum + entry.poolSize);
 
-    for (var i = 0; i < taskRunnerCount; i++) {
-      final profileId = profileIds[i % profileIds.length];
-      final containerManager =
-          _security.containerManagers[profileId] ?? _security.containerManagers['workspace'];
-      final taskHarness = _harnessFactory(
-        Directory.current.path,
-        claudeExecutable: config.server.claudeExecutable,
-        turnTimeout: Duration(seconds: config.server.workerTimeout),
-        onMemorySave: _memoryHandlers.onSave,
-        onMemorySearch: _memoryHandlers.onSearch,
-        onMemoryRead: _memoryHandlers.onRead,
-        harnessConfig: _harnessConfig,
-        containerManager: containerManager,
-      );
-      try {
-        await taskHarness.start();
-        taskHarnesses.add(taskHarness);
-        taskProfileIds.add(profileId);
-      } catch (e) {
-        _log.warning('Failed to start task harness ${i + 1} of $taskRunnerCount: $e');
-        // Degraded mode: continue with fewer task runners.
+    if (config.providers.isEmpty) {
+      final taskRunnerCount = config.tasks.maxConcurrent == 0
+          ? 0
+          : (_security.containerManagers.isEmpty
+                ? config.tasks.maxConcurrent
+                : max(config.tasks.maxConcurrent, profileIds.length));
+      final legacyProviderId = defaultProviderId;
+      final legacyExecutable = _resolveProviderExecutable(config, legacyProviderId);
+      final legacyProviderOptions = _providerOptions(config, legacyProviderId);
+      for (var i = 0; i < taskRunnerCount; i++) {
+        final profileId = profileIds[i % profileIds.length];
+        final containerManager = _security.containerManagers[profileId] ?? _security.containerManagers['workspace'];
+        try {
+          final taskHarness = _harnessFactory.create(
+            legacyProviderId,
+            HarnessFactoryConfig(
+              cwd: Directory.current.path,
+              executable: legacyExecutable,
+              turnTimeout: Duration(seconds: config.server.workerTimeout),
+              onMemorySave: _memoryHandlers.onSave,
+              onMemorySearch: _memoryHandlers.onSearch,
+              onMemoryRead: _memoryHandlers.onRead,
+              harnessConfig: _harnessConfig,
+              providerOptions: legacyProviderOptions,
+              containerManager: containerManager,
+              environment: _providerEnvironment(legacyProviderId, credentialRegistry),
+            ),
+          );
+          await taskHarness.start();
+          taskHarnesses.add(taskHarness);
+          taskProfileIds.add(profileId);
+          taskProviderIds.add(legacyProviderId);
+        } catch (e) {
+          _log.warning('Failed to start task harness ${i + 1} of $taskRunnerCount: $e');
+          // Degraded mode: continue with fewer task runners.
+        }
+      }
+    } else {
+      for (final providerEntry in config.providers.entries.entries) {
+        final providerId = providerEntry.key;
+        final entry = providerEntry.value;
+        for (var i = 0; i < entry.poolSize; i++) {
+          final profileId = profileIds[i % profileIds.length];
+          final containerManager = _security.containerManagers[profileId] ?? _security.containerManagers['workspace'];
+          try {
+            final taskHarness = _harnessFactory.create(
+              providerId,
+              HarnessFactoryConfig(
+                cwd: Directory.current.path,
+                executable: entry.executable,
+                turnTimeout: Duration(seconds: config.server.workerTimeout),
+                onMemorySave: _memoryHandlers.onSave,
+                onMemorySearch: _memoryHandlers.onSearch,
+                onMemoryRead: _memoryHandlers.onRead,
+                harnessConfig: _harnessConfig,
+                providerOptions: entry.options,
+                containerManager: containerManager,
+                environment: _providerEnvironment(providerId, credentialRegistry),
+              ),
+            );
+            await taskHarness.start();
+            taskHarnesses.add(taskHarness);
+            taskProfileIds.add(profileId);
+            taskProviderIds.add(providerId);
+          } catch (e) {
+            _log.warning('Failed to start task harness ${i + 1} of ${entry.poolSize} for provider $providerId: $e');
+            // Degraded mode: continue with fewer task runners.
+          }
+        }
       }
     }
     if (taskHarnesses.isNotEmpty) {
@@ -297,10 +366,7 @@ class HarnessWiring {
 
     // Build budget enforcer (shared across all runners — deployment-wide daily budget).
     _budgetEnforcer = config.governance.budget.enabled
-        ? BudgetEnforcer(
-            usageTracker: _usageTracker,
-            config: config.governance.budget,
-          )
+        ? BudgetEnforcer(usageTracker: _usageTracker, config: config.governance.budget)
         : null;
     final budgetEnforcer = _budgetEnforcer;
 
@@ -308,9 +374,7 @@ class HarnessWiring {
     final loopDetector = config.governance.loopDetection.enabled
         ? LoopDetector(config: config.governance.loopDetection)
         : null;
-    final loopAction = config.governance.loopDetection.enabled
-        ? config.governance.loopDetection.action
-        : null;
+    final loopAction = config.governance.loopDetection.enabled ? config.governance.loopDetection.action : null;
 
     // Build TurnRunners for the pool.
     final runners = <TurnRunner>[
@@ -336,6 +400,7 @@ class HarnessWiring {
         loopDetector: loopDetector,
         loopAction: loopAction,
         eventBus: _eventBus,
+        providerId: defaultProviderId,
       ),
       for (var i = 0; i < taskHarnesses.length; i++)
         TurnRunner(
@@ -361,11 +426,41 @@ class HarnessWiring {
           loopAction: loopAction,
           eventBus: _eventBus,
           profileId: taskProfileIds[i],
+          providerId: taskProviderIds[i],
         ),
     ];
     _pool = HarnessPool(runners: runners, maxConcurrentTasks: maxConcurrent);
   }
 }
+
+Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
+  // Preserve the normal execution environment, but ensure only the selected
+  // provider credential is passed through to the subprocess.
+  final environment = Map<String, String>.from(Platform.environment)
+    ..remove('ANTHROPIC_API_KEY')
+    ..remove('OPENAI_API_KEY');
+  final apiKey = registry.getApiKey(providerId);
+  final envVar = CredentialRegistry.envVarFor(providerId);
+  if (apiKey != null && envVar != null) {
+    environment[envVar] = apiKey;
+  }
+  return environment;
+}
+
+String _resolveProviderExecutable(DartclawConfig config, String providerId) {
+  final entry = config.providers[providerId];
+  if (entry != null) {
+    return entry.executable;
+  }
+  return switch (ProviderIdentity.family(providerId)) {
+    'claude' => config.server.claudeExecutable,
+    'codex' => 'codex',
+    _ => providerId,
+  };
+}
+
+Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
+    config.providers[providerId]?.options ?? const <String, dynamic>{};
 
 bool _hasSearchProvider(DartclawConfig config) =>
     config.search.providers.values.any((p) => p.enabled && p.apiKey.isNotEmpty);

@@ -44,9 +44,22 @@ class FakeWorkerService implements AgentHarness {
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvoked = Completer<void>();
   bool cancelCalled = false;
+  int turnCalls = 0;
 
   /// Resolves when the next [turn] call arrives (after composeSystemPrompt completes).
   Future<void> get turnInvoked => _turnInvoked.future;
+
+  @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
@@ -71,6 +84,7 @@ class FakeWorkerService implements AgentHarness {
     String? model,
     String? effort,
   }) {
+    turnCalls++;
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
     return _turnCompleter!.future;
@@ -116,6 +130,18 @@ class _AppendStrategyWorker implements AgentHarness {
   String? lastSystemPrompt;
 
   Future<void> get turnInvoked => _turnInvoked.future;
+
+  @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -204,6 +230,44 @@ void main() {
       await worker.turnInvoked;
       worker.completeSuccess();
       await turns.waitForOutcome('s1', turnId);
+    });
+
+    test('uses a provider-matched pooled runner for provider-pinned sessions', () async {
+      final sessionService = SessionService(baseDir: tempDir.path);
+      final session = await sessionService.createSession(provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final codexWorker = FakeWorkerService();
+      final providerTurns = TurnManager.fromPool(
+        pool: HarnessPool(
+          runners: [
+            TurnRunner(
+              harness: primaryWorker,
+              messages: messages,
+              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+              sessions: sessionService,
+              providerId: 'claude',
+            ),
+            TurnRunner(
+              harness: codexWorker,
+              messages: messages,
+              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+              sessions: sessionService,
+              providerId: 'codex',
+            ),
+          ],
+        ),
+        sessions: sessionService,
+      );
+      addTearDown(providerTurns.pool.dispose);
+
+      final turnId = await providerTurns.startTurn(session.id, []);
+      await codexWorker.turnInvoked;
+
+      expect(primaryWorker.turnCalls, 0);
+      expect(codexWorker.turnCalls, 1);
+
+      codexWorker.completeSuccess();
+      await providerTurns.waitForOutcome(session.id, turnId);
     });
 
     test('same-session second request queues behind first (not 409)', () async {

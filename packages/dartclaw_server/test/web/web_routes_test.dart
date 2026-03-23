@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -39,6 +40,31 @@ class _FakeSignalCliManager extends SignalCliManager {
 
   @override
   Future<bool> isAccountRegistered() async => registered;
+}
+
+String _sessionCostPayload({
+  required int inputTokens,
+  required int outputTokens,
+  required int totalTokens,
+  required double estimatedCostUsd,
+  required int turnCount,
+  String? provider,
+  int? cachedInputTokens,
+}) {
+  final payload = <String, dynamic>{
+    'input_tokens': inputTokens,
+    'output_tokens': outputTokens,
+    'total_tokens': totalTokens,
+    'estimated_cost_usd': estimatedCostUsd,
+    'turn_count': turnCount,
+  };
+  if (provider != null) {
+    payload['provider'] = provider;
+  }
+  if (cachedInputTokens != null) {
+    payload['cached_input_tokens'] = cachedInputTokens;
+  }
+  return jsonEncode(payload);
 }
 
 void main() {
@@ -248,6 +274,104 @@ void main() {
       expect(body, contains('>3<'));
       expect(body, contains('>7<'));
       expect(body, contains('>10<'));
+    });
+
+    test('renders Claude cost totals and cached token data from session usage records', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'hello');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'world');
+      await kvService.set(
+        'session_cost:${session.id}',
+        _sessionCostPayload(
+          inputTokens: 14,
+          outputTokens: 6,
+          totalTokens: 20,
+          estimatedCostUsd: 0.42,
+          turnCount: 1,
+          provider: 'claude',
+          cachedInputTokens: 12,
+        ),
+      );
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains(r'$0.42'));
+      expect(body, contains('Cached Input'));
+      expect(body, contains('12'));
+      expect(body, isNot(contains('cost unavailable')));
+    });
+
+    test('renders Codex cost fallback with cached token data and explanatory tooltip', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'hello');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'world');
+      await kvService.set(
+        'session_cost:${session.id}',
+        _sessionCostPayload(
+          inputTokens: 24,
+          outputTokens: 9,
+          totalTokens: 33,
+          estimatedCostUsd: 0.0,
+          turnCount: 2,
+          provider: 'codex',
+          cachedInputTokens: 17,
+        ),
+      );
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('cost unavailable'));
+      expect(
+        body,
+        contains('This provider does not report USD cost. Token counts are tracked for governance budgets.'),
+      );
+      expect(body, contains('Cached Input'));
+      expect(body, contains('17'));
+    });
+
+    test('defaults legacy session usage records without provider data to Claude-style cost display', () async {
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'hello');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'world');
+      await kvService.set(
+        'session_cost:${session.id}',
+        _sessionCostPayload(inputTokens: 4, outputTokens: 6, totalTokens: 10, estimatedCostUsd: 0.10, turnCount: 1),
+      );
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains(r'$0.10'));
+      expect(body, isNot(contains('cost unavailable')));
+      expect(body, isNot(contains('Cached Input')));
+    });
+
+    test('uses the configured default provider for legacy session usage records', () async {
+      final handlerWithCodexDefault = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        config: const DartclawConfig(agent: AgentConfig(provider: 'codex')),
+      ).call;
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'hello');
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'world');
+      await kvService.set(
+        'session_cost:${session.id}',
+        _sessionCostPayload(inputTokens: 4, outputTokens: 6, totalTokens: 10, estimatedCostUsd: 0.10, turnCount: 1),
+      );
+
+      final res = await handlerWithCodexDefault(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final body = await res.readAsString();
+
+      expect(res.statusCode, equals(200));
+      expect(body, contains('cost unavailable'));
+      expect(body, isNot(contains(r'$0.10')));
     });
   });
 

@@ -87,6 +87,53 @@ void main() {
       expect(html, contains('href="/tasks/task-1"'));
     });
 
+    test('renders provider badges in running cards, table rows, and agent overview', () {
+      final html = tasksPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: navItems,
+        tasks: [
+          {
+            'id': 'task-running',
+            'title': 'Run codex worker',
+            'type': 'analysis',
+            'status': 'running',
+            'provider': 'codex',
+            'providerLabel': 'Codex',
+            'createdAt': '2026-03-10T10:00:00Z',
+          },
+          {
+            'id': 'task-review',
+            'title': 'Review claude output',
+            'type': 'coding',
+            'status': 'review',
+            'provider': 'claude',
+            'providerLabel': 'Claude',
+            'createdAt': '2026-03-10T10:00:00Z',
+          },
+        ],
+        agentRunners: const [
+          {
+            'runnerId': 1,
+            'role': 'task',
+            'state': 'busy',
+            'providerId': 'codex',
+            'tokensConsumed': 120,
+            'turnsCompleted': 3,
+            'errorCount': 0,
+            'currentTaskId': 'task-running',
+          },
+        ],
+        agentPool: const {'size': 2, 'activeCount': 1, 'availableCount': 1, 'maxConcurrentTasks': 2},
+      );
+
+      expect(html, contains('Provider'));
+      expect(html, contains('provider-badge-codex'));
+      expect(html, contains('provider-badge-claude'));
+      expect(html, contains('Run codex worker'));
+      expect(html, contains('Review claude output'));
+      expect(html, contains('Agent Pool'));
+    });
+
     test('renders agent overview when pool data is present', () {
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -97,6 +144,7 @@ void main() {
             'runnerId': 0,
             'role': 'primary',
             'state': 'idle',
+            'providerId': 'claude',
             'tokensConsumed': 10,
             'turnsCompleted': 2,
             'errorCount': 0,

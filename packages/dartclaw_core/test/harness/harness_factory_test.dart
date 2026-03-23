@@ -1,0 +1,165 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('HarnessFactory', () {
+    test('registers claude by default', () {
+      final factory = HarnessFactory();
+
+      expect(factory.supports('claude'), isTrue);
+      expect(factory.supports('codex'), isTrue);
+      expect(factory.supports('codex-exec'), isTrue);
+      expect(factory.registeredProviders, containsAll(['claude', 'codex', 'codex-exec']));
+    });
+
+    test('creates a ClaudeCodeHarness from the built-in claude provider', () {
+      final containerManager = ContainerManager(
+        config: const ContainerConfig(enabled: true),
+        containerName: 'dartclaw-test-container',
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        proxySocketDir: '/tmp',
+      );
+      final guardChain = GuardChain(guards: const []);
+      final auditLogger = GuardAuditLogger();
+      final factory = HarnessFactory();
+      final config = HarnessFactoryConfig(
+        cwd: '/tmp/workspace',
+        executable: '/usr/local/bin/claude',
+        turnTimeout: const Duration(seconds: 42),
+        harnessConfig: const HarnessConfig(model: 'sonnet', effort: 'medium'),
+        containerManager: containerManager,
+        guardChain: guardChain,
+        auditLogger: auditLogger,
+        onMemorySave: (payload) async => {'saved': payload},
+        onMemorySearch: (payload) async => {'searched': payload},
+        onMemoryRead: (payload) async => {'read': payload},
+      );
+
+      final harness = factory.create('claude', config);
+
+      expect(harness, isA<ClaudeCodeHarness>());
+      final claude = harness as ClaudeCodeHarness;
+      expect(claude.cwd, '/tmp/workspace');
+      expect(claude.claudeExecutable, '/usr/local/bin/claude');
+      expect(claude.turnTimeout, const Duration(seconds: 42));
+      expect(claude.harnessConfig.model, 'sonnet');
+      expect(claude.harnessConfig.effort, 'medium');
+      expect(claude.containerManager, same(containerManager));
+      expect(claude.guardChain, same(guardChain));
+      expect(claude.auditLogger, same(auditLogger));
+      expect(claude.onMemorySave, isNotNull);
+      expect(claude.onMemorySearch, isNotNull);
+      expect(claude.onMemoryRead, isNotNull);
+    });
+
+    test('creates a CodexHarness from the built-in codex provider', () {
+      final guardChain = GuardChain(guards: const []);
+      final factory = HarnessFactory();
+      final config = HarnessFactoryConfig(
+        cwd: '/tmp/workspace',
+        executable: '/usr/local/bin/codex',
+        turnTimeout: const Duration(seconds: 42),
+        guardChain: guardChain,
+      );
+
+      final harness = factory.create('codex', config);
+
+      expect(harness, isA<CodexHarness>());
+      final codex = harness as CodexHarness;
+      expect(codex.cwd, '/tmp/workspace');
+      expect(codex.executable, '/usr/local/bin/codex');
+      expect(codex.turnTimeout, const Duration(seconds: 42));
+      expect(codex.guardChain, same(guardChain));
+    });
+
+    test('creates a CodexExecHarness from the built-in codex-exec provider', () {
+      final factory = HarnessFactory();
+      final config = HarnessFactoryConfig(
+        cwd: '/tmp/workspace',
+        executable: '/usr/local/bin/codex',
+        turnTimeout: const Duration(seconds: 42),
+        harnessConfig: const HarnessConfig(
+          model: 'gpt-5',
+          appendSystemPrompt: 'follow the rules',
+          mcpServerUrl: 'http://127.0.0.1:3333/mcp',
+          mcpGatewayToken: 'test-token',
+        ),
+      );
+
+      final harness = factory.create('codex-exec', config);
+
+      expect(harness, isA<CodexExecHarness>());
+      final codexExec = harness as CodexExecHarness;
+      expect(codexExec.cwd, '/tmp/workspace');
+      expect(codexExec.codexExecutable, '/usr/local/bin/codex');
+      expect(codexExec.sandboxMode, 'danger-full-access');
+      expect(codexExec.turnTimeout, const Duration(seconds: 42));
+      expect(codexExec.harnessConfig.model, 'gpt-5');
+      expect(codexExec.harnessConfig.appendSystemPrompt, 'follow the rules');
+      expect(codexExec.harnessConfig.mcpServerUrl, 'http://127.0.0.1:3333/mcp');
+      expect(codexExec.harnessConfig.mcpGatewayToken, 'test-token');
+    });
+
+    test('defaults codex to the codex binary when executable is not set explicitly', () {
+      final factory = HarnessFactory();
+      final harness = factory.create('codex', const HarnessFactoryConfig(cwd: '/tmp/workspace'));
+
+      expect(harness, isA<CodexHarness>());
+      final codex = harness as CodexHarness;
+      expect(codex.executable, 'codex');
+    });
+
+    test('passes codex harnessConfig and providerOptions through the factory config', () {
+      final factory = HarnessFactory();
+      final config = HarnessFactoryConfig(
+        cwd: '/tmp/workspace',
+        executable: '/usr/local/bin/codex',
+        turnTimeout: const Duration(seconds: 42),
+        harnessConfig: const HarnessConfig(
+          model: 'gpt-5',
+          mcpServerUrl: 'http://127.0.0.1:3333/mcp',
+          mcpGatewayToken: 'test-token',
+        ),
+        providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
+      );
+
+      final harness = factory.create('codex', config) as CodexHarness;
+
+      expect(harness.cwd, '/tmp/workspace');
+      expect(harness.executable, '/usr/local/bin/codex');
+      expect(harness.turnTimeout, const Duration(seconds: 42));
+      expect(harness.harnessConfig.model, 'gpt-5');
+      expect(harness.harnessConfig.mcpServerUrl, 'http://127.0.0.1:3333/mcp');
+      expect(harness.harnessConfig.mcpGatewayToken, 'test-token');
+      expect(harness.providerOptions, {'sandbox': 'workspace-write', 'approval': 'on-request'});
+    });
+
+    test('throws for unknown providers', () {
+      final factory = HarnessFactory();
+
+      expect(
+        () => factory.create('unknown', const HarnessFactoryConfig(cwd: '/tmp')),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            contains('No harness factory registered for provider: unknown'),
+          ),
+        ),
+      );
+    });
+
+    test('supports custom registrations', () {
+      final factory = HarnessFactory();
+      factory.register('fake', (_) => FakeAgentHarness());
+
+      expect(factory.supports('fake'), isTrue);
+      expect(factory.registeredProviders, contains('fake'));
+
+      final harness = factory.create('fake', const HarnessFactoryConfig(cwd: '/tmp'));
+      expect(harness, isA<FakeAgentHarness>());
+    });
+  });
+}

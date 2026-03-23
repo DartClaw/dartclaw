@@ -13,14 +13,10 @@ import '../serve_command.dart' show ExitFn;
 /// Owns container setup (credential proxy, container managers, health monitor),
 /// guard chain, content guard, audit subscriber, and session lifecycle subscriber.
 class SecurityWiring {
-  SecurityWiring({
-    required this.config,
-    required String dataDir,
-    required EventBus eventBus,
-    required ExitFn exitFn,
-  })  : _dataDir = dataDir,
-        _eventBus = eventBus,
-        _exitFn = exitFn;
+  SecurityWiring({required this.config, required String dataDir, required EventBus eventBus, required ExitFn exitFn})
+    : _dataDir = dataDir,
+      _eventBus = eventBus,
+      _exitFn = exitFn;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -143,10 +139,7 @@ class SecurityWiring {
     }
 
     final proxyApiKey = Platform.environment['ANTHROPIC_API_KEY']?.trim();
-    _credentialProxy = CredentialProxy(
-      socketPath: p.join(_dataDir, 'proxy', 'proxy.sock'),
-      apiKey: proxyApiKey,
-    );
+    _credentialProxy = CredentialProxy(socketPath: p.join(_dataDir, 'proxy', 'proxy.sock'), apiKey: proxyApiKey);
     await _credentialProxy!.start();
 
     try {
@@ -173,15 +166,10 @@ class SecurityWiring {
       rethrow;
     }
 
-    _containerHealthMonitor = ContainerHealthMonitor(
-      containerManagers: _containerManagers,
-      eventBus: _eventBus,
-    );
+    _containerHealthMonitor = ContainerHealthMonitor(containerManagers: _containerManagers, eventBus: _eventBus);
     _containerHealthMonitor!.start();
 
-    _log.info(
-      'Container isolation enabled — ${_containerManagers.length} profiles (image: ${config.container.image})',
-    );
+    _log.info('Container isolation enabled — ${_containerManagers.length} profiles (image: ${config.container.image})');
   }
 
   void _wireGuardChain(List<AgentDefinition> agentDefs) {
@@ -221,12 +209,13 @@ class SecurityWiring {
                     : CommandGuardConfig.defaults(),
               ),
               FileGuard(
-                config: (config.security.guardsYaml['file'] is Map
-                        ? FileGuardConfig.fromYaml(
-                            Map<String, dynamic>.from(config.security.guardsYaml['file'] as Map),
-                          )
-                        : FileGuardConfig.defaults())
-                    .withSelfProtection(p.join(_dataDir, 'dartclaw.yaml')),
+                config:
+                    (config.security.guardsYaml['file'] is Map
+                            ? FileGuardConfig.fromYaml(
+                                Map<String, dynamic>.from(config.security.guardsYaml['file'] as Map),
+                              )
+                            : FileGuardConfig.defaults())
+                        .withSelfProtection(p.join(_dataDir, 'dartclaw.yaml')),
               ),
               NetworkGuard(
                 config: config.security.guardsYaml['network'] is Map
@@ -245,6 +234,7 @@ class SecurityWiring {
                   verdict: verdict,
                   verdictMessage: message,
                   hookPoint: ctx.hookPoint,
+                  rawProviderToolName: ctx.rawProviderToolName,
                   sessionId: ctx.sessionId,
                   channel: ctx.source,
                   peerId: ctx.peerId,
@@ -270,10 +260,7 @@ class SecurityWiring {
     if (config.security.contentGuardClassifier == 'anthropic_api') {
       final apiKey = Platform.environment['ANTHROPIC_API_KEY'];
       if (apiKey != null && apiKey.isNotEmpty) {
-        _contentClassifier = AnthropicApiClassifier(
-          apiKey: apiKey,
-          model: config.security.contentGuardModel,
-        );
+        _contentClassifier = AnthropicApiClassifier(apiKey: apiKey, model: config.security.contentGuardModel);
       } else {
         _log.warning(
           'ANTHROPIC_API_KEY not set — content guard disabled. '

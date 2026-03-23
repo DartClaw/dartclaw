@@ -290,6 +290,78 @@ void main() {
       expect(html, contains('No sessions yet'));
     });
 
+    test('renders provider badges for session entries across sidebar sections', () async {
+      final html = await engine.renderFileFragment(
+        'sidebar',
+        fragment: 'sidebar',
+        context: {
+          'mainSession': true,
+          'mainHref': '/sessions/main',
+          'mainActive': true,
+          'mainProvider': 'claude',
+          'mainProviderLabel': 'Claude',
+          'noChannels': false,
+          'noDmChannels': false,
+          'hasGroupChannels': true,
+          'showDmLabel': true,
+          'dmChannels': [
+            {
+              'id': 'dm-1',
+              'href': '/sessions/dm-1',
+              'active': false,
+              'title': 'DM session',
+              'provider': 'codex',
+              'providerLabel': 'Codex',
+            },
+          ],
+          'groupChannels': [
+            {
+              'id': 'group-1',
+              'href': '/sessions/group-1',
+              'active': false,
+              'title': 'Group session',
+              'provider': 'claude',
+              'providerLabel': 'Claude',
+            },
+          ],
+          'noActiveEntries': false,
+          'activeEntries': [
+            {
+              'id': 's1',
+              'href': '/sessions/s1',
+              'active': true,
+              'extraClass': 'active',
+              'title': 'Active session',
+              'provider': 'codex',
+              'providerLabel': 'Codex',
+            },
+          ],
+          'hasArchivedEntries': true,
+          'archivedEntries': [
+            {
+              'id': 's2',
+              'href': '/sessions/s2',
+              'active': false,
+              'extraClass': '',
+              'title': 'Archived session',
+              'provider': 'claude',
+              'providerLabel': 'Claude',
+            },
+          ],
+          'archivedCount': 1,
+          'archiveContainsActive': false,
+          'hasNav': false,
+          'navItems': <Map<String, dynamic>>[],
+        },
+      );
+
+      expect(html, contains('provider-badge'));
+      expect(html, contains('provider-badge-claude'));
+      expect(html, contains('provider-badge-codex'));
+      expect(html, contains('Claude'));
+      expect(html, contains('Codex'));
+    });
+
     test('renders session entries with HTMX SPA nav attrs', () async {
       final html = await engine.renderFileFragment(
         'sidebar',
@@ -381,6 +453,99 @@ void main() {
       expect(html, contains('3.4K'));
       expect(html, contains('4.6K'));
       expect(html, contains('42'));
+    });
+
+    test('renders Claude cost and cached token details when usage data includes provider information', () async {
+      final html = await engine.renderFileFragment(
+        'session_info',
+        fragment: 'sessionInfo',
+        context: {
+          'title': 'Claude Session',
+          'sessionId': 'claude-1',
+          'inputStr': '120',
+          'outputStr': '80',
+          'totalStr': '200',
+          'messageCount': 2,
+          'createdAt': '2025-01-15',
+          'sidebar': '',
+          'topbar': '',
+          'provider': 'claude',
+          'providerLabel': 'Claude',
+          'hasEstimatedCost': true,
+          'estimatedCostUsd': 0.42,
+          'estimatedCostDisplay': r'$0.42',
+          'cachedInputTokens': 18,
+          'hasCachedTokens': true,
+          'cachedTokensDisplay': '18',
+        },
+      );
+
+      expect(html, contains('Claude Session'));
+      expect(html, contains(r'$0.42'));
+      expect(html, contains('Cached Input'));
+      expect(html, contains('18'));
+      expect(html, isNot(contains('cost unavailable')));
+    });
+
+    test('renders Codex cost fallback and cached input tokens when USD cost is unavailable', () async {
+      final html = await engine.renderFileFragment(
+        'session_info',
+        fragment: 'sessionInfo',
+        context: {
+          'title': 'Codex Session',
+          'sessionId': 'codex-1',
+          'inputStr': '310',
+          'outputStr': '90',
+          'totalStr': '400',
+          'messageCount': 4,
+          'createdAt': '2025-01-15',
+          'sidebar': '',
+          'topbar': '',
+          'provider': 'codex',
+          'providerLabel': 'Codex',
+          'hasEstimatedCost': false,
+          'estimatedCostUsd': 0.0,
+          'estimatedCostDisplay': null,
+          'cachedInputTokens': 64,
+          'hasCachedTokens': true,
+          'cachedTokensDisplay': '64',
+        },
+      );
+
+      expect(html, contains('Codex Session'));
+      expect(html, contains('cost unavailable'));
+      expect(
+        html,
+        contains('This provider does not report USD cost. Token counts are tracked for governance budgets.'),
+      );
+      expect(html, contains('Cached Input'));
+      expect(html, contains('64'));
+    });
+
+    test('defaults legacy usage data to Claude-style cost display', () async {
+      final html = await engine.renderFileFragment(
+        'session_info',
+        fragment: 'sessionInfo',
+        context: {
+          'title': 'Legacy Session',
+          'sessionId': 'legacy-1',
+          'inputStr': '10',
+          'outputStr': '15',
+          'totalStr': '25',
+          'messageCount': 1,
+          'createdAt': '2025-01-15',
+          'sidebar': '',
+          'topbar': '',
+          'hasEstimatedCost': true,
+          'estimatedCostUsd': 0.10,
+          'estimatedCostDisplay': r'$0.10',
+        },
+      );
+
+      expect(html, contains('Legacy Session'));
+      expect(html, contains(r'$0.10'));
+      expect(html, isNot(contains('cost unavailable')));
+      expect(html, isNot(contains('Cached Input')));
     });
 
     test('escapes session title with special chars', () async {

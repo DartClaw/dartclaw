@@ -53,6 +53,18 @@ class _ChannelWorker implements AgentHarness {
   Future<void> get turnInvoked => _turnInvoked.future;
 
   @override
+  bool get supportsCostReporting => true;
+
+  @override
+  bool get supportsToolApproval => true;
+
+  @override
+  bool get supportsStreaming => true;
+
+  @override
+  bool get supportsCachedTokens => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override

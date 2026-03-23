@@ -28,6 +28,16 @@
             </div>
           </div>
         </div>
+        <div class="meta-row">
+          <span class="meta-label">Cost</span>
+          <span tl:if="${hasEstimatedCost}" class="meta-value" tl:text="${estimatedCostDisplay}">$0.00</span>
+          <span tl:unless="${hasEstimatedCost}" class="meta-value"
+            title="This provider does not report USD cost. Token counts are tracked for governance budgets.">cost unavailable</span>
+        </div>
+        <div tl:if="${hasCachedTokens}" class="meta-row">
+          <span class="meta-label">Cached Input</span>
+          <span class="meta-value" tl:text="${cachedTokensDisplay}">0</span>
+        </div>
       </div>
 
       <div>

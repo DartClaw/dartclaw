@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'behavior/behavior_file_service.dart';
@@ -53,6 +55,7 @@ class TurnOutcome {
   final String? responseText; // non-null when completed
   final int inputTokens;
   final int outputTokens;
+  final int? cachedInputTokens;
   final DateTime completedAt;
 
   /// Non-null when the turn was cancelled due to mid-turn loop detection.
@@ -71,6 +74,7 @@ class TurnOutcome {
     this.responseText,
     this.inputTokens = 0,
     this.outputTokens = 0,
+    this.cachedInputTokens,
     required this.completedAt,
     this.loopDetection,
   });
@@ -93,12 +97,16 @@ class BusyTurnException implements Exception {
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
 ///
-/// Thin wrapper around [HarnessPool.primary] — delegates all turn operations
-/// to the primary [TurnRunner]. Exposes the [pool] for [TaskExecutor] to
-/// acquire task runners.
+/// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
+/// runners for sessions pinned to a specific provider. Exposes the [pool] for
+/// [TaskExecutor] to acquire task runners.
 class TurnManager {
   final HarnessPool _pool;
+  final SessionService? _sessions;
   late final TurnRunner _primary = _pool.primary;
+  final Map<String, TurnRunner> _reservedTurnRunners = {};
+  final Map<String, TurnRunner> _providerSessionRunners = {};
+  final Map<String, int> _providerSessionReservations = {};
 
   /// Backward-compatible constructor: accepts a single [AgentHarness] and wraps
   /// it in a single-runner pool. Used by existing callers and tests that don't
@@ -139,13 +147,14 @@ class TurnManager {
              outcomeTtl: outcomeTtl,
            ),
          ],
-       );
+       ),
+       _sessions = sessions;
 
   /// Creates a TurnManager backed by a [HarnessPool].
-  TurnManager.fromPool({required HarnessPool pool}) : _pool = pool;
+  TurnManager.fromPool({required HarnessPool pool, SessionService? sessions}) : _pool = pool, _sessions = sessions;
 
   // ---------------------------------------------------------------------------
-  // Public API — delegates to primary TurnRunner
+  // Public API
   // ---------------------------------------------------------------------------
 
   /// The pool backing this manager. Used by [TaskExecutor] to acquire
@@ -186,14 +195,26 @@ class TurnManager {
     String? model,
     String? effort,
     bool isHumanInput = false,
-  }) => _primary.reserveTurn(
-    sessionId,
-    agentName: agentName,
-    directory: directory,
-    model: model,
-    effort: effort,
-    isHumanInput: isHumanInput,
-  );
+  }) async {
+    final runner = await _reserveRunnerForSession(sessionId);
+    try {
+      final turnId = await runner.reserveTurn(
+        sessionId,
+        agentName: agentName,
+        directory: directory,
+        model: model,
+        effort: effort,
+        isHumanInput: isHumanInput,
+      );
+      _reservedTurnRunners[turnId] = runner;
+      return turnId;
+    } catch (_) {
+      if (!identical(runner, _primary)) {
+        _releaseProviderReservation(sessionId, runner);
+      }
+      rethrow;
+    }
+  }
 
   void executeTurn(
     String sessionId,
@@ -201,9 +222,26 @@ class TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
-  }) => _primary.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
+  }) {
+    final runner = _reservedTurnRunners[turnId] ?? _providerSessionRunners[sessionId] ?? _primary;
+    runner.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
+    unawaited(
+      runner.waitForOutcome(sessionId, turnId).whenComplete(() {
+        _reservedTurnRunners.remove(turnId);
+        if (!identical(runner, _primary)) {
+          _releaseProviderReservation(sessionId, runner);
+        }
+      }),
+    );
+  }
 
-  void releaseTurn(String sessionId, String turnId) => _primary.releaseTurn(sessionId, turnId);
+  void releaseTurn(String sessionId, String turnId) {
+    final runner = _reservedTurnRunners.remove(turnId) ?? _providerSessionRunners[sessionId] ?? _primary;
+    runner.releaseTurn(sessionId, turnId);
+    if (!identical(runner, _primary)) {
+      _releaseProviderReservation(sessionId, runner);
+    }
+  }
 
   Future<String> startTurn(
     String sessionId,
@@ -213,15 +251,22 @@ class TurnManager {
     String? model,
     String? effort,
     bool isHumanInput = false,
-  }) => _primary.startTurn(
-    sessionId,
-    messages,
-    source: source,
-    agentName: agentName,
-    model: model,
-    effort: effort,
-    isHumanInput: isHumanInput,
-  );
+  }) async {
+    final turnId = await reserveTurn(
+      sessionId,
+      agentName: agentName,
+      model: model,
+      effort: effort,
+      isHumanInput: isHumanInput,
+    );
+    try {
+      executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
+      return turnId;
+    } catch (_) {
+      releaseTurn(sessionId, turnId);
+      rethrow;
+    }
+  }
 
   Future<void> cancelTurn(String sessionId) async {
     for (final runner in _pool.runners) {
@@ -242,6 +287,10 @@ class TurnManager {
   }
 
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
+    final reservedRunner = _reservedTurnRunners[turnId];
+    if (reservedRunner != null) {
+      return reservedRunner.waitForOutcome(sessionId, turnId);
+    }
     for (final runner in _pool.runners) {
       final cached = runner.recentOutcome(sessionId, turnId);
       if (cached != null) return cached;
@@ -255,4 +304,43 @@ class TurnManager {
   Future<List<String>> detectAndCleanOrphanedTurns() => _primary.detectAndCleanOrphanedTurns();
 
   bool consumeRecoveryNotice(String sessionId) => _primary.consumeRecoveryNotice(sessionId);
+
+  Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {
+    final activeRunner = _providerSessionRunners[sessionId];
+    if (activeRunner != null) {
+      _providerSessionReservations[sessionId] = (_providerSessionReservations[sessionId] ?? 0) + 1;
+      return activeRunner;
+    }
+
+    final session = await _sessions?.getSession(sessionId);
+    final provider = session?.provider;
+    if (provider == null) {
+      return _primary;
+    }
+
+    // Provider-pinned interactive sessions fail fast instead of silently
+    // falling back to another provider or queueing behind the generic pool.
+    if (!_pool.hasTaskRunnerForProvider(provider)) {
+      throw BusyTurnException('Provider $provider is unavailable for session turns', isSameSession: false);
+    }
+
+    final runner = _pool.tryAcquireForProvider(provider);
+    if (runner == null) {
+      throw BusyTurnException('No idle $provider workers available', isSameSession: false);
+    }
+    _providerSessionRunners[sessionId] = runner;
+    _providerSessionReservations[sessionId] = 1;
+    return runner;
+  }
+
+  void _releaseProviderReservation(String sessionId, TurnRunner runner) {
+    final remaining = (_providerSessionReservations[sessionId] ?? 1) - 1;
+    if (remaining > 0) {
+      _providerSessionReservations[sessionId] = remaining;
+      return;
+    }
+    _providerSessionReservations.remove(sessionId);
+    _providerSessionRunners.remove(sessionId);
+    _pool.release(runner);
+  }
 }

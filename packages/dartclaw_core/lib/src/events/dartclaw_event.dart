@@ -61,6 +61,9 @@ final class GuardBlockEvent extends DartclawEvent {
   /// Hook point where the guard evaluated the input.
   final String hookPoint;
 
+  /// Raw provider-native tool name associated with the verdict, if any.
+  final String? rawProviderToolName;
+
   /// Deterministic session key associated with the event, if known.
   final String? sessionKey;
 
@@ -83,6 +86,7 @@ final class GuardBlockEvent extends DartclawEvent {
     required this.verdict,
     this.verdictMessage,
     required this.hookPoint,
+    this.rawProviderToolName,
     this.sessionKey,
     this.sessionId,
     this.channel,
@@ -423,8 +427,7 @@ final class LoopDetectedEvent extends DartclawEvent {
   });
 
   @override
-  String toString() =>
-      'LoopDetectedEvent(session: $sessionId, mechanism: $mechanism, action: $action)';
+  String toString() => 'LoopDetectedEvent(session: $sessionId, mechanism: $mechanism, action: $action)';
 }
 
 /// Fired when an admin sender triggers an emergency stop via the `/stop` command.
@@ -451,6 +454,5 @@ final class EmergencyStopEvent extends DartclawEvent {
   });
 
   @override
-  String toString() =>
-      'EmergencyStopEvent(stoppedBy: $stoppedBy, turns: $turnsCancelled, tasks: $tasksCancelled)';
+  String toString() => 'EmergencyStopEvent(stoppedBy: $stoppedBy, turns: $turnsCancelled, tasks: $tasksCancelled)';
 }

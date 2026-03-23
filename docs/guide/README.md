@@ -27,6 +27,7 @@ Security-focused personal AI assistant runtime. This guide covers installation, 
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |
+| [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
 | [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |
 
 ## Channels

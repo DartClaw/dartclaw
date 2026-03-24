@@ -164,7 +164,7 @@ class GuardChain {
       if (verdict.isBlock || verdict.isWarn) {
         onVerdict?.call(guard.name, guard.category, verdict.isBlock ? 'block' : 'warn', verdict.message, context);
       } else {
-        _log.info(
+        _log.fine(
           '[${guard.name}][${guard.category}][${context.hookPoint}] '
           'verdict=pass at=${context.timestamp.toIso8601String()}',
         );

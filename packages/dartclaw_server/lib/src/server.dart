@@ -523,7 +523,7 @@ class DartclawServer {
     for (final sessionId in _turns.activeSessionIds.toList()) {
       await _turns.cancelTurn(sessionId);
     }
-    await _spaceEventsWiring?.stop();
+    await _spaceEventsWiring?.dispose();
     await _sseBroadcast?.dispose();
     await _channelManager?.dispose();
     if (_pool != null) {

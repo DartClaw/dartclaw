@@ -581,6 +581,13 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.readonly,
       nullable: true,
     ),
+    'channels.google_chat.oauth_credentials': FieldMeta(
+      yamlPath: 'channels.google_chat.oauth_credentials',
+      jsonKey: 'channels.googleChat.oauthCredentials',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
     'channels.google_chat.audience.type': FieldMeta(
       yamlPath: 'channels.google_chat.audience.type',
       jsonKey: 'channels.googleChat.audience.type',

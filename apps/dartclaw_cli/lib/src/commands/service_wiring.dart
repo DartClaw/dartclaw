@@ -425,7 +425,6 @@ class ServiceWiring {
       containerManagers: security.containerManagers,
       shutdownExtras: () async {
         lifecycleManager?.dispose();
-        await channel.spaceEventsWiring?.dispose();
         await task.dispose();
         await channel.taskNotificationSubscriber?.dispose();
         await security.dispose();

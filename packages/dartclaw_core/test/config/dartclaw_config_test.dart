@@ -477,6 +477,72 @@ void main() {
         expect(config.server.dataDir, '/home/user/my-data');
       });
 
+      test('~ expansion in logging.file', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'logging:\n  file: ~/logs/dartclaw.log\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.logging.file, '/home/user/logs/dartclaw.log');
+      });
+
+      test('~ expansion in CLI paths (claude_executable, static_dir, templates_dir)', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) => null,
+          cliOverrides: {
+            'claude_executable': '~/bin/claude',
+            'static_dir': '~/my-static',
+            'templates_dir': '~/my-templates',
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.claudeExecutable, '/home/user/bin/claude');
+        expect(config.server.staticDir, '/home/user/my-static');
+        expect(config.server.templatesDir, '/home/user/my-templates');
+      });
+
+      test('~ expansion in provider executable', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'providers:\n  my_agent:\n    executable: ~/bin/my-agent\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        final entry = config.providers.entries['my_agent'];
+        expect(entry, isNotNull);
+        expect(entry!.executable, '/home/user/bin/my-agent');
+      });
+
+      test('~ expansion in configPath', () {
+        final config = DartclawConfig.load(
+          configPath: '~/my-config.yaml',
+          fileReader: (path) {
+            if (path == '/home/user/my-config.yaml') return 'port: 9999\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.port, 9999);
+      });
+
+      test('~ expansion in DARTCLAW_CONFIG env var', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/custom.yaml') return 'port: 8888\n';
+            return null;
+          },
+          env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '~/custom.yaml'},
+        );
+        expect(config.server.port, 8888);
+      });
+
       test('YAML null value collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {

@@ -467,6 +467,69 @@ void main() {
     });
   });
 
+  group('Workspace Add-on format', () {
+    test('normalizes messagePayload into legacy MESSAGE event', () async {
+      final addOnPayload = {
+        'commonEventObject': {'hostApp': 'CHAT', 'platform': 'WEB'},
+        'authorizationEventObject': {'systemIdToken': 'token'},
+        'chat': {
+          'user': {'name': 'users/123', 'displayName': 'Alice', 'type': 'HUMAN'},
+          'eventTime': '2026-03-24T12:00:00Z',
+          'messagePayload': {
+            'space': {'name': 'spaces/AAAA', 'type': 'DM'},
+            'message': {
+              'name': 'spaces/AAAA/messages/BBBB',
+              'sender': {'name': 'users/123', 'type': 'HUMAN'},
+              'text': 'Hello from add-on',
+              'annotations': <dynamic>[],
+            },
+          },
+        },
+      };
+
+      await _post(handler, body: addOnPayload);
+
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.text, 'Hello from add-on');
+      expect(dispatchedMessage!.senderJid, 'users/123');
+      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+    });
+
+    test('normalizes addedToSpacePayload into legacy ADDED_TO_SPACE event', () async {
+      final addOnPayload = {
+        'commonEventObject': {'hostApp': 'CHAT'},
+        'authorizationEventObject': {},
+        'chat': {
+          'user': {'name': 'users/123', 'displayName': 'Alice'},
+          'addedToSpacePayload': {
+            'space': {'name': 'spaces/AAAA', 'type': 'ROOM'},
+          },
+        },
+      };
+
+      final response = await _post(handler, body: addOnPayload);
+
+      expect(response.statusCode, 200);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.')]);
+    });
+
+    test('ignores add-on payload with unrecognized chat event key', () async {
+      final addOnPayload = {
+        'commonEventObject': {'hostApp': 'CHAT'},
+        'authorizationEventObject': {},
+        'chat': {
+          'user': {'name': 'users/123'},
+          'widgetUpdatedPayload': {'space': {'name': 'spaces/AAAA'}},
+        },
+      };
+
+      final response = await _post(handler, body: addOnPayload);
+
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+  });
+
   group('payload edge cases', () {
     test('returns 413 for oversized payloads', () async {
       final response = await handler.handle(

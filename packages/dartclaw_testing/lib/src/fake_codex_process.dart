@@ -64,7 +64,9 @@ class FakeCodexProcess extends CapturingFakeProcess {
   void emitThreadStartResponse({Object id = 2, String threadId = 'thread-123'}) {
     emitLine({
       'id': id,
-      'result': {'thread_id': threadId},
+      'result': {
+        'thread': {'id': threadId},
+      },
     });
   }
 

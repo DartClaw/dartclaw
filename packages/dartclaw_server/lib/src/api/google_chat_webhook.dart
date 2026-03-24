@@ -79,10 +79,15 @@ class GoogleChatWebhookHandler {
       return Response(413);
     }
 
-    final payload = _decodePayload(body);
-    if (payload == null) {
+    final rawPayload = _decodePayload(body);
+    if (rawPayload == null) {
       return _jsonResponse(const {});
     }
+
+    // Normalize Workspace Add-on format to legacy Chat API format.
+    final payload = rawPayload['type'] == null
+        ? (_normalizeAddOnPayload(rawPayload) ?? rawPayload)
+        : rawPayload;
 
     return switch (payload['type']) {
       'MESSAGE' => _handleMessage(payload),
@@ -422,6 +427,80 @@ class GoogleChatWebhookHandler {
 
   Response _jsonResponse(Map<String, dynamic> body) {
     return Response.ok(jsonEncode(body), headers: const {'content-type': 'application/json'});
+  }
+
+  /// Converts a Workspace Add-on event into the legacy Chat API shape.
+  ///
+  /// Add-on events carry `commonEventObject`, `authorizationEventObject`, and
+  /// `chat` at the top level. The event type is inferred from which payload
+  /// field (`messagePayload`, `addedToSpacePayload`, etc.) is present inside
+  /// `chat`.
+  Map<String, dynamic>? _normalizeAddOnPayload(Map<String, dynamic> raw) {
+    final common = _asMap(raw['commonEventObject']);
+    if (common?['hostApp'] != 'CHAT') return null;
+
+    final chat = _asMap(raw['chat']);
+    if (chat == null) return null;
+
+    final user = _asMap(chat['user']);
+    final eventTime = chat['eventTime'] as String?;
+
+    // Detect event type by which payload key is present.
+    if (chat.containsKey('messagePayload')) {
+      final mp = _asMap(chat['messagePayload']);
+      return <String, dynamic>{
+        'type': 'MESSAGE',
+        'space': mp?['space'] ?? _asMap(chat['space']),
+        'message': mp?['message'],
+        'user': user,
+        if (eventTime != null) 'eventTime': eventTime,
+        if (common != null) 'common': common,
+      };
+    }
+    if (chat.containsKey('addedToSpacePayload')) {
+      final ap = _asMap(chat['addedToSpacePayload']);
+      return <String, dynamic>{
+        'type': 'ADDED_TO_SPACE',
+        'space': ap?['space'] ?? _asMap(chat['space']),
+        'user': user,
+        if (eventTime != null) 'eventTime': eventTime,
+      };
+    }
+    if (chat.containsKey('removedFromSpacePayload')) {
+      final rp = _asMap(chat['removedFromSpacePayload']);
+      return <String, dynamic>{
+        'type': 'REMOVED_FROM_SPACE',
+        'space': rp?['space'] ?? _asMap(chat['space']),
+        'user': user,
+        if (eventTime != null) 'eventTime': eventTime,
+      };
+    }
+    if (chat.containsKey('buttonClickedPayload')) {
+      final bp = _asMap(chat['buttonClickedPayload']);
+      return <String, dynamic>{
+        'type': 'CARD_CLICKED',
+        'space': bp?['space'] ?? _asMap(chat['space']),
+        'message': bp?['message'],
+        'user': user,
+        if (common != null) 'common': common,
+        if (eventTime != null) 'eventTime': eventTime,
+      };
+    }
+    if (chat.containsKey('appCommandPayload')) {
+      final acp = _asMap(chat['appCommandPayload']);
+      return <String, dynamic>{
+        'type': 'APP_COMMAND',
+        'space': acp?['space'] ?? _asMap(chat['space']),
+        'message': acp?['message'],
+        'user': user,
+        if (acp?['appCommandMetadata'] case final meta?) 'appCommandMetadata': meta,
+        if (common != null) 'common': common,
+        if (eventTime != null) 'eventTime': eventTime,
+      };
+    }
+
+    _log.fine('Add-on payload has no recognized chat event payload key: ${chat.keys.toList()}');
+    return null;
   }
 
   Map<String, dynamic>? _decodePayload(String body) {

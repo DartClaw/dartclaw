@@ -8,6 +8,10 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 const _kid = 'kid-1';
+const _jwkResponse =
+    '{"keys":[{"kty":"RSA","kid":"kid-1","use":"sig","alg":"RS256",'
+    '"n":"qFxkNfusfX5waaKbgl3PQYDzqAgiwKQthMnGHSPVrB4axj-ycHl21RaGu-frDjn0Ww0B-_4gwi8s5l-T2uAPWkJsmhDOZ-aVDs0jQW-gxOpYiLY5s1Q__f3ByUGcwCS-e6vmxMtdLx1VcjXIRfTJCz30UPCE_ph_-YgroURQ-8thQx5RCVlgyXzObca-aDN17TxAJlgWSYGdWtygCcGM5SYiM_7Cj1LGpCKAfxruUL3eJcya8iKIJBlVhrBiwL3ZEfgdDrvUpdyMDF4OGoGM6LO9Hd-9T45IweR0ELvMwolPllUe-81S-6K4ekqw1mvgJ8-YEe5SgLwaRUThBRpx2Q",'
+    '"e":"AQAB"}]}';
 const _privateKeyPem = '''
 -----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCoXGQ1+6x9fnBp
@@ -124,6 +128,17 @@ void main() {
       final verifier = _buildVerifier();
       final token = _signToken(audience: 'https://example.com/integrations/googlechat', issuer: 'wrong@example.com');
       expect(await verifier.verify('Bearer $token'), isFalse);
+    });
+
+    test('OIDC token with accounts.google.com issuer returns true', () async {
+      final verifier = _buildVerifier();
+      final token = _signToken(
+        audience: 'https://example.com/integrations/googlechat',
+        issuer: GoogleJwtVerifier.oidcIssuer,
+        email: null,
+        emailVerified: null,
+      );
+      expect(await verifier.verify('Bearer $token'), isTrue);
     });
 
     test('wrong audience returns false', () async {
@@ -267,6 +282,42 @@ void main() {
       expect(await verifier.verify('Bearer $token'), isTrue);
     });
 
+    test('OIDC token in app-url mode skips email claim check', () async {
+      final verifier = _buildVerifier(
+        audience: const GoogleChatAudienceConfig(
+          mode: GoogleChatAudienceMode.appUrl,
+          value: 'https://example.com/integrations/googlechat',
+        ),
+      );
+      final token = _signToken(
+        audience: 'https://example.com/integrations/googlechat',
+        issuer: GoogleJwtVerifier.oidcIssuer,
+        email: null,
+        emailVerified: null,
+      );
+      expect(await verifier.verify('Bearer $token'), isTrue);
+    });
+
+    test('OIDC token fetches certs from v3 endpoint and parses JWK', () async {
+      Uri? requestedUrl;
+      final verifier = _buildVerifier(
+        httpClient: MockClient((request) async {
+          requestedUrl = request.url;
+          // v3 endpoint returns JWK format, not PEM
+          return http.Response(_jwkResponse, 200);
+        }),
+      );
+      final token = _signToken(
+        audience: 'https://example.com/integrations/googlechat',
+        issuer: GoogleJwtVerifier.oidcIssuer,
+        email: null,
+        emailVerified: null,
+      );
+
+      expect(await verifier.verify('Bearer $token'), isTrue);
+      expect(requestedUrl, GoogleJwtVerifier.googleOidcCertsUrl);
+    });
+
     test('project-number mode fetches certs from chat service account metadata endpoint', () async {
       Uri? requestedUrl;
       final verifier = _buildVerifier(
@@ -301,19 +352,15 @@ GoogleJwtVerifier _buildVerifier({
     httpClient:
         httpClient ??
         MockClient((request) async {
-          expect(request.url, _expectedCertsUrlForAudience(audience));
+          // Return JWK for v3 (OIDC), PEM for v1/service-account endpoints
+          if (request.url == GoogleJwtVerifier.googleOidcCertsUrl) {
+            return http.Response(_jwkResponse, 200);
+          }
           return http.Response(jsonEncode({_kid: _certificatePem}), 200);
         }),
     cacheTtl: cacheTtl,
     now: now ?? () => DateTime.utc(2026, 3, 10, 0, 0, 0),
   );
-}
-
-Uri _expectedCertsUrlForAudience(GoogleChatAudienceConfig? audience) {
-  return switch (audience?.mode ?? GoogleChatAudienceMode.appUrl) {
-    GoogleChatAudienceMode.appUrl => GoogleJwtVerifier.googleCertsUrl,
-    GoogleChatAudienceMode.projectNumber => GoogleJwtVerifier.chatServiceAccountCertsUrl,
-  };
 }
 
 String _signToken({

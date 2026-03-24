@@ -136,6 +136,7 @@ class ConfigSerializer {
         'googleChat': {
           'enabled': googleChatConfig.enabled,
           'serviceAccount': _serializeGoogleServiceAccount(googleChatConfig.serviceAccount),
+          'oauthCredentials': googleChatConfig.oauthCredentials,
           'audience': googleChatConfig.audience == null
               ? null
               : {

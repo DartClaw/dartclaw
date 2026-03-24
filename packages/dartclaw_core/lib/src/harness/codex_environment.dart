@@ -31,13 +31,17 @@ class CodexEnvironment {
     try {
       await _chmod700(tempDirectory.path);
 
+      await _seedFromDefaultCodexHome(tempDirectory.path);
+
       final configFile = File(_childPath(tempDirectory.path, 'config.toml'));
+      final existingConfig = await configFile.exists() ? await configFile.readAsString() : '';
+      final generatedConfig = CodexConfigGenerator.generate(
+        developerInstructions: developerInstructions,
+        mcpServerUrl: mcpServerUrl,
+        mcpBearerTokenEnvVar: CodexConfigGenerator.defaultMcpBearerTokenEnvVar,
+      );
       await configFile.writeAsString(
-        CodexConfigGenerator.generate(
-          developerInstructions: developerInstructions,
-          mcpServerUrl: mcpServerUrl,
-          mcpBearerTokenEnvVar: CodexConfigGenerator.defaultMcpBearerTokenEnvVar,
-        ),
+        existingConfig.trim().isEmpty ? generatedConfig : '$existingConfig\n$generatedConfig',
         flush: true,
       );
 
@@ -96,6 +100,28 @@ class CodexEnvironment {
     final result = await Process.run('chmod', ['700', path]);
     if (result.exitCode != 0) {
       throw ProcessException('chmod', ['700', path], '${result.stderr}'.trim(), result.exitCode);
+    }
+  }
+
+  Future<void> _seedFromDefaultCodexHome(String targetDir) async {
+    final home = Platform.environment['HOME'];
+    if (home == null || home.trim().isEmpty) {
+      return;
+    }
+
+    final sourceDir = Directory(_childPath(home, '.codex'));
+    if (!sourceDir.existsSync()) {
+      return;
+    }
+
+    for (final name in const <String>['auth.json', 'config.toml']) {
+      final source = File(_childPath(sourceDir.path, name));
+      if (!source.existsSync()) {
+        continue;
+      }
+
+      final target = File(_childPath(targetDir, name));
+      await source.copy(target.path);
     }
   }
 

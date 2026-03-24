@@ -7,19 +7,22 @@ DartClaw is a security-focused agent runtime for Claude Code. A Dart host coordi
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
 | Dart SDK | ^3.11.0 | Host runtime |
-| `claude` CLI | Latest | Agent binary |
+| `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
+| `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
 | SQLite | System lib | Search index |
 
 Install Dart, Claude Code, and SQLite:
 
 ```bash
 brew tap dart-lang/dart && brew install dart
-# Agent CLI example (Claude)
+# Agent CLI — Claude (default provider)
 curl -fsSL https://claude.ai/install.sh | bash
+# Agent CLI — Codex (optional, for OpenAI models)
+# See https://github.com/openai/codex for installation
 sudo apt-get install libsqlite3-dev
 ```
 
-Auth: run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`.
+Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex, export `OPENAI_API_KEY`.
 
 ## Quick Start
 

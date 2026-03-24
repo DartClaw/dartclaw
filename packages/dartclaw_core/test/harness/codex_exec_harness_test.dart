@@ -570,21 +570,35 @@ void main() {
     group('SIGKILL escalation', () {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
         final process = FakeCodexExecProcess();
+        final spawned = Completer<void>();
         final harness = CodexExecHarness(
           cwd: '/tmp/workspace',
           killGracePeriod: const Duration(milliseconds: 50),
           processFactory:
-              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                  process,
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+                if (!spawned.isCompleted) {
+                  spawned.complete();
+                }
+                return process;
+              },
           environment: const {'OPENAI_API_KEY': 'sk-test'},
         );
 
         await harness.start();
+        final turnFuture = harness.turn(
+          sessionId: 'session-stop-escalate',
+          messages: [
+            {'role': 'user', 'content': 'Hello.'},
+          ],
+          systemPrompt: '',
+        );
+        await spawned.future;
 
         // Schedule process exit after SIGKILL would be sent.
         Timer(const Duration(milliseconds: 100), () => process.exit(137));
 
         await harness.stop();
+        await turnFuture;
 
         expect(harness.state, WorkerState.stopped);
         expect(process.killSignals, hasLength(greaterThanOrEqualTo(2)));
@@ -596,18 +610,32 @@ void main() {
 
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
         final process = FakeCodexExecProcess(completeExitOnKill: true);
+        final spawned = Completer<void>();
         final harness = CodexExecHarness(
           cwd: '/tmp/workspace',
           killGracePeriod: const Duration(seconds: 5),
           processFactory:
-              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                  process,
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+                if (!spawned.isCompleted) {
+                  spawned.complete();
+                }
+                return process;
+              },
           environment: const {'OPENAI_API_KEY': 'sk-test'},
         );
 
         await harness.start();
+        final turnFuture = harness.turn(
+          sessionId: 'session-stop-term',
+          messages: [
+            {'role': 'user', 'content': 'Hello.'},
+          ],
+          systemPrompt: '',
+        );
+        await spawned.future;
 
         await harness.stop();
+        await turnFuture;
 
         expect(harness.state, WorkerState.stopped);
         expect(process.killSignals, [ProcessSignal.sigterm]);

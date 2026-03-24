@@ -75,6 +75,7 @@ void main() {
         expect(ConfigMeta.fields, contains('usage.max_file_size_bytes'));
         expect(ConfigMeta.fields, contains('channels.google_chat.enabled'));
         expect(ConfigMeta.fields, contains('channels.google_chat.service_account'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.oauth_credentials'));
         expect(ConfigMeta.fields, contains('channels.google_chat.audience.type'));
         expect(ConfigMeta.fields, contains('channels.google_chat.audience.value'));
         expect(ConfigMeta.fields, contains('channels.google_chat.webhook_path'));
@@ -209,6 +210,13 @@ void main() {
         final meta = ConfigMeta.byJsonKey['scheduling.heartbeat.intervalMinutes'];
         expect(meta, isNotNull);
         expect(meta!.yamlPath, equals('scheduling.heartbeat.interval_minutes'));
+      });
+
+      test('google chat oauth credentials maps correctly', () {
+        expect(
+          ConfigMeta.fields['channels.google_chat.oauth_credentials']!.jsonKey,
+          equals('channels.googleChat.oauthCredentials'),
+        );
       });
     });
 

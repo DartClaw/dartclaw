@@ -412,15 +412,15 @@ void main() {
         _j({
           'method': 'turn/start',
           'params': {
-            'content': [
-              {'type': 'input_text', 'text': 'Hello'},
+            'input': [
+              {'type': 'text', 'text': 'Hello'},
             ],
           },
         }),
       );
     });
 
-    test('includes thread_id and resume flags while ignoring systemPrompt', () {
+    test('includes threadId and resume flags while ignoring systemPrompt', () {
       final adapter = CodexProtocolAdapter();
       final payload = adapter.buildTurnRequest(
         message: 'Hello',
@@ -431,15 +431,15 @@ void main() {
 
       expect(payload['method'], 'turn/start');
       expect(payload['params'], isA<Map<String, dynamic>>());
-      expect((payload['params'] as Map<String, dynamic>)['content'], [
-        {'type': 'input_text', 'text': 'Hello'},
+      expect((payload['params'] as Map<String, dynamic>)['input'], [
+        {'type': 'text', 'text': 'Hello'},
       ]);
-      expect(payload['params']?['thread_id'], 'thread-123');
+      expect(payload['params']?['threadId'], 'thread-123');
       expect(payload['params']?['system_prompt'], isNull);
       expect(payload['params']?['resume'], isTrue);
     });
 
-    test('includes previous_response_items and dynamic settings', () {
+    test('includes previousResponseItems and dynamic settings', () {
       final dynamic adapter = CodexProtocolAdapter();
       final payload =
           adapter.buildTurnRequest(
@@ -453,14 +453,17 @@ void main() {
                   'model': 'gpt-5',
                   'cwd': '/tmp/workspace',
                   'sandbox': 'workspaceWrite',
-                  'approval_policy': 'onRequest',
+                  'approval_policy': 'on-request',
                 },
               )
               as Map<String, dynamic>;
 
       final params = payload['params'] as Map<String, dynamic>;
-      expect(params['thread_id'], 'thread-123');
-      expect(params['previous_response_items'], [
+      expect(params['threadId'], 'thread-123');
+      expect(params['input'], [
+        {'type': 'text', 'text': 'Hello'},
+      ]);
+      expect(params['previousResponseItems'], [
         {
           'type': 'message',
           'role': 'user',
@@ -477,9 +480,9 @@ void main() {
         },
       ]);
       expect(params['model'], 'gpt-5');
-      expect(params['working_directory'], '/tmp/workspace');
+      expect(params['cwd'], '/tmp/workspace');
       expect(params['sandbox'], 'workspaceWrite');
-      expect(params['approval_policy'], 'onRequest');
+      expect(params['approvalPolicy'], 'on-request');
     });
   });
 
@@ -516,7 +519,13 @@ void main() {
     test('builds initialize request with default params', () {
       final adapter = CodexProtocolAdapter();
 
-      expect(adapter.buildInitializeRequest(id: 1), {'id': 1, 'method': 'initialize', 'params': <String, dynamic>{}});
+      expect(adapter.buildInitializeRequest(id: 1), {
+        'id': 1,
+        'method': 'initialize',
+        'params': {
+          'clientInfo': {'name': 'dartclaw', 'version': '0.9.0'},
+        },
+      });
     });
 
     test('builds initialized notification with custom params', () {

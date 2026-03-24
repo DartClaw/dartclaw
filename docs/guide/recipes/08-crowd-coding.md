@@ -165,13 +165,7 @@ to the Space thread. Participants can then reply with:
 
 2. **Add the DartClaw bot to the Space** -- follow the [Google Chat setup guide](../google-chat.md) to create the GCP project, configure the service account, and add the bot to your Space. The bot must be added as a Space member.
 
-3. **Register slash commands in GCP** -- in the GCP Chat app configuration, register these slash commands (this is a manual step that cannot be automated):
-   - `/stop` -- immediately halt all in-flight tasks
-   - `/pause` -- pause message processing (queue up to 200 messages)
-   - `/resume` -- resume processing queued messages
-   - `/status` -- show current session state and active tasks
-   - `/new` -- start a fresh session (clears history)
-   - `/reset` -- archive the current session and start a fresh conversation
+3. **Register slash commands in GCP** -- follow the canonical slash-command setup in the [Google Chat guide](../google-chat.md#slash-commands). Crowd-coding sessions typically rely on `/status`, `/stop`, `/pause`, and `/resume`, but the full command set should stay aligned with DartClaw's Google Chat command ID mapping in the main guide.
 
 4. **Configure DartClaw** -- copy the configuration example above into your `dartclaw.yaml`. Set your Google Chat user ID in `governance.admin_senders` (see [Finding Your Sender ID](#admin-senders) below). Adjust `budget.daily_tokens` and `rate_limits` for your group size.
 

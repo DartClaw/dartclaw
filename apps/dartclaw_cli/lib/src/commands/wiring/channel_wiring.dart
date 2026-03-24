@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
+import 'package:http/http.dart' as http;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -290,16 +291,51 @@ class ChannelWiring {
         if (googleChatConfig.spaceEvents.enabled && googleChatConfig.pubsub.isConfigured) {
           try {
             deduplicator = MessageDeduplicator();
-            final pubsubAuthClient = await GcpAuthService(
+
+            // Create auth client for Workspace Events subscription management.
+            // User OAuth (GA) is preferred; service account (Developer Preview) is fallback.
+            http.Client? spaceEventsAuthClient;
+            if (googleChatConfig.spaceEvents.authMode == 'user') {
+              final credentialStore = UserOAuthCredentialStore(dataDir: _dataDir);
+              final userCredentials = credentialStore.load();
+              if (userCredentials != null) {
+                final requiredScopes = googleChatConfig.spaceEvents.requiredUserAuthScopes;
+                final missingScopes = requiredScopes.difference(userCredentials.scopes.toSet());
+                try {
+                  if (missingScopes.isEmpty) {
+                    spaceEventsAuthClient = UserOAuthAuthService.createClient(credentials: userCredentials);
+                    _log.info('Space Events using user OAuth authentication');
+                  } else {
+                    _log.warning(
+                      'Stored user OAuth credentials are missing required scopes for the configured '
+                      'space_events.event_types: ${missingScopes.join(', ')}. '
+                      'Run "dartclaw google-auth --force" to refresh them. Falling back to service account auth.',
+                    );
+                  }
+                } catch (e) {
+                  _log.warning('Failed to create user OAuth client: $e — falling back to service account');
+                }
+              } else {
+                _log.warning(
+                  'space_events.auth_mode is "user" but no user OAuth credentials found. '
+                  'Run "dartclaw google-auth" to authenticate, or set auth_mode: app. '
+                  'Falling back to service account auth.',
+                );
+              }
+            }
+
+            // Fall back to service account auth.
+            spaceEventsAuthClient ??= await GcpAuthService(
               serviceAccountJson: credentialJson,
-              scopes: const [
+              scopes: <String>[
                 'https://www.googleapis.com/auth/chat.bot',
                 'https://www.googleapis.com/auth/chat.spaces.readonly',
-                'https://www.googleapis.com/auth/pubsub',
+                ...googleChatConfig.spaceEvents.requiredAppAuthScopes,
               ],
             ).initialize();
+
             subscriptionManager = WorkspaceEventsManager(
-              authClient: pubsubAuthClient,
+              authClient: spaceEventsAuthClient,
               config: googleChatConfig.spaceEvents,
               dataDir: _dataDir,
             );
@@ -340,16 +376,13 @@ class ChannelWiring {
         );
 
         // Phase 2: Create PubSubClient + full space events wiring.
+        // Pub/Sub pull only needs the pubsub scope (GCP IAM, not user delegation).
         if (deduplicator != null && subscriptionManager != null) {
           try {
             final adapter = CloudEventAdapter(botUser: googleChatConfig.botUser);
             final pubsubAuthClient = await GcpAuthService(
               serviceAccountJson: credentialJson,
-              scopes: const [
-                'https://www.googleapis.com/auth/chat.bot',
-                'https://www.googleapis.com/auth/chat.spaces.readonly',
-                'https://www.googleapis.com/auth/pubsub',
-              ],
+              scopes: const ['https://www.googleapis.com/auth/pubsub'],
             ).initialize();
             final pubSubClient = PubSubClient.fromConfig(
               authClient: pubsubAuthClient,

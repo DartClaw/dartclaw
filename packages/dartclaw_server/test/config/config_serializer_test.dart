@@ -287,6 +287,7 @@ void main() {
               const GoogleChatConfig(
                 enabled: true,
                 serviceAccount: '/tmp/google-service-account.json',
+                oauthCredentials: '/tmp/google-oauth-client.json',
                 audience: GoogleChatAudienceConfig(
                   mode: GoogleChatAudienceMode.appUrl,
                   value: 'https://example.com/integrations/googlechat',
@@ -318,6 +319,7 @@ void main() {
 
       expect(googleChat['enabled'], isTrue);
       expect(googleChat['serviceAccount'], '/tmp/google-service-account.json');
+      expect(googleChat['oauthCredentials'], '/tmp/google-oauth-client.json');
       expect(googleChat['audience'], {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'});
       expect(googleChat['webhookPath'], '/integrations/googlechat');
       expect(googleChat['botUser'], 'users/123');
@@ -503,6 +505,7 @@ void main() {
 Map<String, dynamic> _googleChatChannelConfig(GoogleChatConfig config) => {
   'enabled': config.enabled,
   if (config.serviceAccount != null) 'service_account': config.serviceAccount,
+  if (config.oauthCredentials != null) 'oauth_credentials': config.oauthCredentials,
   if (config.audience != null)
     'audience': {
       'type': switch (config.audience!.mode) {

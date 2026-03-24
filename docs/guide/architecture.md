@@ -1,8 +1,8 @@
 # Architecture
 
-> Current through: **0.12**
+> Current through: **0.13**
 
-DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. The `claude` CLI binary handles agent reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
+DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
 ## The Two Layers
 
@@ -16,8 +16,9 @@ DartClaw is a 2-layer agent runtime where each layer has a distinct role and tru
 └────────────────────────┬────────────────────────────────┘
                          │ JSONL control protocol (stdin/stdout)
 ┌────────────────────────▼────────────────────────────────┐
-│  Layer 2: claude CLI Binary (Bun standalone)            │
-│  ───────────────────────────────────────────            │
+│  Layer 2: Agent CLI Binary                              │
+│  ─────────────────────────                              │
+│  claude CLI (Anthropic) or codex CLI (OpenAI)           │
 │  Owns: agent reasoning, tool execution,                 │
 │        bash commands, file operations                   │
 │  Trust: SANDBOXED — Docker container isolation          │
@@ -34,25 +35,27 @@ The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with
 - **Enforces security** — guard chain (input sanitization, command/file/network guards, content classification), credential isolation, container management, audit logging
 - **Runs background work** — cron scheduling, session maintenance, memory pruning, task queue processing
 
-The host never executes agent logic directly. It spawns the `claude` binary as a subprocess and controls what information flows in and out.
+The host never executes agent logic directly. It spawns agent binaries as subprocesses and controls what information flows in and out.
 
-### Layer 2: claude CLI Binary
+### Layer 2: Agent CLI Binaries
 
-The actual agent runtime. The Dart host spawns this binary to execute each turn:
+The actual agent runtimes. DartClaw supports multiple providers (since 0.13):
 
-- Reasons about the user's request
-- Decides which tools to use (bash, file read/write, MCP tools, etc.)
-- Executes tools and incorporates results
-- Streams JSONL events back to the Dart host (text deltas, tool use, tool results)
+| Provider | Binary | Protocol | Models |
+|----------|--------|----------|--------|
+| **Claude** (default) | `claude` CLI | Bidirectional JSONL | Claude Haiku, Sonnet, Opus |
+| **Codex** | `codex` CLI | JSON-RPC JSONL | OpenAI GPT-4o, GPT-5, o-series, Ollama |
 
-The binary is a Bun standalone executable — no Node.js or npm required. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash.
+Each provider binary is spawned as a subprocess. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash. The `HarnessFactory` creates the appropriate harness type based on the configured provider ID.
+
+In a mixed deployment, the `HarnessPool` can contain workers from different providers — for example, a Claude primary harness for interactive chat and Codex workers for background tasks. See [Agents § Providers](agents.md#providers) for configuration details.
 
 ## Communication: The JSONL Control Protocol
 
 Dart and the claude CLI binary communicate over stdin/stdout using a **bidirectional JSONL** (JSON Lines) control protocol. This is the same protocol used by the official Python, Go, and Elixir SDKs.
 
 ```
-Dart Host                              claude CLI Binary
+Dart Host                              Agent CLI Binary
     │                                       │
     │──── spawn with args + env ───────────>│
     │                                       │
@@ -188,8 +191,8 @@ A "turn" is a single round-trip: user message in, agent response out. The Dart h
 
 1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
 2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, cost tracking, crash recovery
-3. **AgentHarness** — abstract interface to the claude binary. `ClaudeCodeHarness` is the concrete implementation that manages the subprocess and JSONL protocol
-4. **HarnessPool** — manages multiple harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are the "task pool" (acquired by the task executor for background work)
+3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude) and `CodexHarness` (OpenAI) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
+4. **HarnessPool** — manages multiple harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are the "task pool" (acquired by the task executor for background work). In mixed deployments, pool workers can be from different providers
 
 ```
 User message (web / channel / cron / task)
@@ -203,7 +206,7 @@ TurnManager ──→ HarnessPool.primary (interactive)
 TurnRunner (per-harness)
     ├── GuardChain evaluation (input sanitizer, command/file/network guards)
     ├── System prompt composition (behavior files + context)
-    ├── AgentHarness.turn() → claude binary via JSONL
+    ├── AgentHarness.turn() → agent binary via JSONL
     ├── SSE streaming to web UI
     ├── Message persistence (NDJSON append)
     ├── Usage tracking (token attribution)

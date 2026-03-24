@@ -24,51 +24,42 @@ Map<String, dynamic> sampleCreatedEvent({
   String? argumentText,
   String createTime = '2024-03-15T10:30:00.260127Z',
   String cloudEventId = 'evt-uuid-1234',
-}) =>
-    {
-      'id': cloudEventId,
-      'source': '//chat.googleapis.com/$spaceName',
-      'subject': messageName,
-      'type': 'google.workspace.chat.message.v1.created',
-      'specversion': '1.0',
-      'time': '2024-03-15T10:30:00Z',
-      'datacontenttype': 'application/json',
-      'data': {
-        'message': {
-          'name': messageName,
-          'sender': {
-            'name': senderName,
-            'type': senderType,
-            'displayName': ?senderDisplayName,
-          },
-          'createTime': createTime,
-          'text': text,
-          'argumentText': ?argumentText,
-          'space': {
-            'name': spaceName,
-            'type': spaceType,
-          },
-        },
-      },
-    };
+}) => {
+  'id': cloudEventId,
+  'source': '//chat.googleapis.com/$spaceName',
+  'subject': messageName,
+  'type': 'google.workspace.chat.message.v1.created',
+  'specversion': '1.0',
+  'time': '2024-03-15T10:30:00Z',
+  'datacontenttype': 'application/json',
+  'data': {
+    'message': {
+      'name': messageName,
+      'sender': {'name': senderName, 'type': senderType, 'displayName': ?senderDisplayName},
+      'createTime': createTime,
+      'text': text,
+      'argumentText': ?argumentText,
+      'space': {'name': spaceName, 'type': spaceType},
+    },
+  },
+};
 
 /// Creates a sample `batchCreated` CloudEvent payload with the given messages.
 Map<String, dynamic> sampleBatchCreatedEvent({
   required List<Map<String, dynamic>> messageResources,
   String cloudEventId = 'evt-batch-1234',
-}) =>
-    {
-      'id': cloudEventId,
-      'type': 'google.workspace.chat.message.v1.batchCreated',
-      'specversion': '1.0',
-      'time': '2024-03-15T10:30:00Z',
-      'datacontenttype': 'application/json',
-      'data': {
-        'messages': [
-          for (final msg in messageResources) {'message': msg},
-        ],
-      },
-    };
+}) => {
+  'id': cloudEventId,
+  'type': 'google.workspace.chat.message.v1.batchCreated',
+  'specversion': '1.0',
+  'time': '2024-03-15T10:30:00Z',
+  'datacontenttype': 'application/json',
+  'data': {
+    'messages': [
+      for (final msg in messageResources) {'message': msg},
+    ],
+  },
+};
 
 /// Creates a sample message resource (inner part of a CloudEvent).
 Map<String, dynamic> sampleMessageResource({
@@ -80,21 +71,13 @@ Map<String, dynamic> sampleMessageResource({
   String messageName = 'spaces/SPACE_ABC/messages/MSG_001',
   String text = 'Hello world',
   String createTime = '2024-03-15T10:30:00.260127Z',
-}) =>
-    {
-      'name': messageName,
-      'sender': {
-        'name': senderName,
-        'type': senderType,
-        'displayName': ?senderDisplayName,
-      },
-      'createTime': createTime,
-      'text': text,
-      'space': {
-        'name': spaceName,
-        'type': spaceType,
-      },
-    };
+}) => {
+  'name': messageName,
+  'sender': {'name': senderName, 'type': senderType, 'displayName': ?senderDisplayName},
+  'createTime': createTime,
+  'text': text,
+  'space': {'name': spaceName, 'type': spaceType},
+};
 
 /// Creates a [ReceivedMessage] from a CloudEvent map.
 ReceivedMessage receivedMessageFrom(
@@ -102,16 +85,37 @@ ReceivedMessage receivedMessageFrom(
   String ackId = 'ack-1',
   String messageId = 'pubsub-msg-1',
   String publishTime = '2024-03-15T10:30:00.260Z',
-}) =>
-    ReceivedMessage(
-      ackId: ackId,
-      data: encodeCloudEvent(cloudEvent),
-      messageId: messageId,
-      publishTime: publishTime,
-      attributes: {
-        if (cloudEvent['type'] case final String type) 'ce-type': type,
-      },
-    );
+}) => ReceivedMessage(
+  ackId: ackId,
+  data: encodeCloudEvent(cloudEvent),
+  messageId: messageId,
+  publishTime: publishTime,
+  attributes: {if (cloudEvent['type'] case final String type) 'ce-type': type},
+);
+
+/// Creates a [ReceivedMessage] in CloudEvents Pub/Sub binding format.
+///
+/// Metadata lives in Pub/Sub attributes (`ce-type`, `ce-id`, ...) while the
+/// message body contains only the CloudEvent `data` payload.
+ReceivedMessage receivedMessageFromPubSubBinding(
+  Map<String, dynamic> cloudEvent, {
+  String ackId = 'ack-1',
+  String messageId = 'pubsub-msg-1',
+  String publishTime = '2024-03-15T10:30:00.260Z',
+}) => ReceivedMessage(
+  ackId: ackId,
+  data: encodeCloudEvent(cloudEvent['data'] as Map<String, dynamic>),
+  messageId: messageId,
+  publishTime: publishTime,
+  attributes: {
+    if (cloudEvent['id'] case final String id) 'ce-id': id,
+    if (cloudEvent['source'] case final String source) 'ce-source': source,
+    if (cloudEvent['subject'] case final String subject) 'ce-subject': subject,
+    if (cloudEvent['type'] case final String type) 'ce-type': type,
+    if (cloudEvent['specversion'] case final String specversion) 'ce-specversion': specversion,
+    if (cloudEvent['time'] case final String time) 'ce-time': time,
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -139,12 +143,22 @@ void main() {
         expect(msg.metadata['messageName'], 'spaces/SPACE_ABC/messages/MSG_001');
       });
 
+      test('parses Pub/Sub CloudEvents binding format', () {
+        final adapter = CloudEventAdapter();
+        final result = adapter.processMessage(receivedMessageFromPubSubBinding(sampleCreatedEvent()));
+
+        expect(result, isA<MessageResult>());
+        final msg = (result as MessageResult).messages.first;
+        expect(msg.senderJid, 'users/123456');
+        expect(msg.groupJid, 'spaces/SPACE_ABC');
+        expect(msg.text, 'Hello world');
+        expect(msg.metadata['messageName'], 'spaces/SPACE_ABC/messages/MSG_001');
+      });
+
       test('uses argumentText when present', () {
         final adapter = CloudEventAdapter();
         final result = adapter.processMessage(
-          receivedMessageFrom(
-            sampleCreatedEvent(text: '@Bot stripped text', argumentText: 'stripped text'),
-          ),
+          receivedMessageFrom(sampleCreatedEvent(text: '@Bot stripped text', argumentText: 'stripped text')),
         );
         expect(result, isA<MessageResult>());
         expect((result as MessageResult).messages.first.text, 'stripped text');
@@ -159,36 +173,28 @@ void main() {
 
       test('falls back to text when argumentText is empty whitespace', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(argumentText: '  ')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(argumentText: '  ')));
         expect(result, isA<MessageResult>());
         expect((result as MessageResult).messages.first.text, 'Hello world');
       });
 
       test('sets groupJid to null for DM spaces', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(spaceType: 'DM')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(spaceType: 'DM')));
         expect(result, isA<MessageResult>());
         expect((result as MessageResult).messages.first.groupJid, isNull);
       });
 
       test('sets groupJid for ROOM space type', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(spaceType: 'ROOM')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(spaceType: 'ROOM')));
         expect(result, isA<MessageResult>());
         expect((result as MessageResult).messages.first.groupJid, 'spaces/SPACE_ABC');
       });
 
       test('defaults to group for unknown space type', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(spaceType: 'UNKNOWN_TYPE')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(spaceType: 'UNKNOWN_TYPE')));
         expect(result, isA<MessageResult>());
         expect((result as MessageResult).messages.first.groupJid, 'spaces/SPACE_ABC');
       });
@@ -265,9 +271,7 @@ void main() {
 
       test('omits senderDisplayName from metadata when absent', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(senderDisplayName: null)),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(senderDisplayName: null)));
         expect(result, isA<MessageResult>());
         final metadata = (result as MessageResult).messages.first.metadata;
         expect(metadata.containsKey('senderDisplayName'), isFalse);
@@ -277,9 +281,7 @@ void main() {
     group('bot filtering', () {
       test('filters messages with sender type BOT', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(senderType: 'BOT')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(senderType: 'BOT')));
         expect(result, isA<Filtered>());
         expect((result as Filtered).reason, contains('bot'));
       });
@@ -287,35 +289,27 @@ void main() {
       test('filters messages matching configured botUser', () {
         final adapter = CloudEventAdapter(botUser: 'users/BOT_123');
         final result = adapter.processMessage(
-          receivedMessageFrom(
-            sampleCreatedEvent(senderName: 'users/BOT_123', senderType: 'HUMAN'),
-          ),
+          receivedMessageFrom(sampleCreatedEvent(senderName: 'users/BOT_123', senderType: 'HUMAN')),
         );
         expect(result, isA<Filtered>());
       });
 
       test('does not filter non-bot messages', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(senderType: 'HUMAN')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(senderType: 'HUMAN')));
         expect(result, isA<MessageResult>());
       });
 
       test('does not filter when botUser is null', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(senderType: 'HUMAN')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(senderType: 'HUMAN')));
         expect(result, isA<MessageResult>());
       });
 
       test('does not filter when sender name does not match botUser', () {
         final adapter = CloudEventAdapter(botUser: 'users/BOT_123');
         final result = adapter.processMessage(
-          receivedMessageFrom(
-            sampleCreatedEvent(senderName: 'users/HUMAN_456', senderType: 'HUMAN'),
-          ),
+          receivedMessageFrom(sampleCreatedEvent(senderName: 'users/HUMAN_456', senderType: 'HUMAN')),
         );
         expect(result, isA<MessageResult>());
       });
@@ -326,21 +320,9 @@ void main() {
         final adapter = CloudEventAdapter();
         final batchEvent = sampleBatchCreatedEvent(
           messageResources: [
-            sampleMessageResource(
-              messageName: 'spaces/S/messages/M1',
-              senderName: 'users/U1',
-              text: 'First',
-            ),
-            sampleMessageResource(
-              messageName: 'spaces/S/messages/M2',
-              senderName: 'users/U2',
-              text: 'Second',
-            ),
-            sampleMessageResource(
-              messageName: 'spaces/S/messages/M3',
-              senderName: 'users/U3',
-              text: 'Third',
-            ),
+            sampleMessageResource(messageName: 'spaces/S/messages/M1', senderName: 'users/U1', text: 'First'),
+            sampleMessageResource(messageName: 'spaces/S/messages/M2', senderName: 'users/U2', text: 'Second'),
+            sampleMessageResource(messageName: 'spaces/S/messages/M3', senderName: 'users/U3', text: 'Third'),
           ],
         );
 
@@ -439,12 +421,7 @@ void main() {
       ]) {
         test('returns LogOnly for $eventType', () {
           final adapter = CloudEventAdapter();
-          final event = {
-            'id': 'evt-1',
-            'type': eventType,
-            'specversion': '1.0',
-            'data': <String, dynamic>{},
-          };
+          final event = {'id': 'evt-1', 'type': eventType, 'specversion': '1.0', 'data': <String, dynamic>{}};
           final result = adapter.processMessage(receivedMessageFrom(event));
           expect(result, isA<LogOnly>());
           expect((result as LogOnly).eventType, eventType);
@@ -515,12 +492,7 @@ void main() {
 
       test('handles empty type field', () {
         final adapter = CloudEventAdapter();
-        final event = {
-          'id': 'evt-1',
-          'type': '',
-          'specversion': '1.0',
-          'data': <String, dynamic>{},
-        };
+        final event = {'id': 'evt-1', 'type': '', 'specversion': '1.0', 'data': <String, dynamic>{}};
         final result = adapter.processMessage(receivedMessageFrom(event));
         expect(result, isA<Acknowledged>());
       });
@@ -565,11 +537,7 @@ void main() {
             'message': <String, dynamic>{
               'name': 'spaces/S/messages/M',
               'text': 'Hello',
-              'sender': <String, dynamic>{
-                'name': 'users/U123',
-                'displayName': 'Test User',
-                'type': 'HUMAN',
-              },
+              'sender': <String, dynamic>{'name': 'users/U123', 'displayName': 'Test User', 'type': 'HUMAN'},
             },
           },
         };
@@ -579,9 +547,7 @@ void main() {
 
       test('handles created event with empty text and no argumentText', () {
         final adapter = CloudEventAdapter();
-        final result = adapter.processMessage(
-          receivedMessageFrom(sampleCreatedEvent(text: '')),
-        );
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(text: '')));
         // Empty text returns null from _parseMessageResource → Acknowledged
         expect(result, isNot(isA<MessageResult>()));
       });
@@ -602,13 +568,7 @@ void main() {
       test('never throws — always returns AdapterResult', () {
         final adapter = CloudEventAdapter();
         final variants = [
-          const ReceivedMessage(
-            ackId: 'a',
-            data: '!!!',
-            messageId: 'x',
-            publishTime: '',
-            attributes: {},
-          ),
+          const ReceivedMessage(ackId: 'a', data: '!!!', messageId: 'x', publishTime: '', attributes: {}),
           ReceivedMessage(
             ackId: 'a',
             data: base64.encode(utf8.encode('not json')),
@@ -617,18 +577,11 @@ void main() {
             attributes: const {},
           ),
           receivedMessageFrom({'no_type': 'here'}),
-          receivedMessageFrom({
-            'type': 'google.workspace.chat.message.v1.created',
-            'data': <String, dynamic>{},
-          }),
+          receivedMessageFrom({'type': 'google.workspace.chat.message.v1.created', 'data': <String, dynamic>{}}),
         ];
 
         for (final msg in variants) {
-          expect(
-            () => adapter.processMessage(msg),
-            returnsNormally,
-            reason: 'processMessage should never throw',
-          );
+          expect(() => adapter.processMessage(msg), returnsNormally, reason: 'processMessage should never throw');
           expect(adapter.processMessage(msg), isA<AdapterResult>());
         }
       });

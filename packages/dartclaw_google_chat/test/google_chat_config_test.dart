@@ -10,6 +10,7 @@ void main() {
         final config = GoogleChatConfig.fromYaml({
           'enabled': true,
           'service_account': '{"type":"service_account"}',
+          'oauth_credentials': '/tmp/google-oauth-client.json',
           'audience': {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'},
           'webhook_path': '/hooks/google-chat',
           'bot_user': 'users/123456',
@@ -25,6 +26,7 @@ void main() {
         expect(warns, isEmpty);
         expect(config.enabled, isTrue);
         expect(config.serviceAccount, '{"type":"service_account"}');
+        expect(config.oauthCredentials, '/tmp/google-oauth-client.json');
         expect(config.audience, isNotNull);
         expect(config.audience!.mode, GoogleChatAudienceMode.appUrl);
         expect(config.audience!.value, 'https://example.com/integrations/googlechat');
@@ -80,6 +82,7 @@ void main() {
         GoogleChatConfig.fromYaml({
           'enabled': 'yes',
           'service_account': 123,
+          'oauth_credentials': false,
           'audience': 'bad',
           'webhook_path': false,
           'bot_user': 99,
@@ -88,7 +91,7 @@ void main() {
           'group_access': 9,
           'require_mention': 'no',
         }, warns);
-        expect(warns, hasLength(9));
+        expect(warns, hasLength(10));
       });
 
       test('warns on invalid dm_access value', () {
@@ -146,13 +149,28 @@ void main() {
         expect(warns, contains('Missing or invalid google_chat.audience when channel is enabled'));
       });
 
+      test('warns when enabled space events use unsupported event types for auth mode', () {
+        final warns = <String>[];
+        GoogleChatConfig.fromYaml({
+          'enabled': true,
+          'service_account': '/tmp/google-service-account.json',
+          'audience': {'type': 'project-number', 'value': '12345'},
+          'pubsub': {'project_id': 'my-project', 'subscription': 'my-sub'},
+          'space_events': {
+            'enabled': true,
+            'pubsub_topic': 'projects/my-project/topics/chat-events',
+            'auth_mode': 'app',
+            'event_types': ['reaction.created'],
+          },
+        }, warns);
+
+        expect(warns, contains(contains('do not have a supported scope mapping')));
+      });
+
       test('parses pubsub section', () {
         final warns = <String>[];
         final config = GoogleChatConfig.fromYaml({
-          'pubsub': {
-            'project_id': 'my-gcp-project',
-            'subscription': 'dartclaw-chat-pull',
-          },
+          'pubsub': {'project_id': 'my-gcp-project', 'subscription': 'dartclaw-chat-pull'},
         }, warns);
         expect(warns, isEmpty);
         expect(config.pubsub.projectId, 'my-gcp-project');
@@ -162,14 +180,8 @@ void main() {
       test('parses space_events section', () {
         final warns = <String>[];
         final config = GoogleChatConfig.fromYaml({
-          'space_events': {
-            'enabled': true,
-            'pubsub_topic': 'projects/my-project/topics/chat-events',
-          },
-          'pubsub': {
-            'project_id': 'my-project',
-            'subscription': 'my-sub',
-          },
+          'space_events': {'enabled': true, 'pubsub_topic': 'projects/my-project/topics/chat-events'},
+          'pubsub': {'project_id': 'my-project', 'subscription': 'my-sub'},
         }, warns);
         expect(config.spaceEvents.enabled, isTrue);
         expect(config.spaceEvents.pubsubTopic, 'projects/my-project/topics/chat-events');
@@ -228,19 +240,12 @@ void main() {
       test('no warnings when space_events enabled with all required fields', () {
         final warns = <String>[];
         GoogleChatConfig.fromYaml({
-          'space_events': {
-            'enabled': true,
-            'pubsub_topic': 'projects/my-project/topics/chat-events',
-          },
-          'pubsub': {
-            'project_id': 'my-project',
-            'subscription': 'my-sub',
-          },
+          'space_events': {'enabled': true, 'pubsub_topic': 'projects/my-project/topics/chat-events'},
+          'pubsub': {'project_id': 'my-project', 'subscription': 'my-sub'},
         }, warns);
         expect(warns.where((w) => w.contains('required') && w.contains('space_events')), isEmpty);
         expect(warns.where((w) => w.contains('required') && w.contains('pubsub')), isEmpty);
       });
-
     });
   });
 
@@ -274,10 +279,7 @@ void main() {
       });
 
       test('isConfigured is true when both project_id and subscription present', () {
-        final config = PubSubConfig.fromYaml({
-          'project_id': 'my-project',
-          'subscription': 'my-sub',
-        }, []);
+        final config = PubSubConfig.fromYaml({'project_id': 'my-project', 'subscription': 'my-sub'}, []);
         expect(config.isConfigured, isTrue);
       });
 
@@ -293,10 +295,7 @@ void main() {
 
       test('warns on invalid types', () {
         final warns = <String>[];
-        PubSubConfig.fromYaml({
-          'project_id': 42,
-          'subscription': true,
-        }, warns);
+        PubSubConfig.fromYaml({'project_id': 42, 'subscription': true}, warns);
         expect(warns, hasLength(2));
         expect(warns, contains(contains('google_chat.pubsub.project_id')));
         expect(warns, contains(contains('google_chat.pubsub.subscription')));
@@ -369,6 +368,32 @@ void main() {
         final config = SpaceEventsConfig.fromYaml({'auth_mode': 'service_account'}, warns);
         expect(config.authMode, 'user');
         expect(warns, contains(contains('space_events.auth_mode')));
+      });
+
+      test('derives required user auth scopes from event types', () {
+        const config = SpaceEventsConfig(eventTypes: ['message.created', 'membership.updated', 'space.deleted']);
+
+        expect(config.requiredUserAuthScopes, {
+          'https://www.googleapis.com/auth/chat.messages.readonly',
+          'https://www.googleapis.com/auth/chat.memberships.readonly',
+          'https://www.googleapis.com/auth/chat.spaces.readonly',
+        });
+      });
+
+      test('derives required app auth scopes from event types', () {
+        const config = SpaceEventsConfig(eventTypes: ['message.created', 'membership.updated', 'space.deleted']);
+
+        expect(config.requiredAppAuthScopes, {
+          'https://www.googleapis.com/auth/chat.app.messages.readonly',
+          'https://www.googleapis.com/auth/chat.app.memberships',
+          'https://www.googleapis.com/auth/chat.app.spaces',
+        });
+      });
+
+      test('flags unsupported event types for app auth', () {
+        const config = SpaceEventsConfig(eventTypes: ['reaction.created', 'message.created'], authMode: 'app');
+
+        expect(config.unsupportedEventTypesForAuthMode('app'), ['reaction.created']);
       });
 
       test('filters non-string event_types entries', () {

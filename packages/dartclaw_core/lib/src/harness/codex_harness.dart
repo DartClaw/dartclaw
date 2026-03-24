@@ -76,6 +76,7 @@ class CodexHarness extends AgentHarness {
   StreamSubscription<String>? _stderrSub;
   Future<void> _lock = Future<void>.value();
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
+  final Set<String> _agentMessageDeltaIds = <String>{};
   CodexEnvironment? _environment;
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
@@ -223,6 +224,7 @@ class CodexHarness extends AgentHarness {
         ),
         resume: resume,
       );
+      payload['id'] = _nextJsonRpcId();
       stopwatch.start();
       _writeLine(payload);
 
@@ -246,6 +248,7 @@ class CodexHarness extends AgentHarness {
       rethrow;
     } finally {
       timeoutTimer?.cancel();
+      _agentMessageDeltaIds.clear();
       _turnCompleter = null;
       _activeSessionId = null;
     }
@@ -416,6 +419,7 @@ class CodexHarness extends AgentHarness {
   }
 
   void _handleLine(String line) {
+    _emitCompletedAgentMessageFallback(line);
     _handlePendingResponse(line);
 
     final message = adapter.parseLine(line);
@@ -458,6 +462,44 @@ class CodexHarness extends AgentHarness {
           _eventsCtrl.add(SystemInitEvent(contextWindow: contextWindow));
         }
     }
+  }
+
+  void _emitCompletedAgentMessageFallback(String line) {
+    final decoded = codexDecodeJsonObject(line);
+    if (decoded == null) {
+      return;
+    }
+
+    final method = codexStringValue(decoded['method']);
+    final params = codexMapValue(decoded['params']);
+    if (method == 'item/agentMessage/delta') {
+      final itemId = codexStringValue(params?['itemId']);
+      if (itemId != null && itemId.isNotEmpty) {
+        _agentMessageDeltaIds.add(itemId);
+      }
+      return;
+    }
+
+    if (method != 'item/completed') {
+      return;
+    }
+
+    final item = codexMapValue(params?['item']);
+    final itemType = codexStringValue(item?['type']);
+    if (item == null || (itemType != 'agentMessage' && itemType != 'agent_message')) {
+      return;
+    }
+
+    final itemId = codexStringValue(item['id']);
+    if (itemId != null && _agentMessageDeltaIds.contains(itemId)) {
+      return;
+    }
+
+    final text = codexStringValue(item['text']) ?? codexStringValue(item['delta']);
+    if (text == null || text.isEmpty) {
+      return;
+    }
+    _eventsCtrl.add(DeltaEvent(text));
   }
 
   Future<void> _dispatchControlRequest(
@@ -538,13 +580,16 @@ class CodexHarness extends AgentHarness {
     }
 
     if (_threadStartCompleter != null && !(_threadStartCompleter!.isCompleted) && id == _threadStartRequestId) {
-      final threadId = result?['thread_id'] ?? result?['id'];
+      final thread = codexMapValue(result?['thread']);
+      final threadId = result?['thread_id'] ?? result?['id'] ?? thread?['id'];
       if (error != null) {
         _threadStartCompleter!.completeError(StateError('Codex thread/start failed: $error'));
       } else if (threadId is String && threadId.isNotEmpty) {
         _threadStartCompleter!.complete(threadId);
       } else {
-        _threadStartCompleter!.completeError(StateError('Codex thread/start response missing thread_id or id'));
+        _threadStartCompleter!.completeError(
+          StateError('Codex thread/start response missing thread_id, id, or thread.id'),
+        );
       }
       _threadStartRequestId = null;
       _threadStartCompleter = null;
@@ -723,10 +768,7 @@ class CodexHarness extends AgentHarness {
           if (!Platform.isWindows) {
             process.kill(ProcessSignal.sigkill);
           }
-          return process.exitCode.timeout(
-            const Duration(seconds: 1),
-            onTimeout: () => -1,
-          );
+          return process.exitCode.timeout(const Duration(seconds: 1), onTimeout: () => -1);
         },
       );
     } catch (e) {

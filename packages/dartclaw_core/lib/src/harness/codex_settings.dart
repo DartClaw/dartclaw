@@ -6,8 +6,8 @@ class CodexSettings {
   };
 
   static const Map<String, String> _approvalTranslations = {
-    'on-request': 'onRequest',
-    'unless-allow-listed': 'unlessAllowListed',
+    'on-request': 'on-request',
+    'unless-allow-listed': 'granular',
     'never': 'never',
   };
 

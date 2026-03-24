@@ -221,7 +221,7 @@ void main() {
 
           final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
           expect(turnStartMessage['params'], isA<Map<String, dynamic>>());
-          expect((turnStartMessage['params'] as Map<String, dynamic>)['thread_id'], 'thread-123');
+          expect((turnStartMessage['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
           expect((turnStartMessage['params'] as Map<String, dynamic>).containsKey('system_prompt'), isFalse);
 
           fake.emitTurnStarted();
@@ -292,8 +292,8 @@ void main() {
 
         expect(threadStartMessages, hasLength(1));
         expect(turnStartMessages, hasLength(2));
-        expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['thread_id'], 'thread-123');
-        expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['thread_id'], 'thread-123');
+        expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
+        expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-123');
       });
 
       test('creates separate threads for different sessions', () async {
@@ -330,8 +330,8 @@ void main() {
         final turnStartMessages = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
 
         expect(threadStartMessages, hasLength(2));
-        expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['thread_id'], 'thread-a');
-        expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['thread_id'], 'thread-b');
+        expect((turnStartMessages[0]['params'] as Map<String, dynamic>)['threadId'], 'thread-a');
+        expect((turnStartMessages[1]['params'] as Map<String, dynamic>)['threadId'], 'thread-b');
       });
 
       test('derives previous_response_items from prior messages and uses provider settings', () async {
@@ -361,10 +361,10 @@ void main() {
         final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
         final params = turnStartMessage['params'] as Map<String, dynamic>;
 
-        expect(params['content'], [
-          {'type': 'input_text', 'text': 'current ask'},
+        expect(params['input'], [
+          {'type': 'text', 'text': 'current ask'},
         ]);
-        expect(params['previous_response_items'], [
+        expect(params['previousResponseItems'], [
           {
             'type': 'message',
             'role': 'user',
@@ -381,9 +381,9 @@ void main() {
           },
         ]);
         expect(params['model'], 'gpt-5');
-        expect(params['working_directory'], '/tmp/workspace');
+        expect(params['cwd'], '/tmp/workspace');
         expect(params['sandbox'], 'workspaceWrite');
-        expect(params['approval_policy'], 'onRequest');
+        expect(params['approvalPolicy'], 'on-request');
 
         fake.emitTurnCompleted(inputTokens: 11, outputTokens: 22, cachedInputTokens: 7);
         await turnFuture;
@@ -415,9 +415,9 @@ void main() {
         final params = turnStartMessage['params'] as Map<String, dynamic>;
 
         expect(params['model'], 'gpt-5-default');
-        expect(params['working_directory'], '/tmp/workspace');
+        expect(params['cwd'], '/tmp/workspace');
         expect(params['sandbox'], 'workspaceWrite');
-        expect(params['approval_policy'], 'onRequest');
+        expect(params['approvalPolicy'], 'on-request');
 
         fake.emitTurnCompleted(inputTokens: 11, outputTokens: 22, cachedInputTokens: 7);
         await turnFuture;
@@ -536,7 +536,7 @@ void main() {
         expect(secondProcess.sentMessages.where((message) => message['method'] == 'thread/start'), hasLength(1));
 
         final secondTurnStart = secondProcess.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
-        expect((secondTurnStart['params'] as Map<String, dynamic>)['thread_id'], 'thread-second');
+        expect((secondTurnStart['params'] as Map<String, dynamic>)['threadId'], 'thread-second');
       });
 
       test('passes the turn sessionId into approval guard evaluation', () async {
@@ -615,10 +615,7 @@ void main() {
     group('SIGKILL escalation', () {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
         final fake = FakeCodexProcess();
-        final harness = _buildHarness(
-          process: fake,
-          killGracePeriod: const Duration(milliseconds: 50),
-        );
+        final harness = _buildHarness(process: fake, killGracePeriod: const Duration(milliseconds: 50));
         await _startHarness(harness, fake);
 
         // Schedule process exit after SIGKILL would be sent.
@@ -634,10 +631,7 @@ void main() {
 
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
-          killGracePeriod: const Duration(seconds: 5),
-        );
+        final harness = _buildHarness(process: fake, killGracePeriod: const Duration(seconds: 5));
         await _startHarness(harness, fake);
 
         await harness.stop();

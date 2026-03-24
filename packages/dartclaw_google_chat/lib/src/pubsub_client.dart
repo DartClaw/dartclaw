@@ -39,9 +39,8 @@ class ReceivedMessage {
       data: message['data'] as String? ?? '',
       messageId: message['messageId'] as String? ?? '',
       publishTime: message['publishTime'] as String? ?? '',
-      attributes: (message['attributes'] as Map<String, dynamic>?)
-              ?.map((k, v) => MapEntry(k, v.toString())) ??
-          const {},
+      attributes:
+          (message['attributes'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
     );
   }
 }
@@ -57,16 +56,11 @@ class PubSubHealthStatus {
   /// Number of consecutive pull failures.
   final int consecutiveErrors;
 
-  const PubSubHealthStatus({
-    required this.status,
-    this.lastSuccessfulPull,
-    this.consecutiveErrors = 0,
-  });
+  const PubSubHealthStatus({required this.status, this.lastSuccessfulPull, this.consecutiveErrors = 0});
 
   Map<String, dynamic> toJson() => {
     'status': status,
-    if (lastSuccessfulPull != null)
-      'last_successful_pull': lastSuccessfulPull!.toUtc().toIso8601String(),
+    if (lastSuccessfulPull != null) 'last_successful_pull': lastSuccessfulPull!.toUtc().toIso8601String(),
     'consecutive_errors': consecutiveErrors,
   };
 }
@@ -100,6 +94,8 @@ class PubSubClient {
   Completer<void>? _loopDone;
   DateTime? _lastSuccessfulPull;
   int _consecutiveErrors = 0;
+  bool _disposed = false;
+  bool _httpClientClosed = false;
 
   /// Creates a Pub/Sub pull client.
   ///
@@ -156,10 +152,7 @@ class PubSubClient {
   /// Current health status snapshot.
   PubSubHealthStatus get healthStatus {
     if (_lastSuccessfulPull == null && _consecutiveErrors > 0) {
-      return PubSubHealthStatus(
-        status: 'unavailable',
-        consecutiveErrors: _consecutiveErrors,
-      );
+      return PubSubHealthStatus(status: 'unavailable', consecutiveErrors: _consecutiveErrors);
     }
     return PubSubHealthStatus(
       status: _consecutiveErrors >= _degradedThreshold ? 'degraded' : 'healthy',
@@ -172,6 +165,9 @@ class PubSubClient {
   ///
   /// Does nothing if already running.
   void start() {
+    if (_disposed) {
+      throw StateError('Cannot start a disposed PubSubClient');
+    }
     if (_running) return;
     _running = true;
     _consecutiveErrors = 0;
@@ -212,8 +208,38 @@ class PubSubClient {
 
   /// Stops the client and closes the underlying HTTP client.
   Future<void> dispose() async {
-    await stop();
-    _httpClient.close();
+    if (_disposed) return;
+    _disposed = true;
+
+    if (_running) {
+      _running = false;
+      _log.info('Stopping Pub/Sub pull client for $_subscriptionPath');
+    }
+
+    final signal = _stopSignal;
+    if (signal != null && !signal.isCompleted) {
+      signal.complete();
+    }
+
+    if (!_httpClientClosed) {
+      _httpClient.close();
+      _httpClientClosed = true;
+    }
+
+    final done = _loopDone;
+    if (done != null && !done.isCompleted) {
+      try {
+        await done.future.timeout(_shutdownTimeout);
+      } on TimeoutException {
+        _log.warning(
+          'Pub/Sub pull client shutdown timed out after ${_shutdownTimeout.inSeconds}s '
+          'while disposing',
+        );
+      }
+    }
+
+    _stopSignal = null;
+    _loopDone = null;
   }
 
   Future<void> _pullLoop() async {
@@ -229,12 +255,14 @@ class PubSubClient {
         // Successful pull (even if empty)
         _lastSuccessfulPull = DateTime.now();
         _consecutiveErrors = 0;
+        if (!_running) break;
 
         if (messages.isNotEmpty) {
           await _processMessages(messages);
         }
       } on _TransientPubSubError catch (e) {
         _consecutiveErrors++;
+        if (!_running) break;
         final backoff = _calculateBackoff();
         _log.warning(
           'Pub/Sub pull failed (${e.statusCode}): ${e.message}. '
@@ -244,6 +272,7 @@ class PubSubClient {
         continue; // skip normal poll delay
       } on _PermanentPubSubError catch (e) {
         _consecutiveErrors++;
+        if (!_running) break;
         _log.warning(
           'Pub/Sub pull failed (${e.statusCode}): ${e.message}. '
           'Consecutive errors: $_consecutiveErrors. Check configuration',
@@ -254,6 +283,10 @@ class PubSubClient {
           continue;
         }
       } on Exception catch (e, st) {
+        if (!_running) {
+          _log.fine('Pub/Sub pull loop aborted during shutdown: $e');
+          break;
+        }
         _consecutiveErrors++;
         final backoff = _calculateBackoff();
         _log.warning(

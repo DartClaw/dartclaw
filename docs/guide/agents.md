@@ -202,6 +202,129 @@ Tasks inherit the global `agent.model` by default. The `model` override in `conf
 
 For the full task lifecycle, review workflow, and worktree behavior, see [Tasks](tasks.md).
 
+## Providers
+
+DartClaw supports multiple agent providers. Each provider is a separate CLI binary that DartClaw spawns as a subprocess. The Dart host manages all state, security, and orchestration — the provider binary handles agent reasoning and tool execution.
+
+### Built-in Providers
+
+| Provider ID | Binary | Protocol | Models | Notes |
+|-------------|--------|----------|--------|-------|
+| `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
+| `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
+| `codex-exec` | `codex` CLI (exec mode) | One-shot JSON | Same as `codex` | Lightweight one-shot execution per turn. No streaming, no approval chain. Relies on container isolation + Codex's built-in sandbox |
+
+### Setting Up Codex
+
+1. **Install the Codex CLI**: See [OpenAI Codex CLI documentation](https://github.com/openai/codex) for installation. Verify with `codex --version`.
+
+2. **Set your OpenAI API key**:
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
+
+3. **Configure DartClaw** to use Codex as the default provider, or alongside Claude:
+
+   **Codex only:**
+   ```yaml
+   agent:
+     provider: codex
+     model: gpt-4o                  # or: o3, gpt-5, etc.
+
+   credentials:
+     openai:
+       api_key: ${OPENAI_API_KEY}
+   ```
+
+   **Mixed (Claude default + Codex for tasks):**
+   ```yaml
+   agent:
+     provider: claude
+     model: opus
+
+   providers:
+     claude:
+       executable: claude
+       pool_size: 1
+     codex:
+       executable: codex
+       pool_size: 2
+
+   credentials:
+     anthropic:
+       api_key: ${ANTHROPIC_API_KEY}
+     openai:
+       api_key: ${OPENAI_API_KEY}
+   ```
+
+4. **Start DartClaw** — it will probe each configured provider binary at startup and log the detected version and availability.
+
+### Per-Task Provider Override
+
+In a mixed deployment, you can route individual tasks to a specific provider:
+
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "title": "Research competitor pricing",
+  "type": "research",
+  "provider": "codex",
+  "configJson": { "model": "gpt-5" }
+}
+```
+
+This acquires a harness from the Codex pool regardless of the global `agent.provider` setting.
+
+### Provider Routing
+
+| Scope | Config | Behavior |
+|-------|--------|----------|
+| **Global default** | `agent.provider: claude` | All sessions and tasks use Claude unless overridden |
+| **Per-task** | `provider` field on task creation | Task acquires a harness from the specified provider's pool |
+| **Pool allocation** | `providers.<id>.pool_size` | Controls how many concurrent workers each provider gets |
+
+The primary harness (Runner 0, for interactive chat) always uses the global default provider. Task pool workers can be a mix of providers.
+
+### Codex Modes: App-Server vs Exec
+
+**App-server mode** (`codex`, the default) runs `codex app-server` as a persistent subprocess:
+- Bidirectional JSON-RPC over stdin/stdout
+- Streaming text deltas
+- Approval chain — DartClaw's guard chain evaluates tool requests before allowing execution
+- Thread lifecycle — conversations persist across turns within the same harness process
+- Crash recovery with exponential backoff
+
+**Exec mode** (`codex-exec`) runs `codex exec --json` as a one-shot per turn:
+- No persistent process — spawns and exits per turn
+- No streaming — result returned as a single JSON blob
+- No approval chain — uses `--yolo --ephemeral`, relying on container isolation
+- Simpler deployment, useful for batch operations
+
+### Provider Capability Differences
+
+Not all providers support every feature. DartClaw degrades gracefully:
+
+| Capability | Claude | Codex (app-server) | Codex (exec) |
+|-----------|--------|-------------------|--------------|
+| Streaming text | Yes | Yes | No |
+| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) | No (sandbox only) |
+| USD cost reporting | Yes | No (token counts only) | No |
+| Crash recovery | Yes | Yes | N/A (one-shot) |
+| System prompt injection | `--append-system-prompt` | `config.toml` `developer_instructions` | `config.toml` |
+| MCP server support | Yes | Yes (via `config.toml`) | No |
+
+When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator.
+
+### Provider Status
+
+Check provider health at `GET /api/providers` or on the Settings page. DartClaw reports:
+- Whether the binary was found on `$PATH` (or at the configured executable path)
+- Detected version (from `--version` probe at startup)
+- Credential status (API key present/missing)
+- Current pool allocation and worker states
+
 ## Choosing the Right Model
 
 | Use case | Agent model | Why |

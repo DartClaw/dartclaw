@@ -134,7 +134,7 @@ class GoogleChatChannel extends Channel {
 
   @override
   List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkText(text, maxSize: 4000);
+    final chunks = chunkText(text.trimLeft(), maxSize: 4000);
     return [for (final chunk in chunks) ChannelResponse(text: chunk)];
   }
 

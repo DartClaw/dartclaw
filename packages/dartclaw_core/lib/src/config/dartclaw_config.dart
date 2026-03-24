@@ -217,7 +217,7 @@ class DartclawConfig {
     final workspace = _parseWorkspace(yaml, const WorkspaceConfig.defaults(), warns);
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
-    final providers = _parseProviders(yaml, const ProvidersConfig.defaults(), warns);
+    final providers = _parseProviders(yaml, environment, const ProvidersConfig.defaults(), warns);
     final credentials = _parseCredentials(yaml, environment, const CredentialsConfig.defaults(), warns);
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);
     final usage = _parseUsage(yaml, const UsageConfig.defaults(), warns);
@@ -355,10 +355,19 @@ class DartclawConfig {
     final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
     final dataDir = expandHome(rawDataDir, env: env);
 
-    // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML)
-    final claudeExecutable = cli['claude_executable'] ?? defaults.claudeExecutable;
-    final staticDir = cli['static_dir'] ?? defaults.staticDir;
-    final templatesDir = cli['templates_dir'] ?? defaults.templatesDir;
+    // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML), with ~ expansion
+    final claudeExecutable = expandHome(
+      cli['claude_executable'] ?? defaults.claudeExecutable,
+      env: env,
+    );
+    final staticDir = expandHome(
+      cli['static_dir'] ?? defaults.staticDir,
+      env: env,
+    );
+    final templatesDir = expandHome(
+      cli['templates_dir'] ?? defaults.templatesDir,
+      env: env,
+    );
 
     // dev_mode: enables template hot-reload, etc.
     final devMode = yaml['dev_mode'] == true || cli['dev_mode'] == 'true';
@@ -393,7 +402,9 @@ class DartclawConfig {
     List<String> warns,
   ) {
     var format = cli['log_format'] ?? defaults.format;
-    String? file = cli['log_file'];
+    String? file = cli['log_file'] != null
+        ? expandHome(cli['log_file']!, env: env)
+        : null;
     var level = cli['log_level'] ?? defaults.level;
     var redactPatterns = defaults.redactPatterns;
 
@@ -405,7 +416,10 @@ class DartclawConfig {
           format = logMap['format'] as String;
         }
         if (cli['log_file'] == null && logMap['file'] is String) {
-          file = envSubstitute(logMap['file'] as String, env: env);
+          file = expandHome(
+            envSubstitute(logMap['file'] as String, env: env),
+            env: env,
+          );
         }
         if (cli['log_level'] == null && logMap['level'] is String) {
           level = logMap['level'] as String;
@@ -953,7 +967,12 @@ class DartclawConfig {
     );
   }
 
-  static ProvidersConfig _parseProviders(Map<String, dynamic> yaml, ProvidersConfig defaults, List<String> warns) {
+  static ProvidersConfig _parseProviders(
+    Map<String, dynamic> yaml,
+    Map<String, String> env,
+    ProvidersConfig defaults,
+    List<String> warns,
+  ) {
     final providersRaw = yaml['providers'];
     if (providersRaw == null) {
       return defaults;
@@ -991,7 +1010,11 @@ class DartclawConfig {
         ..remove('executable')
         ..remove('pool_size');
 
-      entries[providerId] = ProviderEntry(executable: executableRaw.trim(), poolSize: poolSize, options: options);
+      entries[providerId] = ProviderEntry(
+        executable: expandHome(executableRaw.trim(), env: env),
+        poolSize: poolSize,
+        options: options,
+      );
     }
 
     return ProvidersConfig(entries: entries);
@@ -1593,7 +1616,7 @@ class DartclawConfig {
     String? content;
 
     if (configPath != null) {
-      content = reader(configPath);
+      content = reader(expandHome(configPath, env: env));
       if (content == null) {
         warns.add('--config points to non-existent file: $configPath — using defaults');
         return {};
@@ -1601,7 +1624,7 @@ class DartclawConfig {
     } else {
       final envPath = env['DARTCLAW_CONFIG'];
       if (envPath != null) {
-        content = reader(envPath);
+        content = reader(expandHome(envPath, env: env));
         if (content == null) {
           warns.add('DARTCLAW_CONFIG points to non-existent file: $envPath — using defaults');
           return {};

@@ -7,6 +7,9 @@ import 'protocol_message.dart';
 
 /// Codex app-server implementation of [ProtocolAdapter].
 class CodexProtocolAdapter implements ProtocolAdapter {
+  static const String _clientName = 'dartclaw';
+  static const String _clientVersion = '0.9.0';
+
   @override
   ProtocolMessage? parseLine(String line) {
     if (line.trim().isEmpty) return null;
@@ -55,22 +58,26 @@ class CodexProtocolAdapter implements ProtocolAdapter {
     bool resume = false,
   }) {
     final params = <String, dynamic>{
-      'content': [
-        {'type': 'input_text', 'text': message},
+      'input': [
+        {'type': 'text', 'text': message},
       ],
     };
     final previousResponseItems = _buildPreviousResponseItems(history);
     if (previousResponseItems.isNotEmpty) {
-      params['previous_response_items'] = previousResponseItems;
+      params['previousResponseItems'] = previousResponseItems;
     }
     if (settings != null) {
       for (final entry in settings.entries) {
         if (entry.value == null) continue;
-        params[entry.key == 'cwd' ? 'working_directory' : entry.key] = entry.value;
+        params[switch (entry.key) {
+              'approval_policy' => 'approvalPolicy',
+              _ => entry.key,
+            }] =
+            entry.value;
       }
     }
     if (threadId != null) {
-      params['thread_id'] = threadId;
+      params['threadId'] = threadId;
     }
     if (resume) {
       params['resume'] = true;
@@ -124,7 +131,14 @@ class CodexProtocolAdapter implements ProtocolAdapter {
 
   /// Builds an `initialize` request.
   Map<String, dynamic> buildInitializeRequest({required Object id, Map<String, dynamic>? params}) {
-    return {'id': id, 'method': 'initialize', 'params': params ?? <String, dynamic>{}};
+    return {
+      'id': id,
+      'method': 'initialize',
+      'params': <String, dynamic>{
+        'clientInfo': <String, dynamic>{'name': _clientName, 'version': _clientVersion},
+        ...?params,
+      },
+    };
   }
 
   /// Builds an `initialized` notification.

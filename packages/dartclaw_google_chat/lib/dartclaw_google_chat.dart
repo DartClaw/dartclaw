@@ -27,6 +27,8 @@ export 'src/pubsub_client.dart' show PubSubClient, PubSubHealthStatus, ReceivedM
 export 'src/pubsub_health_reporter.dart' show PubSubHealthReporter, SubscriptionCountGetter;
 export 'src/workspace_events_manager.dart' show SubscriptionRecord, WorkspaceEventsManager;
 export 'src/slash_command_parser.dart' show SlashCommand, SlashCommandParser;
+export 'src/user_oauth_auth_service.dart' show UserOAuthAuthService;
+export 'src/user_oauth_credential_store.dart' show StoredUserCredentials, UserOAuthCredentialStore;
 
 bool _registerGoogleChatConfigParser() {
   DartclawConfig.registerChannelConfigParser(

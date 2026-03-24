@@ -67,12 +67,7 @@ class CloudEventAdapter {
   static const _typeBatchDeleted = 'google.workspace.chat.message.v1.batchDeleted';
 
   /// Log-only event types (updated, deleted, and their batch variants).
-  static const _logOnlyTypes = {
-    _typeUpdated,
-    _typeDeleted,
-    _typeBatchUpdated,
-    _typeBatchDeleted,
-  };
+  static const _logOnlyTypes = {_typeUpdated, _typeDeleted, _typeBatchUpdated, _typeBatchDeleted};
 
   /// Optional bot user resource name for bot message filtering.
   final String? _botUser;
@@ -90,23 +85,30 @@ class CloudEventAdapter {
   /// The caller should always acknowledge the message (return `true` to
   /// [PubSubClient]) regardless of the result variant.
   AdapterResult processMessage(ReceivedMessage message) {
-    // 1. Decode base64 data → JSON string
-    final Map<String, dynamic> cloudEvent;
+    // 1. Decode base64 data → JSON string.
+    //
+    // Google Workspace Events delivered through Pub/Sub use the CloudEvents
+    // Pub/Sub binding: CloudEvent metadata lives in Pub/Sub attributes
+    // (`ce-type`, `ce-id`, ...) while the Pub/Sub message body contains only
+    // the CloudEvent `data` object. Older tests and fixtures also exercise a
+    // structured form where the body contains the full CloudEvent envelope.
+    final Object? decodedPayload;
     try {
       final bytes = base64.decode(message.data);
       final jsonString = utf8.decode(bytes);
-      final decoded = jsonDecode(jsonString);
-      if (decoded is! Map<String, dynamic>) {
-        _log.warning('CloudEvent payload is not a JSON object (${message.messageId})');
-        return const Acknowledged('payload is not a JSON object');
-      }
-      cloudEvent = decoded;
+      decodedPayload = jsonDecode(jsonString);
     } on FormatException catch (e) {
       _log.warning('Malformed CloudEvent payload (${message.messageId}): $e');
       return Acknowledged('malformed payload: $e');
     } on Exception catch (e) {
       _log.warning('Failed to decode CloudEvent (${message.messageId}): $e');
       return Acknowledged('decode failed: $e');
+    }
+
+    final cloudEvent = _materializeCloudEvent(decodedPayload, message);
+    if (cloudEvent == null) {
+      _log.warning('CloudEvent payload is not a JSON object (${message.messageId})');
+      return const Acknowledged('payload is not a JSON object');
     }
 
     // 2. Extract event type
@@ -133,15 +135,39 @@ class CloudEventAdapter {
     return LogOnly(type);
   }
 
+  Map<String, dynamic>? _materializeCloudEvent(Object? decodedPayload, ReceivedMessage message) {
+    if (decodedPayload is! Map<String, dynamic>) {
+      return null;
+    }
+
+    // Structured CloudEvent payload already includes metadata inline.
+    if (decodedPayload['type'] is String && decodedPayload['data'] != null) {
+      return decodedPayload;
+    }
+
+    // Pub/Sub binding: CloudEvent metadata is stored in attributes and the
+    // message body contains only the CloudEvent data payload.
+    final attributes = message.attributes;
+    if (!attributes.containsKey('ce-type')) {
+      return decodedPayload;
+    }
+
+    final cloudEvent = <String, dynamic>{'data': decodedPayload};
+    for (final entry in attributes.entries) {
+      if (!entry.key.startsWith('ce-')) continue;
+      final key = entry.key.substring(3);
+      if (key.isEmpty) continue;
+      cloudEvent[key] = entry.value;
+    }
+    return cloudEvent;
+  }
+
   // ---------------------------------------------------------------------------
   // Event type handlers
   // ---------------------------------------------------------------------------
 
   /// Parses a single `message.v1.created` CloudEvent.
-  AdapterResult _handleMessageCreated(
-    Map<String, dynamic> cloudEvent,
-    String pubsubMessageId,
-  ) {
+  AdapterResult _handleMessageCreated(Map<String, dynamic> cloudEvent, String pubsubMessageId) {
     final data = _asMap(cloudEvent['data']);
     final messageResource = _asMap(data?['message']);
     if (messageResource == null) {
@@ -167,16 +193,11 @@ class CloudEventAdapter {
   ///
   /// Iterates over `data.messages[]`, parsing each entry's `message` field.
   /// Skips individual messages that are bot-originated or malformed.
-  AdapterResult _handleBatchCreated(
-    Map<String, dynamic> cloudEvent,
-    String pubsubMessageId,
-  ) {
+  AdapterResult _handleBatchCreated(Map<String, dynamic> cloudEvent, String pubsubMessageId) {
     final data = _asMap(cloudEvent['data']);
     final messagesArray = data?['messages'];
     if (messagesArray is! List || messagesArray.isEmpty) {
-      _log.warning(
-        'CloudEvent batchCreated missing or empty data.messages (pubsub: $pubsubMessageId)',
-      );
+      _log.warning('CloudEvent batchCreated missing or empty data.messages (pubsub: $pubsubMessageId)');
       return const Acknowledged('missing or empty data.messages');
     }
 
@@ -292,9 +313,7 @@ class CloudEventAdapter {
     if (sender == null) return false;
     if (sender['type'] == 'BOT') return true;
     final configuredBotUser = _botUser;
-    return configuredBotUser != null &&
-        configuredBotUser.isNotEmpty &&
-        sender['name'] == configuredBotUser;
+    return configuredBotUser != null && configuredBotUser.isNotEmpty && sender['name'] == configuredBotUser;
   }
 
   /// Safely casts a value to `Map<String, dynamic>`, or returns `null`.

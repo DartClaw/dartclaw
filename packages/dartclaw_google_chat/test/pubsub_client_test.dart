@@ -16,16 +16,10 @@ Map<String, dynamic> sampleReceivedMessageJson({
   String messageId = 'msg-1',
   String publishTime = '2024-03-15T10:30:00.260Z',
   Map<String, String> attributes = const {'ce-type': 'test'},
-}) =>
-    {
-      'ackId': ackId,
-      'message': {
-        'data': data,
-        'messageId': messageId,
-        'publishTime': publishTime,
-        'attributes': attributes,
-      },
-    };
+}) => {
+  'ackId': ackId,
+  'message': {'data': data, 'messageId': messageId, 'publishTime': publishTime, 'attributes': attributes},
+};
 
 http.Response pullResponse(List<Map<String, dynamic>> messages) =>
     http.Response(jsonEncode({'receivedMessages': messages}), 200);
@@ -36,6 +30,27 @@ http.Response emptyPullResponse() => http.Response('{}', 200);
 /// spinning that causes multi-GB memory growth in tests.
 Future<void> _yieldingDelay(Duration _) async {
   await Future<void>.delayed(Duration.zero);
+}
+
+class _BlockingCloseAwareClient extends http.BaseClient {
+  final requestStarted = Completer<void>();
+  final _closed = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (!requestStarted.isCompleted) {
+      requestStarted.complete();
+    }
+    await _closed.future;
+    throw http.ClientException('connection closed during shutdown', request.url);
+  }
+
+  @override
+  void close() {
+    if (!_closed.isCompleted) {
+      _closed.complete();
+    }
+  }
 }
 
 /// Creates a [PubSubClient] wired to [mockClient] with a yielding delay
@@ -97,11 +112,7 @@ void main() {
   group('PubSubHealthStatus', () {
     test('toJson includes all fields', () {
       final ts = DateTime.utc(2024, 3, 15, 10, 30);
-      final status = PubSubHealthStatus(
-        status: 'degraded',
-        lastSuccessfulPull: ts,
-        consecutiveErrors: 6,
-      );
+      final status = PubSubHealthStatus(status: 'degraded', lastSuccessfulPull: ts, consecutiveErrors: 6);
       final json = status.toJson();
       expect(json['status'], 'degraded');
       expect(json['consecutive_errors'], 6);
@@ -384,10 +395,7 @@ void main() {
       await firstPullDone.future;
       await client.stop();
 
-      expect(
-        captured.url.toString(),
-        'https://pubsub.googleapis.com/v1/projects/my-project/subscriptions/my-sub:pull',
-      );
+      expect(captured.url.toString(), 'https://pubsub.googleapis.com/v1/projects/my-project/subscriptions/my-sub:pull');
       expect(captured.method, 'POST');
       expect(jsonDecode(captured.body)['maxMessages'], isNotNull);
     });
@@ -575,6 +583,21 @@ void main() {
       await client.stop();
       // Should not throw
       await client.stop();
+    });
+
+    test('dispose() aborts an in-flight pull promptly', () async {
+      final blockingClient = _BlockingCloseAwareClient();
+      final client = makeClient(mockClient: blockingClient);
+
+      client.start();
+      await blockingClient.requestStarted.future;
+
+      final stopwatch = Stopwatch()..start();
+      await client.dispose();
+      stopwatch.stop();
+
+      expect(stopwatch.elapsed.inMilliseconds, lessThan(1000));
+      expect(client.isRunning, isFalse);
     });
 
     test('start after stop works', () async {

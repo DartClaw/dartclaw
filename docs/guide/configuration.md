@@ -180,7 +180,7 @@ tasks:
 
 # --- Agent Config ---
 agent:
-  claude_executable: claude
+  provider: claude               # default provider: claude | codex | codex-exec
   max_turns: 50
   model: opus[1m]                # default; supports: haiku, sonnet, opus, opus[1m]
   effort: high                   # reasoning effort: low, medium, high, max
@@ -200,6 +200,24 @@ agent:
     #   tools: [Read]
     #   model: haiku
     #   max_concurrent: 1
+
+# --- Providers (0.13) ---
+providers:
+  claude:
+    executable: claude           # path or binary name
+    pool_size: 2                 # primary + 1 task worker
+  # codex:                       # uncomment to enable Codex (OpenAI models)
+  #   executable: codex          # path to codex binary
+  #   pool_size: 2               # 2 task workers
+  #   sandbox: workspace-write   # codex sandbox mode
+  #   approval: on-request       # approval mode for app-server
+
+# --- Credentials (0.13) ---
+credentials:
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+  # openai:                      # uncomment when using Codex
+  #   api_key: ${OPENAI_API_KEY}
 
 # --- Context Management ---
 context:
@@ -240,11 +258,16 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Subagents under `agent.agents` can override the model individually. Task runners also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
+**Note on `agent.provider`:** When set, the default provider applies to all sessions and tasks unless overridden. Per-task provider overrides are supported via `configJson.provider` at task creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
+
+**Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `agent.claude_executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY` | -- | API key (alternative to Claude CLI OAuth) |
+| `ANTHROPIC_API_KEY` | -- | API key for Claude provider |
+| `OPENAI_API_KEY` | -- | API key for Codex provider |
 | `DARTCLAW_CONFIG` | -- | Custom config file path |
 | `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |
 | `DARTCLAW_DB_PATH` | `~/.dartclaw/dartclaw.db` | SQLite database location |

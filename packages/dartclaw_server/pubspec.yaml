@@ -31,6 +31,7 @@ dependencies:
   dartclaw_signal:
     path: ../dartclaw_signal
   dart_jsonwebtoken: ^2.14.0
+  pointycastle: ^3.9.1
   html2md: ^1.3.2
   dartclaw_storage:
     path: ../dartclaw_storage

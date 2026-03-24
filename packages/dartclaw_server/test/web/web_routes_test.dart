@@ -104,10 +104,10 @@ void main() {
       expect(res.statusCode, equals(200));
     });
 
-    test('GET / with no sessions contains "No sessions yet" text', () async {
+    test('GET / with no sessions contains "No chats yet" text', () async {
       final res = await handler(Request('GET', Uri.parse('http://localhost/')));
       final body = await res.readAsString();
-      expect(body, contains('No sessions yet'));
+      expect(body, contains('No chats yet'));
     });
   });
 
@@ -158,6 +158,40 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
       expect(body, contains('data-session-id'));
+    });
+
+    test('crash banner uses icon system dismiss button', () async {
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        workerStateGetter: () => WorkerState.crashed,
+      ).call;
+      final session = await sessions.createSession();
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('Agent interrupted'));
+      expect(body, contains('class="dismiss" aria-label="Dismiss" data-icon="x"'));
+      expect(body, isNot(contains('&#10005;')));
+    });
+
+    test('recovery banner uses icon system dismiss button', () async {
+      final session = await sessions.createSession();
+      handler = webRoutes(
+        sessions,
+        messages,
+        kvService: kvService,
+        turns: _RecoveryNoticeTurns({session.id}),
+      ).call;
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
+      final body = await res.readAsString();
+
+      expect(body, contains('recovered from an interrupted turn'));
+      expect(body, contains('class="dismiss" aria-label="Dismiss" data-icon="x"'));
+      expect(body, isNot(contains('&#10005;')));
     });
 
     test('initial session page renders tail-window pagination state', () async {
@@ -573,4 +607,17 @@ void main() {
       expect(body, contains('id="main-content"'));
     });
   });
+}
+
+class _RecoveryNoticeTurns implements TurnManager {
+  _RecoveryNoticeTurns(this._sessionIds);
+
+  final Set<String> _sessionIds;
+
+  @override
+  bool consumeRecoveryNotice(String sessionId) => _sessionIds.remove(sessionId);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} not implemented in _RecoveryNoticeTurns');
 }

@@ -10,7 +10,7 @@
 
 <div tl:fragment="guardBlock" class="msg msg-guard-block">
   <div class="guard-block-header">
-    <span class="guard-block-icon" aria-hidden="true"></span>
+    <span class="guard-block-icon icon icon-shield-alert" aria-hidden="true"></span>
     <span class="guard-block-label">GUARD BLOCKED</span>
   </div>
   <div class="guard-block-reason" tl:text="${detail}">Blocked</div>
@@ -18,7 +18,7 @@
 
 <div tl:fragment="turnFailed" class="msg msg-turn-failed">
   <div class="msg-turn-failed-header">
-    <span class="msg-turn-failed-icon" aria-hidden="true">&#9888;</span>
+    <span class="msg-turn-failed-icon icon icon-triangle-alert" aria-hidden="true"></span>
     <span class="msg-turn-failed-label">Turn failed</span>
   </div>
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>

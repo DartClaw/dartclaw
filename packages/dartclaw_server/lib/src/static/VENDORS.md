@@ -23,7 +23,7 @@ Themes from https://github.com/catppuccin/highlightjs.
 
 ## DOMPurify
 
-- **Version**: 3.3.1
+- **Version**: 3.3.3
 - **License**: Apache-2.0 OR MPL-2.0
 - **Source**: https://github.com/cure53/DOMPurify
 
@@ -39,7 +39,7 @@ Download latest from `https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.j
 
 ## htmx-ext-sse
 
-- **Version**: 2.2.2
+- **Version**: 2.2.4
 - **License**: BSD-2-Clause
 - **Source**: https://github.com/bigskysoftware/htmx-extensions/tree/main/src/sse
 

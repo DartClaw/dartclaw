@@ -59,7 +59,8 @@ class AgentObserver {
 
   /// Mark a runner as busy with an optional task/session ID.
   void markBusy(int runnerId, {String? taskId, String? sessionId}) {
-    if (runnerId < 0 || runnerId >= _metrics.length) return;
+    if (runnerId < 0) return;
+    _ensureCapacity(runnerId);
     final m = _metrics[runnerId];
     m.state = AgentState.busy;
     m.currentTaskId = taskId;
@@ -76,7 +77,7 @@ class AgentObserver {
 
   /// Mark a runner as idle, clearing task/session references.
   void markIdle(int runnerId) {
-    if (runnerId < 0 || runnerId >= _metrics.length) return;
+    if (runnerId < 0 || runnerId >= _metrics.length) return; // Don't grow on idle-only calls.
     final m = _metrics[runnerId];
     m.state = AgentState.idle;
     m.currentTaskId = null;
@@ -86,7 +87,8 @@ class AgentObserver {
 
   /// Record a completed turn for a runner, updating token and error counters.
   void recordTurn(int runnerId, {required int inputTokens, required int outputTokens, required bool isError}) {
-    if (runnerId < 0 || runnerId >= _metrics.length) return;
+    if (runnerId < 0) return;
+    _ensureCapacity(runnerId);
     final m = _metrics[runnerId];
     m.tokensConsumed += inputTokens + outputTokens;
     m.turnsCompleted++;
@@ -109,6 +111,15 @@ class AgentObserver {
     availableCount: _pool.availableCount,
     maxConcurrentTasks: _pool.maxConcurrentTasks,
   );
+
+  /// Grows [_metrics] to cover [runnerId] when the pool adds runners lazily.
+  void _ensureCapacity(int runnerId) {
+    while (runnerId >= _metrics.length) {
+      final i = _metrics.length;
+      final providerId = i < _pool.runners.length ? _pool.runners[i].providerId : 'unknown';
+      _metrics.add(_MutableMetrics(runnerId: i, providerId: providerId));
+    }
+  }
 
   void dispose() {
     // No subscriptions to cancel in callback-based approach.

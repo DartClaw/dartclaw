@@ -17,7 +17,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  crypto: ^3.0.6
+  crypto: ^3.0.7
   dartclaw_config:
     path: ../dartclaw_config
   dartclaw_core:
@@ -34,8 +34,8 @@ dependencies:
   html2md: ^1.3.2
   dartclaw_storage:
     path: ../dartclaw_storage
-  http: ^1.5.0
-  meta: ^1.16.0
+  http: ^1.6.0
+  meta: ^1.18.0
   shelf: ^1.4.2
   shelf_router: ^1.1.4
   shelf_static: ^1.1.3
@@ -43,13 +43,13 @@ dependencies:
   path: ^1.9.1
   qr: ^3.0.2
   trellis: ^0.5.0
-  uuid: ^4.5.2
+  uuid: ^4.5.3
   yaml: ^3.1.0
 
 dev_dependencies:
-  async: ^2.12.0
+  async: ^2.13.0
   dartclaw_testing:
     path: ../dartclaw_testing
   sqlite3: ^3.1.6
-  test: ^1.29.0
-  lints: ^6.0.0
+  test: ^1.31.0
+  lints: ^6.1.0

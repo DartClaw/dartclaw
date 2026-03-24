@@ -35,19 +35,12 @@ String healthDashboardTemplate({
     _ => 'status-hero-error',
   };
 
-  const svgAttrs =
-      'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" '
-      'stroke-linecap="round" stroke-linejoin="round" width="28" height="28"';
   final statusIcon = switch (status) {
-    'healthy' => '<svg $svgAttrs><polyline points="20 6 9 17 4 12"/></svg>',
+    'healthy' => '<span class="icon icon-check" style="color:var(--success);width:28px;height:28px" aria-hidden="true"></span>',
     'degraded' =>
-      '<svg $svgAttrs>'
-          '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>'
-          '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      '<span class="icon icon-triangle-alert" style="color:var(--warning);width:28px;height:28px" aria-hidden="true"></span>',
     _ =>
-      '<svg $svgAttrs>'
-          '<circle cx="12" cy="12" r="10"/>'
-          '<line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+      '<span class="icon icon-circle-x" style="color:var(--error);width:28px;height:28px" aria-hidden="true"></span>',
   };
 
   final workerBadgeClass = switch (workerState) {

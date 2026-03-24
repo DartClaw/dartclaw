@@ -56,9 +56,11 @@ import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
+import 'templates/sidebar.dart' show NavItem, SidebarData, sidebarTemplate;
 import 'turn_manager.dart';
 import 'web/dashboard_page.dart';
 import 'web/page_registry.dart';
+import 'web/sidebar_feature_visibility.dart';
 import 'web/signal_pairing_routes.dart';
 import 'web/system_pages.dart';
 import 'web/web_routes.dart';
@@ -239,6 +241,17 @@ class DartclawServerBuilder {
       workspaceDisplay: workspaceDisplay,
       appDisplay: appDisplay,
     );
+    final visibility = computeSidebarFeatureVisibility(
+      config: config,
+      hasChannels: whatsAppChannel != null || signalChannel != null || googleChatWebhookHandler?.channel != null,
+      guardChain: guardChain,
+      hasHealthService: healthService != null,
+      hasTaskService: taskService != null,
+      hasPubSubHealth: healthService?.pubsubHealth != null,
+      heartbeatDisplay: heartbeatDisplay,
+      schedulingDisplay: schedulingDisplay,
+      workspaceDisplay: workspaceDisplay,
+    );
 
     registerSystemDashboardPages(
       server._pageRegistry,
@@ -259,6 +272,10 @@ class DartclawServerBuilder {
       pubsubHealthGetter: healthService != null
           ? () => healthService!.pubsubHealth ?? const {'status': 'disabled', 'enabled': false}
           : null,
+      showHealth: visibility.showHealth,
+      showMemory: visibility.showMemory,
+      showScheduling: visibility.showScheduling,
+      showTasks: visibility.showTasks,
     );
 
     return server;
@@ -615,6 +632,7 @@ class DartclawServer {
         whatsAppChannel: waChannel,
         sessions: _sessions,
         pageRegistry: _pageRegistry,
+        tasksEnabled: _taskService != null && _eventBus != null,
         appName: _appDisplay.name,
       );
       router.mount('/whatsapp', waRouter.call);
@@ -628,6 +646,7 @@ class DartclawServer {
         signalChannel: sigChannel,
         sessions: _sessions,
         pageRegistry: _pageRegistry,
+        tasksEnabled: _taskService != null && _eventBus != null,
         appName: _appDisplay.name,
       );
       router.mount('/signal', sigRouter.call);
@@ -738,6 +757,31 @@ class DartclawServer {
   }
 
   void _mountSessionRoutes(Router router) {
+    final configuredProvider = _config?.agent.provider.trim().toLowerCase();
+    final defaultProvider = configuredProvider == null || configuredProvider.isEmpty ? 'claude' : configuredProvider;
+    final showChannels =
+        _whatsAppChannel != null || _signalChannel != null || _googleChatWebhookHandler?.channel != null;
+    final tasksEnabled = _taskService != null && _eventBus != null;
+    String buildSidebarHtml({
+      required SidebarData sidebarData,
+      String? activeSessionId,
+      List<NavItem> navItems = const [],
+    }) {
+      final resolvedNavItems = navItems.isEmpty ? _pageRegistry.navItems(activePage: '') : navItems;
+      return sidebarTemplate(
+        mainSession: sidebarData.main,
+        dmChannels: sidebarData.dmChannels,
+        groupChannels: sidebarData.groupChannels,
+        activeEntries: sidebarData.activeEntries,
+        archivedEntries: sidebarData.archivedEntries,
+        showChannels: sidebarData.showChannels,
+        tasksEnabled: sidebarData.tasksEnabled,
+        activeSessionId: activeSessionId,
+        navItems: resolvedNavItems,
+        appName: _appDisplay.name,
+      );
+    }
+
     final sessionRouter = sessionRoutes(
       _sessions,
       _messages,
@@ -745,6 +789,14 @@ class DartclawServer {
       _worker,
       resetService: _resetService,
       redactor: _redactor,
+      buildSidebarData: () => buildSidebarData(
+        _sessions,
+        kvService: _kvService,
+        defaultProvider: defaultProvider,
+        showChannels: showChannels,
+        tasksEnabled: tasksEnabled,
+      ),
+      buildSidebarHtml: buildSidebarHtml,
     );
     router.mount('/', sessionRouter.call);
   }

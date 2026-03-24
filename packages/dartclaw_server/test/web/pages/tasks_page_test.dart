@@ -63,6 +63,8 @@ const _emptySidebarData = (
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  showChannels: true,
+  tasksEnabled: false,
 );
 
 class _StubSessionService implements SessionService {

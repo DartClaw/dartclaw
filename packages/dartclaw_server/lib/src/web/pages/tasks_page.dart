@@ -21,6 +21,9 @@ class TasksPage extends DashboardPage {
   String get title => 'Tasks';
 
   @override
+  String? get icon => 'tasks';
+
+  @override
   String get navGroup => 'system';
 
   @override

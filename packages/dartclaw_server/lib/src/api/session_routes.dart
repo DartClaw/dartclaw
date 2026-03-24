@@ -7,6 +7,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../session/session_reset_service.dart';
+import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../templates/loader.dart';
 import 'api_helpers.dart';
 import '../harness_pool.dart';
@@ -27,6 +28,8 @@ Router sessionRoutes(
   AgentHarness worker, {
   SessionResetService? resetService,
   MessageRedactor? redactor,
+  Future<SidebarData> Function()? buildSidebarData,
+  String Function({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems})? buildSidebarHtml,
 }) {
   final router = Router();
 
@@ -236,6 +239,52 @@ Router sessionRoutes(
     }
   });
 
+  // POST /api/sessions/<id>/archive — convert user session to archive
+  router.post('/api/sessions/<id>/archive', (Request request, String id) async {
+    try {
+      final session = await sessions.getSession(id);
+      if (session == null) {
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+      }
+      if (session.type != SessionType.user) {
+        return errorResponse(400, 'INVALID_STATE', 'Only user sessions can be archived');
+      }
+
+      await turns.cancelTurn(id);
+      try {
+        await turns.waitForCompletion(id);
+      } catch (e) {
+        _log.warning('waitForCompletion for session $id: $e');
+      }
+
+      final updated = await sessions.updateSessionType(id, SessionType.archive);
+      if (updated == null) {
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update session type');
+      }
+
+      final sidebarDataBuilder = buildSidebarData;
+      final sidebarHtmlBuilder = buildSidebarHtml;
+      final activeSessionId = _trimmedOrNull(request.headers['x-dartclaw-active-session-id']);
+      if (sidebarDataBuilder != null && sidebarHtmlBuilder != null) {
+        if (activeSessionId == id) {
+          return Response(200, headers: {'HX-Redirect': '/'});
+        }
+        final sidebarData = await sidebarDataBuilder();
+        final sidebarHtml = sidebarHtmlBuilder(
+          sidebarData: sidebarData,
+          activeSessionId: activeSessionId,
+          navItems: const [],
+        );
+        return Response(200, body: _withSidebarOobSwap(sidebarHtml), headers: {'content-type': 'text/html; charset=utf-8'});
+      }
+
+      return jsonResponse(200, updated.toJson());
+    } catch (e) {
+      _log.warning('Failed to archive session $id: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to archive session');
+    }
+  });
+
   // POST /api/sessions/<id>/reset
   router.post('/api/sessions/<id>/reset', (Request request, String id) async {
     try {
@@ -287,6 +336,16 @@ dynamic _tryParseJson(String s) {
   } catch (e) {
     return s;
   }
+}
+
+String _withSidebarOobSwap(String html) {
+  final withSidebar = html.contains('hx-swap-oob=')
+      ? html
+      : html.replaceFirst('<aside ', '<aside hx-swap-oob="outerHTML" ');
+  return withSidebar.replaceFirst(
+    '<button class="sidebar-scrim"',
+    '<button hx-swap-oob="outerHTML:.sidebar-scrim" class="sidebar-scrim"',
+  );
 }
 
 // ---------------------------------------------------------------------------

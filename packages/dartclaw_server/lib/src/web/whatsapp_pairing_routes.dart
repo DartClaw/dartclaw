@@ -18,13 +18,14 @@ Router whatsappPairingRoutes({
   required WhatsAppChannel whatsAppChannel,
   required SessionService sessions,
   required PageRegistry pageRegistry,
+  bool tasksEnabled = false,
   String appName = 'DartClaw',
 }) {
   final router = Router();
 
   // GET /pairing — WhatsApp pairing/status page.
   router.get('/pairing', (Request request) async {
-    final sidebarData = await buildSidebarData(sessions);
+    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
     final fragment = wantsFragment(request);
     final pairingCode = request.requestedUri.queryParameters['code'];
 
@@ -115,7 +116,7 @@ Router whatsappPairingRoutes({
       final status = await whatsAppChannel.gowa.getStatus();
       if (!status.isLoggedIn) return Response(204);
       // Connected — render full page.
-      final sidebarData = await buildSidebarData(sessions);
+      final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
       return Response.ok(
         whatsappPairingTemplate(
           isConnected: true,

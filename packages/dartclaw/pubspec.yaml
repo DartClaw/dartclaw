@@ -33,5 +33,5 @@ dependencies:
     path: ../dartclaw_google_chat
 
 dev_dependencies:
-  test: ^1.29.0
-  lints: ^6.0.0
+  test: ^1.31.0
+  lints: ^6.1.0

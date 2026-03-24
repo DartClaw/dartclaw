@@ -68,6 +68,7 @@ class HarnessWiring {
   })
   _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
+  Future<void> Function()? _onSpawnNeeded;
   bool _authEnabled = false;
   TokenService? _tokenService;
   String? _resolvedGatewayToken;
@@ -94,6 +95,7 @@ class HarnessWiring {
   })
   get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
+  Future<void> Function()? get onSpawnNeeded => _onSpawnNeeded;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
@@ -211,14 +213,14 @@ class HarnessWiring {
       _exitFn(1);
     }
 
-    final taskHarnesses = <AgentHarness>[];
-    final taskProfileIds = <String>[];
-    final taskProviderIds = <String>[];
+    // Task pool capacity — runners are spawned lazily on first task creation.
     final profileIds = _security.containerManagers.isEmpty ? ['workspace'] : ['workspace', 'restricted'];
     final maxConcurrent = config.providers.isEmpty
         ? config.tasks.maxConcurrent
         : config.providers.entries.values.fold<int>(0, (sum, entry) => sum + entry.poolSize);
 
+    // Build a spawn plan: one entry per future task runner, consumed in order.
+    final spawnPlan = <({String providerId, String profileId, String executable, Map<String, dynamic> options})>[];
     if (config.providers.isEmpty) {
       final taskRunnerCount = config.tasks.maxConcurrent == 0
           ? 0
@@ -229,69 +231,29 @@ class HarnessWiring {
       final legacyExecutable = _resolveProviderExecutable(config, legacyProviderId);
       final legacyProviderOptions = _providerOptions(config, legacyProviderId);
       for (var i = 0; i < taskRunnerCount; i++) {
-        final profileId = profileIds[i % profileIds.length];
-        final containerManager = _security.containerManagers[profileId] ?? _security.containerManagers['workspace'];
-        try {
-          final taskHarness = _harnessFactory.create(
-            legacyProviderId,
-            HarnessFactoryConfig(
-              cwd: Directory.current.path,
-              executable: legacyExecutable,
-              turnTimeout: Duration(seconds: config.server.workerTimeout),
-              onMemorySave: _memoryHandlers.onSave,
-              onMemorySearch: _memoryHandlers.onSearch,
-              onMemoryRead: _memoryHandlers.onRead,
-              harnessConfig: _harnessConfig,
-              providerOptions: legacyProviderOptions,
-              containerManager: containerManager,
-              environment: _providerEnvironment(legacyProviderId, credentialRegistry),
-            ),
-          );
-          await taskHarness.start();
-          taskHarnesses.add(taskHarness);
-          taskProfileIds.add(profileId);
-          taskProviderIds.add(legacyProviderId);
-        } catch (e) {
-          _log.warning('Failed to start task harness ${i + 1} of $taskRunnerCount: $e');
-          // Degraded mode: continue with fewer task runners.
-        }
+        spawnPlan.add((
+          providerId: legacyProviderId,
+          profileId: profileIds[i % profileIds.length],
+          executable: legacyExecutable,
+          options: legacyProviderOptions,
+        ));
       }
     } else {
       for (final providerEntry in config.providers.entries.entries) {
         final providerId = providerEntry.key;
         final entry = providerEntry.value;
         for (var i = 0; i < entry.poolSize; i++) {
-          final profileId = profileIds[i % profileIds.length];
-          final containerManager = _security.containerManagers[profileId] ?? _security.containerManagers['workspace'];
-          try {
-            final taskHarness = _harnessFactory.create(
-              providerId,
-              HarnessFactoryConfig(
-                cwd: Directory.current.path,
-                executable: entry.executable,
-                turnTimeout: Duration(seconds: config.server.workerTimeout),
-                onMemorySave: _memoryHandlers.onSave,
-                onMemorySearch: _memoryHandlers.onSearch,
-                onMemoryRead: _memoryHandlers.onRead,
-                harnessConfig: _harnessConfig,
-                providerOptions: entry.options,
-                containerManager: containerManager,
-                environment: _providerEnvironment(providerId, credentialRegistry),
-              ),
-            );
-            await taskHarness.start();
-            taskHarnesses.add(taskHarness);
-            taskProfileIds.add(profileId);
-            taskProviderIds.add(providerId);
-          } catch (e) {
-            _log.warning('Failed to start task harness ${i + 1} of ${entry.poolSize} for provider $providerId: $e');
-            // Degraded mode: continue with fewer task runners.
-          }
+          spawnPlan.add((
+            providerId: providerId,
+            profileId: profileIds[i % profileIds.length],
+            executable: entry.executable,
+            options: entry.options,
+          ));
         }
       }
     }
-    if (taskHarnesses.isNotEmpty) {
-      _log.info('Task pool: ${taskHarnesses.length} task runner(s) + 1 primary');
+    if (maxConcurrent > 0) {
+      _log.info('Task pool: lazy, up to $maxConcurrent task runner(s) + 1 primary');
     }
 
     _sseBroadcast = SseBroadcast();
@@ -376,60 +338,90 @@ class HarnessWiring {
         : null;
     final loopAction = config.governance.loopDetection.enabled ? config.governance.loopDetection.action : null;
 
-    // Build TurnRunners for the pool.
-    final runners = <TurnRunner>[
-      TurnRunner(
-        harness: _harness,
-        messages: _storage.messages,
-        behavior: _behavior,
-        memoryFile: _storage.memoryFile,
-        sessions: _storage.sessions,
-        turnState: _storage.turnStateStore,
-        kv: _storage.kvService,
-        guardChain: _security.guardChain,
-        lockManager: _lockManager,
-        resetService: _resetService,
-        contextMonitor: _contextMonitor,
-        explorationSummarizer: _explorationSummarizer,
-        redactor: _messageRedactor,
-        selfImprovement: _selfImprovement,
-        usageTracker: _usageTracker,
-        sseBroadcast: _sseBroadcast,
-        globalRateLimiter: globalRateLimiter,
-        budgetEnforcer: budgetEnforcer,
-        loopDetector: loopDetector,
-        loopAction: loopAction,
-        eventBus: _eventBus,
-        providerId: defaultProviderId,
-      ),
-      for (var i = 0; i < taskHarnesses.length; i++)
-        TurnRunner(
-          harness: taskHarnesses[i],
-          messages: _storage.messages,
-          behavior: _behavior,
-          memoryFile: _storage.memoryFile,
-          sessions: _storage.sessions,
-          turnState: _storage.turnStateStore,
-          kv: _storage.kvService,
-          guardChain: _security.guardChain,
-          lockManager: _lockManager,
-          resetService: _resetService,
-          contextMonitor: _contextMonitor,
-          explorationSummarizer: _explorationSummarizer,
-          redactor: _messageRedactor,
-          selfImprovement: _selfImprovement,
-          usageTracker: _usageTracker,
-          sseBroadcast: _sseBroadcast,
-          globalRateLimiter: globalRateLimiter,
-          budgetEnforcer: budgetEnforcer,
-          loopDetector: loopDetector,
-          loopAction: loopAction,
-          eventBus: _eventBus,
-          profileId: taskProfileIds[i],
-          providerId: taskProviderIds[i],
-        ),
-    ];
-    _pool = HarnessPool(runners: runners, maxConcurrentTasks: maxConcurrent);
+    // Build primary TurnRunner and pool (task runners spawned lazily).
+    final primaryRunner = TurnRunner(
+      harness: _harness,
+      messages: _storage.messages,
+      behavior: _behavior,
+      memoryFile: _storage.memoryFile,
+      sessions: _storage.sessions,
+      turnState: _storage.turnStateStore,
+      kv: _storage.kvService,
+      guardChain: _security.guardChain,
+      lockManager: _lockManager,
+      resetService: _resetService,
+      contextMonitor: _contextMonitor,
+      explorationSummarizer: _explorationSummarizer,
+      redactor: _messageRedactor,
+      selfImprovement: _selfImprovement,
+      usageTracker: _usageTracker,
+      sseBroadcast: _sseBroadcast,
+      globalRateLimiter: globalRateLimiter,
+      budgetEnforcer: budgetEnforcer,
+      loopDetector: loopDetector,
+      loopAction: loopAction,
+      eventBus: _eventBus,
+      providerId: defaultProviderId,
+    );
+    _pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: maxConcurrent);
+
+    // Lazy spawn callback — consumed by TaskExecutor when tasks arrive.
+    var spawnIndex = 0;
+    _onSpawnNeeded = spawnPlan.isEmpty
+        ? null
+        : () async {
+            if (_pool.spawnableCount <= 0 || spawnIndex >= spawnPlan.length) return;
+            final plan = spawnPlan[spawnIndex];
+            final containerManager =
+                _security.containerManagers[plan.profileId] ?? _security.containerManagers['workspace'];
+            try {
+              final taskHarness = _harnessFactory.create(
+                plan.providerId,
+                HarnessFactoryConfig(
+                  cwd: Directory.current.path,
+                  executable: plan.executable,
+                  turnTimeout: Duration(seconds: config.server.workerTimeout),
+                  onMemorySave: _memoryHandlers.onSave,
+                  onMemorySearch: _memoryHandlers.onSearch,
+                  onMemoryRead: _memoryHandlers.onRead,
+                  harnessConfig: _harnessConfig,
+                  providerOptions: plan.options,
+                  containerManager: containerManager,
+                  environment: _providerEnvironment(plan.providerId, credentialRegistry),
+                ),
+              );
+              await taskHarness.start();
+              final runner = TurnRunner(
+                harness: taskHarness,
+                messages: _storage.messages,
+                behavior: _behavior,
+                memoryFile: _storage.memoryFile,
+                sessions: _storage.sessions,
+                turnState: _storage.turnStateStore,
+                kv: _storage.kvService,
+                guardChain: _security.guardChain,
+                lockManager: _lockManager,
+                resetService: _resetService,
+                contextMonitor: _contextMonitor,
+                explorationSummarizer: _explorationSummarizer,
+                redactor: _messageRedactor,
+                selfImprovement: _selfImprovement,
+                usageTracker: _usageTracker,
+                sseBroadcast: _sseBroadcast,
+                globalRateLimiter: globalRateLimiter,
+                budgetEnforcer: budgetEnforcer,
+                loopDetector: loopDetector,
+                loopAction: loopAction,
+                eventBus: _eventBus,
+                profileId: plan.profileId,
+                providerId: plan.providerId,
+              );
+              _pool.addRunner(runner);
+              spawnIndex++;
+            } catch (e) {
+              _log.warning('Failed to spawn task runner: $e');
+            }
+          };
   }
 }
 

@@ -43,6 +43,9 @@ class SettingsPage extends DashboardPage {
   String get title => 'Settings';
 
   @override
+  String? get icon => 'settings';
+
+  @override
   String get navGroup => 'system';
 
   @override
@@ -131,7 +134,7 @@ List<Map<String, Object?>> _buildProviderCards(List<ProviderStatus> providers) {
 
 Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
   final healthUi = _providerHealthUi(provider.health);
-  final credentialPresent = provider.credentialStatus == 'present';
+  final credentialOk = provider.credentialStatus != 'missing';
   final poolUsagePercent = _poolUsagePercent(activeWorkers: provider.activeWorkers, poolSize: provider.poolSize);
 
   return <String, Object?>{
@@ -148,10 +151,17 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
     'executable': provider.executable,
     'versionDisplay': provider.binaryFound ? (provider.version ?? 'unknown') : 'Not found',
     'versionClass': provider.binaryFound ? '' : 'detail-value-error',
-    'credentialStatusLabel': credentialPresent ? 'Present' : 'Missing',
-    'credentialValueClass': credentialPresent ? 'detail-value-ok' : 'detail-value-error',
-    'credentialDotClass': credentialPresent ? 'credential-dot-ok' : 'credential-dot-missing',
-    'credentialEnvVarDisplay': provider.credentialEnvVar ?? 'Credential source not configured',
+    'credentialStatusLabel': switch (provider.credentialStatus) {
+      'present' => 'Present',
+      'oauth' => 'Authenticated',
+      _ => 'Missing',
+    },
+    'credentialValueClass': credentialOk ? 'detail-value-ok' : 'detail-value-error',
+    'credentialDotClass': credentialOk ? 'credential-dot-ok' : 'credential-dot-missing',
+    'credentialEnvVarDisplay': switch (provider.credentialStatus) {
+      'oauth' => 'OAuth / subscription login',
+      _ => provider.credentialEnvVar ?? 'Credential source not configured',
+    },
     'poolUsageText': provider.poolSize > 0
         ? '${provider.activeWorkers} of ${provider.poolSize} Task Workers busy'
         : 'No Workers configured',

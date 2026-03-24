@@ -19,6 +19,9 @@ class MemoryPage extends DashboardPage {
   String get title => 'Memory';
 
   @override
+  String? get icon => 'memory';
+
+  @override
   String get navGroup => 'system';
 
   @override

@@ -3,10 +3,11 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _StubDashboardPage extends DashboardPage {
-  _StubDashboardPage(this._route, this._title);
+  _StubDashboardPage(this._route, this._title, {this.iconValue});
 
   final String _route;
   final String _title;
+  final String? iconValue;
 
   @override
   String get route => _route;
@@ -16,6 +17,9 @@ class _StubDashboardPage extends DashboardPage {
 
   @override
   String get navGroup => 'test';
+
+  @override
+  String? get icon => iconValue;
 
   @override
   Future<Response> handler(Request request, PageContext context) async {
@@ -36,7 +40,7 @@ void main() {
 
     test('navItems preserves registration order and active item', () {
       final registry = PageRegistry()
-        ..register(_StubDashboardPage('/health-dashboard', 'Health'))
+        ..register(_StubDashboardPage('/health-dashboard', 'Health', iconValue: 'health'))
         ..register(_StubDashboardPage('/custom', 'Custom'));
 
       final navItems = registry.navItems(activePage: 'Custom');
@@ -47,6 +51,8 @@ void main() {
       expect(navItems[0].active, isFalse);
       expect(navItems[1].active, isTrue);
       expect(navItems[0].navGroup, 'test');
+      expect(navItems[0].icon, 'health');
+      expect(navItems[1].icon, isNull);
     });
 
     test('register rejects reserved fixed sub-routes and earlier-mounted server paths', () {

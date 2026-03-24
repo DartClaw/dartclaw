@@ -6,7 +6,7 @@
 
       <div tl:if="${error}" class="banner banner-warning">
         <span tl:text="${error}">Error</span>
-        <button class="dismiss" aria-label="Dismiss">&#10005;</button>
+        <button class="dismiss" aria-label="Dismiss" data-icon="x"></button>
       </div>
 
       <div class="wa-content">
@@ -14,7 +14,7 @@
         <!-- Connected state -->
         <div tl:if="${isConnected}" class="wa-section">
           <div class="wa-connected-header">
-            <span style="color:var(--success);font-size:var(--text-xl);">&#10003;</span>
+            <span class="icon icon-check" aria-hidden="true" style="color:var(--success);font-size:var(--text-xl);"></span>
             Signal Connected
           </div>
           <div class="wa-detail">Phone: <span class="wa-detail-value" tl:text="${phoneDisplay}">Connected</span></div>
@@ -31,7 +31,7 @@
         <!-- Connection lost / reconnecting state -->
         <div tl:if="${showReconnecting}" class="wa-section">
           <div class="wa-connected-header">
-            <span style="color:var(--warning);font-size:var(--text-xl);">&#9888;</span>
+            <span class="icon icon-triangle-alert" aria-hidden="true" style="color:var(--warning);font-size:var(--text-xl);"></span>
             Connection Lost
           </div>
           <div class="wa-status-row">
@@ -84,7 +84,7 @@
               <label class="sr-only" for="token">Verification code</label>
               <input id="token" name="token" type="text" inputmode="numeric" pattern="[0-9]*"
                      placeholder="123456" autocomplete="one-time-code" class="wa-pairing-input" required="">
-              <button type="submit" class="btn btn-primary">Verify &#10095;</button>
+              <button type="submit" class="btn btn-primary"><span class="icon icon-arrow-right" aria-hidden="true"></span>Verify</button>
             </div>
           </form>
           <p style="font-size:var(--text-sm);color:var(--fg-overlay);">
@@ -106,7 +106,7 @@
             </div>
             <p class="wa-hint">Scan with Signal on your phone</p>
             <p class="wa-pairing-hint">
-              Open Signal &rarr; <strong>Settings &rarr; Linked Devices &rarr; Link New Device</strong>,
+              Open Signal <span class="icon icon-arrow-right" aria-hidden="true"></span> <strong>Settings <span class="icon icon-arrow-right" aria-hidden="true"></span> Linked Devices <span class="icon icon-arrow-right" aria-hidden="true"></span> Link New Device</strong>,
               then scan this QR code.
             </p>
             <details style="margin-top:var(--sp-1);">

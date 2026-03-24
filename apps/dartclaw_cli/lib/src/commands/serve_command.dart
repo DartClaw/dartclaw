@@ -217,6 +217,8 @@ class ServeCommand extends Command<void> {
         _exitFn(1);
       }
 
+      final providerName = config.agent.provider;
+      final modelName = config.agent.model;
       if (stderr.hasTerminal) {
         _stderrLine(
           startupBanner(
@@ -231,11 +233,16 @@ class ServeCommand extends Command<void> {
               if (config.channels.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
               if (config.channels.channelConfigs['signal']?['enabled'] == true) 'Signal',
             ],
+            provider: providerName,
+            model: modelName,
             colorize: true,
           ),
         );
       } else {
-        _log.info('${config.server.name} v$dartclawVersion listening on http://$host:$port');
+        _log.info(
+          '${config.server.name} v$dartclawVersion listening on http://$host:$port '
+          '(provider: $providerName, model: ${modelName ?? 'default'})',
+        );
       }
       result.resetService.start();
 
@@ -291,6 +298,11 @@ class ServeCommand extends Command<void> {
       await sigtermSub?.cancel();
       await logService.dispose();
     }
+    // Force VM exit even if pending IO futures (e.g. process.exitCode)
+    // would otherwise keep the event loop alive. Mirrors RestartService.
+    // Placed here (not inside shutdown()) so the exception propagates through
+    // run() and is testable.
+    _exitFn(0);
   }
 }
 

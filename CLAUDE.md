@@ -12,7 +12,7 @@ Security-focused AI agent runtime. Dart host (AOT-compiled, zero npm) drives the
 | Security & guards | `docs/guide/security.md` | Hardening, container setup, credential proxy |
 | Deployment | `docs/guide/deployment.md` | LaunchDaemon, systemd, AOT compilation, production |
 | Customization ladder | `docs/guide/customization.md` | L1 (behavior files) through L5 (Dart source) |
-| Recipes | `docs/guide/recipes/` | Personal assistant, briefings, journaling, research, CRM, crowd coding |
+| Recipes | `docs/guide/recipes/` | Personal assistant, briefings, journaling, research, CRM, multi-user channel collaboration |
 | WhatsApp channel | `docs/guide/whatsapp.md` | GOWA setup, pairing, access control |
 | Signal channel | `docs/guide/signal.md` | signal-cli setup, registration |
 | Google Chat channel | `docs/guide/google-chat.md` | GCP service account, Chat app setup |

@@ -65,7 +65,7 @@
               <label><input type="radio" name="delivery" value="none"> none</label>
             </div>
           </div>
-          <div><span class="restart-badge">&#9888; restart required</span></div>
+          <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
           <div class="form-actions">
             <button class="btn btn-primary btn-sm" data-action="submit-job-form">Save Job</button>
             <button class="btn btn-ghost btn-sm" data-action="toggle-job-form">Cancel</button>
@@ -102,10 +102,10 @@
                 <div class="action-btns">
                   <button class="btn-icon-sm"
                           data-action="edit-job" tl:attr="data-job-name=${job.name}"
-                          title="Edit">&#9998;</button>
+                          title="Edit" aria-label="Edit" data-icon="pencil"></button>
                   <button class="btn-icon-sm"
                           data-action="confirm-delete-job" tl:attr="data-job-name=${job.name}"
-                          title="Delete">&times;</button>
+                          title="Delete" aria-label="Delete" data-icon="x"></button>
                 </div>
               </td>
               <td tl:unless="${job.hasActions}">
@@ -161,7 +161,7 @@
           <div class="form-row">
             <label><input type="checkbox" id="task-enabled" checked> Enabled</label>
           </div>
-          <div><span class="restart-badge">&#9888; restart required</span></div>
+          <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
           <div class="form-actions">
             <button class="btn btn-primary btn-sm" data-action="submit-task-form">Save Task</button>
             <button class="btn btn-ghost btn-sm" data-action="toggle-task-form">Cancel</button>
@@ -202,10 +202,10 @@
                           title="Toggle">toggle</button>
                   <button class="btn-icon-sm"
                           data-action="edit-scheduled-task" tl:attr="data-task-id=${task.id}"
-                          title="Edit">&#9998;</button>
+                          title="Edit" aria-label="Edit" data-icon="pencil"></button>
                   <button class="btn-icon-sm"
                           data-action="delete-scheduled-task" tl:attr="data-task-id=${task.id}"
-                          title="Delete">&times;</button>
+                          title="Delete" aria-label="Delete" data-icon="x"></button>
                 </div>
               </td>
             </tr>

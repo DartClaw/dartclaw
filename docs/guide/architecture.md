@@ -223,7 +223,7 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
 
-For crowd-coding flows in Google Chat, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which allows task discussion and review commands such as `accept`, `reject`, and `push back` to stay scoped to the task instead of falling back to the shared room session.
+For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which keeps task discussion and review commands such as `accept`, `reject`, and `push back` scoped to the task instead of falling back to the shared room session.
 
 Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
 

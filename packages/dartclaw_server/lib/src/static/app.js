@@ -22,19 +22,32 @@ function getOrCreateToastContainer() {
   return container;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function sanitizeClassToken(value, fallback) {
+  const token = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return token || fallback;
+}
+
 function showToast(type, message) {
   const container = getOrCreateToastContainer();
   const toast = document.createElement('div');
   toast.className = 'toast toast-' + type;
 
-  const safeMessage = String(message)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const safeMessage = escapeHtml(message);
 
   toast.innerHTML =
     '<span>' + safeMessage + '</span>' +
-    '<button class="toast-dismiss" aria-label="Dismiss">&times;</button>';
+    '<button class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button>';
 
   toast.querySelector('.toast-dismiss').addEventListener('click', () => removeToast(toast));
 
@@ -94,17 +107,22 @@ function setSidebarOpen(open) {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
   sidebar.classList.toggle('open', open);
+  const menuToggle = document.querySelector('.menu-toggle');
+  if (menuToggle) menuToggle.setAttribute('aria-label', open ? 'Close sidebar' : 'Open sidebar');
   // Scrim visibility is handled via CSS (~) combinator — no JS toggle needed
 }
 
 function initSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
+  if (!document.getElementById('sidebar')) return;
 
   const menuToggle = document.querySelector('.menu-toggle');
   if (menuToggle && !menuToggle.dataset.sidebarInit) {
     menuToggle.dataset.sidebarInit = '1';
-    menuToggle.addEventListener('click', () => setSidebarOpen(!sidebar.classList.contains('open')));
+    menuToggle.addEventListener('click', () => {
+      const sidebar = document.getElementById('sidebar');
+      if (!sidebar) return;
+      setSidebarOpen(!sidebar.classList.contains('open'));
+    });
   }
 
   const scrim = document.querySelector('.sidebar-scrim');
@@ -114,6 +132,7 @@ function initSidebar() {
   }
 
   initArchiveCollapse();
+  syncSidebarNavActiveState();
 }
 
 // === Archive collapse toggle with localStorage persistence ===
@@ -149,6 +168,30 @@ function initArchiveCollapse() {
       localStorage.setItem(storageKey, String(wasExpanded));
     });
   }
+}
+
+function syncSidebarNavActiveState() {
+  const currentPath = window.location.pathname.replace(/\/$/, '') || '/';
+  if (currentPath === '/' || currentPath.startsWith('/sessions/')) return;
+
+  const sidebarLinks = document.querySelectorAll('.sidebar-nav-item');
+  let bestMatchLength = -1;
+  const linkPaths = [];
+
+  sidebarLinks.forEach((link) => {
+    const linkPath = new URL(link.href, window.location.origin).pathname.replace(/\/$/, '') || '/';
+    const matches = linkPath === currentPath || (linkPath !== '/' && currentPath.startsWith(linkPath + '/'));
+    linkPaths.push({ link, linkPath, matches });
+    if (matches && linkPath.length > bestMatchLength) {
+      bestMatchLength = linkPath.length;
+    }
+  });
+
+  if (bestMatchLength < 0) return;
+
+  linkPaths.forEach(({ link, linkPath, matches }) => {
+    link.classList.toggle('active', matches && linkPath.length === bestMatchLength);
+  });
 }
 
 // === Textarea auto-resize ===
@@ -261,7 +304,7 @@ function showBanner(type, message) {
   banner.className = 'banner banner-' + type;
   banner.innerHTML =
     '<span>' + safeMessage + '</span>' +
-    '<button class="dismiss" aria-label="Dismiss">&#10005;</button>';
+    '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button>';
 
   const chatArea = document.querySelector('.chat-area');
   if (chatArea) {
@@ -488,7 +531,7 @@ function initSessionDelete() {
     const sessionId = btn.dataset.sessionId;
     if (!sessionId) return;
 
-    if (!confirm('Delete this session and all its messages?')) return;
+    if (!confirm('Permanently delete this chat and all its messages?')) return;
 
     fetch('/api/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' })
       .then((res) => {
@@ -498,6 +541,84 @@ function initSessionDelete() {
       .catch((err) => {
         showToast('error', err.message || 'Failed to delete session');
       });
+  });
+}
+
+function currentSessionPathId() {
+  const match = window.location.pathname.match(/^\/sessions\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function readHtmxErrorMessage(xhr, fallbackMessage) {
+  const contentType = xhr.getResponseHeader('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      const parsed = JSON.parse(xhr.responseText || '{}');
+      return parsed.error?.message || fallbackMessage;
+    } catch (_) {
+      return fallbackMessage;
+    }
+  }
+  return fallbackMessage;
+}
+
+function bindHtmxRequestErrors(source, fallbackMessage) {
+  let cleanedUp = false;
+
+  function cleanup() {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    document.body.removeEventListener('htmx:responseError', handleResponseError);
+    document.body.removeEventListener('htmx:sendError', handleSendError);
+  }
+
+  function handleResponseError(event) {
+    if (!event.detail || event.detail.elt !== source) return;
+    cleanup();
+    showToast('error', readHtmxErrorMessage(event.detail.xhr, fallbackMessage));
+  }
+
+  function handleSendError(event) {
+    if (!event.detail || event.detail.elt !== source) return;
+    cleanup();
+    showToast('error', fallbackMessage);
+  }
+
+  document.body.addEventListener('htmx:responseError', handleResponseError);
+  document.body.addEventListener('htmx:sendError', handleSendError);
+  return cleanup;
+}
+
+function initSessionArchive() {
+  document.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-action="archive-session"]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const sessionId = btn.dataset.sessionId;
+    if (!sessionId) return;
+
+    const sidebar = document.getElementById('sidebar');
+    const wasSidebarOpen = !!(sidebar && sidebar.classList.contains('open'));
+    const activeSessionId = currentSessionPathId();
+    const headers = activeSessionId ? { 'X-Dartclaw-Active-Session-Id': activeSessionId } : {};
+    const cleanup = bindHtmxRequestErrors(btn, 'Failed to archive chat');
+    const request = htmx.ajax('POST', '/api/sessions/' + encodeURIComponent(sessionId) + '/archive', {
+      source: btn,
+      target: '#sidebar',
+      swap: 'none',
+      headers,
+    });
+
+    if (request && typeof request.then === 'function') {
+      request.then(() => {
+        if (wasSidebarOpen) {
+          setSidebarOpen(true);
+        }
+        cleanup();
+      }, cleanup);
+    }
   });
 }
 
@@ -708,6 +829,7 @@ function initAfterSwapReinit() {
     typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
     typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
     restoreTaskBadge();
+    renderRunningSidebar(cachedActiveTasks);
     initTaskElapsedTimers();
     initTaskListControls();
     initTaskReviewActions();
@@ -732,6 +854,7 @@ function initHistoryRestore() {
   document.body.addEventListener('htmx:historyRestore', () => {
     renderMarkdown();
     scrollToBottom();
+    renderRunningSidebar(cachedActiveTasks);
     initThemeToggle();
     initSidebar();
     initTextareaResize();
@@ -829,7 +952,7 @@ function connectGlobalEvents() {
 
       banner.innerHTML =
         '<span>' + safeMessage + '</span>' +
-        '<button class="dismiss" aria-label="Dismiss">&#10005;</button>';
+        '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button>';
 
       var chatArea = document.querySelector('.chat-area');
       if (chatArea) { chatArea.prepend(banner); }
@@ -1207,6 +1330,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAfterSwapReinit();
   initHistoryRestore();
   initSessionCreate();
+  initSessionArchive();
   initSessionDelete();
   initResumeArchive();
   initInlineRename();
@@ -1236,17 +1360,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let taskEventSource = null;
 let latestTaskReviewCount = null;
+let cachedActiveTasks = [];
 let taskElapsedTimer = null;
 let taskDetailRefreshTimer = null;
 
-function initTaskSse() {
-  const needsTaskEvents =
-    document.getElementById('tasks-badge') ||
-    document.querySelector('.tasks-page, .task-detail-page');
-  if (!needsTaskEvents) return;
+function renderRunningSidebar(tasks) {
+  cachedActiveTasks = Array.isArray(tasks) ? tasks : [];
 
-  // Connect to task SSE on any page (for sidebar badge updates).
-  if (taskEventSource) return;
+  const existing = document.getElementById('sidebar-running');
+  if (!cachedActiveTasks.length) {
+    existing && existing.remove();
+    return;
+  }
+
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+
+  const chatsLabel = Array.from(sidebar.querySelectorAll('.sidebar-section-label'))
+    .find((element) => element.textContent.trim() === 'Chats');
+  if (!chatsLabel || !chatsLabel.parentNode) return;
+
+  const itemsHtml = cachedActiveTasks.map((task) => {
+    const taskId = encodeURIComponent(task.id || '');
+    const href = '/tasks/' + taskId;
+    const provider = sanitizeClassToken(task.provider || 'claude', 'claude');
+    const providerLabel = escapeHtml(task.providerLabel || task.provider || 'Claude');
+    const title = escapeHtml(task.title || 'Untitled Task');
+    const statusClass = task.status === 'review'
+      ? 'status-dot status-dot--warning'
+      : 'status-dot status-dot--live';
+    const trailingMeta = task.status === 'review'
+      ? '<span class="running-review-label">review</span>'
+      : task.startedAt
+        ? '<span class="task-elapsed running-elapsed" data-started-at="' +
+            escapeHtml(task.startedAt) +
+            '"></span>'
+        : '<span class="task-elapsed running-elapsed">--:--</span>';
+
+    return (
+      '<div class="session-item sidebar-running-item">' +
+        '<a href="' + href + '" hx-get="' + href + '" class="session-item-link"' +
+          ' hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"' +
+          ' hx-select-oob="#topbar,#sidebar">' +
+          '<span class="' + statusClass + '" aria-hidden="true"></span>' +
+          '<span class="session-item-title">' + title + '</span>' +
+          trailingMeta +
+          '<span class="provider-badge provider-badge-' + provider + '">' + providerLabel + '</span>' +
+        '</a>' +
+      '</div>'
+    );
+  }).join('');
+
+  const container = document.createElement('div');
+  container.id = 'sidebar-running';
+  container.innerHTML =
+    '<div class="sidebar-section-label sidebar-running-label">Running</div>' +
+    itemsHtml +
+    '<hr class="sidebar-divider sidebar-running-divider">';
+
+  if (existing) {
+    existing.replaceWith(container);
+  } else {
+    chatsLabel.parentNode.insertBefore(container, chatsLabel);
+  }
+
+  htmx.process(container);
+  initTaskElapsedTimers();
+}
+
+function initTaskSse() {
+  // Only connect when the server rendered an explicit task-SSE capability
+  // marker. This avoids reconnect loops on taskless deployments.
+  if (taskEventSource || !document.querySelector('[data-tasks-enabled]')) return;
   try {
     taskEventSource = new EventSource('/api/tasks/events');
   } catch (_) {
@@ -1259,12 +1444,14 @@ function initTaskSse() {
 
       if (data.type === 'connected') {
         updateTaskBadge(data.reviewCount || 0);
+        renderRunningSidebar(data.activeTasks || []);
         return;
       }
 
       // Status change event — update badge and optionally refresh task list.
       if (data.type === 'task_status_changed') {
         updateTaskBadge(data.reviewCount || 0);
+        renderRunningSidebar(data.activeTasks || []);
         if (shouldRefreshTaskContent(data.taskId)) {
           refreshTasksPageContent();
         }

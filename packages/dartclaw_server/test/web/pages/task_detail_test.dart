@@ -181,6 +181,26 @@ void main() {
       expect(html, contains('pushed back multiple times'));
     });
 
+    test('does not render a completed timestamp for review tasks', () {
+      final html = taskDetailPageTemplate(
+        sidebarData: _emptySidebarData,
+        navItems: const [],
+        task: {
+          'id': 'task-review',
+          'title': 'Needs review',
+          'type': 'coding',
+          'status': 'review',
+          'description': 'Check the generated changes',
+          'createdAt': '2026-03-10T10:00:00Z',
+          'startedAt': '2026-03-10T10:05:00Z',
+        },
+        artifacts: const [],
+      );
+
+      expect(html, contains('Started'));
+      expect(html, isNot(contains('Completed')));
+    });
+
     test('renders cancel action for running tasks', () {
       final html = taskDetailPageTemplate(
         sidebarData: _emptySidebarData,
@@ -262,6 +282,8 @@ const _emptySidebarData = (
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  showChannels: true,
+  tasksEnabled: false,
 );
 
 class _StubSessionService implements SessionService {

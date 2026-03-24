@@ -108,6 +108,7 @@ Future<ProviderStatusService> _seededProviderStatus() async {
       'codex': _probeOk('Codex CLI 2.0.0'),
       'ghost-ai': _probeMissing('ghost-ai'),
     }),
+    authProbe: (_, {String? providerId}) async => false,
   );
 
   return service;
@@ -144,4 +145,6 @@ const _emptySidebarData = (
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  showChannels: true,
+  tasksEnabled: false,
 );

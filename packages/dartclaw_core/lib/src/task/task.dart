@@ -42,7 +42,7 @@ class Task {
   /// Timestamp when work on this task first started, if ever.
   final DateTime? startedAt;
 
-  /// Timestamp when the task reached a terminal or review-complete state.
+  /// Timestamp when the task reached a terminal state.
   final DateTime? completedAt;
 
   /// Optimistic locking version, incremented on each status transition.

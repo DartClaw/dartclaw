@@ -20,7 +20,11 @@ Router taskSseRoutes(TaskService tasks, EventBus eventBus, {AgentObserver? obser
 
     // Send initial connected message with current review count and agent snapshot.
     final reviewTasks = await tasks.list(status: TaskStatus.review);
-    final connectedPayload = <String, dynamic>{'type': 'connected', 'reviewCount': reviewTasks.length};
+    final connectedPayload = <String, dynamic>{
+      'type': 'connected',
+      'reviewCount': reviewTasks.length,
+      'activeTasks': await _buildActiveTasks(tasks),
+    };
     if (observer != null) {
       final pool = observer.poolStatus;
       connectedPayload['agents'] = {
@@ -38,6 +42,7 @@ Router taskSseRoutes(TaskService tasks, EventBus eventBus, {AgentObserver? obser
     // Subscribe to task status change events.
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
       final reviewCount = (await tasks.list(status: TaskStatus.review)).length;
+      final activeTasks = await _buildActiveTasks(tasks);
       final data = jsonEncode({
         'type': 'task_status_changed',
         'taskId': event.taskId,
@@ -45,6 +50,7 @@ Router taskSseRoutes(TaskService tasks, EventBus eventBus, {AgentObserver? obser
         'newStatus': event.newStatus.name,
         'trigger': event.trigger,
         'reviewCount': reviewCount,
+        'activeTasks': activeTasks,
       });
       if (!controller.isClosed) {
         controller.add(utf8.encode('data: $data\n\n'));
@@ -82,4 +88,33 @@ Router taskSseRoutes(TaskService tasks, EventBus eventBus, {AgentObserver? obser
   });
 
   return router;
+}
+
+Future<List<Map<String, dynamic>>> _buildActiveTasks(TaskService tasks) async {
+  final runningTasks = await tasks.list(status: TaskStatus.running);
+  final reviewTasks = await tasks.list(status: TaskStatus.review);
+
+  runningTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
+  reviewTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
+
+  return [...runningTasks.map(_activeTaskPayload), ...reviewTasks.map(_activeTaskPayload)];
+}
+
+Map<String, dynamic> _activeTaskPayload(Task task) {
+  final provider = task.provider ?? 'claude';
+  return {
+    'id': task.id,
+    'title': task.title,
+    'status': task.status.name,
+    'startedAt': task.startedAt?.toIso8601String(),
+    'provider': provider,
+    'providerLabel': ProviderIdentity.displayName(provider),
+  };
+}
+
+int _compareNullableDateTimeAsc(DateTime? left, DateTime? right) {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  return left.compareTo(right);
 }

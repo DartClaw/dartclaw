@@ -116,7 +116,7 @@ export 'src/governance/pause_controller.dart' show PauseController, QueueResult;
 
 // Observability
 export 'src/observability/usage_tracker.dart' show UsageTracker;
-export 'src/provider_status_service.dart' show ProviderStatus, ProviderStatusService;
+export 'src/provider_status_service.dart' show AuthProbe, ProviderStatus, ProviderStatusService;
 
 // Restart
 export 'src/restart_service.dart' show RestartService;

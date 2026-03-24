@@ -7,6 +7,10 @@ import 'harness_pool.dart';
 
 final _log = Logger('ProviderStatusService');
 
+/// Callback to check whether a provider binary has its own authentication
+/// (OAuth, subscription), independent of an API key.
+typedef AuthProbe = Future<bool> Function(String executable, {String? providerId});
+
 /// Status snapshot for a single configured provider.
 class ProviderStatus {
   final String id;
@@ -68,15 +72,29 @@ class ProviderStatusService {
        _defaultProvider = defaultProvider,
        _pool = pool;
 
-  Future<void> probe({CommandProbe? commandProbe}) async {
-    final probe = commandProbe ?? _runCommandProbe;
+  Future<void> probe({CommandProbe? commandProbe, AuthProbe? authProbe}) async {
+    final cmdProbe = commandProbe ?? _runCommandProbe;
+    final authCheck = authProbe ?? _defaultAuthProbe;
     for (final entry in _configuredEntries.entries) {
       final providerId = entry.key;
       final executable = entry.value.executable;
-      _probeCache[providerId] = await _probeExecutable(
+      final result = await _probeExecutable(
         providerId: providerId,
         executable: executable,
-        commandProbe: probe,
+        commandProbe: cmdProbe,
+      );
+
+      // When the binary exists but no API key is configured, check whether
+      // the binary itself is authenticated (OAuth / subscription login).
+      var binaryAuthed = false;
+      if (result.binaryFound && !_registry.hasCredential(providerId)) {
+        binaryAuthed = await authCheck(executable, providerId: providerId);
+      }
+
+      _probeCache[providerId] = _ProbeResult(
+        binaryFound: result.binaryFound,
+        version: result.version,
+        binaryAuthed: binaryAuthed,
       );
     }
   }
@@ -128,16 +146,19 @@ class ProviderStatusService {
     final providerId = entry.key;
     final provider = entry.value;
     final probe = _probeCache[providerId] ?? const _ProbeResult(binaryFound: false);
-    final credentialPresent = _registry.hasCredential(providerId);
+    final hasApiKey = _registry.hasCredential(providerId);
+    final authenticated = hasApiKey || probe.binaryAuthed;
     final credentialEnvVar = CredentialRegistry.envVarFor(providerId);
-    final health = _deriveHealth(binaryFound: probe.binaryFound, credentialPresent: credentialPresent);
+    final health = _deriveHealth(binaryFound: probe.binaryFound, credentialPresent: authenticated);
+
+    final credentialStatus = hasApiKey ? 'present' : (probe.binaryAuthed ? 'oauth' : 'missing');
 
     return ProviderStatus(
       id: providerId,
       executable: provider.executable,
       version: probe.version,
       binaryFound: probe.binaryFound,
-      credentialStatus: credentialPresent ? 'present' : 'missing',
+      credentialStatus: credentialStatus,
       credentialEnvVar: credentialEnvVar,
       poolSize: provider.poolSize,
       activeWorkers: _countActiveWorkers(providerId),
@@ -147,7 +168,7 @@ class ProviderStatusService {
         providerId: providerId,
         executable: provider.executable,
         binaryFound: probe.binaryFound,
-        credentialPresent: credentialPresent,
+        credentialPresent: authenticated,
         credentialEnvVar: credentialEnvVar,
       ),
     );
@@ -234,6 +255,10 @@ class ProviderStatusService {
     return Process.run(executable, arguments);
   }
 
+  static Future<bool> _defaultAuthProbe(String executable, {String? providerId}) {
+    return ProviderValidator.probeAuthStatus(executable, providerId: providerId);
+  }
+
   static String? _extractVersion(Object? stdout, Object? stderr) {
     for (final line in '${_toText(stdout)}\n${_toText(stderr)}'.split('\n')) {
       final trimmed = line.trim();
@@ -261,6 +286,7 @@ class ProviderStatusService {
 class _ProbeResult {
   final bool binaryFound;
   final String? version;
+  final bool binaryAuthed;
 
-  const _ProbeResult({required this.binaryFound, this.version});
+  const _ProbeResult({required this.binaryFound, this.version, this.binaryAuthed = false});
 }

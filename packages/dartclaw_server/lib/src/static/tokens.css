@@ -35,6 +35,9 @@
   --warning:     #fab387;
   --info:        #89b4fa;
 
+  /* --- Brand --- */
+  --color-claude: #e07c4f;  /* Claude brand terracotta/orange */
+
   /* --- Typography --- */
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono',
                'Menlo', 'Consolas', monospace;
@@ -122,6 +125,8 @@
   --error:       #a40a2b;
   --warning:     #933d00;
   --info:        #0f4ebf;
+
+  --color-claude: #b8541f;  /* Claude brand — darker for light backgrounds */
 
   --border-highlight: rgba(0,0,0,0.06);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.06);

@@ -1,6 +1,6 @@
 <div tl:fragment="banner" class="banner" tl:classappend="'banner-' + ${type}">
   <span tl:text="${message}">Notification message</span>
-  <button class="dismiss" aria-label="Dismiss">&#215;</button>
+  <button class="dismiss" aria-label="Dismiss" data-icon="x"></button>
 </div>
 
 <div tl:fragment="emptyState" class="empty-state">
@@ -12,8 +12,8 @@
 <main tl:fragment="emptyAppState" id="main-content" tabindex="-1" hx-history-elt class="chat-area">
   <div class="empty-state flex-fill">
     <div class="icon">&#10095;_</div>
-    <p><strong>No sessions yet</strong></p>
-    <p tl:text="'Create a new session to start chatting with ' + ${appName} + '.'">Create a new session to start chatting with DartClaw.</p>
-    <button class="btn btn-primary" data-action="create-session">+ New Session</button>
+    <p><strong>No chats yet</strong></p>
+    <p tl:text="'Create a new chat to start chatting with ' + ${appName} + '.'">Create a new chat to start chatting with DartClaw.</p>
+    <button class="btn btn-primary" data-action="create-session">+ New Chat</button>
   </div>
 </main>

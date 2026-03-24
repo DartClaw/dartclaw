@@ -78,6 +78,9 @@ class CodexHarness extends AgentHarness {
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   CodexEnvironment? _environment;
 
+  /// Grace period after SIGTERM before escalating to SIGKILL.
+  final Duration _killGracePeriod;
+
   CodexHarness({
     required this.cwd,
     this.executable = 'codex',
@@ -92,12 +95,14 @@ class CodexHarness extends AgentHarness {
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
+    Duration killGracePeriod = const Duration(seconds: 2),
   }) : processFactory = processFactory ?? Process.start,
        commandProbe = commandProbe ?? Process.run,
        delayFactory = delayFactory ?? Future<void>.delayed,
        environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
-       adapter = adapter ?? CodexProtocolAdapter();
+       adapter = adapter ?? CodexProtocolAdapter(),
+       _killGracePeriod = killGracePeriod;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -286,7 +291,7 @@ class CodexHarness extends AgentHarness {
     try {
       await process.stdin.close();
     } catch (_) {}
-    process.kill(ProcessSignal.sigterm);
+    await _killWithEscalation(process);
     await _cleanupEnvironment();
   }
 
@@ -374,7 +379,7 @@ class CodexHarness extends AgentHarness {
       try {
         await process.stdin.close();
       } catch (_) {}
-      process.kill(ProcessSignal.sigterm);
+      await _killWithEscalation(process);
     }
 
     await _cleanupEnvironment();
@@ -700,6 +705,33 @@ class CodexHarness extends AgentHarness {
   String? _stringProviderOption(String key) {
     final value = providerOptions[key];
     return value is String && value.trim().isNotEmpty ? value : null;
+  }
+
+  /// Sends SIGTERM, waits [_killGracePeriod], then escalates to SIGKILL.
+  ///
+  /// After SIGKILL, waits up to 1 additional second for confirmed exit.
+  Future<void> _killWithEscalation(Process process) async {
+    process.kill(ProcessSignal.sigterm);
+    try {
+      await process.exitCode.timeout(
+        _killGracePeriod,
+        onTimeout: () async {
+          _log.warning(
+            'Codex process did not exit within '
+            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
+          );
+          if (!Platform.isWindows) {
+            process.kill(ProcessSignal.sigkill);
+          }
+          return process.exitCode.timeout(
+            const Duration(seconds: 1),
+            onTimeout: () => -1,
+          );
+        },
+      );
+    } catch (e) {
+      _log.fine('Error waiting for Codex process exit: $e');
+    }
   }
 
   Future<T> _withLock<T>(Future<T> Function() operation) {

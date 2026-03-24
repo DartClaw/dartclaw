@@ -2,7 +2,7 @@
 ///
 /// Thread binding routes inbound channel messages in a bound thread directly
 /// to the task's agent session, enabling per-task conversation tracking in
-/// Crowd Coding scenarios.
+/// multi-user channel scenarios.
 class ThreadBindingFeatureConfig {
   /// Whether thread binding is enabled.
   ///

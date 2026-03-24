@@ -54,6 +54,8 @@ SidebarData emptySidebarData() => (
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  showChannels: true,
+  tasksEnabled: false,
 );
 
 const emptyNavItems = <NavItem>[];

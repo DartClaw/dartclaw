@@ -15,8 +15,10 @@ void main() {
     groupChannels: <SidebarSession>[],
     activeEntries: <SidebarSession>[],
     archivedEntries: <SidebarSession>[],
+    showChannels: true,
+    tasksEnabled: false,
   );
-  const navItems = <NavItem>[(label: 'Tasks', href: '/tasks', active: true, navGroup: 'system')];
+  const navItems = <NavItem>[(label: 'Tasks', href: '/tasks', active: true, navGroup: 'system', icon: 'tasks')];
 
   group('tasksPageTemplate', () {
     test('renders empty state with no tasks', () {

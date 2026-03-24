@@ -127,6 +127,84 @@ void main() {
       expect(r2, isNot(same(pool.primary)));
       expect(pool.activeCount, 2);
     });
+
+    group('lazy spawning', () {
+      test('spawnableCount reflects remaining capacity', () {
+        final runners = _createRunners(1); // primary only
+        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 3);
+
+        expect(pool.spawnableCount, 3);
+        expect(pool.availableCount, 0);
+      });
+
+      test('addRunner makes runner immediately available', () {
+        final runners = _createRunners(1);
+        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 2);
+
+        expect(pool.tryAcquire(), isNull);
+
+        final newRunner = _createRunners(1).first;
+        pool.addRunner(newRunner);
+
+        expect(pool.size, 2);
+        expect(pool.spawnableCount, 1);
+        expect(pool.availableCount, 1);
+
+        final acquired = pool.tryAcquire();
+        expect(acquired, same(newRunner));
+      });
+
+      test('addRunner throws when at capacity', () {
+        final runners = _createRunners(1);
+        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 1);
+
+        pool.addRunner(_createRunners(1).first);
+
+        expect(
+          () => pool.addRunner(_createRunners(1).first),
+          throwsStateError,
+        );
+      });
+
+      test('spawnableCount decreases as runners are added', () {
+        final runners = _createRunners(1);
+        final pool = HarnessPool(runners: runners, maxConcurrentTasks: 3);
+
+        expect(pool.spawnableCount, 3);
+
+        pool.addRunner(_createRunners(1).first);
+        expect(pool.spawnableCount, 2);
+
+        pool.addRunner(_createRunners(1).first);
+        expect(pool.spawnableCount, 1);
+
+        pool.addRunner(_createRunners(1).first);
+        expect(pool.spawnableCount, 0);
+      });
+
+      test('dispose includes lazily-added runners', () async {
+        final workers = <_FakeWorker>[];
+        TurnRunner makeRunner() {
+          final worker = _FakeWorker();
+          workers.add(worker);
+          return TurnRunner(
+            harness: worker,
+            messages: _FakeMessageService(),
+            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-pool-test'),
+          );
+        }
+
+        final pool = HarnessPool(runners: [makeRunner()], maxConcurrentTasks: 2);
+        pool.addRunner(makeRunner());
+
+        await pool.dispose();
+
+        for (final worker in workers) {
+          expect(worker.stopped, isTrue);
+          expect(worker.disposed, isTrue);
+        }
+      });
+    });
   });
 }
 

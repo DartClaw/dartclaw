@@ -16,6 +16,8 @@ String startupBanner({
   bool guardsEnabled = false,
   bool containerEnabled = false,
   List<String> channels = const [],
+  String? provider,
+  String? model,
   bool colorize = false,
 }) {
   final title = '$name v$dartclawVersion';
@@ -24,7 +26,11 @@ String startupBanner({
   final url = token != null ? '$baseUrl/?token=$token' : baseUrl;
 
   // Key-value pairs for the stats section
+  final providerDisplay = provider ?? 'claude';
+  final modelDisplay = model ?? 'default';
   final stats = <(String, String)>[
+    ('Provider', providerDisplay),
+    ('Model', modelDisplay),
     ('Auth', authEnabled ? 'token' : 'off'),
     ('Guards', guardsEnabled ? 'on' : 'off'),
     ('Container', containerEnabled ? 'on' : 'off'),

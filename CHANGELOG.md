@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.1] — 2026-03-24
+
+UX polish & progressive disclosure — the sidebar becomes a clear, self-explanatory navigation surface. Terminology matches user intent, running work is ambient, dismissing a chat is safe by default, and icons are consistent and accessible.
+
+### Added
+
+#### Phase A — Sidebar Polish
+- **Rename "Sessions" to "Chats"** (S01): Sidebar section label and "New Session" button updated to "Chats" / "New Chat". Internal models (`SessionType.user`), API endpoints, and storage paths unchanged — display-only rename across sidebar template, Dart rendering, and all wireframes
+- **Archive-first × button** (S02): × on active user chats now archives (no confirmation) instead of hard-deleting. New `POST /api/sessions/:id/archive` endpoint mirrors `/resume`. Smooth HTMX OOB swap moves item from Chats to Archived section without page reload. × on archived sessions shows confirmation dialog before permanent deletion. Archiving the currently-viewed chat redirects to `/`. Protected session types (channel, main, task) unaffected
+- **Lucide icon system** (S07): Ported 32 Lucide SVG icons from design system to production web UI via CSS `mask-image` data URIs. Replaced ~40 Unicode HTML entity icons across 14 template files. All sidebar nav items render icons via `data-icon` attributes. All icon-only interactive elements have `aria-label` attributes. Icons inherit `currentColor` for theme compatibility and `em` units for scaling. Old icon CSS blocks removed
+
+#### Phase B — Sidebar Intelligence
+- **Conditional "Running" sidebar section** (S03): New sidebar section between Channels and Chats showing active/review tasks with live elapsed timers. Pulsing status dot (respects `prefers-reduced-motion`), truncated title, provider badge. Review items show warning indicator + "review" label. Section appears/disappears via SSE task events. Click navigates to `/tasks/<id>`. Guarded by `data-tasks-enabled` attribute to prevent SSE reconnect loops on taskless deployments
+- **Feature-aware sidebar navigation** (S04): Sidebar adapts to configured features. System pages (Health, Memory, Scheduling, Tasks) shown/hidden based on service availability. Channels section hidden when no channel services configured. `dev.yaml` shows only Settings; production shows all. All flags default `true` for backward compatibility. Derived from existing service availability — no new config keys
+
+#### Phase C — Onboarding
+- **Streamlined getting-started guide** (S05): Restructured from ~182 to <100 lines. Quick Start within first 40 lines. Advanced topics (Docker, WhatsApp, AOT) relocated to dedicated guide pages
+- **README quick-start-first** (S06): Quick Start code block before line 15. Features list trimmed from 15+ verbose bullets to 8 concise one-liners
+
+### Changed
+
+- **"Crowd coding" reclassified** (S08): Removed "crowd coding" as an architectural concept — the underlying capabilities (thread binding, runtime governance, emergency controls, sender attribution) are general-purpose primitives. Architecture docs updated: `crowd-coding.md` content folded into `system-architecture.md` and `data-model.md`, then deleted. Code comments and test names updated to reference specific capabilities. User-facing recipe (`08-crowd-coding.md`) unchanged. Ubiquitous language updated
+- **Provider credential validation**: Supports OAuth/subscription login — `claude` binary using its own authentication no longer requires `ANTHROPIC_API_KEY`. Codex OAuth tokens detected via `~/.codex/auth.json`. 15s timeout on all binary probes
+- **Startup banner**: Now shows provider and model in the ASCII banner and log line
+- **Version display**: Updated from 0.9.0 to 0.13.1
+- **Dependency bump**: Dart packages (`test`, `lints`, `uuid`, `collection`, `meta`, `fake_async`, `yaml_edit`, `crypto`, `http`, `async`) and frontend libraries (HTMX 2.0.8, DOMPurify 3.3.3, htmx-ext-sse 2.2.4) updated to latest stable
+- **Claude brand color**: CLAUDE provider pill uses terracotta/orange (`--color-claude`) instead of terminal green
+- **Lazy task pool spawning**: Task harnesses are no longer spawned eagerly at startup. The pool starts with only the primary harness and spawns task runners on-demand when the first task is created, up to `tasks.max_concurrent`. Eliminates ~2s per task runner from startup time when tasks are not in use
+
+### Fixed
+
+- **Sidebar left margin alignment**: Section labels, archive toggle, subsection labels, and dividers now use consistent `var(--sp-4)` left padding matching session items
+- **Sidebar toggle aria-label**: `setSidebarOpen()` now updates the hamburger button's `aria-label` between "Open sidebar" and "Close sidebar" on toggle (was static)
+- **Running tasks section on session pages**: `sidebarTemplate()` calls on the root and session page handlers now pass `tasksEnabled`, enabling the `data-tasks-enabled` attribute and sidebar SSE connection. Previously only the Tasks dashboard page rendered this attribute
+- **S02 archive OOB swap**: Gap review fix — sidebar state preserved correctly after archive; redirect on archiving active session
+- **S03 task SSE guard**: Gap review fix — `data-tasks-enabled` attribute prevents SSE reconnect loop on deployments without task service
+- **S04 visibility test**: Gap review fix — sidebar visibility assertions aligned with actual server wiring
+- **Graceful shutdown hangs** (TD-050): Server no longer hangs on SIGTERM/SIGINT. Root cause: spawned `claude`/`codex` subprocesses could ignore SIGTERM, leaving `process.exitCode` futures pending on the VM event loop. Fix: all three harness implementations (`ClaudeCodeHarness`, `CodexHarness`, `CodexExecHarness`) now escalate from SIGTERM to SIGKILL after a 2-second grace period, then confirm process exit. `ServeCommand` also calls `exit(0)` after clean shutdown as a belt-and-suspenders safeguard
+
+---
+
 ## [0.13.0] — 2026-03-22
 
 Multi-provider support — DartClaw can now run Claude Code and Codex (OpenAI) as interchangeable agent harnesses, with heterogeneous worker pools and per-task/per-session provider overrides.

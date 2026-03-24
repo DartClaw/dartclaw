@@ -52,6 +52,9 @@ class CodexExecHarness extends AgentHarness {
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Future<void> _lock = Future<void>.value();
 
+  /// Grace period after SIGTERM before escalating to SIGKILL.
+  final Duration _killGracePeriod;
+
   CodexExecHarness({
     required this.cwd,
     this.codexExecutable = 'codex',
@@ -61,9 +64,11 @@ class CodexExecHarness extends AgentHarness {
     Map<String, String>? environment,
     this.harnessConfig = const HarnessConfig(),
     CodexExecProtocolAdapter? adapter,
+    Duration killGracePeriod = const Duration(seconds: 2),
   }) : processFactory = processFactory ?? Process.start,
        environment = environment ?? Platform.environment,
-       adapter = adapter ?? CodexExecProtocolAdapter();
+       adapter = adapter ?? CodexExecProtocolAdapter(),
+       _killGracePeriod = killGracePeriod;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -252,9 +257,14 @@ class CodexExecHarness extends AgentHarness {
       _state = WorkerState.stopped;
     });
 
+    final process = _activeProcess;
     await cancel();
     if (completer != null && !completer!.isCompleted) {
       completer!.complete({'stop_reason': 'error', 'error': 'CodexExecHarness stopped'});
+    }
+    // Ensure the process actually exits after SIGTERM.
+    if (process != null) {
+      await _killWithEscalation(process);
     }
   }
 
@@ -302,6 +312,32 @@ class CodexExecHarness extends AgentHarness {
       'output_tokens': 0,
       'cached_input_tokens': 0,
     };
+  }
+
+  /// Sends SIGTERM (via [cancel]), waits [_killGracePeriod], then escalates
+  /// to SIGKILL. After SIGKILL, waits up to 1 additional second for confirmed
+  /// exit.
+  Future<void> _killWithEscalation(Process process) async {
+    try {
+      await process.exitCode.timeout(
+        _killGracePeriod,
+        onTimeout: () async {
+          _log.warning(
+            'Codex exec process did not exit within '
+            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
+          );
+          if (!Platform.isWindows) {
+            process.kill(ProcessSignal.sigkill);
+          }
+          return process.exitCode.timeout(
+            const Duration(seconds: 1),
+            onTimeout: () => -1,
+          );
+        },
+      );
+    } catch (e) {
+      _log.fine('Error waiting for Codex exec process exit: $e');
+    }
   }
 
   Future<T> _withLock<T>(Future<T> Function() operation) {

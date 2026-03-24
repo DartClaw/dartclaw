@@ -76,6 +76,7 @@ CodexHarness _buildHarness({
   HarnessConfig harnessConfig = const HarnessConfig(),
   Map<String, dynamic>? providerOptions,
   GuardChain? guardChain,
+  Duration killGracePeriod = Duration.zero,
 }) {
   final fake = process ?? FakeCodexProcess();
   return CodexHarness(
@@ -89,6 +90,7 @@ CodexHarness _buildHarness({
     harnessConfig: harnessConfig,
     providerOptions: providerOptions,
     guardChain: guardChain,
+    killGracePeriod: killGracePeriod,
   );
 }
 
@@ -607,6 +609,41 @@ void main() {
 
         await harness.dispose();
         expect(harness.state, WorkerState.stopped);
+      });
+    });
+
+    group('SIGKILL escalation', () {
+      test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(
+          process: fake,
+          killGracePeriod: const Duration(milliseconds: 50),
+        );
+        await _startHarness(harness, fake);
+
+        // Schedule process exit after SIGKILL would be sent.
+        Timer(const Duration(milliseconds: 100), () => fake.exit(137));
+
+        await harness.stop();
+
+        expect(harness.state, WorkerState.stopped);
+        if (!Platform.isWindows) {
+          expect(fake.lastKillSignal, ProcessSignal.sigkill);
+        }
+      });
+
+      test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(
+          process: fake,
+          killGracePeriod: const Duration(seconds: 5),
+        );
+        await _startHarness(harness, fake);
+
+        await harness.stop();
+
+        expect(harness.state, WorkerState.stopped);
+        expect(fake.lastKillSignal, ProcessSignal.sigterm);
       });
     });
   });

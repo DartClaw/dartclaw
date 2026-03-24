@@ -68,7 +68,7 @@ void main() {
       return (store: store, bridge: bridge);
     }
 
-    test('message in bound thread routes to task session when crowd coding enabled', () async {
+    test('message in bound thread routes to task session when thread binding enabled', () async {
       final setup = await setupWithBinding();
       final bridge = setup.bridge;
 

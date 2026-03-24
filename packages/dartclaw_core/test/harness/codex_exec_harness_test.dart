@@ -48,11 +48,17 @@ class FakeCodexExecProcess implements Process {
   final StreamController<List<int>> _stderrCtrl;
   final Completer<int> _exitCodeCompleter = Completer<int>();
   final List<String> writtenStdin = <String>[];
+  final List<ProcessSignal> killSignals = <ProcessSignal>[];
+  final bool _completeExitOnKill;
   bool killed = false;
 
-  FakeCodexExecProcess({StreamController<List<int>>? stdoutCtrl, StreamController<List<int>>? stderrCtrl})
-    : _stdoutCtrl = stdoutCtrl ?? StreamController<List<int>>(),
-      _stderrCtrl = stderrCtrl ?? StreamController<List<int>>();
+  FakeCodexExecProcess({
+    StreamController<List<int>>? stdoutCtrl,
+    StreamController<List<int>>? stderrCtrl,
+    bool completeExitOnKill = false,
+  }) : _stdoutCtrl = stdoutCtrl ?? StreamController<List<int>>(),
+       _stderrCtrl = stderrCtrl ?? StreamController<List<int>>(),
+       _completeExitOnKill = completeExitOnKill;
 
   @override
   int get pid => 42;
@@ -72,6 +78,8 @@ class FakeCodexExecProcess implements Process {
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
     killed = true;
+    killSignals.add(signal);
+    if (_completeExitOnKill) exit(0);
     return true;
   }
 
@@ -557,6 +565,53 @@ void main() {
       expect(configToml, contains('[mcp_servers.dartclaw]'));
       expect(configToml, contains('http://127.0.0.1:3333/mcp'));
       expect(configToml, contains('bearer_token_env_var = "DARTCLAW_MCP_TOKEN"'));
+    });
+
+    group('SIGKILL escalation', () {
+      test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
+        final process = FakeCodexExecProcess();
+        final harness = CodexExecHarness(
+          cwd: '/tmp/workspace',
+          killGracePeriod: const Duration(milliseconds: 50),
+          processFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+                  process,
+          environment: const {'OPENAI_API_KEY': 'sk-test'},
+        );
+
+        await harness.start();
+
+        // Schedule process exit after SIGKILL would be sent.
+        Timer(const Duration(milliseconds: 100), () => process.exit(137));
+
+        await harness.stop();
+
+        expect(harness.state, WorkerState.stopped);
+        expect(process.killSignals, hasLength(greaterThanOrEqualTo(2)));
+        expect(process.killSignals.first, ProcessSignal.sigterm);
+        if (!Platform.isWindows) {
+          expect(process.killSignals.last, ProcessSignal.sigkill);
+        }
+      });
+
+      test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
+        final process = FakeCodexExecProcess(completeExitOnKill: true);
+        final harness = CodexExecHarness(
+          cwd: '/tmp/workspace',
+          killGracePeriod: const Duration(seconds: 5),
+          processFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
+                  process,
+          environment: const {'OPENAI_API_KEY': 'sk-test'},
+        );
+
+        await harness.start();
+
+        await harness.stop();
+
+        expect(harness.state, WorkerState.stopped);
+        expect(process.killSignals, [ProcessSignal.sigterm]);
+      });
     });
   });
 }

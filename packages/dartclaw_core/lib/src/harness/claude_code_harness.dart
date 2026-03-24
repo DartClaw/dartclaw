@@ -72,6 +72,7 @@ class ClaudeCodeHarness extends AgentHarness {
   final HarnessConfig harnessConfig;
   final ContainerManager? containerManager;
   final ClaudeProtocolAdapter _adapter;
+  final Duration _killGracePeriod;
 
   /// Memory handler callbacks. Used for `sdkMcpServers` fallback in chat mode
   /// (no MCP server). When `harnessConfig.mcpServerUrl` is set, memory tools
@@ -83,6 +84,7 @@ class ClaudeCodeHarness extends AgentHarness {
   static final _log = Logger('ClaudeCodeHarness');
 
   WorkerState _state = WorkerState.stopped;
+  bool _stopping = false;
   String? _mcpConfigPath;
   String? _containerMcpConfigPath;
   int _crashCount = 0;
@@ -125,11 +127,13 @@ class ClaudeCodeHarness extends AgentHarness {
     this.harnessConfig = const HarnessConfig(),
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
+    Duration killGracePeriod = const Duration(seconds: 2),
   }) : _processFactory = processFactory ?? Process.start,
        _commandProbe = commandProbe ?? Process.run,
        _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
        _environment = environment ?? Platform.environment,
-       _adapter = protocolAdapter ?? ClaudeProtocolAdapter() {
+       _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
+       _killGracePeriod = killGracePeriod {
     _processWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
@@ -157,6 +161,7 @@ class ClaudeCodeHarness extends AgentHarness {
     if (_state == WorkerState.busy) {
       throw StateError('Cannot start: harness is busy');
     }
+    _stopping = false;
     await _startInternal();
   });
 
@@ -172,7 +177,12 @@ class ClaudeCodeHarness extends AgentHarness {
   }
 
   @override
-  Future<void> stop() => _withLock(_stopInternal);
+  Future<void> stop() {
+    // Set immediately (before lock) so the exitCode crash handler can
+    // distinguish intentional shutdown from unexpected process exit.
+    _stopping = true;
+    return _withLock(_stopInternal);
+  }
 
   Future<void> _stopInternal() async {
     if (_state == WorkerState.busy) {
@@ -193,8 +203,14 @@ class ClaudeCodeHarness extends AgentHarness {
     } catch (e) {
       _log.fine('Failed to close stdin during stop: $e');
     }
-    _process?.kill();
+
+    // Capture reference before clearing — needed for SIGKILL escalation.
+    final process = _process;
     _process = null;
+    if (process != null) {
+      await _killWithEscalation(process, 'Claude');
+    }
+
     final containerMcpPath = _containerMcpConfigPath;
     if (containerMcpPath != null) {
       try {
@@ -434,7 +450,7 @@ class ClaudeCodeHarness extends AgentHarness {
     unawaited(
       process.exitCode.then((code) {
         if (generation != _spawnGeneration) return;
-        if (_state == WorkerState.stopped) return;
+        if (_state == WorkerState.stopped || _stopping) return;
         _log.warning('Claude process exited unexpectedly: exit code $code');
         if (_state != WorkerState.crashed) {
           _state = WorkerState.crashed;
@@ -793,6 +809,39 @@ class ClaudeCodeHarness extends AgentHarness {
   void _writeLine(Map<String, dynamic> json) {
     final line = '${jsonEncode(json)}\n';
     _process?.stdin.add(utf8.encode(line));
+  }
+
+  /// Sends SIGTERM, waits [_killGracePeriod], then escalates to SIGKILL.
+  ///
+  /// After SIGKILL, waits up to 1 additional second for the kernel to confirm
+  /// the process exit. SIGKILL is unconditional on Unix so this normally
+  /// completes instantly; the secondary timeout is a safeguard for edge cases
+  /// and test fakes.
+  Future<void> _killWithEscalation(Process process, String label) async {
+    process.kill(); // SIGTERM
+    try {
+      await process.exitCode.timeout(
+        _killGracePeriod,
+        onTimeout: () async {
+          _log.warning(
+            '$label process did not exit within '
+            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
+          );
+          if (!Platform.isWindows) {
+            process.kill(ProcessSignal.sigkill);
+          }
+          // Wait for confirmed exit after SIGKILL. SIGKILL is unconditional
+          // on Unix, so this completes near-instantly. Secondary timeout
+          // guards against edge cases and test fakes.
+          return process.exitCode.timeout(
+            const Duration(seconds: 1),
+            onTimeout: () => -1,
+          );
+        },
+      );
+    } catch (e) {
+      _log.fine('Error waiting for $label process exit: $e');
+    }
   }
 
   /// Chains [fn] after the current lifecycle lock, preventing concurrent

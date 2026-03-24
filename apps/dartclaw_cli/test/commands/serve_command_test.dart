@@ -513,5 +513,12 @@ channels:
       // No API key warning should appear.
       expect(warnings.join('\n'), isNot(contains('ANTHROPIC_API_KEY not set')));
     });
+
+    // The clean shutdown path (SIGINT/SIGTERM → shutdown() → _exitFn(0)) is
+    // verified by manual testing with `bash docs/testing/plain/run.sh` + Ctrl+C.
+    // In-process signal-based testing is not feasible: Process.killPid sends
+    // signals to the OS process which terminates the test runner itself.
+    // The _exitFn(0) call is placed at the end of run() (after the finally
+    // block) and is exercised by any successful run that completes normally.
   });
 }

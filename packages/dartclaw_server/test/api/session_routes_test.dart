@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/templates/sidebar.dart' show NavItem, SidebarData, SidebarSession;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -89,6 +90,37 @@ class FakeTurnManager extends TurnManager {
 
   void setRecentOutcome(String turnId, TurnOutcome outcome) {
     _outcomes[turnId] = outcome;
+  }
+}
+
+class ArchiveCallTracker {
+  bool cancelTurnCalled = false;
+  bool updateSessionTypeCalled = false;
+  bool cancelBeforeUpdate = false;
+}
+
+class RecordingSessionService extends SessionService {
+  final ArchiveCallTracker tracker;
+
+  RecordingSessionService({required super.baseDir, required this.tracker});
+
+  @override
+  Future<Session?> updateSessionType(String id, SessionType type) async {
+    tracker.updateSessionTypeCalled = true;
+    tracker.cancelBeforeUpdate = tracker.cancelTurnCalled;
+    return super.updateSessionType(id, type);
+  }
+}
+
+class RecordingTurnManager extends FakeTurnManager {
+  final ArchiveCallTracker tracker;
+
+  RecordingTurnManager(super.messages, super.worker, this.tracker);
+
+  @override
+  Future<void> cancelTurn(String sessionId) async {
+    tracker.cancelTurnCalled = true;
+    await super.cancelTurn(sessionId);
   }
 }
 
@@ -261,6 +293,136 @@ void main() {
       final res = await handler(Request('DELETE', Uri.parse('http://localhost/api/sessions/nonexistent')));
       expect(res.statusCode, equals(404));
       expect(await _errorCode(res), equals('SESSION_NOT_FOUND'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('POST /api/sessions/<id>/archive', () {
+    test('returns 200 and changes user session type to archive', () async {
+      final session = await sessions.createSession();
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+      expect(res.statusCode, equals(200));
+      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
+      expect(body['type'], equals('archive'));
+    });
+
+    test('returns HTML sidebar when sidebar builders are wired', () async {
+      const emptySidebarData = (
+        main: null,
+        dmChannels: <SidebarSession>[],
+        groupChannels: <SidebarSession>[],
+        activeEntries: <SidebarSession>[],
+        archivedEntries: <SidebarSession>[],
+        showChannels: true,
+        tasksEnabled: false,
+      );
+      final session = await sessions.createSession();
+      final localHandler = sessionRoutes(
+        sessions,
+        messages,
+        turns,
+        worker,
+        buildSidebarData: () async => emptySidebarData,
+        buildSidebarHtml: ({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems = const []}) {
+          expect(sidebarData, equals(emptySidebarData));
+          expect(activeSessionId, isNull);
+          expect(navItems, isEmpty);
+          return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
+        },
+      ).call;
+      final res = await localHandler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+
+      expect(res.statusCode, equals(200));
+      expect(res.headers['content-type'], contains('text/html'));
+      final html = await res.readAsString();
+      expect(html, contains('id="sidebar"'));
+      expect(html, contains('hx-swap-oob="outerHTML"'));
+      expect(html, contains('hx-swap-oob="outerHTML:.sidebar-scrim"'));
+    });
+
+    test('returns HTMX redirect when archiving the currently viewed session', () async {
+      final session = await sessions.createSession();
+      final localHandler = sessionRoutes(
+        sessions,
+        messages,
+        turns,
+        worker,
+        buildSidebarData: () async => (
+          main: null,
+          dmChannels: <SidebarSession>[],
+          groupChannels: <SidebarSession>[],
+          activeEntries: <SidebarSession>[],
+          archivedEntries: <SidebarSession>[],
+          showChannels: true,
+          tasksEnabled: false,
+        ),
+        buildSidebarHtml: ({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems = const []}) {
+          return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
+        },
+      ).call;
+
+      final res = await localHandler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/sessions/${session.id}/archive'),
+          headers: {'x-dartclaw-active-session-id': session.id},
+        ),
+      );
+
+      expect(res.statusCode, equals(200));
+      expect(res.headers['HX-Redirect'], equals('/'));
+    });
+
+    test('returns 400 for archive session', () async {
+      final session = await sessions.createSession(type: SessionType.archive);
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+      expect(res.statusCode, equals(400));
+      expect(await _errorCode(res), equals('INVALID_STATE'));
+    });
+
+    test('returns 400 for channel session', () async {
+      final session = await sessions.createSession(type: SessionType.channel, channelKey: 'wa:123');
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+      expect(res.statusCode, equals(400));
+      expect(await _errorCode(res), equals('INVALID_STATE'));
+    });
+
+    test('returns 400 for main session', () async {
+      final session = await sessions.createSession(type: SessionType.main, channelKey: 'main');
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+      expect(res.statusCode, equals(400));
+      expect(await _errorCode(res), equals('INVALID_STATE'));
+    });
+
+    test('returns 400 for task session', () async {
+      final session = await sessions.createSession(type: SessionType.task);
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+      expect(res.statusCode, equals(400));
+      expect(await _errorCode(res), equals('INVALID_STATE'));
+    });
+
+    test('returns 404 for unknown session', () async {
+      final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/nonexistent/archive')));
+      expect(res.statusCode, equals(404));
+      expect(await _errorCode(res), equals('SESSION_NOT_FOUND'));
+    });
+
+    test('cancels active turn before archiving', () async {
+      final tracker = ArchiveCallTracker();
+      final localSessions = RecordingSessionService(baseDir: tempDir.path, tracker: tracker);
+      final localTurns = RecordingTurnManager(messages, worker, tracker);
+      final localHandler = sessionRoutes(localSessions, messages, localTurns, worker).call;
+      final session = await localSessions.createSession();
+      await localTurns.reserveTurn(session.id);
+
+      final res = await localHandler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
+
+      expect(res.statusCode, equals(200));
+      expect(tracker.cancelTurnCalled, isTrue);
+      expect(tracker.updateSessionTypeCalled, isTrue);
+      expect(tracker.cancelBeforeUpdate, isTrue);
+      final updated = await localSessions.getSession(session.id);
+      expect(updated?.type, equals(SessionType.archive));
     });
   });
 

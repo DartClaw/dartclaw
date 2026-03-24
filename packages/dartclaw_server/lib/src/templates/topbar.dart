@@ -18,7 +18,7 @@ String topbarTemplate({String? title, String? sessionId, SessionType? sessionTyp
     return templateLoader.trellis.renderFragment(src, fragment: 'plainTopbar', context: {'appName': appName});
   }
 
-  final displayTitle = (title == null || title.trim().isEmpty) ? 'New Session' : title;
+  final displayTitle = (title == null || title.trim().isEmpty) ? 'New Chat' : title;
   final isArchive = sessionType == SessionType.archive;
 
   return templateLoader.trellis.renderFragment(

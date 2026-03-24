@@ -3,7 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'loader.dart';
 
 /// Navigation item for sidebar system links.
-typedef NavItem = ({String label, String href, bool active, String navGroup});
+typedef NavItem = ({String label, String href, bool active, String navGroup, String? icon});
 
 /// Session entry for sidebar rendering, carrying type info.
 typedef SidebarSession = ({String id, String title, SessionType type, String provider});
@@ -15,6 +15,8 @@ typedef SidebarData = ({
   List<SidebarSession> groupChannels,
   List<SidebarSession> activeEntries,
   List<SidebarSession> archivedEntries,
+  bool showChannels,
+  bool tasksEnabled,
 });
 
 /// Sidebar with typed session sections.
@@ -34,6 +36,8 @@ String sidebarTemplate({
   List<SidebarSession> groupChannels = const [],
   List<SidebarSession> activeEntries = const [],
   List<SidebarSession> archivedEntries = const [],
+  bool showChannels = true,
+  bool tasksEnabled = false,
   String? activeSessionId,
   List<NavItem> navItems = const [],
   String appName = 'DartClaw',
@@ -64,7 +68,7 @@ String sidebarTemplate({
       'href': '/sessions/${entry.id}',
       'active': isActive,
       'extraClass': isActive ? 'active' : '',
-      'title': trimmed.isEmpty ? 'New Session' : trimmed,
+      'title': trimmed.isEmpty ? 'New Chat' : trimmed,
       'provider': entry.provider,
       'providerLabel': ProviderIdentity.displayName(entry.provider),
     };
@@ -97,6 +101,8 @@ String sidebarTemplate({
       'mainActive': mainSession != null && mainSession.id == activeSessionId,
       'mainProvider': mainSession?.provider,
       'mainProviderLabel': mainSession != null ? ProviderIdentity.displayName(mainSession.provider) : null,
+      'tasksEnabledAttr': tasksEnabled ? 'true' : null,
+      'showChannels': showChannels,
       'noChannels': dmChannels.isEmpty && groupChannels.isEmpty,
       'noDmChannels': dmChannels.isEmpty,
       'hasGroupChannels': groupChannels.isNotEmpty,
@@ -122,6 +128,7 @@ String sidebarTemplate({
           'href': item.href,
           'active': item.active,
           'ariaCurrent': item.active ? 'page' : null,
+          'icon': item.icon,
         };
       }).toList(),
       'extensionNavItems': extensionNavItems.map((item) {
@@ -130,6 +137,7 @@ String sidebarTemplate({
           'href': item.href,
           'active': item.active,
           'ariaCurrent': item.active ? 'page' : null,
+          'icon': item.icon,
         };
       }).toList(),
     },
@@ -155,6 +163,8 @@ String buildSidebar({required SidebarData sidebarData, required List<NavItem> na
     groupChannels: sidebarData.groupChannels,
     activeEntries: sidebarData.activeEntries,
     archivedEntries: sidebarData.archivedEntries,
+    showChannels: sidebarData.showChannels,
+    tasksEnabled: sidebarData.tasksEnabled,
     navItems: navItems,
     appName: appName,
   );

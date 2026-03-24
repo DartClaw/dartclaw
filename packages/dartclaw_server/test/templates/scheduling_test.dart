@@ -15,6 +15,8 @@ void main() {
     groupChannels: <SidebarSession>[],
     activeEntries: <SidebarSession>[],
     archivedEntries: <SidebarSession>[],
+    showChannels: true,
+    tasksEnabled: false,
   );
   const emptyNavItems = <NavItem>[];
 

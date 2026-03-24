@@ -260,7 +260,7 @@ class ServiceWiring {
     await serverTurns.detectAndCleanOrphanedTurns();
 
     // 7. Tasks (post-server) — executor, artifacts, observer — need live turns.
-    await task.wirePostServer(turns: serverTurns, pool: harness.pool);
+    await task.wirePostServer(turns: serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
 
     // Thread binding reconciliation — prune bindings for terminal tasks.
     final threadBindingStore = channel.threadBindingStore;

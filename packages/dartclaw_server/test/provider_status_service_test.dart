@@ -159,6 +159,7 @@ void main() {
           'codex': _probeOk('Codex CLI 0.8.0'),
           'ghost': _probeMissing('ghost'),
         }),
+        authProbe: _authFails,
       );
 
       final statuses = {for (final status in service.getAll()) status.id: status};
@@ -194,6 +195,63 @@ void main() {
       expect(ghost.errorMessage, contains("Binary 'ghost' for provider 'ghost' was not found."));
       expect(ghost.errorMessage, contains('providers.ghost.executable'));
       expect(service.getSummary(), {'configured': 3, 'healthy': 1, 'degraded': 1});
+    });
+
+    test('reports OAuth-authenticated provider as healthy with oauth credential status', () async {
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 2)}),
+        registry: _registry(),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: _probeResults({'claude': _probeOk('2.1.81 (Claude Code)')}),
+        authProbe: _authSucceeds,
+      );
+
+      final status = service.getAll().single;
+      expect(status.health, 'healthy');
+      expect(status.credentialStatus, 'oauth');
+      expect(status.errorMessage, isNull);
+      expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
+    });
+
+    test('does not probe auth when API key is present', () async {
+      var authProbeCalls = 0;
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+        registry: _registry(anthropicApiKey: 'anthropic-key'),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: _probeResults({'claude': _probeOk('Claude CLI 2.0.0')}),
+        authProbe: (executable, {String? providerId}) async {
+          authProbeCalls++;
+          return true;
+        },
+      );
+
+      expect(authProbeCalls, 0, reason: 'auth probe should be skipped when API key is present');
+      expect(service.getAll().single.credentialStatus, 'present');
+    });
+
+    test('falls back to degraded when OAuth auth probe also fails', () async {
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+        registry: _registry(),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: _probeResults({'claude': _probeOk('Claude CLI 2.0.0')}),
+        authProbe: _authFails,
+      );
+
+      final status = service.getAll().single;
+      expect(status.health, 'degraded');
+      expect(status.credentialStatus, 'missing');
+      expect(status.errorMessage, isNotNull);
     });
 
     test('probe caches version output for subsequent reads', () async {
@@ -351,3 +409,7 @@ CommandProbe _probeExitCode(int exitCode, {String stdout = '', String stderr = '
 CommandProbe _probeMissing(String executableName) {
   return (executable, arguments) async => throw ProcessException(executableName, arguments, 'missing binary');
 }
+
+Future<bool> _authSucceeds(String executable, {String? providerId}) async => true;
+
+Future<bool> _authFails(String executable, {String? providerId}) async => false;

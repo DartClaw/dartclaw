@@ -97,6 +97,7 @@ class TaskWiring {
   Future<void> wirePostServer({
     required TurnManager turns,
     required HarnessPool pool,
+    Future<void> Function()? onSpawnNeeded,
   }) async {
     _diffGenerator = DiffGenerator(projectDir: Directory.current.path);
     _artifactCollector = ArtifactCollector(
@@ -124,6 +125,7 @@ class TaskWiring {
       worktreeManager: _worktreeManager,
       taskFileGuard: _taskFileGuard,
       observer: _agentObserver,
+      onSpawnNeeded: onSpawnNeeded,
     );
     _taskExecutor.start();
     _log.fine('TaskExecutor started');

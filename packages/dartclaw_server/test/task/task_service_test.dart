@@ -87,10 +87,14 @@ void main() {
       expect(updated.completedAt, isNull);
     });
 
-    test('transitions running to review', () async {
+    test('transitions running to review without setting completedAt', () async {
       await repo.insert(_task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z')));
 
-      final updated = await service.transition('task-1', TaskStatus.review);
+      final updated = await service.transition(
+        'task-1',
+        TaskStatus.review,
+        now: DateTime.parse('2026-03-10T10:10:00Z'),
+      );
 
       expect(updated.status, TaskStatus.review);
       expect(updated.completedAt, isNull);

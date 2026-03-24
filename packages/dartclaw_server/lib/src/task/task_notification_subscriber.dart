@@ -75,7 +75,7 @@ class TaskNotificationSubscriber {
 
     final response = _buildNotificationResponse(channelType: channelType, task: task, event: event, fallbackText: text);
 
-    // For Google Chat with crowd coding: send in a new or existing thread and
+    // For Google Chat with thread binding: send in a new or existing thread and
     // create a thread binding on the initial notification.
     if (_threadBindingEnabled && channelType == ChannelType.googlechat && channel is GoogleChatChannel) {
       final threadKey = 'task-${task.id}';

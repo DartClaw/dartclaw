@@ -326,7 +326,7 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
       </div>
 
       <!-- Server Configuration (editable, restart-required) -->
@@ -369,7 +369,7 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
       </div>
 
       <!-- Sessions (editable, restart-required) -->
@@ -407,7 +407,7 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Session scope changes apply live. Reset, timeout, and maintenance changes still require a server restart.</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Session scope changes apply live. Reset, timeout, and maintenance changes still require a server restart.</p>
       </div>
 
       <!-- Memory Configuration (editable, restart-required) -->
@@ -433,7 +433,7 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Changes to this section require a server restart</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
       </div>
 
       <!-- Context (editable, restart-required) -->
@@ -468,7 +468,7 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Compact Instructions changes require a server restart</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Compact Instructions changes require a server restart</p>
       </div>
 
       <!-- Scheduling (mixed: live toggles + restart fields) -->
@@ -494,9 +494,9 @@
             <button type="button" class="btn btn-ghost btn-sm form-cancel">Cancel</button>
           </div>
         </form>
-        <p class="section-note section-note-restart">&#9888; Heartbeat Interval changes require a server restart</p>
+        <p class="section-note section-note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Heartbeat Interval changes require a server restart</p>
         <div class="card-actions">
-          <a href="/scheduling" class="card-link">View Schedule &#8594;</a>
+          <a href="/scheduling" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>View Schedule</a>
         </div>
       </div>
 
@@ -511,7 +511,7 @@
           Phone: <span class="card-detail-value" tl:text="${whatsAppPhone}">-</span>
         </div>
         <div tl:if="${whatsAppEnabled}" class="card-actions">
-          <a href="/settings/channels/whatsapp" class="card-link">Configure &#8594;</a>
+          <a href="/settings/channels/whatsapp" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
         </div>
         <div tl:unless="${whatsAppEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
@@ -527,7 +527,7 @@
           Phone: <span class="card-detail-value" tl:text="${signalPhone}">-</span>
         </div>
         <div tl:if="${signalEnabled}" class="card-actions">
-          <a href="/settings/channels/signal" class="card-link">Configure &#8594;</a>
+          <a href="/settings/channels/signal" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
         </div>
         <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
@@ -540,7 +540,7 @@
           <span tl:if="${googleChatHasPending}" class="pairing-badge" tl:text="${googleChatPendingCount}">0</span>
         </div>
         <div tl:if="${googleChatEnabled}" class="card-actions">
-          <a href="/settings/channels/google_chat" class="card-link">Configure &#8594;</a>
+          <a href="/settings/channels/google_chat" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
         </div>
         <div tl:unless="${googleChatEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
       </div>
@@ -614,7 +614,7 @@
             </div>
 
             <div tl:if="${provider.hasError}" class="provider-error-banner">
-              <span class="error-icon">&#9888;</span>
+              <span class="error-icon icon icon-triangle-alert" aria-hidden="true"></span>
               <div class="error-text">
                 <strong tl:text="${provider.errorTitle}">Action required</strong>
                 <span tl:text="${provider.errorMessage}">Provider action required.</span>
@@ -663,7 +663,7 @@
           Version: <span class="card-detail-value" tl:text="${version}">0.0.0</span>
         </div>
         <div class="card-actions">
-          <a href="/health-dashboard" class="card-link">Full Dashboard &#8594;</a>
+          <a href="/health-dashboard" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Full Dashboard</a>
         </div>
       </div>
 
@@ -684,8 +684,8 @@
           <details class="card guard-detail-card" tl:each="guard : ${guardConfigs}">
             <summary class="guard-detail-summary">
               <span class="guard-detail-name" tl:text="${guard.name}">Guard</span>
-              <span class="guard-detail-chevron">&#9656;</span>
-              <a class="guard-audit-link" tl:href="'/health-dashboard?guard=' + ${guard.guardKey}">View events &#8594;</a>
+              <span class="guard-detail-chevron icon icon-chevron-right" aria-hidden="true"></span>
+              <a class="guard-audit-link" tl:href="'/health-dashboard?guard=' + ${guard.guardKey}"><span class="icon icon-arrow-right" aria-hidden="true"></span>View events</a>
             </summary>
             <div class="guard-detail-body">
               <div class="guard-config-section" tl:each="section : ${guard.sections}">

@@ -166,7 +166,7 @@ void main() {
 
     test('emptyAppState renders create session button', () async {
       final html = await engine.renderFileFragment('components', fragment: 'emptyAppState', context: const {});
-      expect(html, contains('No sessions yet'));
+      expect(html, contains('No chats yet'));
       expect(html, contains('data-action="create-session"'));
     });
   });
@@ -221,6 +221,8 @@ void main() {
       expect(html, contains('session-title'));
       expect(html, contains('My Chat'));
       expect(html, contains('sess-1'));
+      expect(html, contains('data-icon="menu"'));
+      expect(html, contains('data-icon="info"'));
     });
 
     test('sessionTopbar shows resume button for archives', () async {
@@ -248,6 +250,7 @@ void main() {
       );
       expect(html, contains('DartClaw'));
       expect(html, contains('theme-toggle'));
+      expect(html, contains('data-icon="menu"'));
     });
 
     test('pageTopbar renders static title with back link', () async {
@@ -258,6 +261,7 @@ void main() {
       );
       expect(html, contains('Settings'));
       expect(html, contains('href="/"'));
+      expect(html, contains('icon-arrow-left'));
     });
   });
 
@@ -270,6 +274,8 @@ void main() {
           'mainSession': false,
           'mainHref': '',
           'mainActive': false,
+          'tasksEnabledAttr': null,
+          'showChannels': true,
           'noChannels': true,
           'noDmChannels': true,
           'hasGroupChannels': false,
@@ -287,7 +293,7 @@ void main() {
         },
       );
       expect(html, contains('No active channels'));
-      expect(html, contains('No sessions yet'));
+      expect(html, contains('No chats yet'));
     });
 
     test('renders provider badges for session entries across sidebar sections', () async {
@@ -298,8 +304,10 @@ void main() {
           'mainSession': true,
           'mainHref': '/sessions/main',
           'mainActive': true,
+          'tasksEnabledAttr': null,
           'mainProvider': 'claude',
           'mainProviderLabel': 'Claude',
+          'showChannels': true,
           'noChannels': false,
           'noDmChannels': false,
           'hasGroupChannels': true,
@@ -360,6 +368,14 @@ void main() {
       expect(html, contains('provider-badge-codex'));
       expect(html, contains('Claude'));
       expect(html, contains('Codex'));
+      expect(html, contains('data-icon="terminal"'));
+      expect(html, contains('data-icon="hash"'));
+      expect(html, contains('data-icon="message-circle"'));
+      expect(html, contains('data-icon="archive"'));
+      expect(html, contains('data-icon="new-session"'));
+      expect(html, contains('>New Chat</button>'));
+      expect(html, contains('data-icon="x"'));
+      expect(html, contains('data-icon="chevron-down"'));
     });
 
     test('renders session entries with HTMX SPA nav attrs', () async {
@@ -370,6 +386,8 @@ void main() {
           'mainSession': false,
           'mainHref': '',
           'mainActive': false,
+          'tasksEnabledAttr': null,
+          'showChannels': true,
           'noChannels': true,
           'noDmChannels': true,
           'hasGroupChannels': false,
@@ -394,6 +412,49 @@ void main() {
       expect(html, contains('Research'));
     });
 
+    test('renders archive and delete actions in the correct sidebar sections', () async {
+      final html = await engine.renderFileFragment(
+        'sidebar',
+        fragment: 'sidebar',
+        context: {
+          'mainSession': false,
+          'mainHref': '',
+          'mainActive': false,
+          'tasksEnabledAttr': null,
+          'showChannels': true,
+          'noChannels': true,
+          'noDmChannels': true,
+          'hasGroupChannels': false,
+          'showDmLabel': false,
+          'dmChannels': <Map<String, dynamic>>[],
+          'groupChannels': <Map<String, dynamic>>[],
+          'noActiveEntries': false,
+          'activeEntries': [
+            {'id': 'active-1', 'href': '/sessions/active-1', 'active': false, 'extraClass': '', 'title': 'Active chat'},
+          ],
+          'hasArchivedEntries': true,
+          'archivedEntries': [
+            {
+              'id': 'archived-1',
+              'href': '/sessions/archived-1',
+              'active': false,
+              'extraClass': '',
+              'title': 'Archived chat',
+            },
+          ],
+          'archivedCount': 1,
+          'archiveContainsActive': false,
+          'hasNav': false,
+          'navItems': <Map<String, dynamic>>[],
+        },
+      );
+
+      expect(html, contains('data-action="archive-session"'));
+      expect(html, contains('data-action="delete-session"'));
+      expect(html, contains('aria-label="Archive chat"'));
+      expect(html, contains('aria-label="Delete session"'));
+    });
+
     test('renders nav items in system section', () async {
       final html = await engine.renderFileFragment(
         'sidebar',
@@ -402,6 +463,8 @@ void main() {
           'mainSession': false,
           'mainHref': '',
           'mainActive': false,
+          'tasksEnabledAttr': null,
+          'showChannels': true,
           'noChannels': true,
           'noDmChannels': true,
           'hasGroupChannels': false,
@@ -416,17 +479,23 @@ void main() {
           'archiveContainsActive': false,
           'hasNav': true,
           'showSystemNav': true,
-          'showExtensionNav': false,
+          'showExtensionNav': true,
           'systemNavItems': [
-            {'label': 'Health', 'href': '/health-dashboard', 'active': true, 'ariaCurrent': 'page'},
-            {'label': 'Settings', 'href': '/settings', 'active': false, 'ariaCurrent': null},
+            {'label': 'Health', 'href': '/health-dashboard', 'active': true, 'ariaCurrent': 'page', 'icon': 'health'},
+            {'label': 'Settings', 'href': '/settings', 'active': false, 'ariaCurrent': null, 'icon': 'settings'},
           ],
-          'extensionNavItems': <Map<String, dynamic>>[],
+          'extensionNavItems': [
+            {'label': 'Optional', 'href': '/optional', 'active': false, 'ariaCurrent': null, 'icon': null},
+          ],
         },
       );
       expect(html, contains('Health'));
       expect(html, contains('Settings'));
+      expect(html, contains('Optional'));
       expect(html, contains('sidebar-nav-item'));
+      expect(html, contains('data-icon="health"'));
+      expect(html, contains('data-icon="settings"'));
+      expect(html, isNot(contains('data-icon="null"')));
     });
   });
 

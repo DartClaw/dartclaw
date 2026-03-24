@@ -32,6 +32,7 @@ void main() {
           'codex': _probeOk('Codex CLI 1.2.0'),
           'ghost': _probeMissing('ghost'),
         }),
+        authProbe: (_, {String? providerId}) async => false,
       );
 
       final response = await providerRoutes(

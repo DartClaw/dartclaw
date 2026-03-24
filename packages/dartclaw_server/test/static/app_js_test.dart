@@ -8,6 +8,7 @@ void main() {
       : 'lib/src/static';
 
   final scriptPath = '$baseDir/app.js';
+  final componentsCssPath = '$baseDir/components.css';
 
   group('app.js HTMX SSE lifecycle', () {
     test('defines initSseLifecycle function', () {
@@ -44,6 +45,21 @@ void main() {
       final source = File(scriptPath).readAsStringSync();
       final matches = RegExp(r"dataset\.hasTitle\s*=\s*'true'").allMatches(source).length;
       expect(matches, greaterThanOrEqualTo(2));
+    });
+
+    test('archive flow preserves sidebar open state across OOB swap', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains("const wasSidebarOpen = !!(sidebar && sidebar.classList.contains('open'));"));
+      expect(source, contains('if (wasSidebarOpen) {'));
+      expect(source, contains('setSidebarOpen(true);'));
+    });
+
+    test('toast and banner dismiss buttons use icon system markup', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('class="toast-dismiss" aria-label="Dismiss" data-icon="x"'));
+      expect(source, contains('class="dismiss" aria-label="Dismiss" data-icon="x"'));
+      expect(source, isNot(contains('class="toast-dismiss" aria-label="Dismiss">&times;')));
+      expect(source, isNot(contains('class="dismiss" aria-label="Dismiss">&#10005;')));
     });
   });
 
@@ -189,6 +205,63 @@ void main() {
       expect(source, contains('restoreTaskBadge();'));
     });
 
+    test('only starts task SSE when the server advertises task support', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains("if (taskEventSource || !document.querySelector('[data-tasks-enabled]')) return;"));
+    });
+
+    test('defines running sidebar rendering with cached active tasks', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('let cachedActiveTasks = [];'));
+      expect(source, contains('function renderRunningSidebar(tasks) {'));
+      expect(source, contains("const existing = document.getElementById('sidebar-running');"));
+      expect(source, contains("const sidebar = document.getElementById('sidebar');"));
+      expect(source, contains("container.id = 'sidebar-running';"));
+      expect(source, contains("'<div class=\"sidebar-section-label sidebar-running-label\">Running</div>'"));
+    });
+
+    test('running sidebar removes the section when no active tasks remain', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('if (!cachedActiveTasks.length) {'));
+      expect(source, contains('existing && existing.remove();'));
+    });
+
+    test('running sidebar renders task links, review labels, and elapsed timers', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains("const href = '/tasks/' + taskId;"));
+      expect(
+        source,
+        contains(
+          "' hx-target=\"#main-content\" hx-select=\"#main-content\" hx-swap=\"outerHTML\" hx-push-url=\"true\"'",
+        ),
+      );
+      expect(source, contains("' hx-select-oob=\"#topbar,#sidebar\">'"));
+      expect(source, contains("? '<span class=\"running-review-label\">review</span>'"));
+      expect(source, contains("? '<span class=\"task-elapsed running-elapsed\" data-started-at=\"' +"));
+      expect(
+        source,
+        contains("'<span class=\"provider-badge provider-badge-' + provider + '\">' + providerLabel + '</span>'"),
+      );
+    });
+
+    test('running sidebar re-renders after HTMX swaps and task SSE messages', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('renderRunningSidebar(cachedActiveTasks);'));
+      expect(source, contains('renderRunningSidebar(data.activeTasks || []);'));
+      expect(
+        RegExp(
+          r"if \(data\.type === 'connected'\)[\s\S]*renderRunningSidebar\(data\.activeTasks \|\| \[\]\);",
+        ).hasMatch(source),
+        isTrue,
+      );
+      expect(
+        RegExp(
+          r"if \(data\.type === 'task_status_changed'\)[\s\S]*renderRunningSidebar\(data\.activeTasks \|\| \[\]\);",
+        ).hasMatch(source),
+        isTrue,
+      );
+    });
+
     test('refreshes tasks content without forcing a full reload', () {
       final source = File(scriptPath).readAsStringSync();
       expect(source, contains('async function refreshTasksPageContent()'));
@@ -207,6 +280,23 @@ void main() {
       final source = File(scriptPath).readAsStringSync();
       expect(source, contains('window.applyTaskFilters = function()'));
       expect(source, contains("window.location.href = '/tasks' + (qs ? '?' + qs : '');"));
+    });
+  });
+
+  group('running sidebar styling', () {
+    test('running items reuse live status dots and define review styling', () {
+      final css = File(componentsCssPath).readAsStringSync();
+      expect(css, contains('.sidebar-running-item .running-review-label'));
+      expect(css, contains('.sidebar-running-item .running-elapsed'));
+      expect(css, contains('.status-dot--live::before'));
+      expect(css, contains('.status-dot--live::after'));
+    });
+
+    test('reduced motion disables pulsing status-dot animation', () {
+      final css = File(componentsCssPath).readAsStringSync();
+      expect(css, contains('@media (prefers-reduced-motion: reduce)'));
+      expect(css, contains('.status-dot--live::before,'));
+      expect(css, contains('.status-dot--live::after { animation: none; }'));
     });
   });
 }

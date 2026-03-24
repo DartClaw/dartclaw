@@ -33,15 +33,21 @@ void registerSystemDashboardPages(
   WorkspaceDisplayParams workspaceDisplay = const WorkspaceDisplayParams(),
   AuditLogReader? auditReader,
   Map<String, dynamic> Function()? pubsubHealthGetter,
+  bool showHealth = true,
+  bool showMemory = true,
+  bool showScheduling = true,
+  bool showTasks = true,
 }) {
-  registry.register(
-    HealthDashboardPage(
-      healthService: healthService,
-      workerStateGetter: workerStateGetter,
-      auditReader: auditReader,
-      pubsubHealthGetter: pubsubHealthGetter,
-    ),
-  );
+  if (showHealth) {
+    registry.register(
+      HealthDashboardPage(
+        healthService: healthService,
+        workerStateGetter: workerStateGetter,
+        auditReader: auditReader,
+        pubsubHealthGetter: pubsubHealthGetter,
+      ),
+    );
+  }
   registry.register(
     SettingsPage(
       healthService: healthService,
@@ -55,15 +61,21 @@ void registerSystemDashboardPages(
       workspaceDisplay: workspaceDisplay,
     ),
   );
-  registry.register(
-    MemoryPage(memoryStatusServiceGetter: memoryStatusServiceGetter, workspaceDisplay: workspaceDisplay),
-  );
-  registry.register(
-    SchedulingPage(
-      runtimeConfigGetter: runtimeConfigGetter,
-      heartbeatDisplay: heartbeatDisplay,
-      schedulingDisplay: schedulingDisplay,
-    ),
-  );
-  registry.register(TasksPage());
+  if (showMemory) {
+    registry.register(
+      MemoryPage(memoryStatusServiceGetter: memoryStatusServiceGetter, workspaceDisplay: workspaceDisplay),
+    );
+  }
+  if (showScheduling) {
+    registry.register(
+      SchedulingPage(
+        runtimeConfigGetter: runtimeConfigGetter,
+        heartbeatDisplay: heartbeatDisplay,
+        schedulingDisplay: schedulingDisplay,
+      ),
+    );
+  }
+  if (showTasks) {
+    registry.register(TasksPage());
+  }
 }

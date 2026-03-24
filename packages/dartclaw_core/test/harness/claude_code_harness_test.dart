@@ -68,7 +68,12 @@ class FakeProcess implements Process {
   Future<int> get exitCode => _exitCodeCompleter.future;
 
   @override
-  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    // Complete exitCode on kill so _stopInternal's SIGKILL escalation
+    // doesn't wait for the grace period timeout in tests.
+    if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(0);
+    return true;
+  }
 
   /// Emit a line on stdout (simulates claude binary output).
   void emitStdout(String line) {
@@ -106,6 +111,26 @@ class _CapturingIOSink extends _NullIOSink {
   }
 }
 
+/// [FakeProcess] variant that tracks kill signals for SIGKILL escalation tests.
+class _KillTrackingFakeProcess extends FakeProcess {
+  final List<ProcessSignal> killSignals = [];
+  final bool _completeExitOnKill;
+  final int _killExitCode;
+
+  _KillTrackingFakeProcess({
+    bool completeExitOnKill = false,
+    int killExitCode = 0,
+  }) : _completeExitOnKill = completeExitOnKill,
+       _killExitCode = killExitCode;
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    killSignals.add(signal);
+    if (_completeExitOnKill) exit(_killExitCode);
+    return true;
+  }
+}
+
 class _RecordingGuard extends Guard {
   GuardContext? lastContext;
 
@@ -137,6 +162,7 @@ ClaudeCodeHarness _buildHarness({
   DelayFactory? delayFactory,
   Map<String, String>? environment,
   HarnessConfig harnessConfig = const HarnessConfig(),
+  Duration killGracePeriod = Duration.zero,
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
@@ -145,6 +171,7 @@ ClaudeCodeHarness _buildHarness({
     delayFactory: delayFactory ?? _noOpDelay,
     environment: environment ?? {'ANTHROPIC_API_KEY': 'sk-test-key'},
     harnessConfig: harnessConfig,
+    killGracePeriod: killGracePeriod,
   );
 }
 
@@ -734,6 +761,69 @@ void main() {
           isTrue,
         );
         expect(stdinLines, isNotEmpty);
+      });
+    });
+
+    // ----- SIGKILL escalation during stop --------------------------------
+
+    group('SIGKILL escalation', () {
+      test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
+        final fake = _KillTrackingFakeProcess();
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          killGracePeriod: const Duration(milliseconds: 50),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+
+        await h.start();
+        expect(h.state, WorkerState.idle);
+
+        // Schedule process exit after SIGKILL would be sent.
+        Timer(const Duration(milliseconds: 100), () => fake.exit(137));
+
+        await h.stop();
+
+        expect(h.state, WorkerState.stopped);
+        // First signal is SIGTERM from stop(), second is SIGKILL from escalation.
+        expect(fake.killSignals, hasLength(greaterThanOrEqualTo(2)));
+        expect(fake.killSignals.first, ProcessSignal.sigterm);
+        if (!Platform.isWindows) {
+          expect(fake.killSignals.last, ProcessSignal.sigkill);
+        }
+      });
+
+      test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
+        final fake = _KillTrackingFakeProcess(completeExitOnKill: true);
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          killGracePeriod: const Duration(seconds: 5),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+
+        await h.start();
+        await h.stop();
+
+        expect(h.state, WorkerState.stopped);
+        // Only SIGTERM — no escalation needed.
+        expect(fake.killSignals, [ProcessSignal.sigterm]);
       });
     });
   });

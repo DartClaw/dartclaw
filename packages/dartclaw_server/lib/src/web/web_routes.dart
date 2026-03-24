@@ -33,6 +33,7 @@ import '../turn_manager.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
+import 'sidebar_feature_visibility.dart';
 import 'system_pages.dart';
 import 'web_utils.dart';
 
@@ -79,6 +80,17 @@ Router webRoutes(
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
   final defaultProvider = _normalizedDefaultProvider(config?.agent.provider);
   final registry = pageRegistry ?? PageRegistry();
+  final visibility = computeSidebarFeatureVisibility(
+    config: config,
+    hasChannels: whatsAppChannel != null || signalChannel != null || googleChatChannel != null,
+    guardChain: guardChain,
+    hasHealthService: healthService != null,
+    hasTaskService: taskService != null,
+    hasPubSubHealth: healthService?.pubsubHealth != null,
+    heartbeatDisplay: heartbeatDisplay,
+    schedulingDisplay: schedulingDisplay,
+    workspaceDisplay: workspaceDisplay,
+  );
   if (pageRegistry == null) {
     registerSystemDashboardPages(
       registry,
@@ -95,6 +107,10 @@ Router webRoutes(
       schedulingDisplay: schedulingDisplay,
       workspaceDisplay: workspaceDisplay,
       auditReader: auditReader,
+      showHealth: visibility.showHealth,
+      showMemory: visibility.showMemory,
+      showScheduling: visibility.showScheduling,
+      showTasks: visibility.showTasks,
     );
   }
   final systemNav = registry.navItems(activePage: '');
@@ -108,7 +124,13 @@ Router webRoutes(
     eventBus: eventBus,
     messages: messages,
     agentObserver: agentObserver,
-    buildSidebarData: () => buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider),
+    buildSidebarData: () => buildSidebarData(
+      sessions,
+      kvService: kvService,
+      defaultProvider: defaultProvider,
+      showChannels: visibility.showChannels,
+      tasksEnabled: taskService != null && eventBus != null,
+    ),
     restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
     buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
   );
@@ -172,13 +194,21 @@ Router webRoutes(
       return _redirect(request, '/sessions/${all.first.id}');
     }
 
-    final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
+    final sidebarData = await buildSidebarData(
+      sessions,
+      kvService: kvService,
+      defaultProvider: defaultProvider,
+      showChannels: visibility.showChannels,
+      tasksEnabled: taskService != null && eventBus != null,
+    );
     final sidebar = sidebarTemplate(
       mainSession: sidebarData.main,
       dmChannels: sidebarData.dmChannels,
       groupChannels: sidebarData.groupChannels,
       activeEntries: sidebarData.activeEntries,
       archivedEntries: sidebarData.archivedEntries,
+      showChannels: sidebarData.showChannels,
+      tasksEnabled: sidebarData.tasksEnabled,
       navItems: systemNav,
       appName: appDisplay.name,
     );
@@ -196,7 +226,13 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
+      final sidebarData = await buildSidebarData(
+        sessions,
+        kvService: kvService,
+        defaultProvider: defaultProvider,
+        showChannels: visibility.showChannels,
+        tasksEnabled: taskService != null && eventBus != null,
+      );
       final msgs = await messages.getMessagesTail(id);
       final messageList = msgs
           .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
@@ -210,6 +246,8 @@ Router webRoutes(
         groupChannels: sidebarData.groupChannels,
         activeEntries: sidebarData.activeEntries,
         archivedEntries: sidebarData.archivedEntries,
+        showChannels: sidebarData.showChannels,
+        tasksEnabled: sidebarData.tasksEnabled,
         activeSessionId: id,
         navItems: systemNav,
         appName: appDisplay.name,
@@ -226,14 +264,14 @@ Router webRoutes(
         bannerHtml.write(
           '<div class="banner banner-warning">Agent interrupted — the worker will restart on next message. '
           'Retry your message.'
-          '<button class="dismiss" aria-label="Dismiss">&#10005;</button></div>',
+          '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
         );
       }
       if (turns?.consumeRecoveryNotice(id) ?? false) {
         bannerHtml.write(
           '<div class="banner banner-warning">This session recovered from an interrupted turn. '
           'Your conversation is intact.'
-          '<button class="dismiss" aria-label="Dismiss">&#10005;</button></div>',
+          '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
         );
       }
       final isArchive = session.type == SessionType.archive;
@@ -252,7 +290,7 @@ Router webRoutes(
       }
 
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
-      final page = layoutTemplate(title: session.title ?? 'New Session', body: bodyHtml, appName: appDisplay.name);
+      final page = layoutTemplate(title: session.title ?? 'New Chat', body: bodyHtml, appName: appDisplay.name);
       return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session: $e');
@@ -321,7 +359,13 @@ Router webRoutes(
         sessionId: id,
         sessionTitle: session.title ?? '',
         messageCount: msgs.length,
-        sidebarData: await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider),
+        sidebarData: await buildSidebarData(
+          sessions,
+          kvService: kvService,
+          defaultProvider: defaultProvider,
+          showChannels: visibility.showChannels,
+          tasksEnabled: taskService != null && eventBus != null,
+        ),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
         defaultProvider: defaultProvider,
@@ -367,7 +411,13 @@ Router webRoutes(
         return _htmlNotFound('Unknown channel type: $type');
       }
 
-      final sidebarData = await buildSidebarData(sessions, kvService: kvService, defaultProvider: defaultProvider);
+      final sidebarData = await buildSidebarData(
+        sessions,
+        kvService: kvService,
+        defaultProvider: defaultProvider,
+        showChannels: visibility.showChannels,
+        tasksEnabled: taskService != null && eventBus != null,
+      );
 
       if (type == 'whatsapp') {
         final channel = whatsAppChannel;
@@ -581,6 +631,8 @@ Future<SidebarData> buildSidebarData(
   SessionService sessions, {
   KvService? kvService,
   String defaultProvider = 'claude',
+  bool showChannels = true,
+  bool tasksEnabled = false,
 }) async {
   final all = await sessions.listSessions();
   SidebarSession? main;
@@ -618,10 +670,16 @@ Future<SidebarData> buildSidebarData(
     groupChannels: groupChannels,
     activeEntries: activeEntries,
     archivedEntries: archivedEntries,
+    showChannels: showChannels,
+    tasksEnabled: tasksEnabled,
   );
 }
 
-Future<String> _resolveSidebarProvider(Session session, KvService? kvService, {String defaultProvider = 'claude'}) async {
+Future<String> _resolveSidebarProvider(
+  Session session,
+  KvService? kvService, {
+  String defaultProvider = 'claude',
+}) async {
   final sessionProvider = session.provider?.trim();
   if (sessionProvider != null && sessionProvider.isNotEmpty) {
     return _normalizedDefaultProvider(sessionProvider);

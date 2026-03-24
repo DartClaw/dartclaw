@@ -24,6 +24,9 @@ class SchedulingPage extends DashboardPage {
   String get title => 'Scheduling';
 
   @override
+  String? get icon => 'scheduling';
+
+  @override
   String get navGroup => 'system';
 
   @override

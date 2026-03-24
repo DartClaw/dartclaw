@@ -17,13 +17,14 @@ Router signalPairingRoutes({
   required SignalChannel signalChannel,
   required SessionService sessions,
   required PageRegistry pageRegistry,
+  bool tasksEnabled = false,
   String appName = 'DartClaw',
 }) {
   final router = Router();
 
   // GET /pairing — Signal pairing/status page.
   router.get('/pairing', (Request request) async {
-    final sidebarData = await buildSidebarData(sessions);
+    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
     final phone = signalChannel.config.phoneNumber;
     final error = request.requestedUri.queryParameters['error'];
 
@@ -86,7 +87,7 @@ Router signalPairingRoutes({
       return Response(204);
     }
     // Connected — render full page so HTMX can swap to "Connected" state.
-    final sidebarData = await buildSidebarData(sessions);
+    final sidebarData = await buildSidebarData(sessions, tasksEnabled: tasksEnabled);
     final html = signalPairingTemplate(
       isConnected: true,
       connectedPhone: signalChannel.sidecar.registeredPhone ?? signalChannel.config.phoneNumber,

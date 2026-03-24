@@ -29,6 +29,8 @@ String whatsappPairingTemplate({
     groupChannels: [],
     activeEntries: [],
     archivedEntries: [],
+    showChannels: true,
+    tasksEnabled: false,
   ),
   List<NavItem> navItems = const [],
   bool fragmentOnly = false,

@@ -30,6 +30,9 @@ class HealthDashboardPage extends DashboardPage {
   String get title => 'Health';
 
   @override
+  String? get icon => 'health';
+
+  @override
   String get navGroup => 'system';
 
   @override

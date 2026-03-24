@@ -28,7 +28,7 @@ String newTaskFormDialogHtml({List<Map<String, String>> goalOptions = const []})
   <form id="new-task-form" method="dialog">
     <div class="task-dialog-header">
       <h2>New Task</h2>
-      <button type="button" class="btn-close" aria-label="Close" data-task-dialog-close>&times;</button>
+      <button type="button" class="btn-close" aria-label="Close" data-task-dialog-close data-icon="x"></button>
     </div>
 
     <div class="task-dialog-body">

@@ -8,7 +8,10 @@ import 'turn_runner.dart';
 /// and channel turns via [TurnManager]. Runners at indices 1..N-1 form the
 /// "task pool" — acquired by [TaskExecutor] for background task execution.
 ///
-/// When `maxConcurrent: 1`, the pool has only the primary runner and
+/// Task runners can be added lazily via [addRunner] — the pool starts with
+/// only the primary runner and grows on demand up to [maxConcurrentTasks].
+///
+/// When `maxConcurrentTasks == 0`, the pool has only the primary runner and
 /// [tryAcquire] always returns null, preserving single-harness sequential
 /// behavior.
 class HarnessPool {
@@ -21,8 +24,8 @@ class HarnessPool {
 
   HarnessPool({required List<TurnRunner> runners, int? maxConcurrentTasks})
     : assert(runners.isNotEmpty, 'Pool must have at least one runner'),
-      _maxConcurrentTasks = (maxConcurrentTasks ?? (runners.length - 1)).clamp(0, runners.length - 1),
-      _runners = List.unmodifiable(runners) {
+      _maxConcurrentTasks = maxConcurrentTasks ?? (runners.length - 1),
+      _runners = List<TurnRunner>.of(runners) {
     // Indices 1..N-1 start as available task runners.
     for (var i = 1; i < _runners.length; i++) {
       _available.add(_runners[i]);
@@ -35,6 +38,23 @@ class HarnessPool {
 
   /// All runners in the pool, including the primary runner.
   List<TurnRunner> get runners => _runners;
+
+  /// Adds a lazily-spawned task runner to the pool.
+  ///
+  /// The runner is immediately available for acquisition. Throws if the pool
+  /// has already reached [maxConcurrentTasks] task runners.
+  void addRunner(TurnRunner runner) {
+    final taskRunnerCount = _runners.length - 1;
+    if (taskRunnerCount >= _maxConcurrentTasks) {
+      throw StateError('Pool already at capacity ($taskRunnerCount/$_maxConcurrentTasks task runners)');
+    }
+    _runners.add(runner);
+    _available.add(runner);
+    _log.info('Added task runner (pool: ${_runners.length - 1}/$_maxConcurrentTasks task runners)');
+  }
+
+  /// Number of additional task runners that can still be spawned.
+  int get spawnableCount => _maxConcurrentTasks - (_runners.length - 1);
 
   /// Acquires an idle task runner from the pool (indices 1..N-1).
   /// Returns null if all task runners are busy or no task runners exist.

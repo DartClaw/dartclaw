@@ -23,7 +23,7 @@ String sessionInfoTemplate({
   List<Map<String, String>> recentTurns = const [],
   String appName = 'DartClaw',
 }) {
-  final displayTitle = sessionTitle.trim().isEmpty ? 'New Session' : sessionTitle;
+  final displayTitle = sessionTitle.trim().isEmpty ? 'New Chat' : sessionTitle;
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
   final normalizedDefaultProvider = ProviderIdentity.normalize(defaultProvider);
   final normalizedProvider = ProviderIdentity.normalize(provider, fallback: normalizedDefaultProvider);
@@ -73,4 +73,3 @@ String _formatNumber(int n) {
   if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
   return n.toString();
 }
-

@@ -31,6 +31,7 @@ class TaskExecutor {
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? observer,
+    Future<void> Function()? onSpawnNeeded,
     this.pollInterval = const Duration(seconds: 2),
   }) : _tasks = tasks,
        _goals = goals,
@@ -41,7 +42,8 @@ class TaskExecutor {
        _artifactCollector = artifactCollector,
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
-       _observer = observer;
+       _observer = observer,
+       _onSpawnNeeded = onSpawnNeeded;
 
   static final _log = Logger('TaskExecutor');
 
@@ -55,10 +57,12 @@ class TaskExecutor {
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
   final AgentObserver? _observer;
+  final Future<void> Function()? _onSpawnNeeded;
   final Duration pollInterval;
 
   Timer? _timer;
   Future<bool>? _inFlightPoll;
+  bool _isSpawning = false;
 
   void start() {
     if (_timer != null) return;
@@ -93,6 +97,11 @@ class TaskExecutor {
     if (_pool.maxConcurrentTasks > 0) {
       final queued = await _tasks.list(status: TaskStatus.queued);
       if (queued.isEmpty) return false;
+
+      // Lazy pool growth: spawn a runner if tasks are waiting but none available.
+      if (_pool.availableCount == 0 && _pool.spawnableCount > 0 && !_isSpawning) {
+        _triggerSpawn();
+      }
 
       queued.sort((a, b) {
         final createdAtCompare = a.createdAt.compareTo(b.createdAt);
@@ -347,6 +356,17 @@ class TaskExecutor {
       return _pool.tryAcquire();
     }
     return null;
+  }
+
+  void _triggerSpawn() {
+    final callback = _onSpawnNeeded;
+    if (callback == null) return;
+    _isSpawning = true;
+    unawaited(
+      callback().whenComplete(() {
+        _isSpawning = false;
+      }),
+    );
   }
 
   Future<String?> _composePendingMessage(Task task, String sessionId, {String? workingDirectory}) async {

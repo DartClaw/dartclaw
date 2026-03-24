@@ -16,6 +16,11 @@ class AgentMetrics {
   final int tokensConsumed;
   final int turnsCompleted;
   final int errorCount;
+  final int cacheReadTokens;
+  final int cacheWriteTokens;
+  final int totalTurnDurationMs;
+  final int totalToolCalls;
+  final int failedToolCalls;
 
   const AgentMetrics({
     required this.runnerId,
@@ -27,6 +32,11 @@ class AgentMetrics {
     this.tokensConsumed = 0,
     this.turnsCompleted = 0,
     this.errorCount = 0,
+    this.cacheReadTokens = 0,
+    this.cacheWriteTokens = 0,
+    this.totalTurnDurationMs = 0,
+    this.totalToolCalls = 0,
+    this.failedToolCalls = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -39,6 +49,11 @@ class AgentMetrics {
     'tokensConsumed': tokensConsumed,
     'turnsCompleted': turnsCompleted,
     'errorCount': errorCount,
+    'cacheReadTokens': cacheReadTokens,
+    'cacheWriteTokens': cacheWriteTokens,
+    'totalTurnDurationMs': totalTurnDurationMs,
+    'totalToolCalls': totalToolCalls,
+    'failedToolCalls': failedToolCalls,
   };
 }
 
@@ -86,13 +101,27 @@ class AgentObserver {
   }
 
   /// Record a completed turn for a runner, updating token and error counters.
-  void recordTurn(int runnerId, {required int inputTokens, required int outputTokens, required bool isError}) {
+  void recordTurn(
+    int runnerId, {
+    required int inputTokens,
+    required int outputTokens,
+    required bool isError,
+    Duration? turnDuration,
+    int cacheReadTokens = 0,
+    int cacheWriteTokens = 0,
+    List<ToolCallRecord> toolCalls = const [],
+  }) {
     if (runnerId < 0) return;
     _ensureCapacity(runnerId);
     final m = _metrics[runnerId];
     m.tokensConsumed += inputTokens + outputTokens;
     m.turnsCompleted++;
     if (isError) m.errorCount++;
+    m.cacheReadTokens += cacheReadTokens;
+    m.cacheWriteTokens += cacheWriteTokens;
+    m.totalTurnDurationMs += turnDuration?.inMilliseconds ?? 0;
+    m.totalToolCalls += toolCalls.length;
+    m.failedToolCalls += toolCalls.where((t) => !t.success).length;
   }
 
   /// Current metrics snapshot for all runners.
@@ -135,6 +164,11 @@ class _MutableMetrics {
   int tokensConsumed = 0;
   int turnsCompleted = 0;
   int errorCount = 0;
+  int cacheReadTokens = 0;
+  int cacheWriteTokens = 0;
+  int totalTurnDurationMs = 0;
+  int totalToolCalls = 0;
+  int failedToolCalls = 0;
 
   _MutableMetrics({required this.runnerId, required this.providerId});
 
@@ -148,5 +182,10 @@ class _MutableMetrics {
     tokensConsumed: tokensConsumed,
     turnsCompleted: turnsCompleted,
     errorCount: errorCount,
+    cacheReadTokens: cacheReadTokens,
+    cacheWriteTokens: cacheWriteTokens,
+    totalTurnDurationMs: totalTurnDurationMs,
+    totalToolCalls: totalToolCalls,
+    failedToolCalls: failedToolCalls,
   );
 }

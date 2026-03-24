@@ -7,7 +7,11 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'merge_executor.dart';
+import 'pr_creator.dart';
+import 'remote_push_service.dart';
+import 'task_event_recorder.dart';
 import 'task_file_guard.dart';
+import 'task_project_ref.dart';
 import 'task_service.dart';
 import 'worktree_manager.dart';
 
@@ -16,11 +20,8 @@ import 'worktree_manager.dart';
 /// Invoked by [TaskReviewService] after a `push_back` transitions a task
 /// from `review` to `running`. Delivery is best-effort — a failed callback
 /// does not roll back the state transition.
-typedef PushBackFeedbackDelivery = Future<void> Function({
-  required String taskId,
-  required String sessionKey,
-  required String feedback,
-});
+typedef PushBackFeedbackDelivery =
+    Future<void> Function({required String taskId, required String sessionKey, required String feedback});
 
 /// Result of a task review action.
 sealed class ReviewResult {
@@ -95,37 +96,47 @@ class TaskReviewService {
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
   final MergeExecutor? _mergeExecutor;
+  final RemotePushService? _remotePushService;
+  final PrCreator? _prCreator;
+  final ProjectService? _projectService;
   final String? _dataDir;
   final String _mergeStrategy;
   final String _baseRef;
   final PushBackFeedbackDelivery? _pushBackFeedbackDelivery;
+  final TaskEventRecorder? _eventRecorder;
   final Map<String, Future<void>> _reviewLocks = <String, Future<void>>{};
 
   TaskReviewService({
     required TaskService tasks,
     // eventBus is accepted for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
-    EventBus? eventBus,
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     MergeExecutor? mergeExecutor,
+    RemotePushService? remotePushService,
+    PrCreator? prCreator,
+    ProjectService? projectService,
     String? dataDir,
     String mergeStrategy = 'squash',
     String baseRef = 'main',
     PushBackFeedbackDelivery? pushBackFeedbackDelivery,
+    TaskEventRecorder? eventRecorder,
   }) : _tasks = tasks,
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
        _mergeExecutor = mergeExecutor,
+       _remotePushService = remotePushService,
+       _prCreator = prCreator,
+       _projectService = projectService,
        _dataDir = dataDir,
        _mergeStrategy = mergeStrategy,
        _baseRef = baseRef,
-       _pushBackFeedbackDelivery = pushBackFeedbackDelivery;
+       _pushBackFeedbackDelivery = pushBackFeedbackDelivery,
+       _eventRecorder = eventRecorder;
 
   /// Builds a channel-facing review handler backed by this service.
   ChannelReviewHandler channelReviewHandler({String trigger = 'channel'}) {
-    return (taskId, action, {String? comment}) =>
-        reviewForChannel(taskId, action, comment: comment, trigger: trigger);
+    return (taskId, action, {String? comment}) => reviewForChannel(taskId, action, comment: comment, trigger: trigger);
   }
 
   /// Executes a review action for [taskId].
@@ -167,7 +178,9 @@ class TaskReviewService {
     }
 
     final trimmedComment = comment?.trim();
-    if (targetStatus == TaskStatus.running && action == 'push_back' && (trimmedComment == null || trimmedComment.isEmpty)) {
+    if (targetStatus == TaskStatus.running &&
+        action == 'push_back' &&
+        (trimmedComment == null || trimmedComment.isEmpty)) {
       return const ReviewInvalidRequest('comment must not be empty for push_back');
     }
 
@@ -190,29 +203,36 @@ class TaskReviewService {
         );
       }
 
-      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && _mergeExecutor == null) {
-        return const ReviewActionFailed(
-          'Merge infrastructure is not available. Use the web UI or configure merge support.',
-        );
-      }
+      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null) {
+        final isProjectBacked = taskTargetsExternalProject(task);
 
-      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && _mergeExecutor != null) {
-        final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
-        final strategy = _mergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash;
-        final mergeResult = await _mergeExecutor.merge(
-          branch: worktreeInfo.branch,
-          baseRef: _baseRef,
-          taskId: taskId,
-          taskTitle: task.title,
-          strategy: strategy,
-        );
-        if (mergeResult case MergeConflict(:final conflictingFiles, :final details)) {
-          await _persistConflictArtifact(taskId, mergeResult);
-          return ReviewMergeConflict(
+        if (isProjectBacked) {
+          final earlyFailure = await _handleProjectAccept(task);
+          if (earlyFailure != null) return earlyFailure;
+          // null means push succeeded — continue to transition
+        } else if (_mergeExecutor != null) {
+          // Existing local merge flow (unchanged).
+          final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
+          final strategy = _mergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash;
+          final mergeResult = await _mergeExecutor.merge(
+            branch: worktreeInfo.branch,
+            baseRef: _baseRef,
             taskId: taskId,
             taskTitle: task.title,
-            conflictingFiles: conflictingFiles,
-            details: details,
+            strategy: strategy,
+          );
+          if (mergeResult case MergeConflict(:final conflictingFiles, :final details)) {
+            await _persistConflictArtifact(taskId, mergeResult);
+            return ReviewMergeConflict(
+              taskId: taskId,
+              taskTitle: task.title,
+              conflictingFiles: conflictingFiles,
+              details: details,
+            );
+          }
+        } else {
+          return const ReviewActionFailed(
+            'Merge infrastructure is not available. Use the web UI or configure merge support.',
           );
         }
       }
@@ -230,6 +250,11 @@ class TaskReviewService {
         trigger: trigger,
       );
 
+      // Record push-back event on the task timeline.
+      if (targetStatus == TaskStatus.running && action == 'push_back' && trimmedComment != null) {
+        _eventRecorder?.recordPushBack(taskId, comment: trimmedComment);
+      }
+
       // Deliver push-back feedback as a new turn message to the task's session.
       if (targetStatus == TaskStatus.running && action == 'push_back' && trimmedComment != null) {
         final delivery = _pushBackFeedbackDelivery;
@@ -239,19 +264,20 @@ class TaskReviewService {
             try {
               await delivery(taskId: taskId, sessionKey: sessionKey, feedback: trimmedComment);
             } catch (error, stackTrace) {
-              _log.warning(
-                'Failed to deliver push-back feedback for task $taskId',
-                error,
-                stackTrace,
-              );
+              _log.warning('Failed to deliver push-back feedback for task $taskId', error, stackTrace);
               // Non-fatal — task is already transitioned. Feedback delivery is best-effort.
             }
           }
         }
       }
 
-      if ((targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) && task.worktreeJson != null) {
-        await _cleanupWorktree(taskId);
+      // Project-backed accepts already cleaned up in _handleProjectAccept.
+      final isProjectBackedAccept = targetStatus == TaskStatus.accepted && taskTargetsExternalProject(task);
+      if (!isProjectBackedAccept &&
+          (targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) &&
+          task.worktreeJson != null) {
+        final cleanupProject = await _cleanupProjectForTask(task);
+        await _cleanupWorktree(taskId, project: cleanupProject);
       }
 
       return ReviewSuccess(updated);
@@ -271,6 +297,132 @@ class TaskReviewService {
     } catch (error, stackTrace) {
       _log.warning('Unexpected failure while attempting to ${_displayAction(action)} task $taskId', error, stackTrace);
       return const ReviewActionFailed('Review action failed. Please try again or use the web UI.');
+    }
+  }
+
+  /// Handles the accept flow for project-backed tasks (push to remote + optional PR).
+  ///
+  /// Returns null on success (caller continues to transition), or a [ReviewResult]
+  /// on failure (task stays in review).
+  Future<ReviewResult?> _handleProjectAccept(Task task) async {
+    if (_remotePushService == null || _projectService == null) {
+      return const ReviewActionFailed('Push infrastructure is not available.');
+    }
+
+    final projectId = taskProjectId(task);
+    if (projectId == null) {
+      return const ReviewActionFailed('Task is not bound to a project.');
+    }
+
+    final project = await _projectService.get(projectId);
+    if (project == null) {
+      return ReviewActionFailed('Project "$projectId" not found.');
+    }
+
+    final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
+    final branch = worktreeInfo.branch;
+
+    final pushResult = await _remotePushService.push(project: project, branch: branch);
+
+    switch (pushResult) {
+      case PushSuccess():
+        await _handlePostPushArtifact(task.id, project, branch, task);
+        // Successful push — clean up worktree.
+        await _cleanupWorktree(task.id, project: project);
+        return null;
+
+      case PushAuthFailure(:final details):
+        await _persistPushErrorArtifact(task.id, 'Authentication failed: $details');
+        return ReviewActionFailed('Failed to push branch: $details');
+
+      case PushRejected(:final reason):
+        await _persistPushErrorArtifact(task.id, 'Remote rejected push: $reason');
+        return ReviewActionFailed('Remote rejected push: $reason');
+
+      case PushError(:final message):
+        await _persistPushErrorArtifact(task.id, 'Push failed: $message');
+        return ReviewActionFailed('Failed to push branch: $message');
+    }
+  }
+
+  /// Stores a PR URL, branch name, or instruction artifact after a successful push.
+  Future<void> _handlePostPushArtifact(String taskId, Project project, String branch, Task task) async {
+    final prCreator = _prCreator;
+
+    if (project.pr.strategy == PrStrategy.githubPr && prCreator != null) {
+      final prResult = await prCreator.create(project: project, task: task, branch: branch);
+      switch (prResult) {
+        case PrCreated(:final url):
+          await _persistPrArtifact(taskId, 'Pull Request', ArtifactKind.pr, url, isFilePath: false);
+
+        case PrGhNotFound(:final instructions):
+          await _persistPrArtifact(taskId, 'PR Instructions', ArtifactKind.pr, instructions, isFilePath: true);
+
+        case PrCreationFailed(:final error, :final details):
+          // Push succeeded — PR creation is best-effort. Store a warning artifact.
+          final content = 'PR creation warning: $error\n$details';
+          await _persistPrArtifact(taskId, 'PR Creation Warning', ArtifactKind.pr, content, isFilePath: true);
+      }
+    } else {
+      // branch-only strategy or no prCreator: store branch name.
+      await _persistPrArtifact(taskId, 'Branch', ArtifactKind.pr, branch, isFilePath: false);
+    }
+  }
+
+  /// Persists a push error artifact to the task's artifact directory.
+  Future<void> _persistPushErrorArtifact(String taskId, String errorDetails) async {
+    if (_dataDir == null) return;
+    try {
+      final artifactDir = Directory('$_dataDir/tasks/$taskId/artifacts');
+      await artifactDir.create(recursive: true);
+      final errorFile = File('${artifactDir.path}/push-error.txt');
+      await errorFile.writeAsString(errorDetails);
+      await _tasks.addArtifact(
+        id: const Uuid().v4(),
+        taskId: taskId,
+        name: 'Push Error',
+        kind: ArtifactKind.data,
+        path: errorFile.path,
+      );
+    } catch (error) {
+      _log.warning('Failed to persist push error artifact for task $taskId: $error');
+    }
+  }
+
+  /// Persists a PR-related artifact.
+  ///
+  /// When [isFilePath] is true, writes [content] to a file and stores the path.
+  /// When [isFilePath] is false, stores [content] directly as the artifact path
+  /// (e.g. a PR URL or branch name).
+  Future<void> _persistPrArtifact(
+    String taskId,
+    String name,
+    ArtifactKind kind,
+    String content, {
+    required bool isFilePath,
+  }) async {
+    try {
+      String artifactPath;
+
+      if (isFilePath) {
+        if (_dataDir == null) {
+          _log.warning('Cannot persist PR artifact: dataDir not set');
+          return;
+        }
+        final artifactDir = Directory('$_dataDir/tasks/$taskId/artifacts');
+        await artifactDir.create(recursive: true);
+        final safeName = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+        final file = File('${artifactDir.path}/$safeName.txt');
+        await file.writeAsString(content);
+        artifactPath = file.path;
+      } else {
+        // Content is a URL or branch name — store directly.
+        artifactPath = content;
+      }
+
+      await _tasks.addArtifact(id: const Uuid().v4(), taskId: taskId, name: name, kind: kind, path: artifactPath);
+    } catch (error) {
+      _log.warning('Failed to persist PR artifact "$name" for task $taskId: $error');
     }
   }
 
@@ -327,13 +479,21 @@ class TaskReviewService {
     return updated;
   }
 
-  Future<void> _cleanupWorktree(String taskId) async {
+  Future<void> _cleanupWorktree(String taskId, {Project? project}) async {
     try {
-      await _worktreeManager?.cleanup(taskId);
+      await _worktreeManager?.cleanup(taskId, project: project);
     } catch (error) {
       _log.warning('Failed to cleanup worktree for task $taskId: $error');
     }
     _taskFileGuard?.deregister(taskId);
+  }
+
+  Future<Project?> _cleanupProjectForTask(Task task) async {
+    final projectId = taskProjectId(task);
+    if (projectId == null || projectId == '_local') {
+      return null;
+    }
+    return _projectService?.get(projectId);
   }
 
   /// Extracts the session key from a task's [TaskOrigin] stored in [configJson].

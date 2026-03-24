@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.13**
+> Current through: **0.14**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -149,11 +149,14 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ├── audit-YYYY-MM-DD.ndjson           # Guard audit log partitions with retention cleanup
 ├── usage.jsonl                       # Token tracking (append + rotate)
 ├── state.db                          # Active turn recovery state
+├── projects.json                     # Project registry (multi-project support)
 ├── sessions/
 │   ├── .session_keys.json            # Deterministic key → UUID index
 │   └── <uuid>/
 │       ├── meta.json                 # Session metadata
 │       └── messages.ndjson           # Conversation transcript (append-only)
+├── projects/
+│   └── <projectId>/                  # Git repository clones
 └── workspace/
     ├── MEMORY.md                     # Long-term memory
     ├── errors.md                     # Auto-populated error log
@@ -170,7 +173,7 @@ Mutable files use atomic writes (temp file + rename) to prevent corruption on cr
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
 | `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from MEMORY.md, rebuildable via `dartclaw rebuild-index` |
-| `tasks.db` | Tasks, goals, task artifacts | Yes — relational data with state machine transitions |
+| `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 | `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
 ### Crash Recovery
@@ -251,15 +254,29 @@ Key components:
 
 - **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_server`
 - **TaskExecutor** — polls for queued tasks, acquires a harness from the pool, executes the task, collects artifacts
-- **WorktreeManager** — for coding tasks, creates git worktrees so the agent works on an isolated branch. On accept, changes are merged (squash or merge). On reject, the worktree is cleaned up
+- **WorktreeManager** — for coding tasks, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
 - **AgentObserver** — tracks per-runner state (idle/busy) and metrics for the observability API
+- **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
 
 Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
 
 Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
 
 For a user-facing comparison of task runners vs subagent delegation (the two agent execution models), see the [Agents guide](agents.md).
+
+## Project Management
+
+Added in 0.14. DartClaw can manage multiple git repositories, routing coding tasks to the correct project and pushing results back on accept.
+
+**How it works**:
+1. Register an external git repository via the web UI (`/tasks`) or the config API. Provide the remote URL and optionally a credential reference (SSH key or token name stored in the credential store).
+2. DartClaw clones the repository into `<dataDir>/projects/<projectId>/` and keeps it fresh with periodic auto-fetch.
+3. When a coding task targets that project, `WorktreeManager` creates an isolated git worktree for the task's working branch — the agent operates in this worktree, isolated from other concurrent tasks.
+4. On task accept, the result is pushed to the remote as a branch (or as a pull request, if `prStrategy: pr` is configured).
+5. On task reject, the worktree is cleaned up.
+
+**Backward compatibility**: If no projects are configured, DartClaw synthesizes an implicit `_local` project from the directory where `dartclaw serve` was started. Existing single-project deployments work unchanged — no migration required.
 
 ## Container Isolation
 

@@ -14,6 +14,8 @@ export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
 export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
 export 'src/storage/task_db.dart' show TaskDbFactory, openTaskDb, openTaskDbInMemory;
 export 'src/storage/turn_state_store.dart' show TurnStateStore;
+export 'src/storage/task_event_service.dart' show TaskEventService;
+export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
 
 // Search backends
 export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;

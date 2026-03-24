@@ -204,7 +204,8 @@ void main() {
       expect(turnComplete.stopReason, 'end_turn');
       expect(turnComplete.inputTokens, 12);
       expect(turnComplete.outputTokens, 34);
-      expect(turnComplete.cachedInputTokens, 7);
+      expect(turnComplete.cacheReadTokens, 7);
+      expect(turnComplete.cacheWriteTokens, 0);
     });
 
     test('returns null for malformed JSON', () {

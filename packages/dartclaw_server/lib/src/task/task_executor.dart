@@ -1,15 +1,20 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
+import 'package:uuid/uuid.dart';
 
+import '../behavior/behavior_file_service.dart';
 import '../harness_pool.dart';
 import '../turn_manager.dart';
 import '../turn_runner.dart';
 import 'agent_observer.dart';
 import 'artifact_collector.dart';
 import 'goal_service.dart';
+import 'task_event_recorder.dart';
 import 'task_file_guard.dart';
+import 'task_project_ref.dart';
 import 'task_service.dart';
 import 'worktree_manager.dart';
 
@@ -31,7 +36,13 @@ class TaskExecutor {
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? observer,
+    TurnTraceService? traceService,
+    TaskEventRecorder? eventRecorder,
     Future<void> Function()? onSpawnNeeded,
+    ProjectService? projectService,
+    String? workspaceDir,
+    int? maxMemoryBytes,
+    String? compactInstructions,
     this.pollInterval = const Duration(seconds: 2),
   }) : _tasks = tasks,
        _goals = goals,
@@ -43,9 +54,16 @@ class TaskExecutor {
        _worktreeManager = worktreeManager,
        _taskFileGuard = taskFileGuard,
        _observer = observer,
-       _onSpawnNeeded = onSpawnNeeded;
+       _traceService = traceService,
+       _eventRecorder = eventRecorder,
+       _onSpawnNeeded = onSpawnNeeded,
+       _projectService = projectService,
+       _workspaceDir = workspaceDir,
+       _maxMemoryBytes = maxMemoryBytes,
+       _compactInstructions = compactInstructions;
 
   static final _log = Logger('TaskExecutor');
+  static const _uuid = Uuid();
 
   final TaskService _tasks;
   final GoalService? _goals;
@@ -57,7 +75,13 @@ class TaskExecutor {
   final WorktreeManager? _worktreeManager;
   final TaskFileGuard? _taskFileGuard;
   final AgentObserver? _observer;
+  final TurnTraceService? _traceService;
+  final TaskEventRecorder? _eventRecorder;
   final Future<void> Function()? _onSpawnNeeded;
+  final ProjectService? _projectService;
+  final String? _workspaceDir;
+  final int? _maxMemoryBytes;
+  final String? _compactInstructions;
   final Duration pollInterval;
 
   Timer? _timer;
@@ -109,8 +133,17 @@ class TaskExecutor {
         return a.id.compareTo(b.id);
       });
 
-      var started = false;
+      var didWork = false;
       for (final task in queued) {
+        final disposition = await _prepareQueuedTask(task);
+        if (disposition == _QueuedTaskDisposition.waiting) {
+          continue;
+        }
+        if (disposition == _QueuedTaskDisposition.handled) {
+          didWork = true;
+          continue;
+        }
+
         final profile = resolveProfile(task.type);
         final runner = _acquirePoolRunner(profile, provider: task.provider);
         if (runner == null) {
@@ -124,11 +157,11 @@ class TaskExecutor {
           continue;
         }
 
-        started = true;
+        didWork = true;
         _observer?.markBusy(runnerIndex, taskId: runningTask.id);
         unawaited(_runPoolTask(runningTask, runner, runnerIndex: runnerIndex));
       }
-      return started;
+      return didWork;
     }
 
     // Single-harness fallback: use primary runner directly when idle.
@@ -145,20 +178,33 @@ class TaskExecutor {
       return a.id.compareTo(b.id);
     });
 
-    final task = queued.first;
-    _observer?.markBusy(0, taskId: task.id);
-    final runningTask = await _checkout(task);
-    if (runningTask == null) {
-      _observer?.markIdle(0);
-      return false;
+    var didWork = false;
+    for (final task in queued) {
+      final disposition = await _prepareQueuedTask(task);
+      if (disposition == _QueuedTaskDisposition.waiting) {
+        continue;
+      }
+      if (disposition == _QueuedTaskDisposition.handled) {
+        didWork = true;
+        continue;
+      }
+
+      _observer?.markBusy(0, taskId: task.id);
+      final runningTask = await _checkout(task);
+      if (runningTask == null) {
+        _observer?.markIdle(0);
+        continue;
+      }
+
+      try {
+        await _execute(runningTask);
+        return true;
+      } finally {
+        _observer?.markIdle(0);
+      }
     }
 
-    try {
-      await _execute(runningTask);
-      return true;
-    } finally {
-      _observer?.markIdle(0);
-    }
+    return didWork;
   }
 
   Future<void> _runPoolTask(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
@@ -178,13 +224,55 @@ class TaskExecutor {
     }
   }
 
+  Future<_QueuedTaskDisposition> _prepareQueuedTask(Task task) async {
+    final projectService = _projectService;
+    if (projectService == null) {
+      return _QueuedTaskDisposition.ready;
+    }
+
+    final projectId = taskProjectId(task);
+    if (projectId == null) {
+      return _QueuedTaskDisposition.ready;
+    }
+
+    final project = await projectService.get(projectId);
+    if (project == null) {
+      await _markFailed(task, errorSummary: 'Project "$projectId" not found');
+      return _QueuedTaskDisposition.handled;
+    }
+
+    if (project.status == ProjectStatus.cloning) {
+      return _QueuedTaskDisposition.waiting;
+    }
+
+    if (project.status == ProjectStatus.error) {
+      final detail = project.errorMessage?.trim();
+      final summary = (detail == null || detail.isEmpty)
+          ? 'Project "${project.name}" failed to clone'
+          : 'Project "${project.name}" failed to clone: $detail';
+      await _markFailed(task, errorSummary: summary);
+      return _QueuedTaskDisposition.handled;
+    }
+
+    return _QueuedTaskDisposition.ready;
+  }
+
   /// Pool-mode execution: uses a specific acquired [runner].
   Future<void> _executeWithRunner(Task runningTask, TurnRunner runner, {required int runnerIndex}) async {
     return _executeCore(
       runningTask,
       runnerIndex: runnerIndex,
-      reserveTurn: (sessionId, {String? directory, String? model, String? effort}) =>
-          runner.reserveTurn(sessionId, agentName: 'task', directory: directory, model: model, effort: effort),
+      provider: runner.providerId,
+      reserveTurn:
+          (sessionId, {String? directory, String? model, String? effort, BehaviorFileService? behaviorOverride}) =>
+              runner.reserveTurn(
+                sessionId,
+                agentName: 'task',
+                directory: directory,
+                model: model,
+                effort: effort,
+                behaviorOverride: behaviorOverride,
+              ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
     );
@@ -195,8 +283,15 @@ class TaskExecutor {
     return _executeCore(
       runningTask,
       runnerIndex: 0,
-      reserveTurn: (sessionId, {String? directory, String? model, String? effort}) =>
-          _reserveSharedTurn(sessionId, directory: directory, model: model, effort: effort),
+      reserveTurn:
+          (sessionId, {String? directory, String? model, String? effort, BehaviorFileService? behaviorOverride}) =>
+              _reserveSharedTurn(
+                sessionId,
+                directory: directory,
+                model: model,
+                effort: effort,
+                behaviorOverride: behaviorOverride,
+              ),
       executeTurn: _turns.executeTurn,
       waitForOutcome: _turns.waitForOutcome,
     );
@@ -206,7 +301,15 @@ class TaskExecutor {
   Future<void> _executeCore(
     Task runningTask, {
     required int runnerIndex,
-    required Future<String> Function(String sessionId, {String? directory, String? model, String? effort}) reserveTurn,
+    String? provider,
+    required Future<String> Function(
+      String sessionId, {
+      String? directory,
+      String? model,
+      String? effort,
+      BehaviorFileService? behaviorOverride,
+    })
+    reserveTurn,
     required void Function(
       String sessionId,
       String turnId,
@@ -219,10 +322,43 @@ class TaskExecutor {
   }) async {
     var task = runningTask;
     WorktreeInfo? worktreeInfo;
+    Project? project;
     try {
+      // Resolve project for this task.
+      final projectService = _projectService;
+      if (projectService != null) {
+        final projectId = taskProjectId(task);
+        if (projectId != null) {
+          project = await projectService.get(projectId);
+          if (project == null) {
+            await _markFailed(task, errorSummary: 'Project "$projectId" not found');
+            return;
+          }
+          if (project.status == ProjectStatus.error) {
+            await _markFailed(
+              task,
+              errorSummary: project.errorMessage?.trim().isNotEmpty == true
+                  ? 'Project "${project.name}" failed to clone: ${project.errorMessage!.trim()}'
+                  : 'Project "${project.name}" failed to clone',
+            );
+            return;
+          }
+          if (project.status == ProjectStatus.cloning) {
+            await _markFailed(task, errorSummary: 'Project "${project.name}" is still cloning');
+            return;
+          }
+        } else {
+          project = await projectService.getDefaultProject();
+        }
+        // Auto-fetch — best-effort; never throws.
+        await projectService.ensureFresh(project);
+      }
+
       // Worktree setup for coding tasks
       if (task.type == TaskType.coding && _worktreeManager != null) {
-        worktreeInfo = await _worktreeManager.create(task.id);
+        // Pass project only when it's not the implicit _local project.
+        final worktreeProject = (project != null && project.id != '_local') ? project : null;
+        worktreeInfo = await _worktreeManager.create(task.id, project: worktreeProject);
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
       }
@@ -268,11 +404,24 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
+      // Create task-scoped BehaviorFileService for project-backed tasks.
+      BehaviorFileService? taskBehavior;
+      final workspaceDir = _workspaceDir;
+      if (project != null && project.id != '_local' && workspaceDir != null) {
+        taskBehavior = BehaviorFileService(
+          workspaceDir: workspaceDir,
+          projectDir: project.localPath,
+          maxMemoryBytes: _maxMemoryBytes,
+          compactInstructions: _compactInstructions,
+        );
+      }
+
       final turnId = await reserveTurn(
         session.id,
         directory: worktreeInfo?.path,
         model: modelOverride,
         effort: effortOverride,
+        behaviorOverride: taskBehavior,
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
@@ -281,14 +430,58 @@ class TaskExecutor {
         inputTokens: outcome.inputTokens,
         outputTokens: outcome.outputTokens,
         isError: outcome.status != TurnStatus.completed,
+        turnDuration: outcome.turnDuration,
+        cacheReadTokens: outcome.cacheReadTokens,
+        cacheWriteTokens: outcome.cacheWriteTokens,
+        toolCalls: outcome.toolCalls,
       );
+
+      // S08: Record synchronous token update + tool call events (NF04 durability).
+      // Must execute before S07's fire-and-forget trace write.
+      final recorder = _eventRecorder;
+      if (recorder != null) {
+        recorder.recordTokenUpdate(
+          task.id,
+          inputTokens: outcome.inputTokens,
+          outputTokens: outcome.outputTokens,
+          cacheReadTokens: outcome.cacheReadTokens,
+          cacheWriteTokens: outcome.cacheWriteTokens,
+        );
+        for (final tc in outcome.toolCalls) {
+          recorder.recordToolCalled(
+            task.id,
+            name: tc.name,
+            success: tc.success,
+            durationMs: tc.durationMs,
+            errorType: tc.errorType,
+            context: tc.context,
+          );
+        }
+      }
+
+      final traceService = _traceService;
+      if (traceService != null) {
+        unawaited(
+          _persistTrace(
+            traceService,
+            outcome: outcome,
+            taskId: task.id,
+            runnerId: runnerIndex,
+            model: modelOverride,
+            provider: provider,
+          ),
+        );
+      }
 
       if (outcome.status == TurnStatus.completed) {
         final refreshed = await _tasks.get(task.id) ?? task;
         if (refreshed.status == TaskStatus.cancelled) {
           return;
         }
-        await _artifactCollector.collect(refreshed);
+        final artifacts = await _artifactCollector.collect(refreshed);
+        for (final artifact in artifacts) {
+          _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
+        }
         if (tokenBudget != null && outcome.totalTokens > tokenBudget) {
           _log.warning('Task ${task.id} exceeded token budget ($tokenBudget < ${outcome.totalTokens}); marking failed');
           await _markFailed(
@@ -326,7 +519,13 @@ class TaskExecutor {
     }
   }
 
-  Future<String> _reserveSharedTurn(String sessionId, {String? directory, String? model, String? effort}) async {
+  Future<String> _reserveSharedTurn(
+    String sessionId, {
+    String? directory,
+    String? model,
+    String? effort,
+    BehaviorFileService? behaviorOverride,
+  }) async {
     while (true) {
       try {
         return await _turns.reserveTurn(
@@ -335,6 +534,7 @@ class TaskExecutor {
           directory: directory,
           model: model,
           effort: effort,
+          behaviorOverride: behaviorOverride,
         );
       } on BusyTurnException {
         await Future<void>.delayed(pollInterval);
@@ -487,6 +687,9 @@ class TaskExecutor {
   }
 
   Future<void> _markFailed(Task task, {String? errorSummary}) async {
+    if (errorSummary != null) {
+      _eventRecorder?.recordError(task.id, message: errorSummary);
+    }
     try {
       final current = await _tasks.get(task.id);
       if (current == null || current.status.terminal) {
@@ -508,6 +711,41 @@ class TaskExecutor {
 
   String _defaultTurnFailureSummary(TurnStatus status) =>
       status == TurnStatus.cancelled ? 'Turn cancelled' : 'Turn execution failed';
+
+  Future<void> _persistTrace(
+    TurnTraceService traceService, {
+    required TurnOutcome outcome,
+    required String taskId,
+    required int runnerId,
+    String? model,
+    String? provider,
+  }) async {
+    try {
+      final endedAt = outcome.completedAt;
+      final startedAt = endedAt.subtract(outcome.turnDuration);
+      await traceService.insert(
+        TurnTrace(
+          id: _uuid.v4(),
+          sessionId: outcome.sessionId,
+          taskId: taskId,
+          runnerId: runnerId,
+          model: model,
+          provider: provider,
+          startedAt: startedAt,
+          endedAt: endedAt,
+          inputTokens: outcome.inputTokens,
+          outputTokens: outcome.outputTokens,
+          cacheReadTokens: outcome.cacheReadTokens,
+          cacheWriteTokens: outcome.cacheWriteTokens,
+          isError: outcome.status != TurnStatus.completed,
+          errorType: outcome.status != TurnStatus.completed ? outcome.errorMessage : null,
+          toolCalls: outcome.toolCalls,
+        ),
+      );
+    } catch (e, st) {
+      _log.warning('Failed to persist turn trace for task $taskId', e, st);
+    }
+  }
 
   String _sanitizeErrorSummary(String message) {
     final firstLine = message
@@ -537,3 +775,5 @@ class TaskExecutor {
     return '${normalized.substring(0, 197).trimRight()}...';
   }
 }
+
+enum _QueuedTaskDisposition { ready, waiting, handled }

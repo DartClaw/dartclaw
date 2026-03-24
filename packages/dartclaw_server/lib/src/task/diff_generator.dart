@@ -141,13 +141,15 @@ class DiffGenerator {
   ///
   /// Uses three-dot diff (`baseRef...branch`) to show only changes introduced
   /// on the branch, not changes on base since branching.
-  Future<DiffResult> generate({required String baseRef, required String branch}) async {
+  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
+    final workingDirectory = projectDir ?? _projectDir;
+
     // 1. Get file-level stats via numstat
     final numstatResult = await _runProcess('git', [
       'diff',
       '--numstat',
       '$baseRef...$branch',
-    ], workingDirectory: _projectDir);
+    ], workingDirectory: workingDirectory);
     if (numstatResult.exitCode != 0) {
       throw WorktreeException(
         'git diff --numstat failed',
@@ -162,7 +164,7 @@ class DiffGenerator {
       '-U3',
       '--no-color',
       '$baseRef...$branch',
-    ], workingDirectory: _projectDir);
+    ], workingDirectory: workingDirectory);
     if (unifiedResult.exitCode != 0) {
       throw WorktreeException(
         'git diff -U3 failed',

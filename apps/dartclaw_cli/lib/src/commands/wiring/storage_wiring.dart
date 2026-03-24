@@ -39,6 +39,9 @@ class StorageWiring {
   late Database _searchDb;
   late TaskService _taskService;
   late GoalService _goalService;
+  late TurnTraceService _traceService;
+  late TaskEventService _taskEventService;
+  late TaskEventRecorder _taskEventRecorder;
   late TurnStateStore _turnStateStore;
   late MemoryFileService _memoryFile;
   late MemoryService _memory;
@@ -51,6 +54,9 @@ class StorageWiring {
   Database get searchDb => _searchDb;
   TaskService get taskService => _taskService;
   GoalService get goalService => _goalService;
+  TurnTraceService get traceService => _traceService;
+  TaskEventService get taskEventService => _taskEventService;
+  TaskEventRecorder get taskEventRecorder => _taskEventRecorder;
   TurnStateStore get turnStateStore => _turnStateStore;
   MemoryFileService get memoryFile => _memoryFile;
   MemoryService get memory => _memory;
@@ -77,7 +83,10 @@ class StorageWiring {
       final taskRepository = SqliteTaskRepository(taskDb);
       final goalRepository = SqliteGoalRepository(taskDb);
       _goalService = GoalService(goalRepository);
-      _taskService = TaskService(taskRepository);
+      _traceService = TurnTraceService(taskDb);
+      _taskEventService = TaskEventService(taskDb);
+      _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
+      _taskService = TaskService(taskRepository, eventBus: _eventBus, eventRecorder: _taskEventRecorder);
     } catch (e, st) {
       try {
         _searchDb.close();

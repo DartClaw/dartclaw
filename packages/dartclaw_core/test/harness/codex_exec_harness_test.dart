@@ -251,7 +251,7 @@ void main() {
       expect(result['stop_reason'], 'end_turn');
       expect(result['input_tokens'], 12);
       expect(result['output_tokens'], 34);
-      expect(result['cached_input_tokens'], 7);
+      expect(result['cache_read_tokens'], 7);
     });
 
     test('turn() returns an error result when the process exits non-zero', () async {

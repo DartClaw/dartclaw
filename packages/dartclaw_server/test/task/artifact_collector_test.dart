@@ -314,6 +314,58 @@ void main() {
 
     expect(artifacts, isEmpty);
   });
+
+  test('project-backed coding task diffs against the selected project clone', () async {
+    final startedAt = DateTime.parse('2026-03-10T10:00:00Z');
+    final session = await sessions.createSession(type: SessionType.task);
+
+    final mockDiffGen = _MockDiffGenerator(
+      result: DiffResult(files: const [], totalAdditions: 0, totalDeletions: 0, filesChanged: 0),
+    );
+    final project = Project(
+      id: 'my-app',
+      name: 'My App',
+      remoteUrl: 'git@github.com:acme/my-app.git',
+      localPath: '/projects/my-app',
+      defaultBranch: 'develop',
+      status: ProjectStatus.ready,
+      createdAt: startedAt,
+    );
+    final collectorWithProject = ArtifactCollector(
+      tasks: tasks,
+      messages: messages,
+      sessionsDir: sessionsDir,
+      dataDir: tempDir.path,
+      workspaceDir: workspaceDir,
+      diffGenerator: mockDiffGen,
+      projectService: _FakeProjectService(project),
+      baseRef: 'main',
+    );
+
+    var task = await _createTask(
+      tasks,
+      id: 'task-project-diff',
+      type: TaskType.coding,
+      sessionId: session.id,
+      startedAt: startedAt,
+    );
+    task = await tasks.updateFields(
+      task.id,
+      projectId: 'my-app',
+      worktreeJson: const {
+        'path': '/tmp/worktree-project',
+        'branch': 'dartclaw/task-project-diff',
+        'createdAt': '2026-03-10T10:00:00.000Z',
+      },
+    );
+
+    final artifacts = await collectorWithProject.collect(task);
+
+    expect(artifacts, hasLength(1));
+    expect(mockDiffGen.lastBaseRef, 'origin/develop');
+    expect(mockDiffGen.lastBranch, 'dartclaw/task-project-diff');
+    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+  });
 }
 
 Future<Task> _createTask(
@@ -340,16 +392,71 @@ class _MockDiffGenerator extends DiffGenerator {
   final bool shouldThrow;
   String? lastBaseRef;
   String? lastBranch;
+  String? lastProjectDir;
 
   _MockDiffGenerator({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
 
   @override
-  Future<DiffResult> generate({required String baseRef, required String branch}) async {
+  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
     lastBaseRef = baseRef;
     lastBranch = branch;
+    lastProjectDir = projectDir;
     if (shouldThrow) {
       throw Exception('Mock diff generation failure');
     }
     return result ?? DiffResult(files: const [], totalAdditions: 0, totalDeletions: 0, filesChanged: 0);
   }
+}
+
+class _FakeProjectService implements ProjectService {
+  final Project project;
+
+  _FakeProjectService(this.project);
+
+  @override
+  Future<Project?> get(String id) async => id == project.id ? project : null;
+
+  @override
+  Future<List<Project>> getAll() async => [project];
+
+  @override
+  Future<Project> getDefaultProject() async => project;
+
+  @override
+  Project getLocalProject() => throw UnimplementedError();
+
+  @override
+  Future<Project> create({
+    required String name,
+    required String remoteUrl,
+    String defaultBranch = 'main',
+    String? credentialsRef,
+    CloneStrategy cloneStrategy = CloneStrategy.shallow,
+    PrConfig pr = const PrConfig.defaults(),
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> update(
+    String id, {
+    String? name,
+    String? remoteUrl,
+    String? defaultBranch,
+    String? credentialsRef,
+    PrConfig? pr,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> fetch(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> ensureFresh(Project project) async {}
+
+  @override
+  Future<void> delete(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
 }

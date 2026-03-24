@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import 'diff_generator.dart';
 import 'task_service.dart';
+import 'task_project_ref.dart';
 import 'worktree_manager.dart';
 
 /// Collects task artifacts into `<dataDir>/tasks/<taskId>/artifacts/`.
@@ -19,6 +20,7 @@ class ArtifactCollector {
     required String dataDir,
     required String workspaceDir,
     DiffGenerator? diffGenerator,
+    ProjectService? projectService,
     String? baseRef,
     Uuid? uuid,
   }) : _tasks = tasks,
@@ -27,6 +29,7 @@ class ArtifactCollector {
        _dataDir = dataDir,
        _workspaceDir = workspaceDir,
        _diffGenerator = diffGenerator,
+       _projectService = projectService,
        _baseRef = baseRef,
        _uuid = uuid ?? const Uuid();
 
@@ -38,6 +41,7 @@ class ArtifactCollector {
   final String _dataDir;
   final String _workspaceDir;
   final DiffGenerator? _diffGenerator;
+  final ProjectService? _projectService;
   final String? _baseRef;
   final Uuid _uuid;
 
@@ -156,7 +160,21 @@ class ArtifactCollector {
     final baseRef = _baseRef ?? 'main';
     try {
       final worktreeInfo = WorktreeInfo.fromJson(worktreeData);
-      final diffResult = await diffGen.generate(baseRef: baseRef, branch: worktreeInfo.branch);
+      var effectiveBaseRef = baseRef;
+      var projectDir = worktreeInfo.path;
+      final projectId = taskProjectId(task);
+      if (projectId != null && projectId != '_local') {
+        final project = await _projectService?.get(projectId);
+        if (project != null) {
+          effectiveBaseRef = 'origin/${project.defaultBranch}';
+          projectDir = project.localPath;
+        }
+      }
+      final diffResult = await diffGen.generate(
+        baseRef: effectiveBaseRef,
+        branch: worktreeInfo.branch,
+        projectDir: projectDir,
+      );
 
       final artifactsDir = Directory(p.join(_dataDir, 'tasks', task.id, 'artifacts'));
       await artifactsDir.create(recursive: true);

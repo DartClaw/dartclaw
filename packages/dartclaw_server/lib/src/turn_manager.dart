@@ -35,6 +35,13 @@ class TurnContext {
   /// Optional per-turn reasoning effort override.
   final String? effort;
 
+  /// Optional task-scoped behavior service override.
+  ///
+  /// When set, this behavior service is used for system prompt composition
+  /// instead of the shared [TurnRunner._behavior] instance. Used by
+  /// [TaskExecutor] to read project-specific CLAUDE.md and AGENTS.md files.
+  final BehaviorFileService? behaviorOverride;
+
   TurnContext({
     required this.turnId,
     required this.sessionId,
@@ -43,6 +50,7 @@ class TurnContext {
     this.directory,
     this.model,
     this.effort,
+    this.behaviorOverride,
   });
 }
 
@@ -55,7 +63,10 @@ class TurnOutcome {
   final String? responseText; // non-null when completed
   final int inputTokens;
   final int outputTokens;
-  final int? cachedInputTokens;
+  final int cacheReadTokens;
+  final int cacheWriteTokens;
+  final Duration turnDuration;
+  final List<ToolCallRecord> toolCalls;
   final DateTime completedAt;
 
   /// Non-null when the turn was cancelled due to mid-turn loop detection.
@@ -74,7 +85,10 @@ class TurnOutcome {
     this.responseText,
     this.inputTokens = 0,
     this.outputTokens = 0,
-    this.cachedInputTokens,
+    this.cacheReadTokens = 0,
+    this.cacheWriteTokens = 0,
+    this.turnDuration = Duration.zero,
+    this.toolCalls = const [],
     required this.completedAt,
     this.loopDetection,
   });
@@ -195,6 +209,7 @@ class TurnManager {
     String? model,
     String? effort,
     bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
   }) async {
     final runner = await _reserveRunnerForSession(sessionId);
     try {
@@ -205,6 +220,7 @@ class TurnManager {
         model: model,
         effort: effort,
         isHumanInput: isHumanInput,
+        behaviorOverride: behaviorOverride,
       );
       _reservedTurnRunners[turnId] = runner;
       return turnId;

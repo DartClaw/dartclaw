@@ -12,6 +12,7 @@ import '../runtime_config.dart';
 import 'page_registry.dart';
 import 'pages/health_page.dart';
 import 'pages/memory_page.dart';
+import 'pages/projects_page.dart';
 import 'pages/scheduling_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/tasks_page.dart';
@@ -37,6 +38,7 @@ void registerSystemDashboardPages(
   bool showMemory = true,
   bool showScheduling = true,
   bool showTasks = true,
+  ProjectService? projectService,
 }) {
   if (showHealth) {
     registry.register(
@@ -77,5 +79,8 @@ void registerSystemDashboardPages(
   }
   if (showTasks) {
     registry.register(TasksPage());
+  }
+  if (projectService != null) {
+    registry.register(ProjectsPage());
   }
 }

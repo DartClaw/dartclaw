@@ -118,7 +118,36 @@ void main() {
       expect(result.stopReason, 'end_turn');
       expect(result.costUsd, closeTo(0.0042, 1e-6));
       expect(result.durationMs, 1500);
-      expect(result.cachedInputTokens, isNull);
+      expect(result.cacheReadTokens, isNull);
+      expect(result.cacheWriteTokens, isNull);
+    });
+
+    test('parses result with cache tokens normalised to cacheReadTokens and cacheWriteTokens', () {
+      final adapter = ClaudeProtocolAdapter();
+      final msg = adapter.parseLine(
+        _j({
+          'type': 'result',
+          'stop_reason': 'end_turn',
+          'usage': {'cache_read_input_tokens': 100, 'cache_creation_input_tokens': 50},
+        }),
+      );
+
+      expect(msg, isA<TurnComplete>());
+      final result = msg! as TurnComplete;
+      expect(result.cacheReadTokens, 100);
+      expect(result.cacheWriteTokens, 50);
+    });
+
+    test('parses result without cache fields — both default to null', () {
+      final adapter = ClaudeProtocolAdapter();
+      final msg = adapter.parseLine(
+        _j({'type': 'result', 'stop_reason': 'end_turn'}),
+      );
+
+      expect(msg, isA<TurnComplete>());
+      final result = msg! as TurnComplete;
+      expect(result.cacheReadTokens, isNull);
+      expect(result.cacheWriteTokens, isNull);
     });
 
     test('empty line returns null', () {

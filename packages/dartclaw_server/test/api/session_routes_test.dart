@@ -41,6 +41,7 @@ class FakeTurnManager extends TurnManager {
     String? model,
     String? effort,
     bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
   }) async {
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);

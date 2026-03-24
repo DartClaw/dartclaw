@@ -363,6 +363,318 @@ void main() {
       expect((await tasks.get('task-1'))!.status, TaskStatus.review);
     });
   });
+
+  group('TaskEventRecorder — push-back events', () {
+    late Database evtDb;
+    late TaskEventService eventService;
+    late TaskEventRecorder recorder;
+
+    setUp(() {
+      evtDb = openTaskDbInMemory();
+      eventService = TaskEventService(evtDb);
+      recorder = TaskEventRecorder(eventService: eventService);
+    });
+
+    tearDown(() {
+      evtDb.close();
+    });
+
+    test('push_back action records a pushBack event with the comment', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Review task');
+      final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
+
+      await service.review('task-1', 'push_back', comment: 'Please fix the tests');
+
+      final events = eventService.listForTask('task-1');
+      expect(events, hasLength(1));
+      expect(events[0].kind.name, 'pushBack');
+      expect(events[0].details['comment'], 'Please fix the tests');
+    });
+
+    test('accept action does not record a pushBack event', () async {
+      await _putTaskInReview(tasks, 'task-1', title: 'Review task');
+      final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
+
+      await service.review('task-1', 'accept');
+
+      final events = eventService.listForTask('task-1', kind: const PushBack());
+      expect(events, isEmpty);
+    });
+
+    test('null eventRecorder does not affect push_back behavior', () async {
+      await _putTaskInReview(tasks, 'task-2', title: 'Another task');
+      final service = TaskReviewService(tasks: tasks);
+
+      final result = await service.review('task-2', 'push_back', comment: 'try again');
+
+      expect(result, isA<ReviewSuccess>());
+    });
+  });
+
+  group('project-backed accept', () {
+    test('push + PR created → task accepted, PR URL artifact stored', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-proj');
+
+      final projectService = _FakeProjectService(
+        project: _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.githubPr),
+        ),
+      );
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final prCreator = _FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/42'));
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        prCreator: prCreator,
+        projectService: projectService,
+        worktreeManager: worktreeManager,
+        dataDir: tempDir.path,
+      );
+
+      final result = await service.review('task-proj', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-proj'))!.status, TaskStatus.accepted);
+      final artifacts = await tasks.listArtifacts('task-proj');
+      expect(artifacts, isNotEmpty);
+      final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
+      expect(prArtifact.name, 'Pull Request');
+      expect(prArtifact.path, 'https://github.com/u/r/pull/42');
+      expect(worktreeManager.cleanedTaskIds, contains('task-proj'));
+      expect(worktreeManager.cleanedProjectIds, contains('my-app'));
+    });
+
+    test('branch-only strategy → task accepted, branch name artifact stored', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-branch');
+
+      final projectService = _FakeProjectService(
+        project: _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.branchOnly),
+        ),
+      );
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        projectService: projectService,
+        dataDir: tempDir.path,
+      );
+
+      final result = await service.review('task-branch', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      final artifacts = await tasks.listArtifacts('task-branch');
+      final branchArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
+      expect(branchArtifact.name, 'Branch');
+      expect(branchArtifact.path, 'dartclaw/task-task-branch');
+    });
+
+    test('gh not found → push succeeds, warning artifact, task accepted', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-gh');
+
+      final projectService = _FakeProjectService(
+        project: _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.githubPr),
+        ),
+      );
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final prCreator = _FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        prCreator: prCreator,
+        projectService: projectService,
+        dataDir: tempDir.path,
+      );
+
+      final result = await service.review('task-gh', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-gh'))!.status, TaskStatus.accepted);
+      final artifacts = await tasks.listArtifacts('task-gh');
+      final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
+      expect(prArtifact.name, 'PR Instructions');
+    });
+
+    test('push auth failure → task stays in review, error artifact stored', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-auth');
+
+      final projectService = _FakeProjectService(project: _makeProject(id: 'my-app'));
+      final pushService = _FakeRemotePushService(
+        result: const PushAuthFailure('Authentication denied. Check credentials.'),
+      );
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        projectService: projectService,
+        worktreeManager: worktreeManager,
+        dataDir: tempDir.path,
+      );
+
+      final result = await service.review('task-auth', 'accept');
+
+      expect(result, const TypeMatcher<ReviewActionFailed>());
+      expect((await tasks.get('task-auth'))!.status, TaskStatus.review);
+      // Worktree preserved on failure.
+      expect(worktreeManager.cleanedTaskIds, isEmpty);
+      final artifacts = await tasks.listArtifacts('task-auth');
+      expect(artifacts.any((a) => a.kind == ArtifactKind.data && a.name == 'Push Error'), isTrue);
+    });
+
+    test('push rejected → task stays in review, error artifact stored', () async {
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await _putProjectTaskInReview(tasks, 'task-reject');
+
+      final projectService = _FakeProjectService(project: _makeProject(id: 'my-app'));
+      final pushService = _FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        projectService: projectService,
+        dataDir: tempDir.path,
+      );
+
+      final result = await service.review('task-reject', 'accept');
+
+      expect(result, const TypeMatcher<ReviewActionFailed>());
+      expect((await tasks.get('task-reject'))!.status, TaskStatus.review);
+    });
+
+    test('project-backed reject cleans up using the project clone context', () async {
+      await _putProjectTaskInReview(tasks, 'task-reject-cleanup');
+
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
+        worktreeManager: worktreeManager,
+      );
+
+      final result = await service.review('task-reject-cleanup', 'reject');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-reject-cleanup'))!.status, TaskStatus.rejected);
+      expect(worktreeManager.cleanedTaskIds, contains('task-reject-cleanup'));
+      expect(worktreeManager.cleanedProjectIds, contains('my-app'));
+    });
+
+    test('_local task accept → existing merge flow (regression)', () async {
+      await tasks.create(
+        id: 'task-local',
+        title: 'Local task',
+        description: 'Fix locally.',
+        type: TaskType.coding,
+        autoStart: true,
+        now: DateTime.parse('2026-03-13T10:00:00Z'),
+      );
+      await tasks.updateFields('task-local', projectId: '_local');
+      await tasks.transition('task-local', TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
+      await tasks.transition('task-local', TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
+      await tasks.updateFields(
+        'task-local',
+        worktreeJson: const {
+          'path': '/tmp/worktree-local',
+          'branch': 'dartclaw/task-task-local',
+          'createdAt': '2026-03-13T10:00:00.000Z',
+        },
+      );
+
+      final mergeExecutor = _RecordingMergeExecutor(
+        result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-local): Local task'),
+      );
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        mergeExecutor: mergeExecutor,
+        worktreeManager: worktreeManager,
+      );
+
+      final result = await service.review('task-local', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect(mergeExecutor.callCount, 1);
+      expect(worktreeManager.cleanedTaskIds, contains('task-local'));
+    });
+
+    test('task without worktreeJson → no push, no merge', () async {
+      await tasks.create(
+        id: 'task-no-wt',
+        title: 'Research task',
+        description: 'Research something.',
+        type: TaskType.research,
+        autoStart: true,
+        now: DateTime.parse('2026-03-13T10:00:00Z'),
+      );
+      await tasks.updateFields('task-no-wt', projectId: 'my-app');
+      await tasks.transition('task-no-wt', TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
+      await tasks.transition('task-no-wt', TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
+
+      final pushService = _FakeRemotePushService(result: const PushSuccess());
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        remotePushService: pushService,
+        projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
+      );
+
+      final result = await service.review('task-no-wt', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect(pushService.callCount, 0);
+    });
+
+    test('push infrastructure unavailable → ReviewActionFailed', () async {
+      await _putProjectTaskInReview(tasks, 'task-no-push');
+
+      final service = TaskReviewService(
+        tasks: tasks,
+        eventBus: eventBus,
+        // No remotePushService or projectService
+      );
+
+      final result = await service.review('task-no-push', 'accept');
+
+      expect(result, const TypeMatcher<ReviewActionFailed>());
+      expect((result as ReviewActionFailed).message, contains('not available'));
+      expect((await tasks.get('task-no-push'))!.status, TaskStatus.review);
+    });
+  });
 }
 
 Future<Task> _putTaskInReview(
@@ -373,7 +685,9 @@ Future<Task> _putTaskInReview(
   String? sessionKey,
 }) async {
   final configJson = sessionKey != null
-      ? <String, dynamic>{'origin': <String, dynamic>{'sessionKey': sessionKey}}
+      ? <String, dynamic>{
+          'origin': <String, dynamic>{'sessionKey': sessionKey},
+        }
       : null;
   await tasks.create(
     id: id,
@@ -455,12 +769,14 @@ class _ThrowingMergeExecutor extends MergeExecutor {
 
 class _RecordingWorktreeManager extends WorktreeManager {
   final List<String> cleanedTaskIds = [];
+  final List<String?> cleanedProjectIds = [];
 
   _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
 
   @override
-  Future<void> cleanup(String taskId) async {
+  Future<void> cleanup(String taskId, {Project? project}) async {
     cleanedTaskIds.add(taskId);
+    cleanedProjectIds.add(project?.id);
   }
 }
 
@@ -472,4 +788,116 @@ class _RecordingTaskFileGuard extends TaskFileGuard {
     deregisteredTaskIds.add(taskId);
     super.deregister(taskId);
   }
+}
+
+// ── Project-backed test helpers ──────────────────────────────────────────────
+
+Project _makeProject({required String id, PrConfig pr = const PrConfig.defaults()}) => Project(
+  id: id,
+  name: 'My App',
+  remoteUrl: 'git@github.com:u/my-app.git',
+  localPath: '/data/projects/my-app',
+  defaultBranch: 'main',
+  status: ProjectStatus.ready,
+  createdAt: DateTime.now(),
+  pr: pr,
+);
+
+/// Creates a project-backed task in review state with a worktree.
+Future<void> _putProjectTaskInReview(TaskService tasks, String id) async {
+  await tasks.create(
+    id: id,
+    title: 'Project task $id',
+    description: 'Do work.',
+    type: TaskType.coding,
+    autoStart: true,
+    now: DateTime.parse('2026-03-13T10:00:00Z'),
+  );
+  await tasks.updateFields(id, projectId: 'my-app');
+  await tasks.transition(id, TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
+  await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
+  await tasks.updateFields(
+    id,
+    worktreeJson: {
+      'path': '/data/worktrees/$id',
+      'branch': 'dartclaw/task-$id',
+      'createdAt': '2026-03-13T10:00:00.000Z',
+    },
+  );
+}
+
+class _FakeProjectService implements ProjectService {
+  final Project? project;
+
+  _FakeProjectService({required this.project});
+
+  @override
+  Future<Project?> get(String id) async => project?.id == id ? project : null;
+
+  @override
+  Future<List<Project>> getAll() async => project == null ? [] : [project!];
+
+  @override
+  Future<Project> create({
+    required String name,
+    required String remoteUrl,
+    String defaultBranch = 'main',
+    String? credentialsRef,
+    CloneStrategy cloneStrategy = CloneStrategy.shallow,
+    PrConfig pr = const PrConfig.defaults(),
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> update(
+    String id, {
+    String? name,
+    String? remoteUrl,
+    String? defaultBranch,
+    String? credentialsRef,
+    PrConfig? pr,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> fetch(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> ensureFresh(Project project) async {}
+
+  @override
+  Future<void> delete(String id) => throw UnimplementedError();
+
+  @override
+  Future<Project> getDefaultProject() async => project!;
+
+  @override
+  Project getLocalProject() => throw UnimplementedError();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
+}
+
+class _FakeRemotePushService extends RemotePushService {
+  final PushResult result;
+  int callCount = 0;
+
+  _FakeRemotePushService({required this.result});
+
+  @override
+  Future<PushResult> push({required Project project, required String branch}) async {
+    callCount++;
+    return result;
+  }
+}
+
+class _FakePrCreator extends PrCreator {
+  final PrCreationResult result;
+
+  _FakePrCreator({required this.result});
+
+  @override
+  Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async =>
+      result;
 }

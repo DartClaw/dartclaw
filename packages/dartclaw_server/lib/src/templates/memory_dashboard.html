@@ -28,15 +28,9 @@
             </div>
           </div>
 
-          <div class="card card-metric card-metric--info">
-            <div class="metric-value" tl:text="${entryCount}">0</div>
-            <div class="metric-label">Active Entries</div>
-          </div>
+          <tl:block tl:utext="${activeEntriesCardHtml}"><!-- active entries metric card --></tl:block>
 
-          <div class="card card-metric card-metric--info">
-            <div class="metric-value" tl:text="${archivedCount}">0</div>
-            <div class="metric-label">Archived Entries</div>
-          </div>
+          <tl:block tl:utext="${archivedEntriesCardHtml}"><!-- archived entries metric card --></tl:block>
 
           <div class="card card-metric card-metric--error">
             <div class="metric-value"><span tl:text="${errorsCount}">0</span> <span class="metric-sub-inline">/ <span tl:text="${errorsCap}">50</span></span></div>

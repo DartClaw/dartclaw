@@ -1,9 +1,11 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
 import 'package:shelf/shelf.dart';
 
 import '../params/display_params.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
+import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../templates/sidebar.dart';
 
@@ -37,9 +39,13 @@ class PageContext {
     this.config,
     this.taskService,
     this.goalService,
+    this.projectService,
     this.eventBus,
     this.messages,
     this.agentObserver,
+    this.traceService,
+    this.taskEventService,
+    this.progressTracker,
     required Future<SidebarData> Function() buildSidebarData,
     required String Function() restartBannerHtml,
     required List<NavItem> Function({required String activePage}) buildNavItems,
@@ -53,9 +59,13 @@ class PageContext {
   final DartclawConfig? config;
   final TaskService? taskService;
   final GoalService? goalService;
+  final ProjectService? projectService;
   final EventBus? eventBus;
   final MessageService? messages;
   final AgentObserver? agentObserver;
+  final TurnTraceService? traceService;
+  final TaskEventService? taskEventService;
+  final TaskProgressTracker? progressTracker;
   final Future<SidebarData> Function() _buildSidebarData;
   final String Function() _restartBannerHtml;
   final List<NavItem> Function({required String activePage}) _buildNavItems;

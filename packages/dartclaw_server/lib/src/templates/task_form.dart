@@ -4,7 +4,13 @@ import 'dart:convert';
 ///
 /// Rendered as a `<dialog>` that can be opened via `showModal()`.
 /// Form submission is handled by JS in `app.js`.
-String newTaskFormDialogHtml({List<Map<String, String>> goalOptions = const []}) {
+///
+/// When [projectOptions] is non-empty and contains at least one non-local
+/// project, a project selector is shown between the Type and Description fields.
+String newTaskFormDialogHtml({
+  List<Map<String, String>> goalOptions = const [],
+  List<Map<String, String>> projectOptions = const [],
+}) {
   final escape = const HtmlEscape();
   final goalOptionsHtml = goalOptions
       .map(
@@ -22,6 +28,12 @@ String newTaskFormDialogHtml({List<Map<String, String>> goalOptions = const []})
       <option value="" selected>No goal</option>
       $goalOptionsHtml
 ''';
+
+  // Build project selector markup — only shown when external projects exist.
+  final externalProjects = projectOptions.where((p) => p['value'] != '_local').toList();
+  final projectSelectorMarkup = externalProjects.isEmpty
+      ? ''
+      : _buildProjectSelectorMarkup(projectOptions, escape);
 
   return '''
 <dialog id="new-task-dialog" class="task-dialog">
@@ -57,7 +69,7 @@ String newTaskFormDialogHtml({List<Map<String, String>> goalOptions = const []})
           </p>
         </div>
       </div>
-
+$projectSelectorMarkup
       <div class="form-group">
         <label class="form-label" for="task-description" data-task-description-label>Description</label>
         <textarea id="task-description" name="description" class="form-input" required data-task-description-input
@@ -108,5 +120,34 @@ $goalSelectMarkup
     </div>
   </form>
 </dialog>
+''';
+}
+
+String _buildProjectSelectorMarkup(List<Map<String, String>> projectOptions, HtmlEscape escape) {
+  final optionsHtml = projectOptions.map((p) {
+    final value = escape.convert(p['value'] ?? '');
+    final status = p['status'] ?? 'ready';
+    final label = escape.convert(p['label'] ?? '');
+    final isDefault = p['isDefault'] == 'true';
+    final isReady = status == 'ready';
+    final statusIndicator = switch (status) {
+      'ready' => ' ✓',
+      'cloning' => ' (cloning)',
+      'error' => ' (error)',
+      'stale' => ' ⚠',
+      _ => '',
+    };
+    final selectedAttr = isDefault ? ' selected' : '';
+    final disabledAttr = isReady ? '' : ' disabled';
+    return '<option value="$value"$selectedAttr$disabledAttr>$label$statusIndicator</option>';
+  }).join('\n      ');
+
+  return '''
+      <div class="form-group">
+        <label class="form-label" for="task-project-select">Project</label>
+        <select id="task-project-select" name="projectId" class="form-select">
+      $optionsHtml
+        </select>
+      </div>
 ''';
 }

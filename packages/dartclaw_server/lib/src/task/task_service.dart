@@ -10,6 +10,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskStatusChangedEvent,
         TaskType;
 
+import 'task_event_recorder.dart';
+
 /// Thrown when a task transition fails because the stored version does not
 /// match the expected version (concurrent modification detected).
 class VersionConflictException implements Exception {
@@ -29,8 +31,11 @@ class VersionConflictException implements Exception {
 class TaskService {
   final TaskRepository _repo;
   final EventBus? _eventBus;
+  final TaskEventRecorder? _eventRecorder;
 
-  TaskService(this._repo, {EventBus? eventBus}) : _eventBus = eventBus;
+  TaskService(this._repo, {EventBus? eventBus, TaskEventRecorder? eventRecorder})
+    : _eventBus = eventBus,
+      _eventRecorder = eventRecorder;
 
   /// Creates a new task.
   ///
@@ -46,6 +51,7 @@ class TaskService {
     String? acceptanceCriteria,
     String? createdBy,
     String? provider,
+    String? projectId,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
     String trigger = 'system',
@@ -67,6 +73,7 @@ class TaskService {
       createdAt: timestamp,
       createdBy: createdBy,
       provider: persistedProvider,
+      projectId: projectId?.trim().isEmpty ?? true ? null : projectId?.trim(),
     );
     if (autoStart) {
       task = task.transition(TaskStatus.queued, now: timestamp);
@@ -81,6 +88,12 @@ class TaskService {
           trigger: trigger,
           timestamp: timestamp,
         ),
+      );
+      _eventRecorder?.recordStatusChanged(
+        task.id,
+        oldStatus: TaskStatus.draft,
+        newStatus: task.status,
+        trigger: trigger,
       );
     }
     return task;
@@ -136,6 +149,7 @@ class TaskService {
         timestamp: now ?? DateTime.now(),
       ),
     );
+    _eventRecorder?.recordStatusChanged(taskId, oldStatus: oldStatus, newStatus: newStatus, trigger: trigger);
     if (newStatus == TaskStatus.review) {
       _fireReviewReadyEvent(taskId);
     }
@@ -151,6 +165,7 @@ class TaskService {
     Map<String, dynamic>? configJson,
     String? sessionId,
     Map<String, dynamic>? worktreeJson,
+    String? projectId,
   }) async {
     final task = await _requireTask(taskId);
     if (task.status.terminal) {
@@ -164,6 +179,7 @@ class TaskService {
       configJson: configJson ?? task.configJson,
       sessionId: sessionId ?? task.sessionId,
       worktreeJson: worktreeJson ?? task.worktreeJson,
+      projectId: projectId ?? task.projectId,
     );
 
     final persisted = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);

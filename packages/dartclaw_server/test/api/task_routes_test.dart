@@ -93,6 +93,40 @@ void main() {
       expect(body['status'], 'queued');
     });
 
+    test('persists projectId when provided', () async {
+      final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
+
+      final response = await handlerWithProjects(
+        _jsonRequest('POST', '/api/tasks', {
+          'title': 'Project task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'projectId': 'my-app',
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = _decodeObject(await response.readAsString());
+      expect(body['projectId'], 'my-app');
+      expect((await tasks.get(body['id'] as String))!.projectId, 'my-app');
+    });
+
+    test('returns 400 for unknown projectId', () async {
+      final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
+
+      final response = await handlerWithProjects(
+        _jsonRequest('POST', '/api/tasks', {
+          'title': 'Project task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'projectId': 'missing-project',
+        }),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await _errorCode(response), 'INVALID_INPUT');
+    });
+
     test('echoes goalId on create', () async {
       final response = await handler(
         _jsonRequest('POST', '/api/tasks', {
@@ -431,6 +465,37 @@ void main() {
       expect(response.statusCode, 200);
       expect(turns.cancelledSessions, ['session-123']);
     });
+
+    test('cleans project-backed worktree using the selected project context', () async {
+      final worktreeManager = _RecordingWorktreeManager();
+      final taskFileGuard = TaskFileGuard();
+      final handlerWithProjects = taskRoutes(
+        tasks,
+        worktreeManager: worktreeManager,
+        taskFileGuard: taskFileGuard,
+        projectService: _FakeProjectService(),
+      ).call;
+
+      await createTask('task-project', autoStart: true);
+      await tasks.updateFields(
+        'task-project',
+        projectId: 'my-app',
+        worktreeJson: const {
+          'path': '/tmp/worktree-project',
+          'branch': 'dartclaw/task-project',
+          'createdAt': '2026-03-10T10:00:00.000Z',
+        },
+      );
+      taskFileGuard.register('task-project', '/tmp/worktree-project');
+      await tasks.transition('task-project', TaskStatus.running);
+
+      final response = await handlerWithProjects(_jsonRequest('POST', '/api/tasks/task-project/cancel', const {}));
+
+      expect(response.statusCode, 200);
+      expect(worktreeManager.cleanedTaskIds, ['task-project']);
+      expect(worktreeManager.cleanedProjectIds, ['my-app']);
+      expect(taskFileGuard.hasRegistration('task-project'), isFalse);
+    });
   });
 
   group('POST /api/tasks/<id>/review', () {
@@ -573,10 +638,7 @@ void main() {
           'createdAt': '2026-03-10T10:00:00.000Z',
         },
       );
-      final failingHandler = taskRoutes(
-        tasks,
-        mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded')),
-      ).call;
+      final failingHandler = taskRoutes(tasks, mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded'))).call;
 
       final response = await failingHandler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
 
@@ -945,4 +1007,78 @@ class _ThrowingMergeExecutor extends MergeExecutor {
   }) async {
     throw error;
   }
+}
+
+class _RecordingWorktreeManager extends WorktreeManager {
+  _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
+
+  final List<String> cleanedTaskIds = [];
+  final List<String?> cleanedProjectIds = [];
+
+  @override
+  Future<void> cleanup(String taskId, {Project? project}) async {
+    cleanedTaskIds.add(taskId);
+    cleanedProjectIds.add(project?.id);
+  }
+}
+
+class _FakeProjectService implements ProjectService {
+  final Map<String, Project> _projects = {
+    'my-app': Project(
+      id: 'my-app',
+      name: 'My App',
+      remoteUrl: 'git@github.com:acme/my-app.git',
+      localPath: '/projects/my-app',
+      defaultBranch: 'main',
+      status: ProjectStatus.ready,
+      createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+    ),
+  };
+
+  @override
+  Future<Project?> get(String id) async => _projects[id];
+
+  @override
+  Future<List<Project>> getAll() async => _projects.values.toList(growable: false);
+
+  @override
+  Future<Project> getDefaultProject() async => _projects.values.first;
+
+  @override
+  Project getLocalProject() => throw UnimplementedError();
+
+  @override
+  Future<Project> create({
+    required String name,
+    required String remoteUrl,
+    String defaultBranch = 'main',
+    String? credentialsRef,
+    CloneStrategy cloneStrategy = CloneStrategy.shallow,
+    PrConfig pr = const PrConfig.defaults(),
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> update(
+    String id, {
+    String? name,
+    String? remoteUrl,
+    String? defaultBranch,
+    String? credentialsRef,
+    PrConfig? pr,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> fetch(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> ensureFresh(Project project) async {}
+
+  @override
+  Future<void> delete(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
 }

@@ -504,7 +504,7 @@
       <div id="channels" class="card settings-card" data-tab="channels">
         <div class="card-header">
           <span class="card-title">WhatsApp Channel</span>
-          <span class="status-badge" tl:classappend="${whatsAppStatusClass}" tl:text="${whatsAppStatusLabel}">Disabled</span>
+          <tl:block tl:utext="${whatsAppStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${whatsAppHasPending}" class="pairing-badge" tl:text="${whatsAppPendingCount}">0</span>
         </div>
         <div tl:if="${whatsAppPhone}" class="card-detail">
@@ -520,7 +520,7 @@
       <div class="card settings-card" data-tab="channels">
         <div class="card-header">
           <span class="card-title">Signal Channel</span>
-          <span class="status-badge" tl:classappend="${signalStatusClass}" tl:text="${signalStatusLabel}">Disabled</span>
+          <tl:block tl:utext="${signalStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${signalHasPending}" class="pairing-badge" tl:text="${signalPendingCount}">0</span>
         </div>
         <div tl:if="${signalPhone}" class="card-detail">
@@ -536,7 +536,7 @@
       <div class="card settings-card" data-tab="channels">
         <div class="card-header">
           <span class="card-title">Google Chat Channel</span>
-          <span class="status-badge" tl:classappend="${googleChatStatusClass}" tl:text="${googleChatStatusLabel}">Disabled</span>
+          <tl:block tl:utext="${googleChatStatusBadgeHtml}">badge</tl:block>
           <span tl:if="${googleChatHasPending}" class="pairing-badge" tl:text="${googleChatPendingCount}">0</span>
         </div>
         <div tl:if="${googleChatEnabled}" class="card-actions">
@@ -575,7 +575,7 @@
                 </div>
               </div>
               <div class="provider-badges">
-                <span class="status-badge" tl:classappend="${provider.healthBadgeClass}" tl:text="${provider.healthLabel}">Healthy</span>
+                <tl:block tl:utext="${provider.statusBadgeHtml}">badge</tl:block>
                 <span tl:if="${provider.isDefault}" class="default-badge">Default</span>
               </div>
             </div>
@@ -651,7 +651,7 @@
       <div class="card settings-card" data-tab="server">
         <div class="card-header">
           <span class="card-title">System Health</span>
-          <span class="status-badge" tl:classappend="${healthBadgeClass}" tl:text="${healthLabel}">Healthy</span>
+          <tl:block tl:utext="${healthBadgeHtml}">badge</tl:block>
         </div>
         <div class="card-detail">
           Uptime: <span class="card-detail-value" tl:text="${uptimeStr}">0m</span>

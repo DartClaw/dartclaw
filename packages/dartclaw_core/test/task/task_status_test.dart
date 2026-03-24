@@ -24,10 +24,16 @@ void main() {
       test('accepts all valid transitions', () {
         final expected = <TaskStatus, Set<TaskStatus>>{
           TaskStatus.draft: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
+          TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled, TaskStatus.failed},
           TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
           TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
+          TaskStatus.review: {
+            TaskStatus.accepted,
+            TaskStatus.rejected,
+            TaskStatus.queued,
+            TaskStatus.running,
+            TaskStatus.failed,
+          },
         };
 
         for (final from in expected.keys) {
@@ -63,10 +69,16 @@ void main() {
       test('matches expected matrix exactly', () {
         final expected = <TaskStatus, Set<TaskStatus>>{
           TaskStatus.draft: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
+          TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled, TaskStatus.failed},
           TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
           TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-          TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
+          TaskStatus.review: {
+            TaskStatus.accepted,
+            TaskStatus.rejected,
+            TaskStatus.queued,
+            TaskStatus.running,
+            TaskStatus.failed,
+          },
           TaskStatus.accepted: const {},
           TaskStatus.rejected: const {},
           TaskStatus.cancelled: const {},

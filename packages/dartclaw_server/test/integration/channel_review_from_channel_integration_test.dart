@@ -178,7 +178,7 @@ class _RecordingWorktreeManager extends WorktreeManager {
   _RecordingWorktreeManager() : super(dataDir: '/tmp', projectDir: '/tmp');
 
   @override
-  Future<void> cleanup(String taskId) async {
+  Future<void> cleanup(String taskId, {Project? project}) async {
     cleanedTaskIds.add(taskId);
   }
 }

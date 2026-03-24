@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/src/task/worktree_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -162,6 +163,197 @@ void main() {
         () => manager.create('task-1'),
         throwsA(isA<WorktreeException>().having((e) => e.gitStderr, 'gitStderr', contains('not a valid ref'))),
       );
+    });
+
+    test('projectDir defaults to cwd when omitted', () {
+      // Should not throw — constructor accepts optional projectDir.
+      final manager = WorktreeManager(dataDir: '/tmp/test-data');
+      expect(manager, isNotNull);
+    });
+
+    group('project-aware create()', () {
+      late List<({String executable, List<String> arguments, String? workingDirectory})> calls;
+
+      setUp(() {
+        calls = [];
+      });
+
+      Future<ProcessResult> Function(String, List<String>, {String? workingDirectory}) recordingRunner({
+        Map<String, String>? stdoutByArg,
+        int branchListExitCode = 0,
+        int worktreeExitCode = 0,
+      }) {
+        return (executable, arguments, {String? workingDirectory}) async {
+          calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory));
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.contains('--list')) return ProcessResult(0, branchListExitCode, '', '');
+          if (arguments.contains('worktree')) return ProcessResult(0, worktreeExitCode, '', '');
+          return ProcessResult(0, 0, '', '');
+        };
+      }
+
+      test('create() with project uses project.localPath as working directory', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.create('task-1', project: project);
+
+        // All git calls after --version should target project.localPath
+        final gitCalls = calls.where((c) => !c.arguments.contains('--version')).toList();
+        for (final call in gitCalls) {
+          expect(call.workingDirectory, equals('/data/projects/my-app'));
+        }
+      });
+
+      test('create() with project uses origin/<defaultBranch> as start point', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'develop',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.create('task-1', project: project);
+
+        // The worktree add call should include origin/develop as startpoint
+        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        expect(worktreeCall.arguments, contains('origin/develop'));
+      });
+
+      test('create() with project uses single-step git worktree add -b', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.create('task-1', project: project);
+
+        // Should be a single worktree add with -b flag, no separate git branch command
+        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        expect(worktreeCall.arguments, contains('-b'));
+        // No separate 'git branch' create command (only --list for collision check)
+        final branchCreateCalls = calls.where(
+          (c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'),
+        );
+        expect(branchCreateCalls, isEmpty);
+      });
+
+      test('create() without project uses existing two-step behavior', () async {
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.create('task-1');
+
+        // Should include git branch create (non-list) and git worktree add (without -b)
+        final branchCreateCalls = calls.where(
+          (c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'),
+        );
+        expect(branchCreateCalls, isNotEmpty);
+      });
+
+      test('cleanup() with project uses project.localPath', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/default-project',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.cleanup('task-1', project: project);
+
+        // Git cleanup calls should target project.localPath
+        for (final call in calls) {
+          expect(call.workingDirectory, equals('/data/projects/my-app'));
+        }
+      });
+
+      test('cleanup() without project uses default _projectDir', () async {
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/default-project',
+          processRunner: recordingRunner(),
+        );
+
+        await manager.cleanup('task-1');
+
+        // Git cleanup calls should target default projectDir
+        for (final call in calls) {
+          expect(call.workingDirectory, equals('/tmp/default-project'));
+        }
+      });
+
+      test('branch name collision with project-backed worktree applies -N suffix', () async {
+        var listCallCount = 0;
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          processRunner: (executable, arguments, {String? workingDirectory}) async {
+            if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+            if (arguments.contains('--list')) {
+              listCallCount++;
+              // First collision check: base branch exists.
+              if (listCallCount == 1) return ProcessResult(0, 0, '  dartclaw/task-task-1', '');
+              // Second check: -2 suffix is available.
+              return ProcessResult(0, 0, '', '');
+            }
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        final info = await manager.create('task-1', project: project);
+        expect(info.branch, equals('dartclaw/task-task-1-2'));
+      });
     });
   });
 

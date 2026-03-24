@@ -79,15 +79,26 @@ final class TurnResult extends ClaudeMessage {
   final int? durationMs;
   final int? inputTokens;
   final int? outputTokens;
+  final int? cacheReadInputTokens;
+  final int? cacheCreationInputTokens;
 
-  TurnResult({this.stopReason, this.costUsd, this.durationMs, this.inputTokens, this.outputTokens});
+  TurnResult({
+    this.stopReason,
+    this.costUsd,
+    this.durationMs,
+    this.inputTokens,
+    this.outputTokens,
+    this.cacheReadInputTokens,
+    this.cacheCreationInputTokens,
+  });
 
   int get totalTokens => (inputTokens ?? 0) + (outputTokens ?? 0);
 
   @override
   String toString() =>
       'TurnResult(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
-      'inputTokens: $inputTokens, outputTokens: $outputTokens)';
+      'inputTokens: $inputTokens, outputTokens: $outputTokens, '
+      'cacheReadInputTokens: $cacheReadInputTokens, cacheCreationInputTokens: $cacheCreationInputTokens)';
 }
 
 // ---------------------------------------------------------------------------
@@ -206,5 +217,7 @@ ClaudeMessage _parseResult(Map<String, dynamic> json) {
     durationMs: json['duration_ms'] as int?,
     inputTokens: usage?['input_tokens'] as int?,
     outputTokens: usage?['output_tokens'] as int?,
+    cacheReadInputTokens: usage?['cache_read_input_tokens'] as int?,
+    cacheCreationInputTokens: usage?['cache_creation_input_tokens'] as int?,
   );
 }

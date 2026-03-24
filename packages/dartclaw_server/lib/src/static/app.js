@@ -1352,6 +1352,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTaskCancelActions();
   initNewTaskForm();
   initTaskDetailRefresh();
+  initProjectHandlers();
   renderMarkdown();
   scrollToBottom();
 });
@@ -1445,6 +1446,9 @@ function initTaskSse() {
       if (data.type === 'connected') {
         updateTaskBadge(data.reviewCount || 0);
         renderRunningSidebar(data.activeTasks || []);
+        if (Array.isArray(data.projects)) {
+          data.projects.forEach(p => updateProjectStatusBadge(p.id, p.status));
+        }
         return;
       }
 
@@ -1462,6 +1466,24 @@ function initTaskSse() {
         if (shouldRefreshTaskContent(data.currentTaskId)) {
           refreshTasksPageContent();
         }
+        return;
+      }
+
+      if (data.type === 'project_status') {
+        updateProjectStatusBadge(data.projectId, data.newStatus);
+        updateProjectSelectorOption(data.projectId, data.newStatus);
+        return;
+      }
+
+      if (data.type === 'task_progress') {
+        updateTaskProgress(data);
+        updateDashboardProgress(data);
+        return;
+      }
+
+      if (data.type === 'task_event') {
+        updateDashboardEvents(data);
+        return;
       }
     } catch (_) {}
   };
@@ -1469,6 +1491,124 @@ function initTaskSse() {
   taskEventSource.onerror = function() {
     // EventSource auto-reconnects. No custom logic needed.
   };
+}
+
+function updateTaskProgress(data) {
+  const taskId = data.taskId;
+
+  // Update activity indicator text.
+  const activityEl = document.getElementById('task-activity-text-' + taskId);
+  if (activityEl && data.currentActivity) {
+    activityEl.textContent = data.currentActivity;
+  }
+
+  // Update progress bar fill width.
+  const fillEl = document.getElementById('task-progress-fill-' + taskId);
+  if (fillEl) {
+    if (data.tokenBudget != null && data.tokenBudget > 0) {
+      // Determinate progress.
+      fillEl.classList.remove('indeterminate');
+      const pct = Math.min(Math.max(data.progress || 0, 0), 100);
+      fillEl.style.width = pct + '%';
+      fillEl.setAttribute('aria-valuenow', pct);
+    } else {
+      // Indeterminate — pulsing animation via CSS class.
+      fillEl.classList.add('indeterminate');
+    }
+  }
+
+  // Update progress label text.
+  const labelEl = document.getElementById('task-progress-label-' + taskId);
+  if (labelEl) {
+    if (data.tokenBudget != null && data.tokenBudget > 0) {
+      labelEl.textContent = formatTokenCount(data.tokensUsed) +
+        ' / ' + formatTokenCount(data.tokenBudget) +
+        ' tokens (' + (data.progress || 0) + '%)';
+    } else {
+      labelEl.textContent = formatTokenCount(data.tokensUsed) + ' tokens used';
+    }
+  }
+
+  // Show the progress section if hidden.
+  const section = document.getElementById('task-progress-section');
+  if (section) section.style.display = '';
+
+  // On completion: hide the pulsing dot but keep final token count visible.
+  if (data.isComplete) {
+    const activityIndicator = document.getElementById('task-activity-' + taskId);
+    if (activityIndicator) activityIndicator.style.display = 'none';
+  }
+}
+
+// S11: Update running task card progress bar and token text on /tasks page.
+function updateDashboardProgress(data) {
+  const taskId = data.taskId;
+  const progressEl = document.getElementById('task-progress-' + taskId);
+  if (!progressEl) return; // not on /tasks page or task not visible
+
+  const fillEl = progressEl.querySelector('.task-progress-fill');
+  if (fillEl) {
+    if (data.tokenBudget != null && data.tokenBudget > 0) {
+      progressEl.classList.remove('task-progress-indeterminate');
+      const pct = Math.min(Math.max(data.progress || 0, 0), 100);
+      fillEl.style.width = pct + '%';
+    } else {
+      progressEl.classList.add('task-progress-indeterminate');
+    }
+  }
+
+  const tokensEl = document.getElementById('task-tokens-' + taskId);
+  if (tokensEl) {
+    const span = tokensEl.querySelector('span');
+    if (span) {
+      if (data.tokenBudget != null && data.tokenBudget > 0) {
+        span.textContent = formatTokenCount(data.tokensUsed) +
+          ' / ' + formatTokenCount(data.tokenBudget) +
+          ' tokens (' + (data.progress || 0) + '%)';
+      } else {
+        span.textContent = formatTokenCount(data.tokensUsed) + ' tokens';
+      }
+    }
+  }
+
+  // On completion: hide progress bar on dashboard card.
+  if (data.isComplete) {
+    progressEl.style.display = 'none';
+  }
+}
+
+// S11: Prepend new event to compact timeline on /tasks card; keep max 3.
+function updateDashboardEvents(data) {
+  const taskId = data.taskId;
+  let eventsEl = document.getElementById('task-events-' + taskId);
+
+  // If the events container doesn't exist yet (task had no events on load), create it.
+  if (!eventsEl) {
+    const card = document.querySelector('[id^="task-progress-' + taskId + '"]');
+    const parent = card ? card.closest('.task-card-running') : null;
+    if (!parent) return;
+    eventsEl = document.createElement('div');
+    eventsEl.className = 'task-events';
+    eventsEl.id = 'task-events-' + taskId;
+    parent.appendChild(eventsEl);
+  }
+
+  const eventDiv = document.createElement('div');
+  eventDiv.className = 'task-event';
+  eventDiv.innerHTML =
+    '<span class="task-event-icon ' + escapeHtml(data.iconClass || '') + '">' +
+    escapeHtml(data.iconChar || '\u25CF') + '</span>' +
+    '<span>' + escapeHtml(data.text || '') + '</span>';
+
+  eventsEl.insertBefore(eventDiv, eventsEl.firstChild);
+  while (eventsEl.children.length > 3) {
+    eventsEl.removeChild(eventsEl.lastChild);
+  }
+}
+
+function formatTokenCount(n) {
+  if (n == null) return '0';
+  return n.toLocaleString();
 }
 
 function currentTaskDetailId() {
@@ -1906,8 +2046,12 @@ function initNewTaskForm() {
       return;
     }
 
+    const projectSelect = form.querySelector('[name="projectId"]');
+    const projectId = projectSelect ? projectSelect.value.trim() : '';
+
     const body = { title, description, type, autoStart };
     if (goalId) body.goalId = goalId;
+    if (projectId) body.projectId = projectId;
     if (acceptanceCriteria) body.acceptanceCriteria = acceptanceCriteria;
     if (model) body.configJson = { model };
     if (tokenBudget) body.configJson = { ...(body.configJson || {}), tokenBudget: parseInt(tokenBudget, 10) };
@@ -1932,3 +2076,254 @@ function initNewTaskForm() {
     }
   });
 }
+
+// === PROJECT MANAGEMENT ===
+
+function updateProjectStatusBadge(projectId, newStatus) {
+  const card = document.querySelector('[data-project-id="' + projectId + '"]');
+  if (!card) return;
+
+  const badge = card.querySelector('.status-badge');
+  if (badge) {
+    const classMap = {
+      ready: 'status-badge-success',
+      cloning: 'status-badge-info',
+      error: 'status-badge-error',
+      stale: 'status-badge-warning',
+    };
+    badge.className = 'status-badge ' + (classMap[newStatus] || '');
+    badge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+  }
+
+  const errorBanner = card.querySelector('.project-error-banner');
+  if (newStatus === 'ready' && errorBanner) {
+    errorBanner.style.display = 'none';
+  } else if (newStatus !== 'ready' && newStatus !== 'cloning' && errorBanner) {
+    errorBanner.style.display = '';
+  }
+}
+
+function updateProjectSelectorOption(projectId, newStatus) {
+  const select = document.getElementById('task-project-select');
+  if (!select) return;
+  const option = select.querySelector('option[value="' + projectId + '"]');
+  if (!option) return;
+
+  const isReady = newStatus === 'ready';
+  option.disabled = !isReady;
+
+  const baseName = option.textContent.replace(/ [\u2713\u26a0]$/, '').replace(/ \(cloning\)$/, '').replace(/ \(error\)$/, '').trim();
+  const indicator = newStatus === 'ready' ? ' \u2713' : newStatus === 'cloning' ? ' (cloning)' : newStatus === 'error' ? ' (error)' : newStatus === 'stale' ? ' \u26a0' : '';
+  option.textContent = baseName + indicator;
+}
+
+function initProjectHandlers() {
+  // Open "Add Project" dialog.
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('[data-project-dialog-open]')) {
+      const dialog = document.getElementById('add-project-dialog');
+      if (dialog) {
+        dialog.querySelector('form')?.reset();
+        const errorEl = dialog.querySelector('#add-project-error');
+        if (errorEl) errorEl.textContent = '';
+        dialog.showModal();
+      }
+    }
+  });
+
+  // Close project dialog.
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('[data-project-dialog-close]')) {
+      const dialog = document.getElementById('add-project-dialog');
+      if (dialog) dialog.close();
+    }
+  });
+
+  // "Add Project" form submit.
+  document.addEventListener('submit', async function(e) {
+    if (e.target.id !== 'add-project-form') return;
+    e.preventDefault();
+    const form = e.target;
+    const errorEl = document.getElementById('add-project-error');
+
+    const remoteUrl = form.querySelector('[name="remoteUrl"]')?.value.trim() || '';
+    const name = form.querySelector('[name="name"]')?.value.trim() || '';
+    const defaultBranch = form.querySelector('[name="defaultBranch"]')?.value.trim() || 'main';
+    const credentialsRef = form.querySelector('[name="credentialsRef"]')?.value.trim() || '';
+    const prStrategy = form.querySelector('[name="prStrategy"]')?.value || 'branchOnly';
+    const draft = form.querySelector('[name="draft"]')?.checked ?? true;
+    const labelsRaw = form.querySelector('[name="labels"]')?.value.trim() || '';
+    const labels = labelsRaw ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
+
+    if (!remoteUrl || !name) {
+      if (errorEl) errorEl.textContent = 'Remote URL and Name are required.';
+      return;
+    }
+
+    const body = { remoteUrl, name, defaultBranch, pr: { strategy: prStrategy, draft, labels } };
+    if (credentialsRef) body.credentialsRef = credentialsRef;
+
+    try {
+      const resp = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok || resp.status === 201) {
+        const dialog = document.getElementById('add-project-dialog');
+        if (dialog) dialog.close();
+        window.location.reload();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to add project';
+      }
+    } catch (_) {
+      if (errorEl) errorEl.textContent = 'Failed to reach server';
+    }
+  });
+
+  // "Fetch" button handler.
+  document.addEventListener('click', async function(e) {
+    const btn = e.target.closest('[data-project-fetch]');
+    if (!btn) return;
+    const projectId = btn.dataset.projectFetch;
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = 'Fetching…';
+    try {
+      const resp = await fetch('/api/projects/' + projectId + '/fetch', { method: 'POST' });
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast('error', data.error?.message || 'Fetch failed');
+      }
+    } catch (_) {
+      showToast('error', 'Failed to reach server');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  });
+
+  // "Remove" button handler.
+  document.addEventListener('click', async function(e) {
+    const btn = e.target.closest('[data-project-remove]');
+    if (!btn) return;
+    const projectId = btn.dataset.projectRemove;
+    const projectName = btn.dataset.projectName || projectId;
+    const confirmed = window.confirm(
+      'Remove project \'' + projectName + '\'? Running tasks will be cancelled.'
+    );
+    if (!confirmed) return;
+    try {
+      const resp = await fetch('/api/projects/' + projectId, { method: 'DELETE' });
+      if (resp.ok || resp.status === 204) {
+        window.location.reload();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast('error', data.error?.message || 'Failed to remove project');
+      }
+    } catch (_) {
+      showToast('error', 'Failed to reach server');
+    }
+  });
+
+  // "Edit" button handler — pre-fill and re-use the add dialog.
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-project-edit]');
+    if (!btn) return;
+    const projectId = btn.dataset.projectEdit;
+    const dialog = document.getElementById('add-project-dialog');
+    if (!dialog) return;
+
+    dialog.querySelector('h2').textContent = 'Edit Project';
+    dialog.querySelector('[type="submit"]').textContent = 'Save Changes';
+    const form = dialog.querySelector('form');
+    form.dataset.editProjectId = projectId;
+    const errorEl = dialog.querySelector('#add-project-error');
+    if (errorEl) errorEl.textContent = '';
+
+    const setVal = (name, value) => {
+      const el = form.querySelector('[name="' + name + '"]');
+      if (el) el.value = value || '';
+    };
+    const setChecked = (name, value) => {
+      const el = form.querySelector('[name="' + name + '"]');
+      if (el) el.checked = value === 'true' || value === true;
+    };
+    setVal('remoteUrl', btn.dataset.projectUrl);
+    setVal('name', btn.dataset.projectName);
+    setVal('defaultBranch', btn.dataset.projectBranch);
+    setVal('credentialsRef', btn.dataset.projectCreds);
+    setVal('prStrategy', btn.dataset.projectStrategy);
+    setChecked('draft', btn.dataset.projectDraft);
+    setVal('labels', btn.dataset.projectLabels);
+
+    dialog.showModal();
+  });
+
+  // Override add-project form submit for edit mode.
+  document.addEventListener('submit', async function(e) {
+    if (e.target.id !== 'add-project-form') return;
+    const form = e.target;
+    const editProjectId = form.dataset.editProjectId;
+    if (!editProjectId) return; // handled by the add handler above
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    const errorEl = document.getElementById('add-project-error');
+    const remoteUrl = form.querySelector('[name="remoteUrl"]')?.value.trim() || '';
+    const name = form.querySelector('[name="name"]')?.value.trim() || '';
+    const defaultBranch = form.querySelector('[name="defaultBranch"]')?.value.trim() || 'main';
+    const credentialsRef = form.querySelector('[name="credentialsRef"]')?.value.trim() || '';
+    const prStrategy = form.querySelector('[name="prStrategy"]')?.value || 'branchOnly';
+    const draft = form.querySelector('[name="draft"]')?.checked ?? true;
+    const labelsRaw = form.querySelector('[name="labels"]')?.value.trim() || '';
+    const labels = labelsRaw ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
+
+    const body = { name, defaultBranch, pr: { strategy: prStrategy, draft, labels } };
+    if (remoteUrl) body.remoteUrl = remoteUrl;
+    if (credentialsRef) body.credentialsRef = credentialsRef;
+
+    try {
+      const resp = await fetch('/api/projects/' + editProjectId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        delete form.dataset.editProjectId;
+        const dialog = document.getElementById('add-project-dialog');
+        if (dialog) {
+          dialog.querySelector('h2').textContent = 'Add Project';
+          dialog.querySelector('[type="submit"]').textContent = 'Add Project';
+          dialog.close();
+        }
+        window.location.reload();
+      } else if (resp.status === 409) {
+        const data = await resp.json().catch(() => ({}));
+        if (errorEl) errorEl.textContent = data.error?.message || 'Cannot edit: active tasks exist on this project';
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        if (errorEl) errorEl.textContent = data.error?.message || 'Failed to update project';
+      }
+    } catch (_) {
+      if (errorEl) errorEl.textContent = 'Failed to reach server';
+    }
+  }, true); // capture=true so this runs before the add handler
+}
+
+// === TIMELINE AUTO-SCROLL ===
+
+function scrollTimelineToBottom(container) {
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+function applyTimelineAutoScroll() {
+  const container = document.querySelector('[data-auto-scroll="true"]');
+  scrollTimelineToBottom(container);
+}
+
+document.addEventListener('htmx:afterSettle', applyTimelineAutoScroll);
+applyTimelineAutoScroll();

@@ -27,6 +27,7 @@ import 'server_config.dart';
 import 'session_config.dart';
 import 'features_config.dart';
 import 'governance_config.dart';
+import 'project_config.dart';
 import 'providers_config.dart';
 import 'session_maintenance_config.dart';
 import 'task_config.dart';
@@ -61,6 +62,7 @@ class DartclawConfig {
   final ChannelConfig channels;
   final GovernanceConfig governance;
   final FeaturesConfig features;
+  final ProjectConfig projects;
 
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
@@ -82,6 +84,8 @@ class DartclawConfig {
   String get searchDbPath => p.join(server.dataDir, 'search.db');
   String get tasksDbPath => p.join(server.dataDir, 'tasks.db');
   String get kvPath => p.join(server.dataDir, 'kv.json');
+  String get projectsJsonPath => p.join(server.dataDir, 'projects.json');
+  String get projectsClonesDir => p.join(server.dataDir, 'projects');
 
   const DartclawConfig({
     this.server = const ServerConfig.defaults(),
@@ -104,6 +108,7 @@ class DartclawConfig {
     this.channels = const ChannelConfig.defaults(),
     this.governance = const GovernanceConfig.defaults(),
     this.features = const FeaturesConfig(),
+    this.projects = const ProjectConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -227,6 +232,7 @@ class DartclawConfig {
     final tasks = _parseTasks(yaml, const TaskConfig.defaults(), warns);
     final governance = _parseGovernance(yaml, const GovernanceConfig.defaults(), warns);
     final features = _parseFeatures(yaml);
+    final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
 
     // Parse extension sections — unknown YAML keys passed to registered parsers
     // or stored as raw values for lossless forward-compatibility.
@@ -281,6 +287,7 @@ class DartclawConfig {
       channels: channels,
       governance: governance,
       features: features,
+      projects: projects,
       extensions: extensions,
       warnings: warns,
     );
@@ -1604,6 +1611,7 @@ class DartclawConfig {
     'automation',
     'governance',
     'features',
+    'projects',
   };
 
   static Map<String, dynamic> _loadYaml(

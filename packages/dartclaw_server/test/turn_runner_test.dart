@@ -41,7 +41,7 @@ Map<String, dynamic> _turnResult({
     result['total_cost_usd'] = totalCostUsd;
   }
   if (cachedInputTokens != null) {
-    result['cached_input_tokens'] = cachedInputTokens;
+    result['cache_read_tokens'] = cachedInputTokens;
   }
   return result;
 }
@@ -275,12 +275,12 @@ void main() {
     expect(usageData['input_tokens'], 2);
     expect(usageData['output_tokens'], 3);
     expect(usageData['total_tokens'], 5);
-    expect(usageData['cached_input_tokens'], 0);
+    expect(usageData['cache_read_tokens'], 0);
     expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(usageData['turn_count'], 1);
   });
 
-  test('turn outcome carries cached_input_tokens when available', () async {
+  test('turn outcome carries cacheReadTokens when available', () async {
     final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
     addTearDown(() async => cachedWorker.dispose());
     final cachedRunner = _buildRunner(
@@ -305,7 +305,7 @@ void main() {
     final outcome = await cachedRunner.waitForOutcome(session.id, turnId);
 
     expect(outcome.status, TurnStatus.completed);
-    expect(outcome.cachedInputTokens, 7);
+    expect(outcome.cacheReadTokens, 7);
   });
 
   test('persists provider and accumulates cached input tokens across turns', () async {
@@ -339,7 +339,7 @@ void main() {
     expect(costData['input_tokens'], 5);
     expect(costData['output_tokens'], 5);
     expect(costData['total_tokens'], 10);
-    expect(costData['cached_input_tokens'], 12);
+    expect(costData['cache_read_tokens'], 12);
     expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(costData['turn_count'], 2);
   });
@@ -386,11 +386,11 @@ void main() {
 
     final costData = await _readSessionCost(kvService, session.id);
     expect(costData['provider'], 'codex');
-    expect(costData['cached_input_tokens'], 3);
+    expect(costData['cache_read_tokens'], 3);
     expect(costData['turn_count'], 2);
   });
 
-  test('defaults session cost provider to claude and treats missing cached_input_tokens as zero', () async {
+  test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {
     final session = await sessions.getOrCreateMain();
 
     _scheduleTurnCompletion(worker, result: _turnResult(inputTokens: 4, outputTokens: 6, totalCostUsd: 0.50));
@@ -401,6 +401,92 @@ void main() {
 
     final costData = await _readSessionCost(kvService, session.id);
     expect(costData['provider'], 'claude');
-    expect(costData['cached_input_tokens'], 0);
+    expect(costData['cache_read_tokens'], 0);
+  });
+
+  test('tool call correlation produces ToolCallRecord with correct fields', () async {
+    final session = await sessions.getOrCreateMain();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_1', input: {'command': 'ls'}));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.emit(ToolResultEvent(toolId: 'tu_1', output: 'file.txt', isError: false));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'run tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    expect(outcome.toolCalls[0].name, 'bash');
+    expect(outcome.toolCalls[0].success, isTrue);
+    expect(outcome.toolCalls[0].errorType, isNull);
+    expect(outcome.toolCalls[0].durationMs, greaterThanOrEqualTo(0));
+  });
+
+  test('incomplete tool call produces ToolCallRecord with success: false and errorType: incomplete', () async {
+    final session = await sessions.getOrCreateMain();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_orphan', input: {'command': 'sleep 999'}));
+      // No ToolResultEvent — turn completes before tool returns.
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'incomplete tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    final record = outcome.toolCalls[0];
+    expect(record.name, 'bash');
+    expect(record.success, isFalse);
+    expect(record.errorType, 'incomplete');
+  });
+
+  test('turnDuration is set on TurnOutcome', () async {
+    final session = await sessions.getOrCreateMain();
+
+    _scheduleTurnCompletion(worker, responseText: 'done', delay: const Duration(milliseconds: 5));
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'duration test'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.turnDuration.inMilliseconds, greaterThanOrEqualTo(0));
+  });
+
+  test('failed tool call produces ToolCallRecord with success: false and errorType: tool_error', () async {
+    final session = await sessions.getOrCreateMain();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_err', input: {'command': 'bad'}));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.emit(ToolResultEvent(toolId: 'tu_err', output: 'permission denied', isError: true));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'error tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    final record = outcome.toolCalls[0];
+    expect(record.name, 'bash');
+    expect(record.success, isFalse);
+    expect(record.errorType, 'tool_error');
   });
 }

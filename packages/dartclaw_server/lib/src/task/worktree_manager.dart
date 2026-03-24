@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_models/dartclaw_models.dart' show Project;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -52,6 +53,11 @@ class GitNotFoundException implements Exception {
 /// Creates isolated git worktrees with dedicated branches, giving each coding
 /// task a sandboxed working directory. On task completion, the worktree and
 /// branch are cleaned up. On failure, preserved for inspection.
+///
+/// When a [Project] is passed to [create], the worktree is created from the
+/// project's clone directory using `origin/<defaultBranch>` as the start point.
+/// When no project is provided, the constructor-supplied [projectDir] and
+/// [baseRef] are used (backward-compatible default behavior).
 class WorktreeManager {
   static final _log = Logger('WorktreeManager');
 
@@ -69,13 +75,13 @@ class WorktreeManager {
 
   WorktreeManager({
     required String dataDir,
-    required String projectDir,
+    String? projectDir,
     String baseRef = 'main',
     int staleTimeoutHours = 24,
     String? worktreesDir,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
-  }) : _projectDir = projectDir,
+  }) : _projectDir = projectDir ?? Directory.current.path,
        _baseRef = baseRef,
        _staleTimeoutHours = staleTimeoutHours,
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
@@ -91,67 +97,100 @@ class WorktreeManager {
 
   /// Creates a new git worktree for the given task.
   ///
-  /// 1. Verifies git is available (cached check)
-  /// 2. Creates branch `dartclaw/task-<taskId>` from [baseRef]
-  ///    - Appends `-N` suffix on collision
-  /// 3. Runs `git worktree add <path> <branch>`
-  /// 4. Returns [WorktreeInfo] with path, branch, and creation timestamp
+  /// When [project] is provided, the worktree is created from the project's
+  /// clone directory using `origin/<defaultBranch>` as the start point, via a
+  /// single-step `git worktree add <path> -b <branch> origin/<branch>` command.
+  ///
+  /// When [project] is null, falls back to the constructor-provided defaults:
+  /// two-step `git branch` + `git worktree add` from the local base ref.
   ///
   /// Throws [GitNotFoundException] if git is not available.
   /// Throws [WorktreeException] on git failure (with stderr output).
-  Future<WorktreeInfo> create(String taskId, {String? baseRef}) async {
+  Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project}) async {
     await _ensureGitAvailable();
 
-    final ref = baseRef ?? _baseRef;
-    final branch = await _resolveBranchName(taskId);
+    final effectiveProjectDir = project?.localPath ?? _projectDir;
+    final branch = await _resolveBranchName(taskId, projectDir: effectiveProjectDir);
     final worktreePath = p.join(_worktreesDir, taskId);
 
     // Create parent directory
     await Directory(_worktreesDir).create(recursive: true);
 
-    // Create the branch from base ref
-    final branchResult = await _runProcess('git', ['branch', branch, ref], workingDirectory: _projectDir);
-    if (branchResult.exitCode != 0) {
-      throw WorktreeException(
-        'Failed to create branch $branch from $ref',
-        gitStderr: (branchResult.stderr as String).trim(),
-        exitCode: branchResult.exitCode,
-      );
-    }
+    if (project != null) {
+      // Project-backed: single-step worktree creation from remote tracking ref.
+      final effectiveBaseRef = 'origin/${project.defaultBranch}';
+      final worktreeResult = await _runProcess('git', [
+        'worktree',
+        'add',
+        worktreePath,
+        '-b',
+        branch,
+        effectiveBaseRef,
+      ], workingDirectory: effectiveProjectDir);
+      if (worktreeResult.exitCode != 0) {
+        throw WorktreeException(
+          'Failed to create worktree at $worktreePath',
+          gitStderr: (worktreeResult.stderr as String).trim(),
+          exitCode: worktreeResult.exitCode,
+        );
+      }
+    } else {
+      // Local fallback: two-step branch + worktree creation.
+      final ref = baseRef ?? _baseRef;
+      final branchResult = await _runProcess('git', ['branch', branch, ref], workingDirectory: effectiveProjectDir);
+      if (branchResult.exitCode != 0) {
+        throw WorktreeException(
+          'Failed to create branch $branch from $ref',
+          gitStderr: (branchResult.stderr as String).trim(),
+          exitCode: branchResult.exitCode,
+        );
+      }
 
-    // Create the worktree
-    final worktreeResult = await _runProcess('git', [
-      'worktree',
-      'add',
-      worktreePath,
-      branch,
-    ], workingDirectory: _projectDir);
-    if (worktreeResult.exitCode != 0) {
-      // Clean up the branch if worktree creation fails
-      await _runProcess('git', ['branch', '--delete', branch], workingDirectory: _projectDir);
-      throw WorktreeException(
-        'Failed to create worktree at $worktreePath',
-        gitStderr: (worktreeResult.stderr as String).trim(),
-        exitCode: worktreeResult.exitCode,
-      );
+      final worktreeResult = await _runProcess('git', [
+        'worktree',
+        'add',
+        worktreePath,
+        branch,
+      ], workingDirectory: effectiveProjectDir);
+      if (worktreeResult.exitCode != 0) {
+        // Clean up the branch if worktree creation fails
+        await _runProcess('git', ['branch', '--delete', branch], workingDirectory: effectiveProjectDir);
+        throw WorktreeException(
+          'Failed to create worktree at $worktreePath',
+          gitStderr: (worktreeResult.stderr as String).trim(),
+          exitCode: worktreeResult.exitCode,
+        );
+      }
     }
 
     final info = WorktreeInfo(path: worktreePath, branch: branch, createdAt: DateTime.now());
     _worktrees[taskId] = info;
-    _log.info('Created worktree for task $taskId at $worktreePath (branch: $branch)');
+    _log.info(
+      'Created worktree for task $taskId at $worktreePath '
+      '(branch: $branch, project: ${project?.id ?? "_local"})',
+    );
     return info;
   }
 
   /// Removes worktree directory and deletes the branch.
   ///
+  /// When [project] is provided, uses the project's [localPath] as the git
+  /// working directory for removal. Falls back to the constructor-provided
+  /// [projectDir] when [project] is null.
+  ///
   /// Logs warnings on failure but does not throw — cleanup is best-effort.
-  Future<void> cleanup(String taskId) async {
+  Future<void> cleanup(String taskId, {Project? project}) async {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = info?.branch ?? 'dartclaw/task-$taskId';
+    final effectiveProjectDir = project?.localPath ?? _projectDir;
 
     // Remove worktree
-    final removeResult = await _runProcess('git', ['worktree', 'remove', worktreePath], workingDirectory: _projectDir);
+    final removeResult = await _runProcess(
+      'git',
+      ['worktree', 'remove', worktreePath],
+      workingDirectory: effectiveProjectDir,
+    );
     if (removeResult.exitCode != 0) {
       _log.warning(
         'Failed to remove worktree for task $taskId: '
@@ -160,7 +199,11 @@ class WorktreeManager {
     }
 
     // Delete branch
-    final branchResult = await _runProcess('git', ['branch', '--delete', branch], workingDirectory: _projectDir);
+    final branchResult = await _runProcess(
+      'git',
+      ['branch', '--delete', branch],
+      workingDirectory: effectiveProjectDir,
+    );
     if (branchResult.exitCode != 0) {
       _log.warning(
         'Failed to delete branch $branch for task $taskId: '
@@ -209,21 +252,25 @@ class WorktreeManager {
   }
 
   /// Derives a unique branch name, appending `-N` suffix on collision.
-  Future<String> _resolveBranchName(String taskId) async {
+  Future<String> _resolveBranchName(String taskId, {String? projectDir}) async {
     final base = 'dartclaw/task-$taskId';
 
-    if (!await _branchExists(base)) return base;
+    if (!await _branchExists(base, projectDir: projectDir)) return base;
 
     for (var i = 2; i <= 100; i++) {
       final candidate = '$base-$i';
-      if (!await _branchExists(candidate)) return candidate;
+      if (!await _branchExists(candidate, projectDir: projectDir)) return candidate;
     }
 
     throw WorktreeException('Could not find available branch name for task $taskId');
   }
 
-  Future<bool> _branchExists(String branchName) async {
-    final result = await _runProcess('git', ['branch', '--list', branchName], workingDirectory: _projectDir);
+  Future<bool> _branchExists(String branchName, {String? projectDir}) async {
+    final result = await _runProcess(
+      'git',
+      ['branch', '--list', branchName],
+      workingDirectory: projectDir ?? _projectDir,
+    );
     return (result.stdout as String).trim().isNotEmpty;
   }
 }

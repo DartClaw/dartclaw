@@ -1,6 +1,9 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/src/task/task_event_recorder.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -184,6 +187,66 @@ void main() {
 
       expect(result.status, TaskStatus.running);
       expect(eventBus.firedEvents, isEmpty);
+    });
+  });
+
+  group('TaskEventRecorder integration', () {
+    late Database db;
+    late TaskEventService eventService;
+    late TaskEventRecorder recorder;
+
+    setUp(() {
+      db = openTaskDbInMemory();
+      eventService = TaskEventService(db);
+      recorder = TaskEventRecorder(eventService: eventService);
+    });
+
+    tearDown(() {
+      db.close();
+    });
+
+    test('transition() records statusChanged event via eventRecorder', () async {
+      final serviceWithRecorder = TaskService(repo, eventBus: eventBus, eventRecorder: recorder);
+      addTearDown(serviceWithRecorder.dispose);
+
+      await repo.insert(makeTask(status: TaskStatus.queued));
+      await serviceWithRecorder.transition('task-1', TaskStatus.running, trigger: 'system');
+
+      final events = eventService.listForTask('task-1');
+      expect(events, hasLength(1));
+      expect(events[0].kind.name, 'statusChanged');
+      expect(events[0].details['oldStatus'], 'queued');
+      expect(events[0].details['newStatus'], 'running');
+      expect(events[0].details['trigger'], 'system');
+    });
+
+    test('create(autoStart: true) records statusChanged event via eventRecorder', () async {
+      final serviceWithRecorder = TaskService(repo, eventBus: eventBus, eventRecorder: recorder);
+      addTearDown(serviceWithRecorder.dispose);
+
+      await serviceWithRecorder.create(
+        id: 'task-2',
+        title: 'Auto start',
+        description: 'desc',
+        type: TaskType.coding,
+        autoStart: true,
+        trigger: 'user',
+      );
+
+      final events = eventService.listForTask('task-2');
+      expect(events, hasLength(1));
+      expect(events[0].kind.name, 'statusChanged');
+      expect(events[0].details['oldStatus'], 'draft');
+      expect(events[0].details['trigger'], 'user');
+    });
+
+    test('null eventRecorder does not affect existing behavior', () async {
+      final serviceNoRecorder = TaskService(repo, eventBus: eventBus);
+      addTearDown(serviceNoRecorder.dispose);
+
+      await repo.insert(makeTask(status: TaskStatus.queued));
+      final result = await serviceNoRecorder.transition('task-1', TaskStatus.running);
+      expect(result.status, TaskStatus.running);
     });
   });
 }

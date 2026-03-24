@@ -17,10 +17,12 @@ export 'src/api/google_chat_space_events_wiring.dart' show GoogleChatSpaceEvents
 export 'src/api/google_chat_subscription_routes.dart' show googleChatSubscriptionRoutes;
 export 'src/api/google_chat_webhook.dart' show GoogleChatWebhookHandler, GoogleChatMessageDispatcher;
 export 'src/api/goal_routes.dart' show goalRoutes;
+export 'src/api/project_routes.dart' show projectRoutes;
 export 'src/api/slash_command_handler.dart' show SlashCommandHandler;
 export 'src/api/sse_broadcast.dart' show SseBroadcast;
 export 'src/api/task_routes.dart' show taskRoutes;
 export 'src/api/task_sse_routes.dart' show taskSseRoutes;
+export 'src/api/trace_routes.dart' show traceRoutes;
 
 // Config
 export 'package:dartclaw_config/dartclaw_config.dart';
@@ -134,6 +136,10 @@ export 'src/task/container_task_failure_subscriber.dart' show ContainerTaskFailu
 export 'src/task/diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
 export 'src/task/goal_service.dart' show GoalService;
 export 'src/task/merge_executor.dart' show MergeExecutor, MergeResult, MergeSuccess, MergeConflict, MergeStrategy;
+export 'src/task/pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrGhNotFound, PrCreationFailed;
+export 'src/task/remote_push_service.dart'
+    show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;
+export 'src/task/task_event_recorder.dart' show TaskEventRecorder;
 export 'src/task/task_executor.dart' show TaskExecutor;
 export 'src/task/task_file_guard.dart' show TaskFileGuard;
 export 'src/task/task_notification_subscriber.dart' show TaskNotificationSubscriber;
@@ -150,6 +156,9 @@ export 'src/task/task_review_service.dart'
         ReviewActionFailed;
 export 'src/task/task_service.dart' show TaskService;
 export 'src/task/worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
+
+// Project management
+export 'src/project/project_service_impl.dart' show ProjectServiceImpl, GitRunner;
 
 // Session
 export 'src/session/group_session_initializer.dart' show GroupSessionInitializer, ChannelGroupConfig;

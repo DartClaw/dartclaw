@@ -23,6 +23,8 @@ const expectedTemplates = [
   'channel_detail',
   'tasks',
   'task_detail',
+  'task_timeline',
+  'projects',
 ];
 
 TemplateLoaderService? _templateLoader;

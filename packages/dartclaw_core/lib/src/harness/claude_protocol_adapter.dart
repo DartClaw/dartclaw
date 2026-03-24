@@ -34,6 +34,8 @@ class ClaudeProtocolAdapter implements ProtocolAdapter {
         :final durationMs,
         :final inputTokens,
         :final outputTokens,
+        :final cacheReadInputTokens,
+        :final cacheCreationInputTokens,
       ) =>
         TurnComplete(
           stopReason: stopReason,
@@ -41,6 +43,8 @@ class ClaudeProtocolAdapter implements ProtocolAdapter {
           durationMs: durationMs,
           inputTokens: inputTokens,
           outputTokens: outputTokens,
+          cacheReadTokens: cacheReadInputTokens,
+          cacheWriteTokens: cacheCreationInputTokens,
         ),
       claude_protocol.SystemInit(:final sessionId, :final toolCount, :final contextWindow) => SystemInit(
         sessionId: sessionId,

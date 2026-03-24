@@ -1,3 +1,4 @@
+import 'components.dart';
 import 'guard_config_summary.dart';
 import 'helpers.dart';
 import 'layout.dart';
@@ -44,11 +45,42 @@ String settingsTemplate({
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
 
-  final healthStatus = switch (workerState) {
-    'running' || 'idle' => ('Healthy', 'status-badge-success'),
-    'crashed' => ('Degraded', 'status-badge-warning'),
-    _ => ('Unhealthy', 'status-badge-error'),
+  final (healthLabel, healthVariant) = switch (workerState) {
+    'running' || 'idle' => ('Healthy', 'success'),
+    'crashed' => ('Degraded', 'warning'),
+    _ => ('Unhealthy', 'error'),
   };
+
+  // Pre-render status badges.
+  final healthBadgeHtml = statusBadgeTemplate(variant: healthVariant, text: healthLabel);
+  final whatsAppBadgeVariant = _badgeVariantFromClass(whatsAppStatusClass);
+  final whatsAppStatusBadgeHtml = statusBadgeTemplate(
+    variant: whatsAppBadgeVariant,
+    text: whatsAppStatusLabel,
+  );
+  final signalBadgeVariant = _badgeVariantFromClass(signalStatusClass);
+  final signalStatusBadgeHtml = statusBadgeTemplate(
+    variant: signalBadgeVariant,
+    text: signalStatusLabel,
+  );
+  final googleChatBadgeVariant = _badgeVariantFromClass(googleChatStatusClass);
+  final googleChatStatusBadgeHtml = statusBadgeTemplate(
+    variant: googleChatBadgeVariant,
+    text: googleChatStatusLabel,
+  );
+
+  // Pre-render provider health badges.
+  final providersWithBadges = providers.map((p) {
+    final badgeClass = p['healthBadgeClass']?.toString() ?? 'status-badge-muted';
+    final badgeLabel = p['healthLabel']?.toString() ?? '';
+    return {
+      ...p,
+      'statusBadgeHtml': statusBadgeTemplate(
+        variant: _badgeVariantFromClass(badgeClass),
+        text: badgeLabel,
+      ),
+    };
+  }).toList();
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
@@ -57,34 +89,30 @@ String settingsTemplate({
   final body = templateLoader.trellis.render(templateLoader.source('settings'), {
     'sidebar': sidebar,
     'topbar': topbar,
-    'providers': providers,
+    'providers': providersWithBadges,
     'hasProviders': providers.isNotEmpty,
     'providerConfiguredCount': providerConfiguredCount,
     'providerHealthyCount': providerHealthyCount,
     'providerDegradedCount': providerDegradedCount,
     'whatsAppEnabled': whatsAppEnabled,
-    'whatsAppStatusLabel': whatsAppStatusLabel,
-    'whatsAppStatusClass': whatsAppStatusClass,
+    'whatsAppStatusBadgeHtml': whatsAppStatusBadgeHtml,
     'whatsAppPhone': whatsAppPhone,
     'whatsAppPendingCount': whatsAppPendingCount,
     'whatsAppHasPending': whatsAppPendingCount > 0,
     'signalEnabled': signalEnabled,
-    'signalStatusLabel': signalStatusLabel,
-    'signalStatusClass': signalStatusClass,
+    'signalStatusBadgeHtml': signalStatusBadgeHtml,
     'signalPhone': signalPhone,
     'signalPendingCount': signalPendingCount,
     'signalHasPending': signalPendingCount > 0,
     'googleChatEnabled': googleChatEnabled,
-    'googleChatStatusLabel': googleChatStatusLabel,
-    'googleChatStatusClass': googleChatStatusClass,
+    'googleChatStatusBadgeHtml': googleChatStatusBadgeHtml,
     'googleChatPendingCount': googleChatPendingCount,
     'googleChatHasPending': googleChatPendingCount > 0,
     'guardsEnabled': guardsEnabled,
     'activeGuardCount': guardConfigs.where((g) => g.enabled).length,
     'guardFailOpen': guardFailOpen,
     'guardConfigs': guardConfigs.map((g) => g.toTemplateMap()).toList(),
-    'healthBadgeClass': healthStatus.$2,
-    'healthLabel': healthStatus.$1,
+    'healthBadgeHtml': healthBadgeHtml,
     'uptimeStr': uptimeStr,
     'sessionCount': sessionCount,
     'version': version,
@@ -93,4 +121,12 @@ String settingsTemplate({
   });
 
   return layoutTemplate(title: 'Settings', body: body, appName: appName);
+}
+
+/// Extracts the variant suffix from a `status-badge-{variant}` class string.
+/// Returns `'muted'` as a safe fallback.
+String _badgeVariantFromClass(String badgeClass) {
+  const prefix = 'status-badge-';
+  if (badgeClass.startsWith(prefix)) return badgeClass.substring(prefix.length);
+  return 'muted';
 }

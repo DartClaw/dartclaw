@@ -17,6 +17,7 @@ import 'governance/budget_exhausted_exception.dart';
 import 'logging/log_context.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
+import 'task/tool_call_summary.dart';
 import 'turn_manager.dart';
 
 /// Per-harness turn execution engine.
@@ -154,6 +155,7 @@ class TurnRunner {
     String? model,
     String? effort,
     bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
   }) async {
     // Budget check — before acquiring the session lock to avoid holding the lock
     // while blocked.
@@ -179,6 +181,7 @@ class TurnRunner {
       directory: directory,
       model: model,
       effort: effort,
+      behaviorOverride: behaviorOverride,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
@@ -454,7 +457,9 @@ class TurnRunner {
   Future<String> _buildSystemPrompt(String sessionId) async {
     if (_worker.promptStrategy == PromptStrategy.append) return '';
 
-    final behaviorPrompt = await _behavior.composeSystemPrompt(sessionId: sessionId);
+    // Use task-scoped behavior override when present (project-backed tasks).
+    final effectiveBehavior = _activeTurns[sessionId]?.behaviorOverride ?? _behavior;
+    final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(sessionId: sessionId);
 
     final memFile = _memoryFile;
     if (memFile != null) {
@@ -466,7 +471,7 @@ class TurnRunner {
       }
     }
 
-    final agentsContent = await _behavior.composeAppendPrompt();
+    final agentsContent = await effectiveBehavior.composeAppendPrompt();
     if (agentsContent.isEmpty) return behaviorPrompt;
     return '$behaviorPrompt\n\n$agentsContent';
   }
@@ -492,6 +497,9 @@ class TurnRunner {
   }) async {
     final buffer = StringBuffer();
     final toolEvents = <ToolUseEvent>[];
+    final pendingToolCalls = <String, ({String name, String? context, DateTime startedAt})>{};
+    final completedToolCalls = <ToolCallRecord>[];
+    final stopwatch = Stopwatch()..start();
     String? userMessageFull;
     if (messages.isNotEmpty) {
       final last = messages.last;
@@ -506,6 +514,11 @@ class TurnRunner {
         buffer.write(event.text);
       } else if (event is ToolUseEvent) {
         toolEvents.add(event);
+        pendingToolCalls[event.toolId] = (
+          name: event.toolName,
+          context: summarizeToolInput(event.toolName, event.input),
+          startedAt: DateTime.now(),
+        );
         // Tool-call fingerprint loop detection (mid-turn, mechanism 3).
         final fpDetection = _loopDetector?.recordToolCall(turnId, sessionId, event.toolName, event.input);
         if (fpDetection != null) {
@@ -514,6 +527,20 @@ class TurnRunner {
             _loopDetectedTurns[turnId] = fpDetection;
             unawaited(cancelTurn(sessionId));
           }
+        }
+      } else if (event is ToolResultEvent) {
+        final pending = pendingToolCalls.remove(event.toolId);
+        if (pending != null) {
+          final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
+          completedToolCalls.add(
+            ToolCallRecord(
+              name: pending.name,
+              success: !event.isError,
+              durationMs: durationMs,
+              errorType: event.isError ? 'tool_error' : null,
+              context: pending.context,
+            ),
+          );
         }
       } else if (event is SystemInitEvent) {
         _contextMonitor.update(contextWindow: event.contextWindow);
@@ -561,7 +588,24 @@ class TurnRunner {
           effort: turnCtx?.effort,
         );
         final accumulated = buffer.toString();
-        final cachedInputTokens = _worker.supportsCachedTokens ? result['cached_input_tokens'] as int? : null;
+        // Finalize any pending tool calls (incomplete — no matching result received).
+        final turnEndedAt = DateTime.now();
+        for (final entry in pendingToolCalls.entries) {
+          final durationMs = turnEndedAt.difference(entry.value.startedAt).inMilliseconds;
+          completedToolCalls.add(
+            ToolCallRecord(
+              name: entry.value.name,
+              success: false,
+              durationMs: durationMs,
+              errorType: 'incomplete',
+              context: entry.value.context,
+            ),
+          );
+        }
+        pendingToolCalls.clear();
+        stopwatch.stop();
+        final cacheReadTokens = _worker.supportsCachedTokens ? (result['cache_read_tokens'] as int? ?? 0) : 0;
+        final cacheWriteTokens = _worker.supportsCachedTokens ? (result['cache_write_tokens'] as int? ?? 0) : 0;
 
         try {
           await _trackSessionUsage(sessionId, result, providerId);
@@ -662,7 +706,10 @@ class TurnRunner {
           responseText: trimmed,
           inputTokens: result['input_tokens'] as int? ?? 0,
           outputTokens: result['output_tokens'] as int? ?? 0,
-          cachedInputTokens: cachedInputTokens,
+          cacheReadTokens: cacheReadTokens,
+          cacheWriteTokens: cacheWriteTokens,
+          turnDuration: stopwatch.elapsed,
+          toolCalls: List.unmodifiable(completedToolCalls),
           completedAt: DateTime.now(),
         );
 
@@ -758,12 +805,21 @@ class TurnRunner {
     if (existing != null) {
       costData = jsonDecode(existing) as Map<String, dynamic>;
     } else {
-      costData = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'estimated_cost_usd': 0.0, 'turn_count': 0};
+      costData = {
+        'input_tokens': 0,
+        'output_tokens': 0,
+        'cache_read_tokens': 0,
+        'cache_write_tokens': 0,
+        'total_tokens': 0,
+        'estimated_cost_usd': 0.0,
+        'turn_count': 0,
+      };
     }
 
     final inputTokens = result['input_tokens'] as int? ?? 0;
     final outputTokens = result['output_tokens'] as int? ?? 0;
-    final cachedInputTokens = (result['cached_input_tokens'] as num?)?.toInt() ?? 0;
+    final cacheReadTokens = (result['cache_read_tokens'] as num?)?.toInt() ?? 0;
+    final cacheWriteTokens = (result['cache_write_tokens'] as num?)?.toInt() ?? 0;
     final costUsd = _worker.supportsCostReporting ? (result['total_cost_usd'] as num?)?.toDouble() ?? 0.0 : 0.0;
     final existingProvider = switch (costData['provider']) {
       final String value when value.trim().isNotEmpty => value,
@@ -772,7 +828,8 @@ class TurnRunner {
 
     costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
-    costData['cached_input_tokens'] = ((costData['cached_input_tokens'] as num?)?.toInt() ?? 0) + cachedInputTokens;
+    costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
+    costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
     costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;

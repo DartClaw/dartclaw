@@ -440,7 +440,7 @@ class CodexHarness extends AgentHarness {
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
 
-      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cachedInputTokens):
+      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cacheReadTokens, :final cacheWriteTokens):
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
           final result = <String, dynamic>{'stop_reason': stopReason ?? 'completed'};
@@ -452,7 +452,8 @@ class CodexHarness extends AgentHarness {
           } else {
             result['input_tokens'] = inputTokens ?? 0;
             result['output_tokens'] = outputTokens ?? 0;
-            result['cached_input_tokens'] = cachedInputTokens ?? 0;
+            result['cache_read_tokens'] = cacheReadTokens ?? 0;
+            result['cache_write_tokens'] = cacheWriteTokens ?? 0;
           }
           completer.complete(result);
         }

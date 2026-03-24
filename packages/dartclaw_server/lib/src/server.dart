@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
@@ -19,11 +19,13 @@ import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
+import 'api/project_routes.dart';
 import 'api/provider_routes.dart';
 import 'api/session_routes.dart';
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
 import 'api/task_sse_routes.dart';
+import 'api/trace_routes.dart';
 import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
 import 'auth/auth_middleware.dart';
@@ -51,6 +53,8 @@ import 'session/session_reset_service.dart';
 import 'task/agent_observer.dart';
 import 'task/goal_service.dart';
 import 'task/merge_executor.dart';
+import 'task/task_event_recorder.dart';
+import 'task/task_progress_tracker.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
@@ -120,6 +124,9 @@ class DartclawServerBuilder {
   SseBroadcast? sseBroadcast;
   ProviderStatusService? providerStatus;
 
+  // Projects
+  ProjectService? projectService;
+
   // Tasks
   GoalService? goalService;
   TaskService? taskService;
@@ -130,6 +137,9 @@ class DartclawServerBuilder {
   MergeExecutor? mergeExecutor;
   String? mergeStrategy;
   String? baseRef;
+  TurnTraceService? traceService;
+  TaskEventService? taskEventService;
+  TaskEventRecorder? taskEventRecorder;
 
   // Google Chat
   GoogleChatSpaceEventsWiring? spaceEventsWiring;
@@ -192,6 +202,15 @@ class DartclawServerBuilder {
 
     final turns = buildTurns();
 
+    final eventRecorder =
+        taskEventRecorder ??
+        (taskEventService != null ? TaskEventRecorder(eventService: taskEventService!, eventBus: eventBus) : null);
+
+    // Create progress tracker when task event infrastructure is available.
+    final progressTracker = (taskEventService != null && taskService != null && eventBus != null)
+        ? TaskProgressTracker(eventBus: eventBus!, tasks: taskService!)
+        : null;
+
     final server = DartclawServer._(
       sessions: s,
       messages: m,
@@ -225,6 +244,7 @@ class DartclawServerBuilder {
       sseBroadcast: sseBroadcast,
       providerStatus: providerStatus,
       eventBus: eventBus,
+      projectService: projectService,
       goalService: goalService,
       taskService: taskService,
       taskReviewService: taskReviewService,
@@ -234,6 +254,10 @@ class DartclawServerBuilder {
       mergeExecutor: mergeExecutor,
       mergeStrategy: mergeStrategy,
       baseRef: baseRef,
+      traceService: traceService,
+      taskEventService: taskEventService,
+      taskEventRecorder: eventRecorder,
+      progressTracker: progressTracker,
       spaceEventsWiring: spaceEventsWiring,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
@@ -276,6 +300,7 @@ class DartclawServerBuilder {
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
+      projectService: projectService,
     );
 
     return server;
@@ -320,6 +345,7 @@ class DartclawServer {
   final SseBroadcast? _sseBroadcast;
   final ProviderStatusService? _providerStatus;
   final EventBus? _eventBus;
+  final ProjectService? _projectService;
   final GoalService? _goalService;
   final TaskService? _taskService;
   final TaskReviewService? _taskReviewService;
@@ -329,6 +355,10 @@ class DartclawServer {
   final MergeExecutor? _mergeExecutor;
   final String? _mergeStrategy;
   final String? _baseRef;
+  final TurnTraceService? _traceService;
+  final TaskEventService? _taskEventService;
+  final TaskEventRecorder? _taskEventRecorder;
+  final TaskProgressTracker? _progressTracker;
   final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
 
   // Display params — all final
@@ -346,6 +376,8 @@ class DartclawServer {
 
   TurnManager get turns => _turns;
   ProviderStatusService? get providerStatus => _providerStatus;
+  TaskEventService? get taskEventService => _taskEventService;
+  TaskEventRecorder? get taskEventRecorder => _taskEventRecorder;
 
   /// Internal constructor — use [DartclawServerBuilder] to create instances.
   DartclawServer._({
@@ -381,6 +413,7 @@ class DartclawServer {
     required SseBroadcast? sseBroadcast,
     required ProviderStatusService? providerStatus,
     required EventBus? eventBus,
+    required ProjectService? projectService,
     required GoalService? goalService,
     required TaskService? taskService,
     required TaskReviewService? taskReviewService,
@@ -390,6 +423,10 @@ class DartclawServer {
     required MergeExecutor? mergeExecutor,
     required String? mergeStrategy,
     required String? baseRef,
+    required TurnTraceService? traceService,
+    required TaskEventService? taskEventService,
+    required TaskEventRecorder? taskEventRecorder,
+    required TaskProgressTracker? progressTracker,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
@@ -429,6 +466,7 @@ class DartclawServer {
        _sseBroadcast = sseBroadcast,
        _providerStatus = providerStatus,
        _eventBus = eventBus,
+       _projectService = projectService,
        _goalService = goalService,
        _taskService = taskService,
        _taskReviewService = taskReviewService,
@@ -438,6 +476,10 @@ class DartclawServer {
        _mergeExecutor = mergeExecutor,
        _mergeStrategy = mergeStrategy,
        _baseRef = baseRef,
+       _traceService = traceService,
+       _taskEventService = taskEventService,
+       _taskEventRecorder = taskEventRecorder,
+       _progressTracker = progressTracker,
        _spaceEventsWiring = spaceEventsWiring,
        _contentGuardDisplay = contentGuardDisplay,
        _heartbeatDisplay = heartbeatDisplay,
@@ -519,7 +561,30 @@ class DartclawServer {
   /// The MCP protocol handler, exposed for testing.
   McpProtocolHandler get mcpHandler => _mcpHandler;
 
+  Future<void> _seedAndStartProgressTracker(TaskProgressTracker tracker) async {
+    final taskService = _taskService;
+    final taskEventService = _taskEventService;
+    if (taskService == null || taskEventService == null) return;
+    try {
+      final runningTasks = await taskService.list(status: TaskStatus.running);
+      for (final task in runningTasks) {
+        final tokenBudget =
+            (task.configJson['tokenBudget'] as num?)?.toInt() ?? (task.configJson['budget'] as num?)?.toInt();
+        final events = taskEventService.listForTask(task.id);
+        tracker.seedFromEvents(
+          task.id,
+          events.map((e) => {'kind': e.kind.name, 'details': Map<String, dynamic>.from(e.details)}).toList(),
+          tokenBudget: tokenBudget,
+        );
+      }
+    } catch (e) {
+      // Non-critical — tracker still starts and processes new events.
+    }
+    tracker.start();
+  }
+
   Future<void> shutdown() async {
+    _progressTracker?.dispose();
     for (final sessionId in _turns.activeSessionIds.toList()) {
       await _turns.cancelTurn(sessionId);
     }
@@ -570,6 +635,13 @@ class DartclawServer {
   Handler _buildHandler() {
     _validateDependencies();
     _registrationLocked = true;
+
+    // Seed and start the progress tracker if available.
+    final tracker = _progressTracker;
+    if (tracker != null) {
+      unawaited(_seedAndStartProgressTracker(tracker));
+    }
+
     final router = Router();
 
     _mountHealthRoutes(router);
@@ -583,6 +655,7 @@ class DartclawServer {
     _mountProviderRoutes(router);
     _mountMemoryRoutes(router);
     _mountGoalRoutes(router);
+    _mountProjectRoutes(router);
     _mountTaskRoutes(router);
     _mountGoogleChatSubscriptionRoutes(router);
     _mountAgentRoutes(router);
@@ -722,11 +795,31 @@ class DartclawServer {
     }
   }
 
+  void _mountProjectRoutes(Router router) {
+    final ps = _projectService;
+    if (ps != null) {
+      final projectRouter = projectRoutes(
+        ps,
+        tasks: _taskService,
+        worktreeManager: _worktreeManager,
+        taskFileGuard: _taskFileGuard,
+        turns: _turns,
+      );
+      router.mount('/', projectRouter.call);
+    }
+  }
+
   void _mountTaskRoutes(Router router) {
     final taskService = _taskService;
     final eventBus = _eventBus;
     if (taskService != null && eventBus != null) {
-      final taskSseRouter = taskSseRoutes(taskService, eventBus, observer: _agentObserver);
+      final taskSseRouter = taskSseRoutes(
+        taskService,
+        eventBus,
+        observer: _agentObserver,
+        projects: _projectService,
+        progressTracker: _progressTracker,
+      );
       router.mount('/', taskSseRouter.call);
       final taskRouter = taskRoutes(
         taskService,
@@ -735,11 +828,16 @@ class DartclawServer {
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
         mergeExecutor: _mergeExecutor,
+        projectService: _projectService,
         dataDir: _appDisplay.dataDir,
         mergeStrategy: _mergeStrategy ?? 'squash',
         baseRef: _baseRef ?? 'main',
       );
       router.mount('/', taskRouter.call);
+    }
+    final ts = _traceService;
+    if (ts != null) {
+      router.mount('/', traceRoutes(ts).call);
     }
   }
 
@@ -827,9 +925,13 @@ class DartclawServer {
       config: _config,
       taskService: _taskService,
       goalService: _goalService,
+      projectService: _projectService,
       eventBus: _eventBus,
       agentObserver: _agentObserver,
       kvService: _kvService,
+      traceService: _traceService,
+      taskEventService: _taskEventService,
+      progressTracker: _progressTracker,
     );
     router.mount('/', webRouter.call);
   }

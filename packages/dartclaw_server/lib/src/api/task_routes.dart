@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../task/merge_executor.dart';
 import '../task/task_file_guard.dart';
+import '../task/task_project_ref.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
 import '../task/worktree_manager.dart';
@@ -27,6 +28,7 @@ Router taskRoutes(
   WorktreeManager? worktreeManager,
   TaskFileGuard? taskFileGuard,
   MergeExecutor? mergeExecutor,
+  ProjectService? projectService,
   String? dataDir,
   String mergeStrategy = 'squash',
   String baseRef = 'main',
@@ -61,6 +63,8 @@ Router taskRoutes(
       if (acceptanceCriteriaFieldError != null) return acceptanceCriteriaFieldError;
       final providerFieldError = _validateStringFieldType(body.value!, 'provider');
       if (providerFieldError != null) return providerFieldError;
+      final projectIdFieldError = _validateStringFieldType(body.value!, 'projectId');
+      if (projectIdFieldError != null) return projectIdFieldError;
 
       final title = _trimmedStringOrNull(body.value!['title']);
       final description = _trimmedStringOrNull(body.value!['description']);
@@ -70,6 +74,16 @@ Router taskRoutes(
       final goalId = _stringOrNull(body.value!['goalId']);
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
       final provider = _trimmedStringOrNull(body.value!['provider']);
+      final projectId = _trimmedStringOrNull(body.value!['projectId']);
+
+      if (projectId != null && projectService != null) {
+        final project = await projectService.get(projectId);
+        if (project == null) {
+          return errorResponse(400, 'INVALID_INPUT', 'projectId must reference an existing project', {
+            'field': 'projectId',
+          });
+        }
+      }
 
       if (title == null || title.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'title must not be empty', {'field': 'title'});
@@ -102,6 +116,7 @@ Router taskRoutes(
         acceptanceCriteria: acceptanceCriteria,
         createdBy: createdBy,
         provider: provider,
+        projectId: projectId,
         configJson: configJson,
         trigger: 'user',
       );
@@ -179,7 +194,8 @@ Router taskRoutes(
     );
     // Cleanup worktree on cancel
     if (response.statusCode == 200 && task?.worktreeJson != null) {
-      await _cleanupWorktree(id, worktreeManager, taskFileGuard);
+      final cleanupProject = await _cleanupProjectForTask(task, projectService);
+      await _cleanupWorktree(id, worktreeManager, taskFileGuard, project: cleanupProject);
     }
     if (response.statusCode == 200 && task?.sessionId != null && task?.status == TaskStatus.running) {
       await turns?.cancelTurn(task!.sessionId!);
@@ -414,11 +430,27 @@ String _sanitizeReviewFailureMessage(String message) {
   return trimmed;
 }
 
-Future<void> _cleanupWorktree(String taskId, WorktreeManager? worktreeManager, TaskFileGuard? taskFileGuard) async {
+Future<void> _cleanupWorktree(
+  String taskId,
+  WorktreeManager? worktreeManager,
+  TaskFileGuard? taskFileGuard, {
+  Project? project,
+}) async {
   try {
-    await worktreeManager?.cleanup(taskId);
+    await worktreeManager?.cleanup(taskId, project: project);
   } catch (e) {
     _log.warning('Failed to cleanup worktree for task $taskId: $e');
   }
   taskFileGuard?.deregister(taskId);
+}
+
+Future<Project?> _cleanupProjectForTask(Task? task, ProjectService? projectService) async {
+  if (task == null || projectService == null) {
+    return null;
+  }
+  final projectId = taskProjectId(task);
+  if (projectId == null || projectId == '_local') {
+    return null;
+  }
+  return projectService.get(projectId);
 }

@@ -49,6 +49,9 @@ class SqliteTaskRepository implements TaskRepository {
     if (!columns.contains('provider')) {
       _db.execute('ALTER TABLE tasks ADD COLUMN provider TEXT');
     }
+    if (!columns.contains('project_id')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN project_id TEXT');
+    }
     _db.execute('''
       CREATE TABLE IF NOT EXISTS task_artifacts (
         id TEXT PRIMARY KEY,
@@ -69,8 +72,8 @@ class SqliteTaskRepository implements TaskRepository {
       INSERT INTO tasks (
         id, title, description, type, status, version, goal_id, session_id,
         acceptance_criteria, config_json, worktree_json,
-        created_at, started_at, completed_at, created_by, provider
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, started_at, completed_at, created_by, provider, project_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -90,6 +93,7 @@ class SqliteTaskRepository implements TaskRepository {
         task.completedAt?.toIso8601String(),
         task.createdBy,
         task.provider,
+        task.projectId,
       ]);
     } finally {
       stmt.close();
@@ -217,7 +221,8 @@ class SqliteTaskRepository implements TaskRepository {
         acceptance_criteria = ?,
         config_json = ?,
         worktree_json = ?,
-        provider = ?
+        provider = ?,
+        project_id = ?
       WHERE id = ? AND status = ?
     ''');
     try {
@@ -229,6 +234,7 @@ class SqliteTaskRepository implements TaskRepository {
         _encodeJson(task.configJson),
         _encodeJsonNullable(task.worktreeJson),
         task.provider,
+        task.projectId,
         task.id,
         expectedStatus.name,
       ]);
@@ -325,6 +331,7 @@ class SqliteTaskRepository implements TaskRepository {
       completedAt: _decodeDateTime(row['completed_at']),
       createdBy: row['created_by'] as String?,
       provider: row['provider'] as String?,
+      projectId: row['project_id'] as String?,
     );
   }
 

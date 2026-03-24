@@ -14,7 +14,7 @@
           </div>
           <div class="task-meta-item">
             <span class="task-meta-label">Status</span>
-            <span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">review</span>
+            <tl:block tl:utext="${statusBadgeHtml}">badge</tl:block>
           </div>
           <div tl:if="${hasProvider}" class="task-meta-item">
             <span class="task-meta-label">Provider</span>
@@ -58,6 +58,37 @@
           This task has been pushed back multiple times. Consider revising the description or rejecting it.
         </div>
       </div>
+
+      <div tl:if="${hasTokenSummary}" class="card task-token-summary">
+        <div class="task-meta-grid">
+          <div class="task-meta-item">
+            <span class="task-meta-label">Total Tokens</span>
+            <span tl:text="${totalTokens}">0</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Input / Output</span>
+            <span><span tl:text="${totalInputTokens}">0</span> in / <span tl:text="${totalOutputTokens}">0</span> out</span>
+          </div>
+          <div tl:if="${hasCacheTokens}" class="task-meta-item">
+            <span class="task-meta-label">Cache</span>
+            <span><span tl:text="${totalCacheReadTokens}">0</span> read / <span tl:text="${totalCacheWriteTokens}">0</span> write</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Duration</span>
+            <span tl:text="${totalDurationDisplay}">0s</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Tool Calls</span>
+            <span tl:text="${totalToolCalls}">0</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Turns</span>
+            <span tl:text="${traceCount}">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div tl:if="${hasTimeline}" tl:utext="${timelineHtml}">timeline</div>
 
       <div tl:if="${isDraft}" class="task-status-bar">
         <button type="button" class="btn btn-primary" data-task-start>Start Task</button>
@@ -149,6 +180,30 @@
           <span class="status-badge status-badge-running">Running</span>
           <span class="task-elapsed" tl:attr="data-started-at=${startedAtIso}">--:--</span>
           <button tl:if="${isCancellable}" type="button" class="btn btn-ghost" data-task-cancel>Cancel Task</button>
+        </div>
+      </div>
+
+      <!-- Live activity indicator and progress bar — hidden when not running -->
+      <div id="task-progress-section" class="task-progress-section"
+           tl:attr="style=${progressSectionStyle}">
+        <div class="task-activity-indicator" tl:attr="id='task-activity-' + ${taskId}">
+          <span class="status-dot status-dot--live" aria-hidden="true"></span>
+          <span class="task-activity-text" tl:text="${initialActivity}"
+                tl:attr="id='task-activity-text-' + ${taskId}">Starting...</span>
+        </div>
+        <div class="budget-bar-wrapper" tl:attr="id='task-progress-wrapper-' + ${taskId}">
+          <div class="budget-bar-label">
+            <span tl:text="${initialProgressLabel}"
+                  tl:attr="id='task-progress-label-' + ${taskId}">0 tokens used</span>
+          </div>
+          <div class="budget-bar">
+            <div class="budget-bar-fill" tl:classappend="${initialProgressFillClass}"
+                 tl:attr="id='task-progress-fill-' + ${taskId},style='width: ' + ${initialProgressPct} + '%',aria-valuenow=${initialProgressPct}"
+                 role="progressbar"
+                 aria-valuemin="0"
+                 aria-valuemax="100">
+            </div>
+          </div>
         </div>
       </div>
 

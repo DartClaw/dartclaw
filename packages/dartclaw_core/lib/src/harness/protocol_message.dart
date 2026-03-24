@@ -56,7 +56,8 @@ final class TurnComplete extends ProtocolMessage {
   final int? durationMs;
   final int? inputTokens;
   final int? outputTokens;
-  final int? cachedInputTokens;
+  final int? cacheReadTokens;
+  final int? cacheWriteTokens;
 
   const TurnComplete({
     this.stopReason,
@@ -64,13 +65,15 @@ final class TurnComplete extends ProtocolMessage {
     this.durationMs,
     this.inputTokens,
     this.outputTokens,
-    this.cachedInputTokens,
+    this.cacheReadTokens,
+    this.cacheWriteTokens,
   });
 
   @override
   String toString() =>
       'TurnComplete(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
-      'inputTokens: $inputTokens, outputTokens: $outputTokens, cachedInputTokens: $cachedInputTokens)';
+      'inputTokens: $inputTokens, outputTokens: $outputTokens, '
+      'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
 }
 
 /// System/session initialization metadata.

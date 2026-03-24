@@ -29,10 +29,16 @@ enum TaskStatus {
 
   static const Map<TaskStatus, Set<TaskStatus>> validTransitions = {
     TaskStatus.draft: {TaskStatus.queued, TaskStatus.cancelled},
-    TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled},
+    TaskStatus.queued: {TaskStatus.running, TaskStatus.cancelled, TaskStatus.failed},
     TaskStatus.running: {TaskStatus.review, TaskStatus.interrupted, TaskStatus.failed, TaskStatus.cancelled},
     TaskStatus.interrupted: {TaskStatus.queued, TaskStatus.cancelled},
-    TaskStatus.review: {TaskStatus.accepted, TaskStatus.rejected, TaskStatus.queued, TaskStatus.running},
+    TaskStatus.review: {
+      TaskStatus.accepted,
+      TaskStatus.rejected,
+      TaskStatus.queued,
+      TaskStatus.running,
+      TaskStatus.failed,
+    },
   };
 
   /// Whether this state is terminal and has no outbound transitions.

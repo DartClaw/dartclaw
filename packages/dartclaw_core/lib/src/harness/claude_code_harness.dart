@@ -143,6 +143,9 @@ class ClaudeCodeHarness extends AgentHarness {
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
+  bool get supportsCachedTokens => true;
+
+  @override
   WorkerState get state => _state;
 
   @override
@@ -677,6 +680,8 @@ class ClaudeCodeHarness extends AgentHarness {
         :final durationMs,
         :final inputTokens,
         :final outputTokens,
+        :final cacheReadTokens,
+        :final cacheWriteTokens,
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           _turnCompleter!.complete({
@@ -685,6 +690,8 @@ class ClaudeCodeHarness extends AgentHarness {
             'duration_ms': durationMs,
             'input_tokens': inputTokens,
             'output_tokens': outputTokens,
+            'cache_read_tokens': cacheReadTokens ?? 0,
+            'cache_write_tokens': cacheWriteTokens ?? 0,
           });
         }
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -28,6 +29,7 @@ import '../templates/topbar.dart';
 import '../runtime_config.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
+import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../turn_manager.dart';
 import 'dashboard_page.dart';
@@ -72,9 +74,13 @@ Router webRoutes(
   DartclawConfig? config,
   TaskService? taskService,
   GoalService? goalService,
+  ProjectService? projectService,
   EventBus? eventBus,
   AgentObserver? agentObserver,
   KvService? kvService,
+  TurnTraceService? traceService,
+  TaskEventService? taskEventService,
+  TaskProgressTracker? progressTracker,
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
@@ -121,9 +127,13 @@ Router webRoutes(
     config: config,
     taskService: taskService,
     goalService: goalService,
+    projectService: projectService,
     eventBus: eventBus,
     messages: messages,
     agentObserver: agentObserver,
+    traceService: traceService,
+    taskEventService: taskEventService,
+    progressTracker: progressTracker,
     buildSidebarData: () => buildSidebarData(
       sessions,
       kvService: kvService,
@@ -593,10 +603,16 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       );
     }
 
+    // Prefer canonical field names (written by TurnRunner post-S06);
+    // fall back to legacy 'cached_input_tokens' for KV entries written
+    // by older versions.
+    final cacheReadTokens =
+        (decoded['cache_read_tokens'] as num?)?.toInt() ??
+        (decoded['cached_input_tokens'] as num?)?.toInt();
     return (
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
-      cachedInputTokens: (decoded['cached_input_tokens'] as num?)?.toInt(),
+      cachedInputTokens: cacheReadTokens,
       estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
       provider: switch (decoded['provider']) {
         final String value when value.trim().isNotEmpty => value,

@@ -1,3 +1,5 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show ProjectStatus;
+
 import '../task/task_status.dart';
 
 /// Sealed event hierarchy for the DartClaw internal event bus.
@@ -428,6 +430,75 @@ final class LoopDetectedEvent extends DartclawEvent {
 
   @override
   String toString() => 'LoopDetectedEvent(session: $sessionId, mechanism: $mechanism, action: $action)';
+}
+
+/// Intermediate sealed type for project lifecycle events.
+sealed class ProjectLifecycleEvent extends DartclawEvent {
+  /// Identifier of the affected project.
+  String get projectId;
+  @override
+  DateTime get timestamp;
+}
+
+/// Fired when a project's status changes.
+final class ProjectStatusChangedEvent extends ProjectLifecycleEvent {
+  @override
+  /// Identifier of the affected project.
+  final String projectId;
+
+  /// Previous status, or null if this is the initial creation event.
+  final ProjectStatus? oldStatus;
+
+  /// New status after the transition.
+  final ProjectStatus newStatus;
+  @override
+  /// Timestamp when the status change occurred.
+  final DateTime timestamp;
+
+  /// Creates a project-status-changed event.
+  ProjectStatusChangedEvent({
+    required this.projectId,
+    required this.oldStatus,
+    required this.newStatus,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'ProjectStatusChangedEvent(project: $projectId, '
+      '${oldStatus?.name ?? "null"} -> ${newStatus.name})';
+}
+
+/// Fired when a new task timeline event is persisted.
+///
+/// Carries primitive fields only — no dependency on [TaskEvent] model.
+/// Downstream consumers (SSE, dashboard) subscribe to push real-time updates.
+final class TaskEventCreatedEvent extends TaskLifecycleEvent {
+  @override
+  final String taskId;
+
+  /// Unique identifier of the persisted event.
+  final String eventId;
+
+  /// Event kind name (e.g., 'statusChanged', 'toolCalled').
+  final String kind;
+
+  /// Event-specific metadata.
+  final Map<String, dynamic> details;
+
+  @override
+  final DateTime timestamp;
+
+  TaskEventCreatedEvent({
+    required this.taskId,
+    required this.eventId,
+    required this.kind,
+    required this.details,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'TaskEventCreatedEvent(task: $taskId, kind: $kind)';
 }
 
 /// Fired when an admin sender triggers an emergency stop via the `/stop` command.

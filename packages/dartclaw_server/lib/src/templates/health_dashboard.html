@@ -19,26 +19,12 @@
 
       <h2 class="section-label">Services</h2>
       <div class="card-grid">
-        <div class="card" tl:each="card : ${cards}">
-          <div class="card-header">
-            <span class="card-title" tl:text="${card.title}">Service</span>
-            <span class="card-badge" tl:classappend="${card.badgeClass}" tl:text="${card.badgeText}">ok</span>
-          </div>
-          <div class="card-rows">
-            <div class="card-row" tl:each="row : ${card.rows}">
-              <span class="card-row-label" tl:text="${row.label}">Label</span>
-              <span class="card-row-value" tl:classappend="${row.valueClass}" tl:text="${row.value}">Value</span>
-            </div>
-          </div>
-        </div>
+        <tl:block tl:utext="${cardsHtml}"><!-- service info cards --></tl:block>
       </div>
 
       <h2 class="section-label">Metrics</h2>
       <div class="metrics-grid">
-        <div class="card card-metric" tl:classappend="${metric.metricClass}" tl:each="metric : ${metrics}">
-          <div class="metric-value" tl:text="${metric.value}">0</div>
-          <div class="metric-label" tl:text="${metric.label}">Metric</div>
-        </div>
+        <tl:block tl:utext="${metricsHtml}"><!-- metric cards --></tl:block>
       </div>
 
       <h2 class="section-label">Guard Activity</h2>

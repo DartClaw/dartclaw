@@ -538,6 +538,7 @@ class _InMemoryTaskRepository implements TaskRepository {
       sessionId: task.sessionId,
       configJson: task.configJson,
       worktreeJson: task.worktreeJson,
+      projectId: task.projectId ?? current.projectId,
     );
     return true;
   }

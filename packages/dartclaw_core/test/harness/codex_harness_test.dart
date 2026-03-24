@@ -238,7 +238,7 @@ void main() {
           expect(result.containsKey('total_cost_usd'), isFalse);
           expect(result['input_tokens'], 12);
           expect(result['output_tokens'], 34);
-          expect(result['cached_input_tokens'], 7);
+          expect(result['cache_read_tokens'], 7);
           expect(result['duration_ms'], isA<int>());
           expect(events.length, 3);
           expect(events[0], isA<DeltaEvent>());

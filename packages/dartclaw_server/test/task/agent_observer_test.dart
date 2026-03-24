@@ -95,6 +95,98 @@ void main() {
     expect(json['turnsCompleted'], 1);
     expect(json['errorCount'], 0);
   });
+
+  test('recordTurn without enriched params is backward-compatible', () {
+    observer.recordTurn(0, inputTokens: 100, outputTokens: 50, isError: false);
+    final m = observer.metricsFor(0)!;
+    expect(m.tokensConsumed, 150);
+    expect(m.turnsCompleted, 1);
+    expect(m.cacheReadTokens, 0);
+    expect(m.cacheWriteTokens, 0);
+    expect(m.totalTurnDurationMs, 0);
+    expect(m.totalToolCalls, 0);
+    expect(m.failedToolCalls, 0);
+  });
+
+  test('recordTurn with enriched params accumulates all new fields', () {
+    final toolCalls = [
+      ToolCallRecord(name: 'bash', success: true, durationMs: 120),
+      ToolCallRecord(name: 'read_file', success: false, durationMs: 30, errorType: 'tool_error'),
+    ];
+    observer.recordTurn(
+      0,
+      inputTokens: 200,
+      outputTokens: 100,
+      isError: false,
+      turnDuration: const Duration(milliseconds: 450),
+      cacheReadTokens: 80,
+      cacheWriteTokens: 20,
+      toolCalls: toolCalls,
+    );
+    final m = observer.metricsFor(0)!;
+    expect(m.tokensConsumed, 300);
+    expect(m.turnsCompleted, 1);
+    expect(m.cacheReadTokens, 80);
+    expect(m.cacheWriteTokens, 20);
+    expect(m.totalTurnDurationMs, 450);
+    expect(m.totalToolCalls, 2);
+    expect(m.failedToolCalls, 1);
+  });
+
+  test('multiple recordTurn calls accumulate enriched fields correctly', () {
+    final turn1Tools = [ToolCallRecord(name: 'bash', success: true, durationMs: 100)];
+    final turn2Tools = [
+      ToolCallRecord(name: 'write_file', success: true, durationMs: 50),
+      ToolCallRecord(name: 'bash', success: false, durationMs: 200, errorType: 'tool_error'),
+    ];
+    observer.recordTurn(
+      0,
+      inputTokens: 100,
+      outputTokens: 50,
+      isError: false,
+      turnDuration: const Duration(milliseconds: 300),
+      cacheReadTokens: 40,
+      cacheWriteTokens: 10,
+      toolCalls: turn1Tools,
+    );
+    observer.recordTurn(
+      0,
+      inputTokens: 200,
+      outputTokens: 80,
+      isError: false,
+      turnDuration: const Duration(milliseconds: 600),
+      cacheReadTokens: 60,
+      cacheWriteTokens: 15,
+      toolCalls: turn2Tools,
+    );
+    final m = observer.metricsFor(0)!;
+    expect(m.tokensConsumed, 430);
+    expect(m.turnsCompleted, 2);
+    expect(m.cacheReadTokens, 100);
+    expect(m.cacheWriteTokens, 25);
+    expect(m.totalTurnDurationMs, 900);
+    expect(m.totalToolCalls, 3);
+    expect(m.failedToolCalls, 1);
+  });
+
+  test('toJson includes all enriched fields', () {
+    observer.recordTurn(
+      0,
+      inputTokens: 10,
+      outputTokens: 5,
+      isError: false,
+      turnDuration: const Duration(milliseconds: 200),
+      cacheReadTokens: 30,
+      cacheWriteTokens: 5,
+      toolCalls: [ToolCallRecord(name: 'bash', success: true, durationMs: 50)],
+    );
+    final json = observer.metricsFor(0)!.toJson();
+    expect(json['cacheReadTokens'], 30);
+    expect(json['cacheWriteTokens'], 5);
+    expect(json['totalTurnDurationMs'], 200);
+    expect(json['totalToolCalls'], 1);
+    expect(json['failedToolCalls'], 0);
+  });
 }
 
 class _FakeRunner extends TurnRunner {

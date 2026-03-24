@@ -1,0 +1,63 @@
+<div tl:fragment="projects" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner" id="projects-content">
+
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+      <div class="page-header">
+        <h1>Projects</h1>
+        <button class="btn btn-primary" type="button" data-project-dialog-open>Add Project</button>
+      </div>
+
+      <div tl:if="${hasProjects}">
+        <div tl:each="project : ${projects}" class="card project-card"
+             tl:attr="data-project-id=${project.id}">
+          <div class="project-card-header">
+            <div class="project-card-title-row">
+              <strong tl:text="${project.name}">Project Name</strong>
+              <span class="status-badge" tl:classappend="${project.statusBadgeClass}"
+                    tl:text="${project.statusLabel}">Ready</span>
+              <span tl:if="${project.isLocal}" class="type-badge">Local</span>
+              <span tl:unless="${project.isLocal}" class="type-badge"
+                    tl:text="${project.configDefinedLabel}">Runtime</span>
+              <span tl:if="${project.isDefault}" class="type-badge">Default</span>
+            </div>
+            <div class="project-card-actions">
+              <button class="btn btn-ghost btn-sm" type="button"
+                      tl:attr="data-project-fetch=${project.id}">Fetch</button>
+              <button tl:if="${project.isEditable}" class="btn btn-ghost btn-sm" type="button"
+                      tl:attr="data-project-edit=${project.id},data-project-name=${project.name},data-project-url=${project.remoteUrl},data-project-branch=${project.defaultBranch},data-project-creds=${project.credentialsRef},data-project-strategy=${project.prStrategy},data-project-draft=${project.prDraft},data-project-labels=${project.prLabels}">Edit</button>
+              <button tl:if="${project.isEditable}" class="btn btn-ghost btn-sm btn-danger" type="button"
+                      tl:attr="data-project-remove=${project.id},data-project-name=${project.name}">Remove</button>
+            </div>
+          </div>
+
+          <div tl:unless="${project.isLocal}" class="project-card-meta">
+            <span class="project-url empty-state-text" tl:text="${project.displayUrl}">https://github.com/user/repo</span>
+            <span class="type-badge" tl:text="${project.defaultBranch}">main</span>
+            <span class="empty-state-text">
+              Fetched: <span tl:text="${project.lastFetchDisplay}">Never</span>
+            </span>
+            <span class="type-badge" tl:text="${project.prStrategyLabel}">Branch Only</span>
+          </div>
+
+          <div tl:if="${project.hasError}" class="project-error-banner">
+            <span tl:text="${project.errorMessage}">Clone failed</span>
+          </div>
+        </div>
+      </div>
+
+      <div tl:unless="${hasProjects}" class="empty-state">
+        <div class="empty-state-icon">&#128194;</div>
+        <p class="empty-state-title">No projects registered</p>
+        <p class="empty-state-text">Add a project to run tasks against external repositories.</p>
+        <button class="btn btn-primary" type="button" data-project-dialog-open>Add Project</button>
+      </div>
+
+    </div>
+
+    <div tl:utext="${addProjectDialogHtml}">dialog</div>
+  </main>
+</div>

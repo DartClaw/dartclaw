@@ -114,7 +114,11 @@ class SecurityWiring {
     }
 
     final profiles = [
-      SecurityProfile.workspace(workspaceDir: config.workspaceDir, projectDir: Directory.current.path),
+      SecurityProfile.workspace(
+        workspaceDir: config.workspaceDir,
+        projectDir: Directory.current.path,
+        projectsClonesDir: config.projectsClonesDir,
+      ),
       SecurityProfile.restricted,
     ];
     final proxySocketDir = p.join(_dataDir, 'proxy');

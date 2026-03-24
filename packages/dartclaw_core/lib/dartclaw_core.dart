@@ -18,6 +18,7 @@ export 'package:dartclaw_models/dartclaw_models.dart';
 export 'src/storage/session_service.dart' show SessionService;
 export 'src/storage/message_service.dart' show MessageService;
 export 'src/storage/kv_service.dart' show KvService;
+export 'src/storage/atomic_write.dart' show atomicWriteJson;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
 export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEvent, ToolResultEvent, SystemInitEvent;
@@ -131,6 +132,7 @@ export 'src/config/governance_config.dart'
         LoopDetectionConfig,
         LoopAction;
 export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
+export 'src/config/project_config.dart' show ProjectConfig, ProjectDefinition;
 export 'src/utils/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 
 // Agents
@@ -150,6 +152,9 @@ export 'src/task/task_type.dart' show TaskType;
 
 // Search (abstract interface — sqlite3-free)
 export 'src/search/search_backend.dart' show SearchBackend;
+
+// Project service interface
+export 'src/project/project_service.dart' show ProjectService;
 
 // Events
 export 'src/events/event_bus.dart' show EventBus;
@@ -174,7 +179,10 @@ export 'src/events/dartclaw_event.dart'
         AgentLifecycleEvent,
         AgentStateChangedEvent,
         LoopDetectedEvent,
-        EmergencyStopEvent;
+        EmergencyStopEvent,
+        ProjectLifecycleEvent,
+        ProjectStatusChangedEvent,
+        TaskEventCreatedEvent;
 
 // Governance
 export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;

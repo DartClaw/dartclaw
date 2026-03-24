@@ -17,6 +17,7 @@ import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
 import 'wiring/storage_wiring.dart';
 import 'wiring/task_wiring.dart';
+import 'wiring/project_wiring.dart';
 
 /// Immutable holder for services needed by [ServeCommand.run] after
 /// [ServiceWiring.wire] completes.
@@ -42,6 +43,7 @@ class WiringResult {
   final EventBus eventBus;
   final Map<String, ContainerManager> containerManagers;
   final Future<void> Function() shutdownExtras;
+  final ProjectService projectService;
 
   const WiringResult({
     required this.server,
@@ -61,6 +63,7 @@ class WiringResult {
     required this.eventBus,
     required this.containerManagers,
     required this.shutdownExtras,
+    required this.projectService,
   });
 }
 
@@ -112,6 +115,10 @@ class ServiceWiring {
 
     final eventBus = EventBus();
 
+    // 0. Projects — initialize before other services to allow project-aware wiring.
+    final project = ProjectWiring(config: config, dataDir: dataDir, eventBus: eventBus);
+    await project.wire();
+
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.
     final storage = StorageWiring(
       config: config,
@@ -150,7 +157,7 @@ class ServiceWiring {
     await harness.wire(serverRefGetter: () => serverRef);
 
     // 4. Tasks (pre-server) — review handler needed by ChannelWiring.
-    final task = TaskWiring(config: config, dataDir: dataDir, eventBus: eventBus, storage: storage);
+    final task = TaskWiring(config: config, dataDir: dataDir, eventBus: eventBus, storage: storage, project: project);
     await task.wirePreServer();
 
     // 5. Channels — channel manager, WhatsApp, Signal, Google Chat, space events.
@@ -212,6 +219,8 @@ class ServiceWiring {
     final builder = DartclawServerBuilder()
       ..sessions = storage.sessions
       ..messages = storage.messages
+      ..traceService = storage.traceService
+      ..taskEventService = storage.taskEventService
       ..worker = harness.harness
       ..staticDir = config.server.staticDir
       ..behavior = harness.behavior
@@ -343,6 +352,7 @@ class ServiceWiring {
       ..restartService = restartService
       ..sseBroadcast = harness.sseBroadcast
       ..providerStatus = providerStatus
+      ..projectService = project.projectService
       ..goalService = storage.goalService
       ..taskService = storage.taskService
       ..taskReviewService = task.taskReviewService
@@ -423,6 +433,7 @@ class ServiceWiring {
       tokenService: harness.tokenService,
       eventBus: eventBus,
       containerManagers: security.containerManagers,
+      projectService: project.projectService,
       shutdownExtras: () async {
         lifecycleManager?.dispose();
         await task.dispose();
@@ -432,6 +443,7 @@ class ServiceWiring {
         await scopeReconciler.cancel();
         await storage.turnStateStore.dispose();
         await scheduling.dispose();
+        await project.dispose();
       },
     );
   }

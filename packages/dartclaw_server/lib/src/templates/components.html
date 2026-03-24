@@ -17,3 +17,26 @@
     <button class="btn btn-primary" data-action="create-session">+ New Chat</button>
   </div>
 </main>
+
+<span tl:fragment="statusBadge" class="status-badge"
+      tl:classappend="'status-badge-' + ${variant}"
+      tl:text="${text}">status</span>
+
+<div tl:fragment="metricCard" class="card card-metric"
+     tl:classappend="'card-metric--' + ${color}">
+  <div class="metric-value" tl:text="${value}">0</div>
+  <div class="metric-label" tl:text="${label}">Metric</div>
+</div>
+
+<div tl:fragment="infoCard" class="card">
+  <div class="card-header">
+    <span class="card-title" tl:text="${title}">Title</span>
+    <span class="card-badge" tl:classappend="${badgeClass}" tl:text="${badgeText}">ok</span>
+  </div>
+  <div class="card-rows">
+    <div class="card-row" tl:each="row : ${rows}">
+      <span class="card-row-label" tl:text="${row.label}">Label</span>
+      <span class="card-row-value" tl:classappend="${row.valueClass}" tl:text="${row.value}">Value</span>
+    </div>
+  </div>
+</div>

@@ -326,7 +326,8 @@ class CodexProtocolAdapter implements ProtocolAdapter {
       costUsd: null,
       inputTokens: codexIntValue(usage['input_tokens']),
       outputTokens: codexIntValue(usage['output_tokens']),
-      cachedInputTokens: codexIntValue(usage['cached_input_tokens']),
+      cacheReadTokens: codexIntValue(usage['cached_input_tokens']),
+      cacheWriteTokens: 0,
     );
   }
 

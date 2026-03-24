@@ -61,6 +61,12 @@ class Task {
   /// Optional provider override for executing this task.
   final String? provider;
 
+  /// Optional project this task targets.
+  ///
+  /// When set, the task's worktree is created from the project's clone.
+  /// When null, the task uses the default project (typically _local).
+  final String? projectId;
+
   /// Creates an immutable task record.
   Task({
     required this.id,
@@ -79,6 +85,7 @@ class Task {
     this.version = 1,
     this.createdBy,
     this.provider,
+    this.projectId,
   }) : configJson = _freezeJsonMap(configJson ?? const {}),
        worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson);
 
@@ -100,6 +107,7 @@ class Task {
     int? version,
     Object? createdBy = _sentinel,
     Object? provider = _sentinel,
+    Object? projectId = _sentinel,
   }) => Task(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -119,6 +127,7 @@ class Task {
     version: version ?? this.version,
     createdBy: identical(createdBy, _sentinel) ? this.createdBy : createdBy as String?,
     provider: identical(provider, _sentinel) ? this.provider : provider as String?,
+    projectId: identical(projectId, _sentinel) ? this.projectId : projectId as String?,
   );
 
   /// Applies a validated lifecycle transition and updates timestamps.
@@ -167,6 +176,7 @@ class Task {
     if (sessionId != null) 'sessionId': sessionId,
     if (createdBy != null) 'createdBy': createdBy,
     if (provider != null) 'provider': provider,
+    if (projectId != null) 'projectId': projectId,
     'configJson': _mutableJsonMap(configJson),
     if (worktreeJson != null) 'worktreeJson': _mutableJsonMap(worktreeJson!),
     'createdAt': createdAt.toIso8601String(),
@@ -192,6 +202,7 @@ class Task {
     completedAt: _parseDateTime(json['completedAt']),
     createdBy: json['createdBy'] as String?,
     provider: json['provider'] as String?,
+    projectId: json['projectId'] as String?,
   );
 }
 

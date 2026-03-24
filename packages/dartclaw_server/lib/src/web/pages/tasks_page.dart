@@ -5,8 +5,10 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
+import '../../task/task_progress_tracker.dart';
 import '../../templates/chat.dart';
 import '../../templates/task_detail.dart';
+import '../../templates/task_timeline.dart';
 import '../../templates/tasks.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
@@ -49,6 +51,29 @@ class TasksPage extends DashboardPage {
       tasks = await taskService.list(status: statusFilter, type: typeFilter);
     } else {
       tasks = [];
+    }
+
+    // Resolve project data for project selector and task list.
+    final projectService = context.projectService;
+    Map<String, String> projectNames = {};
+    bool showProjectColumn = false;
+    List<Map<String, String>> projectOptions = [];
+    if (projectService != null) {
+      final allProjects = await projectService.getAll();
+      final defaultProject = await projectService.getDefaultProject();
+      final externalProjects = allProjects.where((p) => p.id != '_local').toList();
+      showProjectColumn = externalProjects.isNotEmpty;
+      projectNames = {for (final p in allProjects) p.id: p.name};
+      projectOptions = allProjects
+          .map(
+            (p) => <String, String>{
+              'value': p.id,
+              'label': p.name,
+              'status': p.status.name,
+              'isDefault': (p.id == defaultProject.id).toString(),
+            },
+          )
+          .toList();
     }
 
     final goals = context.goalService != null ? await context.goalService!.list() : const <Goal>[];
@@ -95,6 +120,11 @@ class TasksPage extends DashboardPage {
       agentPool: agentPool,
       goalOptions: goals.map((goal) => <String, String>{'value': goal.id, 'label': goal.title}).toList(growable: false),
       defaultProvider: defaultProvider,
+      projectNames: projectNames,
+      showProjectColumn: showProjectColumn,
+      projectOptions: projectOptions,
+      progressTracker: context.progressTracker,
+      taskEventService: context.taskEventService,
     );
 
     return Response.ok(page, headers: htmlHeaders);
@@ -141,6 +171,38 @@ class TasksPage extends DashboardPage {
       artifactMaps.add(map);
     }
 
+    // Load token summary from trace service.
+    Map<String, dynamic>? tokenSummary;
+    final traceService = context.traceService;
+    if (traceService != null) {
+      try {
+        final summary = await traceService.summaryForTask(taskId);
+        if (summary.traceCount > 0) {
+          tokenSummary = summary.toJson();
+        }
+      } catch (e) {
+        _log.fine('Failed to load trace summary for task $taskId: $e');
+      }
+    }
+
+    // Load timeline events.
+    final activeFilter = request.url.queryParameters['filter'];
+    String? timelineHtml;
+    final taskEventService = context.taskEventService;
+    if (taskEventService != null) {
+      try {
+        final events = taskEventService.listForTask(taskId);
+        timelineHtml = taskTimelineHtml(
+          events: events,
+          taskId: taskId,
+          taskStatus: task.status.name,
+          activeFilter: activeFilter,
+        );
+      } catch (e) {
+        _log.fine('Failed to load timeline events for task $taskId: $e');
+      }
+    }
+
     // Load session messages if task has a session.
     String? messagesHtml;
     if (task.sessionId != null && context.messages != null) {
@@ -163,6 +225,39 @@ class TasksPage extends DashboardPage {
       }
     }
 
+    // Compute initial progress state for running tasks.
+    int initialTokensUsed = 0;
+    String? initialActivity;
+    int? tokenBudget;
+    if (task.status == TaskStatus.running) {
+      tokenBudget =
+          (task.configJson['tokenBudget'] as num?)?.toInt() ??
+          (task.configJson['budget'] as num?)?.toInt();
+      final eventService = context.taskEventService;
+      if (eventService != null) {
+        try {
+          final events = eventService.listForTask(taskId);
+          final seedMaps = <Map<String, dynamic>>[];
+          for (final e in events) {
+            final details = Map<String, dynamic>.from(e.details);
+            seedMaps.add({'kind': e.kind.name, 'details': details});
+            if (e.kind is TokenUpdate) {
+              initialTokensUsed +=
+                  ((details['inputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30) +
+                  ((details['outputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30);
+            } else if (e.kind is ToolCalled) {
+              initialActivity = TaskProgressTracker.formatActivity(
+                details['name']?.toString() ?? '',
+                details,
+              );
+            }
+          }
+        } catch (e) {
+          _log.fine('Failed to load task events for progress init ($taskId): $e');
+        }
+      }
+    }
+
     final sidebarData = await context.buildSidebarData();
     final goal = context.goalService != null && task.goalId != null
         ? await context.goalService!.get(task.goalId!)
@@ -173,10 +268,15 @@ class TasksPage extends DashboardPage {
       task: _taskToDetailMap(task, goalTitle: goal?.title, defaultProvider: defaultProvider),
       artifacts: artifactMaps,
       conflictData: conflictData,
+      tokenSummary: tokenSummary,
       messagesHtml: messagesHtml,
+      timelineHtml: timelineHtml,
       bannerHtml: context.restartBannerHtml(),
       appName: context.appDisplay.name,
       defaultProvider: defaultProvider,
+      initialTokensUsed: initialTokensUsed,
+      initialActivity: initialActivity,
+      tokenBudget: tokenBudget,
     );
 
     return Response.ok(page, headers: htmlHeaders);
@@ -199,6 +299,7 @@ class TasksPage extends DashboardPage {
       'createdAt': task.createdAt.toIso8601String(),
       'startedAt': task.startedAt?.toIso8601String(),
       if (task.createdBy != null) 'createdBy': task.createdBy,
+      if (task.projectId != null) 'projectId': task.projectId,
     };
   }
 

@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import '../scheduling/cron_parser.dart';
+import 'components.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -52,12 +53,6 @@ String schedulingTemplate({
       _ => 'status-dot--idle',
     };
 
-    final statusBadgeClass = switch (jobStatus) {
-      'active' => 'status-badge-success',
-      'error' => 'status-badge-error',
-      _ => 'status-badge-muted',
-    };
-
     return <String, dynamic>{
       'name': name,
       'schedule': schedule,
@@ -65,7 +60,6 @@ String schedulingTemplate({
       'status': jobStatus,
       'deliveryBadgeClass': deliveryBadgeClass,
       'statusDotClass': statusDotClass,
-      'statusBadgeClass': statusBadgeClass,
       'rowClass': isSystem ? 'row-system' : (jobStatus == 'error' ? 'row-error' : ''),
       'isActive': jobStatus == 'active',
       'isSystem': isSystem,
@@ -102,8 +96,10 @@ String schedulingTemplate({
     'sidebar': sidebar,
     'topbar': topbar,
     'pulseClass': heartbeatEnabled ? '' : 'paused',
-    'badgeClass': heartbeatEnabled ? '' : 'paused',
-    'badgeText': heartbeatEnabled ? 'Active' : 'Disabled',
+    'heartbeatBadgeHtml': statusBadgeTemplate(
+      variant: heartbeatEnabled ? 'success' : 'muted',
+      text: heartbeatEnabled ? 'Active' : 'Disabled',
+    ),
     'intervalDisplay': heartbeatEnabled ? 'every $heartbeatIntervalMinutes min' : '\u2014',
     'heartbeatOn': heartbeatEnabled,
     'hasJobs': jobs.isNotEmpty,

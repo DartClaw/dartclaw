@@ -238,6 +238,97 @@ void main() {
     expect((await tasks.get('task-new'))!.status, TaskStatus.queued);
   });
 
+  test('keeps project-backed tasks queued while the project is still cloning', () async {
+    worker.responseText = 'Done.';
+    final projectService = _FakeProjectService(
+      project: Project(
+        id: 'my-app',
+        name: 'My App',
+        remoteUrl: 'git@github.com:acme/my-app.git',
+        localPath: '/projects/my-app',
+        defaultBranch: 'main',
+        status: ProjectStatus.cloning,
+        createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+      ),
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      eventBus: eventBus,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-project',
+      title: 'Project task',
+      description: 'Wait for clone.',
+      type: TaskType.research,
+      autoStart: true,
+      projectId: 'my-app',
+    );
+    await tasks.create(
+      id: 'task-ready',
+      title: 'Ready task',
+      description: 'Still runnable.',
+      type: TaskType.research,
+      autoStart: true,
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    expect((await tasks.get('task-project'))!.status, TaskStatus.queued);
+    expect((await tasks.get('task-ready'))!.status, TaskStatus.review);
+  });
+
+  test('fails queued project-backed tasks when the project clone has errored', () async {
+    final projectService = _FakeProjectService(
+      project: Project(
+        id: 'my-app',
+        name: 'My App',
+        remoteUrl: 'git@github.com:acme/my-app.git',
+        localPath: '/projects/my-app',
+        defaultBranch: 'main',
+        status: ProjectStatus.error,
+        errorMessage: 'Authentication denied',
+        createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+      ),
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      eventBus: eventBus,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-project-failed',
+      title: 'Project task',
+      description: 'Should fail.',
+      type: TaskType.research,
+      autoStart: true,
+      projectId: 'my-app',
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    final failed = await tasks.get('task-project-failed');
+    expect(failed!.status, TaskStatus.failed);
+    expect(failed.configJson['errorSummary'], contains('failed to clone'));
+    expect(failed.configJson['errorSummary'], contains('Authentication denied'));
+  });
+
   test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
     final poolWorker1 = _FakeTaskWorker();
     final poolWorker2 = _FakeTaskWorker();
@@ -373,6 +464,66 @@ void main() {
     expect(processed, isTrue);
     expect((await tasks.get('task-busy'))!.status, TaskStatus.review);
   });
+
+  test('inserts trace record when traceService is provided', () async {
+    final db = openTaskDbInMemory();
+    final traceService = TurnTraceService(db);
+    addTearDown(() async {
+      await traceService.dispose();
+    });
+
+    worker.responseText = 'Done.';
+    worker.inputTokens = 100;
+    worker.outputTokens = 50;
+    final traceExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      eventBus: eventBus,
+      traceService: traceService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(traceExecutor.stop);
+
+    await tasks.create(
+      id: 'task-trace',
+      title: 'Traced task',
+      description: 'Should produce a trace record.',
+      type: TaskType.research,
+      autoStart: true,
+    );
+
+    await traceExecutor.pollOnce();
+    // Allow the unawaited trace insert to complete.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final result = await traceService.query(taskId: 'task-trace');
+    expect(result.traces, hasLength(1));
+    expect(result.traces[0].taskId, 'task-trace');
+    expect(result.traces[0].inputTokens, 100);
+    expect(result.traces[0].outputTokens, 50);
+    expect(result.traces[0].isError, isFalse);
+    expect(result.summary.traceCount, 1);
+  });
+
+  test('does not crash when traceService is null (graceful degradation)', () async {
+    // executor in setUp has no traceService — verify normal operation.
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-no-trace',
+      title: 'No trace task',
+      description: 'Should complete without trace service.',
+      type: TaskType.research,
+      autoStart: true,
+    );
+
+    final processed = await executor.pollOnce();
+
+    expect(processed, isTrue);
+    expect((await tasks.get('task-no-trace'))!.status, TaskStatus.review);
+  });
 }
 
 class _FakeTaskWorker implements AgentHarness {
@@ -471,6 +622,7 @@ class _BusyOnceTurnManager extends TurnManager {
     String? model,
     String? effort,
     bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
   }) async {
     if (_busyOnce) {
       _busyOnce = false;
@@ -493,4 +645,57 @@ class _BusyOnceTurnManager extends TurnManager {
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     return TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now());
   }
+}
+
+class _FakeProjectService implements ProjectService {
+  final Project project;
+
+  _FakeProjectService({required this.project});
+
+  @override
+  Future<Project?> get(String id) async => id == project.id ? project : null;
+
+  @override
+  Future<List<Project>> getAll() async => [project];
+
+  @override
+  Future<Project> getDefaultProject() async => project;
+
+  @override
+  Project getLocalProject() => throw UnimplementedError();
+
+  @override
+  Future<Project> create({
+    required String name,
+    required String remoteUrl,
+    String defaultBranch = 'main',
+    String? credentialsRef,
+    CloneStrategy cloneStrategy = CloneStrategy.shallow,
+    PrConfig pr = const PrConfig.defaults(),
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> update(
+    String id, {
+    String? name,
+    String? remoteUrl,
+    String? defaultBranch,
+    String? credentialsRef,
+    PrConfig? pr,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<Project> fetch(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> ensureFresh(Project project) async {}
+
+  @override
+  Future<void> delete(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
 }

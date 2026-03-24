@@ -1,21 +1,35 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'components.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
 
 /// Renders the task detail page with embedded chat view, artifacts, and review controls.
+///
+/// [tokenSummary] is optional aggregate trace data. When non-null and
+/// `traceCount > 0`, a token summary card is rendered between the meta card
+/// and the action bar.
+///
+/// [initialTokensUsed], [initialActivity], and [tokenBudget] provide the
+/// initial progress state for running tasks. These are computed from
+/// `TaskEventService` by the page handler.
 String taskDetailPageTemplate({
   required SidebarData sidebarData,
   required List<NavItem> navItems,
   required Map<String, dynamic> task,
   required List<Map<String, dynamic>> artifacts,
   Map<String, dynamic>? conflictData,
+  Map<String, dynamic>? tokenSummary,
   String? messagesHtml,
+  String? timelineHtml,
   String bannerHtml = '',
   String appName = 'DartClaw',
   String defaultProvider = 'claude',
+  int initialTokensUsed = 0,
+  String? initialActivity,
+  int? tokenBudget,
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final title = task['title']?.toString() ?? 'Task';
@@ -51,6 +65,30 @@ String taskDetailPageTemplate({
     _ => 'This task has not been started yet. No session messages to display.',
   };
 
+  // Build token summary data if available.
+  final traceCount = (tokenSummary?['traceCount'] as num?)?.toInt() ?? 0;
+  final hasTokenSummary = traceCount > 0;
+  final totalTokens = (tokenSummary?['totalTokens'] as num?)?.toInt() ?? 0;
+  final totalInputTokens = (tokenSummary?['totalInputTokens'] as num?)?.toInt() ?? 0;
+  final totalOutputTokens = (tokenSummary?['totalOutputTokens'] as num?)?.toInt() ?? 0;
+  final totalCacheReadTokens = (tokenSummary?['totalCacheReadTokens'] as num?)?.toInt() ?? 0;
+  final totalCacheWriteTokens = (tokenSummary?['totalCacheWriteTokens'] as num?)?.toInt() ?? 0;
+  final totalDurationMs = (tokenSummary?['totalDurationMs'] as num?)?.toInt() ?? 0;
+  final totalToolCalls = (tokenSummary?['totalToolCalls'] as num?)?.toInt() ?? 0;
+  final hasCacheTokens = totalCacheReadTokens > 0 || totalCacheWriteTokens > 0;
+
+  // Build progress section data.
+  final effectiveBudget = (tokenBudget != null && tokenBudget > 0) ? tokenBudget : null;
+  final hasTokenBudget = effectiveBudget != null;
+  final initialProgressPct = hasTokenBudget
+      ? (initialTokensUsed / effectiveBudget * 100).round().clamp(0, 100)
+      : 0;
+  final initialProgressFillClass = hasTokenBudget ? '' : 'indeterminate';
+  final initialProgressLabel = hasTokenBudget
+      ? '${_formatNumber(initialTokensUsed)} / ${_formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'
+      : '${_formatNumber(initialTokensUsed)} tokens used';
+  final progressSectionStyle = isRunning ? '' : 'display:none';
+
   // Build artifact items for template.
   final artifactItems = artifacts.map((a) {
     final kind = a['kind']?.toString() ?? 'data';
@@ -75,8 +113,7 @@ String taskDetailPageTemplate({
     'title': title,
     'typeLabel': _titleCase(task['type']?.toString() ?? ''),
     'status': statusName,
-    'statusLabel': _titleCase(statusName),
-    'statusBadgeClass': 'status-badge-$statusName',
+    'statusBadgeHtml': statusBadgeTemplate(variant: statusName, text: _titleCase(statusName)),
     'provider': provider,
     'providerLabel': ProviderIdentity.displayName(provider),
     'hasProvider': provider.isNotEmpty,
@@ -108,9 +145,49 @@ String taskDetailPageTemplate({
     'hasConflict': conflictingFiles.isNotEmpty,
     'conflictingFiles': conflictingFiles,
     'conflictDetails': conflictDetails,
+    'hasTokenSummary': hasTokenSummary,
+    'traceCount': traceCount,
+    'totalTokens': _formatNumber(totalTokens),
+    'totalInputTokens': _formatNumber(totalInputTokens),
+    'totalOutputTokens': _formatNumber(totalOutputTokens),
+    'totalCacheReadTokens': _formatNumber(totalCacheReadTokens),
+    'totalCacheWriteTokens': _formatNumber(totalCacheWriteTokens),
+    'hasCacheTokens': hasCacheTokens,
+    'totalDurationDisplay': _formatDuration(totalDurationMs),
+    'totalToolCalls': totalToolCalls,
+    'timelineHtml': timelineHtml,
+    'hasTimeline': timelineHtml != null && timelineHtml.isNotEmpty,
+    // Progress section.
+    'progressSectionStyle': progressSectionStyle,
+    'initialActivity': initialActivity ?? 'Starting...',
+    'initialProgressLabel': initialProgressLabel,
+    'initialProgressFillClass': initialProgressFillClass,
+    'initialProgressPct': initialProgressPct,
   });
 
   return layoutTemplate(title: 'Task: $title', body: body, appName: appName);
+}
+
+String _formatNumber(int value) {
+  // Simple thousands separator formatting.
+  final s = value.toString();
+  final buffer = StringBuffer();
+  final offset = s.length % 3;
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (i - offset) % 3 == 0) buffer.write(',');
+    buffer.write(s[i]);
+  }
+  return buffer.toString();
+}
+
+String _formatDuration(int ms) {
+  if (ms <= 0) return '0s';
+  final seconds = ms ~/ 1000;
+  if (seconds < 60) return '${seconds}s';
+  final minutes = seconds ~/ 60;
+  final remainingSeconds = seconds % 60;
+  if (remainingSeconds == 0) return '${minutes}m';
+  return '${minutes}m ${remainingSeconds}s';
 }
 
 String _titleCase(String value) {

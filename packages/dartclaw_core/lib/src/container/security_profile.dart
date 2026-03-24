@@ -13,10 +13,22 @@ class SecurityProfile {
   const SecurityProfile({required this.id, required this.displayName, this.workspaceMounts = const []});
 
   /// Creates the standard writable workspace profile.
-  static SecurityProfile workspace({required String workspaceDir, required String projectDir}) => SecurityProfile(
+  ///
+  /// [projectsClonesDir] is optional — when provided, a read-only `/projects`
+  /// mount is added for all project clones (ADR-017 §4). When null, the mount
+  /// is omitted and only the legacy `/project` alias is present.
+  static SecurityProfile workspace({
+    required String workspaceDir,
+    required String projectDir,
+    String? projectsClonesDir,
+  }) => SecurityProfile(
     id: 'workspace',
     displayName: 'Workspace',
-    workspaceMounts: ['$workspaceDir:/workspace:rw', '$projectDir:/project:ro'],
+    workspaceMounts: [
+      '$workspaceDir:/workspace:rw',
+      '$projectDir:/project:ro', // Legacy alias for default project
+      if (projectsClonesDir != null) '$projectsClonesDir:/projects:ro',
+    ],
   );
 
   /// Restricted profile with no workspace mounts.

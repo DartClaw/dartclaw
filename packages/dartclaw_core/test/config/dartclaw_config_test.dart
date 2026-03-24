@@ -59,6 +59,16 @@ void main() {
         final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
         expect(config.logsDir, '/data/logs');
       });
+
+      test('projectsJsonPath joins dataDir with projects.json', () {
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
+        expect(config.projectsJsonPath, '/data/projects.json');
+      });
+
+      test('projectsClonesDir joins dataDir with projects', () {
+        final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
+        expect(config.projectsClonesDir, '/data/projects');
+      });
     });
 
     group('load', () {
@@ -429,6 +439,36 @@ void main() {
           env: {'HOME': '/home/user'},
         );
         expect(config.warnings, contains(contains('Unknown config key: bogus_key')));
+      });
+
+      test('projects: section parsed into DartclawConfig.projects — no unknown key warning', () {
+        const yaml = '''
+projects:
+  my-app:
+    remote: git@github.com:user/my-app.git
+    branch: develop
+    credentials: github-ssh
+    default: true
+    clone:
+      strategy: full
+    pr:
+      strategy: github-pr
+      draft: true
+      labels: [agent, automated]
+''';
+        final config = DartclawConfig.load(
+          fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.warnings, isNot(anyElement(contains('Unknown config key: projects'))));
+        expect(config.projects.isEmpty, isFalse);
+        final def = config.projects.definitions['my-app'];
+        expect(def, isNotNull);
+        expect(def!.remote, 'git@github.com:user/my-app.git');
+        expect(def.branch, 'develop');
+        expect(def.credentials, 'github-ssh');
+        expect(def.isDefault, isTrue);
       });
 
       test('type mismatch (port: "abc") collects warning and uses default', () {

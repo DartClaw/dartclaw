@@ -1,3 +1,4 @@
+import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -90,7 +91,17 @@ Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, 
     'sidebar': sidebar,
     'topbar': topbar,
     'workspacePath': workspacePath,
-    // Overview
+    // Overview — simple metric cards pre-rendered via fragment helper
+    'activeEntriesCardHtml': metricCardTemplate(
+      color: 'info',
+      value: '${memoryMd['entryCount'] ?? 0}',
+      label: 'Active Entries',
+    ),
+    'archivedEntriesCardHtml': metricCardTemplate(
+      color: 'info',
+      value: '${archiveMd['entryCount'] ?? 0}',
+      label: 'Archived Entries',
+    ),
     'memorySizeStr': formatBytes(sizeBytes),
     'budgetStr': formatBytes(budgetBytes),
     'budgetPercent': '$budgetPercent',

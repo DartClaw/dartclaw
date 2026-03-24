@@ -30,10 +30,27 @@
           <div tl:if="${group.isRunning}" class="task-running-cards">
             <div tl:each="task : ${group.tasks}" class="card card-tint-accent task-card-running">
               <div class="task-card-title" tl:text="${task.title}">Task title</div>
-              <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
-              <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
-                    tl:text="${task.providerLabel}">Claude</span>
-              <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
+              <div class="task-card-meta">
+                <span tl:if="${task.agentLabel}" class="task-agent-badge" tl:text="${task.agentLabel}">Agent #1</span>
+                <span tl:if="${task.projectName}" class="project-badge" tl:text="${task.projectName}">Project</span>
+                <span class="type-badge" tl:text="${task.typeLabel}">Type</span>
+                <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                      tl:text="${task.providerLabel}">Claude</span>
+                <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
+              </div>
+              <div class="task-progress" tl:classappend="${task.isIndeterminate} ? 'task-progress-indeterminate' : ''"
+                   tl:attr="id='task-progress-' + ${task.id}">
+                <div class="task-progress-fill" tl:attr="style='width:' + ${task.progressPct} + '%'"></div>
+              </div>
+              <div class="task-tokens" tl:attr="id='task-tokens-' + ${task.id}">
+                <span tl:text="${task.tokenDisplay}">0 tokens</span>
+              </div>
+              <div tl:if="${task.hasEvents}" class="task-events" tl:attr="id='task-events-' + ${task.id}">
+                <div tl:each="event : ${task.recentEvents}" class="task-event">
+                  <span class="task-event-icon" tl:classappend="${event.iconClass}" tl:text="${event.iconChar}">*</span>
+                  <span tl:text="${event.text}">Event text</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -43,11 +60,13 @@
                 <thead>
                   <tr>
                     <th>Title</th>
+                    <th tl:if="${showProjectColumn}">Project</th>
                     <th>Type</th>
                     <th>Provider</th>
                     <th>Created by</th>
                     <th>Created</th>
                     <th>Status</th>
+                    <th>Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -59,12 +78,14 @@
                         Goal: <span tl:text="${task.goalTitle}">Goal title</span>
                       </div>
                     </td>
+                    <td tl:if="${showProjectColumn}" tl:text="${task.projectName}">—</td>
                     <td><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
                     <td><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
                               tl:text="${task.providerLabel}">Claude</span></td>
                     <td tl:text="${task.createdByDisplay}">—</td>
                     <td tl:text="${task.createdAtDisplay}">1h ago</td>
-                    <td><span tl:classappend="${task.statusBadgeClass}" class="status-badge" tl:text="${task.status}">status</span></td>
+                    <td><tl:block tl:utext="${task.statusBadgeHtml}">badge</tl:block></td>
+                    <td class="task-tokens-static" tl:text="${task.finalTokenDisplay}">—</td>
                   </tr>
                 </tbody>
               </table>

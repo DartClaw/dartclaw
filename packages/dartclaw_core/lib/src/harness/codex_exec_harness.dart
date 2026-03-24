@@ -289,14 +289,15 @@ class CodexExecHarness extends AgentHarness {
         _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
       case proto.ToolResult(:final toolId, :final output, :final isError):
         _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
-      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cachedInputTokens):
+      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cacheReadTokens, :final cacheWriteTokens):
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
           completer.complete({
             'stop_reason': stopReason ?? 'end_turn',
             'input_tokens': inputTokens ?? 0,
             'output_tokens': outputTokens ?? 0,
-            'cached_input_tokens': cachedInputTokens ?? 0,
+            'cache_read_tokens': cacheReadTokens ?? 0,
+            'cache_write_tokens': cacheWriteTokens ?? 0,
           });
         }
       case proto.ControlRequest():
@@ -310,7 +311,8 @@ class CodexExecHarness extends AgentHarness {
       'stop_reason': 'end_turn',
       'input_tokens': 0,
       'output_tokens': 0,
-      'cached_input_tokens': 0,
+      'cache_read_tokens': 0,
+      'cache_write_tokens': 0,
     };
   }
 

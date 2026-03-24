@@ -701,20 +701,20 @@ void main() {
           'uptimeStr': '3d 14h 22m',
           'version': '0.3.0',
           'workerState': 'running',
-          'cards': [
-            {
-              'title': 'Worker',
-              'badgeClass': 'badge-success',
-              'badgeText': 'OK',
-              'rows': [
-                {'label': 'State', 'valueClass': '', 'value': 'running'},
-              ],
-            },
-          ],
-          'metrics': [
-            {'value': '12', 'label': 'Sessions'},
-            {'value': '2.4 MB', 'label': 'DB Size'},
-          ],
+          'cardsHtml':
+              '<div class="card"><div class="card-header">'
+              '<span class="card-title">Worker</span>'
+              '<span class="card-badge badge-success">OK</span></div>'
+              '<div class="card-rows"><div class="card-row">'
+              '<span class="card-row-label">State</span>'
+              '<span class="card-row-value">running</span></div></div></div>',
+          'metricsHtml':
+              '<div class="card card-metric card-metric--info">'
+              '<div class="metric-value">12</div>'
+              '<div class="metric-label">Sessions</div></div>'
+              '<div class="card card-metric card-metric--info">'
+              '<div class="metric-value">2.4 MB</div>'
+              '<div class="metric-label">DB Size</div></div>',
           'sidebar': '',
           'topbar': '',
         },
@@ -738,8 +738,8 @@ void main() {
           'uptimeStr': '0m',
           'version': '<script>',
           'workerState': 'crashed',
-          'cards': <Map<String, dynamic>>[],
-          'metrics': <Map<String, dynamic>>[],
+          'cardsHtml': '',
+          'metricsHtml': '',
           'sidebar': '',
           'topbar': '',
         },
@@ -766,8 +766,10 @@ void main() {
           'schedulingActive': false,
           'scheduledJobsCount': 0,
           'heartbeatDisplay': 'disabled',
-          'healthBadgeClass': 'status-badge-success',
-          'healthLabel': 'Healthy',
+          'healthBadgeHtml': '<span class="status-badge status-badge-success">Healthy</span>',
+          'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
           'uptimeStr': '1h 30m',
           'sessionCount': 5,
           'version': '0.3.0',
@@ -804,8 +806,10 @@ void main() {
           'schedulingActive': false,
           'scheduledJobsCount': 0,
           'heartbeatDisplay': 'disabled',
-          'healthBadgeClass': '',
-          'healthLabel': 'OK',
+          'healthBadgeHtml': '<span class="status-badge status-badge-success">OK</span>',
+          'whatsAppStatusBadgeHtml': '<span class="status-badge status-badge-success">Connected</span>',
+          'signalStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
+          'googleChatStatusBadgeHtml': '<span class="status-badge status-badge-muted">Disabled</span>',
           'uptimeStr': '0m',
           'sessionCount': 0,
           'version': '0.3.0',

@@ -266,6 +266,91 @@ void main() {
         );
       });
 
+      group('projectId', () {
+        test('toJson includes projectId when set', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            projectId: 'my-project',
+          );
+          expect(task.toJson()['projectId'], equals('my-project'));
+        });
+
+        test('toJson omits projectId when null', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+          );
+          expect(task.toJson().containsKey('projectId'), isFalse);
+        });
+
+        test('fromJson parses projectId when present', () {
+          final task = Task.fromJson({
+            'id': 'task-1',
+            'title': 'T',
+            'description': 'D',
+            'type': 'coding',
+            'status': 'draft',
+            'configJson': const {},
+            'createdAt': '2026-03-10T10:00:00Z',
+            'projectId': 'my-project',
+          });
+          expect(task.projectId, equals('my-project'));
+        });
+
+        test('fromJson defaults projectId to null when absent', () {
+          final task = Task.fromJson({
+            'id': 'task-1',
+            'title': 'T',
+            'description': 'D',
+            'type': 'coding',
+            'status': 'draft',
+            'configJson': const {},
+            'createdAt': '2026-03-10T10:00:00Z',
+          });
+          expect(task.projectId, isNull);
+        });
+
+        test('copyWith sets projectId', () {
+          final task = createTask();
+          final updated = task.copyWith(projectId: 'my-project');
+          expect(updated.projectId, equals('my-project'));
+          expect(updated.id, equals(task.id));
+        });
+
+        test('copyWith clears projectId with null sentinel', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            projectId: 'my-project',
+          );
+          final updated = task.copyWith(projectId: null);
+          expect(updated.projectId, isNull);
+        });
+
+        test('copyWith without projectId preserves existing value', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            projectId: 'my-project',
+          );
+          final updated = task.copyWith(title: 'Changed');
+          expect(updated.projectId, equals('my-project'));
+        });
+      });
+
       test('fromJson parses status and type enums', () {
         final task = Task.fromJson({
           'id': 'task-1',

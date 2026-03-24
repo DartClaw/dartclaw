@@ -107,8 +107,17 @@
   /* terminal — workspace/agent */
   --icon-terminal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 17 6-6-6-6'/%3E%3Cpath d='M12 19h8'/%3E%3C/svg%3E");
 
+  /* file-text — artifact/document */
+  --icon-file-text: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E");
+
+  /* gauge — token meter */
+  --icon-gauge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 14 4-4'/%3E%3Cpath d='M3.34 19a10 10 0 1 1 17.32 0'/%3E%3C/svg%3E");
+
   /* triangle-alert — warning */
   --icon-triangle-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3'/%3E%3Cpath d='M12 9v4'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+
+  /* wrench — tool invocation */
+  --icon-wrench: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/%3E%3C/svg%3E");
 
   /* users — groups subsection */
   --icon-users: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Cpath d='M16 3.128a4 4 0 0 1 0 7.744'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3C/svg%3E");
@@ -179,6 +188,8 @@
 .icon-folder-kanban     { -webkit-mask-image: var(--icon-folder-kanban);   mask-image: var(--icon-folder-kanban); }
 .icon-hash              { -webkit-mask-image: var(--icon-hash);            mask-image: var(--icon-hash); }
 .icon-info              { -webkit-mask-image: var(--icon-info);            mask-image: var(--icon-info); }
+.icon-file-text         { -webkit-mask-image: var(--icon-file-text);       mask-image: var(--icon-file-text); }
+.icon-gauge             { -webkit-mask-image: var(--icon-gauge);           mask-image: var(--icon-gauge); }
 .icon-menu              { -webkit-mask-image: var(--icon-menu);            mask-image: var(--icon-menu); }
 .icon-message-circle    { -webkit-mask-image: var(--icon-message-circle);  mask-image: var(--icon-message-circle); }
 .icon-messages-square   { -webkit-mask-image: var(--icon-messages-square); mask-image: var(--icon-messages-square); }
@@ -194,6 +205,7 @@
 .icon-terminal          { -webkit-mask-image: var(--icon-terminal);        mask-image: var(--icon-terminal); }
 .icon-triangle-alert    { -webkit-mask-image: var(--icon-triangle-alert);  mask-image: var(--icon-triangle-alert); }
 .icon-users             { -webkit-mask-image: var(--icon-users);           mask-image: var(--icon-users); }
+.icon-wrench            { -webkit-mask-image: var(--icon-wrench);          mask-image: var(--icon-wrench); }
 .icon-x                 { -webkit-mask-image: var(--icon-x);               mask-image: var(--icon-x); }
 
 
@@ -228,6 +240,9 @@
 [data-icon="chevron-right"]::before { -webkit-mask-image: var(--icon-chevron-right);  mask-image: var(--icon-chevron-right); }
 [data-icon="arrow-left"]::before    { -webkit-mask-image: var(--icon-arrow-left);     mask-image: var(--icon-arrow-left); }
 [data-icon="arrow-right"]::before   { -webkit-mask-image: var(--icon-arrow-right);    mask-image: var(--icon-arrow-right); }
+[data-icon="file-text"]::before     { -webkit-mask-image: var(--icon-file-text);      mask-image: var(--icon-file-text); }
+[data-icon="gauge"]::before         { -webkit-mask-image: var(--icon-gauge);          mask-image: var(--icon-gauge); }
+[data-icon="wrench"]::before        { -webkit-mask-image: var(--icon-wrench);         mask-image: var(--icon-wrench); }
 
 
 /* ----------------------------------------------------------------

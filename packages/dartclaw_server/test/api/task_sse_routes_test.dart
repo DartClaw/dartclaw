@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
+import 'package:dartclaw_server/src/task/task_progress_tracker.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:shelf/shelf.dart';
@@ -37,6 +38,15 @@ void main() {
     final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
     expect(hasFrame, isTrue);
     return decodeFramePayload(iterator.current);
+  }
+
+  /// Reads frames until one with the given [type] is found.
+  Future<Map<String, dynamic>> nextFramePayloadOfType(StreamIterator<String> iterator, String type) async {
+    for (var i = 0; i < 20; i++) {
+      final payload = await nextFramePayload(iterator);
+      if (payload['type'] == type) return payload;
+    }
+    fail('Did not receive a frame with type=$type within 20 frames');
   }
 
   test('initial frame reports current review count', () async {
@@ -360,5 +370,185 @@ void main() {
     expect(payload['activeTasks'], isA<List<dynamic>>());
     final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
     expect(activeTasks, isEmpty);
+  });
+
+  group('task_progress SSE events', () {
+    late TaskProgressTracker progressTracker;
+
+    setUp(() {
+      progressTracker = TaskProgressTracker(eventBus: eventBus, tasks: tasks);
+      progressTracker.start();
+      handler = taskSseRoutes(tasks, eventBus, progressTracker: progressTracker).call;
+    });
+
+    tearDown(() {
+      progressTracker.dispose();
+    });
+
+    test('existing tests pass with progressTracker: null (no behavior change)', () async {
+      // Re-create handler without tracker to confirm no regression.
+      handler = taskSseRoutes(tasks, eventBus).call;
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      expect(response.statusCode, 200);
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      final payload = await nextFramePayload(iterator);
+      expect(payload['type'], 'connected');
+    });
+
+    test('task_progress event delivered to SSE client on toolCalled', () async {
+      await tasks.create(
+        id: 'task-running',
+        title: 'Running task',
+        description: 'do work',
+        type: TaskType.coding,
+        autoStart: true,
+      );
+      await tasks.transition('task-running', TaskStatus.running);
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      await nextFramePayload(iterator); // Consume connected frame.
+
+      // Fire statusChanged then toolCalled via EventBus.
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-running',
+          eventId: 'evt-1',
+          kind: 'statusChanged',
+          details: {'newStatus': 'running'},
+          timestamp: DateTime.now(),
+        ),
+      );
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-running',
+          eventId: 'evt-2',
+          kind: 'toolCalled',
+          details: {'name': 'Read', 'context': 'lib/main.dart'},
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+
+      final payload = await nextFramePayloadOfType(iterator, 'task_progress');
+      expect(payload['taskId'], 'task-running');
+      expect(payload['currentActivity'], 'Reading lib/main.dart');
+      expect(payload['isComplete'], isFalse);
+    });
+
+    test('isComplete: true delivered when task status changes away from running', () async {
+      await tasks.create(
+        id: 'task-complete',
+        title: 'Completing task',
+        description: 'do work',
+        type: TaskType.coding,
+        autoStart: true,
+      );
+      await tasks.transition('task-complete', TaskStatus.running);
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      await nextFramePayload(iterator); // Consume connected frame.
+
+      // Start state.
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-complete',
+          eventId: 'evt-1',
+          kind: 'statusChanged',
+          details: {'newStatus': 'running'},
+          timestamp: DateTime.now(),
+        ),
+      );
+      // Token event to emit a snapshot.
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-complete',
+          eventId: 'evt-2',
+          kind: 'tokenUpdate',
+          details: {'inputTokens': 100, 'outputTokens': 50},
+          timestamp: DateTime.now(),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await nextFramePayloadOfType(iterator, 'task_progress'); // Consume progress snapshot.
+
+      // Task completes.
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-complete',
+          eventId: 'evt-3',
+          kind: 'statusChanged',
+          details: {'newStatus': 'done'},
+          timestamp: DateTime.now(),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final completion = await nextFramePayloadOfType(iterator, 'task_progress');
+      expect(completion['taskId'], 'task-complete');
+      expect(completion['isComplete'], isTrue);
+    });
+  });
+
+  group('task_event SSE forwarding', () {
+    test('TaskEventCreatedEvent forwarded as task_event frame with all fields', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      await nextFramePayload(iterator); // Consume connected frame.
+
+      final ts = DateTime.parse('2026-03-24T10:00:00.000Z');
+      eventBus.fire(
+        TaskEventCreatedEvent(
+          taskId: 'task-xyz',
+          eventId: 'evt-abc',
+          kind: 'toolCalled',
+          details: {'name': 'Read', 'success': true, 'context': 'lib/main.dart'},
+          timestamp: ts,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final payload = await nextFramePayloadOfType(iterator, 'task_event');
+      expect(payload['type'], 'task_event');
+      expect(payload['taskId'], 'task-xyz');
+      expect(payload['eventId'], 'evt-abc');
+      expect(payload['kind'], 'toolCalled');
+      expect(payload['details'], {'name': 'Read', 'success': true, 'context': 'lib/main.dart'});
+      expect(payload['text'], 'Read lib/main.dart');
+      expect(payload['timestamp'], ts.toIso8601String());
+    });
+
+    test('task_event forwarded for all event kinds', () async {
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+      final iterator = StreamIterator(response.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+      await nextFramePayload(iterator); // Consume connected frame.
+
+      for (final kind in ['statusChanged', 'artifactCreated', 'pushBack', 'tokenUpdate', 'taskError']) {
+        eventBus.fire(
+          TaskEventCreatedEvent(
+            taskId: 'task-1',
+            eventId: 'evt-$kind',
+            kind: kind,
+            details: {},
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final kinds = <String>[];
+      for (var i = 0; i < 5; i++) {
+        final payload = await nextFramePayloadOfType(iterator, 'task_event');
+        kinds.add(payload['kind'] as String);
+      }
+      expect(kinds, containsAll(['statusChanged', 'artifactCreated', 'pushBack', 'tokenUpdate', 'taskError']));
+    });
   });
 }

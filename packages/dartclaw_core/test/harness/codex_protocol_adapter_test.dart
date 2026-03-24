@@ -268,11 +268,12 @@ void main() {
       expect(complete.stopReason, 'completed');
       expect(complete.inputTokens, 12);
       expect(complete.outputTokens, 34);
-      expect(complete.cachedInputTokens, isNull);
+      expect(complete.cacheReadTokens, isNull);
+      expect(complete.cacheWriteTokens, 0);
       expect(complete.costUsd, isNull);
     });
 
-    test('parses turn/completed with cached_input_tokens', () {
+    test('parses turn/completed with cached_input_tokens -> cacheReadTokens', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -288,7 +289,8 @@ void main() {
       final complete = msg! as TurnComplete;
       expect(complete.inputTokens, 12);
       expect(complete.outputTokens, 34);
-      expect(complete.cachedInputTokens, 7);
+      expect(complete.cacheReadTokens, 7);
+      expect(complete.cacheWriteTokens, 0);
     });
 
     test('parses turn/failed into TurnComplete with error stop reason', () {

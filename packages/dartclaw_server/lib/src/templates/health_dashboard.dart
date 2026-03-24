@@ -1,5 +1,6 @@
 import '../audit/audit_log_reader.dart';
 import 'audit_table.dart';
+import 'components.dart';
 import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
@@ -53,12 +54,12 @@ String healthDashboardTemplate({
 
   final topbar = pageTopbarTemplate(title: 'System Health', backHref: '/', backLabel: 'Back to Chat');
 
-  final cards = <Map<String, dynamic>>[
+  final cardDefs = <Map<String, dynamic>>[
     {
       'title': 'Worker',
       'badgeClass': workerBadgeClass,
       'badgeText': workerState,
-      'rows': [
+      'rows': <Map<String, dynamic>>[
         {'label': 'State', 'value': workerState, 'valueClass': ''},
         {'label': 'Runtime', 'value': 'claude binary', 'valueClass': ''},
       ],
@@ -67,7 +68,7 @@ String healthDashboardTemplate({
       'title': 'Database',
       'badgeClass': 'badge-success',
       'badgeText': 'ok',
-      'rows': [
+      'rows': <Map<String, dynamic>>[
         {'label': 'Size', 'value': dbSizeStr, 'valueClass': ''},
         {'label': 'FTS5 Index', 'value': 'active', 'valueClass': 'text-success'},
         {'label': 'Type', 'value': 'SQLite', 'valueClass': ''},
@@ -77,7 +78,7 @@ String healthDashboardTemplate({
       'title': 'Sessions',
       'badgeClass': 'badge-muted',
       'badgeText': '$sessionCount total',
-      'rows': [
+      'rows': <Map<String, dynamic>>[
         {'label': 'Total', 'value': '$sessionCount', 'valueClass': ''},
         {'label': 'Storage', 'value': 'NDJSON files', 'valueClass': ''},
       ],
@@ -86,7 +87,7 @@ String healthDashboardTemplate({
       'title': 'Storage',
       'badgeClass': 'badge-success',
       'badgeText': 'ok',
-      'rows': [
+      'rows': <Map<String, dynamic>>[
         {'label': 'Search DB', 'value': dbSizeStr, 'valueClass': ''},
         {'label': 'Format', 'value': 'file-based', 'valueClass': ''},
       ],
@@ -130,7 +131,7 @@ String healthDashboardTemplate({
         {'label': 'Errors', 'value': '$errors consecutive', 'valueClass': 'text-warning'},
     ];
 
-    cards.add({
+    cardDefs.add({
       'title': 'Pub/Sub',
       'badgeClass': pubsubBadgeClass,
       'badgeText': pubsubBadgeText,
@@ -138,12 +139,19 @@ String healthDashboardTemplate({
     });
   }
 
-  final metrics = <Map<String, dynamic>>[
-    {'value': uptimeStr, 'label': 'Uptime', 'metricClass': 'card-metric--accent'},
-    {'value': '$sessionCount', 'label': 'Sessions', 'metricClass': 'card-metric--info'},
-    {'value': dbSizeStr, 'label': 'DB Size', 'metricClass': 'card-metric--info'},
-    {'value': artifactDiskStr, 'label': 'Task Artifacts', 'metricClass': 'card-metric--info'},
-  ];
+  final cardsHtml = cardDefs.map((c) => infoCardTemplate(
+    title: c['title'] as String,
+    badgeText: c['badgeText'] as String,
+    badgeClass: c['badgeClass'] as String,
+    rows: (c['rows'] as List).cast<Map<String, dynamic>>(),
+  )).join('\n');
+
+  final metricsHtml = [
+    metricCardTemplate(color: 'accent', value: uptimeStr, label: 'Uptime'),
+    metricCardTemplate(color: 'info', value: '$sessionCount', label: 'Sessions'),
+    metricCardTemplate(color: 'info', value: dbSizeStr, label: 'DB Size'),
+    metricCardTemplate(color: 'info', value: artifactDiskStr, label: 'Task Artifacts'),
+  ].join('\n');
 
   final auditSection = auditTableFragment(
     auditPage: auditPage ?? AuditPage.empty,
@@ -160,8 +168,8 @@ String healthDashboardTemplate({
     'uptimeStr': uptimeStr,
     'version': version,
     'workerState': workerState,
-    'cards': cards,
-    'metrics': metrics,
+    'cardsHtml': cardsHtml,
+    'metricsHtml': metricsHtml,
     'auditSection': auditSection,
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });

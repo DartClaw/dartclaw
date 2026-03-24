@@ -9,7 +9,7 @@
         <div class="heartbeat-header">
           <span tl:classappend="${pulseClass}" class="pulse-icon"></span>
           <span class="heartbeat-label">Heartbeat</span>
-          <span tl:classappend="${badgeClass}" class="heartbeat-status-badge" tl:text="${badgeText}">Active</span>
+          <tl:block tl:utext="${heartbeatBadgeHtml}">badge</tl:block>
           <label class="toggle-switch toggle-inline">
             <input type="checkbox" tl:if="${heartbeatOn}" checked
                    hx-post="/api/settings/heartbeat/toggle"

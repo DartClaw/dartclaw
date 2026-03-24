@@ -1,0 +1,66 @@
+<div tl:fragment="timeline" class="task-timeline">
+  <div class="tl-filter-bar">
+    <a class="tl-filter-link" tl:classappend="${filterAll ? 'active' : ''}"
+       tl:attr="href=${filterAllHref}"
+       hx-get="" tl:attr="hx-get=${filterAllHref}"
+       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">All</a>
+    <a class="tl-filter-link" tl:classappend="${filterStatus ? 'active' : ''}"
+       tl:attr="href=${filterStatusHref}"
+       hx-get="" tl:attr="hx-get=${filterStatusHref}"
+       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Status</a>
+    <a class="tl-filter-link" tl:classappend="${filterTools ? 'active' : ''}"
+       tl:attr="href=${filterToolsHref}"
+       hx-get="" tl:attr="hx-get=${filterToolsHref}"
+       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Tools</a>
+    <a class="tl-filter-link" tl:classappend="${filterArtifacts ? 'active' : ''}"
+       tl:attr="href=${filterArtifactsHref}"
+       hx-get="" tl:attr="hx-get=${filterArtifactsHref}"
+       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Artifacts</a>
+    <a class="tl-filter-link" tl:classappend="${filterErrors ? 'active' : ''}"
+       tl:attr="href=${filterErrorsHref}"
+       hx-get="" tl:attr="hx-get=${filterErrorsHref}"
+       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">Errors</a>
+  </div>
+  <div class="tl-event-list" id="timeline-events" hx-swap="beforeend"
+       tl:classappend="${autoScroll ? 'tl-auto-scroll' : ''}"
+       tl:attr="data-auto-scroll=${autoScroll ? 'true' : null}">
+    <div tl:if="${hasEvents}" tl:each="event : ${events}">
+      <div class="tl-event" tl:classappend="${event.kindClass}" tl:attr="data-kind=${event.kind},data-event-id=${event.id}">
+        <span class="tl-event-icon icon" tl:classappend="${event.iconClass}"></span>
+        <div class="tl-event-body">
+          <div class="tl-event-label">
+            <tl:block tl:if="${event.isStatusChanged}">
+              <span class="status-badge" tl:classappend="${event.statusBadgeClass}" tl:text="${event.statusLabel}">running</span>
+            </tl:block>
+            <tl:block tl:unless="${event.isStatusChanged}">
+              <span tl:text="${event.label}">event label</span>
+            </tl:block>
+            <span tl:if="${event.detailBadge}" class="type-badge tl-detail-badge" tl:classappend="${event.detailBadgeClass}" tl:text="${event.detailBadge}">diff</span>
+          </div>
+          <div tl:if="${event.detail}" class="tl-event-detail" tl:text="${event.detail}">event detail</div>
+        </div>
+        <span class="tl-event-timestamp" tl:attr="title=${event.timestampIso}" tl:text="${event.timestamp}">2m ago</span>
+      </div>
+    </div>
+    <div tl:unless="${hasEvents}" class="tl-empty-state">
+      <span class="empty-state-text">No timeline events yet. Events will appear when the task runs.</span>
+    </div>
+  </div>
+</div>
+
+<div tl:fragment="eventItem" class="tl-event" tl:classappend="${event.kindClass}" tl:attr="data-kind=${event.kind},data-event-id=${event.id}">
+  <span class="tl-event-icon icon" tl:classappend="${event.iconClass}"></span>
+  <div class="tl-event-body">
+    <div class="tl-event-label">
+      <tl:block tl:if="${event.isStatusChanged}">
+        <span class="status-badge" tl:classappend="${event.statusBadgeClass}" tl:text="${event.statusLabel}">running</span>
+      </tl:block>
+      <tl:block tl:unless="${event.isStatusChanged}">
+        <span tl:text="${event.label}">event label</span>
+      </tl:block>
+      <span tl:if="${event.detailBadge}" class="type-badge tl-detail-badge" tl:classappend="${event.detailBadgeClass}" tl:text="${event.detailBadge}">diff</span>
+    </div>
+    <div tl:if="${event.detail}" class="tl-event-detail" tl:text="${event.detail}">event detail</div>
+  </div>
+  <span class="tl-event-timestamp" tl:attr="title=${event.timestampIso}" tl:text="${event.timestamp}">2m ago</span>
+</div>

@@ -22,6 +22,8 @@ dependencies:
     path: ../dartclaw_config
   dartclaw_core:
     path: ../dartclaw_core
+  dartclaw_models:
+    path: ../dartclaw_models
   dartclaw_security:
     path: ../dartclaw_security
   dartclaw_google_chat:

@@ -75,7 +75,7 @@ void main() {
     );
     manager = ChannelManager(queue: _RecordingMessageQueue(), config: const ChannelConfig.defaults());
     manager.registerChannel(channel);
-    reviewService = TaskReviewService(tasks: tasks, eventBus: eventBus);
+    reviewService = TaskReviewService(tasks: tasks);
     notificationSubscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     notificationSubscriber.subscribe(eventBus);
     webhookHandler = GoogleChatWebhookHandler(

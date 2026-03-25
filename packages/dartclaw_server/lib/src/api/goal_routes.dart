@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -16,7 +14,7 @@ Router goalRoutes(GoalService goals) {
 
   router.post('/api/goals', (Request request) async {
     try {
-      final body = await _readJsonObject(request);
+      final body = await readJsonObject(request);
       if (body.error != null) return body.error!;
 
       final idValue = body.value!['id'];
@@ -103,18 +101,3 @@ Router goalRoutes(GoalService goals) {
 }
 
 Response _goalNotFound() => errorResponse(404, 'GOAL_NOT_FOUND', 'Goal not found');
-
-Future<({Map<String, dynamic>? value, Response? error})> _readJsonObject(Request request) async {
-  try {
-    final body = await request.readAsString();
-    final decoded = jsonDecode(body);
-    if (decoded is! Map) {
-      return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'JSON body must be an object'));
-    }
-    return (value: Map<String, dynamic>.from(decoded), error: null);
-  } on FormatException {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
-  } on TypeError {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON structure'));
-  }
-}

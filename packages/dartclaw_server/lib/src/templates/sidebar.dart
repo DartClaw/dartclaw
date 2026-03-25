@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'helpers.dart';
 import 'loader.dart';
 
 /// Navigation item for sidebar system links.
@@ -121,8 +122,8 @@ String sidebarTemplate({
       'systemNavItems': systemNavItems.map((item) {
         // Inject hidden badge span for the Tasks nav item (populated by JS via SSE).
         final labelHtml = item.label == 'Tasks'
-            ? '${_escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
-            : _escapeHtml(item.label);
+            ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
+            : escapeHtml(item.label);
         return {
           'label': labelHtml,
           'href': item.href,
@@ -146,10 +147,6 @@ String sidebarTemplate({
   // `.sidebar.open ~ .sidebar-scrim` can show it. Appending here covers all
   // render paths (direct string injection in web_routes.dart and tl:utext in HTML templates).
   return '$aside<button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
-}
-
-String _escapeHtml(String text) {
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
 /// Builds the unified sidebar from [SidebarData] and system nav items.

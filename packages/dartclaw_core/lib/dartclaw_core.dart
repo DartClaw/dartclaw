@@ -96,7 +96,7 @@ export 'src/config/auth_config.dart' show AuthConfig;
 export 'src/config/context_config.dart' show ContextConfig;
 export 'src/config/gateway_config.dart' show GatewayConfig;
 export 'src/config/logging_config.dart' show LoggingConfig;
-export 'src/config/provider_validator.dart' show ProviderValidator;
+export 'src/config/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/config/providers_config.dart' show ProviderEntry, ProvidersConfig;
 export 'src/config/memory_config.dart' show MemoryConfig;
 export 'src/config/scheduling_config.dart' show SchedulingConfig;

@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'components.dart';
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -85,8 +86,8 @@ String taskDetailPageTemplate({
       : 0;
   final initialProgressFillClass = hasTokenBudget ? '' : 'indeterminate';
   final initialProgressLabel = hasTokenBudget
-      ? '${_formatNumber(initialTokensUsed)} / ${_formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'
-      : '${_formatNumber(initialTokensUsed)} tokens used';
+      ? '${formatNumber(initialTokensUsed)} / ${formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'
+      : '${formatNumber(initialTokensUsed)} tokens used';
   final progressSectionStyle = isRunning ? '' : 'display:none';
 
   // Build artifact items for template.
@@ -111,9 +112,9 @@ String taskDetailPageTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
     'taskId': task['id'],
     'title': title,
-    'typeLabel': _titleCase(task['type']?.toString() ?? ''),
+    'typeLabel': titleCase(task['type']?.toString() ?? ''),
     'status': statusName,
-    'statusBadgeHtml': statusBadgeTemplate(variant: statusName, text: _titleCase(statusName)),
+    'statusBadgeHtml': statusBadgeTemplate(variant: statusName, text: titleCase(statusName)),
     'provider': provider,
     'providerLabel': ProviderIdentity.displayName(provider),
     'hasProvider': provider.isNotEmpty,
@@ -123,10 +124,10 @@ String taskDetailPageTemplate({
     'pushBackCount': pushBackCount,
     'hasPushBacks': pushBackCount > 0,
     'showPushBackWarning': showPushBackWarning,
-    'createdAtDisplay': _formatRelativeTime(task['createdAt']?.toString()),
+    'createdAtDisplay': _formatRelativeTimeIso(task['createdAt']?.toString()),
     'createdByDisplay': task['createdBy']?.toString() ?? '—',
-    'startedAtDisplay': _formatRelativeTime(task['startedAt']?.toString()),
-    'completedAtDisplay': _formatRelativeTime(task['completedAt']?.toString()),
+    'startedAtDisplay': _formatRelativeTimeIso(task['startedAt']?.toString()),
+    'completedAtDisplay': _formatRelativeTimeIso(task['completedAt']?.toString()),
     'startedAtIso': task['startedAt']?.toString(),
     'hasStartedAt': task['startedAt'] != null,
     'hasCompletedAt': task['completedAt'] != null,
@@ -147,11 +148,11 @@ String taskDetailPageTemplate({
     'conflictDetails': conflictDetails,
     'hasTokenSummary': hasTokenSummary,
     'traceCount': traceCount,
-    'totalTokens': _formatNumber(totalTokens),
-    'totalInputTokens': _formatNumber(totalInputTokens),
-    'totalOutputTokens': _formatNumber(totalOutputTokens),
-    'totalCacheReadTokens': _formatNumber(totalCacheReadTokens),
-    'totalCacheWriteTokens': _formatNumber(totalCacheWriteTokens),
+    'totalTokens': formatNumber(totalTokens),
+    'totalInputTokens': formatNumber(totalInputTokens),
+    'totalOutputTokens': formatNumber(totalOutputTokens),
+    'totalCacheReadTokens': formatNumber(totalCacheReadTokens),
+    'totalCacheWriteTokens': formatNumber(totalCacheWriteTokens),
     'hasCacheTokens': hasCacheTokens,
     'totalDurationDisplay': _formatDuration(totalDurationMs),
     'totalToolCalls': totalToolCalls,
@@ -168,18 +169,6 @@ String taskDetailPageTemplate({
   return layoutTemplate(title: 'Task: $title', body: body, appName: appName);
 }
 
-String _formatNumber(int value) {
-  // Simple thousands separator formatting.
-  final s = value.toString();
-  final buffer = StringBuffer();
-  final offset = s.length % 3;
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (i - offset) % 3 == 0) buffer.write(',');
-    buffer.write(s[i]);
-  }
-  return buffer.toString();
-}
-
 String _formatDuration(int ms) {
   if (ms <= 0) return '0s';
   final seconds = ms ~/ 1000;
@@ -190,20 +179,10 @@ String _formatDuration(int ms) {
   return '${minutes}m ${remainingSeconds}s';
 }
 
-String _titleCase(String value) {
-  if (value.isEmpty) return value;
-  return value[0].toUpperCase() + value.substring(1);
-}
-
-String _formatRelativeTime(String? iso) {
+String _formatRelativeTimeIso(String? iso) {
   if (iso == null) return '';
   try {
-    final dt = DateTime.parse(iso);
-    final diff = DateTime.now().difference(dt);
-    if (diff.inDays > 0) return '${diff.inDays}d ago';
-    if (diff.inHours > 0) return '${diff.inHours}h ago';
-    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
-    return 'just now';
+    return formatRelativeTime(DateTime.parse(iso));
   } catch (e) {
     return '';
   }

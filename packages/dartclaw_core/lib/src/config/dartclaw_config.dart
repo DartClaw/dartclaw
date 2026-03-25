@@ -363,18 +363,9 @@ class DartclawConfig {
     final dataDir = expandHome(rawDataDir, env: env);
 
     // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML), with ~ expansion
-    final claudeExecutable = expandHome(
-      cli['claude_executable'] ?? defaults.claudeExecutable,
-      env: env,
-    );
-    final staticDir = expandHome(
-      cli['static_dir'] ?? defaults.staticDir,
-      env: env,
-    );
-    final templatesDir = expandHome(
-      cli['templates_dir'] ?? defaults.templatesDir,
-      env: env,
-    );
+    final claudeExecutable = expandHome(cli['claude_executable'] ?? defaults.claudeExecutable, env: env);
+    final staticDir = expandHome(cli['static_dir'] ?? defaults.staticDir, env: env);
+    final templatesDir = expandHome(cli['templates_dir'] ?? defaults.templatesDir, env: env);
 
     // dev_mode: enables template hot-reload, etc.
     final devMode = yaml['dev_mode'] == true || cli['dev_mode'] == 'true';
@@ -409,9 +400,7 @@ class DartclawConfig {
     List<String> warns,
   ) {
     var format = cli['log_format'] ?? defaults.format;
-    String? file = cli['log_file'] != null
-        ? expandHome(cli['log_file']!, env: env)
-        : null;
+    String? file = cli['log_file'] != null ? expandHome(cli['log_file']!, env: env) : null;
     var level = cli['log_level'] ?? defaults.level;
     var redactPatterns = defaults.redactPatterns;
 
@@ -423,10 +412,7 @@ class DartclawConfig {
           format = logMap['format'] as String;
         }
         if (cli['log_file'] == null && logMap['file'] is String) {
-          file = expandHome(
-            envSubstitute(logMap['file'] as String, env: env),
-            env: env,
-          );
+          file = expandHome(envSubstitute(logMap['file'] as String, env: env), env: env);
         }
         if (cli['log_level'] == null && logMap['level'] is String) {
           level = logMap['level'] as String;
@@ -1279,6 +1265,7 @@ class DartclawConfig {
   static TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<String> warns) {
     var maxConcurrent = defaults.maxConcurrent;
     var artifactRetentionDays = defaults.artifactRetentionDays;
+    var completionAction = defaults.completionAction;
     var worktreeBaseRef = defaults.worktreeBaseRef;
     var worktreeStaleTimeoutHours = defaults.worktreeStaleTimeoutHours;
     var worktreeMergeStrategy = defaults.worktreeMergeStrategy;
@@ -1299,6 +1286,20 @@ class DartclawConfig {
         defaults.artifactRetentionDays,
         warns,
       ).clamp(0, 3650);
+      final completionActionRaw = tasksMap['completion_action'];
+      if (completionActionRaw is String) {
+        final trimmedCompletionAction = completionActionRaw.trim();
+        if (trimmedCompletionAction == 'review' || trimmedCompletionAction == 'accept') {
+          completionAction = trimmedCompletionAction;
+        } else {
+          warns.add(
+            'Invalid value for tasks.completion_action: "$completionActionRaw" — using default '
+            '"${defaults.completionAction}"',
+          );
+        }
+      } else if (completionActionRaw != null) {
+        warns.add('Invalid type for tasks.completion_action: "${completionActionRaw.runtimeType}" — using default');
+      }
 
       final worktreeRaw = tasksMap['worktree'];
       if (worktreeRaw is Map) {
@@ -1327,6 +1328,7 @@ class DartclawConfig {
     return TaskConfig(
       maxConcurrent: maxConcurrent,
       artifactRetentionDays: artifactRetentionDays,
+      completionAction: completionAction,
       worktreeBaseRef: worktreeBaseRef,
       worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
       worktreeMergeStrategy: worktreeMergeStrategy,

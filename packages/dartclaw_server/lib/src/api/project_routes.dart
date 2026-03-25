@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task, TaskStatus;
@@ -29,7 +28,7 @@ Router projectRoutes(
   // POST /api/projects — create a new project (initiates clone)
   router.post('/api/projects', (Request request) async {
     try {
-      final body = await _readJsonObject(request);
+      final body = await readJsonObject(request);
       if (body.error != null) return body.error!;
 
       final nameValue = body.value!['name'];
@@ -42,8 +41,8 @@ Router projectRoutes(
         return errorResponse(400, 'INVALID_INPUT', 'remoteUrl must be a string', {'field': 'remoteUrl'});
       }
 
-      final name = _trimmedStringOrNull(nameValue);
-      final remoteUrl = _trimmedStringOrNull(remoteUrlValue);
+      final name = trimmedStringOrNull(nameValue);
+      final remoteUrl = trimmedStringOrNull(remoteUrlValue);
 
       if (name == null || name.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'name must not be empty', {'field': 'name'});
@@ -52,8 +51,8 @@ Router projectRoutes(
         return errorResponse(400, 'INVALID_INPUT', 'remoteUrl must not be empty', {'field': 'remoteUrl'});
       }
 
-      final defaultBranch = _trimmedStringOrNull(body.value!['defaultBranch']) ?? 'main';
-      final credentialsRef = _trimmedStringOrNull(body.value!['credentialsRef']);
+      final defaultBranch = trimmedStringOrNull(body.value!['defaultBranch']) ?? 'main';
+      final credentialsRef = trimmedStringOrNull(body.value!['credentialsRef']);
       final cloneStrategy = _parseCloneStrategy(body.value!['cloneStrategy']);
       final pr = _parsePrConfig(body.value!['pr']);
 
@@ -110,12 +109,12 @@ Router projectRoutes(
         return errorResponse(403, 'CONFIG_DEFINED', 'Config-defined projects cannot be modified via API');
       }
 
-      final body = await _readJsonObject(request);
+      final body = await readJsonObject(request);
       if (body.error != null) return body.error!;
 
       // Check for active-task conflict when changing remote coordinates.
-      final newRemoteUrl = _trimmedStringOrNull(body.value!['remoteUrl']);
-      final newDefaultBranch = _trimmedStringOrNull(body.value!['defaultBranch']);
+      final newRemoteUrl = trimmedStringOrNull(body.value!['remoteUrl']);
+      final newDefaultBranch = trimmedStringOrNull(body.value!['defaultBranch']);
       final remoteUrlChanging = newRemoteUrl != null && newRemoteUrl != project.remoteUrl;
       final branchChanging = newDefaultBranch != null && newDefaultBranch != project.defaultBranch;
 
@@ -136,10 +135,10 @@ Router projectRoutes(
 
       final updated = await projects.update(
         id,
-        name: _trimmedStringOrNull(body.value!['name']),
+        name: trimmedStringOrNull(body.value!['name']),
         remoteUrl: newRemoteUrl,
         defaultBranch: newDefaultBranch,
-        credentialsRef: _trimmedStringOrNull(body.value!['credentialsRef']),
+        credentialsRef: trimmedStringOrNull(body.value!['credentialsRef']),
         pr: body.value!.containsKey('pr') ? _parsePrConfig(body.value!['pr']) : null,
       );
       return jsonResponse(200, updated.toJson());
@@ -358,21 +357,3 @@ CloneStrategy _parseCloneStrategy(Object? value) {
   };
 }
 
-Future<({Map<String, dynamic>? value, Response? error})> _readJsonObject(Request request) async {
-  try {
-    final body = await request.readAsString();
-    final decoded = jsonDecode(body);
-    if (decoded is! Map) {
-      return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'JSON body must be an object'));
-    }
-    return (value: Map<String, dynamic>.from(decoded), error: null);
-  } on FormatException {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
-  } on TypeError {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON structure'));
-  }
-}
-
-String? _stringOrNull(Object? value) => value is String ? value : null;
-
-String? _trimmedStringOrNull(Object? value) => _stringOrNull(value)?.trim();

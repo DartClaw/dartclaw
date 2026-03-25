@@ -34,12 +34,7 @@ void main() {
       String senderJid = 'sender@s.whatsapp.net',
       Map<String, String> metadata = const {},
     }) {
-      return ChannelMessage(
-        channelType: ChannelType.whatsapp,
-        senderJid: senderJid,
-        text: text,
-        metadata: metadata,
-      );
+      return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: senderJid, text: text, metadata: metadata);
     }
 
     test('returns false for non-task non-review messages', () async {
@@ -75,16 +70,67 @@ void main() {
       expect(channel.sentMessages.single.$2.text, contains('fix login redirect'));
     });
 
-    test('returns false when trigger config is disabled', () async {
+    test('task trigger response includes a queued note when the created task is queued', () async {
+      final bridge = buildBridge();
+
+      final handled = await bridge.tryHandle(
+        makeMessage(text: 'task: fix login redirect'),
+        channel,
+        sessionKey: 'agent:main:dm:whatsapp:sender',
+      );
+
+      expect(handled, isTrue);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, contains('Queued (will start when a slot opens)'));
+    });
+
+    test('task trigger response omits the queued note when the created task is not queued', () async {
       final bridge = buildBridge(
-        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
+        taskCreator:
+            ({
+              required String id,
+              required String title,
+              required String description,
+              required TaskType type,
+              bool autoStart = false,
+              String? goalId,
+              String? acceptanceCriteria,
+              String? createdBy,
+              Map<String, dynamic> configJson = const {},
+              DateTime? now,
+              String trigger = 'system',
+            }) {
+              return tasks.create(
+                id: id,
+                title: title,
+                description: description,
+                type: type,
+                autoStart: false,
+                goalId: goalId,
+                acceptanceCriteria: acceptanceCriteria,
+                createdBy: createdBy,
+                configJson: configJson,
+                now: now,
+                trigger: trigger,
+              );
+            },
       );
 
       final handled = await bridge.tryHandle(
         makeMessage(text: 'task: fix login redirect'),
         channel,
-        sessionKey: 'key',
+        sessionKey: 'agent:main:dm:whatsapp:sender',
       );
+
+      expect(handled, isTrue);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, isNot(contains('Queued (will start when a slot opens)')));
+    });
+
+    test('returns false when trigger config is disabled', () async {
+      final bridge = buildBridge(taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)});
+
+      final handled = await bridge.tryHandle(makeMessage(text: 'task: fix login redirect'), channel, sessionKey: 'key');
 
       expect(handled, isFalse);
       expect(await tasks.list(), isEmpty);
@@ -94,10 +140,7 @@ void main() {
       final bridge = buildBridge();
 
       final handled = await bridge.tryHandle(
-        makeMessage(
-          text: 'task:   ',
-          metadata: {sourceMessageIdMetadataKey: 'wamid-empty'},
-        ),
+        makeMessage(text: 'task:   ', metadata: {sourceMessageIdMetadataKey: 'wamid-empty'}),
         channel,
         sessionKey: 'key',
       );
@@ -114,11 +157,7 @@ void main() {
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
       );
 
-      final handled = await bridge.tryHandle(
-        makeMessage(text: 'task: fix login'),
-        channel,
-        sessionKey: 'key',
-      );
+      final handled = await bridge.tryHandle(makeMessage(text: 'task: fix login'), channel, sessionKey: 'key');
 
       expect(handled, isTrue);
       expect(channel.sentMessages.single.$2.text, 'Could not create task -- service unavailable.');
@@ -128,10 +167,7 @@ void main() {
       final bridge = buildBridge();
 
       await bridge.tryHandle(
-        makeMessage(
-          text: 'task: fix login redirect',
-          metadata: {sourceMessageIdMetadataKey: 'wamid-123'},
-        ),
+        makeMessage(text: 'task: fix login redirect', metadata: {sourceMessageIdMetadataKey: 'wamid-123'}),
         channel,
         sessionKey: 'key',
       );
@@ -168,28 +204,25 @@ void main() {
 
     test('sends service unavailable when task creation throws', () async {
       final bridge = ChannelTaskBridge(
-        taskCreator: ({
-          required id,
-          required title,
-          required description,
-          required type,
-          autoStart = false,
-          goalId,
-          acceptanceCriteria,
-          createdBy,
-          configJson = const {},
-          now,
-          trigger = 'system',
-        }) async => throw StateError('boom'),
+        taskCreator:
+            ({
+              required id,
+              required title,
+              required description,
+              required type,
+              autoStart = false,
+              goalId,
+              acceptanceCriteria,
+              createdBy,
+              configJson = const {},
+              now,
+              trigger = 'system',
+            }) async => throw StateError('boom'),
         triggerParser: const TaskTriggerParser(),
         taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
       );
 
-      final handled = await bridge.tryHandle(
-        makeMessage(text: 'task: fix login'),
-        channel,
-        sessionKey: 'key',
-      );
+      final handled = await bridge.tryHandle(makeMessage(text: 'task: fix login'), channel, sessionKey: 'key');
 
       expect(handled, isTrue);
       expect(channel.sentMessages.single.$2.text, 'Could not create task -- service unavailable.');

@@ -14,6 +14,7 @@ import 'agent_harness.dart';
 import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
 import 'harness_config.dart';
+import 'process_lifecycle.dart';
 import 'protocol_message.dart' as proto;
 import 'process_types.dart';
 import 'tool_policy.dart';
@@ -56,7 +57,7 @@ List<String> _buildClaudeArgs({
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends AgentHarness {
+class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   final String claudeExecutable;
   final String cwd;
   final Duration turnTimeout;
@@ -95,9 +96,6 @@ class ClaudeCodeHarness extends AgentHarness {
   late String _processWorkingDirectory;
   String? _processModel;
   String? _processEffort;
-
-  /// Serializes mutating lifecycle ops.
-  Future<void> _lock = Future<void>.value();
 
   /// Stable broadcast stream that survives process restarts.
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
@@ -159,7 +157,7 @@ class ClaudeCodeHarness extends AgentHarness {
   // -------------------------------------------------------------------------
 
   @override
-  Future<void> start() => _withLock(() async {
+  Future<void> start() => withLock(() async {
     if (_state == WorkerState.idle) return;
     if (_state == WorkerState.busy) {
       throw StateError('Cannot start: harness is busy');
@@ -184,7 +182,7 @@ class ClaudeCodeHarness extends AgentHarness {
     // Set immediately (before lock) so the exitCode crash handler can
     // distinguish intentional shutdown from unexpected process exit.
     _stopping = true;
-    return _withLock(_stopInternal);
+    return withLock(_stopInternal);
   }
 
   Future<void> _stopInternal() async {
@@ -211,7 +209,7 @@ class ClaudeCodeHarness extends AgentHarness {
     final process = _process;
     _process = null;
     if (process != null) {
-      await _killWithEscalation(process, 'Claude');
+      await killWithEscalation(process, label: 'Claude', gracePeriod: _killGracePeriod, log: _log);
     }
 
     final containerMcpPath = _containerMcpConfigPath;
@@ -273,7 +271,7 @@ class ClaudeCodeHarness extends AgentHarness {
       }
       final backoff = baseBackoff * pow(2, _crashCount - 1).toInt();
       await _delayFactory(backoff);
-      await _withLock(() async {
+      await withLock(() async {
         if (_state == WorkerState.stopped) {
           throw StateError('Harness stopped during backoff');
         }
@@ -504,7 +502,7 @@ class ClaudeCodeHarness extends AgentHarness {
     required String? model,
     required String? effort,
   }) async {
-    await _withLock(() async {
+    await withLock(() async {
       if (_state == WorkerState.busy) {
         throw StateError('Cannot change working directory, model, or effort while harness is busy');
       }
@@ -818,46 +816,4 @@ class ClaudeCodeHarness extends AgentHarness {
     _process?.stdin.add(utf8.encode(line));
   }
 
-  /// Sends SIGTERM, waits [_killGracePeriod], then escalates to SIGKILL.
-  ///
-  /// After SIGKILL, waits up to 1 additional second for the kernel to confirm
-  /// the process exit. SIGKILL is unconditional on Unix so this normally
-  /// completes instantly; the secondary timeout is a safeguard for edge cases
-  /// and test fakes.
-  Future<void> _killWithEscalation(Process process, String label) async {
-    process.kill(); // SIGTERM
-    try {
-      await process.exitCode.timeout(
-        _killGracePeriod,
-        onTimeout: () async {
-          _log.warning(
-            '$label process did not exit within '
-            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
-          );
-          if (!Platform.isWindows) {
-            process.kill(ProcessSignal.sigkill);
-          }
-          // Wait for confirmed exit after SIGKILL. SIGKILL is unconditional
-          // on Unix, so this completes near-instantly. Secondary timeout
-          // guards against edge cases and test fakes.
-          return process.exitCode.timeout(
-            const Duration(seconds: 1),
-            onTimeout: () => -1,
-          );
-        },
-      );
-    } catch (e) {
-      _log.fine('Error waiting for $label process exit: $e');
-    }
-  }
-
-  /// Chains [fn] after the current lifecycle lock, preventing concurrent
-  /// mutations.
-  Future<T> _withLock<T>(Future<T> Function() fn) {
-    final completer = Completer<T>();
-    final next = _lock.catchError((_) {}).then((_) => fn());
-    _lock = next.then<void>((_) {}, onError: (_) {});
-    next.then(completer.complete, onError: completer.completeError);
-    return completer.future;
-  }
 }

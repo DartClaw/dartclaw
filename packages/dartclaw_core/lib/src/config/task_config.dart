@@ -2,6 +2,7 @@
 class TaskConfig {
   final int maxConcurrent;
   final int artifactRetentionDays;
+  final String completionAction;
   final String worktreeBaseRef;
   final int worktreeStaleTimeoutHours;
   final String worktreeMergeStrategy;
@@ -9,6 +10,7 @@ class TaskConfig {
   const TaskConfig({
     this.maxConcurrent = 3,
     this.artifactRetentionDays = 0,
+    this.completionAction = 'review',
     this.worktreeBaseRef = 'main',
     this.worktreeStaleTimeoutHours = 24,
     this.worktreeMergeStrategy = 'squash',

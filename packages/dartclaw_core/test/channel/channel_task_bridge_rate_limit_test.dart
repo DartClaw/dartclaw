@@ -14,11 +14,11 @@ void main() {
       return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: senderJid, text: text);
     }
 
-    test('rate-limited message — sends polite rejection, returns true (consumed)', () async {
-      // Limit of 1 message per minute
-      final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(minutes: 1));
-      // Burn the one allowed slot
-      limiter.check('sender@s.whatsapp.net');
+    test('rate-limited message — includes limit, window, and exemption hint', () async {
+      final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 5));
+      for (var i = 0; i < 5; i++) {
+        limiter.check('sender@s.whatsapp.net');
+      }
 
       final bridge = ChannelTaskBridge(
         perSenderRateLimiter: limiter,
@@ -30,7 +30,29 @@ void main() {
 
       expect(handled, isTrue);
       expect(channel.sentMessages, hasLength(1));
-      expect(channel.sentMessages.first.$2.text, contains('too fast'));
+      final text = channel.sentMessages.first.$2.text;
+      expect(text, contains('Rate limit reached'));
+      expect(text, contains('5 messages per 5 minutes'));
+      expect(text, contains('review commands (accept, reject, push back) and /status are never rate-limited'));
+    });
+
+    test('short rate-limit windows are rendered in seconds', () async {
+      final limiter = SlidingWindowRateLimiter(limit: 2, window: const Duration(seconds: 30));
+      for (var i = 0; i < 2; i++) {
+        limiter.check('sender@s.whatsapp.net');
+      }
+
+      final bridge = ChannelTaskBridge(
+        perSenderRateLimiter: limiter,
+        isAdmin: (_) => false,
+        isReservedCommand: (_) => false,
+      );
+
+      final handled = await bridge.tryHandle(makeMessage(), channel, sessionKey: 'agent:main:dm:whatsapp:sender');
+
+      expect(handled, isTrue);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, contains('2 messages per 30 seconds'));
     });
 
     test('admin sender — bypasses rate limit even at limit', () async {
@@ -122,8 +144,10 @@ void main() {
     });
 
     test('bound-thread traffic is still subject to per-sender rate limiting', () async {
-      final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(minutes: 1));
-      limiter.check('sender@s.whatsapp.net');
+      final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 5));
+      for (var i = 0; i < 5; i++) {
+        limiter.check('sender@s.whatsapp.net');
+      }
       final binding = ThreadBinding(
         channelType: ChannelType.googlechat.name,
         threadId: 'spaces/AAAA/threads/THREAD-1',
@@ -154,7 +178,10 @@ void main() {
 
       expect(handled, isTrue);
       expect(channel.sentMessages, hasLength(1));
-      expect(channel.sentMessages.single.$2.text, contains('too fast'));
+      final text = channel.sentMessages.single.$2.text;
+      expect(text, contains('Rate limit reached'));
+      expect(text, contains('5 messages per 5 minutes'));
+      expect(text, contains('review commands (accept, reject, push back) and /status are never rate-limited'));
     });
 
     test('no rate limiter — no rate limiting (backward compat)', () async {

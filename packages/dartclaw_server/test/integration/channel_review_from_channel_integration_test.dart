@@ -30,7 +30,6 @@ void main() {
     taskFileGuard = _RecordingTaskFileGuard();
     reviewService = TaskReviewService(
       tasks: tasks,
-      eventBus: eventBus,
       mergeExecutor: mergeExecutor,
       worktreeManager: worktreeManager,
       taskFileGuard: taskFileGuard,

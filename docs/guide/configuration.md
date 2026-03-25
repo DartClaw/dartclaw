@@ -173,6 +173,7 @@ channels:
 # --- Tasks ---
 tasks:
   max_concurrent: 3
+  completion_action: review          # review (default) | accept (auto-accept on completion)
   worktree:
     base_ref: main
     stale_timeout_hours: 24

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'codex_config_generator.dart';
 
 /// Manages an isolated Codex worker home directory and its config files.
@@ -33,7 +35,7 @@ class CodexEnvironment {
 
       await _seedFromDefaultCodexHome(tempDirectory.path);
 
-      final configFile = File(_childPath(tempDirectory.path, 'config.toml'));
+      final configFile = File(p.join(tempDirectory.path, 'config.toml'));
       final existingConfig = await configFile.exists() ? await configFile.readAsString() : '';
       final generatedConfig = CodexConfigGenerator.generate(
         developerInstructions: developerInstructions,
@@ -47,7 +49,7 @@ class CodexEnvironment {
 
       final agentsContent = agentsMdContent;
       if (agentsContent != null) {
-        final agentsFile = File(_childPath(tempDirectory.path, 'AGENTS.md'));
+        final agentsFile = File(p.join(tempDirectory.path, 'AGENTS.md'));
         await agentsFile.writeAsString(agentsContent, flush: true);
       }
 
@@ -109,23 +111,19 @@ class CodexEnvironment {
       return;
     }
 
-    final sourceDir = Directory(_childPath(home, '.codex'));
+    final sourceDir = Directory(p.join(home, '.codex'));
     if (!sourceDir.existsSync()) {
       return;
     }
 
     for (final name in const <String>['auth.json', 'config.toml']) {
-      final source = File(_childPath(sourceDir.path, name));
+      final source = File(p.join(sourceDir.path, name));
       if (!source.existsSync()) {
         continue;
       }
 
-      final target = File(_childPath(targetDir, name));
+      final target = File(p.join(targetDir, name));
       await source.copy(target.path);
     }
-  }
-
-  static String _childPath(String parent, String child) {
-    return '$parent${Platform.pathSeparator}$child';
   }
 }

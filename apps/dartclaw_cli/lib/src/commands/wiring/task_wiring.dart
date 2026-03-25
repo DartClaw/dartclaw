@@ -8,6 +8,48 @@ import 'package:path/path.dart' as p;
 import 'project_wiring.dart';
 import 'storage_wiring.dart';
 
+/// Builds the auto-accept callback used by [TaskExecutor].
+///
+/// The callback is best-effort: non-success review results are converted into
+/// thrown errors so [TaskExecutor] can log them and keep the task in `review`.
+Future<void> Function(String taskId)? buildAutoAcceptCallback({
+  required String completionAction,
+  required Future<ReviewResult> Function(String taskId) reviewTask,
+}) {
+  if (completionAction != 'accept') {
+    return null;
+  }
+
+  return (taskId) async {
+    final result = await reviewTask(taskId);
+    switch (result) {
+      case ReviewSuccess():
+        return;
+      case ReviewMergeConflict(
+        taskId: final conflictTaskId,
+        taskTitle: final taskTitle,
+        conflictingFiles: final conflictingFiles,
+        details: final details,
+      ):
+        throw StateError(
+          'Auto-accept failed for task $conflictTaskId ("$taskTitle"): merge conflict on ${conflictingFiles.join(', ')}. '
+          '$details',
+        );
+      case ReviewNotFound(taskId: final missingTaskId):
+        throw StateError('Auto-accept failed for task $taskId: no task found with ID $missingTaskId.');
+      case ReviewInvalidTransition(taskId: final invalidTaskId, currentStatus: final currentStatus):
+        throw StateError(
+          'Auto-accept failed for task $taskId: task $invalidTaskId is not in review '
+          '(current status: ${currentStatus.name}).',
+        );
+      case ReviewInvalidRequest(:final message):
+        throw StateError('Auto-accept failed for task $taskId: $message');
+      case ReviewActionFailed(:final message):
+        throw StateError('Auto-accept failed for task $taskId: $message');
+    }
+  };
+}
+
 /// Constructs and exposes task-execution layer services.
 ///
 /// Owns worktree manager, merge executor, task file guard, task review service,
@@ -139,6 +181,10 @@ class TaskWiring {
       observer: _agentObserver,
       eventRecorder: _storage.taskEventRecorder,
       onSpawnNeeded: onSpawnNeeded,
+      onAutoAccept: buildAutoAcceptCallback(
+        completionAction: config.tasks.completionAction,
+        reviewTask: (taskId) => _taskReviewService.review(taskId, 'accept', trigger: 'auto_accept'),
+      ),
       projectService: _project?.projectService,
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,

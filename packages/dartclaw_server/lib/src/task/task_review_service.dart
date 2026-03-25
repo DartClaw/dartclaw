@@ -108,8 +108,6 @@ class TaskReviewService {
 
   TaskReviewService({
     required TaskService tasks,
-    // eventBus is accepted for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     MergeExecutor? mergeExecutor,

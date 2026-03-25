@@ -147,9 +147,10 @@ class SlashCommandHandler {
       );
 
       final statusWord = task.status == TaskStatus.draft ? 'drafted' : 'created';
+      final queuedNote = task.status == TaskStatus.queued ? ' -- Queued (will start when a slot opens)' : '';
       return _cardBuilder.taskNotification(
         taskId: task.id,
-        title: 'Task $statusWord: ${task.title}',
+        title: 'Task $statusWord: ${task.title}$queuedNote',
         status: task.status.name,
         description: task.description,
         createdAt: task.createdAt,

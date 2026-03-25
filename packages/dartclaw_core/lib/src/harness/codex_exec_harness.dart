@@ -11,11 +11,12 @@ import 'codex_environment.dart';
 import 'codex_exec_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'harness_config.dart';
+import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
 
 /// Lightweight one-shot harness for `codex exec --json`.
-class CodexExecHarness extends AgentHarness {
+class CodexExecHarness extends AgentHarness with SequentialLock {
   /// Working directory used when no per-turn directory override is supplied.
   final String cwd;
 
@@ -50,7 +51,6 @@ class CodexExecHarness extends AgentHarness {
   Completer<void>? _processReadyCompleter;
   bool _cancelRequested = false;
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Future<void> _lock = Future<void>.value();
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
@@ -92,7 +92,7 @@ class CodexExecHarness extends AgentHarness {
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
-  Future<void> start() => _withLock(() async {
+  Future<void> start() => withLock(() async {
     if (_state == WorkerState.busy) {
       throw StateError('Cannot start CodexExecHarness while busy');
     }
@@ -112,7 +112,7 @@ class CodexExecHarness extends AgentHarness {
     String? effort,
   }) async {
     late final Completer<Map<String, dynamic>> completer;
-    await _withLock(() async {
+    await withLock(() async {
       if (_state == WorkerState.busy) {
         throw StateError('CodexExecHarness is not idle (state: $_state)');
       }
@@ -252,7 +252,7 @@ class CodexExecHarness extends AgentHarness {
   @override
   Future<void> stop() async {
     Completer<Map<String, dynamic>>? completer;
-    await _withLock(() async {
+    await withLock(() async {
       completer = _turnCompleter;
       _state = WorkerState.stopped;
     });
@@ -262,9 +262,9 @@ class CodexExecHarness extends AgentHarness {
     if (completer != null && !completer!.isCompleted) {
       completer!.complete({'stop_reason': 'error', 'error': 'CodexExecHarness stopped'});
     }
-    // Ensure the process actually exits after SIGTERM.
+    // Ensure the process actually exits after SIGTERM (cancel() already sent it).
     if (process != null) {
-      await _killWithEscalation(process);
+      await killWithEscalation(process, label: 'Codex exec', gracePeriod: _killGracePeriod, log: _log, alreadySignalled: true);
     }
   }
 
@@ -314,40 +314,6 @@ class CodexExecHarness extends AgentHarness {
       'cache_read_tokens': 0,
       'cache_write_tokens': 0,
     };
-  }
-
-  /// Sends SIGTERM (via [cancel]), waits [_killGracePeriod], then escalates
-  /// to SIGKILL. After SIGKILL, waits up to 1 additional second for confirmed
-  /// exit.
-  Future<void> _killWithEscalation(Process process) async {
-    try {
-      await process.exitCode.timeout(
-        _killGracePeriod,
-        onTimeout: () async {
-          _log.warning(
-            'Codex exec process did not exit within '
-            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
-          );
-          if (!Platform.isWindows) {
-            process.kill(ProcessSignal.sigkill);
-          }
-          return process.exitCode.timeout(
-            const Duration(seconds: 1),
-            onTimeout: () => -1,
-          );
-        },
-      );
-    } catch (e) {
-      _log.fine('Error waiting for Codex exec process exit: $e');
-    }
-  }
-
-  Future<T> _withLock<T>(Future<T> Function() operation) {
-    final completer = Completer<T>();
-    final next = _lock.catchError((_) {}).then((_) => operation());
-    _lock = next.then<void>((_) {}, onError: (_) {});
-    next.then(completer.complete, onError: completer.completeError);
-    return completer.future;
   }
 
   String _developerInstructions(String systemPrompt) {

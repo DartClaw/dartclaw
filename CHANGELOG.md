@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.1] — 2026-03-25
+
+Crowd coding workshop polish — targeted UX improvements for multi-user collaborative sessions via Google Chat Spaces.
+
+### Added
+
+- **Informative rate limit rejection message**: Throttled users now see the configured limit, window duration, and an exemption hint (review commands and `/status` are never rate-limited) instead of a generic "too fast" message
+- **Queue note in task creation responses**: When `max_concurrent` slots are full, both channel `task:` triggers and `/new` slash commands now append "Queued (will start when a slot opens)" to the response
+- **Auto-accept on task completion** (`tasks.completion_action: accept`): New config option that automatically accepts completed tasks using the same merge/push/PR semantics as manual accept. Tasks still transition through `review` state — the system immediately invokes the existing accept path. Default behavior (`review`) is unchanged. Failures are logged and leave the task in `review` for manual intervention
+
+### Fixed
+
+- Recipe (`08-crowd-coding.md`): Corrected loop-detection YAML comment ("without human input" not "without a tool result"), listed all 6 slash commands with IDs in Step 3, updated Step 8 web UI link wording to reflect current state (canvas share link planned for 0.14.2)
+- Facilitation guide (`crowd-coding-workshop.md`): H3 (rate limit message) and M1 (queue note) marked as resolved
+
+---
+
+## [0.14.0] — 2026-03-24
+
+Multi-project support & task observability — DartClaw becomes a project-aware agent runtime. Register external git repos, create coding tasks against them, review diffs, and accept results as pushed branches or GitHub PRs. Agent execution becomes queryable and transparent with structured turn traces, event-sourced task timelines, and live progress indicators.
+
+### Added
+
+#### Phase 0 — Prep
+- **Reusable Trellis component fragments** (S00): Extracted three high-repetition UI patterns into shared fragments in `components.html`/`components.dart`: metric card (used ~9 times), status badge (used ~15 times), and info card with rows (used ~4 times). All existing call sites migrated. Zero visual regression
+
+#### Phase A — Multi-Project Support
+- **Project model + service + configuration** (S01): `Project` domain model in `dartclaw_models` with id, name, remoteUrl, localPath, defaultBranch, credentialsRef, cloneStrategy (shallow/full/sparse), prStrategy (branch-only/github-pr), status enum (cloning/ready/error/stale). `ProjectService` with `Isolate`-based git operations (first DartClaw use of Isolates — clone/fetch/push never block the event loop). `projects:` config section with `ProjectConfig` parser — config-defined projects are read-only via API, runtime-created projects are fully mutable. Implicit `_local` project from `Directory.current.path` always available for backward compatibility. Startup registry reconciliation (config wins on ID collision). Stale clone recovery on restart
+- **WorktreeManager integration + auto-fetch** (S02): `WorktreeManager.create(taskId, {project?})` creates worktrees from project clones instead of local repo. `ensureFresh()` fetches with configurable cooldown (default 5 min) and per-project lock to prevent concurrent fetches. `BehaviorFileService` wired to read project's `CLAUDE.md`/`AGENTS.md`. Network failure during fetch proceeds with local state
+- **Push-to-remote + PR creation** (S03): `RemotePushService` pushes task branches to remote via `Isolate`. `PrCreator` invokes `gh pr create` as an outpost (subprocess with structured I/O). PR URL stored as `ArtifactKind.pr` task artifact. `branch-only` strategy pushes without PR. Graceful degradation: `gh` not found → push-only with warning artifact containing manual PR instructions. Auth failures leave task in `review` state with error artifact
+- **Project API + container mount** (S04): REST API routes `GET/POST/PATCH/DELETE /api/projects`, `POST /api/projects/<id>/fetch`, `GET /api/projects/<id>/status`. Config-defined projects return 403 on PATCH/DELETE. Parent-directory container mount (`<dataDir>/projects/:ro`) with legacy `/project:ro` alias. `DELETE` cascades: cancel running tasks, fail queued/review tasks, remove worktrees, delete clone. `PATCH` blocks URL/branch changes while tasks are active (409 Conflict)
+- **Project UI + task selector** (S05): Project management page with status badges (ready/cloning/error/stale), last fetch timestamps, per-project actions (fetch, edit, remove). "Add Project" form with remote URL, name, branch, credentials reference, PR config. Project selector dropdown in "New Task" dialog with clone status indicators. Real-time clone status updates via `ProjectStatusChangedEvent` → SSE `project_status` events. Task cards show project name
+
+#### Phase B — Agent Observability
+- **Enriched turn recording** (S06): `AgentObserver.recordTurn()` extended with `turnDuration` (wall-clock via `Stopwatch`), `cacheReadTokens`/`cacheWriteTokens`, and `List<ToolCallRecord>` (per-tool: name, success, durationMs, errorType). Provider normalization: Anthropic `cache_read/creation_input_tokens` → read/write, Codex `cached_input_tokens` → read only, others → 0/0. `ProtocolAdapter` handles normalization
+- **Turn trace persistence + query API** (S07): Structured turn records persisted to SQLite `turns` table (id, session_id, task_id, runner_id, model, provider, started_at, ended_at, input/output/cache tokens, is_error, error_type, tool_calls JSON). Async fire-and-forget writes (zero added latency). `GET /api/traces` with filtering by taskId, sessionId, runnerId, model, provider, since/until with pagination. Summary aggregates (totalTokens, traceCount) in response. Token summary section on task detail page
+
+#### Phase C — Task Timeline & Visual Progress
+- **TaskEvent model + persistence** (S08): `TaskEvent` with sealed 6-kind enum (`statusChanged`, `toolCalled`, `artifactCreated`, `pushBack`, `tokenUpdate`, `error`). Append-only `task_events` SQLite table with synchronous writes (no event loss on crash). Events captured at all integration points: status transitions, tool calls, artifacts, push-backs, token updates, errors. `TaskEventCreatedEvent` fired on `EventBus`
+- **Task timeline UI** (S09): Vertical timeline on task detail page with per-kind icons and formatting. Filter bar: All | Status | Tools | Artifacts | Errors. Auto-scroll to latest event when task is running
+- **Live activity + progress + SSE** (S10): `task_progress` SSE event type with progress percentage, current activity (tool name + truncated args via `tool_call_summary.dart`), tokensUsed, tokenBudget. Live activity indicator updates within 1s of harness event. Token-budget-based progress bar ("1,847 / 10,000 tokens (18%)") when budget set, indeterminate pulsing animation when not. SSE throttled to max 1 per second per task
+- **Multi-task dashboard enhancements** (S11): Per-task thin progress bar, token consumption text ("1.8K / 10K"), agent assignment badge, compact timeline preview (last 3 events inline with icons). Dashboard subscribes to SSE for all active tasks. Non-running tasks show final token count without progress bar
+
+#### Phase D — Documentation
+- **Architecture docs + ADR finalization** (S12): ADR-017 status set to "Accepted". `system-architecture.md` updated with Project subsystem, Isolate usage pattern, package DAG. `data-model.md` updated with Project entity, `turns` table, `task_events` table, `projects.json` lifecycle. `security-architecture.md` updated with credential integration, parent-directory mount, TaskFileGuard scoping. `control-protocol.md` updated with enriched turn data extraction. User guide architecture overview updated. All docs marked "Current through 0.14"
+
+### Changed
+
+- **Credential injection model**: Reference-based credentials (`credentials: github-ssh` in project config) resolved at clone/push time via environment injection (`GIT_SSH_COMMAND` for SSH, `GIT_ASKPASS` for HTTPS tokens). Never stored in config or logs
+- **Accept semantics for project-backed tasks**: Project-backed tasks always push to remote — local merge is skipped (the remote branch/PR is the deliverable). `_local` project tasks retain existing local merge semantics
+- **Version display**: Updated from 0.13.1 to 0.14.0
+- **Stale worktree detection**: `detectStaleWorktrees()` called on startup to clean up orphaned worktrees from crashed tasks
+
+### Fixed
+
+- **Gap review remediation** (post-Codex review): `projectId` now persisted on task creation; diff generation resolves project clone path + `origin/<branch>` as base ref; all cleanup paths use project-aware resolution; tasks created while project is cloning stay queued (not immediately failed); runtime project edits trigger async re-clone on coordinate change; review-state tasks are failed (not preserved) during project deletion; queued tasks correctly failed (not cancelled) on project delete; `tool_call_summary.dart` extracts file path/command context for live activity display
+
+---
+
 ## [0.13.1] — 2026-03-24
 
 UX polish & progressive disclosure — the sidebar becomes a clear, self-explanatory navigation surface. Terminology matches user intent, running work is ambient, dismissing a chat is safe by default, and icons are consistent and accessible.

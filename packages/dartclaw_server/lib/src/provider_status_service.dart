@@ -235,7 +235,7 @@ class ProviderStatusService {
         return const _ProbeResult(binaryFound: false);
       }
 
-      final version = _extractVersion(result.stdout, result.stderr);
+      final version = extractVersionLine(processOutputToText(result.stdout), processOutputToText(result.stderr));
       if (version == null) {
         _log.warning("Provider '$providerId' returned no version output for '$executable --version'; version: unknown");
       } else {
@@ -257,29 +257,6 @@ class ProviderStatusService {
 
   static Future<bool> _defaultAuthProbe(String executable, {String? providerId}) {
     return ProviderValidator.probeAuthStatus(executable, providerId: providerId);
-  }
-
-  static String? _extractVersion(Object? stdout, Object? stderr) {
-    for (final line in '${_toText(stdout)}\n${_toText(stderr)}'.split('\n')) {
-      final trimmed = line.trim();
-      if (trimmed.isNotEmpty) {
-        return trimmed;
-      }
-    }
-    return null;
-  }
-
-  static String _toText(Object? value) {
-    if (value == null) {
-      return '';
-    }
-    if (value is String) {
-      return value;
-    }
-    if (value is List<int>) {
-      return String.fromCharCodes(value);
-    }
-    return value.toString();
   }
 }
 

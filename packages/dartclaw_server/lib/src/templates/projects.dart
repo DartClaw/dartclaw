@@ -1,5 +1,6 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, PrStrategy;
 
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'project_form.dart';
@@ -41,12 +42,12 @@ Map<String, dynamic> _projectToMap(Project project, {Project? defaultProject}) {
     'id': project.id,
     'name': project.name,
     'remoteUrl': project.remoteUrl,
-    'displayUrl': _truncateUrl(project.remoteUrl, 60),
+    'displayUrl': truncate(project.remoteUrl, 60),
     'defaultBranch': project.defaultBranch,
     'credentialsRef': project.credentialsRef ?? '',
-    'statusLabel': _titleCase(project.status.name),
+    'statusLabel': titleCase(project.status.name),
     'statusBadgeClass': _statusBadgeClass(project.status),
-    'lastFetchDisplay': _formatLastFetch(project.lastFetchAt),
+    'lastFetchDisplay': project.lastFetchAt != null ? formatRelativeTime(project.lastFetchAt!) : 'Never',
     'isLocal': isLocal,
     'isConfigDefined': project.configDefined,
     'configDefinedLabel': project.configDefined ? 'Config' : 'Runtime',
@@ -73,21 +74,3 @@ String _prStrategyLabel(PrStrategy strategy) => switch (strategy) {
   PrStrategy.branchOnly => 'Branch Only',
 };
 
-String _titleCase(String value) {
-  if (value.isEmpty) return value;
-  return value[0].toUpperCase() + value.substring(1);
-}
-
-String _truncateUrl(String url, int maxLength) {
-  if (url.length <= maxLength) return url;
-  return '${url.substring(0, maxLength - 1)}\u2026';
-}
-
-String _formatLastFetch(DateTime? lastFetchAt) {
-  if (lastFetchAt == null) return 'Never';
-  final diff = DateTime.now().difference(lastFetchAt);
-  if (diff.inDays > 0) return '${diff.inDays}d ago';
-  if (diff.inHours > 0) return '${diff.inHours}h ago';
-  if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
-  return 'just now';
-}

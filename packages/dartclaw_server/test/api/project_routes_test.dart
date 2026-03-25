@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, ProjectService, TaskStatus, TaskType;
 import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
@@ -7,27 +5,8 @@ import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepositor
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-Future<String> _errorCode(Response res) async {
-  final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
-  return (body['error'] as Map<String, dynamic>)['code'] as String;
-}
-
-Map<String, dynamic> _decodeObject(String body) => jsonDecode(body) as Map<String, dynamic>;
-
-List<dynamic> _decodeList(String body) => jsonDecode(body) as List<dynamic>;
-
-Request _jsonRequest(String method, String path, [Map<String, dynamic>? body]) {
-  return Request(
-    method,
-    Uri.parse('http://localhost$path'),
-    body: body == null ? null : jsonEncode(body),
-    headers: {'content-type': 'application/json'},
-  );
-}
+import '../helpers/factories.dart';
+import 'api_test_helpers.dart';
 
 Request _emptyRequest(String method, String path) {
   return Request(method, Uri.parse('http://localhost$path'));
@@ -157,28 +136,6 @@ class _FakeProjectService implements ProjectService {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers for building projects
-// ---------------------------------------------------------------------------
-
-Project _runtimeProject(
-  String id, {
-  String? name,
-  ProjectStatus status = ProjectStatus.ready,
-  bool configDefined = false,
-  String remoteUrl = 'https://github.com/acme/repo.git',
-  String defaultBranch = 'main',
-}) => Project(
-  id: id,
-  name: name ?? id,
-  remoteUrl: remoteUrl,
-  localPath: '/data/projects/$id',
-  defaultBranch: defaultBranch,
-  status: status,
-  configDefined: configDefined,
-  createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
-);
-
 void main() {
   late _FakeProjectService projects;
   late Handler handler;
@@ -195,11 +152,11 @@ void main() {
   group('POST /api/projects', () {
     test('valid body creates project with cloning status', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/projects', {'name': 'My App', 'remoteUrl': 'https://github.com/acme/myapp.git'}),
+        jsonRequest('POST', '/api/projects', {'name': 'My App', 'remoteUrl': 'https://github.com/acme/myapp.git'}),
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['id'], 'my-app');
       expect(body['name'], 'My App');
       expect(body['status'], 'cloning');
@@ -208,18 +165,18 @@ void main() {
 
     test('minimal body defaults to shallow clone and branchOnly PR', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/projects', {'name': 'Minimal', 'remoteUrl': 'https://github.com/x/y.git'}),
+        jsonRequest('POST', '/api/projects', {'name': 'Minimal', 'remoteUrl': 'https://github.com/x/y.git'}),
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['cloneStrategy'], 'shallow');
       expect(body['pr']['strategy'], 'branchOnly');
     });
 
     test('body with custom PR config is preserved', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/projects', {
+        jsonRequest('POST', '/api/projects', {
           'name': 'PR App',
           'remoteUrl': 'https://github.com/x/y.git',
           'pr': {'strategy': 'githubPr', 'draft': true},
@@ -227,32 +184,32 @@ void main() {
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['pr']['strategy'], 'githubPr');
       expect(body['pr']['draft'], true);
     });
 
     test('missing name returns 400', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/projects', {'remoteUrl': 'https://github.com/x/y.git'}),
+        jsonRequest('POST', '/api/projects', {'remoteUrl': 'https://github.com/x/y.git'}),
       );
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('missing remoteUrl returns 400', () async {
-      final response = await handler(_jsonRequest('POST', '/api/projects', {'name': 'Oops'}));
+      final response = await handler(jsonRequest('POST', '/api/projects', {'name': 'Oops'}));
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('duplicate ID returns 409', () async {
-      projects.seed(_runtimeProject('my-app'));
+      projects.seed(makeProject(id: 'my-app'));
       final response = await handler(
-        _jsonRequest('POST', '/api/projects', {'name': 'My App', 'remoteUrl': 'https://github.com/x/y.git'}),
+        jsonRequest('POST', '/api/projects', {'name': 'My App', 'remoteUrl': 'https://github.com/x/y.git'}),
       );
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'PROJECT_ID_CONFLICT');
+      expect(await errorCode(response), 'PROJECT_ID_CONFLICT');
     });
   });
 
@@ -264,17 +221,17 @@ void main() {
     test('empty registry returns list with _local only', () async {
       final response = await handler(_emptyRequest('GET', '/api/projects'));
       expect(response.statusCode, 200);
-      final list = _decodeList(await response.readAsString());
+      final list = decodeList(await response.readAsString());
       expect(list, hasLength(1));
       expect((list.first as Map)['id'], '_local');
     });
 
     test('with projects returns all including _local', () async {
-      projects.seed(_runtimeProject('proj-a'));
-      projects.seed(_runtimeProject('proj-b'));
+      projects.seed(makeProject(id: 'proj-a'));
+      projects.seed(makeProject(id: 'proj-b'));
       final response = await handler(_emptyRequest('GET', '/api/projects'));
       expect(response.statusCode, 200);
-      final list = _decodeList(await response.readAsString());
+      final list = decodeList(await response.readAsString());
       expect(list, hasLength(3)); // _local + 2
       final ids = list.map((p) => (p as Map)['id']).toList();
       expect(ids, containsAll(['_local', 'proj-a', 'proj-b']));
@@ -287,23 +244,23 @@ void main() {
 
   group('GET /api/projects/<id>', () {
     test('existing project returns 200 with all fields', () async {
-      projects.seed(_runtimeProject('my-proj'));
+      projects.seed(makeProject(id: 'my-proj'));
       final response = await handler(_emptyRequest('GET', '/api/projects/my-proj'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['id'], 'my-proj');
     });
 
     test('unknown ID returns 404', () async {
       final response = await handler(_emptyRequest('GET', '/api/projects/no-such'));
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'PROJECT_NOT_FOUND');
+      expect(await errorCode(response), 'PROJECT_NOT_FOUND');
     });
 
     test('_local project returns 200', () async {
       final response = await handler(_emptyRequest('GET', '/api/projects/_local'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['id'], '_local');
     });
   });
@@ -314,56 +271,56 @@ void main() {
 
   group('PATCH /api/projects/<id>', () {
     test('update name on runtime project returns 200', () async {
-      projects.seed(_runtimeProject('my-proj'));
-      final response = await handler(_jsonRequest('PATCH', '/api/projects/my-proj', {'name': 'New Name'}));
+      projects.seed(makeProject(id: 'my-proj'));
+      final response = await handler(jsonRequest('PATCH', '/api/projects/my-proj', {'name': 'New Name'}));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['name'], 'New Name');
     });
 
     test('update on config-defined project returns 403', () async {
-      projects.seed(_runtimeProject('cfg-proj', configDefined: true));
-      final response = await handler(_jsonRequest('PATCH', '/api/projects/cfg-proj', {'name': 'Nope'}));
+      projects.seed(makeProject(id: 'cfg-proj', configDefined: true));
+      final response = await handler(jsonRequest('PATCH', '/api/projects/cfg-proj', {'name': 'Nope'}));
       expect(response.statusCode, 403);
-      expect(await _errorCode(response), 'CONFIG_DEFINED');
+      expect(await errorCode(response), 'CONFIG_DEFINED');
     });
 
     test('update on _local returns 404', () async {
-      final response = await handler(_jsonRequest('PATCH', '/api/projects/_local', {'name': 'Nope'}));
+      final response = await handler(jsonRequest('PATCH', '/api/projects/_local', {'name': 'Nope'}));
       expect(response.statusCode, 404);
     });
 
     test('change remoteUrl with no active tasks starts a fresh clone', () async {
-      projects.seed(_runtimeProject('my-proj'));
+      projects.seed(makeProject(id: 'my-proj'));
       final response = await handler(
-        _jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
+        jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
       );
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['remoteUrl'], 'https://github.com/new/repo.git');
       expect(body['status'], 'cloning');
     });
 
     test('update PR config returns 200 with updated fields', () async {
-      projects.seed(_runtimeProject('my-proj'));
+      projects.seed(makeProject(id: 'my-proj'));
       final response = await handler(
-        _jsonRequest('PATCH', '/api/projects/my-proj', {
+        jsonRequest('PATCH', '/api/projects/my-proj', {
           'pr': {'strategy': 'githubPr', 'draft': true},
         }),
       );
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['pr']['strategy'], 'githubPr');
     });
 
     test('empty body is a no-op returning 200', () async {
-      projects.seed(_runtimeProject('my-proj'));
-      final response = await handler(_jsonRequest('PATCH', '/api/projects/my-proj', {}));
+      projects.seed(makeProject(id: 'my-proj'));
+      final response = await handler(jsonRequest('PATCH', '/api/projects/my-proj', {}));
       expect(response.statusCode, 200);
     });
 
     test('change remoteUrl with active tasks returns 409', () async {
-      projects.seed(_runtimeProject('my-proj'));
+      projects.seed(makeProject(id: 'my-proj'));
       final db = openTaskDbInMemory();
       final eventBus = EventBus();
       final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
@@ -371,38 +328,38 @@ void main() {
       final handlerWithTasks = projectRoutes(projects, tasks: taskService).call;
 
       final response = await handlerWithTasks(
-        _jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
+        jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
       );
       await eventBus.dispose();
       await taskService.dispose();
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'ACTIVE_TASKS');
+      expect(await errorCode(response), 'ACTIVE_TASKS');
     });
 
     test('change defaultBranch with active tasks returns 409', () async {
-      projects.seed(_runtimeProject('my-proj'));
+      projects.seed(makeProject(id: 'my-proj'));
       final db = openTaskDbInMemory();
       final eventBus = EventBus();
       final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
       await _seedRunningTask(taskService, 'branch-task', 'my-proj');
       final handlerWithTasks = projectRoutes(projects, tasks: taskService).call;
 
-      final response = await handlerWithTasks(_jsonRequest('PATCH', '/api/projects/my-proj', {'defaultBranch': 'dev'}));
+      final response = await handlerWithTasks(jsonRequest('PATCH', '/api/projects/my-proj', {'defaultBranch': 'dev'}));
       await eventBus.dispose();
       await taskService.dispose();
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'ACTIVE_TASKS');
+      expect(await errorCode(response), 'ACTIVE_TASKS');
     });
 
     test('change remoteUrl while clone is in progress returns 409', () async {
-      projects.seed(_runtimeProject('my-proj', status: ProjectStatus.cloning));
+      projects.seed(makeProject(id: 'my-proj', status: ProjectStatus.cloning));
 
       final response = await handler(
-        _jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
+        jsonRequest('PATCH', '/api/projects/my-proj', {'remoteUrl': 'https://github.com/new/repo.git'}),
       );
 
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'CLONE_IN_PROGRESS');
+      expect(await errorCode(response), 'CLONE_IN_PROGRESS');
     });
   });
 
@@ -412,20 +369,20 @@ void main() {
 
   group('DELETE /api/projects/<id>', () {
     test('delete runtime project with no tasks returns 200', () async {
-      projects.seed(_runtimeProject('del-proj'));
+      projects.seed(makeProject(id: 'del-proj'));
       final response = await handler(_emptyRequest('DELETE', '/api/projects/del-proj'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['deleted'], 'del-proj');
       // Confirm project is gone
       expect(await projects.get('del-proj'), isNull);
     });
 
     test('delete config-defined project returns 403', () async {
-      projects.seed(_runtimeProject('cfg-proj', configDefined: true));
+      projects.seed(makeProject(id: 'cfg-proj', configDefined: true));
       final response = await handler(_emptyRequest('DELETE', '/api/projects/cfg-proj'));
       expect(response.statusCode, 403);
-      expect(await _errorCode(response), 'CONFIG_DEFINED');
+      expect(await errorCode(response), 'CONFIG_DEFINED');
     });
 
     test('delete _local returns 404', () async {
@@ -439,7 +396,7 @@ void main() {
     });
 
     test('delete with running task cancels task and deletes project', () async {
-      projects.seed(_runtimeProject('run-proj'));
+      projects.seed(makeProject(id: 'run-proj'));
       final db = openTaskDbInMemory();
       final eventBus = EventBus();
       final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
@@ -458,7 +415,7 @@ void main() {
     });
 
     test('delete with queued task fails task and deletes project', () async {
-      projects.seed(_runtimeProject('q-proj'));
+      projects.seed(makeProject(id: 'q-proj'));
       final db = openTaskDbInMemory();
       final eventBus = EventBus();
       final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
@@ -477,7 +434,7 @@ void main() {
     });
 
     test('delete with review task fails task and deletes project', () async {
-      projects.seed(_runtimeProject('rev-proj'));
+      projects.seed(makeProject(id: 'rev-proj'));
       final db = openTaskDbInMemory();
       final eventBus = EventBus();
       final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
@@ -503,10 +460,10 @@ void main() {
 
   group('POST /api/projects/<id>/fetch', () {
     test('fetch ready project returns 200 with updated project', () async {
-      projects.seed(_runtimeProject('fetch-proj'));
+      projects.seed(makeProject(id: 'fetch-proj'));
       final response = await handler(_emptyRequest('POST', '/api/projects/fetch-proj/fetch'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['id'], 'fetch-proj');
       expect(body['status'], 'ready');
       expect(body['lastFetchAt'], isNotNull);
@@ -515,20 +472,20 @@ void main() {
     test('fetch unknown project returns 404', () async {
       final response = await handler(_emptyRequest('POST', '/api/projects/no-such/fetch'));
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'PROJECT_NOT_FOUND');
+      expect(await errorCode(response), 'PROJECT_NOT_FOUND');
     });
 
     test('fetch project in cloning state returns 400', () async {
-      projects.seed(_runtimeProject('cloning-proj', status: ProjectStatus.cloning));
+      projects.seed(makeProject(id: 'cloning-proj', status: ProjectStatus.cloning));
       final response = await handler(_emptyRequest('POST', '/api/projects/cloning-proj/fetch'));
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'CLONE_IN_PROGRESS');
+      expect(await errorCode(response), 'CLONE_IN_PROGRESS');
     });
 
     test('fetch _local project returns 400 (no remote)', () async {
       final response = await handler(_emptyRequest('POST', '/api/projects/_local/fetch'));
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'LOCAL_PROJECT');
+      expect(await errorCode(response), 'LOCAL_PROJECT');
     });
   });
 
@@ -551,7 +508,7 @@ void main() {
       projects.seed(p);
       final response = await handler(_emptyRequest('GET', '/api/projects/status-proj/status'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'ready');
       expect(body['lastFetchAt'], '2026-01-01T10:00:00.000Z');
       expect(body['errorMessage'], isNull);
@@ -571,7 +528,7 @@ void main() {
       projects.seed(p);
       final response = await handler(_emptyRequest('GET', '/api/projects/err-proj/status'));
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'error');
       expect(body['errorMessage'], 'Clone failed');
     });
@@ -579,7 +536,7 @@ void main() {
     test('unknown project returns 404', () async {
       final response = await handler(_emptyRequest('GET', '/api/projects/no-such/status'));
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'PROJECT_NOT_FOUND');
+      expect(await errorCode(response), 'PROJECT_NOT_FOUND');
     });
   });
 }

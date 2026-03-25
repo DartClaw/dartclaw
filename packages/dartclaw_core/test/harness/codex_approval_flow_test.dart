@@ -1,49 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
-
-Future<ProcessResult> _result({int exitCode = 0, String stdout = ''}) async {
-  return ProcessResult(0, exitCode, stdout, '');
-}
-
-Future<void> _noOpDelay(Duration _) async {}
-
-Future<ProcessResult> _defaultCommandProbe(String exe, List<String> args) async {
-  return _result(exitCode: 0, stdout: '1.0.0');
-}
-
-Future<void> _waitForSentMessage(FakeCodexProcess process, String method) async {
-  for (var i = 0; i < 50; i++) {
-    if (process.sentMessages.any((message) => message['method'] == method)) {
-      return;
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  throw StateError('Expected outbound message for $method');
-}
-
-Object _latestRequestId(FakeCodexProcess process, String method) {
-  return process.sentMessages.lastWhere((message) => message['method'] == method)['id']! as Object;
-}
-
-Future<void> _startHarness(CodexHarness harness, FakeCodexProcess process) async {
-  final startFuture = harness.start();
-  await _waitForSentMessage(process, 'initialize');
-  process.emitInitializeResponse(id: _latestRequestId(process, 'initialize'));
-  await startFuture;
-}
-
-Future<void> _respondToLatestThreadStart(FakeCodexProcess process, {String threadId = 'thread-123'}) async {
-  await _waitForSentMessage(process, 'thread/start');
-  process.emitThreadStartResponse(id: _latestRequestId(process, 'thread/start'), threadId: threadId);
-  await Future<void>.delayed(Duration.zero);
-}
 
 CodexHarness _buildHarness({
   required FakeCodexProcess process,
@@ -54,8 +15,8 @@ CodexHarness _buildHarness({
     cwd: '/tmp',
     executable: 'codex',
     processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
-    commandProbe: _defaultCommandProbe,
-    delayFactory: _noOpDelay,
+    commandProbe: defaultCommandProbe,
+    delayFactory: noOpDelay,
     environment: environment ?? const {'OPENAI_API_KEY': 'sk-test-key'},
     guardChain: guardChain,
   );
@@ -103,7 +64,7 @@ void main() {
         guardChain: GuardChain(guards: [guard]),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-allow',
@@ -114,7 +75,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'allow-1',
         toolUseId: 'tool-1',
@@ -145,7 +106,7 @@ void main() {
         guardChain: GuardChain(guards: [guard]),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-block',
@@ -156,7 +117,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'deny-1',
         toolUseId: 'tool-2',
@@ -182,7 +143,7 @@ void main() {
         guardChain: GuardChain(guards: [guard]),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-file-change',
@@ -193,7 +154,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'file-create',
         toolUseId: 'tool-create',
@@ -257,7 +218,7 @@ void main() {
         guardChain: GuardChain(guards: [guard]),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-unmapped',
@@ -268,7 +229,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'allow-unmapped',
         toolUseId: 'tool-unmapped',
@@ -314,7 +275,7 @@ void main() {
         ),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-file-guard',
@@ -325,7 +286,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'deny-file-guard',
         toolUseId: 'tool-file-guard',
@@ -369,7 +330,7 @@ void main() {
         guardChain: GuardChain(guards: [redactingGuard, _ThrowingGuard()]),
       );
       addTearDown(() async => harness.dispose());
-      await _startHarness(harness, fake);
+      await startHarness(harness, fake);
 
       final turnFuture = harness.turn(
         sessionId: 'sess-fail-closed',
@@ -380,7 +341,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fake);
+      await respondToLatestThreadStart(fake);
       fake.emitApprovalRequest(
         requestId: 'deny-error',
         toolUseId: 'tool-error',
@@ -420,7 +381,7 @@ void main() {
         guardChain: GuardChain(guards: [_RecordingGuard()]),
       );
       addTearDown(() async => allowHarness.dispose());
-      await _startHarness(allowHarness, fakeAllow);
+      await startHarness(allowHarness, fakeAllow);
 
       final allowTurnFuture = allowHarness.turn(
         sessionId: 'sess-strip',
@@ -431,7 +392,7 @@ void main() {
       );
 
       await Future<void>.delayed(Duration.zero);
-      await _respondToLatestThreadStart(fakeAllow);
+      await respondToLatestThreadStart(fakeAllow);
       fakeAllow.emitApprovalRequest(
         requestId: 'allow-strip',
         toolUseId: 'tool-strip',

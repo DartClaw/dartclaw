@@ -48,7 +48,7 @@ Router taskRoutes(
 
   router.post('/api/tasks', (Request request) async {
     try {
-      final body = await _readJsonObject(request);
+      final body = await readJsonObject(request);
       if (body.error != null) return body.error!;
 
       final titleFieldError = _validateStringFieldType(body.value!, 'title');
@@ -66,15 +66,15 @@ Router taskRoutes(
       final projectIdFieldError = _validateStringFieldType(body.value!, 'projectId');
       if (projectIdFieldError != null) return projectIdFieldError;
 
-      final title = _trimmedStringOrNull(body.value!['title']);
-      final description = _trimmedStringOrNull(body.value!['description']);
+      final title = trimmedStringOrNull(body.value!['title']);
+      final description = trimmedStringOrNull(body.value!['description']);
       final typeName = _stringOrNull(body.value!['type']);
       final type = typeName == null ? null : TaskType.values.asNameMap()[typeName];
       final autoStart = body.value!['autoStart'] == true;
       final goalId = _stringOrNull(body.value!['goalId']);
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
-      final provider = _trimmedStringOrNull(body.value!['provider']);
-      final projectId = _trimmedStringOrNull(body.value!['projectId']);
+      final provider = trimmedStringOrNull(body.value!['provider']);
+      final projectId = trimmedStringOrNull(body.value!['projectId']);
 
       if (projectId != null && projectService != null) {
         final project = await projectService.get(projectId);
@@ -205,7 +205,7 @@ Router taskRoutes(
 
   router.post('/api/tasks/<id>/review', (Request request, String id) async {
     try {
-      final body = await _readJsonObject(request);
+      final body = await readJsonObject(request);
       if (body.error != null) return body.error!;
 
       final actionFieldError = _validateStringFieldType(body.value!, 'action');
@@ -213,8 +213,8 @@ Router taskRoutes(
       final commentFieldError = _validateStringFieldType(body.value!, 'comment');
       if (commentFieldError != null) return commentFieldError;
 
-      final action = _trimmedStringOrNull(body.value!['action']);
-      final comment = _trimmedStringOrNull(body.value!['comment']);
+      final action = trimmedStringOrNull(body.value!['action']);
+      final comment = trimmedStringOrNull(body.value!['comment']);
       final targetStatus = switch (action) {
         'accept' => TaskStatus.accepted,
         'reject' => TaskStatus.rejected,
@@ -347,21 +347,6 @@ Response _invalidTransition(String taskId, TaskStatus oldStatus, TaskStatus targ
   });
 }
 
-Future<({Map<String, dynamic>? value, Response? error})> _readJsonObject(Request request) async {
-  try {
-    final body = await request.readAsString();
-    final decoded = jsonDecode(body);
-    if (decoded is! Map) {
-      return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'JSON body must be an object'));
-    }
-    return (value: Map<String, dynamic>.from(decoded), error: null);
-  } on FormatException {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
-  } on TypeError {
-    return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON structure'));
-  }
-}
-
 Map<String, dynamic> _jsonMapOrEmpty(Object? value) {
   if (value == null) return <String, dynamic>{};
   return Map<String, dynamic>.from(value as Map);
@@ -409,8 +394,6 @@ Future<int> _artifactDiskBytes(String? dataDir, String taskId) async {
 }
 
 String? _stringOrNull(Object? value) => value is String ? value : null;
-
-String? _trimmedStringOrNull(Object? value) => _stringOrNull(value)?.trim();
 
 Response? _validateStringFieldType(Map<String, dynamic> body, String field) {
   if (!body.containsKey(field)) return null;

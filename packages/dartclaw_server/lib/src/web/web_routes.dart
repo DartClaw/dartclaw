@@ -84,7 +84,7 @@ Router webRoutes(
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
-  final defaultProvider = _normalizedDefaultProvider(config?.agent.provider);
+  final defaultProvider = ProviderIdentity.normalize(config?.agent.provider);
   final registry = pageRegistry ?? PageRegistry();
   final visibility = computeSidebarFeatureVisibility(
     config: config,
@@ -698,15 +698,10 @@ Future<String> _resolveSidebarProvider(
 }) async {
   final sessionProvider = session.provider?.trim();
   if (sessionProvider != null && sessionProvider.isNotEmpty) {
-    return _normalizedDefaultProvider(sessionProvider);
+    return ProviderIdentity.normalize(sessionProvider);
   }
   final usage = await _readSessionUsage(kvService, session.id, defaultProvider: defaultProvider);
   return usage.provider;
-}
-
-String _normalizedDefaultProvider(String? providerId) {
-  final trimmed = providerId?.trim().toLowerCase();
-  return trimmed == null || trimmed.isEmpty ? 'claude' : trimmed;
 }
 
 /// Returns true if the channel key represents a group session.

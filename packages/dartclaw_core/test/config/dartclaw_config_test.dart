@@ -281,6 +281,59 @@ void main() {
         expect(config.tasks.artifactRetentionDays, 90);
       });
 
+      test('tasks.completion_action defaults to review when unset', () {
+        final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
+        expect(_taskCompletionAction(config.tasks), 'review');
+      });
+
+      test('tasks.completion_action parses accept when configured', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: accept\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(_taskCompletionAction(config.tasks), 'accept');
+        expect(config.warnings, isEmpty);
+      });
+
+      test('tasks.completion_action trims surrounding whitespace', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: " accept "\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(_taskCompletionAction(config.tasks), 'accept');
+        expect(config.warnings, isEmpty);
+      });
+
+      test('tasks.completion_action wrong type warns and falls back to review', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(_taskCompletionAction(config.tasks), 'review');
+        expect(config.warnings, anyElement(contains('Invalid type for tasks.completion_action')));
+      });
+
+      test('tasks.completion_action invalid values warn and fall back to review', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: ship_it\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(_taskCompletionAction(config.tasks), 'review');
+        expect(config.warnings, anyElement(contains('Invalid value for tasks.completion_action')));
+      });
+
       test('tasks.artifact_retention_days is clamped to 0..3650', () {
         final low = DartclawConfig.load(
           fileReader: (path) {
@@ -1556,6 +1609,8 @@ automation:
     });
   });
 }
+
+String _taskCompletionAction(TaskConfig config) => (config as dynamic).completionAction as String;
 
 // ---------------------------------------------------------------------------
 // Test helper types

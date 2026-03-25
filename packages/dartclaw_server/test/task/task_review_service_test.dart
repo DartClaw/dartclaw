@@ -28,7 +28,7 @@ void main() {
   group('TaskReviewService', () {
     test('accepts review tasks and fires status events', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final reviewReadyEvents = <TaskReviewReadyEvent>[];
       final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
@@ -51,7 +51,7 @@ void main() {
 
     test('channel review handler preserves channel provenance', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
       addTearDown(statusSub.cancel);
@@ -67,7 +67,7 @@ void main() {
 
     test('rejects review tasks', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'reject');
 
@@ -77,7 +77,7 @@ void main() {
 
     test('pushes tasks back to running with comment metadata', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'push_back', comment: 'try again');
 
@@ -90,7 +90,7 @@ void main() {
 
     test('rejects push_back without a comment', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'push_back');
 
@@ -101,7 +101,7 @@ void main() {
 
     test('push_back fires status event with running as new status', () async {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final sub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
       addTearDown(sub.cancel);
@@ -119,7 +119,7 @@ void main() {
       final deliveries = <(String taskId, String feedback)>[];
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
           deliveries.add((taskId, feedback));
         },
@@ -137,7 +137,7 @@ void main() {
       await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
           throw StateError('delivery failed');
         },
@@ -155,7 +155,7 @@ void main() {
       String? capturedComment;
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
           capturedComment = feedback;
         },
@@ -187,7 +187,7 @@ void main() {
       final taskFileGuard = _RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         mergeExecutor: mergeExecutor,
         worktreeManager: worktreeManager,
         taskFileGuard: taskFileGuard,
@@ -214,7 +214,7 @@ void main() {
           'createdAt': '2026-03-13T10:00:00.000Z',
         },
       );
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'accept');
 
@@ -240,7 +240,7 @@ void main() {
       final mergeExecutor = _BlockingMergeExecutor(
         result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
       );
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus, mergeExecutor: mergeExecutor);
+      final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor);
 
       final firstReview = service.review('task-1', 'accept');
       await mergeExecutor.started.future;
@@ -284,7 +284,7 @@ void main() {
       final worktreeManager = _RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         mergeExecutor: mergeExecutor,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
@@ -307,7 +307,7 @@ void main() {
     });
 
     test('returns not found when the task does not exist', () async {
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('missing', 'accept');
 
@@ -322,7 +322,7 @@ void main() {
         type: TaskType.coding,
         now: DateTime.parse('2026-03-13T10:00:00Z'),
       );
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'accept');
 
@@ -331,7 +331,7 @@ void main() {
     });
 
     test('returns invalid request for unknown actions', () async {
-      final service = TaskReviewService(tasks: tasks, eventBus: eventBus);
+      final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'ship_it');
 
@@ -352,7 +352,7 @@ void main() {
       );
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded')),
       );
 
@@ -431,7 +431,7 @@ void main() {
       final worktreeManager = _RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         prCreator: prCreator,
         projectService: projectService,
@@ -469,7 +469,7 @@ void main() {
       final pushService = _FakeRemotePushService(result: const PushSuccess());
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
@@ -502,7 +502,7 @@ void main() {
       final prCreator = _FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         prCreator: prCreator,
         projectService: projectService,
@@ -533,7 +533,7 @@ void main() {
       final worktreeManager = _RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         projectService: projectService,
         worktreeManager: worktreeManager,
@@ -562,7 +562,7 @@ void main() {
       final pushService = _FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
@@ -580,7 +580,7 @@ void main() {
       final worktreeManager = _RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
         worktreeManager: worktreeManager,
       );
@@ -620,7 +620,7 @@ void main() {
       final worktreeManager = _RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         mergeExecutor: mergeExecutor,
         worktreeManager: worktreeManager,
       );
@@ -648,7 +648,7 @@ void main() {
       final pushService = _FakeRemotePushService(result: const PushSuccess());
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         remotePushService: pushService,
         projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
       );
@@ -664,7 +664,7 @@ void main() {
 
       final service = TaskReviewService(
         tasks: tasks,
-        eventBus: eventBus,
+
         // No remotePushService or projectService
       );
 

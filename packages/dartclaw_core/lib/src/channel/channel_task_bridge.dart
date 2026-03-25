@@ -265,16 +265,20 @@ class ChannelTaskBridge {
         type: trigger.type,
         autoStart: trigger.autoStart,
         createdBy: senderDisplayName,
-        configJson: {'origin': origin.toJson(), ...?providerHint == null ? null : {'provider': providerHint}},
+        configJson: {
+          'origin': origin.toJson(),
+          ...?providerHint == null ? null : {'provider': providerHint},
+        },
         trigger: 'channel',
       );
 
       final statusWord = task.status == TaskStatus.draft ? 'drafted' : 'created';
+      final queuedNote = task.status == TaskStatus.queued ? ' -- Queued (will start when a slot opens)' : '';
       await _sendBestEffort(
         channel,
         recipientId,
         _taskTriggerResponse(
-          'Task $statusWord: ${task.title} [${task.type.name}] -- ID: ${_shortTaskId(task.id)}',
+          'Task $statusWord: ${task.title} [${task.type.name}] -- ID: ${_shortTaskId(task.id)}$queuedNote',
           sourceMessageId: sourceMessageId,
         ),
         failureMessage: 'Failed to send task creation acknowledgement for ${task.id}',
@@ -509,12 +513,28 @@ class ChannelTaskBridge {
 
   Future<void> _sendRateLimitRejection(ChannelMessage message, Channel channel) async {
     final recipientId = resolveRecipientId(message);
+    final limiter = _perSenderRateLimiter!;
+    final window = _formatRateLimitWindow(limiter.window);
     await _sendBestEffort(
       channel,
       recipientId,
-      ChannelResponse(text: "You're sending messages too fast. Please wait before trying again."),
+      ChannelResponse(
+        text:
+            'Rate limit reached (${limiter.limit} messages per $window). Please wait before trying again. '
+            'Tip: review commands (accept, reject, push back) and /status are never rate-limited.',
+      ),
       failureMessage: 'Failed to send rate limit rejection',
     );
+  }
+
+  static String _formatRateLimitWindow(Duration window) {
+    if (window.inSeconds >= 60) {
+      final minutes = window.inMinutes;
+      return minutes == 1 ? '1 minute' : '$minutes minutes';
+    }
+
+    final seconds = window.inSeconds;
+    return seconds == 1 ? '1 second' : '$seconds seconds';
   }
 
   Future<void> _sendBestEffort(

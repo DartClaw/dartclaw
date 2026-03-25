@@ -43,6 +43,7 @@ class ConfigSerializer {
       'tasks': {
         'maxConcurrent': config.tasks.maxConcurrent,
         'artifactRetentionDays': config.tasks.artifactRetentionDays,
+        'completionAction': config.tasks.completionAction,
         'worktree': {
           'baseRef': config.tasks.worktreeBaseRef,
           'staleTimeoutHours': config.tasks.worktreeStaleTimeoutHours,

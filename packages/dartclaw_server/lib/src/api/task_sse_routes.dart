@@ -9,6 +9,7 @@ import '../task/agent_observer.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../task/tool_call_summary.dart';
+import '../templates/helpers.dart';
 import '../templates/task_event_display.dart';
 
 /// Creates a [Router] with the task SSE endpoint.
@@ -188,22 +189,17 @@ int _compareNullableDateTimeAsc(DateTime? left, DateTime? right) {
 
 // === S11: Dashboard compact event view-model helpers ===
 
-String _truncate(String value, int maxLength) {
-  if (value.length <= maxLength) return value;
-  return '${value.substring(0, maxLength - 1)}\u2026';
-}
-
 /// Brief display text for compact dashboard event preview.
 String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
   return switch (kind) {
-    StatusChanged() => _truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
+    StatusChanged() => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
     ToolCalled() => formatToolEventText(
       details['name']?.toString() ?? '(tool)',
       context: details['context']?.toString(),
       maxLength: 80,
     ),
-    ArtifactCreated() => _truncate(details['name']?.toString() ?? '(artifact)', 80),
-    PushBack() => _truncate(details['comment']?.toString() ?? 'Push-back', 80),
+    ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
     TokenUpdate() => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
@@ -211,6 +207,6 @@ String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
       if (total >= 1000) return '${(total / 1000).toStringAsFixed(1)}K tokens';
       return '$total tokens';
     }(),
-    TaskErrorEvent() => _truncate(details['message']?.toString() ?? 'Error', 80),
+    TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
   };
 }

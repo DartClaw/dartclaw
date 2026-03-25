@@ -1,11 +1,10 @@
-import 'dart:convert';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService;
 
 import '../task/tool_call_summary.dart';
 import '../task/task_progress_tracker.dart';
 import 'components.dart';
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -75,7 +74,7 @@ String tasksPageTemplate({
     final isRunningGroup = status == 'running';
     statusGroups.add({
       'status': status,
-      'statusLabel': _titleCase(status),
+      'statusLabel': titleCase(status),
       'count': groupTasks.length,
       'isRunning': isRunningGroup,
       'tasks': groupTasks.map((t) {
@@ -140,7 +139,7 @@ String tasksPageTemplate({
 
         return {
           ...t,
-          'typeLabel': _titleCase(t['type']?.toString() ?? ''),
+          'typeLabel': titleCase(t['type']?.toString() ?? ''),
           'provider': provider,
           'providerLabel': ProviderIdentity.displayName(provider),
           'statusBadgeHtml': statusBadgeTemplate(variant: statusName, text: statusName),
@@ -151,7 +150,7 @@ String tasksPageTemplate({
             'review' || 'interrupted' => 'card-tint-warning',
             _ => '',
           },
-          'createdAtDisplay': _formatRelativeTime(t['createdAt']?.toString()),
+          'createdAtDisplay': _formatRelativeTimeIso(t['createdAt']?.toString()),
           'createdByDisplay': t['createdBy']?.toString() ?? '—',
           'detailHref': '/tasks/${t['id']}',
           'projectName': projectName,
@@ -171,7 +170,7 @@ String tasksPageTemplate({
   // Status filter options.
   final statusOptions = [
     {'value': '', 'label': 'All Statuses', 'selected': statusFilter == null || statusFilter.isEmpty},
-    ...knownStatuses.map((s) => {'value': s, 'label': _titleCase(s), 'selected': statusFilter == s}),
+    ...knownStatuses.map((s) => {'value': s, 'label': titleCase(s), 'selected': statusFilter == s}),
   ];
 
   // Type filter options.
@@ -216,17 +215,10 @@ String tasksPageTemplate({
   return layoutTemplate(title: 'Tasks', body: body, appName: appName);
 }
 
-String _titleCase(String value) {
-  if (value.isEmpty) return value;
-  return value[0].toUpperCase() + value.substring(1);
-}
-
 String _classSuffix(String value) {
   final sanitized = value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]'), '-');
   return sanitized.isEmpty ? 'claude' : sanitized;
 }
-
-String _escapeHtml(String text) => const HtmlEscape().convert(text);
 
 String _buildPoolBarHtml(Map<String, dynamic> pool) {
   final size = pool['size'] as int? ?? 1;
@@ -276,20 +268,20 @@ String _buildAgentOverviewHtml(
 
     buf
       ..write('<div class="card agent-runner-card" data-runner-id="$runnerId">')
-      ..write('<div class="runner-label">${_escapeHtml(label)}</div>')
-      ..write('<span class="status-badge agent-state-$state">${_titleCase(state)}</span>');
+      ..write('<div class="runner-label">${escapeHtml(label)}</div>')
+      ..write('<span class="status-badge agent-state-$state">${titleCase(state)}</span>');
 
     if (state == 'busy' && taskId != null) {
-      final escapedTaskId = _escapeHtml(taskId);
+      final escapedTaskId = escapeHtml(taskId);
       buf.write(
-        '<div class="runner-metric"><a href="/tasks/$escapedTaskId">Task: ${_escapeHtml(_truncateId(taskId))}</a></div>',
+        '<div class="runner-metric"><a href="/tasks/$escapedTaskId">Task: ${escapeHtml(_truncateId(taskId))}</a></div>',
       );
     }
 
     buf
       ..write(
         '<div class="runner-metric"><span class="provider-badge provider-badge-${_classSuffix(providerId)}">'
-        '${_escapeHtml(providerLabel)}</span></div>',
+        '${escapeHtml(providerLabel)}</span></div>',
       )
       ..write('<div class="runner-metric">$turns turns</div>')
       ..write('<div class="runner-metric">${_formatTokens(tokens)} tokens</div>');
@@ -316,43 +308,33 @@ String _truncateId(String id) {
   return id.length > 8 ? '${id.substring(0, 8)}...' : id;
 }
 
-String _truncate(String value, int maxLength) {
-  if (value.length <= maxLength) return value;
-  return '${value.substring(0, maxLength - 1)}\u2026';
-}
-
 /// Builds a compact event view-model for dashboard preview.
 Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
   final kind = event.kind;
   final details = event.details;
   final text = switch (kind) {
-    StatusChanged() => _truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
+    StatusChanged() => truncate('Status \u2192 ${details['newStatus']?.toString() ?? 'unknown'}', 80),
     ToolCalled() => formatToolEventText(
       details['name']?.toString() ?? '(tool)',
       context: details['context']?.toString(),
       maxLength: 80,
     ),
-    ArtifactCreated() => _truncate(details['name']?.toString() ?? '(artifact)', 80),
-    PushBack() => _truncate(details['comment']?.toString() ?? 'Push-back', 80),
+    ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
     TokenUpdate() => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
       return '${_formatTokens(input + output)} tokens';
     }(),
-    TaskErrorEvent() => _truncate(details['message']?.toString() ?? 'Error', 80),
+    TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
   };
   return {'iconClass': compactEventIconClass(kind), 'iconChar': compactEventIconChar(kind), 'text': text};
 }
 
-String _formatRelativeTime(String? iso) {
+String _formatRelativeTimeIso(String? iso) {
   if (iso == null) return '';
   try {
-    final dt = DateTime.parse(iso);
-    final diff = DateTime.now().difference(dt);
-    if (diff.inDays > 0) return '${diff.inDays}d ago';
-    if (diff.inHours > 0) return '${diff.inHours}h ago';
-    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
-    return 'just now';
+    return formatRelativeTime(DateTime.parse(iso));
   } catch (e) {
     return '';
   }

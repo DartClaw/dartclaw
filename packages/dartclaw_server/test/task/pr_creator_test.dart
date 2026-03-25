@@ -5,21 +5,7 @@ import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
-Project _makeProject({
-  String localPath = '/data/projects/my-app',
-  String remoteUrl = 'git@github.com:u/my-app.git',
-  String defaultBranch = 'main',
-  PrConfig pr = const PrConfig.defaults(),
-}) => Project(
-  id: 'my-app',
-  name: 'My App',
-  remoteUrl: remoteUrl,
-  localPath: localPath,
-  defaultBranch: defaultBranch,
-  status: ProjectStatus.ready,
-  createdAt: DateTime.now(),
-  pr: pr,
-);
+import '../helpers/factories.dart';
 
 Task _makeTask({
   String title = 'Implement feature X',
@@ -67,7 +53,7 @@ void main() {
         },
       );
       final result = await creator.create(
-        project: _makeProject(),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git'),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -88,7 +74,7 @@ void main() {
         },
       );
       final result = await creator.create(
-        project: _makeProject(),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git'),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -103,7 +89,7 @@ void main() {
         },
       );
       final result = await creator.create(
-        project: _makeProject(),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git'),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -119,7 +105,7 @@ void main() {
         },
       );
       final result = await creator.create(
-        project: _makeProject(),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git'),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -134,7 +120,7 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: _makeProject(pr: const PrConfig(draft: true)),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', pr: const PrConfig(draft: true)),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -148,7 +134,7 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: _makeProject(pr: const PrConfig(draft: false)),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', pr: const PrConfig(draft: false)),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -162,7 +148,7 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: _makeProject(pr: const PrConfig(labels: ['agent', 'automated'])),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', pr: const PrConfig(labels: ['agent', 'automated'])),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -182,7 +168,7 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: _makeProject(defaultBranch: 'develop'),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', defaultBranch: 'develop'),
         task: _makeTask(title: 'My Task', description: 'Do the thing.'),
         branch: 'dartclaw/task-my-task',
       );
@@ -199,7 +185,7 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: _makeProject(localPath: '/data/projects/my-app'),
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', localPath: '/data/projects/my-app'),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );
@@ -216,7 +202,7 @@ void main() {
           return ProcessResult(0, 0, 'https://github.com/u/r/pull/1', '');
         },
       );
-      final project = _makeProject();
+      final project = makeProject(remoteUrl: 'git@github.com:u/my-app.git');
       final task = _makeTask();
 
       await creator.create(project: project, task: task, branch: 'branch-1');

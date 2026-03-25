@@ -85,7 +85,39 @@ void main() {
     expect(events.single.trigger, 'slash_command');
 
     final card = _singleCard(response);
-    expect(card['header'], {'title': 'Task created: analyze competitor pricing', 'subtitle': 'queued'});
+    final header = card['header'] as Map<String, dynamic>;
+    expect(
+      header['title'],
+      allOf(contains('Task created: analyze competitor pricing'), contains('Queued (will start when a slot opens)')),
+    );
+    expect(header['subtitle'], 'queued');
+  });
+
+  test('/new omits the queued note when task creation does not queue the task', () async {
+    handler = SlashCommandHandler(
+      taskService: tasks,
+      sessionService: sessions,
+      eventBus: eventBus,
+      channelManager: channelManager,
+      onEmergencyStop: (stoppedBy) async {
+        emergencyStopCalls++;
+        return const EmergencyStopResult(turnsCancelled: 2, tasksCancelled: 1);
+      },
+      autoStartTasks: false,
+    );
+
+    final response = await handler.handle(
+      const SlashCommand(name: 'new', arguments: 'research: analyze competitor pricing'),
+      spaceName: 'spaces/AAAA',
+      senderJid: 'users/123',
+      spaceType: 'DM',
+      sourceMessageId: 'spaces/AAAA/messages/BBBB',
+    );
+
+    final card = _singleCard(response);
+    final header = card['header'] as Map<String, dynamic>;
+    expect(header['title'], isNot(contains('Queued (will start when a slot opens)')));
+    expect(header['subtitle'], 'draft');
   });
 
   test('/new uses configured defaults and coerces unknown types to custom', () async {

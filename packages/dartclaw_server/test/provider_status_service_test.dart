@@ -5,6 +5,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
+import 'helpers/probe_helpers.dart';
+
 void main() {
   late Directory tempDir;
   late MessageService messages;
@@ -44,7 +46,7 @@ void main() {
         ),
       );
 
-      await service.probe(commandProbe: _probeResults({'claude': _probeOk('Claude CLI 1.0.0')}));
+      await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 1.0.0')}));
 
       final statuses = service.getAll();
       expect(statuses, hasLength(1));
@@ -81,7 +83,7 @@ void main() {
         ),
       );
 
-      await service.probe(commandProbe: _probeResults({'codex': _probeOk('Codex CLI 0.9.0')}));
+      await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 0.9.0')}));
 
       final statuses = service.getAll();
       expect(statuses, hasLength(1));
@@ -118,7 +120,7 @@ void main() {
         ),
       );
 
-      await service.probe(commandProbe: _probeResults({'codex': _probeOk('Codex CLI 1.2.3')}));
+      await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 1.2.3')}));
 
       final status = service.getAll().single;
       expect(status.id, 'codex-exec');
@@ -154,10 +156,10 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({
-          'claude': _probeOk('Claude CLI 2.1.0'),
-          'codex': _probeOk('Codex CLI 0.8.0'),
-          'ghost': _probeMissing('ghost'),
+        commandProbe: probeResults({
+          'claude': probeOk('Claude CLI 2.1.0'),
+          'codex': probeOk('Codex CLI 0.8.0'),
+          'ghost': probeMissing('ghost'),
         }),
         authProbe: _authFails,
       );
@@ -205,7 +207,7 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({'claude': _probeOk('2.1.81 (Claude Code)')}),
+        commandProbe: probeResults({'claude': probeOk('2.1.81 (Claude Code)')}),
         authProbe: _authSucceeds,
       );
 
@@ -225,7 +227,7 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({'claude': _probeOk('Claude CLI 2.0.0')}),
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.0.0')}),
         authProbe: (executable, {String? providerId}) async {
           authProbeCalls++;
           return true;
@@ -244,7 +246,7 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({'claude': _probeOk('Claude CLI 2.0.0')}),
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.0.0')}),
         authProbe: _authFails,
       );
 
@@ -267,7 +269,7 @@ void main() {
           probeCalls += 1;
           expect(executable, 'claude');
           expect(arguments, const ['--version']);
-          return _probeOk('Claude CLI 3.0.0')(executable, arguments);
+          return probeOk('Claude CLI 3.0.0')(executable, arguments);
         },
       );
 
@@ -293,7 +295,7 @@ void main() {
         ),
       );
 
-      await service.probe(commandProbe: _probeResults({'codex': _probeOk('Codex CLI 3.0.0')}));
+      await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 3.0.0')}));
 
       expect(service.getAll().single.activeWorkers, 1);
     });
@@ -312,10 +314,10 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({
-          'claude': _probeOk('', stderr: ''),
-          'codex': _probeExitCode(9, stdout: 'broken'),
-          'ghost': _probeMissing('ghost'),
+        commandProbe: probeResults({
+          'claude': probeOk('', stderr: ''),
+          'codex': probeExitCode(9, stdout: 'broken'),
+          'ghost': probeMissing('ghost'),
         }),
       );
 
@@ -344,8 +346,8 @@ void main() {
       );
 
       await service.probe(
-        commandProbe: _probeResults({
-          'codex': _probeOk('\nCodex CLI 9.9.9\nextra detail', stderr: 'warning: noisy probe output'),
+        commandProbe: probeResults({
+          'codex': probeOk('\nCodex CLI 9.9.9\nextra detail', stderr: 'warning: noisy probe output'),
         }),
       );
 
@@ -386,28 +388,6 @@ HarnessPool _buildPool({
   );
   pools.add(pool);
   return pool;
-}
-
-CommandProbe _probeResults(Map<String, CommandProbe> probes) {
-  return (executable, arguments) {
-    final probe = probes[executable];
-    if (probe == null) {
-      throw ProcessException(executable, arguments, 'No probe configured for test');
-    }
-    return probe(executable, arguments);
-  };
-}
-
-CommandProbe _probeOk(String stdout, {String stderr = ''}) {
-  return (executable, arguments) async => ProcessResult(1, 0, stdout, stderr);
-}
-
-CommandProbe _probeExitCode(int exitCode, {String stdout = '', String stderr = ''}) {
-  return (executable, arguments) async => ProcessResult(1, exitCode, stdout, stderr);
-}
-
-CommandProbe _probeMissing(String executableName) {
-  return (executable, arguments) async => throw ProcessException(executableName, arguments, 'missing binary');
 }
 
 Future<bool> _authSucceeds(String executable, {String? providerId}) async => true;

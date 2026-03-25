@@ -31,14 +31,13 @@ class TaskExecutor {
     required MessageService messages,
     required TurnManager turns,
     required ArtifactCollector artifactCollector,
-    // eventBus is kept for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,
     AgentObserver? observer,
     TurnTraceService? traceService,
     TaskEventRecorder? eventRecorder,
     Future<void> Function()? onSpawnNeeded,
+    Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
     String? workspaceDir,
     int? maxMemoryBytes,
@@ -57,6 +56,7 @@ class TaskExecutor {
        _traceService = traceService,
        _eventRecorder = eventRecorder,
        _onSpawnNeeded = onSpawnNeeded,
+       _onAutoAccept = onAutoAccept,
        _projectService = projectService,
        _workspaceDir = workspaceDir,
        _maxMemoryBytes = maxMemoryBytes,
@@ -78,6 +78,7 @@ class TaskExecutor {
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
   final Future<void> Function()? _onSpawnNeeded;
+  final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
   final String? _workspaceDir;
   final int? _maxMemoryBytes;
@@ -491,6 +492,15 @@ class TaskExecutor {
           return;
         }
         await _tasks.transition(task.id, TaskStatus.review, trigger: 'system');
+        final onAutoAccept = _onAutoAccept;
+        if (onAutoAccept != null) {
+          _log.info('Auto-accepting completed task ${task.id} after review transition');
+          try {
+            await onAutoAccept(task.id);
+          } catch (error, stackTrace) {
+            _log.warning('Auto-accept failed for task ${task.id}: $error', error, stackTrace);
+          }
+        }
         return;
       }
 
@@ -576,7 +586,6 @@ class TaskExecutor {
       return _pushBackPrompt(pushBackComment.trim(), goalContext: goalContext, workingDirectory: workingDirectory);
     }
 
-    await _messages.getMessages(sessionId);
     return _initialPrompt(task, goalContext: goalContext, workingDirectory: workingDirectory);
   }
 

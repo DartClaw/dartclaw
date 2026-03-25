@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
 
 import '../task/tool_call_summary.dart';
+import 'helpers.dart';
 import 'loader.dart';
 import 'task_event_display.dart';
 
@@ -88,38 +89,38 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
 
   switch (kind) {
     case StatusChanged():
-      label = _titleCase(newStatus ?? 'unknown');
+      label = titleCase(newStatus ?? 'unknown');
       statusBadgeClassVal = statusBadgeClass(newStatus);
-      statusLabel = _titleCase(newStatus ?? 'unknown');
+      statusLabel = titleCase(newStatus ?? 'unknown');
     case ToolCalled():
       final name = details['name']?.toString() ?? '(unknown tool)';
       final context = details['context']?.toString();
       label = formatToolEventText(name, context: context, maxLength: 80);
       final errorType = details['errorType']?.toString();
       if (errorType != null) {
-        detail = _truncate(errorType, 60);
+        detail = truncate(errorType, 60);
       }
     case ArtifactCreated():
       label = details['name']?.toString() ?? '(artifact)';
       final artifactKind = details['kind']?.toString();
       if (artifactKind != null) {
-        detailBadge = _titleCase(artifactKind);
+        detailBadge = titleCase(artifactKind);
         detailBadgeClass = 'type-badge-$artifactKind';
       }
     case PushBack():
       label = 'Push-back';
       final comment = details['comment']?.toString();
-      if (comment != null && comment.isNotEmpty) detail = _truncate(comment, 120);
+      if (comment != null && comment.isNotEmpty) detail = truncate(comment, 120);
     case TokenUpdate():
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;
       final output = (details['outputTokens'] as num?)?.toInt() ?? 0;
-      label = '${_formatNumber(input)} in / ${_formatNumber(output)} out';
+      label = '${formatNumber(input)} in / ${formatNumber(output)} out';
       final cacheRead = (details['cacheReadTokens'] as num?)?.toInt() ?? 0;
-      if (cacheRead > 0) detail = '${_formatNumber(cacheRead)} cache read';
+      if (cacheRead > 0) detail = '${formatNumber(cacheRead)} cache read';
     case TaskErrorEvent():
       label = 'Error';
       final message = details['message']?.toString();
-      if (message != null && message.isNotEmpty) detail = _truncate(message, 120);
+      if (message != null && message.isNotEmpty) detail = truncate(message, 120);
   }
 
   final timestamp = event.timestamp;
@@ -135,36 +136,7 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
     'detail': detail,
     'detailBadge': detailBadge,
     'detailBadgeClass': detailBadgeClass,
-    'timestamp': _formatRelativeTime(timestamp),
+    'timestamp': formatRelativeTime(timestamp),
     'timestampIso': timestamp.toIso8601String(),
   };
-}
-
-String _titleCase(String value) {
-  if (value.isEmpty) return value;
-  return value[0].toUpperCase() + value.substring(1);
-}
-
-String _truncate(String value, int maxLength) {
-  if (value.length <= maxLength) return value;
-  return '${value.substring(0, maxLength - 1)}…';
-}
-
-String _formatNumber(int value) {
-  final s = value.toString();
-  final buffer = StringBuffer();
-  final offset = s.length % 3;
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (i - offset) % 3 == 0) buffer.write(',');
-    buffer.write(s[i]);
-  }
-  return buffer.toString();
-}
-
-String _formatRelativeTime(DateTime dt) {
-  final diff = DateTime.now().difference(dt);
-  if (diff.inDays > 0) return '${diff.inDays}d ago';
-  if (diff.inHours > 0) return '${diff.inHours}h ago';
-  if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
-  return 'just now';
 }

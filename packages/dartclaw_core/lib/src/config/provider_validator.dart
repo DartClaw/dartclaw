@@ -25,9 +25,9 @@ class ProviderValidator {
         return null;
       }
 
-      final stdoutText = _toText(result.stdout);
-      final stderrText = _toText(result.stderr);
-      return _extractVersion(stdoutText, stderrText) ?? 'unknown';
+      final stdoutText = processOutputToText(result.stdout);
+      final stderrText = processOutputToText(result.stderr);
+      return extractVersionLine(stdoutText, stderrText) ?? 'unknown';
     } on ProcessException {
       return null;
     } on TimeoutException {
@@ -65,7 +65,7 @@ class ProviderValidator {
       final result = await Process.run(executable, ['auth', 'status']).timeout(_probeTimeout);
       if (result.exitCode != 0) return false;
 
-      final stdoutText = _toText(result.stdout);
+      final stdoutText = processOutputToText(result.stdout);
       if (stdoutText.isEmpty) return false;
 
       final json = jsonDecode(stdoutText);
@@ -167,26 +167,33 @@ class ProviderValidator {
     return (errors: errors, warnings: warnings);
   }
 
-  static String _toText(Object? value) {
-    if (value == null) {
-      return '';
-    }
-    if (value is String) {
-      return value;
-    }
-    if (value is List<int>) {
-      return String.fromCharCodes(value);
-    }
-    return value.toString();
-  }
+}
 
-  static String? _extractVersion(String stdoutText, String stderrText) {
-    for (final line in '$stdoutText\n$stderrText'.split('\n')) {
-      final trimmed = line.trim();
-      if (trimmed.isNotEmpty) {
-        return trimmed;
-      }
-    }
-    return null;
+/// Converts a `Process.run` stdout/stderr value to a [String].
+///
+/// Handles `null`, raw `String`, `List<int>` (byte array), and arbitrary
+/// objects via [Object.toString].
+String processOutputToText(Object? value) {
+  if (value == null) {
+    return '';
   }
+  if (value is String) {
+    return value;
+  }
+  if (value is List<int>) {
+    return String.fromCharCodes(value);
+  }
+  return value.toString();
+}
+
+/// Returns the first non-empty trimmed line from the combined stdout and
+/// stderr output, or `null` if both are empty.
+String? extractVersionLine(String stdoutText, String stderrText) {
+  for (final line in '$stdoutText\n$stderrText'.split('\n')) {
+    final trimmed = line.trim();
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+  }
+  return null;
 }

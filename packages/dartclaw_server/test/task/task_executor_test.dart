@@ -15,7 +15,6 @@ void main() {
   late SessionService sessions;
   late MessageService messages;
   late TaskService tasks;
-  late EventBus eventBus;
   late _FakeTaskWorker worker;
   late TurnManager turns;
   late ArtifactCollector collector;
@@ -32,7 +31,6 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     tasks = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
-    eventBus = EventBus();
     worker = _FakeTaskWorker();
     turns = TurnManager(
       messages: messages,
@@ -53,7 +51,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       pollInterval: const Duration(milliseconds: 10),
     );
   });
@@ -67,6 +65,28 @@ void main() {
     final wsDir = Directory(workspaceDir);
     if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
   });
+
+  TaskExecutor buildExecutor({
+    Future<void> Function(String taskId)? onAutoAccept,
+    ProjectService? projectService,
+    Duration pollInterval = const Duration(milliseconds: 10),
+  }) {
+    final namedArgs = <Symbol, dynamic>{
+      #tasks: tasks,
+      #sessions: sessions,
+      #messages: messages,
+      #turns: turns,
+      #artifactCollector: collector,
+      #pollInterval: pollInterval,
+    };
+    if (onAutoAccept != null) {
+      namedArgs[#onAutoAccept] = onAutoAccept;
+    }
+    if (projectService != null) {
+      namedArgs[#projectService] = projectService;
+    }
+    return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
+  }
 
   test('executes queued tasks into review with task session and artifacts', () async {
     worker.responseText = 'Done.';
@@ -165,7 +185,61 @@ void main() {
     expect((await tasks.get('task-model'))!.status, TaskStatus.review);
   });
 
+  test('invokes auto-accept callback with the task id after completion when provided', () async {
+    final calls = <String>[];
+    final autoAcceptExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(autoAcceptExecutor.stop);
+
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-auto-accept',
+      title: 'Auto accept task',
+      description: 'Should invoke the completion callback.',
+      type: TaskType.research,
+      autoStart: true,
+    );
+
+    await autoAcceptExecutor.pollOnce();
+
+    expect(calls, ['task-auto-accept']);
+    expect((await tasks.get('task-auto-accept'))!.status, TaskStatus.review);
+  });
+
+  test('swallows auto-accept callback errors and leaves the task in review', () async {
+    final autoAcceptExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        throw StateError('auto-accept failed for $taskId');
+      },
+    );
+    addTearDown(autoAcceptExecutor.stop);
+
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-auto-accept-error',
+      title: 'Auto accept error task',
+      description: 'Should survive callback failures.',
+      type: TaskType.research,
+      autoStart: true,
+    );
+
+    await autoAcceptExecutor.pollOnce();
+
+    expect((await tasks.get('task-auto-accept-error'))!.status, TaskStatus.review);
+  });
+
   test('fails completed tasks that exceed token budget and preserves artifacts', () async {
+    final calls = <String>[];
+    final budgetExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(budgetExecutor.stop);
+
     worker.responseText = 'Too expensive';
     worker.inputTokens = 90;
     worker.outputTokens = 40;
@@ -181,7 +255,7 @@ void main() {
       configJson: const {'tokenBudget': 100},
     );
 
-    await executor.pollOnce();
+    await budgetExecutor.pollOnce();
 
     final failed = await tasks.get('task-budget');
     expect(failed!.status, TaskStatus.failed);
@@ -189,9 +263,18 @@ void main() {
     final artifacts = await tasks.listArtifacts('task-budget');
     expect(artifacts, hasLength(1));
     expect(artifacts.single.name, 'budget.md');
+    expect(calls, isEmpty);
   });
 
   test('marks queued tasks as failed when the agent turn crashes', () async {
+    final calls = <String>[];
+    final failingExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(failingExecutor.stop);
+
     worker.shouldFail = true;
     await tasks.create(
       id: 'task-3',
@@ -201,16 +284,44 @@ void main() {
       autoStart: true,
     );
 
-    await executor.pollOnce();
+    await failingExecutor.pollOnce();
 
     final failed = await tasks.get('task-3');
     expect(failed!.status, TaskStatus.failed);
     expect(failed.sessionId, isNotNull);
     expect(failed.configJson['errorSummary'], 'Turn execution failed');
+    expect(calls, isEmpty);
 
     final taskSession = (await sessions.listSessions(type: SessionType.task)).single;
     final taskMessages = await messages.getMessages(taskSession.id);
     expect(taskMessages.last.content, contains('[Turn failed]'));
+  });
+
+  test('does not invoke auto-accept when a task is cancelled during execution', () async {
+    final calls = <String>[];
+    final cancellingExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(cancellingExecutor.stop);
+
+    worker.responseText = 'Done.';
+    worker.beforeComplete = (_) async {
+      await tasks.transition('task-cancelled', TaskStatus.cancelled);
+    };
+    await tasks.create(
+      id: 'task-cancelled',
+      title: 'Cancelled task',
+      description: 'Should never reach auto-accept.',
+      type: TaskType.automation,
+      autoStart: true,
+    );
+
+    await cancellingExecutor.pollOnce();
+
+    expect((await tasks.get('task-cancelled'))!.status, TaskStatus.cancelled);
+    expect(calls, isEmpty);
   });
 
   test('processes queued tasks in FIFO order', () async {
@@ -257,7 +368,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
     );
@@ -305,7 +416,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
     );
@@ -350,7 +461,7 @@ void main() {
       messages: messages,
       turns: poolTurns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
@@ -404,7 +515,7 @@ void main() {
       messages: messages,
       turns: poolTurns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(poolExecutor.stop);
@@ -446,7 +557,7 @@ void main() {
       messages: messages,
       turns: contentionTurns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       pollInterval: const Duration(milliseconds: 1),
     );
     addTearDown(contentionExecutor.stop);
@@ -481,7 +592,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
-      eventBus: eventBus,
+
       traceService: traceService,
       pollInterval: const Duration(milliseconds: 10),
     );

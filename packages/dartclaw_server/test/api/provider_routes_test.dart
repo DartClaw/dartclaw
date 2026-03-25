@@ -1,11 +1,11 @@
-import 'dart:io';
-
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import '../helpers/probe_helpers.dart';
 
 void main() {
   group('GET /api/providers', () {
@@ -27,10 +27,10 @@ void main() {
       );
 
       await providerStatus.probe(
-        commandProbe: _probeResults({
-          'claude': _probeOk('Claude CLI 4.0.0'),
-          'codex': _probeOk('Codex CLI 1.2.0'),
-          'ghost': _probeMissing('ghost'),
+        commandProbe: probeResults({
+          'claude': probeOk('Claude CLI 4.0.0'),
+          'codex': probeOk('Codex CLI 1.2.0'),
+          'ghost': probeMissing('ghost'),
         }),
         authProbe: (_, {String? providerId}) async => false,
       );
@@ -69,22 +69,4 @@ void main() {
       expect(json['summary'], {'configured': 3, 'healthy': 1, 'degraded': 1});
     });
   });
-}
-
-CommandProbe _probeResults(Map<String, CommandProbe> probes) {
-  return (executable, arguments) {
-    final probe = probes[executable];
-    if (probe == null) {
-      throw ProcessException(executable, arguments, 'No probe configured for test');
-    }
-    return probe(executable, arguments);
-  };
-}
-
-CommandProbe _probeOk(String stdout, {String stderr = ''}) {
-  return (executable, arguments) async => ProcessResult(1, 0, stdout, stderr);
-}
-
-CommandProbe _probeMissing(String executableName) {
-  return (executable, arguments) async => throw ProcessException(executableName, arguments, 'missing binary');
 }

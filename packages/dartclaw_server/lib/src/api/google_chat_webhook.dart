@@ -453,8 +453,8 @@ class GoogleChatWebhookHandler {
         'space': mp?['space'] ?? _asMap(chat['space']),
         'message': mp?['message'],
         'user': user,
-        if (eventTime != null) 'eventTime': eventTime,
-        if (common != null) 'common': common,
+        'eventTime': ?eventTime,
+        'common': ?common,
       };
     }
     if (chat.containsKey('addedToSpacePayload')) {
@@ -463,7 +463,7 @@ class GoogleChatWebhookHandler {
         'type': 'ADDED_TO_SPACE',
         'space': ap?['space'] ?? _asMap(chat['space']),
         'user': user,
-        if (eventTime != null) 'eventTime': eventTime,
+        'eventTime': ?eventTime,
       };
     }
     if (chat.containsKey('removedFromSpacePayload')) {
@@ -472,7 +472,7 @@ class GoogleChatWebhookHandler {
         'type': 'REMOVED_FROM_SPACE',
         'space': rp?['space'] ?? _asMap(chat['space']),
         'user': user,
-        if (eventTime != null) 'eventTime': eventTime,
+        'eventTime': ?eventTime,
       };
     }
     if (chat.containsKey('buttonClickedPayload')) {
@@ -482,8 +482,8 @@ class GoogleChatWebhookHandler {
         'space': bp?['space'] ?? _asMap(chat['space']),
         'message': bp?['message'],
         'user': user,
-        if (common != null) 'common': common,
-        if (eventTime != null) 'eventTime': eventTime,
+        'common': ?common,
+        'eventTime': ?eventTime,
       };
     }
     if (chat.containsKey('appCommandPayload')) {
@@ -493,9 +493,9 @@ class GoogleChatWebhookHandler {
         'space': acp?['space'] ?? _asMap(chat['space']),
         'message': acp?['message'],
         'user': user,
-        if (acp?['appCommandMetadata'] case final meta?) 'appCommandMetadata': meta,
-        if (common != null) 'common': common,
-        if (eventTime != null) 'eventTime': eventTime,
+        'appCommandMetadata': ?acp?['appCommandMetadata'],
+        'common': ?common,
+        'eventTime': ?eventTime,
       };
     }
 

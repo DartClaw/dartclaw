@@ -44,6 +44,7 @@ void main() {
         expect(ConfigMeta.fields, contains('tasks.worktree.base_ref'));
         expect(ConfigMeta.fields, contains('tasks.worktree.stale_timeout_hours'));
         expect(ConfigMeta.fields, contains('tasks.worktree.merge_strategy'));
+        expect(ConfigMeta.fields, contains('tasks.completion_action'));
         expect(ConfigMeta.fields, contains('concurrency.max_parallel_turns'));
         expect(ConfigMeta.fields, contains('guard_audit.max_retention_days'));
         expect(ConfigMeta.fields, contains('sessions.reset_hour'));
@@ -134,6 +135,7 @@ void main() {
         expect(ConfigMeta.fields['auth.trusted_proxies']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['gateway.hsts']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['tasks.artifact_retention_days']!.mutability, ConfigMutability.restart);
+        expect(ConfigMeta.fields['tasks.completion_action']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['guard_audit.max_retention_days']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['context.exploration_summary_threshold']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['context.compact_instructions']!.mutability, ConfigMutability.restart);
@@ -204,6 +206,7 @@ void main() {
       test('new retention fields map correctly', () {
         expect(ConfigMeta.fields['guard_audit.max_retention_days']!.jsonKey, equals('guardAudit.maxRetentionDays'));
         expect(ConfigMeta.fields['tasks.artifact_retention_days']!.jsonKey, equals('tasks.artifactRetentionDays'));
+        expect(ConfigMeta.fields['tasks.completion_action']!.jsonKey, equals('tasks.completionAction'));
       });
 
       test('byJsonKey lookup works', () {

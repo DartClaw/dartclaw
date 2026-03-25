@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
@@ -7,50 +6,9 @@ import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
-Future<ProcessResult> _result({int exitCode = 0, String stdout = ''}) async {
-  return ProcessResult(0, exitCode, stdout, '');
-}
-
-Future<void> _noOpDelay(Duration _) async {}
-
-Future<ProcessResult> _defaultCommandProbe(String exe, List<String> args) async {
-  return _result(exitCode: 0, stdout: '1.0.0');
-}
-
-Future<void> _pumpEventQueue() async {
-  await Future<void>.delayed(Duration.zero);
-}
-
-Future<void> _waitForSentMessage(FakeCodexProcess process, String method) async {
-  for (var i = 0; i < 50; i++) {
-    if (process.sentMessages.any((message) => message['method'] == method)) {
-      return;
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  throw StateError('Expected outbound message for $method');
-}
-
-Object _latestRequestId(FakeCodexProcess process, String method) {
-  return process.sentMessages.lastWhere((message) => message['method'] == method)['id']! as Object;
-}
-
-Future<void> _startHarness(CodexHarness harness, FakeCodexProcess process) async {
-  final startFuture = harness.start();
-  await _waitForSentMessage(process, 'initialize');
-  process.emitInitializeResponse(id: _latestRequestId(process, 'initialize'));
-  await startFuture;
-}
-
-Future<void> _respondToLatestThreadStart(FakeCodexProcess process, {String threadId = 'thread-123'}) async {
-  await _waitForSentMessage(process, 'thread/start');
-  process.emitThreadStartResponse(id: _latestRequestId(process, 'thread/start'), threadId: threadId);
-  await _pumpEventQueue();
-}
-
 CodexHarness _buildHarness({
   required FakeCodexProcess Function() processFactory,
-  DelayFactory delayFactory = _noOpDelay,
+  DelayFactory delayFactory = noOpDelay,
   int maxRetries = 5,
   Duration baseBackoff = const Duration(seconds: 5),
 }) {
@@ -59,7 +17,7 @@ CodexHarness _buildHarness({
     executable: 'codex',
     processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
         processFactory(),
-    commandProbe: _defaultCommandProbe,
+    commandProbe: defaultCommandProbe,
     delayFactory: delayFactory,
     maxRetries: maxRetries,
     baseBackoff: baseBackoff,
@@ -74,11 +32,11 @@ void main() {
       final harness = _buildHarness(processFactory: () => process);
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, process);
+      await startHarness(harness, process);
       expect(harness.state, WorkerState.idle);
 
       process.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
 
       expect(harness.state, WorkerState.crashed);
     });
@@ -98,10 +56,10 @@ void main() {
       );
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, firstProcess);
+      await startHarness(harness, firstProcess);
 
       firstProcess.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
       expect(harness.state, WorkerState.crashed);
 
       final recoveryTurn = harness.turn(
@@ -112,13 +70,13 @@ void main() {
         systemPrompt: 'test',
       );
 
-      await _waitForSentMessage(secondProcess, 'initialize');
+      await waitForSentMessage(secondProcess, 'initialize');
       secondProcess.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
 
-      await _waitForSentMessage(thirdProcess, 'initialize');
-      thirdProcess.emitInitializeResponse(id: _latestRequestId(thirdProcess, 'initialize'));
-      await _respondToLatestThreadStart(thirdProcess, threadId: 'thread-third');
+      await waitForSentMessage(thirdProcess, 'initialize');
+      thirdProcess.emitInitializeResponse(id: latestRequestId(thirdProcess, 'initialize'));
+      await respondToLatestThreadStart(thirdProcess, threadId: 'thread-third');
       thirdProcess.emitTurnStarted();
       thirdProcess.emitTurnCompleted(inputTokens: 3, outputTokens: 5);
       await recoveryTurn;
@@ -131,10 +89,10 @@ void main() {
       final harness = _buildHarness(processFactory: () => process, maxRetries: 0);
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, process);
+      await startHarness(harness, process);
 
       process.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
 
       expect(harness.state, WorkerState.crashed);
 
@@ -165,10 +123,10 @@ void main() {
       );
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, firstProcess);
+      await startHarness(harness, firstProcess);
 
       firstProcess.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
 
       final firstRecovery = harness.turn(
         sessionId: 'sess-reset-backoff',
@@ -178,15 +136,15 @@ void main() {
         systemPrompt: 'test',
       );
 
-      await _waitForSentMessage(secondProcess, 'initialize');
-      secondProcess.emitInitializeResponse(id: _latestRequestId(secondProcess, 'initialize'));
-      await _respondToLatestThreadStart(secondProcess, threadId: 'thread-second');
+      await waitForSentMessage(secondProcess, 'initialize');
+      secondProcess.emitInitializeResponse(id: latestRequestId(secondProcess, 'initialize'));
+      await respondToLatestThreadStart(secondProcess, threadId: 'thread-second');
       secondProcess.emitTurnStarted();
       secondProcess.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
       await firstRecovery;
 
       secondProcess.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
 
       final secondRecovery = harness.turn(
         sessionId: 'sess-reset-backoff',
@@ -196,9 +154,9 @@ void main() {
         systemPrompt: 'test',
       );
 
-      await _waitForSentMessage(thirdProcess, 'initialize');
-      thirdProcess.emitInitializeResponse(id: _latestRequestId(thirdProcess, 'initialize'));
-      await _respondToLatestThreadStart(thirdProcess, threadId: 'thread-third');
+      await waitForSentMessage(thirdProcess, 'initialize');
+      thirdProcess.emitInitializeResponse(id: latestRequestId(thirdProcess, 'initialize'));
+      await respondToLatestThreadStart(thirdProcess, threadId: 'thread-third');
       thirdProcess.emitTurnStarted();
       thirdProcess.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
       await secondRecovery;
@@ -220,7 +178,7 @@ void main() {
       );
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, firstProcess);
+      await startHarness(harness, firstProcess);
 
       final firstTurn = harness.turn(
         sessionId: 'sess-thread',
@@ -229,8 +187,8 @@ void main() {
         ],
         systemPrompt: 'test',
       );
-      await _pumpEventQueue();
-      await _respondToLatestThreadStart(firstProcess, threadId: 'thread-a');
+      await pumpEventLoop();
+      await respondToLatestThreadStart(firstProcess, threadId: 'thread-a');
       firstProcess.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
       await firstTurn;
 
@@ -238,7 +196,7 @@ void main() {
       final firstThreadId = (firstThreadStart['params'] as Map<String, dynamic>)['thread_id'] as String;
 
       firstProcess.exit(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
       expect(harness.state, WorkerState.crashed);
 
       final recoveryTurn = harness.turn(
@@ -249,9 +207,9 @@ void main() {
         systemPrompt: 'test',
       );
 
-      await _waitForSentMessage(secondProcess, 'initialize');
-      secondProcess.emitInitializeResponse(id: _latestRequestId(secondProcess, 'initialize'));
-      await _respondToLatestThreadStart(secondProcess, threadId: 'thread-b');
+      await waitForSentMessage(secondProcess, 'initialize');
+      secondProcess.emitInitializeResponse(id: latestRequestId(secondProcess, 'initialize'));
+      await respondToLatestThreadStart(secondProcess, threadId: 'thread-b');
       secondProcess.emitTurnStarted();
       secondProcess.emitTurnCompleted(inputTokens: 2, outputTokens: 3);
 
@@ -275,15 +233,15 @@ void main() {
       );
       addTearDown(() async => harness.dispose());
 
-      await _startHarness(harness, firstProcess);
+      await startHarness(harness, firstProcess);
       await harness.stop();
       expect(harness.state, WorkerState.stopped);
 
-      await _startHarness(harness, secondProcess);
+      await startHarness(harness, secondProcess);
       expect(harness.state, WorkerState.idle);
 
       firstExitCode.complete(1);
-      await _pumpEventQueue();
+      await pumpEventLoop();
       expect(harness.state, WorkerState.idle);
     });
 

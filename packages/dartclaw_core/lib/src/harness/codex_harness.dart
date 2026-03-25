@@ -14,11 +14,12 @@ import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
 import 'harness_config.dart';
+import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends AgentHarness {
+class CodexHarness extends AgentHarness with SequentialLock {
   /// Working directory for the Codex subprocess.
   final String cwd;
 
@@ -74,7 +75,6 @@ class CodexHarness extends AgentHarness {
   Completer<Map<String, dynamic>>? _turnCompleter;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
-  Future<void> _lock = Future<void>.value();
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final Set<String> _agentMessageDeltaIds = <String>{};
   CodexEnvironment? _environment;
@@ -121,7 +121,7 @@ class CodexHarness extends AgentHarness {
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
-  Future<void> start() => _withLock(() async {
+  Future<void> start() => withLock(() async {
     if (_state == WorkerState.idle) {
       return;
     }
@@ -165,7 +165,7 @@ class CodexHarness extends AgentHarness {
       }
       final backoff = baseBackoff * pow(2, _crashCount - 1).toInt();
       await delayFactory(backoff);
-      await _withLock(() async {
+      await withLock(() async {
         if (_state == WorkerState.stopped) {
           throw StateError('Harness stopped during backoff');
         }
@@ -267,7 +267,7 @@ class CodexHarness extends AgentHarness {
   }
 
   @override
-  Future<void> stop() => _withLock(_stopInternal);
+  Future<void> stop() => withLock(_stopInternal);
 
   Future<void> _stopInternal() async {
     if (_state == WorkerState.busy) {
@@ -294,7 +294,7 @@ class CodexHarness extends AgentHarness {
     try {
       await process.stdin.close();
     } catch (_) {}
-    await _killWithEscalation(process);
+    await killWithEscalation(process, label: 'Codex', gracePeriod: _killGracePeriod, log: _log);
     await _cleanupEnvironment();
   }
 
@@ -382,7 +382,7 @@ class CodexHarness extends AgentHarness {
       try {
         await process.stdin.close();
       } catch (_) {}
-      await _killWithEscalation(process);
+      await killWithEscalation(process, label: 'Codex', gracePeriod: _killGracePeriod, log: _log);
     }
 
     await _cleanupEnvironment();
@@ -753,35 +753,4 @@ class CodexHarness extends AgentHarness {
     return value is String && value.trim().isNotEmpty ? value : null;
   }
 
-  /// Sends SIGTERM, waits [_killGracePeriod], then escalates to SIGKILL.
-  ///
-  /// After SIGKILL, waits up to 1 additional second for confirmed exit.
-  Future<void> _killWithEscalation(Process process) async {
-    process.kill(ProcessSignal.sigterm);
-    try {
-      await process.exitCode.timeout(
-        _killGracePeriod,
-        onTimeout: () async {
-          _log.warning(
-            'Codex process did not exit within '
-            '${_killGracePeriod.inSeconds}s after SIGTERM, sending SIGKILL',
-          );
-          if (!Platform.isWindows) {
-            process.kill(ProcessSignal.sigkill);
-          }
-          return process.exitCode.timeout(const Duration(seconds: 1), onTimeout: () => -1);
-        },
-      );
-    } catch (e) {
-      _log.fine('Error waiting for Codex process exit: $e');
-    }
-  }
-
-  Future<T> _withLock<T>(Future<T> Function() operation) {
-    final completer = Completer<T>();
-    final next = _lock.catchError((_) {}).then((_) => operation());
-    _lock = next.then<void>((_) {}, onError: (_) {});
-    next.then(completer.complete, onError: completer.completeError);
-    return completer.future;
-  }
 }

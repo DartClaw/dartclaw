@@ -10,47 +10,6 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-Future<ProcessResult> _result({int exitCode = 0, String stdout = ''}) async {
-  return ProcessResult(0, exitCode, stdout, '');
-}
-
-Future<void> _noOpDelay(Duration _) async {}
-
-Future<ProcessResult> _defaultCommandProbe(String exe, List<String> args) async {
-  return _result(exitCode: 0, stdout: '1.0.0');
-}
-
-Future<void> _pumpEventQueue() async {
-  await Future<void>.delayed(Duration.zero);
-}
-
-Future<void> _waitForSentMessage(FakeCodexProcess process, String method) async {
-  for (var i = 0; i < 50; i++) {
-    if (process.sentMessages.any((message) => message['method'] == method)) {
-      return;
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  throw StateError('Expected outbound message for $method');
-}
-
-Object _latestRequestId(FakeCodexProcess process, String method) {
-  return process.sentMessages.lastWhere((message) => message['method'] == method)['id']! as Object;
-}
-
-Future<void> _startHarness(CodexHarness harness, FakeCodexProcess process) async {
-  final startFuture = harness.start();
-  await _waitForSentMessage(process, 'initialize');
-  process.emitInitializeResponse(id: _latestRequestId(process, 'initialize'));
-  await startFuture;
-}
-
-Future<void> _respondToLatestThreadStart(FakeCodexProcess process, {String threadId = 'thread-123'}) async {
-  await _waitForSentMessage(process, 'thread/start');
-  process.emitThreadStartResponse(id: _latestRequestId(process, 'thread/start'), threadId: threadId);
-  await _pumpEventQueue();
-}
-
 class _PassGuard extends Guard {
   GuardContext? lastContext;
 
@@ -84,8 +43,8 @@ CodexHarness _buildHarness({
     executable: 'codex',
     processFactory:
         processFactory ?? (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => fake,
-    commandProbe: commandProbe ?? _defaultCommandProbe,
-    delayFactory: delayFactory ?? _noOpDelay,
+    commandProbe: commandProbe ?? defaultCommandProbe,
+    delayFactory: delayFactory ?? noOpDelay,
     environment: environment ?? const {'OPENAI_API_KEY': 'sk-test-key'},
     harnessConfig: harnessConfig,
     providerOptions: providerOptions,
@@ -117,7 +76,7 @@ void main() {
         );
         addTearDown(() async => harness.dispose());
 
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         expect(spawnedArgs, contains('app-server'));
         expect(spawnedArgs, isNot(contains('--yolo')));
@@ -128,7 +87,7 @@ void main() {
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         expect(harness.state, WorkerState.idle);
         expect(fake.sentMessages, hasLength(2));
@@ -147,8 +106,8 @@ void main() {
         addTearDown(() async => sub.cancel());
 
         final startFuture = harness.start();
-        await _waitForSentMessage(fake, 'initialize');
-        fake.emitInitializeResponse(id: _latestRequestId(fake, 'initialize'), contextWindow: 16384);
+        await waitForSentMessage(fake, 'initialize');
+        fake.emitInitializeResponse(id: latestRequestId(fake, 'initialize'), contextWindow: 16384);
         await startFuture;
 
         expect(events.any((event) => event is SystemInitEvent), isTrue);
@@ -172,7 +131,7 @@ void main() {
         );
         addTearDown(() async => harness.dispose());
 
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         expect(capturedWorkingDirectory, '/tmp');
         expect(capturedEnvironment, isNotNull);
@@ -199,7 +158,7 @@ void main() {
           final fake = FakeCodexProcess();
           final harness = _buildHarness(process: fake);
           addTearDown(() async => harness.dispose());
-          await _startHarness(harness, fake);
+          await startHarness(harness, fake);
 
           final events = <BridgeEvent>[];
           final sub = harness.events.listen(events.add);
@@ -213,11 +172,11 @@ void main() {
             systemPrompt: 'be concise',
           );
 
-          await _pumpEventQueue();
+          await pumpEventLoop();
           expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), hasLength(1));
           expect(fake.sentMessages.where((message) => message['method'] == 'turn/start'), isEmpty);
 
-          await _respondToLatestThreadStart(fake);
+          await respondToLatestThreadStart(fake);
 
           final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
           expect(turnStartMessage['params'], isA<Map<String, dynamic>>());
@@ -260,7 +219,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final firstTurn = harness.turn(
           sessionId: 'sess-thread',
@@ -270,8 +229,8 @@ void main() {
           systemPrompt: 'test',
         );
 
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake);
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
         await firstTurn;
 
@@ -283,7 +242,7 @@ void main() {
           systemPrompt: 'test',
         );
 
-        await _pumpEventQueue();
+        await pumpEventLoop();
         fake.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
         await secondTurn;
 
@@ -300,7 +259,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final firstTurn = harness.turn(
           sessionId: 'sess-a',
@@ -309,8 +268,8 @@ void main() {
           ],
           systemPrompt: 'test',
         );
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake, threadId: 'thread-a');
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'thread-a');
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
         await firstTurn;
 
@@ -321,8 +280,8 @@ void main() {
           ],
           systemPrompt: 'test',
         );
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake, threadId: 'thread-b');
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake, threadId: 'thread-b');
         fake.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
         await secondTurn;
 
@@ -341,7 +300,7 @@ void main() {
           providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
         );
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-history',
@@ -355,8 +314,8 @@ void main() {
           directory: '/tmp/workspace',
         );
 
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake);
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
 
         final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
         final params = turnStartMessage['params'] as Map<String, dynamic>;
@@ -397,7 +356,7 @@ void main() {
           providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
         );
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-default-model',
@@ -408,8 +367,8 @@ void main() {
           directory: '/tmp/workspace',
         );
 
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake);
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
 
         final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
         final params = turnStartMessage['params'] as Map<String, dynamic>;
@@ -427,7 +386,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final resultFuture = harness.turn(
           sessionId: 'sess-failed',
@@ -437,8 +396,8 @@ void main() {
           systemPrompt: 'test',
         );
 
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake);
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
         fake.emitTurnFailed('boom');
 
         final result = await resultFuture;
@@ -454,7 +413,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final firstTurn = harness.turn(
           sessionId: 'sess-3',
@@ -465,7 +424,7 @@ void main() {
         );
 
         expect(harness.state, WorkerState.busy);
-        await _pumpEventQueue();
+        await pumpEventLoop();
         expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), hasLength(1));
         expect(
           harness.turn(
@@ -484,7 +443,7 @@ void main() {
           ),
         );
 
-        await _respondToLatestThreadStart(fake);
+        await respondToLatestThreadStart(fake);
         expect(harness.state, WorkerState.busy);
 
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
@@ -504,7 +463,7 @@ void main() {
         );
         addTearDown(() async => harness.dispose());
 
-        await _startHarness(harness, firstProcess);
+        await startHarness(harness, firstProcess);
         final firstTurn = harness.turn(
           sessionId: 'sess-reset',
           messages: [
@@ -512,14 +471,14 @@ void main() {
           ],
           systemPrompt: 'test',
         );
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(firstProcess, threadId: 'thread-first');
+        await pumpEventLoop();
+        await respondToLatestThreadStart(firstProcess, threadId: 'thread-first');
         firstProcess.emitTurnCompleted(inputTokens: 1, outputTokens: 2);
         await firstTurn;
 
         await harness.stop();
 
-        await _startHarness(harness, secondProcess);
+        await startHarness(harness, secondProcess);
         final secondTurn = harness.turn(
           sessionId: 'sess-reset',
           messages: [
@@ -527,8 +486,8 @@ void main() {
           ],
           systemPrompt: 'test',
         );
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(secondProcess, threadId: 'thread-second');
+        await pumpEventLoop();
+        await respondToLatestThreadStart(secondProcess, threadId: 'thread-second');
         secondProcess.emitTurnCompleted(inputTokens: 3, outputTokens: 4);
         await secondTurn;
 
@@ -547,7 +506,7 @@ void main() {
           guardChain: GuardChain(guards: [guard]),
         );
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-guard',
@@ -557,8 +516,8 @@ void main() {
           systemPrompt: 'test',
         );
 
-        await _pumpEventQueue();
-        await _respondToLatestThreadStart(fake);
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
         fake.emitApprovalRequest(
           requestId: '4',
           toolUseId: 'tool-guard',
@@ -583,7 +542,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         await harness.cancel();
         expect(fake.stdinClosed, isTrue);
@@ -594,7 +553,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         await harness.stop();
         expect(harness.state, WorkerState.stopped);
@@ -605,7 +564,7 @@ void main() {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake);
 
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         await harness.dispose();
         expect(harness.state, WorkerState.stopped);
@@ -616,7 +575,7 @@ void main() {
       test('stop() escalates to SIGKILL when process does not exit after SIGTERM', () async {
         final fake = FakeCodexProcess();
         final harness = _buildHarness(process: fake, killGracePeriod: const Duration(milliseconds: 50));
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         // Schedule process exit after SIGKILL would be sent.
         Timer(const Duration(milliseconds: 100), () => fake.exit(137));
@@ -632,7 +591,7 @@ void main() {
       test('stop() does not escalate to SIGKILL when process exits promptly on SIGTERM', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake, killGracePeriod: const Duration(seconds: 5));
-        await _startHarness(harness, fake);
+        await startHarness(harness, fake);
 
         await harness.stop();
 

@@ -175,6 +175,13 @@ abstract final class ConfigMeta {
       min: 0,
       max: 3650,
     ),
+    'tasks.completion_action': FieldMeta(
+      yamlPath: 'tasks.completion_action',
+      jsonKey: 'tasks.completionAction',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['review', 'accept'],
+    ),
 
     'tasks.worktree.base_ref': FieldMeta(
       yamlPath: 'tasks.worktree.base_ref',

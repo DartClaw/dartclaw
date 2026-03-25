@@ -91,9 +91,6 @@ final class TurnResult extends ClaudeMessage {
     this.cacheReadInputTokens,
     this.cacheCreationInputTokens,
   });
-
-  int get totalTokens => (inputTokens ?? 0) + (outputTokens ?? 0);
-
   @override
   String toString() =>
       'TurnResult(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '

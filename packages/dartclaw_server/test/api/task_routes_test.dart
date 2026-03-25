@@ -9,23 +9,7 @@ import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-Future<String> _errorCode(Response res) async {
-  final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
-  return (body['error'] as Map<String, dynamic>)['code'] as String;
-}
-
-Map<String, dynamic> _decodeObject(String body) => jsonDecode(body) as Map<String, dynamic>;
-
-List<dynamic> _decodeList(String body) => jsonDecode(body) as List<dynamic>;
-
-Request _jsonRequest(String method, String path, [Map<String, dynamic>? body]) {
-  return Request(
-    method,
-    Uri.parse('http://localhost$path'),
-    body: body == null ? null : jsonEncode(body),
-    headers: {'content-type': 'application/json'},
-  );
-}
+import 'api_test_helpers.dart';
 
 void main() {
   late Database db;
@@ -65,7 +49,7 @@ void main() {
   group('POST /api/tasks', () {
     test('creates task in draft', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Draft task',
           'description': 'Describe the work',
           'type': 'coding',
@@ -73,14 +57,14 @@ void main() {
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['title'], 'Draft task');
       expect(body['status'], 'draft');
     });
 
     test('creates task with autoStart as queued', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Queued task',
           'description': 'Describe the work',
           'type': 'research',
@@ -89,7 +73,7 @@ void main() {
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'queued');
     });
 
@@ -97,7 +81,7 @@ void main() {
       final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
 
       final response = await handlerWithProjects(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Project task',
           'description': 'Describe the work',
           'type': 'coding',
@@ -106,7 +90,7 @@ void main() {
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['projectId'], 'my-app');
       expect((await tasks.get(body['id'] as String))!.projectId, 'my-app');
     });
@@ -115,7 +99,7 @@ void main() {
       final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
 
       final response = await handlerWithProjects(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Project task',
           'description': 'Describe the work',
           'type': 'coding',
@@ -124,12 +108,12 @@ void main() {
       );
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('echoes goalId on create', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Goal-linked task',
           'description': 'Describe the work',
           'type': 'coding',
@@ -138,38 +122,38 @@ void main() {
       );
 
       expect(response.statusCode, 201);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['goalId'], 'goal-1');
     });
 
     test('returns 400 for missing title', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {'description': 'Describe the work', 'type': 'coding'}),
+        jsonRequest('POST', '/api/tasks', {'description': 'Describe the work', 'type': 'coding'}),
       );
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 for missing description', () async {
-      final response = await handler(_jsonRequest('POST', '/api/tasks', {'title': 'Task', 'type': 'coding'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks', {'title': 'Task', 'type': 'coding'}));
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 for invalid type', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {'title': 'Task', 'description': 'Describe the work', 'type': 'invalid'}),
+        jsonRequest('POST', '/api/tasks', {'title': 'Task', 'description': 'Describe the work', 'type': 'invalid'}),
       );
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 for malformed string fields', () async {
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks', {
+        jsonRequest('POST', '/api/tasks', {
           'title': 'Task',
           'description': 'Describe the work',
           'type': 123,
@@ -179,7 +163,7 @@ void main() {
       );
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     // Note: draft-only creation (autoStart:false) does not fire a TaskStatusChangedEvent.
@@ -195,7 +179,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks')));
 
       expect(response.statusCode, 200);
-      expect(_decodeList(await response.readAsString()), hasLength(2));
+      expect(decodeList(await response.readAsString()), hasLength(2));
     });
 
     test('filters by status and type', () async {
@@ -208,7 +192,7 @@ void main() {
       );
 
       expect(response.statusCode, 200);
-      final body = _decodeList(await response.readAsString());
+      final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       expect((body.single as Map<String, dynamic>)['id'], 'queued-research');
     });
@@ -220,7 +204,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks?status=draft')));
 
       expect(response.statusCode, 200);
-      final body = _decodeList(await response.readAsString());
+      final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       expect((body.single as Map<String, dynamic>)['id'], 'draft-task');
     });
@@ -232,7 +216,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks?type=research')));
 
       expect(response.statusCode, 200);
-      final body = _decodeList(await response.readAsString());
+      final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       expect((body.single as Map<String, dynamic>)['id'], 'research-task');
     });
@@ -243,7 +227,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks?status=queued')));
 
       expect(response.statusCode, 200);
-      expect(_decodeList(await response.readAsString()), isEmpty);
+      expect(decodeList(await response.readAsString()), isEmpty);
     });
 
     test('ignores invalid filters', () async {
@@ -252,7 +236,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks?status=nope&type=missing')));
 
       expect(response.statusCode, 200);
-      expect(_decodeList(await response.readAsString()), hasLength(1));
+      expect(decodeList(await response.readAsString()), hasLength(1));
     });
 
     test('includes artifactDiskBytes in list response', () async {
@@ -271,7 +255,7 @@ void main() {
       ).call(Request('GET', Uri.parse('http://localhost/api/tasks')));
 
       expect(response.statusCode, 200);
-      final body = _decodeList(await response.readAsString());
+      final body = decodeList(await response.readAsString());
       final task = body.single as Map<String, dynamic>;
       expect(task['artifactDiskBytes'], 5);
     });
@@ -284,7 +268,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/task-1')));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['title'], 'Detailed task');
     });
 
@@ -304,7 +288,7 @@ void main() {
       ).call(Request('GET', Uri.parse('http://localhost/api/tasks/task-detail')));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['artifactDiskBytes'], 5);
     });
 
@@ -312,7 +296,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/missing')));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
   });
 
@@ -320,27 +304,27 @@ void main() {
     test('transitions draft to queued', () async {
       await createTask('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/start', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/start', const {}));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'queued');
     });
 
     test('returns 404 for missing task', () async {
-      final response = await handler(_jsonRequest('POST', '/api/tasks/missing/start', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/missing/start', const {}));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('returns 409 for invalid transition', () async {
       await createTask('task-1', autoStart: true);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/start', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/start', const {}));
 
       expect(response.statusCode, 409);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['error']['code'], 'INVALID_TRANSITION');
       expect(body['error']['details']['currentStatus'], 'queued');
     });
@@ -350,7 +334,7 @@ void main() {
       final events = <TaskStatusChangedEvent>[];
       eventBus.on<TaskStatusChangedEvent>().listen(events.add);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/start', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/start', const {}));
       expect(response.statusCode, 200);
       await Future<void>.delayed(Duration.zero);
 
@@ -365,31 +349,31 @@ void main() {
     test('transitions queued to running', () async {
       await createTask('task-1', autoStart: true);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'running');
     });
 
     test('returns 409 on concurrent checkout', () async {
       await createTask('task-1', autoStart: true);
-      final first = await handler(_jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
+      final first = await handler(jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
       expect(first.statusCode, 200);
 
-      final second = await handler(_jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
+      final second = await handler(jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
 
       expect(second.statusCode, 409);
-      final body = _decodeObject(await second.readAsString());
+      final body = decodeObject(await second.readAsString());
       expect(body['error']['code'], 'CHECKOUT_CONFLICT');
       expect(body['error']['details']['currentStatus'], 'running');
     });
 
     test('returns 404 for missing task', () async {
-      final response = await handler(_jsonRequest('POST', '/api/tasks/missing/checkout', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/missing/checkout', const {}));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('fires TaskStatusChangedEvent with system trigger', () async {
@@ -397,7 +381,7 @@ void main() {
       final events = <TaskStatusChangedEvent>[];
       eventBus.on<TaskStatusChangedEvent>().listen(events.add);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/checkout', const {}));
       expect(response.statusCode, 200);
       await Future<void>.delayed(Duration.zero);
 
@@ -413,28 +397,28 @@ void main() {
       await createTask('task-1', autoStart: true);
       await tasks.transition('task-1', TaskStatus.running);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'cancelled');
     });
 
     test('returns 404 for missing task', () async {
-      final response = await handler(_jsonRequest('POST', '/api/tasks/missing/cancel', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/missing/cancel', const {}));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('returns 409 for terminal task', () async {
       await createTask('task-1');
       await tasks.transition('task-1', TaskStatus.cancelled);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
 
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'INVALID_TRANSITION');
+      expect(await errorCode(response), 'INVALID_TRANSITION');
     });
 
     test('fires TaskStatusChangedEvent', () async {
@@ -443,7 +427,7 @@ void main() {
       final events = <TaskStatusChangedEvent>[];
       eventBus.on<TaskStatusChangedEvent>().listen(events.add);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
       expect(response.statusCode, 200);
       await Future<void>.delayed(Duration.zero);
 
@@ -460,7 +444,7 @@ void main() {
       await tasks.transition('task-1', TaskStatus.running);
       await tasks.updateFields('task-1', sessionId: 'session-123');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/cancel', const {}));
 
       expect(response.statusCode, 200);
       expect(turns.cancelledSessions, ['session-123']);
@@ -489,7 +473,7 @@ void main() {
       taskFileGuard.register('task-project', '/tmp/worktree-project');
       await tasks.transition('task-project', TaskStatus.running);
 
-      final response = await handlerWithProjects(_jsonRequest('POST', '/api/tasks/task-project/cancel', const {}));
+      final response = await handlerWithProjects(jsonRequest('POST', '/api/tasks/task-project/cancel', const {}));
 
       expect(response.statusCode, 200);
       expect(worktreeManager.cleanedTaskIds, ['task-project']);
@@ -502,20 +486,20 @@ void main() {
     test('accepts review task', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'accepted');
     });
 
     test('rejects review task', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'reject'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'reject'}));
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'rejected');
     });
 
@@ -523,11 +507,11 @@ void main() {
       await putTaskInReview('task-1');
 
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': 'try again'}),
+        jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': 'try again'}),
       );
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['status'], 'running');
       expect((body['configJson'] as Map<String, dynamic>)['pushBackCount'], 1);
       expect((body['configJson'] as Map<String, dynamic>)['pushBackComment'], 'try again');
@@ -536,10 +520,10 @@ void main() {
     test('returns 400 when push_back comment is missing', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back'}));
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
       expect((await tasks.get('task-1'))!.status, TaskStatus.review);
     });
 
@@ -547,11 +531,11 @@ void main() {
       await putTaskInReview('task-1');
 
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': '   '}),
+        jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': '   '}),
       );
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
       expect((await tasks.get('task-1'))!.status, TaskStatus.review);
     });
 
@@ -574,11 +558,11 @@ void main() {
       repo.concurrentStatusOnNextTransition = TaskStatus.accepted;
 
       final response = await racingHandler(
-        _jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': 'try again'}),
+        jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'push_back', 'comment': 'try again'}),
       );
 
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'INVALID_TRANSITION');
+      expect(await errorCode(response), 'INVALID_TRANSITION');
       final task = await racingTasks.get('task-1');
       expect(task!.status, TaskStatus.accepted);
       expect(task.configJson.containsKey('pushBackComment'), isFalse);
@@ -588,44 +572,44 @@ void main() {
     test('returns 400 for invalid action', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'ship_it'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'ship_it'}));
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 for missing action', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', const {}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', const {}));
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 for malformed action field', () async {
       await putTaskInReview('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 123}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 123}));
 
       expect(response.statusCode, 400);
-      expect(await _errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 404 for missing task', () async {
-      final response = await handler(_jsonRequest('POST', '/api/tasks/missing/review', {'action': 'accept'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/missing/review', {'action': 'accept'}));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('returns 409 for invalid transition', () async {
       await createTask('task-1');
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
 
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'INVALID_TRANSITION');
+      expect(await errorCode(response), 'INVALID_TRANSITION');
     });
 
     test('returns review-specific failure messages for unexpected errors', () async {
@@ -640,10 +624,10 @@ void main() {
       );
       final failingHandler = taskRoutes(tasks, mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded'))).call;
 
-      final response = await failingHandler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
+      final response = await failingHandler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
 
       expect(response.statusCode, 500);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['error']['code'], 'INTERNAL_ERROR');
       expect(body['error']['message'], 'Review action failed. Please try again or use the web UI.');
       expect((await tasks.get('task-1'))!.status, TaskStatus.review);
@@ -661,11 +645,11 @@ void main() {
       );
 
       final response = await handler(
-        _jsonRequest('POST', '/api/tasks/task-merge-missing/review', {'action': 'accept'}),
+        jsonRequest('POST', '/api/tasks/task-merge-missing/review', {'action': 'accept'}),
       );
 
       expect(response.statusCode, 500);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['error']['code'], 'INTERNAL_ERROR');
       expect(
         body['error']['message'],
@@ -679,7 +663,7 @@ void main() {
       final events = <TaskStatusChangedEvent>[];
       eventBus.on<TaskStatusChangedEvent>().listen(events.add);
 
-      final response = await handler(_jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-1/review', {'action': 'accept'}));
       expect(response.statusCode, 200);
       await Future<void>.delayed(Duration.zero);
 
@@ -722,10 +706,10 @@ void main() {
           baseRef: 'main',
         ).call;
 
-        final response = await mergeHandler(_jsonRequest('POST', '/api/tasks/merge-1/review', {'action': 'accept'}));
+        final response = await mergeHandler(jsonRequest('POST', '/api/tasks/merge-1/review', {'action': 'accept'}));
 
         expect(response.statusCode, 200);
-        final body = _decodeObject(await response.readAsString());
+        final body = decodeObject(await response.readAsString());
         expect(body['status'], 'accepted');
       });
 
@@ -754,10 +738,10 @@ void main() {
           baseRef: 'main',
         ).call;
 
-        final response = await mergeHandler(_jsonRequest('POST', '/api/tasks/merge-2/review', {'action': 'accept'}));
+        final response = await mergeHandler(jsonRequest('POST', '/api/tasks/merge-2/review', {'action': 'accept'}));
 
         expect(response.statusCode, 409);
-        final body = _decodeObject(await response.readAsString());
+        final body = decodeObject(await response.readAsString());
         expect(body['error']['code'], 'MERGE_CONFLICT');
         expect(body['error']['details']['conflictingFiles'], ['lib/main.dart', 'lib/utils.dart']);
 
@@ -788,7 +772,7 @@ void main() {
           baseRef: 'main',
         ).call;
 
-        await mergeHandler(_jsonRequest('POST', '/api/tasks/merge-3/review', {'action': 'accept'}));
+        await mergeHandler(jsonRequest('POST', '/api/tasks/merge-3/review', {'action': 'accept'}));
 
         final artifacts = await tasks.listArtifacts('merge-3');
         expect(artifacts, hasLength(1));
@@ -823,10 +807,10 @@ void main() {
           baseRef: 'main',
         ).call;
 
-        final response = await mergeHandler(_jsonRequest('POST', '/api/tasks/merge-4/review', {'action': 'reject'}));
+        final response = await mergeHandler(jsonRequest('POST', '/api/tasks/merge-4/review', {'action': 'reject'}));
 
         expect(response.statusCode, 200);
-        final body = _decodeObject(await response.readAsString());
+        final body = decodeObject(await response.readAsString());
         expect(body['status'], 'rejected');
         // Merge should not have been called
         expect(mockMerge.callCount, 0);
@@ -847,10 +831,10 @@ void main() {
           baseRef: 'main',
         ).call;
 
-        final response = await mergeHandler(_jsonRequest('POST', '/api/tasks/merge-5/review', {'action': 'accept'}));
+        final response = await mergeHandler(jsonRequest('POST', '/api/tasks/merge-5/review', {'action': 'accept'}));
 
         expect(response.statusCode, 200);
-        final body = _decodeObject(await response.readAsString());
+        final body = decodeObject(await response.readAsString());
         expect(body['status'], 'accepted');
         expect(mockMerge.callCount, 0);
       });
@@ -872,7 +856,7 @@ void main() {
       final response = await handler(Request('DELETE', Uri.parse('http://localhost/api/tasks/missing')));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('returns 409 for non-terminal task', () async {
@@ -881,7 +865,7 @@ void main() {
       final response = await handler(Request('DELETE', Uri.parse('http://localhost/api/tasks/task-1')));
 
       expect(response.statusCode, 409);
-      expect(await _errorCode(response), 'INVALID_STATE');
+      expect(await errorCode(response), 'INVALID_STATE');
     });
   });
 
@@ -899,7 +883,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/task-1/artifacts')));
 
       expect(response.statusCode, 200);
-      final body = _decodeList(await response.readAsString());
+      final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       expect((body.single as Map<String, dynamic>)['id'], 'artifact-1');
     });
@@ -908,7 +892,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/missing/artifacts')));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'TASK_NOT_FOUND');
+      expect(await errorCode(response), 'TASK_NOT_FOUND');
     });
 
     test('returns empty list when no artifacts', () async {
@@ -917,7 +901,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/task-1/artifacts')));
 
       expect(response.statusCode, 200);
-      expect(_decodeList(await response.readAsString()), isEmpty);
+      expect(decodeList(await response.readAsString()), isEmpty);
     });
   });
 
@@ -937,7 +921,7 @@ void main() {
       );
 
       expect(response.statusCode, 200);
-      final body = _decodeObject(await response.readAsString());
+      final body = decodeObject(await response.readAsString());
       expect(body['kind'], 'document');
     });
 
@@ -947,7 +931,7 @@ void main() {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/task-1/artifacts/missing')));
 
       expect(response.statusCode, 404);
-      expect(await _errorCode(response), 'ARTIFACT_NOT_FOUND');
+      expect(await errorCode(response), 'ARTIFACT_NOT_FOUND');
     });
   });
 }

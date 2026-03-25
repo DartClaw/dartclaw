@@ -31,7 +31,7 @@ void main() {
     });
 
     test('description matches expected value', () {
-      expect(runner.description, 'DartClaw \u2014 security-focused agent runtime');
+      expect(runner.description, 'DartClaw \u2014 security-conscious AI agent runtime');
     });
 
     test('executable name is dartclaw', () {

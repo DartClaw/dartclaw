@@ -2,7 +2,10 @@
 
 _Agentic powers. No dependency black holes. Secure by design._
 
-> **Status**: v0.13 — Multi-provider agent harnesses (Claude Code + Codex), crowd coding, runtime governance. Pre-release. See [CHANGELOG](CHANGELOG.md).
+> **Status**: v0.14.2 – Shareable canvas, multi-project support, task observability, multi-provider harnesses. Pre-release. See [CHANGELOG](CHANGELOG.md).
+
+**Welcome to DartClaw – An experimental, security-conscious AI agent runtime built with Dart.**
+
 
 ## Quick Start
 
@@ -16,7 +19,7 @@ dart run dartclaw_cli:dartclaw serve
 
 ## What is DartClaw?
 
-DartClaw is a security-minded agent runtime built as a single AOT-compiled Dart binary with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex.
+DartClaw is a security-conscious AI agent runtime built as a single AOT-compiled Dart binary with zero Node.js or npm in the chain. It combines a Dart host for state, policy, and routing with native agent harnesses for Claude Code and Codex.
 
 The host talks to agent runtimes through the `AgentHarness` abstract interface. `HarnessFactory` selects the provider-specific implementation, `HarnessPool` manages mixed workers, and the guard chain applies the same canonical tool policy across providers.
 

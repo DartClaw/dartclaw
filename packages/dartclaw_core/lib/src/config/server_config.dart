@@ -4,6 +4,7 @@ class ServerConfig {
   final String host;
   final String name;
   final String dataDir;
+  final String? baseUrl;
   final int workerTimeout;
   final String claudeExecutable;
   final String staticDir;
@@ -16,6 +17,7 @@ class ServerConfig {
     this.host = 'localhost',
     this.name = 'DartClaw',
     this.dataDir = '~/.dartclaw',
+    this.baseUrl,
     this.workerTimeout = 600,
     this.claudeExecutable = 'claude',
     this.staticDir = 'packages/dartclaw_server/lib/src/static',

@@ -85,7 +85,10 @@ void main() {
     expect(dispatchedMessage, isNull);
     expect((await tasks.list()), hasLength(1));
     expect(body['cardsV2'], isA<List<dynamic>>());
-    expect(_cardHeader(body), {'title': 'Task created: investigate slow webhook', 'subtitle': 'queued'});
+    expect(_cardHeader(body), {
+      'title': 'Task created: investigate slow webhook -- Queued (will start when a slot opens)',
+      'subtitle': 'queued',
+    });
   });
 
   test('MESSAGE slash commands are routed from annotations when message.slashCommand is absent', () async {

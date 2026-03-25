@@ -55,7 +55,7 @@ void main() {
     expect(channel.sentMessages, hasLength(1));
     expect(
       channel.sentMessages.first.$2.text,
-      'Task created: fix the login bug [research] -- ID: ${_shortTaskId(task.id)}',
+      'Task created: fix the login bug [research] -- ID: ${_shortTaskId(task.id)} -- Queued (will start when a slot opens)',
     );
 
     final running = await tasks.transition(task.id, TaskStatus.running);

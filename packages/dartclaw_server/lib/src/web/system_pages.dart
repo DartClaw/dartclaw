@@ -10,6 +10,7 @@ import '../params/display_params.dart';
 import '../provider_status_service.dart';
 import '../runtime_config.dart';
 import 'page_registry.dart';
+import 'pages/canvas_admin_page.dart';
 import 'pages/health_page.dart';
 import 'pages/memory_page.dart';
 import 'pages/projects_page.dart';
@@ -38,6 +39,7 @@ void registerSystemDashboardPages(
   bool showMemory = true,
   bool showScheduling = true,
   bool showTasks = true,
+  bool showCanvas = false,
   ProjectService? projectService,
 }) {
   if (showHealth) {
@@ -79,6 +81,9 @@ void registerSystemDashboardPages(
   }
   if (showTasks) {
     registry.register(TasksPage());
+  }
+  if (showCanvas) {
+    registry.register(CanvasAdminPage());
   }
   if (projectService != null) {
     registry.register(ProjectsPage());

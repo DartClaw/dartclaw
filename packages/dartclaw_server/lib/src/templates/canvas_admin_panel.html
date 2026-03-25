@@ -1,0 +1,244 @@
+<div class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner">
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">banner</div>
+
+      <style>
+        .canvas-admin-grid {
+          display: grid;
+          gap: 1.5rem;
+        }
+
+        .canvas-admin-card {
+          background: var(--surface-0, #181825);
+          border: 1px solid var(--surface-2, rgba(255, 255, 255, 0.08));
+          border-radius: 18px;
+          padding: 1.25rem;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .canvas-admin-card h2 {
+          margin: 0 0 0.5rem;
+        }
+
+        .canvas-admin-card p {
+          margin: 0 0 1rem;
+          color: var(--text-muted, #a6adc8);
+        }
+
+        .canvas-embed-frame {
+          width: 100%;
+          min-height: 28rem;
+          border: 0;
+          border-radius: 14px;
+          background: #0f172a;
+        }
+
+        .canvas-controls {
+          display: grid;
+          gap: 1rem;
+        }
+
+        .canvas-controls-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+        }
+
+        .canvas-controls-row input,
+        .canvas-controls-row select {
+          min-width: 11rem;
+        }
+
+        .canvas-share-list {
+          display: grid;
+          gap: 0.75rem;
+        }
+
+        .canvas-share-item {
+          border: 1px solid var(--surface-2, rgba(255, 255, 255, 0.08));
+          border-radius: 14px;
+          padding: 0.9rem;
+          display: grid;
+          gap: 0.6rem;
+        }
+
+        .canvas-share-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+          color: var(--text-muted, #a6adc8);
+          font-size: 0.92rem;
+        }
+
+        .canvas-share-url {
+          font-family: var(--font-mono, "SF Mono", monospace);
+          font-size: 0.92rem;
+          word-break: break-all;
+        }
+
+        .canvas-share-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .canvas-qr {
+          max-width: 13rem;
+          background: white;
+          border-radius: 12px;
+          padding: 0.75rem;
+        }
+
+        .canvas-empty-state {
+          color: var(--text-muted, #a6adc8);
+          font-style: italic;
+        }
+      </style>
+
+      <section class="canvas-admin-grid" tl:attr="data-session-key=${sessionKey}">
+        <article class="canvas-admin-card">
+          <h2>Live Canvas</h2>
+          <p>Sandboxed embed of the shareable canvas surface.</p>
+          <iframe
+            sandbox="allow-scripts allow-forms"
+            tl:attr="src=${embedUrl}"
+            class="canvas-embed-frame"></iframe>
+        </article>
+
+        <article class="canvas-admin-card">
+          <h2>Share Links</h2>
+          <p>Create and revoke public canvas links for workshop viewers.</p>
+          <div class="canvas-controls">
+            <div class="canvas-controls-row">
+              <select id="canvas-share-permission">
+                <option value="interact">Interact</option>
+                <option value="view">View only</option>
+              </select>
+              <input id="canvas-share-label" type="text" maxlength="60" placeholder="Optional label">
+              <button id="canvas-share-generate" class="btn btn-primary" type="button">Generate Share Link</button>
+            </div>
+            <div id="canvas-share-list" class="canvas-share-list">
+              <div class="canvas-empty-state">No active share links yet.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <script>
+        (() => {
+          const root = document.querySelector('[data-session-key]');
+          if (!root) {
+            return;
+          }
+          const sessionKey = root.dataset.sessionKey;
+          const listEl = document.getElementById('canvas-share-list');
+          const permissionEl = document.getElementById('canvas-share-permission');
+          const labelEl = document.getElementById('canvas-share-label');
+          const generateButton = document.getElementById('canvas-share-generate');
+
+          function escapeHtml(value) {
+            return String(value)
+              .replaceAll('&', '&amp;')
+              .replaceAll('<', '&lt;')
+              .replaceAll('>', '&gt;')
+              .replaceAll('"', '&quot;')
+              .replaceAll("'", '&#39;');
+          }
+
+          async function loadShares() {
+            const response = await fetch('/api/canvas/share?sessionKey=' + encodeURIComponent(sessionKey));
+            const items = response.ok ? await response.json() : [];
+            renderShares(items);
+          }
+
+          function renderShares(items) {
+            if (!items.length) {
+              listEl.innerHTML = '<div class="canvas-empty-state">No active share links yet.</div>';
+              return;
+            }
+
+            listEl.innerHTML = items.map((item) => {
+              const label = item.label ? '<strong>' + escapeHtml(item.label) + '</strong>' : '<strong>Untitled link</strong>';
+              const qrBlock = item.qrSvg ? '<div class="canvas-qr" hidden>' + item.qrSvg + '</div>' : '';
+              return `
+                <article class="canvas-share-item" data-token="${escapeHtml(item.token)}">
+                  <div>${label}</div>
+                  <div class="canvas-share-meta">
+                    <span>${escapeHtml(item.permission)}</span>
+                    <span>Expires ${escapeHtml(item.expiresAt)}</span>
+                  </div>
+                  <div class="canvas-share-url">${escapeHtml(item.url)}</div>
+                  <div class="canvas-share-actions">
+                    <button class="btn btn-sm" type="button" data-copy-url="${escapeHtml(item.url)}">Copy</button>
+                    <button class="btn btn-sm" type="button" data-toggle-qr>Show QR</button>
+                    <button class="btn btn-sm btn-danger" type="button" data-revoke-token="${escapeHtml(item.token)}">Revoke</button>
+                  </div>
+                  ${qrBlock}
+                </article>
+              `;
+            }).join('');
+          }
+
+          generateButton.addEventListener('click', async () => {
+            generateButton.disabled = true;
+            try {
+              const response = await fetch('/api/canvas/share', {
+                method: 'POST',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify({
+                  sessionKey,
+                  permission: permissionEl.value,
+                  label: labelEl.value.trim() || null
+                })
+              });
+              if (response.ok) {
+                labelEl.value = '';
+                await loadShares();
+              }
+            } finally {
+              generateButton.disabled = false;
+            }
+          });
+
+          listEl.addEventListener('click', async (event) => {
+            const copyUrl = event.target.getAttribute('data-copy-url');
+            if (copyUrl) {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(copyUrl);
+              }
+              return;
+            }
+
+            const revokeToken = event.target.getAttribute('data-revoke-token');
+            if (revokeToken) {
+              await fetch('/api/canvas/share/' + encodeURIComponent(revokeToken), {method: 'DELETE'});
+              await loadShares();
+              return;
+            }
+
+            if (event.target.hasAttribute('data-toggle-qr')) {
+              const card = event.target.closest('.canvas-share-item');
+              const qr = card.querySelector('.canvas-qr');
+              if (!qr) {
+                return;
+              }
+              const isHidden = qr.hasAttribute('hidden');
+              if (isHidden) {
+                qr.removeAttribute('hidden');
+                event.target.textContent = 'Hide QR';
+              } else {
+                qr.setAttribute('hidden', '');
+                event.target.textContent = 'Show QR';
+              }
+            }
+          });
+
+          loadShares();
+        })();
+      </script>
+    </div>
+  </main>
+</div>

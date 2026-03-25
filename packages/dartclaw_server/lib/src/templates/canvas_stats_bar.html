@@ -1,0 +1,173 @@
+<section tl:fragment="statsBar" class="canvas-stats-bar">
+  <style>
+    .canvas-stats-bar {
+      color: #f8fbff;
+      width: 100%;
+      margin-bottom: 0.9rem;
+    }
+
+    .canvas-stats-grid {
+      display: grid;
+      grid-template-columns: minmax(12rem, 2fr) minmax(10rem, 1fr) minmax(12rem, 1.2fr) minmax(9rem, 0.9fr);
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+
+    .canvas-stat-block {
+      background: rgba(20, 27, 48, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 0.8rem;
+      padding: 0.65rem 0.75rem;
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .canvas-stat-title {
+      margin: 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #d8e4ff;
+      font-weight: 700;
+    }
+
+    .canvas-budget-track {
+      height: 0.62rem;
+      background: rgba(51, 65, 85, 0.8);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .canvas-budget-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 999px;
+    }
+
+    .canvas-budget-green {
+      background: linear-gradient(90deg, #4ade80, #22c55e);
+    }
+
+    .canvas-budget-yellow {
+      background: linear-gradient(90deg, #fde047, #f59e0b);
+    }
+
+    .canvas-budget-red {
+      background: linear-gradient(90deg, #fb7185, #ef4444);
+    }
+
+    .canvas-budget-disabled {
+      background: linear-gradient(90deg, #64748b, #475569);
+    }
+
+    .canvas-budget-label {
+      margin: 0;
+      color: #deebff;
+      font-size: 0.77rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .canvas-counter-row {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+
+    .canvas-counter-chip {
+      background: rgba(51, 65, 85, 0.56);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 999px;
+      padding: 0.22rem 0.52rem;
+      color: #e2e8f0;
+      font-size: 0.73rem;
+      line-height: 1.15;
+      display: inline-flex;
+      gap: 0.28rem;
+    }
+
+    .canvas-counter-chip strong {
+      color: #f8fbff;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .canvas-leaderboard {
+      margin: 0;
+      padding-left: 1.15rem;
+      color: #e2e8f0;
+      font-size: 0.75rem;
+      line-height: 1.25;
+      display: grid;
+      gap: 0.2rem;
+    }
+
+    .canvas-leaderboard-count {
+      margin-left: 0.34rem;
+      color: #c7d2fe;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.7rem;
+    }
+
+    .canvas-clock {
+      margin: 0;
+      color: #f8fbff;
+      font-size: 1.02rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .canvas-muted {
+      margin: 0;
+      color: #cbd5e1;
+      font-size: 0.74rem;
+    }
+
+    @media (max-width: 1024px) {
+      .canvas-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 600px) {
+      .canvas-stats-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+
+  <div class="canvas-stats-grid">
+    <div class="canvas-stat-block">
+      <h3 class="canvas-stat-title">Budget</h3>
+      <div class="canvas-budget-track">
+        <div class="canvas-budget-fill" tl:classappend="' ' + ${budgetClass}" tl:attr="style='width:' + ${budgetPercent} + '%'"></div>
+      </div>
+      <p class="canvas-budget-label" tl:text="${budgetLabel}">0 / 0 tokens</p>
+    </div>
+
+    <div class="canvas-stat-block">
+      <h3 class="canvas-stat-title">Activity</h3>
+      <div class="canvas-counter-row">
+        <span class="canvas-counter-chip">Done <strong tl:text="${completedCount}">0</strong></span>
+        <span class="canvas-counter-chip">Running <strong tl:text="${runningCount}">0</strong></span>
+        <span class="canvas-counter-chip">Queued <strong tl:text="${queuedCount}">0</strong></span>
+      </div>
+    </div>
+
+    <div class="canvas-stat-block">
+      <h3 class="canvas-stat-title">Contributors</h3>
+      <ol class="canvas-leaderboard" tl:if="${hasContributors}">
+        <li tl:each="entry : ${contributors}">
+          <span tl:text="${entry.name}">System</span>
+          <span class="canvas-leaderboard-count" tl:text="${entry.count}">1</span>
+        </li>
+      </ol>
+      <p class="canvas-muted" tl:unless="${hasContributors}">No contributors yet</p>
+    </div>
+
+    <div class="canvas-stat-block">
+      <h3 class="canvas-stat-title">Session</h3>
+      <p class="canvas-clock" tl:attr="data-start-time=${sessionStartIso}" tl:text="${elapsedLabel}">0m</p>
+    </div>
+  </div>
+</section>

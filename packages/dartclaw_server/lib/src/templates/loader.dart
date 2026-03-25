@@ -25,6 +25,11 @@ const expectedTemplates = [
   'task_detail',
   'task_timeline',
   'projects',
+  'canvas_standalone',
+  'canvas_embed',
+  'canvas_admin_panel',
+  'canvas_task_board',
+  'canvas_stats_bar',
 ];
 
 TemplateLoaderService? _templateLoader;

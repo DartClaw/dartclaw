@@ -1,4 +1,4 @@
-/// DartClaw — Security-focused AI agent runtime for Dart.
+/// DartClaw — An experimental, security-conscious AI agent runtime built with Dart.
 ///
 /// Wraps the official `claude` CLI binary via JSONL control protocol,
 /// providing subprocess harness, guard chain, session management, and

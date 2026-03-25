@@ -14,6 +14,7 @@ import '../scoping/session_scope_config.dart';
 import '../utils/path_utils.dart';
 import 'agent_config.dart';
 import 'auth_config.dart';
+import 'canvas_config.dart';
 import 'context_config.dart';
 import 'credentials_config.dart';
 import 'gateway_config.dart';
@@ -45,6 +46,7 @@ class DartclawConfig {
   final ServerConfig server;
   final AgentConfig agent;
   final AuthConfig auth;
+  final CanvasConfig canvas;
   final GatewayConfig gateway;
   final SessionConfig sessions;
   final ContextConfig context;
@@ -91,6 +93,7 @@ class DartclawConfig {
     this.server = const ServerConfig.defaults(),
     this.agent = const AgentConfig.defaults(),
     this.auth = const AuthConfig.defaults(),
+    this.canvas = const CanvasConfig.defaults(),
     this.gateway = const GatewayConfig.defaults(),
     this.sessions = const SessionConfig.defaults(),
     this.context = const ContextConfig.defaults(),
@@ -216,6 +219,7 @@ class DartclawConfig {
     final logging = _parseLogging(yaml, cli, environment, const LoggingConfig.defaults(), warns);
     final agent = _parseAgent(yaml, const AgentConfig.defaults(), warns);
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
+    final canvas = _parseCanvas(yaml, const CanvasConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
     final sessions = _parseSessions(yaml, const SessionConfig.defaults(), warns);
     final context = _parseContext(yaml, const ContextConfig.defaults(), warns);
@@ -270,6 +274,7 @@ class DartclawConfig {
       server: server,
       agent: agent,
       auth: auth,
+      canvas: canvas,
       gateway: gateway,
       sessions: sessions,
       context: context,
@@ -350,6 +355,14 @@ class DartclawConfig {
     final port = _parseInt('port', cli['port'], yaml['port'], defaults.port, warns);
     final host = _parseString('host', cli['host'], yaml['host'], defaults.host, env, warns);
     final name = _parseString('name', cli['name'], yaml['name'], defaults.name, env, warns);
+    String? baseUrl = defaults.baseUrl;
+    final rawBaseUrl = yaml['base_url'];
+    if (rawBaseUrl is String) {
+      final normalized = envSubstitute(rawBaseUrl, env: env).trim();
+      baseUrl = normalized.isEmpty ? null : normalized;
+    } else if (rawBaseUrl != null) {
+      warns.add('Invalid type for base_url: "${rawBaseUrl.runtimeType}" — using default');
+    }
     final workerTimeout = _parseInt(
       'worker_timeout',
       cli['worker_timeout'],
@@ -383,6 +396,7 @@ class DartclawConfig {
       host: host,
       name: name,
       dataDir: dataDir,
+      baseUrl: baseUrl,
       workerTimeout: workerTimeout,
       claudeExecutable: claudeExecutable,
       staticDir: staticDir,
@@ -1492,6 +1506,82 @@ class DartclawConfig {
     );
   }
 
+  static CanvasConfig _parseCanvas(Map<String, dynamic> yaml, CanvasConfig defaults, List<String> warns) {
+    final canvasMap = _sectionMap('canvas', yaml, warns);
+    if (canvasMap == null) return defaults;
+
+    var enabled = defaults.enabled;
+    final enabledRaw = canvasMap['enabled'];
+    if (enabledRaw is bool) {
+      enabled = enabledRaw;
+    } else if (enabledRaw != null) {
+      warns.add('Invalid type for canvas.enabled: "${enabledRaw.runtimeType}" — using default');
+    }
+
+    var share = defaults.share;
+    final shareRaw = canvasMap['share'];
+    if (shareRaw is Map) {
+      final defaultPermissionRaw = shareRaw['default_permission'];
+      final defaultPermission = switch (defaultPermissionRaw) {
+        String value when value.trim() == 'view' || value.trim() == 'interact' => value.trim(),
+        String value => () {
+          warns.add('Unknown canvas.share.default_permission: "$value" — using default "${share.defaultPermission}"');
+          return share.defaultPermission;
+        }(),
+        null => share.defaultPermission,
+        _ => () {
+          warns.add(
+            'Invalid type for canvas.share.default_permission: "${defaultPermissionRaw.runtimeType}" — using default',
+          );
+          return share.defaultPermission;
+        }(),
+      };
+      final defaultTtlMinutes = _parseInt(
+        'canvas.share.default_ttl',
+        null,
+        _parseDurationMinutes(shareRaw['default_ttl']),
+        share.defaultTtlMinutes,
+        warns,
+      );
+      final maxConnections = _parseInt(
+        'canvas.share.max_connections',
+        null,
+        shareRaw['max_connections'],
+        share.maxConnections,
+        warns,
+      );
+      final autoShare = shareRaw['auto_share'] is bool ? shareRaw['auto_share'] as bool : share.autoShare;
+      final showQr = shareRaw['show_qr'] is bool ? shareRaw['show_qr'] as bool : share.showQr;
+      share = CanvasShareConfig(
+        defaultPermission: defaultPermission,
+        defaultTtlMinutes: defaultTtlMinutes,
+        maxConnections: maxConnections,
+        autoShare: autoShare,
+        showQr: showQr,
+      );
+    } else if (shareRaw != null) {
+      warns.add('Invalid type for canvas.share: "${shareRaw.runtimeType}" — using defaults');
+    }
+
+    var workshopMode = defaults.workshopMode;
+    final workshopRaw = canvasMap['workshop_mode'];
+    if (workshopRaw is Map) {
+      workshopMode = CanvasWorkshopConfig(
+        taskBoard: workshopRaw['task_board'] is bool ? workshopRaw['task_board'] as bool : workshopMode.taskBoard,
+        showContributorStats: workshopRaw['show_contributor_stats'] is bool
+            ? workshopRaw['show_contributor_stats'] as bool
+            : workshopMode.showContributorStats,
+        showBudgetBar: workshopRaw['show_budget_bar'] is bool
+            ? workshopRaw['show_budget_bar'] as bool
+            : workshopMode.showBudgetBar,
+      );
+    } else if (workshopRaw != null) {
+      warns.add('Invalid type for canvas.workshop_mode: "${workshopRaw.runtimeType}" — using defaults');
+    }
+
+    return CanvasConfig(enabled: enabled, share: share, workshopMode: workshopMode);
+  }
+
   /// Parses a YAML duration value to integer minutes.
   ///
   /// Accepts: integer (minutes), or string with suffix: '30s' (→ 0), '5m' (→ 5),
@@ -1588,6 +1678,7 @@ class DartclawConfig {
     'host',
     'name',
     'data_dir',
+    'base_url',
     'worker_timeout',
     'memory_max_bytes',
     'dev_mode',
@@ -1610,6 +1701,7 @@ class DartclawConfig {
     'guard_audit',
     'memory',
     'tasks',
+    'canvas',
     'automation',
     'governance',
     'features',

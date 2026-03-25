@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.2] — 2026-03-25
+
+Shareable Canvas for Crowd Coding — agent-controlled visual workspace rendered on viewer devices via SSE, accessible via zero-auth share links. Purpose-built for workshop projection and participant phone access.
+
+### Added
+
+#### Phase A — Core Plumbing
+- **CanvasService + state model** (S1): In-memory per-session canvas state (`CanvasState`, `CanvasShareToken`, `CanvasPermission`) with SSE broadcast to all connected viewers. Share token lifecycle (create with 24-byte `Random.secure()`, validate, revoke, lazy expiry cleanup). Configurable max SSE connections per session and max HTML size (512KB default)
+- **Canvas route handlers + share-token middleware** (S2): shelf `Router` at `/canvas` with three routes: `GET /canvas/:token` (standalone page), `GET /canvas/:token/stream` (SSE), `POST /canvas/:token/action` (interaction injection). `canvasShareMiddleware` validates tokens and returns 404 on all failures (no information leakage). Canvas routes bypass `authMiddleware` via `publicPrefixes`. Per-token action rate limiter (10 req/min)
+- **Canvas MCP tool** (S3): `CanvasTool` implementing `McpTool` with five actions: `render` (push HTML), `clear`, `share` (create share link), `present`/`hide` (visibility toggle). Config-driven base URL, default permission, and default TTL
+
+#### Phase B — Standalone Canvas Page
+- **Standalone canvas page** (S4): Self-contained Trellis template with all CSS and JS inline (zero external dependencies). Catppuccin dark/light palette via `prefers-color-scheme`. Responsive `clamp()`-based typography for projectors, tablets, and phones. SSE via `EventSource` with auto-reconnect. Nickname dialog for `interact` tokens, `canvas-view-only` CSS for `view` tokens. Connection status indicator (green/yellow/red). CSP nonce-based policy (`script-src 'nonce-{nonce}'`) blocking injected scripts from agent HTML
+- **Admin canvas panel + share link management** (S5): Canvas admin page at `/canvas-admin` with sandboxed iframe embed (`sandbox="allow-scripts allow-forms"`). Share link management: generate, copy URL, revoke, list active tokens with labels. QR code generation via `package:qr` (inline SVG). Admin API routes behind `authMiddleware`: `POST/DELETE/GET /api/canvas/share`, `GET /api/sessions/:key/canvas/embed`. Embed endpoint with CSP headers
+
+#### Phase C — Workshop Templates
+- **Workshop task board template** (S6): Kanban-style task board fragment with four columns (Queued, Running, Review, Done). Cards show task title, creator name, and relative time-in-state. Running tasks display CSS-animated pulsing indicator. Responsive: 4-column (>1200px), 2-column (600–1200px), stacked (<600px)
+- **Workshop stats bar template** (S7): Composable stats bar with token budget progress (color-coded: green <50%, yellow 50–80%, red >80%), task activity counters, top-5 contributor leaderboard (from `Task.createdBy`), and session elapsed clock. `WorkshopCanvasSubscriber` auto-pushes both fragments on `TaskStatusChangedEvent` with 500ms debounce
+
+#### Phase D — Configuration + Documentation
+- **Canvas config section** (S8): `CanvasConfig` with nested `CanvasShareConfig` and `CanvasWorkshopConfig` as built-in config section. `base_url` field on `ServerConfig`. 10 `FieldMeta` entries. `ConfigSerializer` additions. Canvas routes conditionally mounted based on `canvas.enabled`
+- **Documentation** (S9): Updated crowd coding recipe with canvas config and usage guidance. Workshop facilitation guide updated with canvas setup checklist, H2 resolution, and canvas troubleshooting. System architecture and feature comparison updated. User-facing architecture overview updated
+
+### Changed
+
+- **CSP policy**: Canvas pages use nonce-based `script-src` instead of `unsafe-inline`, preventing XSS from agent-generated HTML rendered via `innerHTML`
+- **Version display**: Updated from 0.14.1 to 0.14.2
+
+---
+
 ## [0.14.1] — 2026-03-25
 
 Crowd coding workshop polish — targeted UX improvements for multi-user collaborative sessions via Google Chat Spaces.

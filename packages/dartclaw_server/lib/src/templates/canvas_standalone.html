@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DartClaw Canvas</title>
+    <style>
+      :root {
+        --bg: #11111b;
+        --panel: rgba(30, 30, 46, 0.88);
+        --surface: #181825;
+        --text: #cdd6f4;
+        --muted: #a6adc8;
+        --accent: #89b4fa;
+        --accent-2: #94e2d5;
+        --warn: #fab387;
+        --danger: #f38ba8;
+        --ok: #a6e3a1;
+        --shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+        --space: clamp(1rem, 2vw, 2rem);
+        --font-body: "SF Pro Display", "Segoe UI", sans-serif;
+        --font-mono: "SF Mono", "JetBrains Mono", monospace;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #eff1f5;
+          --panel: rgba(255, 255, 255, 0.92);
+          --surface: #ffffff;
+          --text: #1e1e2e;
+          --muted: #6c7086;
+          --accent: #1e66f5;
+          --accent-2: #179299;
+          --warn: #df8e1d;
+          --danger: #d20f39;
+          --ok: #40a02b;
+          --shadow: 0 24px 48px rgba(30, 30, 46, 0.14);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font-body);
+        background:
+          radial-gradient(circle at top left, rgba(137, 180, 250, 0.18), transparent 36%),
+          radial-gradient(circle at bottom right, rgba(148, 226, 213, 0.14), transparent 30%),
+          linear-gradient(160deg, var(--bg), color-mix(in srgb, var(--bg) 78%, black));
+        color: var(--text);
+      }
+
+      body.canvas-hidden #canvas-content {
+        opacity: 0.35;
+        filter: saturate(0.4);
+      }
+
+      .canvas-shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: var(--space);
+      }
+
+      .canvas-stage {
+        width: min(1200px, 100%);
+        min-height: min(82vh, 960px);
+        background: var(--panel);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        padding: clamp(1.25rem, 3vw, 2.5rem);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .canvas-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        color: var(--muted);
+        font-size: clamp(0.85rem, 1.5vw, 1rem);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .canvas-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      #canvas-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 22px;
+        background: color-mix(in srgb, var(--surface) 82%, transparent);
+        padding: clamp(1rem, 3vw, 2rem);
+        font-size: clamp(1rem, 2.5vw, 2rem);
+        line-height: 1.5;
+        transition: opacity 160ms ease;
+        overflow: auto;
+      }
+
+      .canvas-waiting {
+        text-align: center;
+        max-width: 32rem;
+        color: var(--muted);
+      }
+
+      .canvas-waiting strong {
+        display: block;
+        margin-bottom: 0.75rem;
+        color: var(--text);
+        font-size: clamp(1.25rem, 3vw, 2.6rem);
+      }
+
+      .status-dot {
+        position: fixed;
+        right: 1rem;
+        bottom: 1rem;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.14);
+        transition: background 120ms ease, transform 120ms ease;
+      }
+
+      .status-connected { background: var(--ok); }
+      .status-reconnecting { background: var(--warn); transform: scale(1.08); }
+      .status-disconnected { background: var(--danger); }
+
+      dialog {
+        border: 0;
+        border-radius: 20px;
+        padding: 0;
+        max-width: min(28rem, calc(100vw - 2rem));
+        width: 100%;
+        background: transparent;
+      }
+
+      dialog::backdrop { background: rgba(17, 17, 27, 0.72); }
+
+      .nickname-card {
+        background: var(--surface);
+        color: var(--text);
+        border-radius: 20px;
+        padding: 1.5rem;
+        box-shadow: var(--shadow);
+      }
+
+      .nickname-card h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.4rem;
+      }
+
+      .nickname-card p {
+        margin: 0 0 1rem;
+        color: var(--muted);
+      }
+
+      .nickname-card label {
+        display: block;
+        font-size: 0.95rem;
+        margin-bottom: 0.4rem;
+      }
+
+      .nickname-card input {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.05);
+        color: inherit;
+        border-radius: 12px;
+        padding: 0.85rem 1rem;
+        font: inherit;
+      }
+
+      .nickname-card button {
+        margin-top: 1rem;
+        width: 100%;
+        border: 0;
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        font: inherit;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color: #11111b;
+        cursor: pointer;
+      }
+
+      .canvas-view-only [data-canvas-action] {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      @media (max-width: 768px) {
+        .canvas-stage {
+          min-height: auto;
+          border-radius: 22px;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .canvas-shell {
+          padding: 0.75rem;
+        }
+      }
+    </style>
+  </head>
+  <body
+    tl:attr="data-token=${token},data-stream-url=${streamUrl},data-action-url=${actionUrl},data-permission=${permission}"
+    tl:classappend="${isViewOnly} ? ' canvas-view-only' : ''">
+    <div class="canvas-shell">
+      <section class="canvas-stage">
+        <header class="canvas-heading">
+          <span>DartClaw Canvas</span>
+          <span class="canvas-chip" tl:text="${permission}">interact</span>
+        </header>
+        <main id="canvas-content">
+          <div class="canvas-waiting">
+            <strong>Waiting for canvas content</strong>
+            <span>The agent can publish live boards, votes, and review surfaces here.</span>
+          </div>
+        </main>
+      </section>
+    </div>
+    <div id="connection-status" class="status-dot status-disconnected" title="Canvas connection state"></div>
+    <dialog id="nickname-dialog" tl:if="${isInteract}">
+      <form method="dialog" class="nickname-card" id="nickname-form">
+        <h2>Join the session</h2>
+        <p>Pick a display name for any canvas interactions you trigger from this device.</p>
+        <label for="nickname-input">Display name</label>
+        <input id="nickname-input" name="nickname" type="text" maxlength="40" placeholder="Your name" required>
+        <button type="submit">Continue</button>
+      </form>
+    </dialog>
+    <script tl:attr="nonce=${nonce}">
+      (() => {
+        const body = document.body;
+        const content = document.getElementById('canvas-content');
+        const status = document.getElementById('connection-status');
+        const dialog = document.getElementById('nickname-dialog');
+        const nicknameForm = document.getElementById('nickname-form');
+        const nicknameInput = document.getElementById('nickname-input');
+        const streamUrl = body.dataset.streamUrl;
+        const actionUrl = body.dataset.actionUrl;
+        const permission = body.dataset.permission;
+        let source = null;
+
+        const waitingHtml = content.innerHTML;
+
+        function setStatus(name) {
+          status.className = 'status-dot status-' + name;
+        }
+
+        function readCookie(name) {
+          const prefix = name + '=';
+          return document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) || '';
+        }
+
+        function writeCookie(name, value) {
+          document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; SameSite=Lax';
+        }
+
+        function currentNickname() {
+          return decodeURIComponent(readCookie('canvas_nickname'));
+        }
+
+        function showDialogIfNeeded() {
+          if (permission !== 'interact' || !dialog) {
+            return;
+          }
+          if (currentNickname()) {
+            return;
+          }
+          if (typeof dialog.showModal === 'function') {
+            dialog.showModal();
+            if (nicknameInput) {
+              nicknameInput.focus();
+            }
+          }
+        }
+
+        function setVisible(visible) {
+          body.classList.toggle('canvas-hidden', visible === false);
+        }
+
+        function updateHtml(html) {
+          if (!html) {
+            content.innerHTML = waitingHtml;
+            return;
+          }
+          content.innerHTML = html;
+        }
+
+        function connect() {
+          if (source) {
+            source.close();
+          }
+          source = new EventSource(streamUrl);
+          source.addEventListener('open', () => setStatus('connected'));
+          source.addEventListener('canvas_state', (event) => {
+            const payload = JSON.parse(event.data);
+            updateHtml(payload.html);
+            setVisible(payload.visible);
+          });
+          source.addEventListener('canvas_update', (event) => {
+            const payload = JSON.parse(event.data);
+            updateHtml(payload.html);
+            setVisible(payload.visible);
+          });
+          source.addEventListener('canvas_clear', (event) => {
+            const payload = JSON.parse(event.data);
+            updateHtml('');
+            setVisible(payload.visible);
+          });
+          source.addEventListener('canvas_visible', (event) => {
+            const payload = JSON.parse(event.data);
+            setVisible(payload.visible);
+          });
+          source.onerror = () => setStatus('reconnecting');
+        }
+
+        document.addEventListener('click', async (event) => {
+          const trigger = event.target.closest('[data-canvas-action]');
+          if (!trigger || permission !== 'interact') {
+            return;
+          }
+          event.preventDefault();
+          const action = trigger.dataset.canvasAction;
+          const payload = trigger.dataset.canvasPayload || trigger.getAttribute('href') || trigger.value || '';
+          const nickname = currentNickname();
+          if (!nickname) {
+            showDialogIfNeeded();
+            return;
+          }
+          await fetch(actionUrl, {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({action, payload})
+          });
+        });
+
+        if (nicknameForm) {
+          nicknameForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const nickname = nicknameInput.value.trim();
+            if (!nickname) {
+              nicknameInput.focus();
+              return;
+            }
+            writeCookie('canvas_nickname', nickname);
+            dialog.close();
+          });
+        }
+
+        showDialogIfNeeded();
+        connect();
+      })();
+    </script>
+  </body>
+</html>

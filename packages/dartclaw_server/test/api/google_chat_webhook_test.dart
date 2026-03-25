@@ -444,7 +444,11 @@ void main() {
       expect(restClient.editedMessages.single.$1, 'spaces/AAAA/messages/1');
       expect(
         restClient.editedMessages.single.$2,
-        matches(RegExp(r'^Task created: investigate the outage \[research\] -- ID: [0-9a-f]{6}$')),
+        matches(
+          RegExp(
+            r'^Task created: investigate the outage \[research\] -- ID: [0-9a-f]{6}( -- Queued \(will start when a slot opens\))?$',
+          ),
+        ),
       );
     });
 

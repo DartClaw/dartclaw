@@ -32,8 +32,8 @@ Pick one and keep it aligned with how the Chat app is configured in Google Cloud
 
 1. Create or choose a Google Cloud project for the Chat app.
 2. Enable the Google Chat API.
-3. Create a service account that can act as the bot.
-4. Download the JSON credentials file.
+3. Create a service account: **IAM & Admin > Service Accounts > Create Service Account**.
+4. Download the JSON credentials file: click into the service account, go to the **Keys** tab, click **Add Key > Create new key**, select **JSON**, and click **Create**. The file downloads automatically. Store it securely — it contains a private key.
 
 `channels.google_chat.service_account` accepts either:
 
@@ -112,11 +112,25 @@ When `require_mention: true`, DartClaw only responds when the bot is explicitly 
 
 Many Google Workspace environments require an administrator to approve or publish the Chat app before users can add it to spaces or DM it. If the bot looks correctly configured but nobody can reach it, check Workspace admin approval and app visibility first.
 
+## Chat App Configuration in Google Cloud Console
+
+Configure the Chat app under **APIs & Services > Google Chat API > Configuration**:
+
+1. **App name, Avatar, Description** — set as desired.
+2. **"Build this Chat app as a Workspace add-on"** — **uncheck** this. DartClaw is a standalone Chat app, not a Workspace add-on. Note: unchecking is irreversible for this app, which is fine.
+3. **"Support app home"** (appears after unchecking the add-on checkbox) — leave **unchecked**. DartClaw does not render a home tab.
+4. **Functionality** — check **"Join spaces and group conversations"**. Optionally enable 1:1 messages if you want DM support.
+5. **Connection settings** — select **App URL** and enter your DartClaw webhook URL (e.g. `https://your-host.example.com/integrations/googlechat`). This must match `channels.google_chat.webhook_path` in your config, combined with your server's base URL.
+6. **Authentication Audience** (appears after unchecking the add-on checkbox) — select **App URL** and enter the same webhook URL. This must match `channels.google_chat.audience` in your config.
+7. **Visibility** — either make it available to everyone in your domain (simpler for workshops) or restrict to specific email addresses.
+
+Save the configuration.
+
 ## Setup to First Message
 
 1. Configure `channels.google_chat.*` in `dartclaw.yaml`.
 2. Start DartClaw.
-3. Register the same webhook path and audience mode in the Google Chat app configuration.
+3. Configure the Chat app in the Google Cloud Console (see above) with the same webhook path and audience mode.
 4. Add the app to a DM or a space.
 5. Send a test message.
 6. If `dm_access: pairing`, approve the pairing code in the DartClaw UI before retrying.
@@ -191,15 +205,18 @@ Complete these steps before enabling `space_events` in your config:
    - **Google Workspace Events API** (`workspaceevents.googleapis.com`)
    - **Cloud Pub/Sub API** (`pubsub.googleapis.com`)
 
-2. **Create a Pub/Sub topic**: In **Pub/Sub > Topics**, create a topic (e.g. `dartclaw-chat-events`). Do not enable message storage policies (region restrictions) — the Workspace Events API publishes from Google-internal infrastructure that may not match regional restrictions, causing silent delivery failure.
+2. **Create a Pub/Sub topic**: In **Pub/Sub > Topics**, create a topic (e.g. `dartclaw-chat-events`). Uncheck **"Add a default subscription"** — you will create the subscription manually in step 4 with a specific name. Leave encryption as Google-managed. Do not enable message storage policies (region restrictions) — the Workspace Events API publishes from Google-internal infrastructure that may not match regional restrictions, causing silent delivery failure.
 
 3. **Grant Google Chat publish permission on the topic**: On the topic's **Permissions** panel, add principal `chat-api-push@system.gserviceaccount.com` with role **Pub/Sub Publisher** (`roles/pubsub.publisher`). This is a Google-managed service account — you are granting it access, not creating it. Without this, subscriptions succeed but no messages arrive.
 
-4. **Create a pull subscription**: In **Pub/Sub > Subscriptions**, create a subscription (e.g. `dartclaw-chat-pull`) on the topic. Delivery type: **Pull**. Leave encryption as Google-managed.
+4. **Create a pull subscription**: In **Pub/Sub > Subscriptions**, create a subscription (e.g. `dartclaw-chat-pull`) on the topic. Delivery type: **Pull**. Leave all other settings (retention, delivery retry, message ordering, dead lettering) as defaults.
 
 5. **Grant your service account subscriber permission**: On the subscription's **Permissions** panel, add your DartClaw service account (the `client_email` from your service account JSON) with role **Pub/Sub Subscriber** (`roles/pubsub.subscriber`). This is on the **subscription**, not the topic — a common point of confusion.
 
-6. **OAuth consent screen** (recommended): In **APIs & Services > OAuth consent screen**, configure an app with the `chat.messages.readonly` scope and download OAuth client credentials JSON. DartClaw uses this for `space_events.auth_mode: user`, which is the recommended path because it is GA and does not require Workspace admin approval.
+6. **OAuth consent screen and client credentials** (recommended for `auth_mode: user`):
+   - Configure the OAuth consent screen: in **Google Auth Platform > Data access** (or **APIs & Services > OAuth consent screen** in older Console layouts), add the `chat.messages.readonly` scope.
+   - Create an OAuth client: in **Google Auth Platform > Clients**, create a client with application type **Desktop app** (not "Web application" — web clients fail unless you configure a matching localhost redirect URI). Download the client credentials JSON.
+   - DartClaw uses this for `space_events.auth_mode: user`, which is the recommended path because it is GA and does not require Workspace admin approval.
 
 7. **(Service account auth only) Workspace admin approval**: A Workspace admin must authorize your app's service account for the `chat.app.spaces` and `chat.app.memberships` scopes. This is done in the Google Admin Console under **Security > API controls > Domain-wide delegation** or **App access control**.
 

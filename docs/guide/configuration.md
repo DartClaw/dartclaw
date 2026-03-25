@@ -233,6 +233,20 @@ search:
     port: 8181
   default_depth: standard        # fast | standard | deep
 
+# --- Canvas (0.14.2) --- see Canvas guide for details
+base_url: https://workshop.example.com:3333  # public URL for share links
+canvas:
+  enabled: true
+  share:
+    default_permission: interact    # view | interact
+    default_ttl: 8h                 # 30m, 8h, 1d, etc.
+    max_connections: 50
+    show_qr: true
+  workshop_mode:
+    task_board: true
+    show_contributor_stats: true
+    show_budget_bar: true
+
 # --- Workspace Git Sync ---
 workspace:
   git_sync:

@@ -5,7 +5,7 @@ import 'package:args/command_runner.dart';
 /// Subcommands (serve, status, etc.) are registered via [addCommand]
 /// after construction — see `main()` in `bin/dartclaw.dart`.
 class DartclawRunner extends CommandRunner<void> {
-  DartclawRunner() : super('dartclaw', 'DartClaw — security-focused agent runtime') {
+  DartclawRunner() : super('dartclaw', 'DartClaw — security-conscious AI agent runtime') {
     argParser.addOption(
       'config',
       abbr: 'c',

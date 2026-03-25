@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.14**
+> Current through: **0.14.2**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -388,6 +388,11 @@ When you send a message:
 | `/memory` | Memory overview, file browser, pruner history |
 | `/settings` | Live configuration editor, guard config viewer, channel access management |
 | `/scheduling` | Cron job management (add/edit/delete) |
+| `/canvas-admin` | Facilitator canvas controls, public share-link management, sandboxed live embed |
+
+### Shareable Canvas
+
+The 0.14.2 canvas subsystem adds a standalone SSE-driven page at `/canvas/<token>` for zero-auth workshop viewers. The server keeps canvas state in memory, validates share tokens from the path itself, and broadcasts updates through `CanvasService`. Facilitators manage the feature from `/canvas-admin`, which embeds the live canvas in a sandboxed iframe and can generate or revoke share links without exposing the rest of the web UI.
 
 ## Configuration System
 

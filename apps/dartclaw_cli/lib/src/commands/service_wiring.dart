@@ -215,6 +215,10 @@ class ServiceWiring {
       pool: harness.pool,
     );
     await providerStatus.probe();
+    final canvasService = config.canvas.enabled
+        ? CanvasService(maxConnections: config.canvas.share.maxConnections)
+        : null;
+    WorkshopCanvasSubscriber? workshopCanvasSubscriber;
 
     final builder = DartclawServerBuilder()
       ..sessions = storage.sessions
@@ -243,6 +247,7 @@ class ServiceWiring {
       ..selfImprovement = harness.selfImprovement
       ..usageTracker = harness.usageTracker
       ..eventBus = eventBus
+      ..canvasService = canvasService
       ..authEnabled = harness.authEnabled
       ..pool = harness.pool
       ..contentGuardDisplay = ContentGuardDisplayParams(
@@ -382,6 +387,37 @@ class ServiceWiring {
     server.registerTool(
       WebFetchTool(classifier: security.contentClassifier, failOpenOnClassification: security.contentGuardFailOpen),
     );
+    if (canvasService != null) {
+      server.registerTool(
+        CanvasTool(
+          canvasService: canvasService,
+          sessionKey: SessionKey.webSession(),
+          baseUrl: config.server.baseUrl,
+          defaultPermission: config.canvas.share.defaultPermission == 'view'
+              ? CanvasPermission.view
+              : CanvasPermission.interact,
+          defaultTtl: Duration(minutes: config.canvas.share.defaultTtlMinutes),
+        ),
+      );
+    }
+
+    if (canvasService != null &&
+        (config.canvas.workshopMode.taskBoard ||
+            config.canvas.workshopMode.showContributorStats ||
+            config.canvas.workshopMode.showBudgetBar)) {
+      workshopCanvasSubscriber = WorkshopCanvasSubscriber(
+        canvasService: canvasService,
+        taskService: storage.taskService,
+        usageTracker: harness.usageTracker,
+        sessionKey: SessionKey.webSession(),
+        dailyBudgetTokens: config.governance.budget.dailyTokens,
+        serverStartTime: DateTime.now(),
+        taskBoardEnabled: config.canvas.workshopMode.taskBoard,
+        statsBarEnabled:
+            config.canvas.workshopMode.showContributorStats || config.canvas.workshopMode.showBudgetBar,
+      );
+      workshopCanvasSubscriber.subscribe(eventBus);
+    }
 
     // Register search tools based on config.
     for (final entry in config.search.providers.entries) {
@@ -444,6 +480,7 @@ class ServiceWiring {
         await storage.turnStateStore.dispose();
         await scheduling.dispose();
         await project.dispose();
+        await workshopCanvasSubscriber?.dispose();
       },
     );
   }

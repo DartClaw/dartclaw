@@ -123,6 +123,19 @@ In OAuth mode, the host's `~/.claude.json` is mounted read-only into the contain
 - **Sole egress** — `network:none` means the Unix socket is the only way out of the container
 - **Observability** — the proxy tracks request and error counts for health monitoring
 
+## Canvas Share-Token Authentication (0.14.2)
+
+Canvas routes (`/canvas/:token`) bypass HTTP auth entirely -- authentication is the share token embedded in the URL path. This allows workshop participants to view the canvas without DartClaw credentials.
+
+**Security properties:**
+- Tokens are 24-byte `Random.secure()` values (192 bits of entropy), base64url-encoded
+- All validation failures (invalid, expired, revoked) return **404** -- no information leakage
+- Canvas pages use **nonce-based CSP** (`script-src 'nonce-{nonce}'`) to prevent execution of scripts injected via agent-generated HTML
+- The admin panel embeds the canvas in a sandboxed iframe (`allow-scripts allow-forms`, no `allow-same-origin`) to isolate agent content from admin cookies
+- Canvas action endpoint has per-token rate limiting (10 req/min)
+
+See the [Canvas guide](canvas.md) for full configuration and usage details.
+
 ## Audit Logging
 
 All guard evaluations are logged with timestamps, verdicts, and context. Post-tool-use events log success/failure for audit trail.

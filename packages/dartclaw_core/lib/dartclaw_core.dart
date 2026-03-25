@@ -93,6 +93,7 @@ export 'src/config/credential_registry.dart' show CredentialRegistry;
 export 'src/config/credentials_config.dart' show CredentialsConfig, CredentialEntry;
 export 'src/config/provider_identity.dart' show ProviderIdentity;
 export 'src/config/auth_config.dart' show AuthConfig;
+export 'src/config/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/config/context_config.dart' show ContextConfig;
 export 'src/config/gateway_config.dart' show GatewayConfig;
 export 'src/config/logging_config.dart' show LoggingConfig;

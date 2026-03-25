@@ -1,0 +1,165 @@
+<section tl:fragment="taskBoard" class="canvas-task-board">
+  <style>
+    .canvas-task-board {
+      font-size: clamp(1rem, 2vw, 1.5rem);
+      color: #f5f7ff;
+      width: 100%;
+    }
+
+    .canvas-board-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .canvas-column {
+      background: rgba(17, 22, 40, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 0.9rem;
+      padding: 0.85rem;
+      min-height: 14rem;
+    }
+
+    .canvas-column-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.6rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .canvas-column-title {
+      margin: 0;
+      font-size: 0.9em;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #dbe6ff;
+    }
+
+    .canvas-column-count {
+      color: #bfd2ff;
+      font-size: 0.85em;
+      font-weight: 700;
+    }
+
+    .canvas-card-list {
+      display: grid;
+      gap: 0.6rem;
+    }
+
+    .canvas-card {
+      background: rgba(28, 37, 66, 0.94);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 0.75rem;
+      padding: 0.65rem 0.7rem;
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .canvas-card-running {
+      border-color: rgba(92, 231, 166, 0.65);
+      box-shadow: 0 0 0 1px rgba(92, 231, 166, 0.3) inset;
+      animation: canvas-running-pulse 1.5s ease-in-out infinite;
+    }
+
+    .canvas-card-title {
+      margin: 0;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.25;
+      font-size: 0.86em;
+    }
+
+    .canvas-card-meta {
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      color: #c7d5ff;
+      font-size: 0.73em;
+      line-height: 1.25;
+    }
+
+    .canvas-card-done-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.45rem;
+      padding: 0.04rem 0.45rem;
+      border-radius: 999px;
+      font-weight: 700;
+      background: rgba(148, 163, 184, 0.18);
+      color: #e2e8f0;
+    }
+
+    .canvas-column-empty {
+      margin: 0;
+      font-size: 0.75em;
+      color: rgba(203, 213, 225, 0.9);
+      padding: 0.2rem 0;
+    }
+
+    .canvas-column-queued {
+      border-top: 3px solid rgba(125, 211, 252, 0.82);
+    }
+
+    .canvas-column-running {
+      border-top: 3px solid rgba(92, 231, 166, 0.86);
+    }
+
+    .canvas-column-review {
+      border-top: 3px solid rgba(251, 191, 36, 0.9);
+    }
+
+    .canvas-column-done {
+      border-top: 3px solid rgba(196, 181, 253, 0.86);
+    }
+
+    @keyframes canvas-running-pulse {
+      0%, 100% {
+        transform: translateY(0);
+        box-shadow: 0 0 0 1px rgba(92, 231, 166, 0.3) inset;
+      }
+      50% {
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 1px rgba(92, 231, 166, 0.65) inset, 0 0 0.6rem rgba(92, 231, 166, 0.25);
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .canvas-board-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 600px) {
+      .canvas-board-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+
+  <div class="canvas-board-grid">
+    <article tl:each="column : ${columns}" class="canvas-column" tl:classappend="' canvas-column-' + ${column.id}">
+      <header class="canvas-column-header">
+        <h2 class="canvas-column-title" tl:text="${column.title}">Queued</h2>
+        <span class="canvas-column-count" tl:text="${column.count}">0</span>
+      </header>
+
+      <div class="canvas-card-list" tl:if="${column.hasTasks}">
+        <div tl:each="card : ${column.tasks}" class="canvas-card" tl:classappend="${card.isRunning} ? ' canvas-card-running' : ''">
+          <p class="canvas-card-title" tl:text="${card.title}">Task title</p>
+          <p class="canvas-card-meta">
+            <span tl:text="${card.createdBy}">Creator</span>
+            <span>&bull;</span>
+            <span tl:text="${card.timeInState}">2m ago</span>
+            <span tl:if="${card.doneIcon}" class="canvas-card-done-icon" tl:text="${card.doneIcon}">OK</span>
+          </p>
+        </div>
+      </div>
+
+      <p class="canvas-column-empty" tl:unless="${column.hasTasks}">No tasks yet</p>
+    </article>
+  </div>
+</section>

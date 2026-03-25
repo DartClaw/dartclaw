@@ -34,6 +34,7 @@ class ConfigSerializer {
       'host': config.server.host,
       'name': config.server.name,
       'dataDir': config.server.dataDir,
+      'baseUrl': config.server.baseUrl,
       'workerTimeout': config.server.workerTimeout,
       'memoryMaxBytes': config.memory.maxBytes,
       'agent': {'model': config.agent.model, 'effort': config.agent.effort, 'maxTurns': config.agent.maxTurns},
@@ -117,6 +118,21 @@ class ConfigSerializer {
           // Live-mutable: read from RuntimeConfig
           'enabled': runtime.gitSyncEnabled,
           'pushEnabled': runtime.gitSyncPushEnabled,
+        },
+      },
+      'canvas': {
+        'enabled': config.canvas.enabled,
+        'share': {
+          'defaultPermission': config.canvas.share.defaultPermission,
+          'defaultTtlMinutes': config.canvas.share.defaultTtlMinutes,
+          'maxConnections': config.canvas.share.maxConnections,
+          'autoShare': config.canvas.share.autoShare,
+          'showQr': config.canvas.share.showQr,
+        },
+        'workshopMode': {
+          'taskBoard': config.canvas.workshopMode.taskBoard,
+          'showContributorStats': config.canvas.workshopMode.showContributorStats,
+          'showBudgetBar': config.canvas.workshopMode.showBudgetBar,
         },
       },
       'channels': {

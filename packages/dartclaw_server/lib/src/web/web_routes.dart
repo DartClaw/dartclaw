@@ -81,6 +81,7 @@ Router webRoutes(
   TurnTraceService? traceService,
   TaskEventService? taskEventService,
   TaskProgressTracker? progressTracker,
+  bool canvasEnabled = false,
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
@@ -117,6 +118,7 @@ Router webRoutes(
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
+      showCanvas: canvasEnabled,
     );
   }
   final systemNav = registry.navItems(activePage: '');

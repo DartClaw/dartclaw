@@ -1,6 +1,6 @@
 # Getting Started
 
-DartClaw is a security-focused agent runtime for Claude Code. A Dart host coordinates state, security, and the web UI while a native agent CLI handles turns.
+DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state, security, and the web UI while a native agent CLI handles turns.
 
 ## Prerequisites
 

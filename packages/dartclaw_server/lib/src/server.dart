@@ -35,6 +35,9 @@ import 'auth/token_service.dart';
 import 'behavior/behavior_file_service.dart';
 import 'behavior/heartbeat_scheduler.dart';
 import 'behavior/self_improvement_service.dart';
+import 'canvas/canvas_admin_routes.dart';
+import 'canvas/canvas_routes.dart';
+import 'canvas/canvas_service.dart';
 import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
@@ -103,6 +106,7 @@ class DartclawServerBuilder {
   SelfImprovementService? selfImprovement;
   UsageTracker? usageTracker;
   EventBus? eventBus;
+  CanvasService? canvasService;
 
   // Channels
   ChannelManager? channelManager;
@@ -244,6 +248,7 @@ class DartclawServerBuilder {
       sseBroadcast: sseBroadcast,
       providerStatus: providerStatus,
       eventBus: eventBus,
+      canvasService: canvasService,
       projectService: projectService,
       goalService: goalService,
       taskService: taskService,
@@ -345,6 +350,7 @@ class DartclawServer {
   final SseBroadcast? _sseBroadcast;
   final ProviderStatusService? _providerStatus;
   final EventBus? _eventBus;
+  final CanvasService? _canvasService;
   final ProjectService? _projectService;
   final GoalService? _goalService;
   final TaskService? _taskService;
@@ -413,6 +419,7 @@ class DartclawServer {
     required SseBroadcast? sseBroadcast,
     required ProviderStatusService? providerStatus,
     required EventBus? eventBus,
+    required CanvasService? canvasService,
     required ProjectService? projectService,
     required GoalService? goalService,
     required TaskService? taskService,
@@ -466,6 +473,7 @@ class DartclawServer {
        _sseBroadcast = sseBroadcast,
        _providerStatus = providerStatus,
        _eventBus = eventBus,
+       _canvasService = canvasService,
        _projectService = projectService,
        _goalService = goalService,
        _taskService = taskService,
@@ -590,6 +598,7 @@ class DartclawServer {
     }
     await _spaceEventsWiring?.dispose();
     await _sseBroadcast?.dispose();
+    await _canvasService?.dispose();
     await _channelManager?.dispose();
     if (_pool != null) {
       await _pool.dispose();
@@ -660,6 +669,8 @@ class DartclawServer {
     _mountGoogleChatSubscriptionRoutes(router);
     _mountAgentRoutes(router);
     _mountSessionRoutes(router);
+    _mountCanvasRoutes(router);
+    _mountCanvasAdminRoutes(router);
     _mountWebRoutes(router);
 
     return _buildPipeline(router);
@@ -899,6 +910,22 @@ class DartclawServer {
     router.mount('/', sessionRouter.call);
   }
 
+  void _mountCanvasRoutes(Router router) {
+    final canvasService = _canvasService;
+    if (canvasService == null) return;
+
+    final canvasRouter = canvasRoutes(canvasService: canvasService, turns: _turns, sessions: _sessions);
+    router.mount('/canvas', canvasRouter.call);
+  }
+
+  void _mountCanvasAdminRoutes(Router router) {
+    final canvasService = _canvasService;
+    if (canvasService == null) return;
+
+    final adminRouter = canvasAdminRoutes(canvasService: canvasService);
+    router.mount('/', adminRouter.call);
+  }
+
   void _mountWebRoutes(Router router) {
     final webRouter = webRoutes(
       _sessions,
@@ -932,6 +959,7 @@ class DartclawServer {
       traceService: _traceService,
       taskEventService: _taskEventService,
       progressTracker: _progressTracker,
+      canvasEnabled: _canvasService != null,
     );
     router.mount('/', webRouter.call);
   }
@@ -952,6 +980,7 @@ class DartclawServer {
           eventBus: _eventBus,
           rateLimiter: _authRateLimiter,
           publicPaths: [if (_googleChatWebhookHandler != null) _googleChatWebhookHandler.config.webhookPath],
+          publicPrefixes: [if (_canvasService != null) '/canvas/'],
         ),
       );
     }

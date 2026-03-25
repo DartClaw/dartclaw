@@ -32,6 +32,16 @@ export 'src/api/session_routes.dart' show sessionRoutes;
 export 'src/api/stream_handler.dart' show sseStreamResponse;
 export 'src/api/webhook_routes.dart' show webhookRoutes;
 
+// Canvas
+export 'src/canvas/canvas_admin_routes.dart' show canvasAdminRoutes;
+export 'src/canvas/canvas_routes.dart' show canvasRoutes;
+export 'src/canvas/canvas_service.dart' show CanvasService;
+export 'src/canvas/canvas_share_middleware.dart' show canvasShareMiddleware, getShareToken, canvasShareTokenContextKey;
+export 'src/canvas/canvas_state.dart' show CanvasPermission, CanvasShareToken, CanvasState;
+export 'src/canvas/canvas_tool_handler.dart' show CanvasTool;
+export 'src/canvas/workshop_canvas_subscriber.dart' show WorkshopCanvasSubscriber;
+export 'src/canvas/qr_generator.dart' show generateQrSvg;
+
 // Auth
 export 'src/auth/auth_middleware.dart' show authMiddleware;
 export 'src/auth/auth_rate_limiter.dart' show AuthRateLimiter;

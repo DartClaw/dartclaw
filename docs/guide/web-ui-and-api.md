@@ -379,7 +379,19 @@ Global SSE stream for system-level events (e.g., `server_restart`). Separate fro
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
 | `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
+| `GET /canvas-admin` | Canvas facilitator dashboard: share link management, live preview |
+| `GET /canvas/:token` | Standalone canvas page (share-token auth, no login required) |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
+
+#### Canvas API (0.14.2)
+
+Share-link management endpoints (behind auth middleware). See the [Canvas guide](canvas.md) for full details.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/canvas/share` | List active share tokens |
+| `POST` | `/api/canvas/share` | Create share token |
+| `DELETE` | `/api/canvas/share/:token` | Revoke share token |
 
 ## Memory MCP Tools
 

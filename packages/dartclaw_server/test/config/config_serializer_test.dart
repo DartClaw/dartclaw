@@ -24,6 +24,7 @@ void main() {
       expect(json['port'], 3000);
       expect(json['host'], 'localhost');
       expect(json['dataDir'], '~/.dartclaw');
+      expect(json['baseUrl'], isNull);
       expect(json['workerTimeout'], 600);
       expect(json['memoryMaxBytes'], 32 * 1024);
 
@@ -60,6 +61,21 @@ void main() {
       final logging = json['logging'] as Map<String, dynamic>;
       expect(logging['level'], 'INFO');
       expect(logging['format'], 'human');
+
+      final canvas = json['canvas'] as Map<String, dynamic>;
+      expect(canvas['enabled'], true);
+      expect(canvas['share'], {
+        'defaultPermission': 'interact',
+        'defaultTtlMinutes': 480,
+        'maxConnections': 50,
+        'autoShare': true,
+        'showQr': true,
+      });
+      expect(canvas['workshopMode'], {
+        'taskBoard': true,
+        'showContributorStats': true,
+        'showBudgetBar': true,
+      });
     });
 
     test('gateway.token masked as "***" when non-null', () {

@@ -1,6 +1,6 @@
 # DartClaw — Project Guide for Claude Code
 
-Security-focused AI agent runtime. Dart host (AOT-compiled, zero npm) drives the native `claude` CLI binary via JSONL control protocol. Defense-in-depth security with container isolation, guard chain, and credential proxy.
+An experimental, security-conscious AI agent runtime built with Dart. Dart host (AOT-compiled, zero npm) drives the native `claude` CLI binary via JSONL control protocol. Defense-in-depth security with container isolation, guard chain, and credential proxy.
 
 ## Documentation Map
 

@@ -219,6 +219,7 @@ class ServiceWiring {
         ? CanvasService(maxConnections: config.canvas.share.maxConnections)
         : null;
     WorkshopCanvasSubscriber? workshopCanvasSubscriber;
+    AdvisorSubscriber? advisorSubscriber;
 
     final builder = DartclawServerBuilder()
       ..sessions = storage.sessions
@@ -332,6 +333,13 @@ class ServiceWiring {
       sessions: storage.sessions,
       eventBus: eventBus,
       channelConfigs: channel.channelGroupConfigs,
+      displayNameResolver: (channelType, groupId) async {
+        if (channelType != 'googlechat') return null;
+        final googleChatChannel = channel.googleChatChannel;
+        if (googleChatChannel == null) return null;
+        final space = await googleChatChannel.restClient.getSpace(groupId);
+        return space?.displayName;
+      },
     );
     await groupSessionInit.initialize();
 
@@ -368,6 +376,7 @@ class ServiceWiring {
       ..mergeStrategy = config.tasks.worktreeMergeStrategy
       ..baseRef = config.tasks.worktreeBaseRef
       ..spaceEventsWiring = channel.spaceEventsWiring
+      ..threadBindingStore = channel.threadBindingStore
       ..schedulingDisplay = SchedulingDisplayParams(
         jobs: scheduling.displayJobs,
         systemJobNames: scheduling.systemJobNames,
@@ -413,10 +422,31 @@ class ServiceWiring {
         dailyBudgetTokens: config.governance.budget.dailyTokens,
         serverStartTime: DateTime.now(),
         taskBoardEnabled: config.canvas.workshopMode.taskBoard,
-        statsBarEnabled:
-            config.canvas.workshopMode.showContributorStats || config.canvas.workshopMode.showBudgetBar,
+        statsBarEnabled: config.canvas.workshopMode.showContributorStats || config.canvas.workshopMode.showBudgetBar,
+        threadBindings: channel.threadBindingStore,
       );
       workshopCanvasSubscriber.subscribe(eventBus);
+    }
+
+    if (config.advisor.enabled) {
+      advisorSubscriber = AdvisorSubscriber(
+        pool: harness.pool,
+        sessions: storage.sessions,
+        taskService: storage.taskService,
+        channelManager: channel.channelManager,
+        eventBus: eventBus,
+        traceService: storage.traceService,
+        threadBindings: channel.threadBindingStore,
+        canvasService: canvasService,
+        canvasSessionKey: SessionKey.webSession(),
+        triggers: config.advisor.triggers,
+        periodicIntervalMinutes: config.advisor.periodicIntervalMinutes,
+        maxWindowTurns: config.advisor.maxWindowTurns,
+        maxPriorReflections: config.advisor.maxPriorReflections,
+        model: config.advisor.model,
+        effort: config.advisor.effort,
+      );
+      advisorSubscriber.subscribe();
     }
 
     // Register search tools based on config.
@@ -481,6 +511,7 @@ class ServiceWiring {
         await scheduling.dispose();
         await project.dispose();
         await workshopCanvasSubscriber?.dispose();
+        await advisorSubscriber?.dispose();
       },
     );
   }

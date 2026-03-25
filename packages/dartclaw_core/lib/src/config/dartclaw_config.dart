@@ -13,6 +13,7 @@ import '../scoping/channel_config_provider.dart';
 import '../scoping/session_scope_config.dart';
 import '../utils/path_utils.dart';
 import 'agent_config.dart';
+import 'advisor_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
 import 'context_config.dart';
@@ -45,6 +46,7 @@ class DartclawConfig {
   // --- Composed section fields ---
   final ServerConfig server;
   final AgentConfig agent;
+  final AdvisorConfig advisor;
   final AuthConfig auth;
   final CanvasConfig canvas;
   final GatewayConfig gateway;
@@ -92,6 +94,7 @@ class DartclawConfig {
   const DartclawConfig({
     this.server = const ServerConfig.defaults(),
     this.agent = const AgentConfig.defaults(),
+    this.advisor = const AdvisorConfig.defaults(),
     this.auth = const AuthConfig.defaults(),
     this.canvas = const CanvasConfig.defaults(),
     this.gateway = const GatewayConfig.defaults(),
@@ -218,6 +221,7 @@ class DartclawConfig {
     final server = _parseTopLevel(yaml, cli, environment, const ServerConfig.defaults(), warns);
     final logging = _parseLogging(yaml, cli, environment, const LoggingConfig.defaults(), warns);
     final agent = _parseAgent(yaml, const AgentConfig.defaults(), warns);
+    final advisor = _parseAdvisor(yaml, const AdvisorConfig.defaults(), warns);
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
     final canvas = _parseCanvas(yaml, const CanvasConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
@@ -273,6 +277,7 @@ class DartclawConfig {
     final config = DartclawConfig(
       server: server,
       agent: agent,
+      advisor: advisor,
       auth: auth,
       canvas: canvas,
       gateway: gateway,
@@ -505,6 +510,114 @@ class DartclawConfig {
     );
   }
 
+  static const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
+
+  static const _recognizedEfforts = <String>{'low', 'medium', 'high', 'max'};
+  static final _recognizedClaudeModels = RegExp(r'^(haiku|sonnet|opus)(\[[^\]]+\])?$', caseSensitive: false);
+  static const _recognizedCodexModels = <String>{'gpt-4o', 'gpt-5', 'gpt-5-mini', 'o1', 'o3', 'o4-mini'};
+
+  static void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return;
+    final lower = trimmed.toLowerCase();
+    if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.contains(lower)) return;
+    warns.add('Unrecognized $field: "$trimmed" — keeping value as configured');
+  }
+
+  static void _warnIfUnrecognizedEffort(List<String> warns, String field, String? value) {
+    final trimmed = value?.trim().toLowerCase();
+    if (trimmed == null || trimmed.isEmpty) return;
+    if (_recognizedEfforts.contains(trimmed)) return;
+    warns.add('Unrecognized $field: "$value" — keeping value as configured');
+  }
+
+  static AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, List<String> warns) {
+    final advisorMap = _sectionMap('advisor', yaml, warns);
+    if (advisorMap == null) return defaults;
+
+    var enabled = defaults.enabled;
+    final enabledRaw = advisorMap['enabled'];
+    if (enabledRaw is bool) {
+      enabled = enabledRaw;
+    } else if (enabledRaw != null) {
+      warns.add('Invalid type for advisor.enabled: "${enabledRaw.runtimeType}" — using default');
+    }
+
+    String? model = defaults.model;
+    final modelRaw = advisorMap['model'];
+    if (modelRaw is String) {
+      final trimmed = modelRaw.trim();
+      model = trimmed.isEmpty ? null : trimmed;
+      _warnIfUnrecognizedModel(warns, 'advisor.model', model);
+    } else if (modelRaw != null) {
+      warns.add('Invalid type for advisor.model: "${modelRaw.runtimeType}" — using default');
+    }
+
+    String? effort = defaults.effort;
+    final effortRaw = advisorMap['effort'];
+    if (effortRaw is String) {
+      final trimmed = effortRaw.trim();
+      effort = trimmed.isEmpty ? null : trimmed;
+      _warnIfUnrecognizedEffort(warns, 'advisor.effort', effort);
+    } else if (effortRaw != null) {
+      warns.add('Invalid type for advisor.effort: "${effortRaw.runtimeType}" — using default');
+    }
+
+    var triggers = defaults.triggers;
+    final triggersRaw = advisorMap['triggers'];
+    if (triggersRaw is List) {
+      final parsed = <String>[];
+      for (final value in triggersRaw) {
+        if (value is! String) {
+          warns.add('Invalid advisor trigger type: "${value.runtimeType}" — skipping');
+          continue;
+        }
+        final trigger = value.trim();
+        if (trigger.isEmpty) continue;
+        if (!_validAdvisorTriggers.contains(trigger)) {
+          warns.add('Unknown advisor trigger: "$trigger" — skipping');
+          continue;
+        }
+        parsed.add(trigger);
+      }
+      triggers = parsed;
+    } else if (triggersRaw != null) {
+      warns.add('Invalid type for advisor.triggers: "${triggersRaw.runtimeType}" — using default');
+    }
+
+    final periodicIntervalMinutes = _parseInt(
+      'advisor.periodic_interval_minutes',
+      null,
+      advisorMap['periodic_interval_minutes'],
+      defaults.periodicIntervalMinutes,
+      warns,
+    );
+    final maxWindowTurns = _parseInt(
+      'advisor.max_window_turns',
+      null,
+      advisorMap['max_window_turns'],
+      defaults.maxWindowTurns,
+      warns,
+    );
+    final maxPriorReflections = _parseInt(
+      'advisor.max_prior_reflections',
+      null,
+      advisorMap['max_prior_reflections'],
+      defaults.maxPriorReflections,
+      warns,
+    );
+
+    return AdvisorConfig(
+      enabled: enabled,
+      model: model,
+      effort: effort,
+      triggers: triggers,
+      periodicIntervalMinutes: periodicIntervalMinutes,
+      maxWindowTurns: maxWindowTurns,
+      maxPriorReflections: maxPriorReflections,
+    );
+  }
+
   static AuthConfig _parseAuth(Map<String, dynamic> yaml, AuthConfig defaults, List<String> warns) {
     var cookieSecure = defaults.cookieSecure;
     var trustedProxies = defaults.trustedProxies;
@@ -629,6 +742,24 @@ class DartclawConfig {
       warns.add('Invalid type for sessions.group_scope: "${groupScopeRaw.runtimeType}" — using default');
     }
 
+    var model = defaultScope.model;
+    final modelRaw = sessionsRaw['model'];
+    if (modelRaw is String) {
+      model = modelRaw;
+      _warnIfUnrecognizedModel(warns, 'sessions.model', model);
+    } else if (modelRaw != null) {
+      warns.add('Invalid type for sessions.model: "${modelRaw.runtimeType}" — using default');
+    }
+
+    var effort = defaultScope.effort;
+    final effortRaw = sessionsRaw['effort'];
+    if (effortRaw is String) {
+      effort = effortRaw;
+      _warnIfUnrecognizedEffort(warns, 'sessions.effort', effort);
+    } else if (effortRaw != null) {
+      warns.add('Invalid type for sessions.effort: "${effortRaw.runtimeType}" — using default');
+    }
+
     // Parse per-channel overrides
     final channelOverrides = <String, ChannelScopeConfig>{};
     final channelsRaw = sessionsRaw['channels'];
@@ -660,15 +791,44 @@ class DartclawConfig {
           }
         }
 
-        if (chDmScope != null || chGroupScope != null) {
-          channelOverrides[channelName] = ChannelScopeConfig(dmScope: chDmScope, groupScope: chGroupScope);
+        String? chModel;
+        final chModelRaw = channelMap['model'];
+        if (chModelRaw is String) {
+          chModel = chModelRaw;
+          _warnIfUnrecognizedModel(warns, 'sessions.channels.$channelName.model', chModel);
+        } else if (chModelRaw != null) {
+          warns.add('Invalid type for sessions.channels.$channelName.model: "${chModelRaw.runtimeType}" — ignoring');
+        }
+
+        String? chEffort;
+        final chEffortRaw = channelMap['effort'];
+        if (chEffortRaw is String) {
+          chEffort = chEffortRaw;
+          _warnIfUnrecognizedEffort(warns, 'sessions.channels.$channelName.effort', chEffort);
+        } else if (chEffortRaw != null) {
+          warns.add('Invalid type for sessions.channels.$channelName.effort: "${chEffortRaw.runtimeType}" — ignoring');
+        }
+
+        if (chDmScope != null || chGroupScope != null || chModel != null || chEffort != null) {
+          channelOverrides[channelName] = ChannelScopeConfig(
+            dmScope: chDmScope,
+            groupScope: chGroupScope,
+            model: chModel,
+            effort: chEffort,
+          );
         }
       }
     } else if (channelsRaw != null) {
       warns.add('Invalid type for sessions.channels: "${channelsRaw.runtimeType}" — skipping overrides');
     }
 
-    return SessionScopeConfig(dmScope: dmScope, groupScope: groupScope, channels: channelOverrides);
+    return SessionScopeConfig(
+      dmScope: dmScope,
+      groupScope: groupScope,
+      channels: channelOverrides,
+      model: model,
+      effort: effort,
+    );
   }
 
   static SessionMaintenanceConfig _parseSessionMaintenance(
@@ -1385,7 +1545,26 @@ class DartclawConfig {
           perSender.windowMinutes,
           warns,
         );
-        perSender = PerSenderRateLimitConfig(messages: messages, windowMinutes: windowMinutes);
+        final maxQueued = _parseInt(
+          'governance.rate_limits.per_sender.max_queued',
+          null,
+          perSenderRaw['max_queued'],
+          perSender.maxQueued,
+          warns,
+        );
+        final maxPauseQueued = _parseInt(
+          'governance.rate_limits.per_sender.max_pause_queued',
+          null,
+          perSenderRaw['max_pause_queued'],
+          perSender.maxPauseQueued,
+          warns,
+        );
+        perSender = PerSenderRateLimitConfig(
+          messages: messages,
+          windowMinutes: windowMinutes,
+          maxQueued: maxQueued,
+          maxPauseQueued: maxPauseQueued,
+        );
       } else if (perSenderRaw != null) {
         warns.add('Invalid type for governance.rate_limits.per_sender: "${perSenderRaw.runtimeType}" — using defaults');
       }
@@ -1408,6 +1587,45 @@ class DartclawConfig {
       rateLimits = RateLimitsConfig(perSender: perSender, global: global);
     } else if (rateLimitsRaw != null) {
       warns.add('Invalid type for governance.rate_limits: "${rateLimitsRaw.runtimeType}" — using defaults');
+    }
+
+    var queueStrategy = defaults.queueStrategy;
+    final queueStrategyRaw = govMap['queue_strategy'];
+    if (queueStrategyRaw is String) {
+      final parsed = QueueStrategy.fromYaml(queueStrategyRaw);
+      if (parsed != null) {
+        queueStrategy = parsed;
+      } else {
+        warns.add('Unknown governance.queue_strategy: "$queueStrategyRaw" — using default "${queueStrategy.name}"');
+      }
+    } else if (queueStrategyRaw != null) {
+      warns.add('Invalid type for governance.queue_strategy: "${queueStrategyRaw.runtimeType}" — using default');
+    }
+
+    var crowdCoding = defaults.crowdCoding;
+    final crowdCodingRaw = govMap['crowd_coding'];
+    if (crowdCodingRaw is Map) {
+      var model = crowdCoding.model;
+      final modelRaw = crowdCodingRaw['model'];
+      if (modelRaw is String) {
+        model = modelRaw;
+        _warnIfUnrecognizedModel(warns, 'governance.crowd_coding.model', model);
+      } else if (modelRaw != null) {
+        warns.add('Invalid type for governance.crowd_coding.model: "${modelRaw.runtimeType}" — using default');
+      }
+
+      var effort = crowdCoding.effort;
+      final effortRaw = crowdCodingRaw['effort'];
+      if (effortRaw is String) {
+        effort = effortRaw;
+        _warnIfUnrecognizedEffort(warns, 'governance.crowd_coding.effort', effort);
+      } else if (effortRaw != null) {
+        warns.add('Invalid type for governance.crowd_coding.effort: "${effortRaw.runtimeType}" — using default');
+      }
+
+      crowdCoding = CrowdCodingConfig(model: model, effort: effort);
+    } else if (crowdCodingRaw != null) {
+      warns.add('Invalid type for governance.crowd_coding: "${crowdCodingRaw.runtimeType}" — using defaults');
     }
 
     // budget
@@ -1503,6 +1721,8 @@ class DartclawConfig {
       rateLimits: rateLimits,
       budget: budget,
       loopDetection: loopDetection,
+      queueStrategy: queueStrategy,
+      crowdCoding: crowdCoding,
     );
   }
 
@@ -1706,6 +1926,7 @@ class DartclawConfig {
     'governance',
     'features',
     'projects',
+    'advisor',
   };
 
   static Map<String, dynamic> _loadYaml(

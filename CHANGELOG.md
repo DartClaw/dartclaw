@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.3] — 2026-03-25
+
+Crowd Coding Intelligence — per-context model routing, sender-fair queueing, cross-channel task binding, and an advisory observer agent. DartClaw becomes the first agent runtime with built-in crowd coding intelligence: facilitators can tune model cost/performance per session scope, ensure equitable agent attention across participants, steer a single task from multiple channels simultaneously, and receive periodic strategic insights from a secondary observer agent.
+
+### Added
+
+#### Phase A — Per-Context Model Routing
+- **Crowd coding model routing** (S01): `CrowdCodingConfig` with `model` and `effort` fields as a new sub-section under `GovernanceConfig`. Optional `model` and `effort` fields on `SessionScopeConfig` and `ChannelScopeConfig` for per-scope and per-channel overrides. Model resolution chain: per-task `configJson['model']` > per-channel `sessions.channels.<type>.model` > per-scope `sessions.model` > `governance.crowd_coding.model` > global `agent.model`. `resolveChannelTurnOverrides()` in `model_resolver.dart` wires the chain into channel dispatch. Crowd coding model applies only to group sessions. All new fields default to `null` — existing behavior preserved
+
+#### Phase B — Per-Sender Queue Fairness
+- **Sender-aware debounce + per-sender queue depth limit** (S02): `MessageQueue` debounce restructured from per-session to per-sender-per-session via `_DebounceKey` record type `({String sessionKey, String senderJid})`. Each sender's rapid-fire messages are coalesced independently while preserving sender boundaries in the queue. `governance.rate_limits.per_sender.max_queued` config field (default 0 = disabled) caps queued entries per sender — overflow rejected with "Queue full" response. `governance.rate_limits.per_sender.max_pause_queued` for per-sender depth within `PauseController`. Admin senders exempt per existing `isAdmin()` pattern
+- **Round-robin sender scheduling** (S03): `governance.queue_strategy` config field (`fifo` | `fair`, default `fifo`). Fair mode drains messages in round-robin order across senders within a session. Circular sender rotation with late-arriving sender inclusion in next cycle. Sender sub-queue removal on empty
+
+#### Phase C — Cross-Channel Session Binding
+- **Multi-channel binding store** (S04): `ThreadBindingStore.lookupByTask()` returns `List<ThreadBinding>` instead of single match. `deleteByTaskId()` removes all bindings for a task across channels. `ThreadBindingLifecycleManager._onTaskStatusChanged()` invokes corrected multi-binding cleanup. Idle timeout cleanup handles all expired bindings per task
+- **Bind/unbind channel commands** (S05): `/bind <taskId>` and `/unbind` as admin-only reserved commands. `/bind` validates task existence and non-terminal state, detects conflicts (409 if already bound to different task), supports idempotent re-bind to same task. `/unbind` removes current thread/group binding with confirmation. Extracts binding key from Google Chat `threadName`, WhatsApp `groupJid`, or Signal `groupId`
+- **Binding API + visibility** (S06): REST endpoints `GET /api/tasks/:id/bindings` (list), `POST /api/tasks/:id/bindings` (create, 201), `DELETE /api/tasks/:id/bindings/:channelType/:threadId` (remove, composite key). Duplicate POST returns 409 Conflict. Task detail page shows bound channels with type and thread ID. Canvas task board cards show binding count badge (`hasBindings` + `bindingLabel`)
+
+#### Phase D — Advisor Agent
+- **Advisor subscriber + context window** (S07): `AdvisorSubscriber` in `dartclaw_server` subscribes to `TaskStatusChangedEvent`, `TaskEventCreatedEvent`, `AgentStateChangedEvent`, and `AdvisorMentionEvent` on the EventBus. `SlidingContextWindow` bounded buffer (configurable `max_window_turns`, default 10) with estimated token tracking. Events normalized to compact `ContextEntry` summaries. `AdvisorMentionEvent` added to sealed `DartclawEvent` hierarchy — fired by `ChannelTaskBridge` when `@advisor` detected via `_looksLikeAdvisorMention()`. Prior advisor reflections bounded at `max_prior_reflections` (default 3)
+- **Advisor trigger policies** (S08): `TriggerEvaluator` with configurable trigger conditions: `turn_depth` (consecutive turns exceed threshold), `token_velocity` (consumption rate exceeds threshold within window), `periodic` (timer-based), `task_review` (task enters review status), `explicit` (`@advisor` mention). `CircuitBreaker` prevents firing more than once per 5 primary turns. Explicit `@advisor` triggers bypass circuit breaker. Multiple triggers active simultaneously
+- **Advisor harness execution** (S09): On trigger, advisor acquires `TurnRunner` from `HarnessPool` via `tryAcquire()`. If unavailable, skip logged and deferred to next trigger. Prompt constructed from sliding context window, trigger reason, current task states, recent turn traces (via `TurnTraceService`), and prior reflections. Structured output parsed by `AdvisorOutputParser` (JSON-first with regex fallback). `AdvisorStatus` enum: `on_track`, `diverging`, `stuck`, `concerning`. Runner released in `finally` block
+- **Advisor output routing + identity** (S10): `AdvisorOutputRouter` routes to three destinations: (a) canvas via `CanvasService.push()` with `renderAdvisorInsightCard()` (muted accent, italic heading, compact layout), (b) channels — explicit `@advisor` replies to originating channel thread; periodic/event triggers broadcast to all bound channels via `ThreadBindingStore.lookupByTask()` with fallback to task origin channel, (c) `AdvisorInsightEvent` on EventBus. Google Chat uses `ChatCardBuilder.advisorInsight()` Cards v2 template with distinct header. Thread-exact delivery via `sendMessageToThreadName` for Google Chat
+
+#### Phase E — Configuration + Documentation
+- **Config sections + crowd coding template** (S11): `AdvisorConfig` as built-in config section in `DartclawConfig.load()` with `'advisor'` in `_knownKeys`. Fields: `enabled` (bool, default false), `model`, `effort`, `triggers` (list), `periodic_interval_minutes` (default 10), `max_window_turns` (default 10), `max_prior_reflections` (default 3). 10 `FieldMeta` entries for `advisor.*`, `governance.crowd_coding.*`, `governance.queue_strategy`, `governance.rate_limits.per_sender.*`. `ConfigSerializer` updated with advisor section. Invalid trigger names rejected with warnings. Crowd coding recipe (`08-crowd-coding.md`) updated with three deployment scenario templates including model routing, queue fairness, and advisor configuration
+- **Documentation updates** (S12): Crowd coding recipe covers all four new capabilities with config examples and operational tips. Architecture docs updated: `system-architecture.md` (advisor subsystem, `/bind`/`/unbind` in routing precedence, `AdvisorSubscriber` component table entry, `AdvisorMentionEvent`/`AdvisorInsightEvent` in event hierarchy), `data-model.md` (advisor events, `AdvisorConfig` schema). "Current through" markers bumped to 0.14.3. Feature comparison matrix updated with 0.14.3 row
+
+### Fixed
+
+- **Google Chat typing indicator via Pub/Sub path** (S13): When Pub/Sub space events are enabled, the Pub/Sub path now sends the typing indicator placeholder before dispatching the message — previously only the webhook path did this, so the dedup-winning Pub/Sub path silently skipped it
+- **Google Chat session display name** (S14): `GroupSessionInitializer` now resolves human-readable space display names via `GoogleChatRestClient.getSpace()` instead of showing raw `spaces/123...` IDs. Graceful fallback to raw ID on API error. `spaceDisplayName` propagated through message metadata from both webhook and Pub/Sub paths
+- **Binding API race condition** (H-01): `taskRoutes()` and `TasksPage` now use the singleton `ThreadBindingStore` instead of creating ephemeral per-request/per-render instances from disk
+- **Advisor turn bounded** (H-04): Advisor passes `maxTurns: 1` to `reserveTurn()`, enforced at the harness level via Claude Code `initializeFields.maxTurns`. `int? maxTurns` parameter added to `AgentHarness.turn()`, `TurnContext`, and `TurnRunner.reserveTurn()`
+- **`/bind` prefix matching** (H-03): `/bind` now resolves task IDs by prefix (consistent with `/accept` and `/reject`), with clear feedback for ambiguous or missing matches
+- **TriggerEvaluator double-initialization** (H-02): Refactored to parse triggers and interval as plain fields in `AdvisorSubscriber` constructor, creating a single `TriggerEvaluator` via `late final`
+- **`/bind`/`/unbind` in reserved commands** (M-02): Both commands now registered in `isReservedCommand()` — correctly bypass pause handling
+- **`SessionScopeConfig.hashCode`** (M-04): Channel keys sorted before hashing to eliminate insertion-order dependence
+- **`_extractField()` regex** (M-05): Field name now escaped with `RegExp.escape()` in `AdvisorOutputParser`
+- **Config model/effort validation** (M-06): Unrecognized model and effort values produce parse-time warnings across `advisor`, `sessions`, and `governance.crowd_coding` config sections
+- **Analyzer warnings** (L-01): Removed unnecessary `!` operator in `advisor_subscriber.dart` and duplicate `dart:io` import in `tasks_page.dart`
+- **AdvisorSubscriber EventBus consistency** (L-03): Single `EventBus` instance used consistently for both output routing and event subscriptions
+
+### Changed
+
+- **Version display**: Updated from 0.14.2 to 0.14.3
+- **Thread binding store**: `lookupByTask()` signature changed from `ThreadBinding?` to `List<ThreadBinding>` — all callers updated
+- **Debounce key**: `MessageQueue` debounce changed from per-session to per-sender-per-session — sender boundaries preserved in queue even with `max_queued: 0` (default)
+
+---
+
 ## [0.14.2] — 2026-03-25
 
 Shareable Canvas for Crowd Coding — agent-controlled visual workspace rendered on viewer devices via SSE, accessible via zero-auth share links. Purpose-built for workshop projection and participant phone access.

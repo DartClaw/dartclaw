@@ -206,6 +206,13 @@ void main() {
       expect(dispatchedMessage!.metadata['threadName'], 'spaces/AAAA/threads/CCCC');
     });
 
+    test('captures space display name from webhook ingress', () async {
+      await _post(handler, body: _payload(spaceType: 'ROOM'));
+
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.metadata['spaceDisplayName'], 'Primary');
+    });
+
     test('prefers argumentText over raw text when present', () async {
       await _post(
         handler,
@@ -523,7 +530,9 @@ void main() {
         'authorizationEventObject': {},
         'chat': {
           'user': {'name': 'users/123'},
-          'widgetUpdatedPayload': {'space': {'name': 'spaces/AAAA'}},
+          'widgetUpdatedPayload': {
+            'space': {'name': 'spaces/AAAA'},
+          },
         },
       };
 

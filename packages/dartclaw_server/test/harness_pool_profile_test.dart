@@ -37,6 +37,7 @@ class _StubHarness implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async => {};
   @override
   Future<void> cancel() async {}

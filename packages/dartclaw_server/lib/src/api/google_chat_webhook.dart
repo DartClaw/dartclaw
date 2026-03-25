@@ -85,9 +85,7 @@ class GoogleChatWebhookHandler {
     }
 
     // Normalize Workspace Add-on format to legacy Chat API format.
-    final payload = rawPayload['type'] == null
-        ? (_normalizeAddOnPayload(rawPayload) ?? rawPayload)
-        : rawPayload;
+    final payload = rawPayload['type'] == null ? (_normalizeAddOnPayload(rawPayload) ?? rawPayload) : rawPayload;
 
     return switch (payload['type']) {
       'MESSAGE' => _handleMessage(payload),
@@ -158,6 +156,7 @@ class GoogleChatWebhookHandler {
       metadata: {
         'spaceName': spaceName,
         if (spaceType case final String resolvedSpaceType) 'spaceType': resolvedSpaceType,
+        if (space['displayName'] case final String spaceDisplayName) 'spaceDisplayName': spaceDisplayName,
         if (user['displayName'] case final String displayName) 'senderDisplayName': displayName,
         if (sender?['avatarUrl'] case final String avatarUrl when avatarUrl.isNotEmpty) 'senderAvatarUrl': avatarUrl,
         if (message['name'] case final String messageName) 'messageName': messageName,

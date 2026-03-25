@@ -138,7 +138,7 @@ void main() {
       // Rate limited — consumed with rejection.
       expect(consumed, isTrue);
       expect(channel.sentMessages, hasLength(1));
-      expect(channel.sentMessages.first.$2.text, contains('too fast'));
+      expect(channel.sentMessages.first.$2.text, contains('Rate limit reached'));
     });
   });
 }

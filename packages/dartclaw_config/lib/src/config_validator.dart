@@ -21,6 +21,14 @@ class ValidationError {
 class ConfigValidator {
   const ConfigValidator();
 
+  static const _validAdvisorTriggers = <String>{
+    'turn_depth',
+    'token_velocity',
+    'periodic',
+    'task_review',
+    'explicit',
+  };
+
   /// Validates proposed config updates.
   ///
   /// [updates] maps dot-separated YAML paths to proposed values.
@@ -59,6 +67,7 @@ class ConfigValidator {
 
     _validateGoogleChatRequirements(updates, currentValues, errors);
     _validateSpaceEventsRequirements(updates, currentValues, errors);
+    _validateAdvisorTriggers(updates, errors);
     return errors;
   }
 
@@ -125,6 +134,24 @@ class ConfigValidator {
       errors: errors,
       requiredByField: 'channels.google_chat.space_events.enabled',
     );
+  }
+
+  void _validateAdvisorTriggers(Map<String, dynamic> updates, List<ValidationError> errors) {
+    final triggers = updates['advisor.triggers'];
+    if (triggers is! List) return;
+    for (final trigger in triggers) {
+      if (trigger is! String) continue;
+      if (_validAdvisorTriggers.contains(trigger)) continue;
+      errors.add(
+        ValidationError(
+          field: 'advisor.triggers',
+          message:
+              "Field 'advisor.triggers' contains invalid trigger '$trigger' "
+              "(allowed: ${_validAdvisorTriggers.join(', ')})",
+        ),
+      );
+      return;
+    }
   }
 
   T? _mergedValue<T>(String field, Map<String, dynamic> updates, Map<String, dynamic> currentValues) {

@@ -147,6 +147,7 @@ class DartclawServerBuilder {
 
   // Google Chat
   GoogleChatSpaceEventsWiring? spaceEventsWiring;
+  ThreadBindingStore? threadBindingStore;
 
   // Auth & gateway
   String? gatewayToken;
@@ -264,6 +265,7 @@ class DartclawServerBuilder {
       taskEventRecorder: eventRecorder,
       progressTracker: progressTracker,
       spaceEventsWiring: spaceEventsWiring,
+      threadBindingStore: threadBindingStore,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
@@ -366,6 +368,7 @@ class DartclawServer {
   final TaskEventRecorder? _taskEventRecorder;
   final TaskProgressTracker? _progressTracker;
   final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
+  final ThreadBindingStore? _threadBindingStore;
 
   // Display params — all final
   final ContentGuardDisplayParams _contentGuardDisplay;
@@ -435,6 +438,7 @@ class DartclawServer {
     required TaskEventRecorder? taskEventRecorder,
     required TaskProgressTracker? progressTracker,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
+    required ThreadBindingStore? threadBindingStore,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
     required SchedulingDisplayParams schedulingDisplay,
@@ -489,6 +493,7 @@ class DartclawServer {
        _taskEventRecorder = taskEventRecorder,
        _progressTracker = progressTracker,
        _spaceEventsWiring = spaceEventsWiring,
+       _threadBindingStore = threadBindingStore,
        _contentGuardDisplay = contentGuardDisplay,
        _heartbeatDisplay = heartbeatDisplay,
        _schedulingDisplay = schedulingDisplay,
@@ -841,6 +846,7 @@ class DartclawServer {
         mergeExecutor: _mergeExecutor,
         projectService: _projectService,
         dataDir: _appDisplay.dataDir,
+        threadBindingStore: _threadBindingStore,
         mergeStrategy: _mergeStrategy ?? 'squash',
         baseRef: _baseRef ?? 'main',
       );
@@ -959,6 +965,7 @@ class DartclawServer {
       traceService: _traceService,
       taskEventService: _taskEventService,
       progressTracker: _progressTracker,
+      threadBindingStore: _threadBindingStore,
       canvasEnabled: _canvasService != null,
     );
     router.mount('/', webRouter.call);

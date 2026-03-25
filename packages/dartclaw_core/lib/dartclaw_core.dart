@@ -89,6 +89,7 @@ export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTime
 
 // Config — section types
 export 'src/config/agent_config.dart' show AgentConfig;
+export 'src/config/advisor_config.dart' show AdvisorConfig;
 export 'src/config/credential_registry.dart' show CredentialRegistry;
 export 'src/config/credentials_config.dart' show CredentialsConfig, CredentialEntry;
 export 'src/config/provider_identity.dart' show ProviderIdentity;
@@ -124,12 +125,14 @@ export 'src/scoping/session_scope_config.dart' show SessionScopeConfig, ChannelS
 export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
 export 'src/config/governance_config.dart'
     show
+        CrowdCodingConfig,
         GovernanceConfig,
         RateLimitsConfig,
         PerSenderRateLimitConfig,
         GlobalRateLimitConfig,
         BudgetConfig,
         BudgetAction,
+        QueueStrategy,
         LoopDetectionConfig,
         LoopAction;
 export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
@@ -179,6 +182,8 @@ export 'src/events/dartclaw_event.dart'
         ContainerCrashedEvent,
         AgentLifecycleEvent,
         AgentStateChangedEvent,
+        AdvisorInsightEvent,
+        AdvisorMentionEvent,
         LoopDetectedEvent,
         EmergencyStopEvent,
         ProjectLifecycleEvent,

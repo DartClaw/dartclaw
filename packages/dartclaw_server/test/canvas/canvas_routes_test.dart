@@ -30,6 +30,7 @@ class _RecordingTurnManager extends TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
   }) async {
     calls.add(_TurnCall(sessionId: sessionId, messages: messages, source: source, isHumanInput: isHumanInput));

@@ -35,6 +35,9 @@ class TurnContext {
   /// Optional per-turn reasoning effort override.
   final String? effort;
 
+  /// Optional hard cap on the number of harness turns for this request.
+  final int? maxTurns;
+
   /// Optional task-scoped behavior service override.
   ///
   /// When set, this behavior service is used for system prompt composition
@@ -50,6 +53,7 @@ class TurnContext {
     this.directory,
     this.model,
     this.effort,
+    this.maxTurns,
     this.behaviorOverride,
   });
 }
@@ -208,6 +212,7 @@ class TurnManager {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
   }) async {
@@ -219,6 +224,7 @@ class TurnManager {
         directory: directory,
         model: model,
         effort: effort,
+        maxTurns: maxTurns,
         isHumanInput: isHumanInput,
         behaviorOverride: behaviorOverride,
       );
@@ -266,6 +272,7 @@ class TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
   }) async {
     final turnId = await reserveTurn(
@@ -273,6 +280,7 @@ class TurnManager {
       agentName: agentName,
       model: model,
       effort: effort,
+      maxTurns: maxTurns,
       isHumanInput: isHumanInput,
     );
     try {

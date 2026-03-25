@@ -226,8 +226,14 @@ providers:
   # codex:                       # uncomment to enable Codex (OpenAI models)
   #   executable: codex          # path to codex binary
   #   pool_size: 2               # 2 task workers
-  #   sandbox: workspace-write   # codex sandbox mode
-  #   approval: on-request       # approval mode for app-server
+  #   sandbox: workspace-write   # workspace-write | danger-full-access
+  #   approval: on-request       # on-request | unless-allow-listed | never
+  #                              # ⚠ IMPORTANT: Set approval: never for non-interactive
+  #                              #   use (crowd-coding, batch tasks). Without it, Codex
+  #                              #   may hang indefinitely on tool-use turns due to an
+  #                              #   upstream approval deadlock bug (openai/codex#11816).
+  #                              #   DartClaw's own guard chain remains active regardless.
+  #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---
 credentials:

@@ -148,4 +148,57 @@ void main() {
       expect(originalPayload.containsKey('messageReplyOption'), isFalse);
     });
   });
+
+  group('GoogleChatRestClient thread-name delivery', () {
+    test('sendMessageToThread targets an existing thread name', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/FFF'}), 200);
+        }),
+        apiBase: 'https://chat.googleapis.com/v1',
+      );
+
+      final messageName = await client.sendMessageToThread(
+        'spaces/AAA',
+        'Hello again',
+        threadName: 'spaces/AAA/threads/CCC',
+      );
+
+      expect(messageName, 'spaces/AAA/messages/FFF');
+      final body = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(body['thread'], {'name': 'spaces/AAA/threads/CCC'});
+      expect(body['text'], 'Hello again');
+    });
+
+    test('sendCardToThread targets an existing thread name', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/GGG'}), 200);
+        }),
+        apiBase: 'https://chat.googleapis.com/v1',
+      );
+
+      final messageName = await client.sendCardToThread(
+        'spaces/AAA',
+        {
+          'cardsV2': [
+            {
+              'cardId': 'advisor',
+              'card': {'header': {'title': 'Advisor Insight'}},
+            },
+          ],
+        },
+        threadName: 'spaces/AAA/threads/CCC',
+      );
+
+      expect(messageName, 'spaces/AAA/messages/GGG');
+      final body = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(body['thread'], {'name': 'spaces/AAA/threads/CCC'});
+      expect(body['cardsV2'], isNotEmpty);
+    });
+  });
 }

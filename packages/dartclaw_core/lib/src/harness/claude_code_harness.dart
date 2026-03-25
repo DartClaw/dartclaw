@@ -96,6 +96,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   late String _processWorkingDirectory;
   String? _processModel;
   String? _processEffort;
+  int? _processMaxTurns;
 
   /// Stable broadcast stream that survives process restarts.
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
@@ -135,6 +136,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     _processWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
+    _processMaxTurns = harnessConfig.maxTurns;
   }
 
   @override
@@ -253,15 +255,23 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
     final desiredModel = _resolveModel(model);
     final desiredEffort = _resolveEffort(effort);
+    final desiredMaxTurns = _resolveMaxTurns(maxTurns);
     if (desiredWorkingDirectory != _processWorkingDirectory ||
         desiredModel != _processModel ||
         desiredEffort != _processEffort ||
+        desiredMaxTurns != _processMaxTurns ||
         _state == WorkerState.stopped) {
-      await _restartForExecution(workingDirectory: desiredWorkingDirectory, model: desiredModel, effort: desiredEffort);
+      await _restartForExecution(
+        workingDirectory: desiredWorkingDirectory,
+        model: desiredModel,
+        effort: desiredEffort,
+        maxTurns: desiredMaxTurns,
+      );
     }
 
     // Crash restart with exponential backoff.
@@ -497,10 +507,13 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     return harnessConfig.effort;
   }
 
+  int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
+
   Future<void> _restartForExecution({
     required String workingDirectory,
     required String? model,
     required String? effort,
+    required int? maxTurns,
   }) async {
     await withLock(() async {
       if (_state == WorkerState.busy) {
@@ -509,6 +522,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       if (_processWorkingDirectory == workingDirectory &&
           _processModel == model &&
           _processEffort == effort &&
+          _processMaxTurns == maxTurns &&
           _state != WorkerState.stopped) {
         return;
       }
@@ -516,6 +530,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       _processWorkingDirectory = workingDirectory;
       _processModel = model;
       _processEffort = effort;
+      _processMaxTurns = maxTurns;
       await _startInternal();
     });
   }
@@ -573,7 +588,10 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
             },
           ],
         },
-        initializeFields: harnessConfig.toInitializeFields(),
+        initializeFields: {
+          ...harnessConfig.toInitializeFields(),
+          if (_processMaxTurns != null) 'maxTurns': _processMaxTurns,
+        },
         sdkMcpServers: harnessConfig.mcpServerUrl == null && sdkMcpServers.isNotEmpty ? sdkMcpServers : null,
       ),
     );
@@ -815,5 +833,4 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     final line = '${jsonEncode(json)}\n';
     _process?.stdin.add(utf8.encode(line));
   }
-
 }

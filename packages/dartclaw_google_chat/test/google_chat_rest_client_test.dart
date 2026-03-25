@@ -269,4 +269,28 @@ void main() {
       expect(client.testConnection(), throwsA(isA<GoogleChatApiException>()));
     });
   });
+
+  group('GoogleChatRestClient.getSpace', () {
+    test('returns name and displayName from the API response', () async {
+      late Uri captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request.url;
+          return http.Response(jsonEncode({'name': 'spaces/AAA', 'displayName': 'Primary Space'}), 200);
+        }),
+      );
+
+      final result = await client.getSpace('spaces/AAA');
+
+      expect(captured.toString(), 'https://chat.googleapis.com/v1/spaces/AAA');
+      expect(result?.name, 'spaces/AAA');
+      expect(result?.displayName, 'Primary Space');
+    });
+
+    test('returns null on API error', () async {
+      final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('{}', 404)));
+
+      expect(await client.getSpace('spaces/AAA'), isNull);
+    });
+  });
 }

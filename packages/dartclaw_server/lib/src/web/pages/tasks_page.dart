@@ -230,9 +230,7 @@ class TasksPage extends DashboardPage {
     String? initialActivity;
     int? tokenBudget;
     if (task.status == TaskStatus.running) {
-      tokenBudget =
-          (task.configJson['tokenBudget'] as num?)?.toInt() ??
-          (task.configJson['budget'] as num?)?.toInt();
+      tokenBudget = (task.configJson['tokenBudget'] as num?)?.toInt() ?? (task.configJson['budget'] as num?)?.toInt();
       final eventService = context.taskEventService;
       if (eventService != null) {
         try {
@@ -246,10 +244,7 @@ class TasksPage extends DashboardPage {
                   ((details['inputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30) +
                   ((details['outputTokens'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30);
             } else if (e.kind is ToolCalled) {
-              initialActivity = TaskProgressTracker.formatActivity(
-                details['name']?.toString() ?? '',
-                details,
-              );
+              initialActivity = TaskProgressTracker.formatActivity(details['name']?.toString() ?? '', details);
             }
           }
         } catch (e) {
@@ -267,6 +262,7 @@ class TasksPage extends DashboardPage {
       navItems: context.navItems(activePage: title),
       task: _taskToDetailMap(task, goalTitle: goal?.title, defaultProvider: defaultProvider),
       artifacts: artifactMaps,
+      bindings: _lookupBindings(context.threadBindingStore, taskId),
       conflictData: conflictData,
       tokenSummary: tokenSummary,
       messagesHtml: messagesHtml,
@@ -310,6 +306,11 @@ class TasksPage extends DashboardPage {
       'completedAt': task.completedAt?.toIso8601String(),
       'pushBackCount': (task.configJson['pushBackCount'] as num?)?.toInt() ?? 0,
     };
+  }
+
+  static List<Map<String, dynamic>> _lookupBindings(ThreadBindingStore? store, String taskId) {
+    if (store == null) return const [];
+    return store.lookupByTask(taskId).map((binding) => binding.toJson()).toList(growable: false);
   }
 
   static String? _renderDiffHtml(String content) {

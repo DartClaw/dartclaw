@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
@@ -21,6 +22,7 @@ class WorkshopCanvasSubscriber {
   final DateTime _serverStartTime;
   final bool _taskBoardEnabled;
   final bool _statsBarEnabled;
+  final ThreadBindingStore? _threadBindings;
 
   StreamSubscription<TaskStatusChangedEvent>? _subscription;
   Timer? _debounceTimer;
@@ -34,6 +36,7 @@ class WorkshopCanvasSubscriber {
     required DateTime serverStartTime,
     bool taskBoardEnabled = true,
     bool statsBarEnabled = true,
+    ThreadBindingStore? threadBindings,
   }) : _canvasService = canvasService,
        _taskService = taskService,
        _usageTracker = usageTracker,
@@ -41,7 +44,8 @@ class WorkshopCanvasSubscriber {
        _dailyBudgetTokens = dailyBudgetTokens,
        _serverStartTime = serverStartTime,
        _taskBoardEnabled = taskBoardEnabled,
-       _statsBarEnabled = statsBarEnabled;
+       _statsBarEnabled = statsBarEnabled,
+       _threadBindings = threadBindings;
 
   /// Starts listening for task status updates.
   void subscribe(EventBus eventBus) {
@@ -80,7 +84,10 @@ class WorkshopCanvasSubscriber {
       }
 
       if (_taskBoardEnabled) {
-        fragments.add(canvasTaskBoardFragment(tasks));
+        final bindingCounts = <String, int>{
+          for (final task in tasks) task.id: max(0, _threadBindings?.lookupByTask(task.id).length ?? 0),
+        };
+        fragments.add(canvasTaskBoardFragment(tasks, bindingCounts: bindingCounts));
       }
 
       if (fragments.isEmpty) return;

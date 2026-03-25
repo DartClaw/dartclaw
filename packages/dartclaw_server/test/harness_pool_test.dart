@@ -160,10 +160,7 @@ void main() {
 
         pool.addRunner(_createRunners(1).first);
 
-        expect(
-          () => pool.addRunner(_createRunners(1).first),
-          throwsStateError,
-        );
+        expect(() => pool.addRunner(_createRunners(1).first), throwsStateError);
       });
 
       test('spawnableCount decreases as runners are added', () {
@@ -257,6 +254,7 @@ class _FakeWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     return <String, dynamic>{'input_tokens': 0, 'output_tokens': 0};
   }

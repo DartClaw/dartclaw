@@ -11,12 +11,15 @@ import 'package:logging/logging.dart';
 /// startup (reconcile + pull loop start) and shutdown of the infrastructure.
 class GoogleChatSpaceEventsWiring {
   static final _log = Logger('GoogleChatSpaceEventsWiring');
+  static const _typingMessage = '_DartClaw is typing..._';
 
   final PubSubClient _pubSubClient;
   final WorkspaceEventsManager _subscriptionManager;
   final CloudEventAdapter _adapter;
   final MessageDeduplicator _deduplicator;
   final ChannelManager _channelManager;
+  final GoogleChatChannel? _channel;
+  final GoogleChatConfig? _config;
 
   GoogleChatSpaceEventsWiring({
     required PubSubClient pubSubClient,
@@ -24,11 +27,15 @@ class GoogleChatSpaceEventsWiring {
     required CloudEventAdapter adapter,
     required MessageDeduplicator deduplicator,
     required ChannelManager channelManager,
+    GoogleChatChannel? channel,
+    GoogleChatConfig? config,
   }) : _pubSubClient = pubSubClient,
        _subscriptionManager = subscriptionManager,
        _adapter = adapter,
        _deduplicator = deduplicator,
-       _channelManager = channelManager;
+       _channelManager = channelManager,
+       _channel = channel,
+       _config = config;
 
   /// The [PubSubClient] managed by this wiring.
   PubSubClient get pubSubClient => _pubSubClient;
@@ -70,7 +77,7 @@ class GoogleChatSpaceEventsWiring {
       final result = _adapter.processMessage(message);
 
       return switch (result) {
-        MessageResult(:final messages) => _dispatchMessages(messages, message.messageId),
+        MessageResult(:final messages) => await _dispatchMessages(messages, message.messageId),
         Filtered() || LogOnly() || Acknowledged() => true, // ack, no further processing
       };
     } catch (e, st) {
@@ -80,13 +87,24 @@ class GoogleChatSpaceEventsWiring {
     }
   }
 
-  bool _dispatchMessages(List<ChannelMessage> messages, String pubsubMessageId) {
+  Future<bool> _dispatchMessages(List<ChannelMessage> messages, String pubsubMessageId) async {
     for (final channelMessage in messages) {
       final messageName = channelMessage.metadata['messageName'] as String?;
       if (messageName != null && messageName.isNotEmpty) {
         if (!_deduplicator.tryProcess(messageName)) {
           _log.fine('Duplicate message $messageName (already seen via webhook) — acking');
           continue;
+        }
+      }
+      final channel = _channel;
+      final config = _config;
+      if (channel != null && config != null && config.typingIndicator) {
+        final spaceName = channelMessage.metadata['spaceName'] as String?;
+        if (spaceName != null && spaceName.isNotEmpty) {
+          final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
+          if (placeholderName != null) {
+            channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
+          }
         }
       }
       _channelManager.handleInboundMessage(channelMessage);

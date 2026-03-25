@@ -95,6 +95,7 @@ class _KnowledgeInboxWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     turnCallCount++;
     savedFindings = 0;

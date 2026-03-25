@@ -40,6 +40,7 @@ class FakeTurnManager extends TurnManager {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
   }) async {

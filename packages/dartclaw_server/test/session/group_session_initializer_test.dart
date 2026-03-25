@@ -203,6 +203,73 @@ void main() {
       expect(allSessions.first.title, 'my-group');
     });
 
+    test('displayNameResolver provides a human-readable title', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'googlechat',
+            groupAccessEnabled: true,
+            groupAllowlist: ['spaces/AAAA'],
+          ),
+        ],
+        displayNameResolver: (channelType, groupId) async {
+          expect(channelType, 'googlechat');
+          expect(groupId, 'spaces/AAAA');
+          return 'Primary Space';
+        },
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions, hasLength(1));
+      expect(allSessions.first.title, 'Primary Space');
+    });
+
+    test('displayNameResolver null falls back to group ID', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'googlechat',
+            groupAccessEnabled: true,
+            groupAllowlist: ['spaces/AAAA'],
+          ),
+        ],
+        displayNameResolver: (_, _) async => null,
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions, hasLength(1));
+      expect(allSessions.first.title, 'spaces/AAAA');
+    });
+
+    test('displayNameResolver error falls back to group ID', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'googlechat',
+            groupAccessEnabled: true,
+            groupAllowlist: ['spaces/AAAA'],
+          ),
+        ],
+        displayNameResolver: (_, _) async => throw StateError('boom'),
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions, hasLength(1));
+      expect(allSessions.first.title, 'spaces/AAAA');
+    });
+
     test('existing session with user-set title is not overwritten', () async {
       // Pre-create a session with the same key
       final key = SessionKey.groupShared(channelType: 'whatsapp', groupId: 'my-group');

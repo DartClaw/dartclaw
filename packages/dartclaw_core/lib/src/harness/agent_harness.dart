@@ -51,6 +51,7 @@ abstract class AgentHarness {
   /// [directory] overrides the working directory for this turn when supported.
   /// [model] overrides the default model for this turn.
   /// [effort] overrides the reasoning effort level for this turn.
+  /// [maxTurns] caps harness-side autonomous turns when supported.
   Future<Map<String, dynamic>> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
@@ -60,6 +61,7 @@ abstract class AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   });
 
   /// Cancel the current in-progress turn.

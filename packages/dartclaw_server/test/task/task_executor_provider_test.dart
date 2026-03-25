@@ -347,6 +347,7 @@ class _ProviderWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     turnCalls += 1;
     if (!_turnStarted.isCompleted) {

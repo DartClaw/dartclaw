@@ -55,10 +55,18 @@ class PauseController {
   QueueResult enqueue(
     ChannelMessage message,
     Channel channel,
-    String sessionKey,
-  ) {
+    String sessionKey, {
+    int maxPauseQueued = 0,
+    bool Function(String senderId)? isAdmin,
+  }) {
     if (_queue.length >= maxQueueSize) {
       return QueueResult.full;
+    }
+    if (maxPauseQueued > 0 && !(isAdmin?.call(message.senderJid) ?? false)) {
+      final senderCount = _queue.where((entry) => entry.message.senderJid == message.senderJid).length;
+      if (senderCount >= maxPauseQueued) {
+        return QueueResult.full;
+      }
     }
     _queue.add(
       _QueuedMessage(
@@ -120,9 +128,7 @@ class PauseController {
 
       final senderCount = bySender.length;
       final buffer = StringBuffer();
-      buffer.writeln(
-        'While paused, $senderCount participant${senderCount == 1 ? '' : 's'} sent messages:',
-      );
+      buffer.writeln('While paused, $senderCount participant${senderCount == 1 ? '' : 's'} sent messages:');
       for (final name in senderOrder) {
         final texts = bySender[name]!;
         buffer.writeln('- $name: ${texts.join(', ')}');
@@ -132,7 +138,6 @@ class PauseController {
     }
     return result;
   }
-
 }
 
 class _QueuedMessage {

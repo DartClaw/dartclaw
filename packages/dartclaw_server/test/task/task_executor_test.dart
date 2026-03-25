@@ -682,6 +682,7 @@ class _FakeTaskWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     onTurn?.call(sessionId);
     lastModel = model;
@@ -732,6 +733,7 @@ class _BusyOnceTurnManager extends TurnManager {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
   }) async {

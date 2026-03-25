@@ -81,6 +81,7 @@ Router webRoutes(
   TurnTraceService? traceService,
   TaskEventService? taskEventService,
   TaskProgressTracker? progressTracker,
+  ThreadBindingStore? threadBindingStore,
   bool canvasEnabled = false,
 }) {
   final router = Router();
@@ -136,6 +137,7 @@ Router webRoutes(
     traceService: traceService,
     taskEventService: taskEventService,
     progressTracker: progressTracker,
+    threadBindingStore: threadBindingStore,
     buildSidebarData: () => buildSidebarData(
       sessions,
       kvService: kvService,

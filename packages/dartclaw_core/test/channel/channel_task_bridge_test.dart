@@ -227,6 +227,31 @@ void main() {
       expect(handled, isTrue);
       expect(channel.sentMessages.single.$2.text, 'Could not create task -- service unavailable.');
     });
+
+    test('@advisor mention fires AdvisorMentionEvent and falls through when nothing else handles it', () async {
+      final eventBus = EventBus();
+      addTearDown(() async => eventBus.dispose());
+      final mentions = <AdvisorMentionEvent>[];
+      eventBus.on<AdvisorMentionEvent>().listen(mentions.add);
+
+      final bridge = ChannelTaskBridge(
+        eventBus: eventBus,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
+      );
+
+      final handled = await bridge.tryHandle(
+        makeMessage(text: '@advisor please review this'),
+        channel,
+        sessionKey: 'agent:main:group:whatsapp:group@g.us',
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(handled, isFalse);
+      expect(mentions, hasLength(1));
+      expect(mentions.single.messageText, '@advisor please review this');
+      expect(mentions.single.channelType, 'whatsapp');
+    });
   });
 }
 

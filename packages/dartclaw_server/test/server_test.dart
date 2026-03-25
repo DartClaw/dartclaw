@@ -58,6 +58,7 @@ class FakeWorkerService implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnStarted.isCompleted) {
@@ -151,13 +152,14 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeWorkerService();
-    server = (DartclawServerBuilder()
-          ..sessions = sessions
-          ..messages = messages
-          ..worker = worker
-          ..staticDir = _staticDir()
-          ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
-        .build();
+    server =
+        (DartclawServerBuilder()
+              ..sessions = sessions
+              ..messages = messages
+              ..worker = worker
+              ..staticDir = _staticDir()
+              ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
+            .build();
   });
 
   tearDown(() async {
@@ -294,21 +296,22 @@ void main() {
       taskFileGuard = TaskFileGuard();
       mergeExecutor = MergeExecutor(projectDir: tempDir.path, processRunner: _successfulProcessResult);
       agentObserver = _buildAgentObserver(worker, messages);
-      server = (DartclawServerBuilder()
-            ..sessions = sessions
-            ..messages = messages
-            ..worker = worker
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..tokenService = TokenService(token: 'test-token')
-            ..gatewayToken = 'test-token'
-            ..taskService = taskService
-            ..eventBus = eventBus
-            ..worktreeManager = worktreeManager
-            ..taskFileGuard = taskFileGuard
-            ..mergeExecutor = mergeExecutor
-            ..agentObserver = agentObserver)
-          .build();
+      server =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..tokenService = TokenService(token: 'test-token')
+                ..gatewayToken = 'test-token'
+                ..taskService = taskService
+                ..eventBus = eventBus
+                ..worktreeManager = worktreeManager
+                ..taskFileGuard = taskFileGuard
+                ..mergeExecutor = mergeExecutor
+                ..agentObserver = agentObserver)
+              .build();
     });
 
     tearDown(() async {
@@ -358,15 +361,16 @@ void main() {
       addTearDown(eventBus.dispose);
       addTearDown(taskService.dispose);
 
-      final s = (DartclawServerBuilder()
-            ..sessions = sessions
-            ..messages = messages
-            ..worker = worker
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..taskService = taskService
-            ..eventBus = eventBus)
-          .build();
+      final s =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..taskService = taskService
+                ..eventBus = eventBus)
+              .build();
 
       expect(
         () => s.handler(Request('GET', Uri.parse('http://localhost/'))),
@@ -378,14 +382,15 @@ void main() {
       final configWriter = ConfigWriter(configPath: p.join(tempDir.path, 'dartclaw.yaml'));
       addTearDown(configWriter.dispose);
 
-      final s = (DartclawServerBuilder()
-            ..sessions = sessions
-            ..messages = messages
-            ..worker = worker
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..configWriter = configWriter)
-          .build();
+      final s =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..configWriter = configWriter)
+              .build();
 
       expect(
         () => s.handler(Request('GET', Uri.parse('http://localhost/'))),
@@ -447,16 +452,17 @@ void main() {
       taskDb = openTaskDbInMemory();
       taskRepository = SqliteTaskRepository(taskDb);
       goalService = GoalService(SqliteGoalRepository(taskDb));
-      server = (DartclawServerBuilder()
-            ..sessions = sessions
-            ..messages = messages
-            ..worker = worker
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..tokenService = TokenService(token: 'test-token')
-            ..gatewayToken = 'test-token'
-            ..goalService = goalService)
-          .build();
+      server =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..tokenService = TokenService(token: 'test-token')
+                ..gatewayToken = 'test-token'
+                ..goalService = goalService)
+              .build();
     });
 
     tearDown(() async {

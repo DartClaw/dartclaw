@@ -21,6 +21,7 @@ String taskDetailPageTemplate({
   required List<NavItem> navItems,
   required Map<String, dynamic> task,
   required List<Map<String, dynamic>> artifacts,
+  List<Map<String, dynamic>>? bindings,
   Map<String, dynamic>? conflictData,
   Map<String, dynamic>? tokenSummary,
   String? messagesHtml,
@@ -49,6 +50,14 @@ String taskDetailPageTemplate({
   final hasSession = task['sessionId'] != null && (task['sessionId'] as String).isNotEmpty;
   final pushBackCount = (task['pushBackCount'] as num?)?.toInt() ?? 0;
   final showPushBackWarning = pushBackCount >= 3;
+  final bindingItems = (bindings ?? const <Map<String, dynamic>>[])
+      .map(
+        (binding) => {
+          'channelLabel': _channelTypeLabel(binding['channelType']?.toString() ?? ''),
+          'threadId': _truncateBindingId(binding['threadId']?.toString() ?? ''),
+        },
+      )
+      .toList(growable: false);
   final conflictingFiles =
       (conflictData?['conflictingFiles'] as List?)?.map((entry) => entry.toString()).toList(growable: false) ??
       const <String>[];
@@ -124,6 +133,8 @@ String taskDetailPageTemplate({
     'pushBackCount': pushBackCount,
     'hasPushBacks': pushBackCount > 0,
     'showPushBackWarning': showPushBackWarning,
+    'hasBindings': bindingItems.isNotEmpty,
+    'bindings': bindingItems,
     'createdAtDisplay': _formatRelativeTimeIso(task['createdAt']?.toString()),
     'createdByDisplay': task['createdBy']?.toString() ?? '—',
     'startedAtDisplay': _formatRelativeTimeIso(task['startedAt']?.toString()),
@@ -186,4 +197,18 @@ String _formatRelativeTimeIso(String? iso) {
   } catch (e) {
     return '';
   }
+}
+
+String _channelTypeLabel(String channelType) {
+  return switch (channelType) {
+    'googlechat' => 'Google Chat',
+    'whatsapp' => 'WhatsApp',
+    'signal' => 'Signal',
+    _ => titleCase(channelType),
+  };
+}
+
+String _truncateBindingId(String threadId) {
+  if (threadId.length <= 42) return threadId;
+  return '${threadId.substring(0, 39)}...';
 }

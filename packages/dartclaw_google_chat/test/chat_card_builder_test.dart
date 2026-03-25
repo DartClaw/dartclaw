@@ -163,4 +163,26 @@ void main() {
       expect(bodyText, "Task 'Fix login' has been accepted.");
     });
   });
+
+  group('ChatCardBuilder.advisorInsight', () {
+    test('builds an advisor card with status, observation, and suggestion', () {
+      final card = builder.advisorInsight(
+        status: 'stuck',
+        observation: 'The task is looping on the same failing test.',
+        suggestion: 'Reduce scope and rerun the focused test.',
+        triggerType: 'explicit',
+      );
+
+      final cardEntry = ((card['cardsV2'] as List).single as Map<String, dynamic>)['card'] as Map<String, dynamic>;
+      expect(cardEntry['header'], {'title': 'Advisor Insight', 'subtitle': 'Stuck'});
+
+      final sections = (cardEntry['sections'] as List).cast<Map<String, dynamic>>();
+      expect(sections, hasLength(3));
+      final statusWidget =
+          (((sections.first['widgets'] as List).first as Map<String, dynamic>)['decoratedText'] as Map<String, dynamic>);
+      expect(statusWidget['topLabel'], 'Status');
+      expect(statusWidget['text'], contains('Stuck'));
+      expect(card.toString(), contains('Reduce scope and rerun the focused test.'));
+    });
+  });
 }

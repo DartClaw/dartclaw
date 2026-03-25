@@ -542,6 +542,7 @@ class _ConfigurableTurnManager implements TurnManager {
     String agentName = 'main',
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
   }) async {
     startTurnCallCount++;
@@ -585,7 +586,12 @@ class _ConfigurableTurnManager implements TurnManager {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-Future<String> _noopTestChannelDispatch(String sessionKey, String message, {String? senderJid, String? senderDisplayName}) async => '';
+Future<String> _noopTestChannelDispatch(
+  String sessionKey,
+  String message, {
+  String? senderJid,
+  String? senderDisplayName,
+}) async => '';
 
 class _RecordingDeliveryService extends DeliveryService {
   final List<({DeliveryMode mode, String jobId, String result, String? webhookUrl})> calls =

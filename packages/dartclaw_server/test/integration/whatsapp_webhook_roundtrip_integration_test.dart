@@ -86,6 +86,7 @@ class _ChannelWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     turnCallCount++;
     lastMessages = messages;

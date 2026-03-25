@@ -38,6 +38,15 @@ class ConfigSerializer {
       'workerTimeout': config.server.workerTimeout,
       'memoryMaxBytes': config.memory.maxBytes,
       'agent': {'model': config.agent.model, 'effort': config.agent.effort, 'maxTurns': config.agent.maxTurns},
+      'advisor': {
+        'enabled': config.advisor.enabled,
+        'model': config.advisor.model,
+        'effort': config.advisor.effort,
+        'triggers': config.advisor.triggers,
+        'periodicIntervalMinutes': config.advisor.periodicIntervalMinutes,
+        'maxWindowTurns': config.advisor.maxWindowTurns,
+        'maxPriorReflections': config.advisor.maxPriorReflections,
+      },
       'auth': {'cookieSecure': config.auth.cookieSecure, 'trustedProxies': config.auth.trustedProxies},
       'concurrency': {'maxParallelTurns': config.server.maxParallelTurns},
       'guardAudit': {'maxRetentionDays': config.security.guardAuditMaxRetentionDays},
@@ -56,11 +65,15 @@ class ConfigSerializer {
         'idleTimeoutMinutes': config.sessions.idleTimeoutMinutes,
         'dmScope': config.sessions.scopeConfig.dmScope.toYaml(),
         'groupScope': config.sessions.scopeConfig.groupScope.toYaml(),
+        'model': config.sessions.scopeConfig.model,
+        'effort': config.sessions.scopeConfig.effort,
         'channels': {
           for (final entry in config.sessions.scopeConfig.channels.entries)
             entry.key: {
               if (entry.value.dmScope != null) 'dmScope': entry.value.dmScope!.toYaml(),
               if (entry.value.groupScope != null) 'groupScope': entry.value.groupScope!.toYaml(),
+              if (entry.value.model != null) 'model': entry.value.model,
+              if (entry.value.effort != null) 'effort': entry.value.effort,
             },
         },
         'maintenance': {
@@ -175,6 +188,39 @@ class ConfigSerializer {
         'authMode': config.gateway.authMode,
         'token': config.gateway.token != null ? '***' : null,
         'hsts': config.gateway.hsts,
+      },
+      'governance': {
+        'adminSenders': config.governance.adminSenders,
+        'queueStrategy': config.governance.queueStrategy.name,
+        'crowdCoding': {
+          'model': config.governance.crowdCoding.model,
+          'effort': config.governance.crowdCoding.effort,
+        },
+        'rateLimits': {
+          'perSender': {
+            'messages': config.governance.rateLimits.perSender.messages,
+            'window': config.governance.rateLimits.perSender.windowMinutes,
+            'maxQueued': config.governance.rateLimits.perSender.maxQueued,
+            'maxPauseQueued': config.governance.rateLimits.perSender.maxPauseQueued,
+          },
+          'global': {
+            'turns': config.governance.rateLimits.global.turns,
+            'window': config.governance.rateLimits.global.windowMinutes,
+          },
+        },
+        'budget': {
+          'dailyTokens': config.governance.budget.dailyTokens,
+          'action': config.governance.budget.action.name,
+          'timezone': config.governance.budget.timezone,
+        },
+        'loopDetection': {
+          'enabled': config.governance.loopDetection.enabled,
+          'maxConsecutiveTurns': config.governance.loopDetection.maxConsecutiveTurns,
+          'maxTokensPerMinute': config.governance.loopDetection.maxTokensPerMinute,
+          'velocityWindowMinutes': config.governance.loopDetection.velocityWindowMinutes,
+          'maxConsecutiveIdenticalToolCalls': config.governance.loopDetection.maxConsecutiveIdenticalToolCalls,
+          'action': config.governance.loopDetection.action.name,
+        },
       },
     };
   }

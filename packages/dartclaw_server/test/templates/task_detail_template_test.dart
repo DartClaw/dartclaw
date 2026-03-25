@@ -200,6 +200,50 @@ void main() {
     expect(html, contains(sentinel));
   });
 
+  test('renders bound channels section when bindings are present', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Bound task',
+        'type': 'coding',
+        'status': 'review',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+      bindings: const [
+        {'channelType': 'googlechat', 'threadId': 'spaces/AAAA/threads/BBBB'},
+        {'channelType': 'whatsapp', 'threadId': 'group@g.us'},
+      ],
+    );
+
+    expect(html, contains('Bound Channels'));
+    expect(html, contains('Google Chat'));
+    expect(html, contains('WhatsApp'));
+    expect(html, contains('spaces/AAAA/threads/BBBB'));
+    expect(html, contains('group@g.us'));
+  });
+
+  test('omits bound channels section when bindings are absent', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'task-1',
+        'title': 'Unbound task',
+        'type': 'coding',
+        'status': 'review',
+        'description': 'Do work',
+        'createdAt': '2026-03-10T10:00:00Z',
+      },
+      artifacts: const [],
+    );
+
+    expect(html, isNot(contains('Bound Channels')));
+  });
+
   test('omits timeline section when timelineHtml is null', () {
     final html = taskDetailPageTemplate(
       sidebarData: emptySidebar,

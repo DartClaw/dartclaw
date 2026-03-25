@@ -51,6 +51,23 @@ enum LoopAction {
   String toYaml() => name;
 }
 
+/// Strategy for draining queued messages within a session.
+enum QueueStrategy {
+  /// Preserve existing FIFO behavior.
+  fifo,
+
+  /// Drain queued messages in round-robin order across senders.
+  fair;
+
+  static QueueStrategy? fromYaml(String value) => switch (value) {
+    'fifo' => QueueStrategy.fifo,
+    'fair' => QueueStrategy.fair,
+    _ => null,
+  };
+
+  String toYaml() => name;
+}
+
 // ---------------------------------------------------------------------------
 // Sub-config classes
 // ---------------------------------------------------------------------------
@@ -63,12 +80,20 @@ class PerSenderRateLimitConfig {
   /// Sliding window duration in minutes.
   final int windowMinutes;
 
-  /// Whether rate limiting is active (messages > 0 and windowMinutes > 0).
+  /// Maximum queued entries per sender in a session queue. 0 = disabled.
+  final int maxQueued;
+
+  /// Maximum queued entries per sender while paused. 0 = disabled.
+  final int maxPauseQueued;
+
+  /// Whether inbound rate limiting is active (messages > 0 and windowMinutes > 0).
   bool get enabled => messages > 0 && windowMinutes > 0;
 
   const PerSenderRateLimitConfig({
     this.messages = 0,
     this.windowMinutes = 5,
+    this.maxQueued = 0,
+    this.maxPauseQueued = 0,
   });
 
   const PerSenderRateLimitConfig.defaults() : this();
@@ -76,13 +101,19 @@ class PerSenderRateLimitConfig {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PerSenderRateLimitConfig && messages == other.messages && windowMinutes == other.windowMinutes;
+      other is PerSenderRateLimitConfig &&
+          messages == other.messages &&
+          windowMinutes == other.windowMinutes &&
+          maxQueued == other.maxQueued &&
+          maxPauseQueued == other.maxPauseQueued;
 
   @override
-  int get hashCode => Object.hash(messages, windowMinutes);
+  int get hashCode => Object.hash(messages, windowMinutes, maxQueued, maxPauseQueued);
 
   @override
-  String toString() => 'PerSenderRateLimitConfig(messages: $messages, windowMinutes: $windowMinutes)';
+  String toString() =>
+      'PerSenderRateLimitConfig(messages: $messages, windowMinutes: $windowMinutes, '
+      'maxQueued: $maxQueued, maxPauseQueued: $maxPauseQueued)';
 }
 
 /// Global turn rate limit configuration.
@@ -96,10 +127,7 @@ class GlobalRateLimitConfig {
   /// Whether rate limiting is active (turns > 0 and windowMinutes > 0).
   bool get enabled => turns > 0 && windowMinutes > 0;
 
-  const GlobalRateLimitConfig({
-    this.turns = 0,
-    this.windowMinutes = 60,
-  });
+  const GlobalRateLimitConfig({this.turns = 0, this.windowMinutes = 60});
 
   const GlobalRateLimitConfig.defaults() : this();
 
@@ -129,8 +157,7 @@ class RateLimitsConfig {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RateLimitsConfig && perSender == other.perSender && global == other.global;
+      identical(this, other) || other is RateLimitsConfig && perSender == other.perSender && global == other.global;
 
   @override
   int get hashCode => Object.hash(perSender, global);
@@ -153,21 +180,14 @@ class BudgetConfig {
   /// Whether budget enforcement is active (dailyTokens > 0).
   bool get enabled => dailyTokens > 0;
 
-  const BudgetConfig({
-    this.dailyTokens = 0,
-    this.action = BudgetAction.warn,
-    this.timezone = 'UTC',
-  });
+  const BudgetConfig({this.dailyTokens = 0, this.action = BudgetAction.warn, this.timezone = 'UTC'});
 
   const BudgetConfig.defaults() : this();
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is BudgetConfig &&
-          dailyTokens == other.dailyTokens &&
-          action == other.action &&
-          timezone == other.timezone;
+      other is BudgetConfig && dailyTokens == other.dailyTokens && action == other.action && timezone == other.timezone;
 
   @override
   int get hashCode => Object.hash(dailyTokens, action, timezone);
@@ -235,6 +255,29 @@ class LoopDetectionConfig {
       'maxConsecutiveIdenticalToolCalls: $maxConsecutiveIdenticalToolCalls, action: $action)';
 }
 
+/// Crowd coding model/effort defaults applied to channel-routed group sessions.
+class CrowdCodingConfig {
+  /// Default model override for crowd coding turns, or `null` to use the global default.
+  final String? model;
+
+  /// Default reasoning effort override for crowd coding turns, or `null` to use the global default.
+  final String? effort;
+
+  const CrowdCodingConfig({this.model, this.effort});
+
+  const CrowdCodingConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is CrowdCodingConfig && model == other.model && effort == other.effort;
+
+  @override
+  int get hashCode => Object.hash(model, effort);
+
+  @override
+  String toString() => 'CrowdCodingConfig(model: $model, effort: $effort)';
+}
+
 // ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
@@ -260,11 +303,19 @@ class GovernanceConfig {
   /// Loop detection configuration. Enforced in S10.
   final LoopDetectionConfig loopDetection;
 
+  /// Queue drain strategy for per-session message queues.
+  final QueueStrategy queueStrategy;
+
+  /// Crowd coding model/effort defaults for channel-routed group sessions.
+  final CrowdCodingConfig crowdCoding;
+
   const GovernanceConfig({
     this.adminSenders = const [],
     this.rateLimits = const RateLimitsConfig.defaults(),
     this.budget = const BudgetConfig.defaults(),
     this.loopDetection = const LoopDetectionConfig.defaults(),
+    this.queueStrategy = QueueStrategy.fifo,
+    this.crowdCoding = const CrowdCodingConfig.defaults(),
   });
 
   /// Default governance config — all features disabled, all senders are admins.
@@ -286,15 +337,19 @@ class GovernanceConfig {
           _listEquals(adminSenders, other.adminSenders) &&
           rateLimits == other.rateLimits &&
           budget == other.budget &&
-          loopDetection == other.loopDetection;
+          loopDetection == other.loopDetection &&
+          queueStrategy == other.queueStrategy &&
+          crowdCoding == other.crowdCoding;
 
   @override
-  int get hashCode => Object.hash(Object.hashAll(adminSenders), rateLimits, budget, loopDetection);
+  int get hashCode =>
+      Object.hash(Object.hashAll(adminSenders), rateLimits, budget, loopDetection, queueStrategy, crowdCoding);
 
   @override
   String toString() =>
       'GovernanceConfig(adminSenders: $adminSenders, rateLimits: $rateLimits, '
-      'budget: $budget, loopDetection: $loopDetection)';
+      'budget: $budget, loopDetection: $loopDetection, queueStrategy: $queueStrategy, '
+      'crowdCoding: $crowdCoding)';
 
   static bool _listEquals(List<String> a, List<String> b) {
     if (a.length != b.length) return false;

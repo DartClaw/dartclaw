@@ -284,6 +284,7 @@ class CloudEventAdapter {
 
     final thread = messageResource['thread'];
     final threadName = (thread is Map) ? thread['name'] as String? : null;
+    final spaceDisplayName = space?['displayName'] as String?;
 
     return ChannelMessage(
       id: messageName ?? (cloudEvent['id'] as String?),
@@ -295,6 +296,7 @@ class CloudEventAdapter {
       metadata: {
         'spaceName': spaceName,
         'spaceType': ?spaceType,
+        'spaceDisplayName': ?spaceDisplayName,
         'senderDisplayName': ?senderDisplayName,
         'senderAvatarUrl': ?senderAvatarUrl,
         'messageName': ?messageName,

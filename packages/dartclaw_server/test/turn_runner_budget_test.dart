@@ -180,6 +180,7 @@ class _FastFakeWorker extends AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     if (responseText.isNotEmpty) {
       _eventsCtrl.add(DeltaEvent(responseText));

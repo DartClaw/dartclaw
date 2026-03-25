@@ -93,6 +93,19 @@
       color: #e2e8f0;
     }
 
+    .canvas-card-binding-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.7rem;
+      padding: 0.04rem 0.45rem;
+      border-radius: 999px;
+      font-weight: 700;
+      background: rgba(125, 211, 252, 0.18);
+      color: #7dd3fc;
+      border: 1px solid rgba(125, 211, 252, 0.32);
+    }
+
     .canvas-column-empty {
       margin: 0;
       font-size: 0.75em;
@@ -154,6 +167,7 @@
             <span tl:text="${card.createdBy}">Creator</span>
             <span>&bull;</span>
             <span tl:text="${card.timeInState}">2m ago</span>
+            <span tl:if="${card.hasBindings}" class="canvas-card-binding-badge" tl:text="${card.bindingLabel}">2 ch</span>
             <span tl:if="${card.doneIcon}" class="canvas-card-done-icon" tl:text="${card.doneIcon}">OK</span>
           </p>
         </div>

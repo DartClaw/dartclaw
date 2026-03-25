@@ -4,6 +4,8 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import '../runtime/channel_type.dart';
+import '../events/event_bus.dart';
+import '../events/dartclaw_event.dart';
 import '../task/task.dart';
 import '../task/task_status.dart';
 import '../utils/sliding_window_rate_limiter.dart';
@@ -45,6 +47,7 @@ class ChannelTaskBridge {
   final bool Function(String text)? _isReservedCommand;
   final ThreadBindingStore? _threadBindings;
   final bool _threadBindingEnabled;
+  final EventBus? _eventBus;
 
   ChannelTaskBridge({
     ReservedCommandHandler? reservedCommandHandler,
@@ -59,6 +62,7 @@ class ChannelTaskBridge {
     bool Function(String text)? isReservedCommand,
     ThreadBindingStore? threadBindings,
     bool threadBindingEnabled = false,
+    EventBus? eventBus,
   }) : _reservedCommandHandler = reservedCommandHandler,
        _taskCreator = taskCreator,
        _taskLister = taskLister,
@@ -70,7 +74,8 @@ class ChannelTaskBridge {
        _isAdmin = isAdmin,
        _isReservedCommand = isReservedCommand,
        _threadBindings = threadBindings,
-       _threadBindingEnabled = threadBindingEnabled;
+       _threadBindingEnabled = threadBindingEnabled,
+       _eventBus = eventBus;
 
   /// Returns `true` when [text] is recognized as a reserved command.
   ///
@@ -132,6 +137,12 @@ class ChannelTaskBridge {
     }
 
     final threadBinding = boundThreadBinding ?? lookupThreadBinding(message);
+
+    _emitAdvisorMentionIfNeeded(
+      message,
+      sessionKey: threadBinding?.sessionKey ?? sessionKey,
+      taskId: threadBinding?.taskId ?? boundTaskId,
+    );
 
     // 2. Per-sender rate limit check — before review commands and task triggers.
     // Exempt: admin senders, review commands (/accept, /reject, push back),
@@ -209,6 +220,28 @@ class ChannelTaskBridge {
 
     return false;
   }
+
+  void _emitAdvisorMentionIfNeeded(
+    ChannelMessage message, {
+    required String sessionKey,
+    String? taskId,
+  }) {
+    if (!_looksLikeAdvisorMention(message.text)) return;
+    _eventBus?.fire(
+      AdvisorMentionEvent(
+        senderJid: message.senderJid,
+        channelType: message.channelType.name,
+        recipientId: resolveRecipientId(message),
+        threadId: extractThreadId(message) ?? message.groupJid,
+        messageText: message.text,
+        sessionKey: sessionKey,
+        taskId: taskId,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  static bool _looksLikeAdvisorMention(String text) => text.trimLeft().toLowerCase().startsWith('@advisor');
 
   Future<void> _handleTaskTrigger(
     ChannelMessage message,

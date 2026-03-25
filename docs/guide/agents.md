@@ -302,6 +302,40 @@ The primary harness (Runner 0, for interactive chat) always uses the global defa
 - No approval chain — uses `--yolo --ephemeral`, relying on container isolation
 - Simpler deployment, useful for batch operations
 
+### Codex Approval Policy & Sandbox Mode
+
+The Codex app-server provider supports two per-turn settings that control how Codex handles tool execution internally:
+
+| Config key | Values | Default | Purpose |
+|---|---|---|---|
+| `approval` | `on-request`, `unless-allow-listed`, `never` | `on-request` | Whether Codex sends tool approval requests to DartClaw |
+| `sandbox` | `workspace-write`, `danger-full-access` | *(none — Codex default)* | Codex-side filesystem sandbox restrictions |
+
+**`approval` values:**
+- `on-request` — Codex sends approval requests for every tool call; DartClaw's guard chain evaluates them
+- `unless-allow-listed` — Codex only requests approval for commands not in its built-in safe-command list
+- `never` — No approval requests; all tool calls execute immediately
+
+**`sandbox` values:**
+- `workspace-write` — Codex sandbox allows writes only to the working directory
+- `danger-full-access` — No Codex-side sandbox restrictions
+
+> **Known issue — approval deadlock**: Codex's app-server has an upstream bug ([openai/codex#11816](https://github.com/openai/codex/issues/11816), open as of March 2026) where tool approval requests block indefinitely with no timeout. This causes turns that involve file creation, shell commands, or other tool use to hang silently — while simple conversational turns succeed. The `SessionLockManager` holds the per-session lock for the entire stuck turn (up to `worker_timeout`), blocking all other messages to that session.
+>
+> **Recommended settings for non-interactive use** (crowd-coding, batch tasks, automation):
+> ```yaml
+> providers:
+>   codex:
+>     executable: codex
+>     pool_size: 2
+>     approval: never
+>     sandbox: danger-full-access
+> ```
+>
+> Setting `approval: never` disables Codex's *internal* approval gate. DartClaw's own defense-in-depth remains fully active: guard chain (command, file, network, content guards), container isolation, `TaskFileGuard`, and input sanitizer all continue to evaluate every tool call independently.
+>
+> Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
+
 ### Provider Capability Differences
 
 Not all providers support every feature. DartClaw degrades gracefully:

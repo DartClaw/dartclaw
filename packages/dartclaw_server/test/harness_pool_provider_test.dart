@@ -132,6 +132,7 @@ class _StubHarness implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     return const {'input_tokens': 0, 'output_tokens': 0};
   }

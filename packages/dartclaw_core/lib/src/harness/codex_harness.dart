@@ -158,6 +158,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     while (_state == WorkerState.crashed) {
       if (_crashCount > maxRetries) {
@@ -440,7 +441,13 @@ class CodexHarness extends AgentHarness with SequentialLock {
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
 
-      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cacheReadTokens, :final cacheWriteTokens):
+      case proto.TurnComplete(
+        :final stopReason,
+        :final inputTokens,
+        :final outputTokens,
+        :final cacheReadTokens,
+        :final cacheWriteTokens,
+      ):
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
           final result = <String, dynamic>{'stop_reason': stopReason ?? 'completed'};
@@ -752,5 +759,4 @@ class CodexHarness extends AgentHarness with SequentialLock {
     final value = providerOptions[key];
     return value is String && value.trim().isNotEmpty ? value : null;
   }
-
 }

@@ -154,6 +154,7 @@ class TurnRunner {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
   }) async {
@@ -181,6 +182,7 @@ class TurnRunner {
       directory: directory,
       model: model,
       effort: effort,
+      maxTurns: maxTurns,
       behaviorOverride: behaviorOverride,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
@@ -231,6 +233,7 @@ class TurnRunner {
     String agentName = 'main',
     String? model,
     String? effort,
+    int? maxTurns,
     bool isHumanInput = false,
   }) async {
     final turnId = await reserveTurn(
@@ -238,6 +241,7 @@ class TurnRunner {
       agentName: agentName,
       model: model,
       effort: effort,
+      maxTurns: maxTurns,
       isHumanInput: isHumanInput,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
@@ -586,6 +590,7 @@ class TurnRunner {
           directory: turnCtx?.directory,
           model: turnCtx?.model,
           effort: turnCtx?.effort,
+          maxTurns: turnCtx?.maxTurns,
         );
         final accumulated = buffer.toString();
         // Finalize any pending tool calls (incomplete — no matching result received).

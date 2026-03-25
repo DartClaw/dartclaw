@@ -16,17 +16,25 @@ void main() {
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
+  late Directory tempDir;
+  late ThreadBindingStore threadBindingStore;
 
-  setUp(() {
+  setUp(() async {
     db = openTaskDbInMemory();
     eventBus = EventBus();
     tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
-    handler = taskRoutes(tasks).call;
+    tempDir = Directory.systemTemp.createTempSync('task_routes_test_');
+    threadBindingStore = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
+    await threadBindingStore.load();
+    handler = taskRoutes(tasks, dataDir: tempDir.path, threadBindingStore: threadBindingStore).call;
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
+    if (tempDir.existsSync()) {
+      tempDir.deleteSync(recursive: true);
+    }
   });
 
   Future<Task> createTask(String id, {String? title, TaskType type = TaskType.coding, bool autoStart = false}) {
@@ -169,6 +177,113 @@ void main() {
     // Note: draft-only creation (autoStart:false) does not fire a TaskStatusChangedEvent.
     // Events are fired by TaskService.transition() on status changes only.
     // See task_service_events_test.dart for event centralization tests.
+  });
+
+  group('task bindings API', () {
+    test('GET /api/tasks/:id/bindings returns all bindings for the task', () async {
+      await createTask('task-bindings');
+      final now = DateTime.parse('2026-03-10T10:00:00Z');
+      await threadBindingStore.create(
+        ThreadBinding(
+          channelType: 'googlechat',
+          threadId: 'spaces/AAA/threads/BBB',
+          taskId: 'task-bindings',
+          sessionKey: 'agent:main:task:task-bindings',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+      await threadBindingStore.create(
+        ThreadBinding(
+          channelType: 'whatsapp',
+          threadId: 'group@g.us',
+          taskId: 'task-bindings',
+          sessionKey: 'agent:main:task:task-bindings',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+
+      final response = await handler(jsonRequest('GET', '/api/tasks/task-bindings/bindings', null));
+
+      expect(response.statusCode, 200);
+      final body = jsonDecode(await response.readAsString()) as List<dynamic>;
+      expect(body, hasLength(2));
+    });
+
+    test('POST /api/tasks/:id/bindings creates binding and returns 201', () async {
+      await createTask('task-bind');
+
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks/task-bind/bindings', {
+          'channelType': 'googlechat',
+          'threadId': 'spaces/AAA/threads/BBB',
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['taskId'], 'task-bind');
+      expect(body['channelType'], 'googlechat');
+      expect(body['threadId'], 'spaces/AAA/threads/BBB');
+    });
+
+    test('POST duplicate binding returns 409', () async {
+      await createTask('task-bind');
+      await handler(
+        jsonRequest('POST', '/api/tasks/task-bind/bindings', {
+          'channelType': 'googlechat',
+          'threadId': 'spaces/AAA/threads/BBB',
+        }),
+      );
+
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks/task-bind/bindings', {
+          'channelType': 'googlechat',
+          'threadId': 'spaces/AAA/threads/BBB',
+        }),
+      );
+
+      expect(response.statusCode, 409);
+    });
+
+    test('DELETE /api/tasks/:id/bindings/:channelType/:threadId removes binding', () async {
+      await createTask('task-bind');
+      final now = DateTime.parse('2026-03-10T10:00:00Z');
+      await threadBindingStore.create(
+        ThreadBinding(
+          channelType: 'googlechat',
+          threadId: 'spaces/AAA/threads/BBB',
+          taskId: 'task-bind',
+          sessionKey: 'agent:main:task:task-bind',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+
+      final response = await handler(
+        jsonRequest('DELETE', '/api/tasks/task-bind/bindings/googlechat/spaces/AAA/threads/BBB', null),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect(body['deleted'], isTrue);
+      expect(threadBindingStore.lookupByThread('googlechat', 'spaces/AAA/threads/BBB'), isNull);
+    });
+
+    test('POST binding updates the shared runtime store immediately', () async {
+      await createTask('task-bind');
+
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks/task-bind/bindings', {
+          'channelType': 'googlechat',
+          'threadId': 'spaces/AAA/threads/BBB',
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      expect(threadBindingStore.lookupByThread('googlechat', 'spaces/AAA/threads/BBB')?.taskId, 'task-bind');
+    });
   });
 
   group('GET /api/tasks', () {
@@ -644,9 +759,7 @@ void main() {
         },
       );
 
-      final response = await handler(
-        jsonRequest('POST', '/api/tasks/task-merge-missing/review', {'action': 'accept'}),
-      );
+      final response = await handler(jsonRequest('POST', '/api/tasks/task-merge-missing/review', {'action': 'accept'}));
 
       expect(response.statusCode, 500);
       final body = decodeObject(await response.readAsString());

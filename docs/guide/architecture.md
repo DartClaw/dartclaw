@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.14.2**
+> Current through: **0.14.3**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 

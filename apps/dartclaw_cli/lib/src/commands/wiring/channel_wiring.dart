@@ -15,6 +15,7 @@ import 'package:path/path.dart' as p;
 
 import 'storage_wiring.dart';
 import 'task_wiring.dart';
+import 'model_resolver.dart';
 
 /// Constructs and exposes channel-layer services.
 ///
@@ -157,7 +158,7 @@ class ChannelWiring {
         redactor: messageRedactor,
         pauseController: pauseController,
         taskBridge: ChannelTaskBridge(
-          // Reserved command handler: /stop (and stop! for WA/Signal), /pause, /resume.
+          // Reserved command handler: /stop (and stop! for WA/Signal), /pause, /resume, /bind, /unbind.
           // TurnManager resolved lazily — created after channel wiring but
           // before any inbound channel messages can arrive.
           reservedCommandHandler: (message, channel) => _handleReservedCommand(
@@ -170,6 +171,7 @@ class ChannelWiring {
             sseBroadcast: sseBroadcast,
             pauseController: pauseController,
             sessions: sessions,
+            threadBindingStore: _threadBindingStore,
           ),
           taskCreator: taskService.create,
           taskLister: taskService.list,
@@ -186,10 +188,15 @@ class ChannelWiring {
                 lower == 'stop!' ||
                 lower.startsWith('/status') ||
                 lower.startsWith('/pause') ||
-                lower.startsWith('/resume');
+                lower.startsWith('/resume') ||
+                lower.startsWith('/bind ') ||
+                lower.startsWith('@advisor') ||
+                lower == '/unbind' ||
+                lower.startsWith('/unbind ');
           },
           threadBindings: _threadBindingStore,
           threadBindingEnabled: threadBindingEnabled,
+          eventBus: _eventBus,
         ),
       );
     }
@@ -371,6 +378,7 @@ class ChannelWiring {
             sessions: sessions,
             messages: messages,
             serverRef: serverRefGetter,
+            config: config,
             message: message,
           ),
         );
@@ -399,6 +407,8 @@ class ChannelWiring {
               adapter: adapter,
               deduplicator: deduplicator,
               channelManager: activeChannelManager,
+              channel: channel,
+              config: googleChatConfig,
             );
             _log.info('Space Events Pub/Sub wiring created');
 
@@ -534,9 +544,13 @@ class ChannelWiring {
       debounceWindow: config.channels.debounceWindow,
       maxConcurrentTurns: config.server.maxParallelTurns,
       maxQueueDepth: config.channels.maxQueueDepth,
+      maxQueued: config.governance.rateLimits.perSender.maxQueued,
       defaultRetryPolicy: config.channels.defaultRetryPolicy,
+      queueStrategy: config.governance.queueStrategy,
       redactor: redactor,
+      isAdmin: config.governance.isAdmin,
       dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
+        final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config);
         return _dispatchChannelTurn(
           sessions: sessions,
           messages: messages,
@@ -545,6 +559,8 @@ class ChannelWiring {
           message: message,
           senderJid: senderJid,
           senderDisplayName: senderDisplayName,
+          model: overrides.model,
+          effort: overrides.effort,
         );
       },
     );
@@ -555,7 +571,15 @@ class ChannelWiring {
       taskBridge: taskBridge,
       isPaused: pauseController != null ? () => pauseController.isPaused : null,
       enqueueForPause: pauseController != null
-          ? (msg, ch, sk) => pauseController.enqueue(msg, ch, sk) == QueueResult.queued
+          ? (msg, ch, sk) =>
+                pauseController.enqueue(
+                  msg,
+                  ch,
+                  sk,
+                  maxPauseQueued: config.governance.rateLimits.perSender.maxPauseQueued,
+                  isAdmin: config.governance.isAdmin,
+                ) ==
+                QueueResult.queued
           : null,
       pausedByName: pauseController != null ? () => pauseController.pausedBy ?? 'admin' : null,
     );
@@ -566,16 +590,21 @@ class ChannelWiring {
     required SessionService sessions,
     required MessageService messages,
     required DartclawServer Function() serverRef,
+    required DartclawConfig config,
     required ChannelMessage message,
   }) {
+    final sessionKey = channelManager.deriveSessionKey(message);
+    final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config);
     return _dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
       serverRef: serverRef,
-      sessionKey: channelManager.deriveSessionKey(message),
+      sessionKey: sessionKey,
       message: message.text,
       senderJid: message.senderJid,
       senderDisplayName: message.senderDisplayName,
+      model: overrides.model,
+      effort: overrides.effort,
     );
   }
 
@@ -587,6 +616,8 @@ class ChannelWiring {
     required String message,
     String? senderJid,
     String? senderDisplayName,
+    String? model,
+    String? effort,
   }) async {
     final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
     final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
@@ -598,12 +629,19 @@ class ChannelWiring {
 
     final userMsg = <String, dynamic>{'role': 'user', 'content': message};
     final srv = serverRef();
-    final turnId = await srv.turns.startTurn(session.id, [userMsg], source: 'channel', isHumanInput: true);
+    final turnId = await srv.turns.startTurn(
+      session.id,
+      [userMsg],
+      source: 'channel',
+      isHumanInput: true,
+      model: model,
+      effort: effort,
+    );
     final outcome = await srv.turns.waitForOutcome(session.id, turnId);
     return outcome.responseText ?? '';
   }
 
-  /// Handles reserved commands: `/stop` (and `stop!`), `/pause`, `/resume`.
+  /// Handles reserved commands: `/stop` (and `stop!`), `/pause`, `/resume`, `/bind`, and `/unbind`.
   ///
   /// Returns a non-null string when the command was consumed (handled or
   /// rejected). Returns null when the message is not a recognized reserved command.
@@ -617,14 +655,17 @@ class ChannelWiring {
     required SseBroadcast sseBroadcast,
     required PauseController pauseController,
     required SessionService sessions,
+    required ThreadBindingStore? threadBindingStore,
   }) async {
     final lower = message.text.trim().toLowerCase();
 
     final isStop = lower == '/stop' || lower.startsWith('/stop ') || lower == 'stop!';
     final isPause = lower.startsWith('/pause');
     final isResume = lower.startsWith('/resume');
+    final isBind = lower.startsWith('/bind ');
+    final isUnbind = lower == '/unbind' || lower.startsWith('/unbind ');
 
-    if (!isStop && !isPause && !isResume) return null;
+    if (!isStop && !isPause && !isResume && !isBind && !isUnbind) return null;
 
     final senderId = message.senderJid;
     final senderName = message.senderDisplayName ?? senderId;
@@ -663,6 +704,20 @@ class ChannelWiring {
         _log.warning('Failed to send stop confirmation to $senderId', e);
       }
       return 'executed';
+    }
+
+    if (isBind) {
+      return _handleBindCommand(
+        message,
+        channel,
+        taskService: taskService,
+        threadBindingStore: threadBindingStore,
+        recipientId: recipientId,
+      );
+    }
+
+    if (isUnbind) {
+      return _handleUnbindCommand(message, channel, threadBindingStore: threadBindingStore, recipientId: recipientId);
     }
 
     if (isPause) {
@@ -705,6 +760,146 @@ class ChannelWiring {
       _log.warning('Failed to send resume confirmation to $senderId', e);
     }
     return 'executed';
+  }
+
+  static Future<String> _handleBindCommand(
+    ChannelMessage message,
+    Channel channel, {
+    required TaskService taskService,
+    required ThreadBindingStore? threadBindingStore,
+    required String recipientId,
+  }) async {
+    if (threadBindingStore == null) {
+      await _sendReservedResponse(
+        channel,
+        recipientId,
+        'Thread binding is not enabled. Set features.thread_binding.enabled: true.',
+      );
+      return 'rejected';
+    }
+
+    final parts = message.text.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2 || parts[1].trim().isEmpty) {
+      await _sendReservedResponse(channel, recipientId, 'Usage: /bind <taskId>');
+      return 'rejected';
+    }
+    final taskId = parts[1].trim();
+
+    final bindingKey = _extractBindingKey(message);
+    if (bindingKey == null) {
+      await _sendReservedResponse(channel, recipientId, 'Cannot bind — this message is not in a thread or group.');
+      return 'rejected';
+    }
+
+    final matches = (await taskService.list()).where((task) => task.id.startsWith(taskId)).toList(growable: false);
+    if (matches.isEmpty) {
+      await _sendReservedResponse(channel, recipientId, 'Task $taskId not found.');
+      return 'rejected';
+    }
+    if (matches.length > 1) {
+      await _sendReservedResponse(
+        channel,
+        recipientId,
+        'Task prefix $taskId is ambiguous. Matches: ${matches.take(3).map((task) => _shortTaskId(task.id)).join(', ')}.',
+      );
+      return 'rejected';
+    }
+    final task = matches.single;
+    if (task.status.terminal) {
+      await _sendReservedResponse(
+        channel,
+        recipientId,
+        'Task $taskId is ${task.status.name} — cannot bind to a completed task.',
+      );
+      return 'rejected';
+    }
+
+    final channelType = message.channelType.name;
+    final existing = threadBindingStore.lookupByThread(channelType, bindingKey);
+    if (existing != null) {
+      if (existing.taskId == task.id) {
+        await _sendReservedResponse(channel, recipientId, 'Already bound to task ${_shortTaskId(task.id)}.');
+        return 'executed';
+      }
+      await _sendReservedResponse(
+        channel,
+        recipientId,
+        'Already bound to task ${_shortTaskId(existing.taskId)} — /unbind first.',
+      );
+      return 'rejected';
+    }
+
+    final now = DateTime.now();
+    await threadBindingStore.create(
+      ThreadBinding(
+        channelType: channelType,
+        threadId: bindingKey,
+        taskId: task.id,
+        sessionKey: task.sessionId ?? SessionKey.taskSession(taskId: task.id),
+        createdAt: now,
+        lastActivity: now,
+      ),
+    );
+
+    await _sendReservedResponse(
+      channel,
+      recipientId,
+      'Bound to task ${_shortTaskId(task.id)}. Messages here now route to the task session.',
+    );
+    return 'executed';
+  }
+
+  static Future<String> _handleUnbindCommand(
+    ChannelMessage message,
+    Channel channel, {
+    required ThreadBindingStore? threadBindingStore,
+    required String recipientId,
+  }) async {
+    if (threadBindingStore == null) {
+      await _sendReservedResponse(channel, recipientId, 'Thread binding is not enabled.');
+      return 'rejected';
+    }
+
+    final bindingKey = _extractBindingKey(message);
+    if (bindingKey == null) {
+      await _sendReservedResponse(channel, recipientId, 'Cannot unbind — this message is not in a thread or group.');
+      return 'rejected';
+    }
+
+    final existing = threadBindingStore.lookupByThread(message.channelType.name, bindingKey);
+    if (existing == null) {
+      await _sendReservedResponse(channel, recipientId, 'No binding found for this thread/group.');
+      return 'executed';
+    }
+
+    await threadBindingStore.delete(message.channelType.name, bindingKey);
+    await _sendReservedResponse(
+      channel,
+      recipientId,
+      'Unbound from task ${_shortTaskId(existing.taskId)}. Messages here return to normal routing.',
+    );
+    return 'executed';
+  }
+
+  static String? _extractBindingKey(ChannelMessage message) {
+    final threadId = extractThreadId(message);
+    if (threadId != null) return threadId;
+    final groupJid = message.groupJid;
+    if (groupJid != null && groupJid.isNotEmpty) return groupJid;
+    return null;
+  }
+
+  static Future<void> _sendReservedResponse(Channel channel, String recipientId, String text) async {
+    try {
+      await channel.sendMessage(recipientId, ChannelResponse(text: text));
+    } catch (e) {
+      _log.warning('Failed to send reserved command response to $recipientId', e);
+    }
+  }
+
+  static String _shortTaskId(String taskId) {
+    if (taskId.length <= 8) return taskId;
+    return taskId.substring(0, 8);
   }
 
   /// Delivers collapsed pause queue messages by creating turns via [TurnManager].

@@ -817,6 +817,35 @@ projects:
         expect(config.sessions.scopeConfig.channels['signal']?.dmScope, isNull);
       });
 
+      test('sessions.model and sessions.effort parse correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  model: sonnet\n  effort: medium\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessions.scopeConfig.model, 'sonnet');
+        expect(config.sessions.scopeConfig.effort, 'medium');
+      });
+
+      test('sessions.channels.google_chat model and effort parse correctly', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'sessions:\n  model: sonnet\n  channels:\n    google_chat:\n      model: opus\n      effort: low\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessions.scopeConfig.model, 'sonnet');
+        expect(config.sessions.scopeConfig.channels['google_chat']?.model, 'opus');
+        expect(config.sessions.scopeConfig.channels['google_chat']?.effort, 'low');
+      });
+
       test('invalid sessions.dm_scope produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
@@ -854,6 +883,18 @@ projects:
           env: {'HOME': '/home/user'},
         );
         expect(config.sessions.scopeConfig.channels['unknown_channel']?.dmScope, DmScope.shared);
+      });
+
+      test('invalid type for sessions.model produces warning and uses default', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'sessions:\n  model: 42\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.sessions.scopeConfig.model, isNull);
+        expect(config.warnings, anyElement(contains('Invalid type for sessions.model')));
       });
     });
 
@@ -1605,6 +1646,36 @@ automation:
         );
         expect(config.features.threadBinding.enabled, isFalse);
         expect(config.warnings, contains(contains('Unknown config key: crowd_coding')));
+      });
+    });
+
+    group('governance crowd coding config', () {
+      test('governance.crowd_coding parses model and effort', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'governance:\n  crowd_coding:\n    model: haiku\n    effort: low\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.governance.crowdCoding.model, 'haiku');
+        expect(config.governance.crowdCoding.effort, 'low');
+      });
+
+      test('invalid type for governance.crowd_coding.model produces warning', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'governance:\n  crowd_coding:\n    model: 42\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.governance.crowdCoding.model, isNull);
+        expect(config.warnings, anyElement(contains('Invalid type for governance.crowd_coding.model')));
       });
     });
   });

@@ -110,6 +110,7 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     late final Completer<Map<String, dynamic>> completer;
     await withLock(() async {
@@ -264,7 +265,13 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
     }
     // Ensure the process actually exits after SIGTERM (cancel() already sent it).
     if (process != null) {
-      await killWithEscalation(process, label: 'Codex exec', gracePeriod: _killGracePeriod, log: _log, alreadySignalled: true);
+      await killWithEscalation(
+        process,
+        label: 'Codex exec',
+        gracePeriod: _killGracePeriod,
+        log: _log,
+        alreadySignalled: true,
+      );
     }
   }
 
@@ -289,7 +296,13 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
         _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
       case proto.ToolResult(:final toolId, :final output, :final isError):
         _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
-      case proto.TurnComplete(:final stopReason, :final inputTokens, :final outputTokens, :final cacheReadTokens, :final cacheWriteTokens):
+      case proto.TurnComplete(
+        :final stopReason,
+        :final inputTokens,
+        :final outputTokens,
+        :final cacheReadTokens,
+        :final cacheWriteTokens,
+      ):
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
           completer.complete({

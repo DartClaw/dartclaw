@@ -30,6 +30,7 @@ Router taskRoutes(
   MergeExecutor? mergeExecutor,
   ProjectService? projectService,
   String? dataDir,
+  ThreadBindingStore? threadBindingStore,
   String mergeStrategy = 'squash',
   String baseRef = 'main',
 }) {
@@ -298,6 +299,92 @@ Router taskRoutes(
     } catch (e, st) {
       _log.warning('Failed to get artifact $artifactId for task $id: $e', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get task artifact');
+    }
+  });
+
+  router.get('/api/tasks/<id>/bindings', (Request request, String id) async {
+    try {
+      final task = await tasks.get(id);
+      if (task == null) return _taskNotFound();
+      final store = threadBindingStore;
+      if (store == null) return jsonResponse(200, const []);
+      final bindings = store.lookupByTask(id).map((binding) => binding.toJson()).toList(growable: false);
+      return jsonResponse(200, bindings);
+    } catch (e, st) {
+      _log.warning('Failed to list bindings for task $id: $e', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list task bindings');
+    }
+  });
+
+  router.post('/api/tasks/<id>/bindings', (Request request, String id) async {
+    try {
+      final task = await tasks.get(id);
+      if (task == null) return _taskNotFound();
+      final store = threadBindingStore;
+      if (store == null) {
+        return errorResponse(409, 'THREAD_BINDING_DISABLED', 'Thread binding is not enabled');
+      }
+
+      final body = await readJsonObject(request);
+      if (body.error != null) return body.error!;
+
+      final channelType = trimmedStringOrNull(body.value!['channelType']);
+      final threadId = trimmedStringOrNull(body.value!['threadId']);
+      if (channelType == null || channelType.isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', 'channelType is required', {'field': 'channelType'});
+      }
+      if (threadId == null || threadId.isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', 'threadId is required', {'field': 'threadId'});
+      }
+
+      final existing = store.lookupByThread(channelType, threadId);
+      if (existing != null) {
+        return errorResponse(
+          409,
+          'CONFLICT',
+          existing.taskId == id
+              ? 'Binding already exists for this thread/group'
+              : 'Thread/group already bound to task ${existing.taskId}',
+        );
+      }
+
+      final now = DateTime.now();
+      final binding = ThreadBinding(
+        channelType: channelType,
+        threadId: threadId,
+        taskId: id,
+        sessionKey: task.sessionId ?? SessionKey.taskSession(taskId: id),
+        createdAt: now,
+        lastActivity: now,
+      );
+      await store.create(binding);
+      return jsonResponse(201, binding.toJson());
+    } catch (e, st) {
+      _log.warning('Failed to create binding for task $id: $e', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to create task binding');
+    }
+  });
+
+  router.delete('/api/tasks/<id>/bindings/<channelType>/<threadId|.*>', (
+    Request request,
+    String id,
+    String channelType,
+    String threadId,
+  ) async {
+    try {
+      final store = threadBindingStore;
+      if (store == null) {
+        return errorResponse(409, 'THREAD_BINDING_DISABLED', 'Thread binding is not enabled');
+      }
+      final existing = store.lookupByThread(channelType, threadId);
+      if (existing == null || existing.taskId != id) {
+        return errorResponse(404, 'NOT_FOUND', 'Binding not found');
+      }
+      await store.delete(channelType, threadId);
+      return jsonResponse(200, {'deleted': true});
+    } catch (e, st) {
+      _log.warning('Failed to delete binding for task $id: $e', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to delete task binding');
     }
   });
 

@@ -53,6 +53,8 @@ void main() {
       expect(config.dmScope, DmScope.perChannelContact);
       expect(config.groupScope, GroupScope.shared);
       expect(config.channels, isEmpty);
+      expect(config.model, isNull);
+      expect(config.effort, isNull);
     });
 
     group('forChannel', () {
@@ -78,11 +80,22 @@ void main() {
         final config = SessionScopeConfig(
           dmScope: DmScope.perContact,
           groupScope: GroupScope.shared,
-          channels: {'signal': const ChannelScopeConfig(dmScope: DmScope.shared, groupScope: GroupScope.perMember)},
+          channels: {
+            'signal': const ChannelScopeConfig(
+              dmScope: DmScope.shared,
+              groupScope: GroupScope.perMember,
+              model: 'haiku',
+              effort: 'low',
+            ),
+          },
+          model: 'sonnet',
+          effort: 'medium',
         );
         final result = config.forChannel('signal');
         expect(result.dmScope, DmScope.shared);
         expect(result.groupScope, GroupScope.perMember);
+        expect(result.model, 'haiku');
+        expect(result.effort, 'low');
       });
 
       test('unknown channel returns global defaults', () {
@@ -90,11 +103,50 @@ void main() {
           dmScope: DmScope.perContact,
           groupScope: GroupScope.shared,
           channels: {'signal': const ChannelScopeConfig(dmScope: DmScope.shared)},
+          model: 'sonnet',
+          effort: 'medium',
         );
         final result = config.forChannel('unknown');
         expect(result.dmScope, DmScope.perContact);
         expect(result.groupScope, GroupScope.shared);
+        expect(result.model, 'sonnet');
+        expect(result.effort, 'medium');
       });
+
+      test('channel model override falls back to scope when absent', () {
+        final config = SessionScopeConfig(
+          dmScope: DmScope.perContact,
+          groupScope: GroupScope.shared,
+          channels: {'signal': const ChannelScopeConfig(groupScope: GroupScope.perMember)},
+          model: 'haiku',
+          effort: 'high',
+        );
+        final result = config.forChannel('signal');
+        expect(result.model, 'haiku');
+        expect(result.effort, 'high');
+      });
+    });
+
+    test('hashCode is stable across channel insertion order', () {
+      final first = SessionScopeConfig(
+        dmScope: DmScope.perContact,
+        groupScope: GroupScope.shared,
+        channels: {
+          'signal': const ChannelScopeConfig(groupScope: GroupScope.perMember, model: 'haiku'),
+          'googlechat': const ChannelScopeConfig(dmScope: DmScope.shared, effort: 'low'),
+        },
+      );
+      final second = SessionScopeConfig(
+        dmScope: DmScope.perContact,
+        groupScope: GroupScope.shared,
+        channels: {
+          'googlechat': const ChannelScopeConfig(dmScope: DmScope.shared, effort: 'low'),
+          'signal': const ChannelScopeConfig(groupScope: GroupScope.perMember, model: 'haiku'),
+        },
+      );
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
     });
   });
 }

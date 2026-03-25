@@ -61,7 +61,7 @@ void main() {
         // EventBus is async (broadcast stream), flush microtasks.
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-abc'), isNull);
+        expect(store.lookupByTask('task-abc'), isEmpty);
         manager.dispose();
       });
 
@@ -79,7 +79,7 @@ void main() {
         ));
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-xyz'), isNull);
+        expect(store.lookupByTask('task-xyz'), isEmpty);
         manager.dispose();
       });
 
@@ -97,7 +97,7 @@ void main() {
         ));
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-fail'), isNull);
+        expect(store.lookupByTask('task-fail'), isEmpty);
         manager.dispose();
       });
 
@@ -115,7 +115,7 @@ void main() {
         ));
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-cancel'), isNull);
+        expect(store.lookupByTask('task-cancel'), isEmpty);
         manager.dispose();
       });
 
@@ -133,7 +133,7 @@ void main() {
         ));
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-abc'), isNotNull);
+        expect(store.lookupByTask('task-abc'), isNotEmpty);
         manager.dispose();
       });
 
@@ -170,8 +170,31 @@ void main() {
         ));
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.lookupByTask('task-abc'), isNull);
-        expect(store.lookupByTask('task-xyz'), isNotNull);
+        expect(store.lookupByTask('task-abc'), isEmpty);
+        expect(store.lookupByTask('task-xyz'), isNotEmpty);
+        manager.dispose();
+      });
+
+      test('removes all bindings for the matching task across channels', () async {
+        await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/A/threads/1', taskId: 'task-abc'));
+        await store.create(makeBinding(channelType: 'whatsapp', threadId: 'group-a@g.us', taskId: 'task-abc'));
+        await store.create(makeBinding(channelType: 'signal', threadId: 'signal-group-1', taskId: 'task-abc'));
+        final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
+        manager.start();
+
+        eventBus.fire(TaskStatusChangedEvent(
+          taskId: 'task-abc',
+          oldStatus: TaskStatus.review,
+          newStatus: TaskStatus.accepted,
+          trigger: 'test',
+          timestamp: DateTime.now(),
+        ));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(store.lookupByTask('task-abc'), isEmpty);
+        expect(store.lookupByThread('googlechat', 'spaces/A/threads/1'), isNull);
+        expect(store.lookupByThread('whatsapp', 'group-a@g.us'), isNull);
+        expect(store.lookupByThread('signal', 'signal-group-1'), isNull);
         manager.dispose();
       });
     });
@@ -197,7 +220,7 @@ void main() {
           // Advance clock past one cleanup interval.
           async.elapse(const Duration(minutes: 6));
 
-          expect(store.lookupByTask('stale-task'), isNull);
+          expect(store.lookupByTask('stale-task'), isEmpty);
           manager.dispose();
         });
       });
@@ -220,7 +243,7 @@ void main() {
 
           async.elapse(const Duration(minutes: 6));
 
-          expect(store.lookupByTask('fresh-task'), isNotNull);
+          expect(store.lookupByTask('fresh-task'), isNotEmpty);
           manager.dispose();
         });
       });
@@ -243,7 +266,7 @@ void main() {
           async.elapse(const Duration(minutes: 4));
 
           // Still present — no cleanup yet.
-          expect(store.lookupByTask('stale-task'), isNotNull);
+          expect(store.lookupByTask('stale-task'), isNotEmpty);
           manager.dispose();
         });
       });
@@ -271,7 +294,7 @@ void main() {
 
           // First sweep at t+5min removes task-A.
           async.elapse(const Duration(minutes: 6));
-          expect(store.lookupByTask('task-A'), isNull);
+          expect(store.lookupByTask('task-A'), isEmpty);
 
           manager.dispose();
         });
@@ -295,7 +318,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         // Binding still present — subscription was cancelled.
-        expect(store.lookupByTask('task-abc'), isNotNull);
+        expect(store.lookupByTask('task-abc'), isNotEmpty);
       });
 
       test('cancels cleanup timer — no sweep fires after dispose', () {
@@ -316,7 +339,7 @@ void main() {
           // Elapse past cleanup interval — timer is cancelled, no cleanup.
           async.elapse(const Duration(minutes: 10));
 
-          expect(store.lookupByTask('stale-task'), isNotNull);
+          expect(store.lookupByTask('stale-task'), isNotEmpty);
         });
       });
 

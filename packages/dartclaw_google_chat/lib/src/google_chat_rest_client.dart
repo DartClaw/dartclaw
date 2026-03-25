@@ -93,6 +93,43 @@ class GoogleChatRestClient {
     });
   }
 
+  /// Fetches metadata for a Google Chat space.
+  ///
+  /// Returns the resource name and display name on success, or `null` when the
+  /// request fails or the response is invalid.
+  Future<({String name, String? displayName})?> getSpace(String spaceName) async {
+    if (!_spaceNamePattern.hasMatch(spaceName)) {
+      _log.warning('Rejected Google Chat getSpace for invalid space name "$spaceName"');
+      return null;
+    }
+
+    try {
+      final response = await _client.get(Uri.parse('$_apiBase/$spaceName'));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _log.warning('Google Chat getSpace failed for $spaceName with HTTP ${response.statusCode}');
+        return null;
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        _log.warning('Google Chat getSpace returned invalid JSON for $spaceName');
+        return null;
+      }
+
+      final name = decoded['name'] as String?;
+      if (name == null || name.isEmpty) {
+        _log.warning('Google Chat getSpace returned no name for $spaceName');
+        return null;
+      }
+
+      final displayName = decoded['displayName'] as String?;
+      return (name: name, displayName: displayName);
+    } on Exception catch (error, stackTrace) {
+      _log.warning('Google Chat getSpace failed for $spaceName', error, stackTrace);
+      return null;
+    }
+  }
+
   /// Sends a structured Cards v2 message to [spaceName].
   Future<String?> sendCard(String spaceName, Map<String, dynamic> cardPayload) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
@@ -248,9 +285,7 @@ class GoogleChatRestClient {
           body: jsonEncode(body),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          _log.warning(
-            'Google Chat threaded card send failed for $spaceName with HTTP ${response.statusCode}',
-          );
+          _log.warning('Google Chat threaded card send failed for $spaceName with HTTP ${response.statusCode}');
           return (messageName: null, threadName: null);
         }
         final decoded = jsonDecode(response.body);
@@ -264,6 +299,74 @@ class GoogleChatRestClient {
       } on Exception catch (error, stackTrace) {
         _log.warning('Google Chat threaded card send failed for $spaceName', error, stackTrace);
         return (messageName: null, threadName: null);
+      }
+    });
+  }
+
+  /// Sends a text message to an existing server-assigned thread.
+  Future<String?> sendMessageToThread(String spaceName, String text, {required String threadName}) async {
+    if (!_spaceNamePattern.hasMatch(spaceName)) {
+      _log.warning('Rejected Google Chat thread-name send for invalid space name "$spaceName"');
+      return null;
+    }
+
+    return _queueFor(spaceName).enqueue<String?>(() async {
+      try {
+        final response = await _client.post(
+          Uri.parse('$_apiBase/$spaceName/messages'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode({
+            'text': text,
+            'thread': {'name': threadName},
+          }),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat thread-name send failed for $spaceName with HTTP ${response.statusCode}');
+          return null;
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          return null;
+        }
+        return decoded['name'] as String?;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat thread-name send failed for $spaceName', error, stackTrace);
+        return null;
+      }
+    });
+  }
+
+  /// Sends a structured Cards v2 payload to an existing server-assigned thread.
+  Future<String?> sendCardToThread(
+    String spaceName,
+    Map<String, dynamic> cardPayload, {
+    required String threadName,
+  }) async {
+    if (!_spaceNamePattern.hasMatch(spaceName)) {
+      _log.warning('Rejected Google Chat thread-name card send for invalid space name "$spaceName"');
+      return null;
+    }
+
+    return _queueFor(spaceName).enqueue<String?>(() async {
+      try {
+        final body = Map<String, dynamic>.of(cardPayload)..['thread'] = {'name': threadName};
+        final response = await _client.post(
+          Uri.parse('$_apiBase/$spaceName/messages'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode(body),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat thread-name card send failed for $spaceName with HTTP ${response.statusCode}');
+          return null;
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          return null;
+        }
+        return decoded['name'] as String?;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat thread-name card send failed for $spaceName', error, stackTrace);
+        return null;
       }
     });
   }

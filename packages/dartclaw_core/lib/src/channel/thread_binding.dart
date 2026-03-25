@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:collection/collection.dart';
 import 'package:logging/logging.dart';
 
 import '../storage/atomic_write.dart';
@@ -139,9 +138,9 @@ class ThreadBindingStore {
     return _bindings[ThreadBinding.key(channelType, threadId)];
   }
 
-  /// Returns the binding whose [ThreadBinding.taskId] matches [taskId], or `null`.
-  ThreadBinding? lookupByTask(String taskId) {
-    return _bindings.values.firstWhereOrNull((b) => b.taskId == taskId);
+  /// Returns all bindings whose [ThreadBinding.taskId] matches [taskId].
+  List<ThreadBinding> lookupByTask(String taskId) {
+    return _bindings.values.where((binding) => binding.taskId == taskId).toList(growable: false);
   }
 
   /// Updates [lastActivity] for the given thread. No-op if not found.
@@ -159,16 +158,24 @@ class ThreadBindingStore {
     await _persist();
   }
 
-  /// Removes the binding for [taskId], if any. Persists immediately.
+  /// Removes all bindings for [taskId]. Persists immediately.
   ///
-  /// Returns the removed binding, or `null` if no binding existed for [taskId].
-  ThreadBinding? deleteByTaskId(String taskId) {
-    final key = _bindings.keys.firstWhereOrNull((k) => _bindings[k]!.taskId == taskId);
-    if (key == null) return null;
-    final removed = _bindings.remove(key);
-    // Best-effort persist — in-memory state is already updated.
-    // ignore: unawaited_futures
-    _persist().catchError((Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st));
+  /// Returns the removed bindings, or an empty list if none existed.
+  List<ThreadBinding> deleteByTaskId(String taskId) {
+    final removed = <ThreadBinding>[];
+    _bindings.removeWhere((_, binding) {
+      if (binding.taskId == taskId) {
+        removed.add(binding);
+        return true;
+      }
+      return false;
+    });
+    if (removed.isNotEmpty) {
+      // Best-effort persist — in-memory state is already updated.
+      // ignore: unawaited_futures
+      _persist()
+          .catchError((Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st));
+    }
     return removed;
   }
 

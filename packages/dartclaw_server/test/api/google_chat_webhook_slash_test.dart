@@ -115,7 +115,10 @@ void main() {
     expect(dispatchedMessage, isNull);
     expect((await tasks.list()), hasLength(1));
     expect(body['cardsV2'], isA<List<dynamic>>());
-    expect(_cardHeader(body), {'title': 'Task created: inspect annotation payload', 'subtitle': 'queued'});
+    expect(_cardHeader(body), {
+      'title': 'Task created: inspect annotation payload -- Queued (will start when a slot opens)',
+      'subtitle': 'queued',
+    });
   });
 
   test('APP_COMMAND slash commands are routed to the handler and return cards', () async {

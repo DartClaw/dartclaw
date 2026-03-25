@@ -50,6 +50,7 @@ class FakeWorkerService implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     final completer = Completer<Map<String, dynamic>>();
     _turnCompleters[sessionId] = completer;

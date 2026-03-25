@@ -115,10 +115,7 @@ void main() {
       await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
 
       // Third turn exceeds threshold (depth 3 > 2)
-      await expectLater(
-        runner.reserveTurn(session.id),
-        throwsA(isA<LoopDetectedException>()),
-      );
+      await expectLater(runner.reserveTurn(session.id), throwsA(isA<LoopDetectedException>()));
     });
 
     test('SSE loop_detected event broadcast on abort', () async {
@@ -133,10 +130,7 @@ void main() {
       await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
 
       // Second turn depth=2 > 1 → abort, SSE
-      await expectLater(
-        runner.reserveTurn(session.id),
-        throwsA(isA<LoopDetectedException>()),
-      );
+      await expectLater(runner.reserveTurn(session.id), throwsA(isA<LoopDetectedException>()));
       expect(sse.events, contains('loop_detected'));
     });
 
@@ -147,11 +141,7 @@ void main() {
       addTearDown(sub.cancel);
 
       final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
-      final runner = buildRunner(
-        loopDetector: loopDetector,
-        loopAction: LoopAction.abort,
-        eventBus: eventBus,
-      );
+      final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, eventBus: eventBus);
       final session = await sessions.getOrCreateMain();
       worker.responseText = 'ok';
 
@@ -206,8 +196,7 @@ void main() {
       await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
 
       // Human turn resets chain — should NOT throw even though depth would be 2
-      final turnId = await runner.reserveTurn(session.id, isHumanInput: true)
-          .timeout(const Duration(seconds: 2));
+      final turnId = await runner.reserveTurn(session.id, isHumanInput: true).timeout(const Duration(seconds: 2));
       runner.executeTurn(session.id, turnId, []);
       await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
 
@@ -224,10 +213,9 @@ void main() {
   group('TurnRunner — cleanupTurn called in finally', () {
     test('tool fingerprint state is cleaned up after turn', () async {
       // Set threshold=2 for fingerprinting
-      final loopDetector = LoopDetector(config: loopConfig(
-        maxConsecutiveTurns: 999,
-        maxConsecutiveIdenticalToolCalls: 2,
-      ));
+      final loopDetector = LoopDetector(
+        config: loopConfig(maxConsecutiveTurns: 999, maxConsecutiveIdenticalToolCalls: 2),
+      );
       final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.warn);
       final session = await sessions.getOrCreateMain();
 
@@ -282,6 +270,7 @@ class _FakeWorker extends AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     final tool = toolToEmit;
     if (tool != null) {

@@ -59,6 +59,50 @@ void main() {
       expect(smallController.queueDepth, 2);
     });
 
+    test('enqueue() enforces per-sender pause queue limit', () {
+      controller.pause('alice');
+      final channel = _FakeChannel();
+
+      expect(
+        controller.enqueue(_msg(sender: 'user@s.whatsapp.net', text: '1'), channel, 'session:1', maxPauseQueued: 1),
+        QueueResult.queued,
+      );
+      expect(
+        controller.enqueue(_msg(sender: 'user@s.whatsapp.net', text: '2'), channel, 'session:1', maxPauseQueued: 1),
+        QueueResult.full,
+      );
+      expect(
+        controller.enqueue(_msg(sender: 'other@s.whatsapp.net', text: '3'), channel, 'session:1', maxPauseQueued: 1),
+        QueueResult.queued,
+      );
+    });
+
+    test('enqueue() exempts admin senders from per-sender pause queue limit', () {
+      controller.pause('alice');
+      final channel = _FakeChannel();
+
+      expect(
+        controller.enqueue(
+          _msg(sender: 'admin@s.whatsapp.net', text: '1'),
+          channel,
+          'session:1',
+          maxPauseQueued: 1,
+          isAdmin: (senderId) => senderId == 'admin@s.whatsapp.net',
+        ),
+        QueueResult.queued,
+      );
+      expect(
+        controller.enqueue(
+          _msg(sender: 'admin@s.whatsapp.net', text: '2'),
+          channel,
+          'session:1',
+          maxPauseQueued: 1,
+          isAdmin: (senderId) => senderId == 'admin@s.whatsapp.net',
+        ),
+        QueueResult.queued,
+      );
+    });
+
     // ---- drain() ----
 
     test('drain() returns null when not paused', () {
@@ -164,11 +208,7 @@ void main() {
     test('falls back to senderJid when no display name metadata', () {
       controller.pause('admin');
       final channel = _FakeChannel();
-      final msg = ChannelMessage(
-        channelType: ChannelType.whatsapp,
-        senderJid: '+1234567890',
-        text: 'hello',
-      );
+      final msg = ChannelMessage(channelType: ChannelType.whatsapp, senderJid: '+1234567890', text: 'hello');
       controller.enqueue(msg, channel, 'sess');
       final text = controller.drain()!['sess']!;
       expect(text, contains('+1234567890'));

@@ -24,12 +24,12 @@ class _FakeRestClient extends GoogleChatRestClient {
 
 class _AlwaysValidJwtVerifier extends GoogleJwtVerifier {
   _AlwaysValidJwtVerifier()
-      : super(
-          audience: const GoogleChatAudienceConfig(
-            mode: GoogleChatAudienceMode.appUrl,
-            value: 'https://example.com/integrations/googlechat',
-          ),
-        );
+    : super(
+        audience: const GoogleChatAudienceConfig(
+          mode: GoogleChatAudienceMode.appUrl,
+          value: 'https://example.com/integrations/googlechat',
+        ),
+      );
 
   @override
   Future<bool> verify(String? authHeader) async => true;
@@ -233,10 +233,7 @@ void main() {
     });
 
     test('health service includes pubsub enabled status', () async {
-      final reporter = PubSubHealthReporter(
-        enabled: true,
-        subscriptionCount: () => 2,
-      );
+      final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 2);
       final service = HealthService(
         worker: harness,
         searchDbPath: '/nonexistent/search.db',
@@ -292,6 +289,7 @@ class _FakeHarness implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async => {};
 
   @override

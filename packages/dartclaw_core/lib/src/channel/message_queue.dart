@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import '../config/governance_config.dart';
 import '../scoping/channel_config.dart';
 import 'channel.dart';
 import 'recipient_resolver.dart';
@@ -24,15 +25,19 @@ abstract interface class BudgetExhaustedError {
 
 /// Callback for dispatching a coalesced message to the turn manager.
 /// Returns the response text to send back via the channel.
-typedef TurnDispatcher = Future<String> Function(String sessionKey, String message, {String? senderJid, String? senderDisplayName});
+typedef TurnDispatcher =
+    Future<String> Function(String sessionKey, String message, {String? senderJid, String? senderDisplayName});
+
+typedef _DebounceKey = ({String sessionKey, String senderJid});
 
 class _QueueEntry {
   final ChannelMessage message;
   final Channel sourceChannel;
   final String sessionKey;
+  final String senderJid;
   int attempt = 0;
 
-  _QueueEntry({required this.message, required this.sourceChannel, required this.sessionKey});
+  _QueueEntry({required this.message, required this.sourceChannel, required this.sessionKey, required this.senderJid});
 }
 
 /// Channel-agnostic message queue with debounce, per-session FIFO, global
@@ -43,16 +48,28 @@ class MessageQueue {
   final Duration debounceWindow;
   final int maxConcurrentTurns;
   final int maxQueueDepth;
+  final int maxQueued;
   final RetryPolicy defaultRetryPolicy;
+  final QueueStrategy queueStrategy;
   final TurnDispatcher _dispatcher;
   final MessageRedactor? _redactor;
   final Random _random;
+  final bool Function(String senderId)? _isAdmin;
 
-  /// Per-session debounce state: accumulated text + source info.
-  final Map<String, _DebounceBuffer> _debounce = {};
+  /// Per-sender debounce state: accumulated text + source info.
+  final Map<_DebounceKey, _DebounceBuffer> _debounce = {};
 
   /// Per-session FIFO queues.
   final Map<String, Queue<_QueueEntry>> _sessionQueues = {};
+
+  /// Tracks the round-robin sender rotation per session when [queueStrategy] is fair.
+  final Map<String, Queue<String>> _fairSenderRotation = {};
+
+  /// Sender currently being processed per session when [queueStrategy] is fair.
+  final Map<String, String> _activeFairSender = {};
+
+  /// Sender most recently served per session when [queueStrategy] is fair.
+  final Map<String, String> _lastFairSender = {};
 
   /// Per-session processing flag — true while a turn is executing for that session.
   final Map<String, bool> _processing = {};
@@ -69,13 +86,17 @@ class MessageQueue {
     this.debounceWindow = const Duration(milliseconds: 1000),
     this.maxConcurrentTurns = 3,
     this.maxQueueDepth = 100,
+    this.maxQueued = 0,
     this.defaultRetryPolicy = const RetryPolicy(),
+    this.queueStrategy = QueueStrategy.fifo,
     required TurnDispatcher dispatcher,
     MessageRedactor? redactor,
     Random? random,
+    bool Function(String senderId)? isAdmin,
   }) : _dispatcher = dispatcher,
        _redactor = redactor,
-       _random = random ?? Random.secure();
+       _random = random ?? Random.secure(),
+       _isAdmin = isAdmin;
 
   /// Enqueue an inbound channel message for processing.
   ///
@@ -93,18 +114,19 @@ class MessageQueue {
     }
 
     // Debounce: accumulate text within the window
-    final buf = _debounce[sessionKey];
+    final debounceKey = (sessionKey: sessionKey, senderJid: message.senderJid);
+    final buf = _debounce[debounceKey];
     if (buf != null) {
       buf.texts.add(message.text);
       buf.lastMessage = message;
       buf.timer.cancel();
-      buf.timer = _startDebounceTimer(sessionKey);
+      buf.timer = _startDebounceTimer(debounceKey);
     } else {
-      _debounce[sessionKey] = _DebounceBuffer(
+      _debounce[debounceKey] = _DebounceBuffer(
         texts: [message.text],
         lastMessage: message,
         sourceChannel: sourceChannel,
-        timer: _startDebounceTimer(sessionKey),
+        timer: _startDebounceTimer(debounceKey),
       );
     }
   }
@@ -117,6 +139,9 @@ class MessageQueue {
     }
     _debounce.clear();
     _sessionQueues.clear();
+    _fairSenderRotation.clear();
+    _activeFairSender.clear();
+    _lastFairSender.clear();
     _processing.clear();
     for (final c in _waitQueue) {
       c.completeError(StateError('MessageQueue disposed'));
@@ -126,12 +151,12 @@ class MessageQueue {
 
   // ---- Internals ----
 
-  Timer _startDebounceTimer(String sessionKey) {
-    return Timer(debounceWindow, () => _flushDebounce(sessionKey));
+  Timer _startDebounceTimer(_DebounceKey debounceKey) {
+    return Timer(debounceWindow, () => _flushDebounce(debounceKey));
   }
 
-  void _flushDebounce(String sessionKey) {
-    final buf = _debounce.remove(sessionKey);
+  void _flushDebounce(_DebounceKey debounceKey) {
+    final buf = _debounce.remove(debounceKey);
     if (buf == null || _disposed) return;
 
     // Coalesce texts into a single message
@@ -148,7 +173,8 @@ class MessageQueue {
         metadata: buf.lastMessage.metadata,
       ),
       sourceChannel: buf.sourceChannel,
-      sessionKey: sessionKey,
+      sessionKey: debounceKey.sessionKey,
+      senderJid: debounceKey.senderJid,
     );
 
     _enqueueEntry(entry);
@@ -163,7 +189,20 @@ class MessageQueue {
       return;
     }
 
+    if (maxQueued > 0 && !(_isAdmin?.call(entry.senderJid) ?? false)) {
+      final senderCount = queue.where((queued) => queued.senderJid == entry.senderJid).length;
+      if (senderCount >= maxQueued) {
+        _log.info(
+          'Per-sender queue limit reached for ${entry.senderJid} in ${entry.sessionKey} '
+          '($senderCount/$maxQueued) — rejecting',
+        );
+        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message));
+        return;
+      }
+    }
+
     queue.add(entry);
+    _trackFairSender(entry.sessionKey, entry.senderJid);
     _processSession(entry.sessionKey);
   }
 
@@ -188,7 +227,10 @@ class MessageQueue {
         await _acquireSlot();
         if (_disposed) break;
 
-        final entry = queue.removeFirst();
+        final entry = _removeNextEntry(sessionKey, queue);
+        if (queueStrategy == QueueStrategy.fair) {
+          _activeFairSender[sessionKey] = entry.senderJid;
+        }
         try {
           var response = await _dispatcher(
             entry.sessionKey,
@@ -221,7 +263,8 @@ class MessageQueue {
             await entry.sourceChannel.sendMessage(
               recipientJid,
               ChannelResponse(
-                text: 'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
+                text:
+                    'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
                     'New turns are blocked until the daily budget resets. '
                     'An admin can increase the budget via the web dashboard.',
               ),
@@ -259,6 +302,7 @@ class MessageQueue {
             }
           }
         } finally {
+          _onTurnComplete(sessionKey, entry.senderJid, queue);
           _releaseSlot();
         }
       }
@@ -266,7 +310,80 @@ class MessageQueue {
       _processing.remove(sessionKey);
       // Clean up empty queue
       final q = _sessionQueues[sessionKey];
-      if (q != null && q.isEmpty) _sessionQueues.remove(sessionKey);
+      if (q != null && q.isEmpty) {
+        _sessionQueues.remove(sessionKey);
+        _fairSenderRotation.remove(sessionKey);
+        _lastFairSender.remove(sessionKey);
+      }
+      _activeFairSender.remove(sessionKey);
+    }
+  }
+
+  _QueueEntry _removeNextEntry(String sessionKey, Queue<_QueueEntry> queue) {
+    if (queueStrategy == QueueStrategy.fifo || queue.length <= 1) {
+      return queue.removeFirst();
+    }
+
+    final rotation = _fairSenderRotation.putIfAbsent(sessionKey, Queue.new);
+    if (rotation.isEmpty) {
+      for (final entry in queue) {
+        if (!rotation.contains(entry.senderJid)) {
+          rotation.addLast(entry.senderJid);
+        }
+      }
+    }
+    final lastSender = _lastFairSender[sessionKey];
+    if (lastSender != null && rotation.length > 1) {
+      while (rotation.isNotEmpty && rotation.first == lastSender && rotation.length > 1) {
+        rotation.addLast(rotation.removeFirst());
+      }
+    }
+
+    while (rotation.isNotEmpty) {
+      final senderJid = rotation.removeFirst();
+      final entries = queue.toList();
+      final entryIndex = entries.indexWhere((entry) => entry.senderJid == senderJid);
+      if (entryIndex == -1) {
+        continue;
+      }
+
+      final entry = entryIndex == 0 ? queue.removeFirst() : entries.removeAt(entryIndex);
+      if (entryIndex > 0) {
+        queue
+          ..clear()
+          ..addAll(entries);
+      }
+      if (queue.any((queued) => queued.senderJid == senderJid)) {
+        rotation.addLast(senderJid);
+      }
+      return entry;
+    }
+
+    final fallback = queue.removeFirst();
+    if (queue.any((queued) => queued.senderJid == fallback.senderJid)) {
+      rotation.addLast(fallback.senderJid);
+    }
+    return fallback;
+  }
+
+  void _trackFairSender(String sessionKey, String senderJid) {
+    if (queueStrategy != QueueStrategy.fair) return;
+    if (_activeFairSender[sessionKey] == senderJid) return;
+    final rotation = _fairSenderRotation.putIfAbsent(sessionKey, Queue.new);
+    if (!rotation.contains(senderJid)) {
+      rotation.addLast(senderJid);
+    }
+  }
+
+  void _onTurnComplete(String sessionKey, String senderJid, Queue<_QueueEntry> queue) {
+    if (queueStrategy != QueueStrategy.fair) return;
+    _activeFairSender.remove(sessionKey);
+    _lastFairSender[sessionKey] = senderJid;
+    if (!queue.any((queued) => queued.senderJid == senderJid)) return;
+
+    final rotation = _fairSenderRotation.putIfAbsent(sessionKey, Queue.new);
+    if (!rotation.contains(senderJid)) {
+      rotation.addLast(senderJid);
     }
   }
 
@@ -307,6 +424,13 @@ class MessageQueue {
     }
   }
 
+  Future<void> _sendQueueFull(Channel channel, String recipientJid) async {
+    try {
+      await channel.sendMessage(recipientJid, const ChannelResponse(text: 'Queue full -- try again shortly.'));
+    } catch (e) {
+      _log.warning('Failed to send queue-full response', e);
+    }
+  }
 }
 
 class _DebounceBuffer {

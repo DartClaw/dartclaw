@@ -46,6 +46,7 @@ class _FakeWorkerService implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     return {'ok': true};
   }

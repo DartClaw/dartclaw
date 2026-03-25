@@ -63,10 +63,11 @@ class ThreadBindingLifecycleManager {
   void _onTaskStatusChanged(TaskStatusChangedEvent event) {
     if (!event.newStatus.terminal) return;
     final removed = _store.deleteByTaskId(event.taskId);
-    if (removed != null) {
+    for (final binding in removed) {
       _log.info(
         'Removed thread binding for task ${event.taskId} '
-        '(reason: terminal state ${event.newStatus.name})',
+        '(channel: ${binding.channelType}, thread: ${binding.threadId}, '
+        'reason: terminal state ${event.newStatus.name})',
       );
     }
   }

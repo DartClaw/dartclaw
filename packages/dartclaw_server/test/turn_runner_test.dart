@@ -308,6 +308,29 @@ void main() {
     expect(outcome.cacheReadTokens, 7);
   });
 
+  test('startTurn forwards maxTurns to the harness', () async {
+    final boundedWorker = FakeAgentHarness();
+    addTearDown(() async => boundedWorker.dispose());
+    final boundedRunner = _buildRunner(
+      harness: boundedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMain();
+    _scheduleTurnCompletion(boundedWorker, responseText: 'bounded');
+
+    final turnId = await boundedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Bound this turn'},
+    ], maxTurns: 1);
+
+    final outcome = await boundedRunner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(boundedWorker.lastMaxTurns, 1);
+  });
+
   test('persists provider and accumulates cached input tokens across turns', () async {
     final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
     addTearDown(() async => codexWorker.dispose());

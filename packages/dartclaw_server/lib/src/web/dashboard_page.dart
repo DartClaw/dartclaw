@@ -46,6 +46,7 @@ class PageContext {
     this.traceService,
     this.taskEventService,
     this.progressTracker,
+    this.threadBindingStore,
     required Future<SidebarData> Function() buildSidebarData,
     required String Function() restartBannerHtml,
     required List<NavItem> Function({required String activePage}) buildNavItems,
@@ -66,6 +67,7 @@ class PageContext {
   final TurnTraceService? traceService;
   final TaskEventService? taskEventService;
   final TaskProgressTracker? progressTracker;
+  final ThreadBindingStore? threadBindingStore;
   final Future<SidebarData> Function() _buildSidebarData;
   final String Function() _restartBannerHtml;
   final List<NavItem> Function({required String activePage}) _buildNavItems;

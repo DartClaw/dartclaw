@@ -124,6 +124,31 @@ class GoogleChatChannel extends Channel {
     return result.threadName;
   }
 
+  /// Sends a notification [response] to [recipientJid] in an existing
+  /// server-assigned thread named [threadName].
+  Future<void> sendMessageToThreadName(
+    String recipientJid,
+    ChannelResponse response, {
+    required String threadName,
+  }) async {
+    final structuredPayload = response.structuredPayload;
+    final fallbackText = _fallbackText(response);
+
+    if (structuredPayload != null) {
+      final name = await restClient.sendCardToThread(recipientJid, structuredPayload, threadName: threadName);
+      if (name != null) {
+        return;
+      }
+      _log.warning('Google Chat thread-name card send failed for $recipientJid, falling back to plain text');
+    }
+
+    if (fallbackText.isEmpty) {
+      return;
+    }
+
+    await restClient.sendMessageToThread(recipientJid, fallbackText, threadName: threadName);
+  }
+
   /// Associates a pending typing placeholder with an outbound turn id.
   void setPlaceholder({required String spaceName, required String turnId, required String messageName}) {
     _pendingPlaceholders[_placeholderKey(spaceName, turnId)] = messageName;

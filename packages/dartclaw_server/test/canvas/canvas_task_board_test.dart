@@ -105,6 +105,18 @@ void main() {
       expect(html, contains('X'));
       expect(html, contains('!'));
     });
+
+    test('renders binding indicator when task has bound channels', () {
+      final html = canvasTaskBoardFragment(
+        [
+          _task(id: 't-bound', title: 'Bound', status: TaskStatus.queued, createdAt: DateTime.now()),
+        ],
+        bindingCounts: const {'t-bound': 2},
+      );
+
+      expect(html, contains('2 ch'));
+      expect(html, contains('canvas-card-binding-badge'));
+    });
   });
 }
 

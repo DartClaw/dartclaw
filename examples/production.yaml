@@ -89,5 +89,22 @@ concurrency:
 #       - '@DartClaw'
 #     max_chunk_size: 4000
 
+# Codex provider (OpenAI models) — uncomment to enable alongside Claude
+# providers:
+#   claude:
+#     executable: claude
+#     pool_size: 1
+#   codex:
+#     executable: codex
+#     pool_size: 2
+#     approval: never              # prevents approval deadlock on tool-use turns
+#     sandbox: danger-full-access  # prevents sandbox-related stalls
+#                                  # DartClaw's guard chain + container isolation remain active
+# credentials:
+#   anthropic:
+#     api_key: ${ANTHROPIC_API_KEY}
+#   openai:
+#     api_key: ${OPENAI_API_KEY}
+
 context:
   reserve_tokens: 25000

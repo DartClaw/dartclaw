@@ -40,31 +40,45 @@ void main() {
   group('MessageQueue', () {
     late FakeChannel channel;
     late List<(String, String)> dispatched;
+    late List<String?> dispatchedSenders;
     late Completer<void>? dispatchGate;
+    late Completer<void>? dispatchStarted;
 
     setUp(() {
       channel = FakeChannel();
       dispatched = [];
+      dispatchedSenders = [];
       dispatchGate = null;
+      dispatchStarted = null;
     });
 
     MessageQueue makeQueue({
       Duration debounce = const Duration(milliseconds: 50),
       int maxConcurrent = 3,
       int maxDepth = 100,
+      int maxQueued = 0,
       int maxRetries = 3,
+      QueueStrategy queueStrategy = QueueStrategy.fifo,
+      bool Function(String senderId)? isAdmin,
       bool Function()? shouldFail,
     }) {
       return MessageQueue(
         debounceWindow: debounce,
         maxConcurrentTurns: maxConcurrent,
         maxQueueDepth: maxDepth,
+        maxQueued: maxQueued,
         defaultRetryPolicy: RetryPolicy(maxAttempts: maxRetries, baseDelay: const Duration(milliseconds: 10)),
+        queueStrategy: queueStrategy,
         random: Random(42), // deterministic
+        isAdmin: isAdmin,
         dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
+          if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
+            dispatchStarted!.complete();
+          }
           if (dispatchGate != null) await dispatchGate!.future;
           if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
           dispatched.add((sessionKey, message));
+          dispatchedSenders.add(senderJid);
           return 'response';
         },
       );
@@ -82,6 +96,20 @@ void main() {
 
       expect(dispatched, hasLength(1));
       expect(dispatched.first.$2, 'first\nsecond'); // coalesced
+    });
+
+    test('debounce is per-sender-per-session', () async {
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(sender: 'alice@test', text: 'first'), channel, 'session-1');
+      queue.enqueue(_msg(sender: 'bob@test', text: 'second'), channel, 'session-1');
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched, hasLength(2));
+      expect(dispatched.map((entry) => entry.$2), containsAll(['first', 'second']));
+      expect(dispatchedSenders, containsAll(['alice@test', 'bob@test']));
     });
 
     test('messages beyond debounce window dispatch separately', () async {
@@ -240,6 +268,110 @@ void main() {
       expect(busyResponses, isNotEmpty);
 
       dispatchGate!.complete();
+    });
+
+    test('per-sender queue limit rejects only the overflowing sender', () async {
+      dispatchGate = Completer<void>();
+      final queue = makeQueue(maxQueued: 1, isAdmin: (_) => false, debounce: const Duration(milliseconds: 5));
+      addTearDown(() {
+        if (!dispatchGate!.isCompleted) dispatchGate!.complete();
+        queue.dispose();
+      });
+
+      queue.enqueue(_msg(sender: 'alice@test', text: '1'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      queue.enqueue(_msg(sender: 'alice@test', text: '2'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      queue.enqueue(_msg(sender: 'alice@test', text: '3'), channel, 'session-1');
+      queue.enqueue(_msg(sender: 'bob@test', text: '4'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final queueFullResponses = channel.sent.where((sent) => sent.$2.text.contains('Queue full'));
+      expect(queueFullResponses, hasLength(1));
+
+      dispatchGate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(dispatched.map((entry) => entry.$2), containsAll(['1', '2', '4']));
+    });
+
+    test('admin senders are exempt from per-sender queue limits', () async {
+      dispatchGate = Completer<void>();
+      final queue = makeQueue(
+        maxQueued: 1,
+        debounce: const Duration(milliseconds: 5),
+        isAdmin: (senderId) => senderId == 'admin@test',
+      );
+      addTearDown(() {
+        if (!dispatchGate!.isCompleted) dispatchGate!.complete();
+        queue.dispose();
+      });
+
+      queue.enqueue(_msg(sender: 'admin@test', text: '1'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      queue.enqueue(_msg(sender: 'admin@test', text: '2'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      queue.enqueue(_msg(sender: 'admin@test', text: '3'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(channel.sent.where((sent) => sent.$2.text.contains('Queue full')), isEmpty);
+
+      dispatchGate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(dispatched.map((entry) => entry.$2), containsAll(['1', '2', '3']));
+    });
+
+    test('fair strategy drains senders in round-robin order', () async {
+      dispatchGate = Completer<void>();
+      dispatchStarted = Completer<void>();
+      final queue = makeQueue(queueStrategy: QueueStrategy.fair, debounce: const Duration(milliseconds: 5));
+      addTearDown(() {
+        if (!dispatchGate!.isCompleted) dispatchGate!.complete();
+        queue.dispose();
+      });
+
+      Future<void> enqueueAndWait(String sender, String text) async {
+        queue.enqueue(_msg(sender: sender, text: text), channel, 'session-1');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      await enqueueAndWait('alice@test', 'A-1');
+      await dispatchStarted!.future;
+      await enqueueAndWait('alice@test', 'A-2');
+      await enqueueAndWait('alice@test', 'A-3');
+      await enqueueAndWait('bob@test', 'B-1');
+      await enqueueAndWait('bob@test', 'B-2');
+      await enqueueAndWait('charlie@test', 'C-1');
+
+      dispatchGate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched.map((entry) => entry.$2).toList(), ['A-1', 'B-1', 'C-1', 'A-2', 'B-2', 'A-3']);
+    });
+
+    test('fair strategy includes late-arriving sender in the next rotation cycle', () async {
+      dispatchGate = Completer<void>();
+      dispatchStarted = Completer<void>();
+      final queue = makeQueue(queueStrategy: QueueStrategy.fair, debounce: const Duration(milliseconds: 5));
+      addTearDown(() {
+        if (!dispatchGate!.isCompleted) dispatchGate!.complete();
+        queue.dispose();
+      });
+
+      Future<void> enqueueAndWait(String sender, String text) async {
+        queue.enqueue(_msg(sender: sender, text: text), channel, 'session-1');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      await enqueueAndWait('alice@test', 'A-1');
+      await dispatchStarted!.future;
+      await enqueueAndWait('alice@test', 'A-2');
+      await enqueueAndWait('bob@test', 'B-1');
+      await enqueueAndWait('dana@test', 'D-1');
+
+      dispatchGate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched.map((entry) => entry.$2).toList(), ['A-1', 'B-1', 'D-1', 'A-2']);
     });
 
     test('dispose cancels timers', () async {

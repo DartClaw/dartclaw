@@ -102,16 +102,26 @@ void main() {
       expect(store.lookupByThread('googlechat', 'spaces/UNKNOWN/threads/Z'), isNull);
     });
 
-    test('lookupByTask() returns binding by task ID', () async {
+    test('lookupByTask() returns bindings by task ID', () async {
       final b = makeBinding(taskId: 'task-xyz');
       await store.create(b);
       final found = store.lookupByTask('task-xyz');
-      expect(found, isNotNull);
-      expect(found!.threadId, equals('spaces/X/threads/Y'));
+      expect(found, hasLength(1));
+      expect(found.single.threadId, equals('spaces/X/threads/Y'));
     });
 
-    test('lookupByTask() returns null for unknown task', () {
-      expect(store.lookupByTask('no-such-task'), isNull);
+    test('lookupByTask() returns empty list for unknown task', () {
+      expect(store.lookupByTask('no-such-task'), isEmpty);
+    });
+
+    test('lookupByTask() returns all bindings for a task across channels', () async {
+      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/A', taskId: 'task-xyz'));
+      await store.create(makeBinding(channelType: 'whatsapp', threadId: 'group-a@g.us', taskId: 'task-xyz'));
+      await store.create(makeBinding(channelType: 'signal', threadId: 'signal-group-1', taskId: 'task-xyz'));
+
+      final found = store.lookupByTask('task-xyz');
+      expect(found, hasLength(3));
+      expect(found.map((binding) => binding.channelType), containsAll(<String>['googlechat', 'whatsapp', 'signal']));
     });
 
     test('create() overwrites existing binding for same thread (idempotent)', () async {
@@ -169,6 +179,25 @@ void main() {
       await store.create(makeBinding(taskId: 'task-c', threadId: 'spaces/X/threads/C'));
       final pruned = await store.reconcile({'task-a'});
       expect(pruned, equals(2));
+    });
+
+    test('deleteByTaskId() removes all bindings for the task', () async {
+      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/A', taskId: 'task-xyz'));
+      await store.create(makeBinding(channelType: 'whatsapp', threadId: 'group-a@g.us', taskId: 'task-xyz'));
+      await store.create(makeBinding(channelType: 'signal', threadId: 'signal-group-1', taskId: 'task-xyz'));
+      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/B', taskId: 'task-123'));
+
+      final removed = store.deleteByTaskId('task-xyz');
+
+      expect(removed, hasLength(3));
+      expect(store.lookupByThread('googlechat', 'spaces/X/threads/A'), isNull);
+      expect(store.lookupByThread('whatsapp', 'group-a@g.us'), isNull);
+      expect(store.lookupByThread('signal', 'signal-group-1'), isNull);
+      expect(store.lookupByThread('googlechat', 'spaces/X/threads/B'), isNotNull);
+    });
+
+    test('deleteByTaskId() returns empty list when no binding exists', () {
+      expect(store.deleteByTaskId('missing-task'), isEmpty);
     });
   });
 

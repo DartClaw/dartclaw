@@ -73,6 +73,9 @@ class FakeAgentHarness extends AgentHarness {
   /// Most recent effort override.
   String? lastEffort;
 
+  /// Most recent max-turns override.
+  int? lastMaxTurns;
+
   @override
   PromptStrategy get promptStrategy => _promptStrategy;
 
@@ -129,6 +132,7 @@ class FakeAgentHarness extends AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     turnCallCount += 1;
     lastSessionId = sessionId;
@@ -143,6 +147,7 @@ class FakeAgentHarness extends AgentHarness {
     lastDirectory = directory;
     lastModel = model;
     lastEffort = effort;
+    lastMaxTurns = maxTurns;
 
     if (_autoTransitionState) {
       _state = WorkerState.busy;

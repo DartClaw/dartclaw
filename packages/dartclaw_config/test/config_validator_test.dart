@@ -166,6 +166,13 @@ void main() {
     });
 
     group('string list fields', () {
+      test('advisor.triggers rejects unknown trigger names', () {
+        final errors = validator.validate({'advisor.triggers': ['explicit', 'bad_trigger']});
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'advisor.triggers');
+        expect(errors.first.message, contains('bad_trigger'));
+      });
+
       test('google chat dm_allowlist accepts list of strings', () {
         expect(
           validator.validate({

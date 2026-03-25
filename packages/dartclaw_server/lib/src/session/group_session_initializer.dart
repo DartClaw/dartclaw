@@ -26,15 +26,18 @@ class GroupSessionInitializer {
   final SessionService _sessions;
   final EventBus? _eventBus;
   final List<ChannelGroupConfig> _channelConfigs;
+  final Future<String?> Function(String channelType, String groupId)? _displayNameResolver;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
   GroupSessionInitializer({
     required SessionService sessions,
     EventBus? eventBus,
     required List<ChannelGroupConfig> channelConfigs,
+    Future<String?> Function(String channelType, String groupId)? displayNameResolver,
   }) : _sessions = sessions,
        _eventBus = eventBus,
-       _channelConfigs = channelConfigs;
+       _channelConfigs = channelConfigs,
+       _displayNameResolver = displayNameResolver;
 
   /// Pre-create sessions for all configured groups and subscribe to config changes.
   Future<void> initialize() async {
@@ -54,7 +57,19 @@ class GroupSessionInitializer {
         // Set title to group ID only if title is null (newly created).
         // Don't overwrite user-set titles.
         if (session.title == null) {
-          await _sessions.updateTitle(session.id, groupId);
+          var title = groupId;
+          final resolver = _displayNameResolver;
+          if (resolver != null) {
+            try {
+              final resolved = await resolver(channelType, groupId);
+              if (resolved != null && resolved.trim().isNotEmpty) {
+                title = resolved.trim();
+              }
+            } catch (e, st) {
+              _log.warning('Failed to resolve display name for $channelType:$groupId', e, st);
+            }
+          }
+          await _sessions.updateTitle(session.id, title);
         }
         _log.fine('Ensured group session for $channelType:$groupId');
       } catch (e) {

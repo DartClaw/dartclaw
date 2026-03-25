@@ -113,10 +113,7 @@ void main() {
 
     test('turns at limit — deferred until window slides', () async {
       // Use a very short window so the test completes quickly.
-      final limiter = SlidingWindowRateLimiter(
-        limit: 1,
-        window: const Duration(milliseconds: 150),
-      );
+      final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(milliseconds: 150));
       // Fill the single allowed slot — limiter is now at capacity.
       limiter.check('global');
       expect(limiter.check('global'), isFalse); // verify at limit
@@ -166,6 +163,7 @@ class _FastFakeWorker extends AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) async {
     if (responseText.isNotEmpty) {
       _eventsCtrl.add(DeltaEvent(responseText));

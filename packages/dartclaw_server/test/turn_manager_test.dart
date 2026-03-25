@@ -83,6 +83,7 @@ class FakeWorkerService implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     turnCalls++;
     _turnCompleter = Completer<Map<String, dynamic>>();
@@ -165,6 +166,7 @@ class _AppendStrategyWorker implements AgentHarness {
     String? directory,
     String? model,
     String? effort,
+    int? maxTurns,
   }) {
     lastSystemPrompt = systemPrompt;
     _turnCompleter = Completer<Map<String, dynamic>>();

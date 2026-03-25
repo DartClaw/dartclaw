@@ -57,6 +57,15 @@
         <div tl:if="${showPushBackWarning}" class="task-meta-warning">
           This task has been pushed back multiple times. Consider revising the description or rejecting it.
         </div>
+        <div tl:if="${hasBindings}" class="task-meta-description">
+          <span class="task-meta-label">Bound Channels</span>
+          <div class="task-binding-list">
+            <div tl:each="binding : ${bindings}" class="task-binding-item">
+              <span class="task-binding-type" tl:text="${binding.channelLabel}">Google Chat</span>
+              <code class="task-binding-thread" tl:text="${binding.threadId}">spaces/.../threads/...</code>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div tl:if="${hasTokenSummary}" class="card task-token-summary">

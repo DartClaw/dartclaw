@@ -111,6 +111,18 @@ void main() {
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.event_types'));
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.include_resource'));
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.auth_mode'));
+        expect(ConfigMeta.fields, contains('governance.queue_strategy'));
+        expect(ConfigMeta.fields, contains('governance.crowd_coding.model'));
+        expect(ConfigMeta.fields, contains('governance.crowd_coding.effort'));
+        expect(ConfigMeta.fields, contains('governance.rate_limits.per_sender.max_queued'));
+        expect(ConfigMeta.fields, contains('governance.rate_limits.per_sender.max_pause_queued'));
+        expect(ConfigMeta.fields, contains('advisor.enabled'));
+        expect(ConfigMeta.fields, contains('advisor.model'));
+        expect(ConfigMeta.fields, contains('advisor.effort'));
+        expect(ConfigMeta.fields, contains('advisor.triggers'));
+        expect(ConfigMeta.fields, contains('advisor.periodic_interval_minutes'));
+        expect(ConfigMeta.fields, contains('advisor.max_window_turns'));
+        expect(ConfigMeta.fields, contains('advisor.max_prior_reflections'));
 
         // Readonly fields
         expect(ConfigMeta.fields, contains('gateway.auth_mode'));
@@ -180,6 +192,13 @@ void main() {
         expect(ConfigMeta.fields['channels.whatsapp.task_trigger.default_type']!.type, ConfigFieldType.string);
         expect(ConfigMeta.fields['channels.signal.task_trigger.default_type']!.type, ConfigFieldType.string);
         expect(ConfigMeta.fields['channels.google_chat.task_trigger.default_type']!.type, ConfigFieldType.string);
+      });
+
+      test('advisor metadata uses restart mutability and correct bounds', () {
+        expect(ConfigMeta.fields['advisor.enabled']!.mutability, ConfigMutability.restart);
+        expect(ConfigMeta.fields['advisor.periodic_interval_minutes']!.min, 1);
+        expect(ConfigMeta.fields['advisor.max_window_turns']!.max, 100);
+        expect(ConfigMeta.fields['advisor.max_prior_reflections']!.max, 20);
       });
     });
 

@@ -4,7 +4,7 @@ import 'helpers.dart';
 import 'loader.dart';
 
 /// Renders the workshop task-board fragment for the canvas view.
-String canvasTaskBoardFragment(List<Task> tasks) {
+String canvasTaskBoardFragment(List<Task> tasks, {Map<String, int> bindingCounts = const {}}) {
   final queuedTasks = _sortByNewest(
     tasks.where((task) => const {TaskStatus.draft, TaskStatus.queued, TaskStatus.interrupted}.contains(task.status)),
   );
@@ -22,10 +22,17 @@ String canvasTaskBoardFragment(List<Task> tasks) {
   );
 
   final columns = [
-    _columnData(id: 'queued', title: 'Queued', tasks: queuedTasks, showDoneIcon: false),
-    _columnData(id: 'running', title: 'Running', tasks: runningTasks, showDoneIcon: false, isRunningColumn: true),
-    _columnData(id: 'review', title: 'Review', tasks: reviewTasks, showDoneIcon: false),
-    _columnData(id: 'done', title: 'Done', tasks: doneTasks, showDoneIcon: true),
+    _columnData(id: 'queued', title: 'Queued', tasks: queuedTasks, showDoneIcon: false, bindingCounts: bindingCounts),
+    _columnData(
+      id: 'running',
+      title: 'Running',
+      tasks: runningTasks,
+      showDoneIcon: false,
+      isRunningColumn: true,
+      bindingCounts: bindingCounts,
+    ),
+    _columnData(id: 'review', title: 'Review', tasks: reviewTasks, showDoneIcon: false, bindingCounts: bindingCounts),
+    _columnData(id: 'done', title: 'Done', tasks: doneTasks, showDoneIcon: true, bindingCounts: bindingCounts),
   ];
 
   return templateLoader.trellis.renderFragment(
@@ -40,16 +47,22 @@ Map<String, dynamic> _columnData({
   required String title,
   required List<Task> tasks,
   required bool showDoneIcon,
+  required Map<String, int> bindingCounts,
   bool isRunningColumn = false,
 }) {
   final cards = tasks
       .map(
-        (task) => {
+        (task) {
+          final bindingCount = bindingCounts[task.id] ?? 0;
+          return {
           'title': truncate(task.title, 40),
           'createdBy': _creatorName(task.createdBy),
           'timeInState': formatRelativeTime(_stateTimestamp(task)),
           'isRunning': isRunningColumn,
           'doneIcon': showDoneIcon ? _doneStatusIcon(task.status) : null,
+          'hasBindings': bindingCount > 0,
+          'bindingLabel': '$bindingCount ch',
+        };
         },
       )
       .toList(growable: false);

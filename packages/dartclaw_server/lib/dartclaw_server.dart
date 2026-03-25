@@ -41,6 +41,20 @@ export 'src/canvas/canvas_state.dart' show CanvasPermission, CanvasShareToken, C
 export 'src/canvas/canvas_tool_handler.dart' show CanvasTool;
 export 'src/canvas/workshop_canvas_subscriber.dart' show WorkshopCanvasSubscriber;
 export 'src/canvas/qr_generator.dart' show generateQrSvg;
+export 'src/advisor/advisor_subscriber.dart'
+    show
+        AdvisorSubscriber,
+        AdvisorOutput,
+        AdvisorStatus,
+        AdvisorTriggerContext,
+        AdvisorTriggerType,
+        CircuitBreaker,
+        ContextEntry,
+        SlidingContextWindow,
+        TriggerEvaluator,
+        AdvisorOutputParser,
+        AdvisorOutputRouter,
+        renderAdvisorInsightCard;
 
 // Auth
 export 'src/auth/auth_middleware.dart' show authMiddleware;

@@ -3,10 +3,7 @@ import 'package:test/test.dart';
 
 // Helpers for config-via-YAML tests
 DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(
-    fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
-    env: {'HOME': '/tmp'},
-  );
+  return DartclawConfig.load(fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null, env: {'HOME': '/tmp'});
 }
 
 void main() {
@@ -16,11 +13,34 @@ void main() {
       expect(config.adminSenders, isEmpty);
       expect(config.rateLimits.perSender.messages, 0);
       expect(config.rateLimits.perSender.enabled, isFalse);
+      expect(config.rateLimits.perSender.maxQueued, 0);
+      expect(config.rateLimits.perSender.maxPauseQueued, 0);
       expect(config.rateLimits.global.turns, 0);
       expect(config.rateLimits.global.enabled, isFalse);
       expect(config.budget.dailyTokens, 0);
       expect(config.budget.enabled, isFalse);
       expect(config.loopDetection.enabled, isFalse);
+      expect(config.queueStrategy, QueueStrategy.fifo);
+      expect(config.crowdCoding, const CrowdCodingConfig.defaults());
+    });
+
+    group('CrowdCodingConfig', () {
+      test('defaults have no overrides', () {
+        const config = CrowdCodingConfig.defaults();
+        expect(config.model, isNull);
+        expect(config.effort, isNull);
+      });
+
+      test('equality includes model and effort', () {
+        expect(
+          const CrowdCodingConfig(model: 'haiku', effort: 'low'),
+          equals(const CrowdCodingConfig(model: 'haiku', effort: 'low')),
+        );
+        expect(
+          const CrowdCodingConfig(model: 'haiku', effort: 'low'),
+          isNot(equals(const CrowdCodingConfig(model: 'haiku', effort: 'high'))),
+        );
+      });
     });
 
     group('isAdmin()', () {
@@ -87,6 +107,17 @@ void main() {
       });
     });
 
+    group('QueueStrategy', () {
+      test('fromYaml parses known values', () {
+        expect(QueueStrategy.fromYaml('fifo'), QueueStrategy.fifo);
+        expect(QueueStrategy.fromYaml('fair'), QueueStrategy.fair);
+      });
+
+      test('fromYaml returns null for unknown value', () {
+        expect(QueueStrategy.fromYaml('priority'), isNull);
+      });
+    });
+
     group('YAML duration parsing (governance window fields)', () {
       test('integer minutes parsed directly', () {
         final config = _loadYaml('''
@@ -150,6 +181,60 @@ governance:
         expect(config.governance.rateLimits.global.turns, 0);
         expect(config.governance.budget.dailyTokens, 0);
         expect(config.governance.loopDetection.enabled, isFalse);
+        expect(config.governance.crowdCoding, const CrowdCodingConfig.defaults());
+      });
+
+      test('crowd_coding model and effort parse correctly', () {
+        final config = _loadYaml('''
+governance:
+  crowd_coding:
+    model: haiku
+    effort: low
+''');
+        expect(config.governance.crowdCoding.model, 'haiku');
+        expect(config.governance.crowdCoding.effort, 'low');
+      });
+
+      test('invalid crowd_coding value warns and uses defaults', () {
+        final config = _loadYaml('''
+governance:
+  crowd_coding: true
+''');
+        expect(config.governance.crowdCoding, const CrowdCodingConfig.defaults());
+        expect(config.warnings, anyElement(contains('Invalid type for governance.crowd_coding')));
+      });
+
+      test('unrecognized crowd_coding model and effort produce warnings', () {
+        final config = _loadYaml('''
+governance:
+  crowd_coding:
+    model: unknown-model
+    effort: extreme
+''');
+        expect(config.governance.crowdCoding.model, 'unknown-model');
+        expect(config.governance.crowdCoding.effort, 'extreme');
+        expect(config.warnings, anyElement(contains('Unrecognized governance.crowd_coding.model')));
+        expect(config.warnings, anyElement(contains('Unrecognized governance.crowd_coding.effort')));
+      });
+
+      test('per_sender max_queued and max_pause_queued parse correctly', () {
+        final config = _loadYaml('''
+governance:
+  rate_limits:
+    per_sender:
+      max_queued: 5
+      max_pause_queued: 10
+''');
+        expect(config.governance.rateLimits.perSender.maxQueued, 5);
+        expect(config.governance.rateLimits.perSender.maxPauseQueued, 10);
+      });
+
+      test('queue_strategy parses correctly', () {
+        final config = _loadYaml('''
+governance:
+  queue_strategy: fair
+''');
+        expect(config.governance.queueStrategy, QueueStrategy.fair);
       });
     });
 

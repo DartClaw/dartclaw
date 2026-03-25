@@ -131,6 +131,59 @@ class ChatCardBuilder {
     );
   }
 
+  /// Builds an advisor insight card.
+  Map<String, dynamic> advisorInsight({
+    required String status,
+    required String observation,
+    String? suggestion,
+    String? triggerType,
+  }) {
+    final sections = <Map<String, dynamic>>[
+      {
+        'widgets': [
+          {
+            'decoratedText': {
+              'topLabel': 'Status',
+              'text': '<font color="${_advisorStatusColor(status)}"><b>${_escapeText(_advisorStatusLabel(status))}</b></font>',
+              'wrapText': true,
+            },
+          },
+          {
+            'textParagraph': {'text': _escapeText(observation.trim())},
+          },
+        ],
+      },
+    ];
+
+    final trimmedSuggestion = suggestion?.trim();
+    if (trimmedSuggestion != null && trimmedSuggestion.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'decoratedText': {'topLabel': 'Suggestion', 'text': _escapeText(trimmedSuggestion), 'wrapText': true},
+          },
+        ],
+      });
+    }
+
+    final trimmedTriggerType = triggerType?.trim();
+    if (trimmedTriggerType != null && trimmedTriggerType.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'decoratedText': {'topLabel': 'Trigger', 'text': _escapeText(trimmedTriggerType), 'wrapText': true},
+          },
+        ],
+      });
+    }
+
+    return _wrapCard(
+      cardId: 'advisor_insight',
+      header: {'title': 'Advisor Insight', 'subtitle': _advisorStatusLabel(status)},
+      sections: sections,
+    );
+  }
+
   Map<String, dynamic> _wrapCard({
     required String cardId,
     required Map<String, dynamic> header,
@@ -245,6 +298,22 @@ class ChatCardBuilder {
     'failed' => '#d93025',
     'error' => '#d93025',
     _ => null,
+  };
+
+  String _advisorStatusLabel(String status) => switch (status) {
+    'on_track' => 'On Track',
+    'diverging' => 'Diverging',
+    'stuck' => 'Stuck',
+    'concerning' => 'Concerning',
+    _ => status,
+  };
+
+  String _advisorStatusColor(String status) => switch (status) {
+    'on_track' => '#1e8e3e',
+    'diverging' => '#f9ab00',
+    'stuck' => '#d93025',
+    'concerning' => '#a142f4',
+    _ => '#5f6368',
   };
 
   String _formatTimestamp(DateTime timestamp) {

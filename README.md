@@ -2,10 +2,14 @@
 
 _Agentic powers. No dependency black holes. Secure by design._
 
-> **Status**: v0.14.2 – Shareable canvas, multi-project support, task observability, multi-provider harnesses. Pre-release. See [CHANGELOG](CHANGELOG.md).
+> [!NOTE]
+> Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
+>
+> Status**: v0.14.2 – Shareable canvas, multi-project support, task observability, multi-provider harnesses. See [CHANGELOG](CHANGELOG.md).
 
-**Welcome to DartClaw – An experimental, security-conscious AI agent runtime built with Dart.**
-
+<p align="center">
+  <img src="assets/dartclaw-webui.png" alt="DartClaw Web UI — Task Dashboard" width="720">
+</p>
 
 ## Quick Start
 

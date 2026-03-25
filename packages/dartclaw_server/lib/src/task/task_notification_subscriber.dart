@@ -117,8 +117,8 @@ class TaskNotificationSubscriber {
       }
 
       // Subsequent notifications: send to the existing thread if bound.
-      final existingBinding = _threadBindings?.lookupByTask(task.id);
-      if (existingBinding != null) {
+      final existingBindings = _threadBindings?.lookupByTask(task.id) ?? const <ThreadBinding>[];
+      if (existingBindings.isNotEmpty) {
         await channel.sendMessageWithThread(origin.recipientId, response, threadKey: threadKey);
         return;
       }

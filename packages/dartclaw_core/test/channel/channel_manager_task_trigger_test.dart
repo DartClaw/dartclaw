@@ -62,7 +62,7 @@ void main() {
       expect(channel.sentMessages.single.$1, 'sender@s.whatsapp.net');
       expect(
         channel.sentMessages.single.$2.text,
-        'Task created: fix login redirect [research] -- ID: ${_shortTaskId(created.id)}',
+        'Task created: fix login redirect [research] -- ID: ${_shortTaskId(created.id)} -- Queued (will start when a slot opens)',
       );
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
       // Note: TaskStatusChangedEvent is now fired by TaskService, not ChannelManager.

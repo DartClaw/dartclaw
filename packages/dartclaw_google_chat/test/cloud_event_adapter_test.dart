@@ -276,6 +276,23 @@ void main() {
         final metadata = (result as MessageResult).messages.first.metadata;
         expect(metadata.containsKey('senderDisplayName'), isFalse);
       });
+
+      test('captures spaceDisplayName in metadata when present', () {
+        final event = sampleCreatedEvent();
+        final data = Map<String, dynamic>.from(event['data'] as Map<String, dynamic>);
+        final message = Map<String, dynamic>.from(data['message'] as Map<String, dynamic>);
+        final space = Map<String, dynamic>.from(message['space'] as Map<String, dynamic>);
+        space['displayName'] = 'Primary Space';
+        message['space'] = space;
+        data['message'] = message;
+        event['data'] = data;
+
+        final adapter = CloudEventAdapter();
+        final result = adapter.processMessage(receivedMessageFrom(event));
+
+        expect(result, isA<MessageResult>());
+        expect((result as MessageResult).messages.first.metadata['spaceDisplayName'], 'Primary Space');
+      });
     });
 
     group('bot filtering', () {

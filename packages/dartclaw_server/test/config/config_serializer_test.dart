@@ -38,6 +38,11 @@ void main() {
       expect(agent['maxTurns'], isNull);
       expect(agent['effort'], isNull);
 
+      final advisor = json['advisor'] as Map<String, dynamic>;
+      expect(advisor['enabled'], false);
+      expect(advisor['triggers'], isEmpty);
+      expect(advisor['periodicIntervalMinutes'], 10);
+
       final auth = json['auth'] as Map<String, dynamic>;
       expect(auth['cookieSecure'], false);
       expect(auth['trustedProxies'], isEmpty);
@@ -57,6 +62,8 @@ void main() {
       final sessions = json['sessions'] as Map<String, dynamic>;
       expect(sessions['resetHour'], 4);
       expect(sessions['idleTimeoutMinutes'], 0);
+      expect(sessions['model'], isNull);
+      expect(sessions['effort'], isNull);
 
       final logging = json['logging'] as Map<String, dynamic>;
       expect(logging['level'], 'INFO');
@@ -76,6 +83,10 @@ void main() {
         'showContributorStats': true,
         'showBudgetBar': true,
       });
+
+      final governance = json['governance'] as Map<String, dynamic>;
+      expect(governance['queueStrategy'], 'fifo');
+      expect((governance['crowdCoding'] as Map<String, dynamic>)['model'], isNull);
     });
 
     test('gateway.token masked as "***" when non-null', () {
@@ -170,8 +181,15 @@ void main() {
           scopeConfig: SessionScopeConfig(
             dmScope: DmScope.shared,
             groupScope: GroupScope.perMember,
+            model: 'sonnet',
+            effort: 'medium',
             channels: {
-              'signal': const ChannelScopeConfig(dmScope: DmScope.perChannelContact, groupScope: GroupScope.shared),
+              'signal': const ChannelScopeConfig(
+                dmScope: DmScope.perChannelContact,
+                groupScope: GroupScope.shared,
+                model: 'haiku',
+                effort: 'low',
+              ),
             },
           ),
         ),
@@ -182,11 +200,15 @@ void main() {
       final sessions = json['sessions'] as Map<String, dynamic>;
       expect(sessions['dmScope'], 'shared');
       expect(sessions['groupScope'], 'per-member');
+      expect(sessions['model'], 'sonnet');
+      expect(sessions['effort'], 'medium');
       final channels = sessions['channels'] as Map<String, dynamic>;
       expect(channels, hasLength(1));
       final signal = channels['signal'] as Map<String, dynamic>;
       expect(signal['dmScope'], 'per-channel-contact');
       expect(signal['groupScope'], 'shared');
+      expect(signal['model'], 'haiku');
+      expect(signal['effort'], 'low');
     });
 
     test('channel override with only one field omits the other', () {

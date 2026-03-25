@@ -9,6 +9,8 @@ Crowd coding lets a group of people collaboratively steer one DartClaw agent thr
 
 All scenarios share governance controls (rate limits, token budgets, loop detection) and emergency commands (`/stop`, `/pause`, `/resume`).
 
+Version 0.14.3 adds four crowd-coding upgrades on top of that baseline: per-context model routing, sender-fair queueing, explicit cross-channel task binding, and an optional advisor observer.
+
 This recipe is designed for workshop organizers, hackathon facilitators, and teams who want to run collaborative sessions with a shared AI agent.
 
 ## Features Used
@@ -16,6 +18,8 @@ This recipe is designed for workshop organizers, hackathon facilitators, and tea
 **All scenarios:**
 - [Google Chat Spaces](../google-chat.md) -- receives messages from all Space members
 - Governance -- rate limits, token budgets, loop detection, and emergency controls (see [Configuration](../configuration.md))
+- Model routing -- crowd-coding defaults plus per-scope and per-channel model/effort overrides
+- Queue fairness -- sender-aware debounce, per-sender queue caps, and fair scheduling
 - Emergency controls -- `/stop`, `/pause`, `/resume` for session management
 - [Session scoping](../configuration.md) -- all Space participants share one session
 - [Input sanitizer / content guard](../security.md) -- filters inbound messages for safety
@@ -24,6 +28,8 @@ This recipe is designed for workshop organizers, hackathon facilitators, and tea
 - [Channel-to-task triggers](../tasks.md) -- `task:` prefix creates a coding task from a message
 - [Task orchestration](../tasks.md) -- parallel task execution with accept/reject review cycle
 - Thread binding -- task notification threads become the review channel for that task
+- Cross-channel binding -- `/bind <taskId>` and `/unbind` can attach WhatsApp groups, Signal groups, or Google Chat threads to an existing task session
+- Advisor agent -- optional observer that posts structured `[Advisor]` insights to the canvas and bound channels
 - Shareable canvas -- standalone live canvas page with share-token links for projected screens and participant phones (0.14.2+)
 
 **Scenario B only (External Repo):**
@@ -35,7 +41,7 @@ This recipe is designed for workshop organizers, hackathon facilitators, and tea
 
 ## Prerequisites
 
-- DartClaw 0.14+ installed and running (see [Getting Started](../getting-started.md)). 0.12+ works for local-repo-only sessions
+- DartClaw 0.14.3+ installed and running (see [Getting Started](../getting-started.md)). 0.12+ works for basic local-repo crowd coding, but model routing, queue fairness, cross-channel binding, and advisor support require 0.14.3
 - Google Cloud project with Chat API enabled (see [Google Chat setup](../google-chat.md))
 - A Google Chat Space (not a group DM) -- [create one here](https://chat.google.com)
 - GCP service account configured for the DartClaw Chat bot
@@ -59,6 +65,10 @@ agent:
   max_turns: 100
 
 governance:
+  crowd_coding:
+    model: sonnet                    # default model for shared crowd-coding group turns
+    effort: medium
+  queue_strategy: fair              # round-robin across senders instead of pure FIFO
   admin_senders:
     - "users/123456789012345"           # facilitator's Google Chat user ID
     # Leave empty to grant all participants admin access (suitable for small trusted groups)
@@ -66,6 +76,8 @@ governance:
     per_sender:
       messages: 10                      # max 10 messages per 5-minute window per person
       window: 5m
+      max_queued: 5                     # cap queued entries per sender (0 = disabled)
+      max_pause_queued: 10              # cap paused-queue entries per sender
     global:
       turns: 30                         # max 30 agent turns per hour across all participants
       window: 1h
@@ -85,6 +97,15 @@ features:
   thread_binding:
     enabled: true
 
+advisor:
+  enabled: true
+  model: sonnet
+  effort: medium
+  triggers: [periodic, task_review, explicit]
+  periodic_interval_minutes: 10
+  max_window_turns: 12
+  max_prior_reflections: 3
+
 channels:
   google_chat:
     enabled: true
@@ -101,6 +122,10 @@ channels:
 
 sessions:
   group_scope: shared
+  # model: haiku                        # optional scope-level override
+  # channels:
+  #   googlechat:
+  #     model: opus                    # per-channel override beats sessions.model
 
 tasks:
   max_concurrent: 5
@@ -287,6 +312,11 @@ reply with:
 - When a task is complete, summarize what you built in 2-3 sentences
 - Proactively flag blockers (missing context, ambiguous requirements)
 - On push back, acknowledge the feedback and explain your revised approach
+
+## Git Discipline
+- After completing any code change, always commit with a clear, descriptive message
+- If the project has a remote configured, push your branch after committing
+- Do not wait to be asked to commit -- treat committing as part of completing work
 ```
 
 ### SOUL.md -- Freeform Ideation (Scenario C)
@@ -311,6 +341,13 @@ There is no accept/reject flow — what you write goes straight to main.
 - When directions conflict, call out the conflict and ask the group to decide
 - When the group converges on an idea, draft structured output immediately
 - Flag when you're about to make a significant change to an existing file
+
+## Git Discipline
+- After making file changes, commit with a clear descriptive message
+- If the project has a remote, push after committing
+- Do not wait to be asked to commit -- treat it as part of completing work
+- Note: workspace auto-commit (heartbeat) only covers behavioral files in the data directory,
+  not the project directory. If they are separate, you must commit project changes yourself
 
 ## Output Style
 - Prefer creating new files over modifying existing ones during ideation (easier to discard)
@@ -405,7 +442,36 @@ If anything goes wrong, the facilitator (or any admin sender) can use:
 - `/pause` -- queues incoming messages without processing them. Use to buy time while you assess
 - `/resume` -- resumes processing from the queue. Messages sent during pause are delivered in order
 
+### Cross-channel binding (0.14.3+)
+
+When one task should stay visible across multiple channel surfaces, bind the current thread or group to that task session:
+
+```text
+/bind <taskId>
+/unbind
+```
+
+- Google Chat binds the current thread
+- WhatsApp and Signal bind the whole group conversation
+- Binding is admin-only and idempotent for the same task
+- Terminal task states remove all bindings automatically
+- API equivalents exist at `GET/POST/DELETE /api/tasks/:taskId/bindings...`
+
 ## Governance Tuning Guide
+
+### Model Routing
+
+Model resolution for crowd coding is:
+
+```text
+task configJson['model']
+> sessions.channels.<type>.model
+> sessions.model
+> governance.crowd_coding.model
+> agent.model
+```
+
+Use `governance.crowd_coding.model` for the default workshop cost/performance profile, then override only where needed. A common pattern is `haiku` for the shared group session, `sonnet` for the advisor, and a stronger task-level override only for difficult tasks.
 
 ### Rate Limits
 
@@ -418,6 +484,16 @@ Adjust `governance.rate_limits` based on your group size. Recommended starting p
 | Hackathon (20--30) | 3 | 5m | 20 | 1h |
 
 Rate limit state resets on server restart. Review commands (`accept`, `reject`, `push back`), `/status`, and `/stop` are not rate-limited.
+
+### Queue Fairness
+
+Use sender fairness when many participants are posting at once.
+
+- `governance.rate_limits.per_sender.max_queued` limits how many queued entries one person can occupy
+- `governance.rate_limits.per_sender.max_pause_queued` does the same during `/pause`
+- `governance.queue_strategy: fair` drains one sender entry at a time instead of letting one participant monopolize the queue
+
+With `fair`, a backlog like `A,A,A,B,B,C` drains as `A,B,C,A,B,A`.
 
 ### Token Budget
 
@@ -476,11 +552,22 @@ Admin sender format by channel (for multi-channel setups):
 - WhatsApp: E.164 phone without `+` + `@s.whatsapp.net` (e.g., `12125551234@s.whatsapp.net`)
 - Signal: ACI UUID
 
+### Advisor Agent
+
+The advisor is a soft observer. It never blocks or overrides the main agent.
+
+- `advisor.triggers` controls when it fires: `periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`
+- `@advisor ...` always triggers an explicit reply in the current thread or group
+- Periodic and event-based advisor messages are broadcast to all channels currently bound to the task
+- Advisor output is structured as status + observation + optional suggestion, and the same insight can also be pushed to the workshop canvas
+
 ## Customization Tips
 
 - **Adjust concurrency**: Lower `tasks.max_concurrent` (e.g., 2) to keep sessions focused; raise it (up to 10) for large hackathons with many parallel tracks
 - **Warn vs block budget**: Use `action: warn` for exploratory workshops where you want cost visibility without interrupting flow; use `action: block` for budget-constrained events
 - **Multi-channel governance**: Add WhatsApp or Signal participants alongside Google Chat -- governance (rate limits, budgets, loop detection) applies across all channels uniformly. Thread binding remains Google Chat Spaces only
+- **Cross-channel task rooms**: Start a task in Google Chat, then use `/bind` from a WhatsApp or Signal group if you want mobile participants to steer the same task session
+- **Advisor-only facilitation layer**: Enable `advisor:` plus `canvas:` when you want a facilitator screen that surfaces observer insights without interrupting the primary conversation
 - **Target an external repo** (0.14+): Add a `projects:` block to point tasks at a real codebase. Each task creates an isolated worktree from a fresh fetch. On accept, the branch is pushed and a PR is created. Without a `projects:` block, an implicit `_local` project uses DartClaw's working directory -- existing setups work unchanged
 - **Dynamic project registration**: Register additional repos at runtime via `POST /api/projects` with the remote URL -- no server restart needed. Useful for hackathons where teams bring their own repos
 - **PR strategy**: Set `pr.strategy: github-pr` for GitHub repos (creates draft PRs with configurable labels). Use `pr.strategy: branch-only` for non-GitHub remotes (pushes branch, stores branch name as artifact)
@@ -488,13 +575,48 @@ Admin sender format by channel (for multi-channel setups):
 - **Session maintenance**: For multi-day hackathons, configure `sessions.maintenance` to prune old sessions and keep the workspace clean
 - **Disable loop detection for trusted agents**: If running long autonomous tasks in a trusted environment, set `loop_detection.enabled: false` to avoid false positives
 
+## Provider Configuration for Codex
+
+If using OpenAI models via Codex (`agent.provider: codex`), you **must** configure the approval policy and sandbox mode to avoid silent hangs during tool-use turns. This is caused by an upstream bug in Codex's app-server ([openai/codex#11816](https://github.com/openai/codex/issues/11816)) where tool approval requests block indefinitely when the client can't surface an interactive approval UI.
+
+Add this to your config:
+
+```yaml
+agent:
+  provider: codex
+  model: gpt-4o
+
+providers:
+  codex:
+    executable: codex
+    pool_size: 2
+    approval: never              # REQUIRED — prevents approval deadlock on tool-use turns
+    sandbox: danger-full-access  # REQUIRED — prevents sandbox-related stalls
+
+credentials:
+  openai:
+    api_key: ${OPENAI_API_KEY}
+```
+
+**Why this is safe**: Setting `approval: never` disables Codex's *internal* approval gate, but DartClaw's own defense-in-depth remains fully active: guard chain (command, file, network, content guards), container isolation, `TaskFileGuard`, and input sanitizer all still evaluate every tool call.
+
+**Also recommended for crowd-coding**: Reduce `worker_timeout` to limit blast radius if a turn hangs for any other reason (context compaction, orphaned processes):
+
+```yaml
+worker_timeout: 120              # 2 minutes instead of default 10 minutes
+```
+
+The default 600s timeout means a single stuck turn blocks the shared session for 10 minutes with no feedback. 120s is a better trade-off for interactive workshops.
+
 ## Gotchas & Limitations
 
 - **Thread binding is Google Chat Spaces only**: Replies in notification threads are routed to the task session only in Google Chat Spaces. In DMs, WhatsApp, and Signal, all messages go to the shared group session
+- **Bound-channel fan-out is task-scoped**: automatic advisor broadcasts use the task's current bindings. If nothing is bound, DartClaw falls back to the task's originating channel only
 - **Slash commands require GCP pre-registration**: `/stop`, `/pause`, `/resume`, `/status`, `/new`, and `/reset` must be manually registered in the GCP Chat app configuration before they work. This cannot be done automatically
 - **Empty `admin_senders` = all are admins**: Convenient for small trusted groups, but anyone can run `/stop` in a larger workshop. Add specific user IDs before public events
 - **Budget enforcement is pre-turn**: The token budget check happens before a turn starts. An in-flight turn may overshoot the budget by the cost of that single turn
 - **Pause queue has a 200-message hard cap**: Messages sent while paused are queued up to 200. Messages beyond that cap are acknowledged with a "queue full" notice and not processed. Use `/stop` instead if you need to halt processing entirely
+- **Advisor turns use task-pool capacity**: when every task runner is busy, the advisor skips that trigger instead of queueing behind active work
 - **Rate limit state resets on server restart**: Per-sender and global counters are in-memory only. A restart clears all rate limit history -- useful for resetting between sessions, but unexpected during rolling restarts
 - **`push back` transitions task to running**: When a participant sends `push back: <feedback>`, the task moves from `review` back to `running` -- it is not a new task. The agent revises the existing work and resubmits for review
 - **Project clone happens on first task**: When using `projects:`, the repo is cloned on first use (or server start). Large repos may take time -- verify the clone completes before the workshop starts by creating a test task
@@ -502,5 +624,8 @@ Admin sender format by channel (for multi-channel setups):
 - **`gh` CLI required for PR creation**: The `github-pr` strategy uses `gh pr create` under the hood. If `gh` is not installed or not authenticated, push-to-remote still works but no PR is created (branch name is stored as artifact instead)
 - **Credentials are reference-based**: The `credentials:` field in `projects:` is a key name, not the credential itself. Credentials are resolved at clone/push time via `GIT_SSH_COMMAND` / `GIT_ASKPASS` environment injection
 - **Scenario C: no per-contribution rollback**: In freeform ideation mode, all agent edits go directly to `main`. You can `git revert` after the fact, but there's no accept/reject flow. This is by design — the low friction is the point
-- **Scenario C: heartbeat = commit interval**: Changes are committed every `scheduling.heartbeat.interval_minutes` (default 5 min), not after each turn. Work done between heartbeats is in the working directory but not yet committed. Adjust the interval to balance commit frequency vs. noise
+- **Workspace git sync ≠ project git sync**: `WorkspaceGitSync` only auto-commits files in `<data_dir>/workspace/` (behavioral files like SOUL.md, MEMORY.md). If your project directory is separate from the workspace, agent edits to project files are **not** auto-committed. Add "Git Discipline" instructions to SOUL.md (see Behavior Files above) to ensure the agent commits after making changes. For worktree-based tasks (Scenarios A & B), the task completion flow handles commit + push automatically
+- **Scenario C: heartbeat = commit interval**: Workspace auto-commits happen every `scheduling.heartbeat.interval_minutes` (default 5 min), not after each turn. This only applies to the workspace directory — project files must be committed explicitly unless the workspace IS the project directory
 - **Scenario C: push requires remote**: `workspace.git_sync.push_enabled` only pushes if an `origin` remote exists (`git remote get-url origin`). If the workspace has no remote configured, commits are local-only
+- **Codex provider: `approval: never` is required**: Without it, Codex silently hangs on tool-use turns (file creation, shell commands) due to an upstream approval deadlock bug. See [Provider Configuration for Codex](#provider-configuration-for-codex) above
+- **Codex stderr is not logged**: Codex error messages (invalid model, API failures) are currently discarded. If Codex turns fail silently, check the Codex process directly or review the OpenAI API dashboard for errors

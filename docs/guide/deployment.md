@@ -25,6 +25,40 @@ dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
 
 The resulting binary has zero runtime dependencies (no Dart SDK needed).
 
+### Running Outside the Source Tree
+
+The compiled binary (and `dart run`) expects **templates** and **static assets** at paths relative to `cwd`:
+
+| Asset | Default path (relative to cwd) | CLI flag |
+|-------|-------------------------------|----------|
+| Templates | `packages/dartclaw_server/lib/src/templates` | None (`--templates-dir` not yet available) |
+| Static assets | `packages/dartclaw_server/lib/src/static` | `--static-dir` |
+
+If you run the binary from a directory other than the source root, template loading fails at startup with `Template validation failed: Missing templates: ...`.
+
+**Workarounds**:
+
+```bash
+# Option 1: Run from the source root (simplest)
+cd /path/to/dartclaw-public
+./dartclaw serve --config /path/to/your/dartclaw.yaml
+
+# Option 2: Symlink the template directory into your working directory
+mkdir -p packages/dartclaw_server/lib/src
+ln -s /path/to/dartclaw-public/packages/dartclaw_server/lib/src/templates \
+      packages/dartclaw_server/lib/src/templates
+
+# Option 3: Copy templates alongside the binary
+cp -r /path/to/dartclaw-public/packages/dartclaw_server/lib/src/templates \
+      packages/dartclaw_server/lib/src/templates
+cp -r /path/to/dartclaw-public/packages/dartclaw_server/lib/src/static \
+      packages/dartclaw_server/lib/src/static
+```
+
+For `--static-dir`, use the CLI flag to point at the correct location. For templates, the workaround is to ensure the expected directory structure exists relative to `cwd`.
+
+**Note**: This limitation also affects `dart run` when `cwd` is not the pub workspace root — for example, when you want DartClaw's `_local` project to point at a different repository. See [Projects & Git § Limitations](projects-and-git.md#limitations-and-future-considerations) for details.
+
 ## macOS (LaunchDaemon)
 
 `dartclaw deploy setup` creates a LaunchDaemon plist at `/Library/LaunchDaemons/com.dartclaw.agent.plist`:

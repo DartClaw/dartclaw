@@ -31,11 +31,13 @@ Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROP
 git clone <repo-url> && cd dartclaw
 dart pub get
 
-# Start server
+# Start server (must run from the repo root — templates are resolved relative to cwd)
 dart run dartclaw_cli:dartclaw serve
 
 # Open http://127.0.0.1:3000
 ```
+
+**Important**: DartClaw must be started from the repository root. Templates and static assets are loaded from paths relative to `cwd`. Running from another directory causes a `Template validation failed` error at startup. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for workarounds when deploying elsewhere.
 
 ## First Session
 

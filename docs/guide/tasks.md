@@ -57,6 +57,28 @@ Content-Type: application/json
 
 Tasks can also be linked to a goal with `goalId`.
 
+### Project Targeting
+
+Coding tasks can target a specific project. When creating a task, set `projectId` to route it to the correct repository:
+
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "title": "Refactor auth middleware",
+  "type": "coding",
+  "projectId": "my-app",
+  "autoStart": true
+}
+```
+
+- If `projectId` is omitted, the task targets the **default project** (first project with `default: true`, or the first external project, or `_local`).
+- The web UI's **New Task** dialog includes a project selector dropdown showing all registered projects with status indicators.
+- Tasks targeting external projects get auto-fetch before worktree creation and push-to-remote on accept. Tasks targeting `_local` use local merge.
+
+See [Projects & Git](projects-and-git.md) for project setup, auto-fetch behavior, and accept workflows.
+
 ### Per-Task Overrides
 
 When creating a task (via API or web UI), you can set per-task overrides in `configJson`:
@@ -74,6 +96,7 @@ Content-Type: application/json
   "title": "Deep security audit of auth module",
   "description": "Analyze all auth code paths for vulnerabilities.",
   "type": "analysis",
+  "projectId": "my-app",
   "autoStart": true,
   "configJson": {
     "model": "opus",
@@ -110,13 +133,15 @@ In pool mode, the task executor matches a task's profile to a runner started wit
 
 ## Coding Tasks and Worktrees
 
-Coding tasks run inside an isolated git worktree:
+Coding tasks run inside an isolated git worktree created from the task's target project:
 
-- `tasks.worktree.base_ref` chooses the base branch or ref
+- **External projects**: worktree branches from the project clone (auto-fetched). On accept, the branch is pushed to the remote (and a PR created if configured).
+- **`_local` project**: worktree branches from the local base ref. On accept, `MergeExecutor` squash-merges locally.
+- `tasks.worktree.base_ref` chooses the base branch (`_local` tasks only; external projects use their configured `branch`)
 - `tasks.worktree.stale_timeout_hours` controls when abandoned worktrees are considered stale
-- `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted work
+- `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted `_local` work
 
-The worktree path is guarded so file operations stay contained to the task's assigned checkout.
+The worktree path is guarded so file operations stay contained to the task's assigned checkout. See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
 
 ## Review Workflow
 

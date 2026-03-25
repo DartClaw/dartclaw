@@ -72,7 +72,7 @@ governance:
   budget:
     daily_tokens: 500000                # 500K tokens for a ~2-hour workshop
     action: block                       # block new turns when budget exhausted
-    timezone: "America/New_York"        # budget resets at midnight in this timezone
+    timezone: "UTC-5"                    # UTC-offset only; IANA names not supported        # budget resets at midnight in this timezone
   loop_detection:
     enabled: true
     max_consecutive_turns: 5
@@ -196,7 +196,7 @@ governance:
   budget:
     daily_tokens: 500000
     action: warn                        # warn instead of block — don't interrupt ideation flow
-    timezone: "America/New_York"
+    timezone: "UTC-5"                    # UTC-offset only; IANA names not supported
   loop_detection:
     enabled: true
     max_consecutive_turns: 8            # higher threshold — ideation turns can be longer

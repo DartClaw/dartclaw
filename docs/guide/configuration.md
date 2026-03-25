@@ -65,6 +65,22 @@ guards:
 guard_audit:
   max_retention_days: 30         # delete dated audit partitions older than this
 
+# --- Projects (0.14) ---
+projects:
+  fetchCooldownMinutes: 5              # auto-fetch cooldown in minutes (default: 5)
+
+  my-app:                              # project ID (any string except _local)
+    remote: git@github.com:org/app.git # required: SSH or HTTPS URL
+    branch: main                       # default branch (default: main)
+    credentials: github-ssh            # credential store reference (optional)
+    default: true                      # default project for new tasks (optional)
+    clone:
+      strategy: shallow               # shallow | full | sparse (default: shallow)
+    pr:
+      strategy: github-pr             # branch-only | github-pr (default: branch-only)
+      draft: true                      # create PRs as drafts (default: false)
+      labels: [agent, automated]       # auto-apply labels (default: [])
+
 tasks:
   artifact_retention_days: 0     # 0 = unlimited; clean terminal-task artifacts in maintenance
 
@@ -233,6 +249,31 @@ search:
     port: 8181
   default_depth: standard        # fast | standard | deep
 
+# --- Governance (0.12) --- rate limits, token budgets, loop detection
+governance:
+  admin_senders:                       # sender IDs exempt from rate limits (facilitators)
+    - "users/123456789012345"
+  rate_limits:
+    per_sender:
+      messages: 10                     # max messages per window per sender
+      window: 5m                       # sliding window duration
+    global:
+      turns: 30                        # max agent turns per window across all senders
+      window: 1h
+  budget:
+    daily_tokens: 0                    # 0 = unlimited; daily token budget
+    action: block                      # block | warn (block new turns or warn only)
+    timezone: "UTC+1"                  # budget resets at midnight in this timezone
+                                       # supported: UTC, GMT, UTC+N, UTC-N
+                                       # IANA names (e.g. Europe/Stockholm) are NOT supported
+  loop_detection:
+    enabled: false                     # disabled by default
+    max_consecutive_turns: 5           # abort if agent takes >N consecutive turns
+    max_tokens_per_minute: 10000       # abort if token velocity exceeds threshold
+    velocity_window_minutes: 2
+    max_consecutive_identical_tool_calls: 5
+    action: abort                      # abort | warn
+
 # --- Canvas (0.14.2) --- see Canvas guide for details
 base_url: https://workshop.example.com:3333  # public URL for share links
 canvas:
@@ -277,6 +318,10 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 **Note on `providers` section:** When omitted, DartClaw creates a single Claude provider using `agent.claude_executable` (or the `claude` binary on `$PATH`). The explicit `providers:` section is only needed for multi-provider deployments or to customize pool sizes, executables, or provider-specific options. `pool_size: 0` means "use the default pool allocation".
 
+**Note on `governance.budget.timezone`:** Only UTC-offset formats are supported: `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`). IANA timezone names like `Europe/Stockholm` or `America/New_York` are **not** supported and will fall back to UTC with a warning. This means budget reset times do not automatically adjust for DST. If your timezone observes DST, you may need to update the offset seasonally or accept the one-hour drift during DST transitions.
+
+**Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
@@ -301,8 +346,14 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 |------|---------|-------------|
 | `--port` | `3000` | HTTP server port |
 | `--host` | `127.0.0.1` | Bind address |
+| `--data-dir` | `~/.dartclaw` | Data directory path |
+| `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (relative to cwd) |
 | `--log-format` | `text` | Log format (`text` or `json`) |
 | `--log-file` | -- | Log file path |
+| `--log-level` | `INFO` | Log level (`FINE`, `INFO`, `WARNING`, `SEVERE`) |
+| `--dev` | -- | Enable development mode (verbose logging, relaxed guards) |
+
+**Note on template resolution**: Templates are loaded from `packages/dartclaw_server/lib/src/templates` relative to cwd. There is no `--templates-dir` CLI flag. When running DartClaw from a directory other than the source root, or when running an AOT-compiled binary outside the source tree, template loading will fail. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for workarounds.
 
 ### `dartclaw deploy`
 

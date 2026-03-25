@@ -1,60 +1,161 @@
 # Projects and Git
 
-DartClaw operates on a single git repository -- the directory from which you launch `dartclaw serve`. This guide covers how the project directory is discovered, how git worktrees provide task isolation, and how branches are managed.
+> Current through: **0.14**
 
-## What Is a "Project"?
+DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 
-DartClaw has no formal project entity or setup command. The **project** is the current working directory (`cwd`) when the server starts:
+## What Is a Project?
+
+A project is a registered git repository that DartClaw clones, keeps fresh, and uses as the base for coding task worktrees. Projects have a lifecycle (`cloning` -> `ready` -> optionally `error` or `stale`) and are managed through the web UI or REST API.
+
+There are two kinds of projects:
+
+| Kind | How it's created | Persistence | Mutable via API |
+|------|-----------------|-------------|-----------------|
+| **External** | Registered via config or API with a remote URL | `projects.json` (runtime) or `dartclaw.yaml` (config) | Config-defined: read-only. Runtime-created: fully mutable |
+| **Implicit `_local`** | Synthesized automatically from the directory where `dartclaw serve` was started | Not persisted (ephemeral) | No |
+
+### The Implicit `_local` Project
+
+If you don't configure any external projects, DartClaw works exactly like a single-project setup. It creates an implicit `_local` project from the current working directory:
 
 ```bash
-cd ~/repos/my-app      # this becomes the "project"
+cd ~/repos/my-app      # this becomes the _local project
 dartclaw serve
 ```
 
-Everything flows from this directory:
-- Coding tasks branch from and merge back into its git history
-- Container isolation mounts it as `/project:ro` (read-only)
-- The guard chain validates file operations relative to it
+The `_local` project:
+- Is always available, even when external projects are registered
+- Uses local merge semantics (squash-merge into the base ref) -- no remote push
+- Is the **default project** when no external projects exist
+- Requires the same git prerequisites as before: `.git/` directory and a local base ref
 
-There is no `dartclaw init` or project registration step.
+When you register external projects, `_local` remains selectable but is no longer the default -- the first external project (or whichever is marked `default: true`) takes over.
 
-### How DartClaw Uses the Project Directory
+### External Projects
 
-| Component | How it uses `cwd` |
-|-----------|-------------------|
-| `WorktreeManager` | Runs `git branch` and `git worktree add` against it |
-| `MergeExecutor` | Checks out base ref and merges task branches in it |
-| `DiffGenerator` | Runs `git diff` against it |
-| `SecurityProfile` | Mounts it as `/project:ro` in containers |
-| `TaskFileGuard` | Validates task file access relative to worktree paths created from it |
+External projects are cloned from a remote URL and kept fresh with automatic fetching. When a coding task targeting an external project is accepted, the result is pushed to the remote as a branch (or as a pull request).
 
-### Requirements
+Register external projects in two ways:
 
-DartClaw does not validate the project directory at startup. For coding tasks to work, the directory must:
+**Via `dartclaw.yaml`** (seeded at startup, read-only via API):
 
-1. **Be a git repository** -- contain a `.git/` directory (or be inside one)
-2. **Have the configured base ref** -- the branch named in `tasks.worktree.base_ref` (default: `main`) must exist locally
-3. **Have `git` installed** -- WorktreeManager checks on first use (cached)
+```yaml
+projects:
+  fetchCooldownMinutes: 5       # global fetch cooldown (default: 5)
 
-If any of these are missing, coding task execution fails with a `WorktreeException` or `GitNotFoundException` at task run time -- not at server startup.
+  my-app:
+    remote: git@github.com:org/my-app.git
+    branch: main                # default branch (default: main)
+    credentials: github-ssh     # reference to credential store entry
+    default: true               # make this the default project
+    clone:
+      strategy: shallow         # shallow | full | sparse (default: shallow)
+    pr:
+      strategy: github-pr       # branch-only | github-pr (default: branch-only)
+      draft: true               # create PRs as drafts (default: false)
+      labels: [agent, automated]  # auto-apply labels (default: [])
 
-Non-coding tasks (research, analysis, writing) do not require git.
+  docs-site:
+    remote: https://github.com/org/docs.git
+    branch: develop
+```
+
+**Via the REST API** (runtime-created, fully mutable):
+
+```http
+POST /api/projects
+Content-Type: application/json
+
+{
+  "name": "my-app",
+  "remoteUrl": "git@github.com:org/my-app.git",
+  "defaultBranch": "main",
+  "credentialsRef": "github-ssh",
+  "cloneStrategy": "shallow",
+  "pr": {
+    "strategy": "github-pr",
+    "draft": true,
+    "labels": ["agent", "automated"]
+  }
+}
+```
+
+The web UI also provides a project management interface on the `/tasks` page with a project selector.
+
+### Project Lifecycle
+
+```
+Register (config or API)
+  |
+  v
+cloning  ──(clone completes)──>  ready
+  |                                |
+  (clone fails)                    (fetch fails repeatedly)
+  |                                |
+  v                                v
+error                            stale
+```
+
+- **cloning**: Initial clone running in a background isolate. Tasks cannot target this project yet.
+- **ready**: Clone complete. Auto-fetch keeps it current.
+- **error**: Clone failed. Check logs for auth or network issues. Re-register or fix credentials.
+- **stale**: Previously `ready` but fetch failures have accumulated. Tasks still run against local state.
+
+## Auto-Fetch
+
+External projects are automatically fetched before worktree creation, so coding tasks always branch from recent code.
+
+**How it works**:
+
+1. When a coding task starts, `WorktreeManager` calls `ProjectService.ensureFresh(project)`.
+2. If the project was fetched within the cooldown window (default: 5 minutes), the fetch is skipped.
+3. If a fetch is already in-flight for this project, the second caller waits for it to complete (no duplicate fetches).
+4. Otherwise, `git fetch origin` runs in an isolate to avoid blocking the event loop.
+
+**On network failure**: The fetch is logged as a warning and the task proceeds with potentially stale local state. `lastFetchAt` is not updated, so the next task will retry.
+
+**Configuration**:
+
+```yaml
+projects:
+  fetchCooldownMinutes: 5    # default: 5 minutes
+```
+
+### Keeping the `_local` Project Current
+
+The `_local` project does **not** auto-fetch -- DartClaw has no remote URL to fetch from. Keep it current externally:
+
+```bash
+# Option 1: cron job (recommended for always-on deployments)
+*/15 * * * * cd /path/to/project && git fetch origin && git merge --ff-only origin/main
+
+# Option 2: manual sync before creating tasks
+cd ~/repos/my-app
+git pull origin main
+```
 
 ## Git Worktrees for Task Isolation
 
-When a coding task executes, DartClaw creates an isolated git worktree so the agent works in its own checkout without affecting the main working tree.
+When a coding task executes, DartClaw creates an isolated git worktree so the agent works in its own checkout without affecting the main working tree or other concurrent tasks.
 
 ### Worktree Lifecycle
 
+For **external projects**, the worktree is created from the project's clone directory:
+
 ```
-Task queued (type: coding)
+Task queued (type: coding, projectId: my-app)
   |
   v
 TaskExecutor picks up task
   |
   v
-WorktreeManager.create(taskId)
-  --> git branch dartclaw/task-<taskId> <baseRef>
+ProjectService.ensureFresh(project)
+  --> auto-fetch if outside cooldown window
+  |
+  v
+WorktreeManager.create(taskId, project)
+  --> git branch dartclaw/task-<taskId> <branch>
   --> git worktree add <worktreesDir>/<taskId> dartclaw/task-<taskId>
   |
   v
@@ -67,15 +168,15 @@ Agent harness spawned with cwd = worktree path
   v
 Task completes --> enters review state
   |
-  +-- Accept --> MergeExecutor squash-merges into baseRef --> cleanup
-  +-- Reject --> cleanup (no merge)
+  +-- Accept --> push branch + create PR (if configured) --> cleanup
+  +-- Reject --> cleanup (no push)
   +-- Push back --> task re-queued with feedback (worktree preserved)
   +-- Failure --> worktree preserved for inspection
 ```
 
-### Where Worktrees Live
+For **`_local` tasks**, the flow is the same except: no auto-fetch, and accept performs a local merge (via `MergeExecutor`) instead of pushing to a remote.
 
-Worktrees are created under the workspace data directory:
+### Where Worktrees Live
 
 ```
 ~/.dartclaw/
@@ -84,7 +185,7 @@ Worktrees are created under the workspace data directory:
       <taskId>/         # isolated checkout for each coding task
 ```
 
-The exact path is `<workspaceDir>/.dartclaw/worktrees/`.
+The exact path is `<dataDir>/.dartclaw/worktrees/`.
 
 ### Branch Naming
 
@@ -94,48 +195,26 @@ Each task gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e
 
 On startup, `WorktreeManager.detectStaleWorktrees()` scans the worktrees directory and logs warnings for any older than the configured timeout (default: 24 hours). Stale worktrees are **not auto-deleted** -- they require manual cleanup or task resolution.
 
-## Branch Management
+## What Happens on Task Accept
 
-### Base Ref
+The accept flow depends on whether the task targets an external project or `_local`.
 
-The base ref is the branch that worktrees branch from and merge back into. Configure it in `dartclaw.yaml`:
+### External Projects: Push and PR
 
-```yaml
-tasks:
-  worktree:
-    base_ref: main          # default
-```
+1. **Branch push** -- `RemotePushService` pushes the task branch to the remote. Runs in an isolate. Credentials are injected via `GIT_SSH_COMMAND` (SSH) or `GIT_ASKPASS` (HTTPS token).
 
-This must be a **local** branch name. DartClaw uses it directly in `git branch <task-branch> <base_ref>`.
+2. **PR creation** (if `pr.strategy: github-pr`) -- `PrCreator` runs `gh pr create` as a subprocess (outpost pattern). Applies `--draft` and `--label` flags from config. The PR URL is stored as a task artifact.
 
-### No Automatic Fetch or Sync
+3. **Graceful degradation** -- If `gh` is not installed, the push succeeds and a warning artifact explains how to create the PR manually. If `gh pr create` fails, the push has already succeeded and the error is recorded as an artifact.
 
-DartClaw does **not** automatically fetch, pull, or reset the project repository. Specifically:
+| PR Strategy | On Accept |
+|-------------|-----------|
+| `branch-only` | Push branch. Artifact: branch name `dartclaw/task-<id>` |
+| `github-pr` | Push branch + create PR. Artifact: PR URL |
 
-- **Before worktree creation**: no `git fetch` -- worktrees branch from whatever the local `base_ref` points to
-- **Before merge**: no `git fetch` or `git pull` -- merge targets the local `base_ref` HEAD
-- **On startup**: no git operations on the project repo
-- **On schedule**: no periodic sync
+### `_local` Project: Local Merge
 
-If your local `main` is behind `origin/main`, worktrees will branch from stale code and merges will target the stale local HEAD.
-
-**To keep the project current**, manage git sync externally:
-
-```bash
-# Option 1: cron job (recommended for always-on deployments)
-# Add to crontab: fetch every 15 minutes
-*/15 * * * * cd /path/to/project && git fetch origin && git merge --ff-only origin/main
-
-# Option 2: manual sync before creating tasks
-cd ~/repos/my-app
-git pull origin main
-```
-
-A DartClaw scheduled job cannot do this for you -- scheduled jobs run inside the agent harness (which has read-only project access in container mode).
-
-### Merge Strategies
-
-When a coding task is accepted, `MergeExecutor` merges the task branch into the base ref. Two strategies are available:
+`MergeExecutor` merges the task branch into the base ref locally. Two strategies:
 
 ```yaml
 tasks:
@@ -152,16 +231,48 @@ tasks:
 
 **State restoration**: MergeExecutor always restores the repository to its pre-merge state (original branch + stashed changes) regardless of success or failure.
 
+## Credential Handling
+
+External projects reference credentials by name -- keys and tokens are never stored in project config or `projects.json`.
+
+```yaml
+projects:
+  my-app:
+    remote: git@github.com:org/my-app.git
+    credentials: github-ssh    # references a credential store entry
+```
+
+At clone, fetch, and push time, the credential is resolved from the credential store and injected into the git subprocess environment:
+
+| Credential Type | Environment Variable |
+|-----------------|---------------------|
+| SSH key | `GIT_SSH_COMMAND=/usr/bin/ssh -i /path/to/key` |
+| HTTPS token | `GIT_ASKPASS` helper script |
+
+Credential paths are redacted in logs by `MessageRedactor`. See [Security](security.md) for the broader credential isolation model.
+
+## Project REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/projects` | Register a new project (initiates clone) |
+| `GET` | `/api/projects` | List all projects (config + runtime + `_local`) |
+| `GET` | `/api/projects/<id>` | Get project details |
+| `PATCH` | `/api/projects/<id>` | Update project (runtime-created only; 403 for config-defined) |
+| `DELETE` | `/api/projects/<id>` | Delete project (runtime-created only). Cancels running tasks, cleans worktrees, removes clone |
+| `POST` | `/api/projects/<id>/fetch` | Force-fetch from remote (bypasses cooldown) |
+| `GET` | `/api/projects/<id>/status` | Clone health check (status, last fetch, errors) |
+
 ## Container Integration
 
-In containerized mode, the project directory gets mounted read-only:
+In containerized mode, project clones are mounted read-only:
 
 | Mount | Source | Access | Purpose |
 |-------|--------|--------|---------|
-| `/project` | `cwd` (project dir) | Read-only | Agent can read project files |
-| `/workspace` | `~/.dartclaw/workspace/` | Read-write | Behavior files (SOUL.md, etc.) |
+| `/project` | `<dataDir>/projects/` | Read-only | All project clones accessible to the agent |
+| `/workspace` | `<dataDir>/workspace/` | Read-write | Behavior files (SOUL.md, etc.) |
 
-The read-only mount means the agent cannot modify the project directly -- all code changes go through worktrees. Research tasks use the `restricted` profile which has no workspace mount at all.
+`TaskFileGuard` enforces per-task scoping -- a task targeting `my-app` cannot read files from the `docs-site` project clone, even though both are under the same mount. Research tasks use the `restricted` profile which has no workspace mount at all.
 
 ### Path Translation
 
@@ -173,6 +284,10 @@ Container: /workspace/.dartclaw/worktrees/task-42/
 ```
 
 `ContainerManager.containerPathForHostPath()` handles translation. The worktree path must be within a mounted volume.
+
+## Behavior Files Per Project
+
+External project repositories can include their own `CLAUDE.md` and `AGENTS.md` files. `BehaviorFileService` reads from both the workspace directory and the project root, enabling per-project agent instructions without modifying global behavior files.
 
 ## Security Layers
 
@@ -200,7 +315,7 @@ git stash list             # anything stashed?
 ```
 
 Worktrees are only cleaned up on:
-- Task accepted (after merge)
+- Task accepted (after merge or push)
 - Task rejected
 - Task cancelled
 
@@ -209,27 +324,44 @@ The `stale_timeout_hours` setting (default: 24h) flags old worktrees with log wa
 ## Configuration Reference
 
 ```yaml
+# --- Projects (0.14) ---
+projects:
+  fetchCooldownMinutes: 5              # auto-fetch cooldown (default: 5 min)
+
+  my-app:                              # project ID (any string except _local)
+    remote: git@github.com:org/app.git # required: SSH or HTTPS URL
+    branch: main                       # default branch (default: main)
+    credentials: github-ssh            # credential store reference (optional)
+    default: true                      # default project for new tasks (optional)
+    clone:
+      strategy: shallow               # shallow | full | sparse (default: shallow)
+    pr:
+      strategy: github-pr             # branch-only | github-pr (default: branch-only)
+      draft: true                      # create PRs as drafts (default: false)
+      labels: [agent, automated]       # auto-apply labels (default: [])
+
+# --- Tasks (worktree settings still apply to _local merges) ---
 tasks:
-  max_concurrent: 3                  # parallel task runners (harness pool size)
-  artifact_retention_days: 0         # 0 = unlimited
+  max_concurrent: 3                    # parallel task runners (harness pool size)
+  artifact_retention_days: 0           # 0 = unlimited
   worktree:
-    base_ref: main                   # branch to branch from / merge into
-    stale_timeout_hours: 24          # warn threshold for abandoned worktrees
-    merge_strategy: squash           # squash | merge
+    base_ref: main                     # branch to branch from / merge into (_local only)
+    stale_timeout_hours: 24            # warn threshold for abandoned worktrees
+    merge_strategy: squash             # squash | merge (_local only)
 ```
 
 ## Limitations and Future Considerations
 
-- **Single project per instance**: DartClaw works with one git repository. Multiple repos require separate instances.
-- **No project discovery or init**: The project is always the current working directory.
-- **No automatic git fetch**: The local base ref must be kept current externally.
-- **No startup validation**: A missing `.git/` directory or base ref is only caught when a coding task runs.
-- **No remote push after merge**: Accepted task merges stay local. Push to remote manually or via external automation.
+- **No `--project-dir` CLI flag**: The `_local` project is always `Directory.current.path` -- there is no config option or CLI flag to override it. This can create friction when running DartClaw from source, where `cwd` must be the pub workspace root for package resolution but you want `_local` to point elsewhere. **Workaround**: register the target repo as an external project (even if it's local on disk -- use a `file://` or SSH URL to a local bare clone), or use `cd <dir> && dartclaw serve` when running a compiled binary.
+- **GitHub PRs only**: PR creation currently supports GitHub (`gh pr create`). GitLab MR and Bitbucket PR support is planned.
+- **No startup validation**: A missing `.git/` directory or base ref on `_local` is only caught when a coding task runs.
+- **No automatic push for `_local`**: Accepted `_local` task merges stay local. Push to remote manually or via external automation.
+- **`_local` does not auto-fetch**: The local base ref must be kept current externally (see [Keeping the `_local` Project Current](#keeping-the-_local-project-current)).
 
 ## See Also
 
-- [Tasks](tasks.md) -- task lifecycle, review workflow, scheduling
-- [Configuration](configuration.md) -- full config reference
-- [Security](security.md) -- guard chain, container isolation
+- [Tasks](tasks.md) -- task lifecycle, review workflow, project targeting
+- [Configuration](configuration.md) -- full config reference including `projects:` section
+- [Security](security.md) -- guard chain, container isolation, credential proxy
 - [Workspace](workspace.md) -- behavior files and workspace git sync (separate from project git)
-- [Architecture](architecture.md) -- 2-layer model overview
+- [Architecture](architecture.md) -- 2-layer model overview, project management subsystem

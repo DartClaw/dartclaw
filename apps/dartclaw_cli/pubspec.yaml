@@ -2,9 +2,9 @@ name: dartclaw_cli
 description: Reference DartClaw CLI application for serve, deploy, status, and maintenance workflows.
 publish_to: none
 version: 0.9.0
-repository: https://github.com/tolo/dartclaw/tree/main/apps/dartclaw_cli
-homepage: https://github.com/tolo/dartclaw
-issue_tracker: https://github.com/tolo/dartclaw/issues
+repository: https://github.com/DartClaw/dartclaw/tree/main/apps/dartclaw_cli
+homepage: https://github.com/DartClaw/dartclaw
+issue_tracker: https://github.com/DartClaw/dartclaw/issues
 topics:
   - ai
   - cli

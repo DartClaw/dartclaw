@@ -62,8 +62,8 @@ depend on it directly when you are composing only the pieces you need.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_signal/latest/)
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_signal)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_signal)
 
 ## License
 

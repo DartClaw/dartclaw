@@ -6,7 +6,7 @@
 ///
 /// **Status: Pre-alpha.** API is unstable and will change. This is an early
 /// development release. See
-/// [repository](https://github.com/tolo/dartclaw) for current status.
+/// [repository](https://github.com/DartClaw/dartclaw) for current status.
 ///
 /// This umbrella package re-exports the full DartClaw SDK surface. For leaner
 /// dependency graphs, import individual packages directly.

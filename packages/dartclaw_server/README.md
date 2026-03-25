@@ -38,8 +38,8 @@ Then open `http://localhost:3333`.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_server/latest/)
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_server)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_server)
 
 ## License
 

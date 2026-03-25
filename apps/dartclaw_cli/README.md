@@ -38,8 +38,8 @@ Use `dart run dartclaw_cli:dartclaw --help` to inspect the full command set.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_cli/latest/)
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/apps/dartclaw_cli)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/apps/dartclaw_cli)
 
 ## License
 

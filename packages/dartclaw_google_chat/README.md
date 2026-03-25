@@ -65,8 +65,8 @@ need a more selective dependency graph.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_google_chat/latest/)
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_google_chat)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_google_chat)
 
 ## License
 

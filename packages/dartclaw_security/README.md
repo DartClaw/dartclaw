@@ -66,7 +66,7 @@ inside a custom harness. Most applications get the same APIs transitively from
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_security/latest/)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_security)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_security)
 
 ## License
 

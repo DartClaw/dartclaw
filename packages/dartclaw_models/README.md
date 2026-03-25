@@ -71,7 +71,7 @@ or [`dartclaw`](https://pub.dev/packages/dartclaw).
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_models/latest/)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_models)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_models)
 
 ## License
 

@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 final _googleTokenUri = Uri.https('oauth2.googleapis.com', 'token');
+// Test-only RSA key — not associated with any real service account.
 const _serviceAccountPrivateKey = '''
 -----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCoXGQ1+6x9fnBp

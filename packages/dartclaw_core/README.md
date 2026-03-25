@@ -79,8 +79,8 @@ default storage and channel stack out of the box, use
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_core/latest/)
-- [SDK Guide](https://github.com/tolo/dartclaw/tree/main/docs/sdk)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_core)
+- [SDK Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_core)
 
 ## License
 

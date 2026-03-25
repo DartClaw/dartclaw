@@ -12,6 +12,7 @@ const _jwkResponse =
     '{"keys":[{"kty":"RSA","kid":"kid-1","use":"sig","alg":"RS256",'
     '"n":"qFxkNfusfX5waaKbgl3PQYDzqAgiwKQthMnGHSPVrB4axj-ycHl21RaGu-frDjn0Ww0B-_4gwi8s5l-T2uAPWkJsmhDOZ-aVDs0jQW-gxOpYiLY5s1Q__f3ByUGcwCS-e6vmxMtdLx1VcjXIRfTJCz30UPCE_ph_-YgroURQ-8thQx5RCVlgyXzObca-aDN17TxAJlgWSYGdWtygCcGM5SYiM_7Cj1LGpCKAfxruUL3eJcya8iKIJBlVhrBiwL3ZEfgdDrvUpdyMDF4OGoGM6LO9Hd-9T45IweR0ELvMwolPllUe-81S-6K4ekqw1mvgJ8-YEe5SgLwaRUThBRpx2Q",'
     '"e":"AQAB"}]}';
+// Test-only RSA key pair — not associated with any real service account.
 const _privateKeyPem = '''
 -----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCoXGQ1+6x9fnBp
@@ -42,6 +43,7 @@ ziYQGAGUXYeBjycSuJriTb3YSZ8ZUnnCQ1SZ8YOWYxO1DSzIOQV0Q3L02cnHEMfs
 /enQZOL5KRzXzPNF0PPnyQs=
 -----END PRIVATE KEY-----
 ''';
+// Test-only self-signed certificate (CN=google-chat-test).
 const _certificatePem = '''
 -----BEGIN CERTIFICATE-----
 MIIDFzCCAf+gAwIBAgIUX6Hj0pjyfJHZTy+olEpLAGJwhCMwDQYJKoZIhvcNAQEL
@@ -63,6 +65,7 @@ dkHJEoGnugkZqukjBgiXoddbL5CYEKdGe2vRhRAeVfQBVBuIDdy8WYyPQbIaLhGd
 3tZkIU2sG84iAkbqlaotl8DYlu85Qe9t52QL
 -----END CERTIFICATE-----
 ''';
+// Second test-only RSA key for signature-mismatch tests.
 const _otherPrivateKeyPem = '''
 -----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZaYKn/TzNmQUH

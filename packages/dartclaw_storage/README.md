@@ -67,7 +67,7 @@ and provide your own persistence implementation.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_storage/latest/)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_storage)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_storage)
 
 ## License
 

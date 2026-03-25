@@ -103,8 +103,8 @@ Future<void> main() async {
 The repository includes two complete reference implementations built on this
 SDK:
 
-- [`dartclaw_server`](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_server) is a shelf-based HTTP API plus HTMX web UI.
-- [`dartclaw_cli`](https://github.com/tolo/dartclaw/tree/main/apps/dartclaw_cli) is a CLI with `serve`, `status`, `deploy`, `sessions`, `token`, and maintenance commands.
+- [`dartclaw_server`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_server) is a shelf-based HTTP API plus HTMX web UI.
+- [`dartclaw_cli`](https://github.com/DartClaw/dartclaw/tree/main/apps/dartclaw_cli) is a CLI with `serve`, `status`, `deploy`, `sessions`, `token`, and maintenance commands.
 
 Study them, fork them, or replace them with your own composition layer.
 
@@ -139,11 +139,11 @@ it when your process shuts down.
 
 ## Documentation
 
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [SDK Guide](https://github.com/tolo/dartclaw/tree/main/docs/sdk)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [SDK Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/sdk)
 - [API Reference](https://pub.dev/documentation/dartclaw/latest/)
-- [Examples](https://github.com/tolo/dartclaw/tree/main/examples/sdk)
-- [Repository](https://github.com/tolo/dartclaw)
+- [Examples](https://github.com/DartClaw/dartclaw/tree/main/examples/sdk)
+- [Repository](https://github.com/DartClaw/dartclaw)
 
 ## License
 

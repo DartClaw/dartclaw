@@ -5,9 +5,9 @@ description: >-
   with guard chain, session management, and multi-channel messaging.
 version: 0.9.0
 publish_to: none
-repository: https://github.com/tolo/dartclaw
-homepage: https://github.com/tolo/dartclaw
-issue_tracker: https://github.com/tolo/dartclaw/issues
+repository: https://github.com/DartClaw/dartclaw
+homepage: https://github.com/DartClaw/dartclaw
+issue_tracker: https://github.com/DartClaw/dartclaw/issues
 topics:
   - ai
   - cli

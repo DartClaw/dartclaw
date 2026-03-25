@@ -19,6 +19,17 @@ CLAUDE.local.md
 # OS
 .DS_Store
 
+# Secrets and credentials (defense-in-depth)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+credentials.json
+service-account*.json
+
 # Runtime data dirs (created by example/test configs)
 .dartclaw-dev/
 storages

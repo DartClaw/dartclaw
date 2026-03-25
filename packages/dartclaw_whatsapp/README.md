@@ -63,8 +63,8 @@ when you are composing a slimmer runtime.
 ## Documentation
 
 - [API Reference](https://pub.dev/documentation/dartclaw_whatsapp/latest/)
-- [User Guide](https://github.com/tolo/dartclaw/tree/main/docs/guide)
-- [Repository](https://github.com/tolo/dartclaw/tree/main/packages/dartclaw_whatsapp)
+- [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
+- [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_whatsapp)
 
 ## License
 

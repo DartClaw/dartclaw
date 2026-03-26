@@ -82,6 +82,18 @@ class PubSubConfig {
   }
 }
 
+/// How the typing indicator is shown to the user.
+enum TypingIndicatorMode {
+  /// Send a placeholder message that gets replaced by the real response.
+  message,
+
+  /// React to the inbound message with an emoji, removed on reply.
+  emoji,
+
+  /// No typing indicator.
+  disabled,
+}
+
 /// Configuration for Workspace Events API subscriptions.
 class SpaceEventsConfig {
   static const _qualifiedPrefix = 'google.workspace.chat.';
@@ -298,8 +310,11 @@ class GoogleChatConfig {
   /// Optional bot user resource name used for mention detection.
   final String? botUser;
 
-  /// Whether the server should create and replace typing placeholders.
-  final bool typingIndicator;
+  /// How the typing indicator is shown to the user.
+  final TypingIndicatorMode typingIndicatorMode;
+
+  /// Whether channel responses are quoted as replies.
+  final bool quoteReply;
 
   /// Direct-message access policy for one-to-one Google Chat spaces.
   final DmAccessMode dmAccess;
@@ -333,7 +348,9 @@ class GoogleChatConfig {
     this.audience,
     this.webhookPath = '/integrations/googlechat',
     this.botUser,
-    this.typingIndicator = true,
+    TypingIndicatorMode? typingIndicatorMode,
+    bool? typingIndicator,
+    this.quoteReply = false,
     this.dmAccess = DmAccessMode.pairing,
     this.dmAllowlist = const [],
     this.groupAccess = GroupAccessMode.disabled,
@@ -342,7 +359,13 @@ class GoogleChatConfig {
     this.taskTrigger = const TaskTriggerConfig.disabled(),
     this.pubsub = const PubSubConfig.disabled(),
     this.spaceEvents = const SpaceEventsConfig.disabled(),
-  });
+  }) : typingIndicatorMode =
+           typingIndicatorMode ??
+           (typingIndicator == null
+               ? TypingIndicatorMode.message
+               : typingIndicator
+               ? TypingIndicatorMode.message
+               : TypingIndicatorMode.disabled);
 
   /// Creates a disabled Google Chat configuration.
   const GoogleChatConfig.disabled() : this();
@@ -375,12 +398,31 @@ class GoogleChatConfig {
       warns.add('Invalid type for google_chat.bot_user: "${botUser.runtimeType}" — using default');
     }
 
-    var typingIndicator = true;
+    var typingIndicatorMode = TypingIndicatorMode.message;
     final typingIndicatorRaw = yaml['typing_indicator'];
     if (typingIndicatorRaw is bool) {
-      typingIndicator = typingIndicatorRaw;
+      typingIndicatorMode = typingIndicatorRaw ? TypingIndicatorMode.message : TypingIndicatorMode.disabled;
+    } else if (typingIndicatorRaw is String) {
+      final normalizedTypingIndicator = typingIndicatorRaw.trim();
+      typingIndicatorMode = switch (normalizedTypingIndicator) {
+        'true' || 'message' => TypingIndicatorMode.message,
+        'false' || 'disabled' => TypingIndicatorMode.disabled,
+        'emoji' => TypingIndicatorMode.emoji,
+        _ => () {
+          warns.add('Invalid google_chat.typing_indicator: "$typingIndicatorRaw" — using default');
+          return TypingIndicatorMode.message;
+        }(),
+      };
     } else if (typingIndicatorRaw != null) {
       warns.add('Invalid type for google_chat.typing_indicator: "${typingIndicatorRaw.runtimeType}" — using default');
+    }
+
+    var quoteReply = false;
+    final quoteReplyRaw = yaml['quote_reply'];
+    if (quoteReplyRaw is bool) {
+      quoteReply = quoteReplyRaw;
+    } else if (quoteReplyRaw != null) {
+      warns.add('Invalid type for google_chat.quote_reply: "${quoteReplyRaw.runtimeType}" — using default');
     }
 
     var dmAccess = DmAccessMode.pairing;
@@ -489,7 +531,8 @@ class GoogleChatConfig {
       audience: audience,
       webhookPath: webhookPath is String ? webhookPath : '/integrations/googlechat',
       botUser: botUser is String ? botUser : null,
-      typingIndicator: typingIndicator,
+      typingIndicatorMode: typingIndicatorMode,
+      quoteReply: quoteReply,
       dmAccess: dmAccess,
       dmAllowlist: _parseStringList(yaml['dm_allowlist']),
       groupAccess: groupAccess,
@@ -543,4 +586,7 @@ class GoogleChatConfig {
     }
     return [];
   }
+
+  /// Compatibility alias for the legacy boolean typing-indicator flag.
+  bool get typingIndicator => typingIndicatorMode != TypingIndicatorMode.disabled;
 }

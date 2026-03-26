@@ -17,7 +17,7 @@ class _FakeRestClient extends GoogleChatRestClient {
   _FakeRestClient() : super(authClient: MockClient((_) async => http.Response('{}', 200)));
 
   @override
-  Future<String?> sendMessage(String spaceName, String text) async => null;
+  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async => null;
   @override
   Future<void> testConnection() async {}
 }

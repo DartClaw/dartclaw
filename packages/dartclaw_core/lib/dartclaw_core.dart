@@ -25,7 +25,8 @@ export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEven
 
 // Channel interfaces
 export 'src/runtime/channel_type.dart' show ChannelType;
-export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
+export 'src/channel/channel.dart'
+    show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
 export 'src/channel/channel_manager.dart' show ChannelManager;
 export 'src/channel/channel_task_bridge.dart' show ChannelTaskBridge, ReservedCommandHandler;
 export 'src/channel/recipient_resolver.dart' show resolveRecipientId;

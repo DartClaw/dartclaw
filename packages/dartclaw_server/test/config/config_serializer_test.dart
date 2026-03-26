@@ -332,7 +332,8 @@ void main() {
                 ),
                 webhookPath: '/integrations/googlechat',
                 botUser: 'users/123',
-                typingIndicator: false,
+                typingIndicatorMode: TypingIndicatorMode.emoji,
+                quoteReply: true,
                 dmAccess: DmAccessMode.allowlist,
                 dmAllowlist: ['spaces/AAA/users/1'],
                 groupAccess: GroupAccessMode.open,
@@ -361,7 +362,8 @@ void main() {
       expect(googleChat['audience'], {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'});
       expect(googleChat['webhookPath'], '/integrations/googlechat');
       expect(googleChat['botUser'], 'users/123');
-      expect(googleChat['typingIndicator'], isFalse);
+      expect(googleChat['typingIndicator'], 'emoji');
+      expect(googleChat['quoteReply'], isTrue);
       expect(googleChat['dmAccess'], 'allowlist');
       expect(googleChat['dmAllowlist'], ['spaces/AAA/users/1']);
       expect(googleChat['groupAccess'], 'open');
@@ -554,7 +556,8 @@ Map<String, dynamic> _googleChatChannelConfig(GoogleChatConfig config) => {
     },
   'webhook_path': config.webhookPath,
   if (config.botUser != null) 'bot_user': config.botUser,
-  'typing_indicator': config.typingIndicator,
+  'typing_indicator': config.typingIndicatorMode.name,
+  'quote_reply': config.quoteReply,
   'dm_access': config.dmAccess.name,
   'dm_allowlist': config.dmAllowlist,
   'group_access': config.groupAccess.name,

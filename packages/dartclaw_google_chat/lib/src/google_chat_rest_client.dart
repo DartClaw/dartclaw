@@ -9,8 +9,13 @@ import 'package:logging/logging.dart';
 const chatApiBase = 'https://chat.googleapis.com/v1';
 
 final _spaceNamePattern = RegExp(r'^spaces/[^/]+$');
-final _messageNamePattern = RegExp(r'^spaces/[^/]+/messages/[^/]+$');
+/// Matches a valid Google Chat message resource name (`spaces/*/messages/*`).
+final messageNamePattern = RegExp(r'^spaces/[^/]+/messages/[^/]+$');
+final _reactionNamePattern = RegExp(r'^spaces/[^/]+/messages/[^/]+/reactions/[^/]+$');
 final _resourceNamePattern = RegExp(r'^spaces/[^/]+/messages/[^/]+/attachments/[^/]+$');
+
+/// Emoji used for the Google Chat typing indicator reaction.
+const typingReactionEmoji = '\u{1F440}';
 
 /// Exception thrown when the Google Chat API returns an unusable response.
 class GoogleChatApiException implements Exception {
@@ -62,7 +67,10 @@ class GoogleChatRestClient {
   }
 
   /// Sends a plain-text message to [spaceName] and returns its resource name.
-  Future<String?> sendMessage(String spaceName, String text) async {
+  ///
+  /// When [quotedMessageName] is provided, the response quotes the referenced
+  /// message.
+  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat send for invalid space name "$spaceName"');
       return null;
@@ -73,7 +81,10 @@ class GoogleChatRestClient {
         final response = await _client.post(
           Uri.parse('$_apiBase/$spaceName/messages'),
           headers: const {'content-type': 'application/json'},
-          body: jsonEncode({'text': text}),
+          body: jsonEncode({
+            'text': text,
+            if (quotedMessageName != null) 'quotedMessageMetadata': {'name': quotedMessageName},
+          }),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
           _log.warning('Google Chat send failed for $spaceName with HTTP ${response.statusCode}');
@@ -131,7 +142,10 @@ class GoogleChatRestClient {
   }
 
   /// Sends a structured Cards v2 message to [spaceName].
-  Future<String?> sendCard(String spaceName, Map<String, dynamic> cardPayload) async {
+  ///
+  /// When [quotedMessageName] is provided, the card quotes the referenced
+  /// message.
+  Future<String?> sendCard(String spaceName, Map<String, dynamic> cardPayload, {String? quotedMessageName}) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat card send for invalid space name "$spaceName"');
       return null;
@@ -142,7 +156,10 @@ class GoogleChatRestClient {
         final response = await _client.post(
           Uri.parse('$_apiBase/$spaceName/messages'),
           headers: const {'content-type': 'application/json'},
-          body: jsonEncode(cardPayload),
+          body: jsonEncode({
+            ...cardPayload,
+            if (quotedMessageName != null) 'quotedMessageMetadata': {'name': quotedMessageName},
+          }),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
           _log.warning('Google Chat card send failed for $spaceName with HTTP ${response.statusCode}');
@@ -164,7 +181,7 @@ class GoogleChatRestClient {
 
   /// Edits an existing Google Chat message in place.
   Future<bool> editMessage(String messageName, String newText) async {
-    if (!_messageNamePattern.hasMatch(messageName)) {
+    if (!messageNamePattern.hasMatch(messageName)) {
       _log.warning('Rejected Google Chat edit for invalid message name "$messageName"');
       return false;
     }
@@ -186,6 +203,104 @@ class GoogleChatRestClient {
         return true;
       } on Exception catch (error, stackTrace) {
         _log.warning('Google Chat edit failed for $messageName', error, stackTrace);
+        return false;
+      }
+    });
+  }
+
+  /// Deletes a Google Chat message. Returns true on success or 404.
+  Future<bool> deleteMessage(String messageName) async {
+    if (!messageNamePattern.hasMatch(messageName)) {
+      _log.warning('Rejected Google Chat delete for invalid message name "$messageName"');
+      return false;
+    }
+
+    final spaceName = _spaceNameFromMessageName(messageName);
+    if (spaceName == null) {
+      _log.warning('Rejected Google Chat delete for invalid message name "$messageName"');
+      return false;
+    }
+
+    return _queueFor(spaceName).enqueue<bool>(() async {
+      try {
+        final response = await _client.delete(Uri.parse('$_apiBase/$messageName'));
+        if (response.statusCode == 404) {
+          return true;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat delete failed for $messageName with HTTP ${response.statusCode}');
+          return false;
+        }
+        return true;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat delete failed for $messageName', error, stackTrace);
+        return false;
+      }
+    });
+  }
+
+  /// Adds an emoji reaction to a message. Returns the reaction resource name.
+  Future<String?> addReaction(String messageName, String emoji) async {
+    if (!messageNamePattern.hasMatch(messageName)) {
+      _log.warning('Rejected Google Chat addReaction for invalid message name "$messageName"');
+      return null;
+    }
+
+    final spaceName = _spaceNameFromMessageName(messageName);
+    if (spaceName == null) {
+      _log.warning('Rejected Google Chat addReaction for invalid message name "$messageName"');
+      return null;
+    }
+
+    return _queueFor(spaceName).enqueue<String?>(() async {
+      try {
+        final response = await _client.post(
+          Uri.parse('$_apiBase/$messageName/reactions'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode({
+            'emoji': {'unicode': emoji},
+          }),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat addReaction failed for $messageName with HTTP ${response.statusCode}');
+          return null;
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          _log.warning('Google Chat addReaction returned invalid JSON for $messageName');
+          return null;
+        }
+        return decoded['name'] as String?;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat addReaction failed for $messageName', error, stackTrace);
+        return null;
+      }
+    });
+  }
+
+  /// Removes an emoji reaction by resource name. Returns true on success or 404.
+  Future<bool> removeReaction(String reactionName) async {
+    if (!_reactionNamePattern.hasMatch(reactionName)) {
+      _log.warning('Rejected Google Chat removeReaction for invalid reaction name "$reactionName"');
+      return false;
+    }
+
+    final messageIndex = reactionName.indexOf('/messages/');
+    final spaceName = reactionName.substring(0, messageIndex);
+
+    return _queueFor(spaceName).enqueue<bool>(() async {
+      try {
+        final response = await _client.delete(Uri.parse('$_apiBase/$reactionName'));
+        if (response.statusCode == 404) {
+          return true;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat removeReaction failed for $reactionName with HTTP ${response.statusCode}');
+          return false;
+        }
+        return true;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat removeReaction failed for $reactionName', error, stackTrace);
         return false;
       }
     });
@@ -223,6 +338,7 @@ class GoogleChatRestClient {
     String spaceName,
     String text, {
     required String threadKey,
+    String? quotedMessageName,
   }) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat threaded send for invalid space name "$spaceName"');
@@ -238,6 +354,7 @@ class GoogleChatRestClient {
             'text': text,
             'thread': {'threadKey': threadKey},
             'messageReplyOption': 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD',
+            if (quotedMessageName != null) 'quotedMessageMetadata': {'name': quotedMessageName},
           }),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -268,6 +385,7 @@ class GoogleChatRestClient {
     String spaceName,
     Map<String, dynamic> cardPayload, {
     required String threadKey,
+    String? quotedMessageName,
   }) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat threaded card send for invalid space name "$spaceName"');
@@ -279,6 +397,9 @@ class GoogleChatRestClient {
         final body = Map<String, dynamic>.of(cardPayload)
           ..['thread'] = {'threadKey': threadKey}
           ..['messageReplyOption'] = 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
+        if (quotedMessageName != null) {
+          body['quotedMessageMetadata'] = {'name': quotedMessageName};
+        }
         final response = await _client.post(
           Uri.parse('$_apiBase/$spaceName/messages'),
           headers: const {'content-type': 'application/json'},
@@ -303,8 +424,12 @@ class GoogleChatRestClient {
     });
   }
 
-  /// Sends a text message to an existing server-assigned thread.
-  Future<String?> sendMessageToThread(String spaceName, String text, {required String threadName}) async {
+  Future<String?> sendMessageToThread(
+    String spaceName,
+    String text, {
+    required String threadName,
+    String? quotedMessageName,
+  }) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat thread-name send for invalid space name "$spaceName"');
       return null;
@@ -318,6 +443,7 @@ class GoogleChatRestClient {
           body: jsonEncode({
             'text': text,
             'thread': {'name': threadName},
+            if (quotedMessageName != null) 'quotedMessageMetadata': {'name': quotedMessageName},
           }),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -341,6 +467,7 @@ class GoogleChatRestClient {
     String spaceName,
     Map<String, dynamic> cardPayload, {
     required String threadName,
+    String? quotedMessageName,
   }) async {
     if (!_spaceNamePattern.hasMatch(spaceName)) {
       _log.warning('Rejected Google Chat thread-name card send for invalid space name "$spaceName"');
@@ -350,6 +477,9 @@ class GoogleChatRestClient {
     return _queueFor(spaceName).enqueue<String?>(() async {
       try {
         final body = Map<String, dynamic>.of(cardPayload)..['thread'] = {'name': threadName};
+        if (quotedMessageName != null) {
+          body['quotedMessageMetadata'] = {'name': quotedMessageName};
+        }
         final response = await _client.post(
           Uri.parse('$_apiBase/$spaceName/messages'),
           headers: const {'content-type': 'application/json'},
@@ -386,6 +516,14 @@ class GoogleChatRestClient {
 
   _SpaceWriteQueue _queueFor(String spaceName) {
     return _spaceQueues.putIfAbsent(spaceName, () => _SpaceWriteQueue(delay: _delay));
+  }
+
+  String? _spaceNameFromMessageName(String messageName) {
+    final messageIndex = messageName.indexOf('/messages/');
+    if (messageIndex <= 0) {
+      return null;
+    }
+    return messageName.substring(0, messageIndex);
   }
 }
 

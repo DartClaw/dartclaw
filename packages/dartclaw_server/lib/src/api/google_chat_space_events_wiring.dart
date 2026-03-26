@@ -98,13 +98,10 @@ class GoogleChatSpaceEventsWiring {
       }
       final channel = _channel;
       final config = _config;
-      if (channel != null && config != null && config.typingIndicator) {
+      if (channel != null && config != null) {
         final spaceName = channelMessage.metadata['spaceName'] as String?;
         if (spaceName != null && spaceName.isNotEmpty) {
-          final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
-          if (placeholderName != null) {
-            channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
-          }
+          await _applyTypingIndicator(channel, config, channelMessage, spaceName);
         }
       }
       _channelManager.handleInboundMessage(channelMessage);
@@ -125,5 +122,30 @@ class GoogleChatSpaceEventsWiring {
     await _pubSubClient.dispose();
     _subscriptionManager.dispose();
     _log.info('Space Events wiring disposed');
+  }
+
+  Future<void> _applyTypingIndicator(
+    GoogleChatChannel channel,
+    GoogleChatConfig config,
+    ChannelMessage channelMessage,
+    String spaceName,
+  ) async {
+    switch (config.typingIndicatorMode) {
+      case TypingIndicatorMode.message:
+        final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
+        if (placeholderName != null) {
+          channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
+        }
+      case TypingIndicatorMode.emoji:
+        final messageName = channelMessage.metadata['messageName'] as String?;
+        if (messageName != null && messageName.isNotEmpty) {
+          final reactionName = await channel.restClient.addReaction(messageName, typingReactionEmoji);
+          if (reactionName != null) {
+            channel.setReaction(spaceName: spaceName, turnId: channelMessage.id, reactionName: reactionName);
+          }
+        }
+      case TypingIndicatorMode.disabled:
+        break;
+    }
   }
 }

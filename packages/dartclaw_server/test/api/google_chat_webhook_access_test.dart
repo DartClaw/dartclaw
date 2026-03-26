@@ -8,13 +8,13 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
+  final List<(String, String, String?)> sentMessages = [];
 
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
   @override
-  Future<String?> sendMessage(String spaceName, String text) async {
-    sentMessages.add((spaceName, text));
+  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
+    sentMessages.add((spaceName, text, quotedMessageName));
     return '$spaceName/messages/1';
   }
 

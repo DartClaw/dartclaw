@@ -28,6 +28,23 @@ void main() {
       expect(jsonDecode(captured.body), {'text': 'Hello'});
     });
 
+    test('includes quotedMessageMetadata when quoting a reply', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/BBB'}), 200);
+        }),
+      );
+
+      await client.sendMessage('spaces/AAA', 'Hello', quotedMessageName: 'spaces/AAA/messages/SRC');
+
+      expect(jsonDecode(captured.body), {
+        'text': 'Hello',
+        'quotedMessageMetadata': {'name': 'spaces/AAA/messages/SRC'},
+      });
+    });
+
     test('returns null on API error', () async {
       final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('bad', 500)));
 
@@ -121,6 +138,22 @@ void main() {
       expect(jsonDecode(captured.body), payload);
     });
 
+    test('includes quotedMessageMetadata when quoting a card reply', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/CARD'}), 200);
+        }),
+      );
+
+      final payload = const ChatCardBuilder().confirmationCard(title: 'Done', message: 'Completed.');
+      await client.sendCard('spaces/AAA', payload, quotedMessageName: 'spaces/AAA/messages/SRC');
+
+      final decoded = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(decoded['quotedMessageMetadata'], {'name': 'spaces/AAA/messages/SRC'});
+    });
+
     test('returns null on API error', () async {
       final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('bad', 500)));
 
@@ -179,6 +212,121 @@ void main() {
       );
 
       expect(await client.downloadMedia('spaces/AAA/messages/BBB/attachments/CCC'), isNull);
+    });
+  });
+
+  group('GoogleChatRestClient.deleteMessage', () {
+    test('sends DELETE to the message resource and accepts 404', () async {
+      late Uri captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request.url;
+          return http.Response('', 404);
+        }),
+      );
+
+      expect(await client.deleteMessage('spaces/AAA/messages/BBB'), isTrue);
+      expect(captured.toString(), 'https://chat.googleapis.com/v1/spaces/AAA/messages/BBB');
+    });
+
+    test('rejects invalid message names', () async {
+      var calls = 0;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          calls++;
+          return http.Response('', 204);
+        }),
+      );
+
+      expect(await client.deleteMessage('spaces/AAA'), isFalse);
+      expect(calls, 0);
+    });
+  });
+
+  group('GoogleChatRestClient.addReaction', () {
+    test('sends POST to the reaction collection with emoji body', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/BBB/reactions/CCC'}), 200);
+        }),
+      );
+
+      final result = await client.addReaction('spaces/AAA/messages/BBB', '👀');
+
+      expect(result, 'spaces/AAA/messages/BBB/reactions/CCC');
+      expect(captured.method, 'POST');
+      expect(captured.url.toString(), 'https://chat.googleapis.com/v1/spaces/AAA/messages/BBB/reactions');
+      expect(jsonDecode(captured.body), {'emoji': {'unicode': '👀'}});
+    });
+
+    test('serializes writes per space', () async {
+      final firstGate = Completer<void>();
+      final starts = <String>[];
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final emoji = (body['emoji'] as Map<String, dynamic>)['unicode'] as String;
+          starts.add(emoji);
+          if (emoji == '1') {
+            await firstGate.future;
+          }
+          return http.Response(jsonEncode({'name': 'spaces/AAA/messages/BBB/reactions/$emoji'}), 200);
+        }),
+        delay: (_) async {},
+      );
+
+      final first = client.addReaction('spaces/AAA/messages/BBB', '1');
+      final second = client.addReaction('spaces/AAA/messages/BBB', '2');
+
+      await Future<void>.delayed(Duration.zero);
+      expect(starts, ['1']);
+
+      firstGate.complete();
+      await Future.wait([first, second]);
+      expect(starts, ['1', '2']);
+    });
+
+    test('rejects invalid message names', () async {
+      var calls = 0;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          calls++;
+          return http.Response('{}', 200);
+        }),
+      );
+
+      expect(await client.addReaction('spaces/AAA', '👀'), isNull);
+      expect(calls, 0);
+    });
+  });
+
+  group('GoogleChatRestClient.removeReaction', () {
+    test('sends DELETE to the reaction resource and accepts 404', () async {
+      late Uri captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request.url;
+          return http.Response('', 404);
+        }),
+      );
+
+      expect(await client.removeReaction('spaces/AAA/messages/BBB/reactions/CCC'), isTrue);
+      expect(captured.toString(), 'https://chat.googleapis.com/v1/spaces/AAA/messages/BBB/reactions/CCC');
+    });
+
+    test('rejects invalid reaction names', () async {
+      var calls = 0;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          calls++;
+          return http.Response('{}', 200);
+        }),
+      );
+
+      expect(await client.removeReaction('spaces/AAA/messages/BBB'), isFalse);
+      expect(calls, 0);
     });
   });
 

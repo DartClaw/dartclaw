@@ -65,8 +65,44 @@ void main() {
         'Task created: fix login redirect [research] -- ID: ${_shortTaskId(created.id)} -- Queued (will start when a slot opens)',
       );
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
+      expect(channel.sentMessages.single.$2.replyToMessageId, 'wamid-123');
       // Note: TaskStatusChangedEvent is now fired by TaskService, not ChannelManager.
       // Event firing tests belong in task_service_events_test.dart.
+    });
+
+    test('message queue responses reply to the triggering message id', () async {
+      final localQueue = MessageQueue(
+        debounceWindow: Duration.zero,
+        maxConcurrentTurns: 1,
+        dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'queue response: $message',
+      );
+
+      final localChannel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
+      final localManager = ChannelManager(
+        queue: localQueue,
+        config: const ChannelConfig.defaults(),
+        taskBridge: ChannelTaskBridge(
+          triggerParser: const TaskTriggerParser(),
+          taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: false)},
+        ),
+      );
+      addTearDown(() async => localManager.dispose());
+      localManager.registerChannel(localChannel);
+
+      localManager.handleInboundMessage(
+        ChannelMessage(
+          id: 'msg-1',
+          channelType: ChannelType.whatsapp,
+          senderJid: 'sender@s.whatsapp.net',
+          text: 'just a normal message',
+        ),
+      );
+      await _flushAsync();
+
+      expect(localChannel.sentMessages, hasLength(1));
+      expect(localChannel.sentMessages.single.$2.text, 'queue response: just a normal message');
+      expect(localChannel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'msg-1'));
+      expect(localChannel.sentMessages.single.$2.replyToMessageId, 'msg-1');
     });
 
     test('does not intercept when trigger is disabled', () async {

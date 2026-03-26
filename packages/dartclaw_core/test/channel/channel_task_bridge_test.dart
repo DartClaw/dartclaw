@@ -174,6 +174,7 @@ void main() {
 
       final created = (await tasks.list()).single;
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
+      expect(channel.sentMessages.single.$2.replyToMessageId, 'wamid-123');
       expect(TaskOrigin.fromConfigJson(created.configJson)?.sourceMessageId, 'wamid-123');
     });
 

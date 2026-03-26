@@ -10,20 +10,20 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
-  final List<(String, Map<String, dynamic>)> sentCards = [];
+  final List<(String, String, String?)> sentMessages = [];
+  final List<(String, Map<String, dynamic>, String?)> sentCards = [];
 
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
   @override
-  Future<String?> sendCard(String spaceName, Map<String, dynamic> cardPayload) async {
-    sentCards.add((spaceName, cardPayload));
+  Future<String?> sendCard(String spaceName, Map<String, dynamic> cardPayload, {String? quotedMessageName}) async {
+    sentCards.add((spaceName, cardPayload, quotedMessageName));
     return '$spaceName/messages/card-${sentCards.length}';
   }
 
   @override
-  Future<String?> sendMessage(String spaceName, String text) async {
-    sentMessages.add((spaceName, text));
+  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
+    sentMessages.add((spaceName, text, quotedMessageName));
     return '$spaceName/messages/text-${sentMessages.length}';
   }
 

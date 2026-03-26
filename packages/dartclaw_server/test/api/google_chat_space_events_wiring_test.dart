@@ -44,14 +44,21 @@ class _FakeAdapter extends CloudEventAdapter {
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
-  final List<(String, String)> sentMessages = [];
+  final List<(String, String, String?)> sentMessages = [];
+  final List<(String, String)> reactions = [];
   int _counter = 0;
 
   @override
-  Future<String?> sendMessage(String spaceName, String text) async {
-    sentMessages.add((spaceName, text));
+  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
+    sentMessages.add((spaceName, text, quotedMessageName));
     _counter += 1;
     return '$spaceName/messages/$_counter';
+  }
+
+  @override
+  Future<String?> addReaction(String messageName, String emoji) async {
+    reactions.add((messageName, emoji));
+    return '$messageName/reactions/${reactions.length}';
   }
 }
 
@@ -80,7 +87,10 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('space_events_wiring_test_');
     restClient = _FakeGoogleChatRestClient();
-    channel = GoogleChatChannel(config: const GoogleChatConfig(typingIndicator: true), restClient: restClient);
+    channel = GoogleChatChannel(
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
+      restClient: restClient,
+    );
     channelManager = _FakeChannelManager();
     deduplicator = MessageDeduplicator();
   });
@@ -122,7 +132,7 @@ void main() {
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
       typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicator: true),
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     final acked = await wiring.processMessage(
@@ -136,7 +146,8 @@ void main() {
     );
 
     expect(acked, isTrue);
-    expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
+    expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._', null)]);
+    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, hasLength(1));
   });
 
@@ -144,7 +155,7 @@ void main() {
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
       typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicator: false),
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
     );
 
     await wiring.processMessage(
@@ -158,13 +169,14 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
+    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, hasLength(1));
   });
 
   test('does not send typing indicator when channel is absent', () async {
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
-      config: const GoogleChatConfig(typingIndicator: true),
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     await wiring.processMessage(
@@ -178,6 +190,29 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
+    expect(restClient.reactions, isEmpty);
+    expect(channelManager.handled, hasLength(1));
+  });
+
+  test('sends emoji reaction before dispatch when enabled', () async {
+    final wiring = buildWiring(
+      result: MessageResult([testMessage()]),
+      typingChannel: channel,
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.emoji),
+    );
+
+    await wiring.processMessage(
+      const ReceivedMessage(
+        ackId: 'ack',
+        data: '',
+        messageId: 'pubsub-1',
+        publishTime: '2026-03-25T10:00:00Z',
+        attributes: {},
+      ),
+    );
+
+    expect(restClient.sentMessages, isEmpty);
+    expect(restClient.reactions, [('spaces/AAAA/messages/BBBB', typingReactionEmoji)]);
     expect(channelManager.handled, hasLength(1));
   });
 
@@ -187,7 +222,7 @@ void main() {
     final wiring = buildWiring(
       result: MessageResult([message]),
       typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicator: true),
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     await wiring.processMessage(
@@ -201,6 +236,7 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
+    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, isEmpty);
   });
 }

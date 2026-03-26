@@ -109,7 +109,7 @@ class MessageQueue {
     final queue = _sessionQueues[sessionKey];
     if (queue != null && queue.length >= maxQueueDepth) {
       _log.warning('Queue full for $sessionKey (${queue.length}/$maxQueueDepth) — sending busy response');
-      _sendBusy(sourceChannel, resolveRecipientId(message));
+      _sendBusy(sourceChannel, resolveRecipientId(message), replyToMessageId: message.id);
       return;
     }
 
@@ -185,7 +185,7 @@ class MessageQueue {
 
     if (queue.length >= maxQueueDepth) {
       _log.warning('Queue full for ${entry.sessionKey} — sending busy response');
-      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message));
+      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message), replyToMessageId: entry.message.id);
       return;
     }
 
@@ -196,7 +196,7 @@ class MessageQueue {
           'Per-sender queue limit reached for ${entry.senderJid} in ${entry.sessionKey} '
           '($senderCount/$maxQueued) — rejecting',
         );
-        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message));
+        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message), replyToMessageId: entry.message.id);
         return;
       }
     }
@@ -246,6 +246,7 @@ class MessageQueue {
                   text: chunk.text,
                   mediaAttachments: chunk.mediaAttachments,
                   metadata: {...chunk.metadata, sourceMessageIdMetadataKey: entry.message.id},
+                  replyToMessageId: entry.message.id,
                 ),
               );
           final recipientJid = resolveRecipientId(entry.message);
@@ -267,6 +268,7 @@ class MessageQueue {
                     'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
                     'New turns are blocked until the daily budget resets. '
                     'An admin can increase the budget via the web dashboard.',
+                replyToMessageId: entry.message.id,
               ),
             );
           } catch (sendErr) {
@@ -295,7 +297,10 @@ class MessageQueue {
               final recipientJid = resolveRecipientId(entry.message);
               await entry.sourceChannel.sendMessage(
                 recipientJid,
-                const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
+                ChannelResponse(
+                  text: 'Sorry, I was unable to process your message. Please try again later.',
+                  replyToMessageId: entry.message.id,
+                ),
               );
             } catch (sendErr) {
               _log.severe('Failed to send dead-letter notification', sendErr);
@@ -413,20 +418,23 @@ class MessageQueue {
     return Duration(milliseconds: delayMs.round());
   }
 
-  Future<void> _sendBusy(Channel channel, String recipientJid) async {
+  Future<void> _sendBusy(Channel channel, String recipientJid, {String? replyToMessageId}) async {
     try {
       await channel.sendMessage(
         recipientJid,
-        const ChannelResponse(text: 'I\'m currently busy. Please try again shortly.'),
+        ChannelResponse(text: 'I\'m currently busy. Please try again shortly.', replyToMessageId: replyToMessageId),
       );
     } catch (e) {
       _log.warning('Failed to send busy response', e);
     }
   }
 
-  Future<void> _sendQueueFull(Channel channel, String recipientJid) async {
+  Future<void> _sendQueueFull(Channel channel, String recipientJid, {String? replyToMessageId}) async {
     try {
-      await channel.sendMessage(recipientJid, const ChannelResponse(text: 'Queue full -- try again shortly.'));
+      await channel.sendMessage(
+        recipientJid,
+        ChannelResponse(text: 'Queue full -- try again shortly.', replyToMessageId: replyToMessageId),
+      );
     } catch (e) {
       _log.warning('Failed to send queue-full response', e);
     }

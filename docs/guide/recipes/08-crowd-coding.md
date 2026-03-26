@@ -139,6 +139,26 @@ guards:
     enabled: true
 ```
 
+### Google Chat interaction options
+
+For crowd-coding sessions in Google Chat, you can also tune how the bot shows activity around agent replies:
+
+- `quote_reply: true` makes the bot reply with quoted context instead of a plain new message
+- `typing_indicator` controls the placeholder shown while the agent is working:
+  - `message` -- the default placeholder message
+  - `emoji` -- an eyes reaction
+  - `disabled` -- no typing indicator at all
+
+`emoji` pairs well with `quote_reply` because placeholder edits cannot carry quotes.
+
+```yaml
+channels:
+  google_chat:
+    enabled: true
+    quote_reply: true
+    typing_indicator: emoji
+```
+
 ### Scenario B: Structured Coding + External Repo (0.14+)
 
 Same task-based workflow as Scenario A, but tasks target an external repository. On accept, the branch is pushed to the remote and a PR is created. Requires DartClaw 0.14+.

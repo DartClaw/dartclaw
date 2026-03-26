@@ -82,12 +82,16 @@ class ChannelResponse {
   /// synthesize a minimal fallback when this is set but [text] is empty.
   final Map<String, dynamic>? structuredPayload;
 
+  /// Message id this response should reply to, when the channel supports it.
+  final String? replyToMessageId;
+
   /// Creates a channel response chunk ready for delivery.
   const ChannelResponse({
     required this.text,
     this.mediaAttachments = const [],
     this.metadata = const {},
     this.structuredPayload,
+    this.replyToMessageId,
   });
 }
 

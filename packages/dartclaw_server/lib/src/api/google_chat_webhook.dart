@@ -213,12 +213,7 @@ class GoogleChatWebhookHandler {
         }
       }
 
-      if (config.typingIndicator) {
-        final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
-        if (placeholderName != null) {
-          channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
-        }
-      }
+      await _applyTypingIndicator(channelMessage, spaceName);
       manager.handleInboundMessage(channelMessage);
       return _jsonResponse(const {});
     }
@@ -252,12 +247,7 @@ class GoogleChatWebhookHandler {
       return _jsonResponse({'text': formatted.first.text});
     }
 
-    if (config.typingIndicator) {
-      final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
-      if (placeholderName != null) {
-        channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
-      }
-    }
+    await _applyTypingIndicator(channelMessage, spaceName);
     unawaited(_deliverDeferredResponse(spaceName, responseFuture, channelMessage.id));
     return _jsonResponse(const {});
   }
@@ -401,6 +391,23 @@ class GoogleChatWebhookHandler {
     }
   }
 
+  Future<void> _applyTypingIndicator(ChannelMessage channelMessage, String spaceName) async {
+    switch (config.typingIndicatorMode) {
+      case TypingIndicatorMode.message:
+        final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
+        if (placeholderName != null) {
+          channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
+        }
+      case TypingIndicatorMode.emoji:
+        final reactionName = await channel.restClient.addReaction(channelMessage.id, typingReactionEmoji);
+        if (reactionName != null) {
+          channel.setReaction(spaceName: spaceName, turnId: channelMessage.id, reactionName: reactionName);
+        }
+      case TypingIndicatorMode.disabled:
+        break;
+    }
+  }
+
   Future<void> _sendChunks(String spaceName, Iterable<ChannelResponse> chunks, {String? sourceMessageId}) async {
     for (final chunk in chunks) {
       await channel.sendMessage(
@@ -410,7 +417,11 @@ class GoogleChatWebhookHandler {
             : ChannelResponse(
                 text: chunk.text,
                 mediaAttachments: chunk.mediaAttachments,
-                metadata: {...chunk.metadata, sourceMessageIdMetadataKey: sourceMessageId},
+                metadata: {
+                  ...chunk.metadata,
+                  sourceMessageIdMetadataKey: sourceMessageId,
+                },
+                replyToMessageId: sourceMessageId,
               ),
       );
     }

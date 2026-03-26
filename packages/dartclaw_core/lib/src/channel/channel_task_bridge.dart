@@ -221,11 +221,7 @@ class ChannelTaskBridge {
     return false;
   }
 
-  void _emitAdvisorMentionIfNeeded(
-    ChannelMessage message, {
-    required String sessionKey,
-    String? taskId,
-  }) {
+  void _emitAdvisorMentionIfNeeded(ChannelMessage message, {required String sessionKey, String? taskId}) {
     if (!_looksLikeAdvisorMention(message.text)) return;
     _eventBus?.fire(
       AdvisorMentionEvent(
@@ -530,7 +526,11 @@ class ChannelTaskBridge {
     if (sourceMessageId == null) {
       return ChannelResponse(text: text);
     }
-    return ChannelResponse(text: text, metadata: {sourceMessageIdMetadataKey: sourceMessageId});
+    return ChannelResponse(
+      text: text,
+      metadata: {sourceMessageIdMetadataKey: sourceMessageId},
+      replyToMessageId: sourceMessageId,
+    );
   }
 
   String _sanitizeReviewErrorMessage(String message) {

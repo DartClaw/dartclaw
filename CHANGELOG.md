@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.4] — 2026-03-26
+
+Quote-Reply Attribution — outbound Google Chat messages can now quote the inbound message they're replying to, providing visual attribution in busy crowd-coding spaces. Channel-agnostic plumbing (`ChannelResponse.replyToMessageId`) enables future WhatsApp/Signal support.
+
+### Added
+
+- **Google Chat quoted replies**: Outbound messages include `quotedMessageMetadata` referencing the inbound message, showing the original user message as a quoted excerpt in the reply. Works for both plain text and Cards v2 responses. Gated by `google_chat.quote_reply` config (default `false`). All six REST client send methods (including thread-aware variants) support quoting
+- **Channel-agnostic reply-to plumbing**: `ChannelResponse.replyToMessageId` field populated by `MessageQueue` for all channel types. Error responses (busy, queue-full, budget-exhausted) also carry reply context
+- **Configurable typing indicator mode**: `typing_indicator` config accepts `message` (placeholder message, default), `emoji` (eyes reaction on inbound, removed on reply), or `disabled`. Boolean values still accepted for backward compatibility
+- **`--source-dir` and `--templates-dir` CLI flags**: Set the base directory for resolving default template and static file paths when running from an external directory. Also supported via `source_dir`/`templates_dir` in YAML
+- **`deleteMessage`, `addReaction`, `removeReaction` in `GoogleChatRestClient`**: New API methods for message lifecycle and emoji reactions
+
+### Fixed
+
+- **409 ALREADY_EXISTS in Space Events subscriptions**: Subscription creation now recovers when Google returns 409 by extracting the existing subscription name, fetching its details via GET, and persisting locally
+- **Quoted replies with typing indicator**: When quoting is active and a placeholder exists, the placeholder is deleted before sending the quoted reply (placeholder edits cannot carry `quotedMessageMetadata`). Falls back gracefully if the quoted send fails
+
+### Changed
+
+- **`typing_indicator` config type**: Changed from boolean to enum (`message`/`emoji`/`disabled`). Boolean values still accepted for backward compatibility
+- **`ChannelResponse` model**: Added optional `replyToMessageId` field (backward-compatible, defaults to `null`)
+
+### Security
+
+- **`removeReaction` input validation**: Validates reaction resource names against a pattern before constructing HTTP requests, preventing potential SSRF
+- **`addReaction` rate-limit compliance**: Now routes through the per-space write queue, consistent with all other write operations
+
+---
+
 ## [0.14.3] — 2026-03-25
 
 Crowd Coding Intelligence — per-context model routing, sender-fair queueing, cross-channel task binding, and an advisory observer agent. DartClaw becomes the first agent runtime with built-in crowd coding intelligence: facilitators can tune model cost/performance per session scope, ensure equitable agent attention across participants, steer a single task from multiple channels simultaneously, and receive periodic strategic insights from a secondary observer agent.

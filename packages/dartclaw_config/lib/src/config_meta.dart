@@ -633,6 +633,13 @@ abstract final class ConfigMeta {
     'channels.google_chat.typing_indicator': FieldMeta(
       yamlPath: 'channels.google_chat.typing_indicator',
       jsonKey: 'channels.googleChat.typingIndicator',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['message', 'emoji', 'disabled'],
+    ),
+    'channels.google_chat.quote_reply': FieldMeta(
+      yamlPath: 'channels.google_chat.quote_reply',
+      jsonKey: 'channels.googleChat.quoteReply',
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
     ),

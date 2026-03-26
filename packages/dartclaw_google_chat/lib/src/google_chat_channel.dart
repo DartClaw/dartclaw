@@ -1,17 +1,9 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        Channel,
-        ChannelManager,
-        ChannelResponse,
-        ChannelType,
-        DmAccessController,
-        MentionGating,
-        chunkText,
-        sourceMessageIdMetadataKey;
+    show Channel, ChannelManager, ChannelResponse, ChannelType, DmAccessController, MentionGating, chunkText;
 import 'package:logging/logging.dart';
 
 import 'google_chat_config.dart';
-import 'google_chat_rest_client.dart';
+import 'google_chat_rest_client.dart' show GoogleChatRestClient, messageNamePattern;
 
 /// Channel adapter that delivers DartClaw responses to Google Chat spaces.
 class GoogleChatChannel extends Channel {
@@ -36,6 +28,7 @@ class GoogleChatChannel extends Channel {
   final MentionGating? mentionGating;
   final ChannelManager? _channelManager;
   final Map<String, String> _pendingPlaceholders = {};
+  final Map<String, String> _pendingReactions = {};
 
   /// Creates a Google Chat channel adapter.
   GoogleChatChannel({
@@ -63,14 +56,31 @@ class GoogleChatChannel extends Channel {
       _log.warning('Outbound Google Chat media is not supported in 0.8');
     }
 
+    final replyToMessageId = response.replyToMessageId;
+    final quotedMessageName =
+        config.quoteReply && replyToMessageId != null && messageNamePattern.hasMatch(replyToMessageId)
+        ? replyToMessageId
+        : null;
+    final placeholderKey = replyToMessageId == null ? null : _placeholderKey(recipientJid, replyToMessageId);
+    final pendingReaction = placeholderKey == null ? null : _pendingReactions.remove(placeholderKey);
+    if (pendingReaction != null) {
+      await restClient.removeReaction(pendingReaction);
+    }
+
     final structuredPayload = response.structuredPayload;
     final fallbackText = _fallbackText(response);
+    final placeholder = placeholderKey == null ? null : _pendingPlaceholders[placeholderKey];
     if (structuredPayload != null) {
-      final name = await restClient.sendCard(recipientJid, structuredPayload);
+      final name = await restClient.sendCard(recipientJid, structuredPayload, quotedMessageName: quotedMessageName);
       if (name != null) {
-        final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
-        if (turnId != null) {
-          _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
+        if (placeholderKey != null) {
+          _pendingPlaceholders.remove(placeholderKey);
+          if (placeholder != null && quotedMessageName != null) {
+            final deleted = await restClient.deleteMessage(placeholder);
+            if (!deleted) {
+              _log.warning('Failed to delete typing placeholder for $recipientJid after quoted card reply');
+            }
+          }
         }
         return;
       }
@@ -81,17 +91,33 @@ class GoogleChatChannel extends Channel {
       return;
     }
 
-    final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
-    final placeholder = turnId == null ? null : _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
-    if (placeholder != null) {
-      final updated = await restClient.editMessage(placeholder, fallbackText);
+    if (quotedMessageName != null && structuredPayload == null) {
+      final name = await restClient.sendMessage(recipientJid, fallbackText, quotedMessageName: quotedMessageName);
+      if (name != null) {
+        if (placeholderKey != null) {
+          _pendingPlaceholders.remove(placeholderKey);
+          if (placeholder != null) {
+            final deleted = await restClient.deleteMessage(placeholder);
+            if (!deleted) {
+              _log.warning('Failed to delete typing placeholder for $recipientJid after quoted reply');
+            }
+          }
+        }
+        return;
+      }
+      _log.warning('Google Chat quoted reply send failed for $recipientJid, falling back to unquoted text');
+    }
+
+    final removedPlaceholder = placeholderKey == null ? null : _pendingPlaceholders.remove(placeholderKey);
+    if (removedPlaceholder != null) {
+      final updated = await restClient.editMessage(removedPlaceholder, fallbackText);
       if (updated) {
         return;
       }
       _log.warning('Failed to replace typing placeholder for $recipientJid, falling back to new message');
     }
 
-    await restClient.sendMessage(recipientJid, fallbackText);
+    await restClient.sendMessage(recipientJid, fallbackText, quotedMessageName: quotedMessageName);
   }
 
   /// Sends a notification [response] to [recipientJid] in a new or existing
@@ -154,6 +180,11 @@ class GoogleChatChannel extends Channel {
     _pendingPlaceholders[_placeholderKey(spaceName, turnId)] = messageName;
   }
 
+  /// Associates a pending emoji reaction with an outbound turn id.
+  void setReaction({required String spaceName, required String turnId, required String reactionName}) {
+    _pendingReactions[_placeholderKey(spaceName, turnId)] = reactionName;
+  }
+
   @override
   bool ownsJid(String jid) => jid.startsWith('spaces/');
 
@@ -168,6 +199,7 @@ class GoogleChatChannel extends Channel {
     _log.info('Disconnecting Google Chat channel');
     await restClient.close();
     _pendingPlaceholders.clear();
+    _pendingReactions.clear();
     _log.info('Google Chat channel disconnected');
   }
 

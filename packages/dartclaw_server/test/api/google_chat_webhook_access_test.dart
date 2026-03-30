@@ -8,13 +8,18 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String, String?)> sentMessages = [];
+  final List<(String, String)> sentMessages = [];
 
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
   @override
-  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
-    sentMessages.add((spaceName, text, quotedMessageName));
+  Future<String?> sendMessage(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+  }) async {
+    sentMessages.add((spaceName, text));
     return '$spaceName/messages/1';
   }
 
@@ -82,7 +87,7 @@ void main() {
     DmAccessMode dmMode = DmAccessMode.open,
     Set<String> dmAllowlist = const {},
     GroupAccessMode groupAccess = GroupAccessMode.disabled,
-    List<String> groupAllowlist = const [],
+    List<GroupEntry> groupAllowlist = const [],
     bool requireMention = true,
     String? botUser,
   }) {
@@ -95,7 +100,7 @@ void main() {
     final channel = GoogleChatChannel(
       config: GoogleChatConfig(
         webhookPath: '/integrations/googlechat',
-        typingIndicator: false,
+        typingIndicatorMode: TypingIndicatorMode.disabled,
         groupAccess: groupAccess,
         groupAllowlist: groupAllowlist,
         requireMention: requireMention,
@@ -198,7 +203,7 @@ void main() {
     test('group_access: allowlist — allows listed space', () async {
       final handler = buildHandler(
         groupAccess: GroupAccessMode.allowlist,
-        groupAllowlist: ['spaces/GRP'],
+        groupAllowlist: [const GroupEntry(id: 'spaces/GRP')],
         requireMention: false,
       );
       final response = await _post(
@@ -212,7 +217,7 @@ void main() {
     test('group_access: allowlist — blocks unlisted space', () async {
       final handler = buildHandler(
         groupAccess: GroupAccessMode.allowlist,
-        groupAllowlist: ['spaces/OTHER'],
+        groupAllowlist: [const GroupEntry(id: 'spaces/OTHER')],
         requireMention: false,
       );
       final response = await _post(

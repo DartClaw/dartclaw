@@ -55,6 +55,8 @@ channels:
     webhook_path: /integrations/googlechat
     bot_user: users/12345678901234567890
     typing_indicator: true
+    quote_reply: true
+    reactions_auth: user
     dm_access: pairing           # pairing | allowlist | open | disabled
     dm_allowlist: []
     group_access: disabled       # disabled | open | allowlist
@@ -64,18 +66,22 @@ channels:
 
 Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_google_chat/lib/src/google_chat_config.dart`:
 
-- `enabled`
-- `service_account`
-- `audience.type`
-- `audience.value`
-- `webhook_path`
-- `bot_user`
-- `typing_indicator`
-- `dm_access`
-- `dm_allowlist`
-- `group_access`
-- `group_allowlist`
-- `require_mention`
+| Field | Notes |
+|------|------|
+| `enabled` | Master on/off switch |
+| `service_account` | Service account JSON path or inline JSON |
+| `audience.type` | `app-url` or `project-number` |
+| `audience.value` | Audience value that matches the Chat app config |
+| `webhook_path` | Inbound callback path |
+| `bot_user` | Google Chat bot user resource name |
+| `typing_indicator` | `true` for a placeholder indicator, or `emoji` for the emoji typing state |
+| `quote_reply` | `true` enables quoted replies when the space supports quoting |
+| `reactions_auth` | `disabled` or `user`; `user` enables emoji reactions through user OAuth |
+| `dm_access` | DM access policy |
+| `dm_allowlist` | Allowed DM sender IDs |
+| `group_access` | Group/space access policy |
+| `group_allowlist` | Allowed group/space IDs |
+| `require_mention` | Only respond when mentioned in group spaces |
 
 ## DM Access Control
 
@@ -105,6 +111,22 @@ For `group_allowlist`, use Google Chat space resource names:
 
 - Format: `spaces/<space-id>`
 - Examples: `spaces/AAAAJ7bWv0Y`, `spaces/AAAARm2k9Q8`
+
+`group_allowlist` accepts both plain strings and structured entries with optional per-group overrides:
+
+```yaml
+channels:
+  google_chat:
+    group_allowlist:
+      - id: "spaces/AAAAJ7bWv0Y"
+        name: "Engineering Room" # display name in session sidebar
+        model: sonnet            # per-group model override
+        effort: medium
+        project: proj-eng        # tasks from this group go to this project
+      - "spaces/AAAARm2k9Q8"     # plain string — same as before
+```
+
+See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
 
 When `require_mention: true`, DartClaw only responds when the bot is explicitly mentioned in group spaces.
 
@@ -308,9 +330,19 @@ dart run dartclaw_cli:dartclaw google-auth \
 
 Use a Google OAuth client of type **Desktop app** for this flow. A `web` OAuth client can fail with `Access blocked: This app’s request is invalid` unless you explicitly configure a matching `http://localhost:<port>` redirect URI and run `google-auth --port <that-port>`.
 
-DartClaw stores the resulting refresh token in `google-chat-user-oauth.json` under `data_dir` with owner-only permissions on Unix. This stored file is the runtime credential used when `auth_mode: user`. The `oauth_credentials` config field, by contrast, should point to the Google-downloaded OAuth client JSON used only to run `dartclaw google-auth`.
+DartClaw stores the resulting refresh token in `google-chat-user-oauth.json` under `data_dir` with owner-only permissions on Unix. This stored file is the runtime credential used when `auth_mode: user`, and it is shared with reactions auth when `reactions_auth: user`. The `oauth_credentials` config field, by contrast, should point to the Google-downloaded OAuth client JSON used only to run `dartclaw google-auth`.
 
-The consent flow requests the scopes required for the configured `space_events.event_types`. On startup, `space_events.auth_mode: user` uses the stored refresh token for Workspace Events subscription management while Pub/Sub pull continues to use the service account.
+The consent flow requests the union of the scopes required by the configured `space_events.event_types` and any reaction scopes implied by `reactions_auth`. On startup, `space_events.auth_mode: user` uses the stored refresh token for Workspace Events subscription management while Pub/Sub pull continues to use the service account.
+
+### Emoji Typing Indicator Setup
+
+If you want the emoji typing state, set `typing_indicator: emoji` and `reactions_auth: user`.
+
+Google Chat reactions require the `chat.messages.reactions` scope. If you change reaction-related config or add new scopes later, rerun `dartclaw google-auth --force` so the stored credential is refreshed with the full consent set.
+
+The shared `google-chat-user-oauth.json` file is used for both user-auth Workspace Events subscriptions and reactions auth, so there is only one Google Chat user OAuth credential to manage.
+
+Reactions are created as the authenticated user, not the bot. The messages still come from the service account, but the emoji reaction shows the signed-in user's profile in Google Chat.
 
 ### Subscription Lifecycle
 

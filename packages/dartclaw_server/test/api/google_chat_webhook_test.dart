@@ -10,17 +10,21 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String, String?)> sentMessages = [];
+  final List<(String, String)> sentMessages = [];
   final List<(String, String)> editedMessages = [];
-  final List<(String, String)> reactions = [];
-  final List<String> removedReactions = [];
+  final List<(String, String)> addedReactions = [];
   int _counter = 0;
 
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
   @override
-  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
-    sentMessages.add((spaceName, text, quotedMessageName));
+  Future<String?> sendMessage(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+  }) async {
+    sentMessages.add((spaceName, text));
     _counter++;
     return '$spaceName/messages/$_counter';
   }
@@ -32,18 +36,9 @@ class _FakeGoogleChatRestClient extends GoogleChatRestClient {
   }
 
   @override
-  Future<bool> deleteMessage(String messageName) async => true;
-
-  @override
   Future<String?> addReaction(String messageName, String emoji) async {
-    reactions.add((messageName, emoji));
-    return '$messageName/reactions/1';
-  }
-
-  @override
-  Future<bool> removeReaction(String reactionName) async {
-    removedReactions.add(reactionName);
-    return true;
+    addedReactions.add((messageName, emoji));
+    return '$messageName/reactions/${addedReactions.length}';
   }
 
   @override
@@ -144,6 +139,7 @@ void main() {
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(
         webhookPath: '/integrations/googlechat',
+        typingIndicatorMode: TypingIndicatorMode.disabled,
         dmAccess: DmAccessMode.open,
         groupAccess: GroupAccessMode.open,
       ),
@@ -157,7 +153,7 @@ void main() {
       jwtVerifier: jwtVerifier,
       config: const GoogleChatConfig(
         webhookPath: '/integrations/googlechat',
-        typingIndicator: false,
+        typingIndicatorMode: TypingIndicatorMode.disabled,
         dmAccess: DmAccessMode.open,
         groupAccess: GroupAccessMode.open,
       ),
@@ -280,7 +276,7 @@ void main() {
       handler = GoogleChatWebhookHandler(
         channel: channel,
         jwtVerifier: jwtVerifier,
-        config: const GoogleChatConfig(botUser: 'users/bot', typingIndicator: false),
+        config: const GoogleChatConfig(botUser: 'users/bot', typingIndicatorMode: TypingIndicatorMode.disabled),
         dispatchMessage: (message) async {
           dispatchedMessage = message;
           return 'Agent reply';
@@ -301,19 +297,28 @@ void main() {
     test('routes through ChannelManager when one is provided', () async {
       ChannelMessage? queuedMessage;
       var directDispatchCalls = 0;
+      final disabledChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(
+          webhookPath: '/integrations/googlechat',
+          typingIndicatorMode: TypingIndicatorMode.disabled,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
+        restClient: restClient,
+      );
       final manager = _buildChannelManager(
-        channel: channel,
+        channel: disabledChannel,
         onDispatch: (message) async {
           queuedMessage = message;
           return 'Queued reply';
         },
       );
       handler = GoogleChatWebhookHandler(
-        channel: channel,
+        channel: disabledChannel,
         jwtVerifier: jwtVerifier,
         config: const GoogleChatConfig(
           webhookPath: '/integrations/googlechat',
-          typingIndicatorMode: TypingIndicatorMode.emoji,
+          typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
         channelManager: manager,
         dispatchMessage: (message) async {
@@ -332,7 +337,7 @@ void main() {
       expect(dispatchedMessage, isNull);
       expect(queuedMessage, isNotNull);
       expect(queuedMessage!.senderJid, 'users/123');
-      expect(restClient.reactions, [('spaces/AAAA/messages/BBBB', typingReactionEmoji)]);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Queued reply')]);
     });
   });
 
@@ -341,7 +346,7 @@ void main() {
       final response = await _post(handler, body: _payload(type: 'ADDED_TO_SPACE'));
 
       expect(response.statusCode, 200);
-      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.', null)]);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.')]);
     });
   });
 
@@ -361,20 +366,24 @@ void main() {
       handler = GoogleChatWebhookHandler(
         channel: channel,
         jwtVerifier: jwtVerifier,
-        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.message,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
         dispatchMessage: (message) {
           dispatchedMessage = message;
           return completer.future;
         },
-        responseTimeout: const Duration(milliseconds: 1),
+        responseTimeout: const Duration(milliseconds: 50),
       );
 
       final response = await _post(handler, body: _payload());
 
       expect(response.statusCode, 200);
       expect(await response.readAsString(), '{}');
-      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._', null)]);
-      expect(restClient.reactions, isEmpty);
+      expect(dispatchedMessage, isNotNull);
+      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
 
       completer.complete('Final answer');
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -389,13 +398,17 @@ void main() {
       handler = GoogleChatWebhookHandler(
         channel: channel,
         jwtVerifier: jwtVerifier,
-        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.message,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
         dispatchMessage: (message) {
           dispatchedMessage = message;
           callCount++;
           return callCount == 1 ? first.future : second.future;
         },
-        responseTimeout: const Duration(milliseconds: 1),
+        responseTimeout: const Duration(milliseconds: 50),
       );
 
       await _post(
@@ -416,9 +429,10 @@ void main() {
         },
       );
 
+      expect(dispatchedMessage, isNotNull);
       expect(restClient.sentMessages, [
-        ('spaces/AAAA', '_DartClaw is typing..._', null),
-        ('spaces/AAAA', '_DartClaw is typing..._', null),
+        ('spaces/AAAA', '_DartClaw is typing..._'),
+        ('spaces/AAAA', '_DartClaw is typing..._'),
       ]);
 
       second.complete('Second answer');
@@ -429,28 +443,6 @@ void main() {
         ('spaces/AAAA/messages/2', 'Second answer'),
         ('spaces/AAAA/messages/1', 'First answer'),
       ]);
-    });
-
-    test('sends emoji typing reaction when configured', () async {
-      final completer = Completer<String>();
-      handler = GoogleChatWebhookHandler(
-        channel: channel,
-        jwtVerifier: jwtVerifier,
-        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.emoji),
-        dispatchMessage: (message) {
-          dispatchedMessage = message;
-          return completer.future;
-        },
-        responseTimeout: const Duration(milliseconds: 1),
-      );
-
-      final response = await _post(handler, body: _payload());
-
-      expect(response.statusCode, 200);
-      expect(restClient.reactions, [('spaces/AAAA/messages/BBBB', typingReactionEmoji)]);
-
-      completer.complete('Final answer');
-      await Future<void>.delayed(const Duration(milliseconds: 10));
     });
 
     test('patches placeholder for ChannelManager task-trigger acknowledgements', () async {
@@ -489,7 +481,7 @@ void main() {
       expect(await response.readAsString(), '{}');
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._', null)]);
+      expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
       expect(restClient.editedMessages, hasLength(1));
       expect(restClient.editedMessages.single.$1, 'spaces/AAAA/messages/1');
       expect(
@@ -504,8 +496,16 @@ void main() {
 
     test('does not send placeholder when disabled', () async {
       final completer = Completer<String>();
+      final disabledChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.disabled,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
+        restClient: restClient,
+      );
       handler = GoogleChatWebhookHandler(
-        channel: channel,
+        channel: disabledChannel,
         jwtVerifier: jwtVerifier,
         config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
         dispatchMessage: (message) => completer.future,
@@ -516,9 +516,41 @@ void main() {
       completer.complete('Final answer');
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(restClient.sentMessages, [('spaces/AAAA', 'Final answer', null)]);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Final answer')]);
       expect(restClient.editedMessages, isEmpty);
-      expect(restClient.reactions, isEmpty);
+    });
+
+    test('uses metadata messageName for emoji typing when present', () async {
+      final completer = Completer<String>();
+      final emojiChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.emoji,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
+        restClient: restClient,
+      );
+      handler = GoogleChatWebhookHandler(
+        channel: emojiChannel,
+        jwtVerifier: jwtVerifier,
+        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.emoji),
+        channelManager: _buildChannelManager(
+          channel: emojiChannel,
+          onDispatch: (message) async {
+            dispatchedMessage = message;
+            return completer.future;
+          },
+        ),
+      );
+
+      final response = await _post(
+        handler,
+        body: _payload(text: 'Hello agent', senderName: 'users/123', userName: 'users/123'),
+      );
+
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+      expect(restClient.addedReactions, [('spaces/AAAA/messages/BBBB', '\u{1F440}')]);
     });
   });
 
@@ -565,7 +597,7 @@ void main() {
       final response = await _post(handler, body: addOnPayload);
 
       expect(response.statusCode, 200);
-      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.', null)]);
+      expect(restClient.sentMessages, [('spaces/AAAA', 'Hello! I am DartClaw. Send me a message to get started.')]);
     });
 
     test('ignores add-on payload with unrecognized chat event key', () async {

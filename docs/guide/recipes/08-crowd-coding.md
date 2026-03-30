@@ -139,26 +139,6 @@ guards:
     enabled: true
 ```
 
-### Google Chat interaction options
-
-For crowd-coding sessions in Google Chat, you can also tune how the bot shows activity around agent replies:
-
-- `quote_reply: true` makes the bot reply with quoted context instead of a plain new message
-- `typing_indicator` controls the placeholder shown while the agent is working:
-  - `message` -- the default placeholder message
-  - `emoji` -- an eyes reaction
-  - `disabled` -- no typing indicator at all
-
-`emoji` pairs well with `quote_reply` because placeholder edits cannot carry quotes.
-
-```yaml
-channels:
-  google_chat:
-    enabled: true
-    quote_reply: true
-    typing_indicator: emoji
-```
-
 ### Scenario B: Structured Coding + External Repo (0.14+)
 
 Same task-based workflow as Scenario A, but tasks target an external repository. On accept, the branch is pushed to the remote and a PR is created. Requires DartClaw 0.14+.
@@ -481,10 +461,11 @@ When one task should stay visible across multiple channel surfaces, bind the cur
 
 ### Model Routing
 
-Model resolution for crowd coding is:
+Model resolution for crowd coding (highest to lowest precedence):
 
 ```text
-task configJson['model']
+per-group (group_allowlist entry model)
+> task configJson['model']
 > sessions.channels.<type>.model
 > sessions.model
 > governance.crowd_coding.model
@@ -492,6 +473,38 @@ task configJson['model']
 ```
 
 Use `governance.crowd_coding.model` for the default workshop cost/performance profile, then override only where needed. A common pattern is `haiku` for the shared group session, `sonnet` for the advisor, and a stronger task-level override only for difficult tasks.
+
+### Per-Group Configuration
+
+`group_allowlist` entries can be structured maps to set per-group model, effort, and project binding:
+
+**WhatsApp / Signal:**
+```yaml
+channels:
+  whatsapp:
+    group_allowlist:
+      - id: "120363041234567890@g.us"
+        name: "Workshop A"
+        model: haiku
+        effort: low
+        project: proj-workshop-a
+      - "120363099999999999@g.us"   # plain string still works
+```
+
+**Google Chat:**
+```yaml
+channels:
+  google_chat:
+    group_allowlist:
+      - id: "spaces/AAABBBCCC"
+        name: "Engineering Room"
+        model: sonnet
+        effort: medium
+        project: proj-eng
+      - "spaces/DDDEEEFFF"         # plain string still works
+```
+
+Groups with a `project` field create tasks in that project instead of the default. Groups without overrides behave identically to plain-string entries. See each channel's config reference for the full field list.
 
 ### Rate Limits
 

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +31,45 @@ class FakeChannel extends Channel {
   Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
     if (failSend) throw Exception('send failed');
     sent.add((recipientJid, response));
+  }
+}
+
+class _FakeGoogleChatRestClient extends GoogleChatRestClient {
+  final List<(String spaceName, String text)> sentMessages = [];
+  String? lastQuotedMessageName;
+  String? lastQuotedMessageLastUpdateTime;
+
+  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
+
+  @override
+  Future<String?> sendMessage(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+  }) async {
+    sentMessages.add((spaceName, text));
+    lastQuotedMessageName = quotedMessageName;
+    lastQuotedMessageLastUpdateTime = quotedMessageLastUpdateTime;
+    return '$spaceName/messages/generated';
+  }
+
+  @override
+  Future<({String? messageName, bool usedQuotedMessageMetadata})> sendMessageWithQuoteFallback(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+    String? textWithoutQuote,
+    bool fallbackOnQuoteFailure = true,
+  }) async {
+    final name = await sendMessage(
+      spaceName,
+      text,
+      quotedMessageName: quotedMessageName,
+      quotedMessageLastUpdateTime: quotedMessageLastUpdateTime,
+    );
+    return (messageName: name, usedQuotedMessageMetadata: quotedMessageName != null);
   }
 }
 
@@ -414,6 +455,67 @@ void main() {
 
       expect(channel.sent, hasLength(1));
       expect(channel.sent.single.$1, 'spaces/AAAA');
+    });
+
+    test('preserves Google Chat quote metadata through the queued path', () async {
+      final restClient = _FakeGoogleChatRestClient();
+      final googleChatChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(enabled: true, quoteReplyMode: QuoteReplyMode.native),
+        restClient: restClient,
+      );
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.googlechat,
+          senderJid: 'users/123',
+          text: 'hello',
+          metadata: const {
+            'spaceName': 'spaces/AAAA',
+            'messageName': 'spaces/AAAA/messages/source',
+            'messageCreateTime': '2024-03-15T10:30:00.260127Z',
+          },
+        ),
+        googleChatChannel,
+        'session-1',
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(restClient.sentMessages, [('spaces/AAAA', 'response')]);
+      expect(restClient.lastQuotedMessageName, 'spaces/AAAA/messages/source');
+      expect(restClient.lastQuotedMessageLastUpdateTime, '2024-03-15T10:30:00.260127Z');
+    });
+
+    test('preserves senderDisplayName for sender attribution through the queued path', () async {
+      final restClient = _FakeGoogleChatRestClient();
+      final googleChatChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(enabled: true, quoteReplyMode: QuoteReplyMode.sender),
+        restClient: restClient,
+      );
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.googlechat,
+          senderJid: 'users/123',
+          text: 'hello',
+          metadata: const {
+            'spaceName': 'spaces/AAAA',
+            'spaceType': 'SPACE',
+            'senderDisplayName': 'Alice Smith',
+          },
+        ),
+        googleChatChannel,
+        'session-1',
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(restClient.sentMessages, hasLength(1));
+      expect(restClient.sentMessages.single.$2, startsWith('*@Alice Smith* – '));
     });
   });
 }

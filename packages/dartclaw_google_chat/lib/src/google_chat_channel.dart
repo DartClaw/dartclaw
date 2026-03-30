@@ -1,9 +1,24 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show Channel, ChannelManager, ChannelResponse, ChannelType, DmAccessController, MentionGating, chunkText;
+    show
+        Channel,
+        ChannelManager,
+        ChannelResponse,
+        ChannelType,
+        DmAccessController,
+        MentionGating,
+        chunkText,
+        sourceMessageIdMetadataKey;
 import 'package:logging/logging.dart';
 
 import 'google_chat_config.dart';
-import 'google_chat_rest_client.dart' show GoogleChatRestClient, messageNamePattern;
+import 'google_chat_rest_client.dart' show GoogleChatRestClient, messageNamePattern, typingIndicatorEmoji;
+import 'markdown_converter.dart';
+
+const _firstChunkMetadataKey = 'isFirstChunk';
+
+// Precompiled RegExp patterns for HTML-to-plain-text stripping.
+final _brTagPattern = RegExp(r'<br\s*/?>', caseSensitive: false);
+final _htmlTagPattern = RegExp(r'<[^>]+>');
 
 /// Channel adapter that delivers DartClaw responses to Google Chat spaces.
 class GoogleChatChannel extends Channel {
@@ -53,34 +68,35 @@ class GoogleChatChannel extends Channel {
   @override
   Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
     if (response.mediaAttachments.isNotEmpty) {
-      _log.warning('Outbound Google Chat media is not supported in 0.8');
+      _log.warning('Outbound Google Chat media attachments are not yet supported');
     }
 
-    final replyToMessageId = response.replyToMessageId;
-    final quotedMessageName =
-        config.quoteReply && replyToMessageId != null && messageNamePattern.hasMatch(replyToMessageId)
-        ? replyToMessageId
-        : null;
-    final placeholderKey = replyToMessageId == null ? null : _placeholderKey(recipientJid, replyToMessageId);
-    final pendingReaction = placeholderKey == null ? null : _pendingReactions.remove(placeholderKey);
+    final sourceId = response.metadata[sourceMessageIdMetadataKey] as String?;
+    final nativeQuoteName = _nativeQuotedMessageName(response);
+    final nativeQuoteLastUpdateTime = _quotedMessageLastUpdateTime(response, nativeQuoteName);
+
+    // Remove any pending emoji reaction for this turn.
+    final pendingReaction = sourceId == null ? null : _pendingReactions.remove(_placeholderKey(recipientJid, sourceId));
     if (pendingReaction != null) {
       await restClient.removeReaction(pendingReaction);
     }
 
     final structuredPayload = response.structuredPayload;
     final fallbackText = _fallbackText(response);
-    final placeholder = placeholderKey == null ? null : _pendingPlaceholders[placeholderKey];
+    final isFirstChunk = response.metadata[_firstChunkMetadataKey] as bool? ?? true;
+    final displayText = isFirstChunk ? _withSenderAttribution(response, fallbackText) : fallbackText;
+
     if (structuredPayload != null) {
-      final name = await restClient.sendCard(recipientJid, structuredPayload, quotedMessageName: quotedMessageName);
+      final name = await restClient.sendCard(
+        recipientJid,
+        structuredPayload,
+        quotedMessageName: nativeQuoteName,
+        quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
+      );
       if (name != null) {
-        if (placeholderKey != null) {
-          _pendingPlaceholders.remove(placeholderKey);
-          if (placeholder != null && quotedMessageName != null) {
-            final deleted = await restClient.deleteMessage(placeholder);
-            if (!deleted) {
-              _log.warning('Failed to delete typing placeholder for $recipientJid after quoted card reply');
-            }
-          }
+        final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
+        if (turnId != null) {
+          _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
         }
         return;
       }
@@ -91,33 +107,47 @@ class GoogleChatChannel extends Channel {
       return;
     }
 
-    if (quotedMessageName != null && structuredPayload == null) {
-      final name = await restClient.sendMessage(recipientJid, fallbackText, quotedMessageName: quotedMessageName);
-      if (name != null) {
-        if (placeholderKey != null) {
-          _pendingPlaceholders.remove(placeholderKey);
-          if (placeholder != null) {
-            final deleted = await restClient.deleteMessage(placeholder);
-            if (!deleted) {
-              _log.warning('Failed to delete typing placeholder for $recipientJid after quoted reply');
-            }
-          }
+    final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
+    final placeholder = turnId == null ? null : _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
+    if (placeholder != null) {
+      if (nativeQuoteName != null) {
+        // Can't add quotedMessageMetadata via PATCH — try sending a new
+        // quoted message first. If quoting succeeds, delete the placeholder.
+        // If quoting fails (403/400), edit the placeholder with the response
+        // text instead of deleting it, avoiding the "message deleted by its
+        // author" artifact that Google Chat shows for deleted bot messages.
+        final sent = await restClient.sendMessageWithQuoteFallback(
+          recipientJid,
+          fallbackText,
+          quotedMessageName: nativeQuoteName,
+          quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
+          fallbackOnQuoteFailure: false,
+        );
+        if (sent.messageName != null) {
+          await restClient.deleteMessage(placeholder);
+          return;
         }
-        return;
+        _log.info('Native quote send failed for $recipientJid, editing placeholder instead');
       }
-      _log.warning('Google Chat quoted reply send failed for $recipientJid, falling back to unquoted text');
-    }
-
-    final removedPlaceholder = placeholderKey == null ? null : _pendingPlaceholders.remove(placeholderKey);
-    if (removedPlaceholder != null) {
-      final updated = await restClient.editMessage(removedPlaceholder, fallbackText);
+      final updated = await restClient.editMessage(placeholder, displayText);
       if (updated) {
         return;
       }
-      _log.warning('Failed to replace typing placeholder for $recipientJid, falling back to new message');
+      _log.warning('Failed to edit typing placeholder for $recipientJid, falling back to new message');
     }
 
-    await restClient.sendMessage(recipientJid, fallbackText, quotedMessageName: quotedMessageName);
+    if (nativeQuoteName != null) {
+      await restClient.sendMessageWithQuoteFallback(
+        recipientJid,
+        fallbackText,
+        quotedMessageName: nativeQuoteName,
+        quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
+        textWithoutQuote: displayText,
+      );
+      return;
+    }
+
+    await restClient.sendMessage(recipientJid, displayText);
   }
 
   /// Sends a notification [response] to [recipientJid] in a new or existing
@@ -180,9 +210,51 @@ class GoogleChatChannel extends Channel {
     _pendingPlaceholders[_placeholderKey(spaceName, turnId)] = messageName;
   }
 
+  /// Returns the pending typing placeholder for [turnId] without removing it.
+  String? peekPlaceholderMessageId({required String spaceName, required String turnId}) {
+    return _pendingPlaceholders[_placeholderKey(spaceName, turnId)];
+  }
+
+  /// Removes the pending typing placeholder for [turnId], if present.
+  void clearPlaceholder({required String spaceName, required String turnId}) {
+    _pendingPlaceholders.remove(_placeholderKey(spaceName, turnId));
+  }
+
   /// Associates a pending emoji reaction with an outbound turn id.
   void setReaction({required String spaceName, required String turnId, required String reactionName}) {
     _pendingReactions[_placeholderKey(spaceName, turnId)] = reactionName;
+  }
+
+  /// Typing indicator placeholder text shown while DartClaw processes a message.
+  static const typingMessage = '_DartClaw is typing..._';
+
+  /// Sends a typing indicator based on [config.typingIndicatorMode].
+  ///
+  /// For [TypingIndicatorMode.message], sends a placeholder message and tracks
+  /// it for later replacement. For [TypingIndicatorMode.emoji], adds a reaction
+  /// to [reactionTargetMessageName] (the inbound message resource name).
+  Future<void> sendTypingIndicator({
+    required String spaceName,
+    required String turnId,
+    String? reactionTargetMessageName,
+  }) async {
+    switch (config.typingIndicatorMode) {
+      case TypingIndicatorMode.message:
+        final placeholderName = await restClient.sendMessage(spaceName, typingMessage);
+        if (placeholderName != null) {
+          setPlaceholder(spaceName: spaceName, turnId: turnId, messageName: placeholderName);
+        }
+      case TypingIndicatorMode.emoji:
+        final target = reactionTargetMessageName;
+        if (target != null && target.isNotEmpty) {
+          final reactionName = await restClient.addReaction(target, typingIndicatorEmoji);
+          if (reactionName != null) {
+            setReaction(spaceName: spaceName, turnId: turnId, reactionName: reactionName);
+          }
+        }
+      case TypingIndicatorMode.disabled:
+        break;
+    }
   }
 
   @override
@@ -190,8 +262,14 @@ class GoogleChatChannel extends Channel {
 
   @override
   List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkText(text.trimLeft(), maxSize: 4000);
-    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
+    final chunks = chunkText(markdownToGoogleChat(text.trimLeft()), maxSize: 4000);
+    return [
+      for (final entry in chunks.asMap().entries)
+        ChannelResponse(
+          text: entry.value,
+          metadata: {_firstChunkMetadataKey: entry.key == 0},
+        ),
+    ];
   }
 
   @override
@@ -282,8 +360,8 @@ class GoogleChatChannel extends Channel {
 
   String _plainTextFromMarkup(String value) {
     return value
-        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
-        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll(_brTagPattern, '\n')
+        .replaceAll(_htmlTagPattern, '')
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')
@@ -298,6 +376,48 @@ class GoogleChatChannel extends Channel {
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// Prepends `*@Sender* – ` to the response text when quote-reply is
+  /// enabled (`sender` or `native`) and the context is a multi-user space.
+  ///
+  /// Skips DMs (no ambiguity). GROUP_CHAT is included for `sender` mode
+  /// (useful in group conversations) but excluded for `native` (API limitation).
+  String _withSenderAttribution(ChannelResponse response, String text) {
+    if (text.isEmpty) return text;
+    if (config.quoteReplyMode == QuoteReplyMode.disabled) return text;
+    final spaceType = response.metadata['spaceType'] as String?;
+    if (spaceType == 'DM') return text;
+    final senderDisplayName = _nonEmptyString(response.metadata['senderDisplayName']);
+    if (senderDisplayName == null) return text;
+    return '*@$senderDisplayName* – $text';
+  }
+
+  /// Returns the message name for native API-level quoting, or null.
+  String? _nativeQuotedMessageName(ChannelResponse response) {
+    if (config.quoteReplyMode != QuoteReplyMode.native) return null;
+    final spaceType = response.metadata['spaceType'] as String?;
+    if (spaceType == 'DM' || spaceType == 'GROUP_CHAT') return null;
+    final replyToMessageId = response.replyToMessageId;
+    if (replyToMessageId != null && messageNamePattern.hasMatch(replyToMessageId)) {
+      return replyToMessageId;
+    }
+    final sourceMessageId = response.metadata[sourceMessageIdMetadataKey] as String?;
+    if (sourceMessageId != null && messageNamePattern.hasMatch(sourceMessageId)) {
+      return sourceMessageId;
+    }
+    final messageName = response.metadata['messageName'] as String?;
+    if (messageName != null && messageNamePattern.hasMatch(messageName)) {
+      return messageName;
+    }
+    return null;
+  }
+
+  String? _quotedMessageLastUpdateTime(ChannelResponse response, String? quotedMessageName) {
+    if (quotedMessageName == null) return null;
+    final lastUpdateTime = response.metadata['messageCreateTime'] as String?;
+    if (lastUpdateTime == null || lastUpdateTime.isEmpty) return null;
+    return lastUpdateTime;
   }
 
   String _placeholderKey(String spaceName, String turnId) => '$spaceName::$turnId';

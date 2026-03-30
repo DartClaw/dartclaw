@@ -126,7 +126,7 @@ class SignalChannel extends Channel {
             _log.fine('Group message from ${message.groupJid} — group access disabled');
             return;
           case SignalGroupAccessMode.allowlist:
-            if (!config.groupAllowlist.contains(message.groupJid)) {
+            if (!config.groupIds.contains(message.groupJid)) {
               _log.fine('Group ${message.groupJid} not in allowlist — dropping');
               return;
             }

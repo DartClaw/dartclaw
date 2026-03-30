@@ -130,7 +130,7 @@ class WhatsAppChannel extends Channel {
           case GroupAccessMode.disabled:
             return;
           case GroupAccessMode.allowlist:
-            if (!config.groupAllowlist.contains(message.groupJid)) return;
+            if (!config.groupIds.contains(message.groupJid)) return;
           case GroupAccessMode.open:
             break;
         }

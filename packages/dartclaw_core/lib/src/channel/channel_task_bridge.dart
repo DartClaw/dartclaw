@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import '../runtime/channel_type.dart';
+import '../scoping/group_config_resolver.dart';
 import '../events/event_bus.dart';
 import '../events/dartclaw_event.dart';
 import '../task/task.dart';
@@ -48,6 +49,7 @@ class ChannelTaskBridge {
   final ThreadBindingStore? _threadBindings;
   final bool _threadBindingEnabled;
   final EventBus? _eventBus;
+  final GroupConfigResolver? Function()? _groupConfigResolverGetter;
 
   ChannelTaskBridge({
     ReservedCommandHandler? reservedCommandHandler,
@@ -63,6 +65,7 @@ class ChannelTaskBridge {
     ThreadBindingStore? threadBindings,
     bool threadBindingEnabled = false,
     EventBus? eventBus,
+    GroupConfigResolver? Function()? groupConfigResolverGetter,
   }) : _reservedCommandHandler = reservedCommandHandler,
        _taskCreator = taskCreator,
        _taskLister = taskLister,
@@ -75,7 +78,8 @@ class ChannelTaskBridge {
        _isReservedCommand = isReservedCommand,
        _threadBindings = threadBindings,
        _threadBindingEnabled = threadBindingEnabled,
-       _eventBus = eventBus;
+       _eventBus = eventBus,
+       _groupConfigResolverGetter = groupConfigResolverGetter;
 
   /// Returns `true` when [text] is recognized as a reserved command.
   ///
@@ -221,7 +225,11 @@ class ChannelTaskBridge {
     return false;
   }
 
-  void _emitAdvisorMentionIfNeeded(ChannelMessage message, {required String sessionKey, String? taskId}) {
+  void _emitAdvisorMentionIfNeeded(
+    ChannelMessage message, {
+    required String sessionKey,
+    String? taskId,
+  }) {
     if (!_looksLikeAdvisorMention(message.text)) return;
     _eventBus?.fire(
       AdvisorMentionEvent(
@@ -286,6 +294,14 @@ class ChannelTaskBridge {
       _ => null,
     };
 
+    String? resolvedProjectId;
+    final groupJid = message.groupJid;
+    final resolver = _groupConfigResolverGetter?.call();
+    if (groupJid != null && resolver != null) {
+      final entry = resolver.resolve(channel.type, groupJid);
+      resolvedProjectId = entry?.project;
+    }
+
     try {
       final task = await taskCreator(
         id: const Uuid().v4(),
@@ -294,6 +310,7 @@ class ChannelTaskBridge {
         type: trigger.type,
         autoStart: trigger.autoStart,
         createdBy: senderDisplayName,
+        projectId: resolvedProjectId,
         configJson: {
           'origin': origin.toJson(),
           ...?providerHint == null ? null : {'provider': providerHint},
@@ -526,11 +543,7 @@ class ChannelTaskBridge {
     if (sourceMessageId == null) {
       return ChannelResponse(text: text);
     }
-    return ChannelResponse(
-      text: text,
-      metadata: {sourceMessageIdMetadataKey: sourceMessageId},
-      replyToMessageId: sourceMessageId,
-    );
+    return ChannelResponse(text: text, metadata: {sourceMessageIdMetadataKey: sourceMessageId});
   }
 
   String _sanitizeReviewErrorMessage(String message) {

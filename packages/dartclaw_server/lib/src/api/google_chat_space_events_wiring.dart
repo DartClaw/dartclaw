@@ -11,15 +11,17 @@ import 'package:logging/logging.dart';
 /// startup (reconcile + pull loop start) and shutdown of the infrastructure.
 class GoogleChatSpaceEventsWiring {
   static final _log = Logger('GoogleChatSpaceEventsWiring');
-  static const _typingMessage = '_DartClaw is typing..._';
-
   final PubSubClient _pubSubClient;
   final WorkspaceEventsManager _subscriptionManager;
   final CloudEventAdapter _adapter;
   final MessageDeduplicator _deduplicator;
   final ChannelManager _channelManager;
   final GoogleChatChannel? _channel;
-  final GoogleChatConfig? _config;
+
+  /// Cache of resolved sender display names keyed by sender JID.
+  final Map<String, ({String displayName, DateTime cachedAt})> _senderDisplayNames = {};
+  static const _senderCacheTtl = Duration(hours: 1);
+  static const _senderCacheMaxSize = 500;
 
   GoogleChatSpaceEventsWiring({
     required PubSubClient pubSubClient,
@@ -28,14 +30,12 @@ class GoogleChatSpaceEventsWiring {
     required MessageDeduplicator deduplicator,
     required ChannelManager channelManager,
     GoogleChatChannel? channel,
-    GoogleChatConfig? config,
   }) : _pubSubClient = pubSubClient,
        _subscriptionManager = subscriptionManager,
        _adapter = adapter,
        _deduplicator = deduplicator,
        _channelManager = channelManager,
-       _channel = channel,
-       _config = config;
+       _channel = channel;
 
   /// The [PubSubClient] managed by this wiring.
   PubSubClient get pubSubClient => _pubSubClient;
@@ -96,17 +96,63 @@ class GoogleChatSpaceEventsWiring {
           continue;
         }
       }
+      await _enrichSenderDisplayName(channelMessage);
+
       final channel = _channel;
-      final config = _config;
-      if (channel != null && config != null) {
+      if (channel != null) {
         final spaceName = channelMessage.metadata['spaceName'] as String?;
         if (spaceName != null && spaceName.isNotEmpty) {
-          await _applyTypingIndicator(channel, config, channelMessage, spaceName);
+          await channel.sendTypingIndicator(
+            spaceName: spaceName,
+            turnId: channelMessage.id,
+            reactionTargetMessageName: channelMessage.metadata['messageName'] as String?,
+          );
         }
       }
       _channelManager.handleInboundMessage(channelMessage);
     }
     return true;
+  }
+
+  /// Resolves [message]'s `senderDisplayName` metadata via the members API.
+  ///
+  /// Skips resolution when the display name is already populated (webhook path).
+  /// Caches results per sender JID for [_senderCacheTtl]. On lookup failure,
+  /// removes the key entirely — no attribution rather than a raw user ID.
+  Future<void> _enrichSenderDisplayName(ChannelMessage message) async {
+    final existing = message.metadata['senderDisplayName'] as String?;
+    if (existing != null && existing.isNotEmpty && existing != message.senderJid) {
+      return; // Already resolved (e.g. webhook-sourced).
+    }
+
+    final senderJid = message.senderJid;
+    final spaceName = message.metadata['spaceName'] as String?;
+    if (spaceName == null || spaceName.isEmpty) return;
+
+    final restClient = _channel?.restClient;
+    if (restClient == null) return;
+
+    // Check cache.
+    final cached = _senderDisplayNames[senderJid];
+    if (cached != null && DateTime.now().difference(cached.cachedAt) < _senderCacheTtl) {
+      message.metadata['senderDisplayName'] = cached.displayName;
+      return;
+    }
+
+    // Resolve via API.
+    final displayName = await restClient.getMemberDisplayName(spaceName, senderJid);
+    if (displayName != null && displayName.isNotEmpty) {
+      // Evict oldest entry when cache is full (LRU via insertion order).
+      if (_senderDisplayNames.length >= _senderCacheMaxSize) {
+        _senderDisplayNames.remove(_senderDisplayNames.keys.first);
+      }
+      _senderDisplayNames[senderJid] = (displayName: displayName, cachedAt: DateTime.now());
+      message.metadata['senderDisplayName'] = displayName;
+    } else {
+      // Graceful: omit attribution rather than show raw ID.
+      _senderDisplayNames.remove(senderJid);
+      message.metadata.remove('senderDisplayName');
+    }
   }
 
   /// Stops the pull loop and disposes the subscription manager.
@@ -122,30 +168,5 @@ class GoogleChatSpaceEventsWiring {
     await _pubSubClient.dispose();
     _subscriptionManager.dispose();
     _log.info('Space Events wiring disposed');
-  }
-
-  Future<void> _applyTypingIndicator(
-    GoogleChatChannel channel,
-    GoogleChatConfig config,
-    ChannelMessage channelMessage,
-    String spaceName,
-  ) async {
-    switch (config.typingIndicatorMode) {
-      case TypingIndicatorMode.message:
-        final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
-        if (placeholderName != null) {
-          channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
-        }
-      case TypingIndicatorMode.emoji:
-        final messageName = channelMessage.metadata['messageName'] as String?;
-        if (messageName != null && messageName.isNotEmpty) {
-          final reactionName = await channel.restClient.addReaction(messageName, typingReactionEmoji);
-          if (reactionName != null) {
-            channel.setReaction(spaceName: spaceName, turnId: channelMessage.id, reactionName: reactionName);
-          }
-        }
-      case TypingIndicatorMode.disabled:
-        break;
-    }
   }
 }

@@ -705,19 +705,80 @@ projects:
         expect(config.server.port, 5555);
       });
 
-      test('claudeExecutable and staticDir only from CLI, not YAML', () {
+      test('claudeExecutable only from CLI, not YAML', () {
         final config = DartclawConfig.load(
           cliOverrides: {'claude_executable': '/usr/local/bin/claude'},
           fileReader: (path) {
-            // Even if YAML had these keys they'd be unknown
             if (path == 'dartclaw.yaml') return 'port: 5000\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
         expect(config.server.claudeExecutable, '/usr/local/bin/claude');
-        // staticDir uses default since no CLI override
+        // staticDir uses default since no CLI or YAML override
         expect(config.server.staticDir, 'packages/dartclaw_server/lib/src/static');
+      });
+
+      test('staticDir and templatesDir from YAML', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') {
+              return 'static_dir: /opt/static\ntemplates_dir: /opt/templates\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.staticDir, '/opt/static');
+        expect(config.server.templatesDir, '/opt/templates');
+      });
+
+      test('source_dir resolves default static and templates paths', () {
+        final config = DartclawConfig.load(
+          cliOverrides: {'source_dir': '/opt/dartclaw'},
+          fileReader: noFile,
+          env: {'HOME': '/home/user'},
+        );
+        expect(
+          config.server.staticDir,
+          '/opt/dartclaw/packages/dartclaw_server/lib/src/static',
+        );
+        expect(
+          config.server.templatesDir,
+          '/opt/dartclaw/packages/dartclaw_server/lib/src/templates',
+        );
+      });
+
+      test('source_dir from YAML resolves default paths', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'source_dir: /opt/dartclaw\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(
+          config.server.staticDir,
+          '/opt/dartclaw/packages/dartclaw_server/lib/src/static',
+        );
+        expect(
+          config.server.templatesDir,
+          '/opt/dartclaw/packages/dartclaw_server/lib/src/templates',
+        );
+      });
+
+      test('explicit static_dir/templates_dir override source_dir', () {
+        final config = DartclawConfig.load(
+          cliOverrides: {
+            'source_dir': '/opt/dartclaw',
+            'static_dir': '/my/static',
+            'templates_dir': '/my/templates',
+          },
+          fileReader: noFile,
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.staticDir, '/my/static');
+        expect(config.server.templatesDir, '/my/templates');
       });
 
       test('default dataDir gets ~ expanded', () {

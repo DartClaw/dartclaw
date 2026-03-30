@@ -57,7 +57,9 @@ class ServeCommand extends Command<void> {
       ..addOption('port', abbr: 'p', defaultsTo: '3000', help: 'Port to listen on')
       ..addOption('host', abbr: 'H', defaultsTo: 'localhost', help: 'Host to bind to')
       ..addOption('data-dir', help: 'Data directory path')
+      ..addOption('source-dir', help: 'Base directory for resolving default static/templates paths (e.g. dartclaw-public repo root)')
       ..addOption('static-dir', help: 'Static assets directory path')
+      ..addOption('templates-dir', help: 'HTML templates directory path')
       ..addOption('worker-timeout', help: 'Worker timeout in seconds')
       ..addOption('claude-executable', help: 'Path to claude binary (default: claude)')
       ..addOption('log-format', allowed: ['human', 'json'], defaultsTo: 'human', help: 'Log output format')
@@ -92,7 +94,9 @@ class ServeCommand extends Command<void> {
             if (argResults!.wasParsed('host')) 'host': argResults!['host'] as String,
             if (argResults!.wasParsed('data-dir')) 'data_dir': argResults!['data-dir'] as String,
             if (argResults!.wasParsed('worker-timeout')) 'worker_timeout': argResults!['worker-timeout'] as String,
+            if (argResults!.wasParsed('source-dir')) 'source_dir': argResults!['source-dir'] as String,
             if (argResults!.wasParsed('static-dir')) 'static_dir': argResults!['static-dir'] as String,
+            if (argResults!.wasParsed('templates-dir')) 'templates_dir': argResults!['templates-dir'] as String,
             if (argResults!.wasParsed('claude-executable'))
               'claude_executable': argResults!['claude-executable'] as String,
             if (argResults!['dev'] == true) 'dev_mode': 'true',
@@ -232,6 +236,7 @@ class ServeCommand extends Command<void> {
             channels: [
               if (config.channels.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
               if (config.channels.channelConfigs['signal']?['enabled'] == true) 'Signal',
+              if (config.channels.channelConfigs['google_chat']?['enabled'] == true) 'Google Chat',
             ],
             provider: providerName,
             model: modelName,

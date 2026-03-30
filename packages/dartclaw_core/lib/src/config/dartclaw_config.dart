@@ -11,8 +11,10 @@ import '../container/container_config.dart';
 import '../scoping/channel_config.dart';
 import '../scoping/channel_config_provider.dart';
 import '../scoping/session_scope_config.dart';
+import '../utils/duration_parser.dart' show tryParseDuration;
 import '../utils/path_utils.dart';
 import 'agent_config.dart';
+import 'history_config.dart';
 import 'advisor_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
@@ -380,10 +382,26 @@ class DartclawConfig {
     final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
     final dataDir = expandHome(rawDataDir, env: env);
 
-    // claudeExecutable, staticDir, templatesDir: CLI only (not from YAML), with ~ expansion
+    // claudeExecutable: CLI only (not from YAML), with ~ expansion
     final claudeExecutable = expandHome(cli['claude_executable'] ?? defaults.claudeExecutable, env: env);
-    final staticDir = expandHome(cli['static_dir'] ?? defaults.staticDir, env: env);
-    final templatesDir = expandHome(cli['templates_dir'] ?? defaults.templatesDir, env: env);
+
+    // sourceDir: CLI/YAML base directory for resolving default static/templates paths.
+    // When set, unspecified static_dir/templates_dir resolve relative to it.
+    final rawSourceDir = cli['source_dir'] ?? _yamlStringOrNull('source_dir', yaml['source_dir'], env, warns);
+    final sourceDir = rawSourceDir != null ? expandHome(rawSourceDir, env: env) : null;
+
+    // staticDir, templatesDir: CLI > YAML > sourceDir-relative > defaults, with ~ expansion
+    final rawStaticDir = cli['static_dir'] ?? _yamlStringOrNull('static_dir', yaml['static_dir'], env, warns);
+    final staticDir = expandHome(
+      rawStaticDir ?? (sourceDir != null ? p.join(sourceDir, defaults.staticDir) : defaults.staticDir),
+      env: env,
+    );
+    final rawTemplatesDir =
+        cli['templates_dir'] ?? _yamlStringOrNull('templates_dir', yaml['templates_dir'], env, warns);
+    final templatesDir = expandHome(
+      rawTemplatesDir ?? (sourceDir != null ? p.join(sourceDir, defaults.templatesDir) : defaults.templatesDir),
+      env: env,
+    );
 
     // dev_mode: enables template hot-reload, etc.
     final devMode = yaml['dev_mode'] == true || cli['dev_mode'] == 'true';
@@ -500,6 +518,38 @@ class DartclawConfig {
       }
     }
 
+    // Parse history sub-section
+    var historyConfig = const HistoryConfig.defaults();
+    final historyMap = agentMap?['history'];
+    if (historyMap is Map) {
+      var maxMessageChars = historyConfig.maxMessageChars;
+      var maxTotalChars = historyConfig.maxTotalChars;
+
+      final mmc = historyMap['max_message_chars'];
+      if (mmc is int && mmc >= 500) {
+        maxMessageChars = mmc;
+      } else if (mmc != null) {
+        warns.add('Invalid agent.history.max_message_chars: $mmc (must be int >= 500) — using default');
+      }
+
+      final mtc = historyMap['max_total_chars'];
+      if (mtc is int && mtc >= 5000) {
+        maxTotalChars = mtc;
+      } else if (mtc != null) {
+        warns.add('Invalid agent.history.max_total_chars: $mtc (must be int >= 5000) — using default');
+      }
+
+      if (maxTotalChars < maxMessageChars) {
+        warns.add(
+          'agent.history.max_total_chars ($maxTotalChars) < max_message_chars ($maxMessageChars) — using defaults',
+        );
+        maxMessageChars = const HistoryConfig.defaults().maxMessageChars;
+        maxTotalChars = const HistoryConfig.defaults().maxTotalChars;
+      }
+
+      historyConfig = HistoryConfig(maxMessageChars: maxMessageChars, maxTotalChars: maxTotalChars);
+    }
+
     return AgentConfig(
       provider: provider,
       model: model,
@@ -507,6 +557,7 @@ class DartclawConfig {
       maxTurns: maxTurns,
       disallowedTools: disallowedTools,
       definitions: definitions,
+      history: historyConfig,
     );
   }
 
@@ -1628,6 +1679,42 @@ class DartclawConfig {
       warns.add('Invalid type for governance.crowd_coding: "${crowdCodingRaw.runtimeType}" — using defaults');
     }
 
+    var turnProgress = defaults.turnProgress;
+    final turnProgressRaw = govMap['turn_progress'];
+    if (turnProgressRaw is Map) {
+      final parsedTimeout = tryParseDuration(turnProgressRaw['stall_timeout']);
+      final stallTimeout = parsedTimeout ?? turnProgress.stallTimeout;
+      if (turnProgressRaw['stall_timeout'] != null && parsedTimeout == null) {
+        warns.add(
+          'Invalid value for governance.turn_progress.stall_timeout: '
+          '"${turnProgressRaw['stall_timeout']}" — using default',
+        );
+      }
+
+      var stallAction = turnProgress.stallAction;
+      final stallActionRaw = turnProgressRaw['stall_action'];
+      if (stallActionRaw is String) {
+        final parsed = TurnProgressAction.fromYaml(stallActionRaw);
+        if (parsed != null) {
+          stallAction = parsed;
+        } else {
+          warns.add(
+            'Unknown governance.turn_progress.stall_action: '
+            '"$stallActionRaw" — using default "${turnProgress.stallAction.name}"',
+          );
+        }
+      } else if (stallActionRaw != null) {
+        warns.add(
+          'Invalid type for governance.turn_progress.stall_action: '
+          '"${stallActionRaw.runtimeType}" — using default',
+        );
+      }
+
+      turnProgress = TurnProgressConfig(stallTimeout: stallTimeout, stallAction: stallAction);
+    } else if (turnProgressRaw != null) {
+      warns.add('Invalid type for governance.turn_progress: "${turnProgressRaw.runtimeType}" — using defaults');
+    }
+
     // budget
     var budget = defaults.budget;
     final budgetRaw = govMap['budget'];
@@ -1642,8 +1729,10 @@ class DartclawConfig {
       var action = budget.action;
       final actionRaw = budgetRaw['action'];
       if (actionRaw is String) {
-        action = BudgetAction.fromYaml(actionRaw) ?? budget.action;
-        if (BudgetAction.fromYaml(actionRaw) == null) {
+        final parsedAction = BudgetAction.fromYaml(actionRaw);
+        if (parsedAction != null) {
+          action = parsedAction;
+        } else {
           warns.add('Unknown governance.budget.action: "$actionRaw" — using default "${budget.action.name}"');
         }
       }
@@ -1696,8 +1785,10 @@ class DartclawConfig {
       var action = loopDetection.action;
       final actionRaw = loopRaw['action'];
       if (actionRaw is String) {
-        action = LoopAction.fromYaml(actionRaw) ?? loopDetection.action;
-        if (LoopAction.fromYaml(actionRaw) == null) {
+        final parsedAction = LoopAction.fromYaml(actionRaw);
+        if (parsedAction != null) {
+          action = parsedAction;
+        } else {
           warns.add(
             'Unknown governance.loop_detection.action: "$actionRaw" — using default "${loopDetection.action.name}"',
           );
@@ -1723,6 +1814,7 @@ class DartclawConfig {
       loopDetection: loopDetection,
       queueStrategy: queueStrategy,
       crowdCoding: crowdCoding,
+      turnProgress: turnProgress,
     );
   }
 
@@ -1898,6 +1990,9 @@ class DartclawConfig {
     'host',
     'name',
     'data_dir',
+    'source_dir',
+    'static_dir',
+    'templates_dir',
     'base_url',
     'worker_timeout',
     'memory_max_bytes',
@@ -2051,6 +2146,16 @@ class DartclawConfig {
     if (yamlValue is! String) {
       warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — using default');
       return defaultValue;
+    }
+    return envSubstitute(yamlValue, env: env);
+  }
+
+  /// Like [_yamlString] but returns `null` when the YAML key is absent.
+  static String? _yamlStringOrNull(String key, Object? yamlValue, Map<String, String> env, List<String> warns) {
+    if (yamlValue == null) return null;
+    if (yamlValue is! String) {
+      warns.add('Invalid type for $key: "${yamlValue.runtimeType}" — ignoring');
+      return null;
     }
     return envSubstitute(yamlValue, env: env);
   }

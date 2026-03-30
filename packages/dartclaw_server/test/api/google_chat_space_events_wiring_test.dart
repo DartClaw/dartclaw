@@ -44,21 +44,29 @@ class _FakeAdapter extends CloudEventAdapter {
 class _FakeGoogleChatRestClient extends GoogleChatRestClient {
   _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
 
-  final List<(String, String, String?)> sentMessages = [];
-  final List<(String, String)> reactions = [];
+  final List<(String, String)> sentMessages = [];
   int _counter = 0;
 
+  /// Configurable member display name responses keyed by sender JID.
+  final Map<String, String?> memberDisplayNames = {};
+  final List<(String, String)> getMemberDisplayNameCalls = [];
+
   @override
-  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async {
-    sentMessages.add((spaceName, text, quotedMessageName));
+  Future<String?> sendMessage(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+  }) async {
+    sentMessages.add((spaceName, text));
     _counter += 1;
     return '$spaceName/messages/$_counter';
   }
 
   @override
-  Future<String?> addReaction(String messageName, String emoji) async {
-    reactions.add((messageName, emoji));
-    return '$messageName/reactions/${reactions.length}';
+  Future<String?> getMemberDisplayName(String spaceName, String memberName) async {
+    getMemberDisplayNameCalls.add((spaceName, memberName));
+    return memberDisplayNames[memberName];
   }
 }
 
@@ -104,7 +112,6 @@ void main() {
   GoogleChatSpaceEventsWiring buildWiring({
     required AdapterResult result,
     GoogleChatChannel? typingChannel,
-    GoogleChatConfig? config,
   }) {
     return GoogleChatSpaceEventsWiring(
       pubSubClient: _FakePubSubClient(),
@@ -113,7 +120,6 @@ void main() {
       deduplicator: deduplicator,
       channelManager: channelManager,
       channel: typingChannel,
-      config: config,
     );
   }
 
@@ -132,7 +138,6 @@ void main() {
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
       typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     final acked = await wiring.processMessage(
@@ -146,16 +151,18 @@ void main() {
     );
 
     expect(acked, isTrue);
-    expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._', null)]);
-    expect(restClient.reactions, isEmpty);
+    expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
     expect(channelManager.handled, hasLength(1));
   });
 
   test('does not send typing indicator when disabled', () async {
+    final disabledChannel = GoogleChatChannel(
+      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
+      restClient: restClient,
+    );
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
-      typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
+      typingChannel: disabledChannel,
     );
 
     await wiring.processMessage(
@@ -169,14 +176,12 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, hasLength(1));
   });
 
   test('does not send typing indicator when channel is absent', () async {
     final wiring = buildWiring(
       result: MessageResult([testMessage()]),
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     await wiring.processMessage(
@@ -190,30 +195,88 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, hasLength(1));
   });
 
-  test('sends emoji reaction before dispatch when enabled', () async {
-    final wiring = buildWiring(
-      result: MessageResult([testMessage()]),
-      typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.emoji),
-    );
+  group('sender display name enrichment', () {
+    late GoogleChatChannel disabledChannel;
 
-    await wiring.processMessage(
-      const ReceivedMessage(
-        ackId: 'ack',
-        data: '',
-        messageId: 'pubsub-1',
-        publishTime: '2026-03-25T10:00:00Z',
-        attributes: {},
-      ),
-    );
+    setUp(() {
+      disabledChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
+        restClient: restClient,
+      );
+    });
 
-    expect(restClient.sentMessages, isEmpty);
-    expect(restClient.reactions, [('spaces/AAAA/messages/BBBB', typingReactionEmoji)]);
-    expect(channelManager.handled, hasLength(1));
+    test('enriches missing senderDisplayName via members API', () async {
+      restClient.memberDisplayNames['users/123'] = 'Tobias';
+      final wiring = buildWiring(
+        result: MessageResult([testMessage()]),
+        typingChannel: disabledChannel,
+      );
+
+      await wiring.processMessage(
+        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+      );
+
+      expect(channelManager.handled, hasLength(1));
+      expect(channelManager.handled.first.metadata['senderDisplayName'], 'Tobias');
+      expect(restClient.getMemberDisplayNameCalls, [('spaces/AAAA', 'users/123')]);
+    });
+
+    test('caches resolved name across messages', () async {
+      restClient.memberDisplayNames['users/123'] = 'Tobias';
+      final msg1 = testMessage(id: 'msg-1', messageName: 'spaces/AAAA/messages/B1');
+      final msg2 = testMessage(id: 'msg-2', messageName: 'spaces/AAAA/messages/B2');
+      final wiring = buildWiring(
+        result: MessageResult([msg1, msg2]),
+        typingChannel: disabledChannel,
+      );
+
+      await wiring.processMessage(
+        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+      );
+
+      expect(channelManager.handled, hasLength(2));
+      expect(channelManager.handled[0].metadata['senderDisplayName'], 'Tobias');
+      expect(channelManager.handled[1].metadata['senderDisplayName'], 'Tobias');
+      // Only one API call — second message served from cache.
+      expect(restClient.getMemberDisplayNameCalls, hasLength(1));
+    });
+
+    test('removes senderDisplayName on lookup failure', () async {
+      // No entry in memberDisplayNames → returns null.
+      final msg = testMessage();
+      msg.metadata['senderDisplayName'] = 'users/123'; // raw ID from adapter
+      final wiring = buildWiring(
+        result: MessageResult([msg]),
+        typingChannel: disabledChannel,
+      );
+
+      await wiring.processMessage(
+        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+      );
+
+      expect(channelManager.handled, hasLength(1));
+      expect(channelManager.handled.first.metadata.containsKey('senderDisplayName'), isFalse);
+    });
+
+    test('skips enrichment when senderDisplayName already resolved', () async {
+      restClient.memberDisplayNames['users/123'] = 'API Name';
+      final msg = testMessage();
+      msg.metadata['senderDisplayName'] = 'Webhook Name'; // already populated
+      final wiring = buildWiring(
+        result: MessageResult([msg]),
+        typingChannel: disabledChannel,
+      );
+
+      await wiring.processMessage(
+        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+      );
+
+      expect(channelManager.handled.first.metadata['senderDisplayName'], 'Webhook Name');
+      expect(restClient.getMemberDisplayNameCalls, isEmpty);
+    });
   });
 
   test('dedup prevents duplicate processing', () async {
@@ -222,7 +285,6 @@ void main() {
     final wiring = buildWiring(
       result: MessageResult([message]),
       typingChannel: channel,
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
     );
 
     await wiring.processMessage(
@@ -236,7 +298,6 @@ void main() {
     );
 
     expect(restClient.sentMessages, isEmpty);
-    expect(restClient.reactions, isEmpty);
     expect(channelManager.handled, isEmpty);
   });
 }

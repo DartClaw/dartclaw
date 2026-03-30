@@ -224,11 +224,11 @@ void main() {
     final router = webhookRoutes(
       googleChat: GoogleChatWebhookHandler(
         channel: GoogleChatChannel(
-          config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicator: false),
+          config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicatorMode: TypingIndicatorMode.disabled),
           restClient: _FakeGoogleChatRestClient(),
         ),
         jwtVerifier: _FakeGoogleJwtVerifier(),
-        config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicator: false),
+        config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicatorMode: TypingIndicatorMode.disabled),
         channelManager: _FakeChannelManager(),
       ),
     );

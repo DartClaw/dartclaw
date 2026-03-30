@@ -19,6 +19,7 @@ import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'task/tool_call_summary.dart';
 import 'turn_manager.dart';
+import 'turn_progress_monitor.dart';
 
 /// Per-harness turn execution engine.
 ///
@@ -52,6 +53,8 @@ class TurnRunner {
   final LoopDetector? _loopDetector;
   final LoopAction? _loopAction;
   final EventBus? _eventBus;
+  final Duration _stallTimeout;
+  final TurnProgressAction _stallAction;
   Future<void> Function(String sessionId, BudgetCheckResult result)? _budgetWarningNotifier;
   Future<void> Function(String sessionId, LoopDetection detection, String action)? _loopDetectionNotifier;
   final Duration _outcomeTtl;
@@ -65,6 +68,10 @@ class TurnRunner {
 
   /// Agent provider backing this runner's harness (e.g. 'claude', 'codex').
   final String providerId;
+
+  final _progressController = StreamController<TurnProgressEvent>.broadcast();
+  Duration _statusTickInterval = Duration.zero;
+  final Map<String, TurnProgressSnapshot Function()> _turnProgressSnapshots = {};
 
   final Map<String, TurnContext> _activeTurns = {};
   final Set<String> _cancelledTurns = {};
@@ -94,6 +101,8 @@ class TurnRunner {
     LoopDetector? loopDetector,
     LoopAction? loopAction,
     EventBus? eventBus,
+    Duration stallTimeout = Duration.zero,
+    TurnProgressAction stallAction = TurnProgressAction.warn,
     Duration outcomeTtl = const Duration(seconds: 30),
     Future<void> Function(String sessionId, BudgetCheckResult result)? budgetWarningNotifier,
     this.profileId = 'workspace',
@@ -119,6 +128,8 @@ class TurnRunner {
        _loopDetector = loopDetector,
        _loopAction = loopAction,
        _eventBus = eventBus,
+       _stallTimeout = stallTimeout,
+       _stallAction = stallAction,
        _budgetWarningNotifier = budgetWarningNotifier,
        _outcomeTtl = outcomeTtl;
 
@@ -128,6 +139,18 @@ class TurnRunner {
 
   /// The underlying harness managed by this runner.
   AgentHarness get harness => _worker;
+
+  /// Structured progress events for the current turn.
+  ///
+  /// Replaces direct harness event subscription for progress tracking.
+  /// Subscribers receive [TurnProgressEvent] subtypes that include a
+  /// [TurnProgressSnapshot] at the time of emission.
+  Stream<TurnProgressEvent> get progressEvents => _progressController.stream;
+
+  /// Sets the periodic status tick interval. When positive, a
+  /// [StatusTickProgressEvent] is emitted at this interval during turns.
+  /// Defaults to [Duration.zero] (no ticks).
+  set statusTickInterval(Duration interval) => _statusTickInterval = interval;
 
   Iterable<String> get activeSessionIds => _activeTurns.keys;
 
@@ -504,6 +527,25 @@ class TurnRunner {
     final pendingToolCalls = <String, ({String name, String? context, DateTime startedAt})>{};
     final completedToolCalls = <ToolCallRecord>[];
     final stopwatch = Stopwatch()..start();
+    var progressTextLength = 0;
+    var progressToolCount = 0;
+    String? progressLastToolName;
+    final progressMonitor = _stallTimeout > Duration.zero
+        ? TurnProgressMonitor(
+            stallTimeout: _stallTimeout,
+            onStall: (stallTimeout) =>
+                _handleTurnStall(sessionId: sessionId, turnId: turnId, stallTimeout: stallTimeout),
+          )
+        : null;
+
+    TurnProgressSnapshot buildSnapshot() => TurnProgressSnapshot(
+      elapsed: stopwatch.elapsed,
+      toolCallCount: progressToolCount,
+      lastToolName: progressLastToolName,
+      textLength: progressTextLength,
+    );
+    _turnProgressSnapshots[sessionId] = buildSnapshot;
+
     String? userMessageFull;
     if (messages.isNotEmpty) {
       final last = messages.last;
@@ -516,12 +558,27 @@ class TurnRunner {
     final eventSub = _worker.events.listen((event) {
       if (event is DeltaEvent) {
         buffer.write(event.text);
+        progressMonitor?.recordProgress();
+        _resetService?.touchActivity(sessionId);
+        progressTextLength += event.text.length;
+        _progressController.add(TextDeltaProgressEvent(snapshot: buildSnapshot(), text: event.text));
       } else if (event is ToolUseEvent) {
         toolEvents.add(event);
+        progressMonitor?.recordProgress();
+        _resetService?.touchActivity(sessionId);
         pendingToolCalls[event.toolId] = (
           name: event.toolName,
           context: summarizeToolInput(event.toolName, event.input),
           startedAt: DateTime.now(),
+        );
+        progressToolCount += 1;
+        progressLastToolName = event.toolName;
+        _progressController.add(
+          ToolStartedProgressEvent(
+            snapshot: buildSnapshot(),
+            toolName: event.toolName,
+            toolCallCount: progressToolCount,
+          ),
         );
         // Tool-call fingerprint loop detection (mid-turn, mechanism 3).
         final fpDetection = _loopDetector?.recordToolCall(turnId, sessionId, event.toolName, event.input);
@@ -533,6 +590,8 @@ class TurnRunner {
           }
         }
       } else if (event is ToolResultEvent) {
+        progressMonitor?.recordProgress();
+        _resetService?.touchActivity(sessionId);
         final pending = pendingToolCalls.remove(event.toolId);
         if (pending != null) {
           final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
@@ -545,6 +604,9 @@ class TurnRunner {
               context: pending.context,
             ),
           );
+          _progressController.add(
+            ToolCompletedProgressEvent(snapshot: buildSnapshot(), toolName: pending.name, isError: event.isError),
+          );
         }
       } else if (event is SystemInitEvent) {
         _contextMonitor.update(contextWindow: event.contextWindow);
@@ -552,6 +614,7 @@ class TurnRunner {
     });
 
     TurnOutcome? outcome;
+    Timer? statusTickTimer;
     try {
       try {
         final chain = _guardChain;
@@ -583,6 +646,12 @@ class TurnRunner {
 
         final systemPrompt = await _buildSystemPrompt(sessionId);
         final turnCtx = _activeTurns[sessionId];
+        statusTickTimer = _statusTickInterval > Duration.zero
+            ? Timer.periodic(_statusTickInterval, (_) {
+                _progressController.add(StatusTickProgressEvent(snapshot: buildSnapshot()));
+              })
+            : null;
+        progressMonitor?.start();
         final result = await _worker.turn(
           sessionId: sessionId,
           messages: messages,
@@ -772,7 +841,10 @@ class TurnRunner {
         );
       }
     } finally {
+      statusTickTimer?.cancel();
+      progressMonitor?.stop();
       await eventSub.cancel();
+      _turnProgressSnapshots.remove(sessionId);
       _activeTurns.remove(sessionId);
       _lockManager.release(sessionId);
       // Clean up loop detection state for this turn.
@@ -910,6 +982,34 @@ class TurnRunner {
   }
 
   static String _truncate(String s, int maxLen) => s.length <= maxLen ? s : '${s.substring(0, maxLen)}...';
+
+  void _handleTurnStall({required String sessionId, required String turnId, required Duration stallTimeout}) {
+    final payload = {
+      'sessionId': sessionId,
+      'turnId': turnId,
+      'silentForSeconds': stallTimeout.inSeconds,
+      'action': _stallAction.name,
+    };
+
+    // Emit progress event for stall — snapshot from per-turn progress state.
+    final snapshotFn = _turnProgressSnapshots[sessionId];
+    final snapshot = snapshotFn != null ? snapshotFn() : TurnProgressSnapshot(elapsed: Duration.zero, toolCallCount: 0);
+    _progressController.add(
+      TurnStallProgressEvent(snapshot: snapshot, stallTimeout: stallTimeout, action: _stallAction.name),
+    );
+
+    switch (_stallAction) {
+      case TurnProgressAction.warn:
+        _log.warning('Turn $turnId has stalled for ${stallTimeout.inSeconds}s');
+        _sseBroadcast?.broadcast('turn_progress_stall', payload);
+      case TurnProgressAction.cancel:
+        _log.warning('Cancelling stalled turn $turnId after ${stallTimeout.inSeconds}s');
+        _sseBroadcast?.broadcast('turn_progress_stall', payload);
+        unawaited(cancelTurn(sessionId));
+      case TurnProgressAction.ignore:
+        _log.info('Ignoring stalled turn $turnId after ${stallTimeout.inSeconds}s');
+    }
+  }
 
   /// Extracts a file path hint from the last tool use event for type detection.
   ///

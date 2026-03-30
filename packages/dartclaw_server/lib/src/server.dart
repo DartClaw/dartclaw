@@ -192,6 +192,8 @@ class DartclawServerBuilder {
             redactor: redactor,
             selfImprovement: selfImprovement,
             usageTracker: usageTracker,
+            stallTimeout: config?.governance.turnProgress.stallTimeout ?? Duration.zero,
+            stallAction: config?.governance.turnProgress.stallAction ?? TurnProgressAction.warn,
           );
     return _cachedTurns!;
   }

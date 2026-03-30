@@ -102,10 +102,11 @@ class GoogleAuthCommand extends Command<void> {
         usage,
       );
     }
-    final scopes = spaceEventsConfig.requiredUserAuthScopes.toList()..sort();
+    final scopes = {...spaceEventsConfig.requiredUserAuthScopes, ...?googleChatConfig?.requiredReactionScopes}.toList()
+      ..sort();
 
     _writeLine('Opening browser for Google OAuth consent...');
-    _writeLine('Grant the requested Google Chat read-only permissions in the browser.');
+    _writeLine('Grant the requested Google Chat permissions in the browser.');
     _writeLine('');
 
     // Run the consent flow.

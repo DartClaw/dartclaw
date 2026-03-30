@@ -1,5 +1,6 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
 
+import '../config/history_config.dart';
 import 'agent_harness.dart';
 import 'claude_code_harness.dart';
 import 'codex_exec_harness.dart';
@@ -45,12 +46,16 @@ class HarnessFactoryConfig {
   /// Memory read callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
+  /// History replay configuration for Claude harnesses.
+  final HistoryConfig historyConfig;
+
   /// Creates an immutable harness-construction configuration.
   const HarnessFactoryConfig({
     required this.cwd,
     this.executable = 'claude',
     this.turnTimeout = const Duration(seconds: 600),
     this.harnessConfig = const HarnessConfig(),
+    this.historyConfig = const HistoryConfig.defaults(),
     this.providerOptions = const <String, dynamic>{},
     this.environment = const <String, String>{},
     this.containerManager,
@@ -105,6 +110,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
     harnessConfig: config.harnessConfig,
+    historyConfig: config.historyConfig,
     containerManager: config.containerManager,
     environment: config.environment,
     guardChain: config.guardChain,

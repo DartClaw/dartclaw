@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' show ChannelMessage, ChannelType;
 import 'package:logging/logging.dart';
 
+import 'google_chat_utils.dart' as utils;
 import 'pubsub_client.dart';
 
 // ---------------------------------------------------------------------------
@@ -168,15 +169,15 @@ class CloudEventAdapter {
 
   /// Parses a single `message.v1.created` CloudEvent.
   AdapterResult _handleMessageCreated(Map<String, dynamic> cloudEvent, String pubsubMessageId) {
-    final data = _asMap(cloudEvent['data']);
-    final messageResource = _asMap(data?['message']);
+    final data = utils.asMap(cloudEvent['data']);
+    final messageResource = utils.asMap(data?['message']);
     if (messageResource == null) {
       _log.warning('CloudEvent missing data.message (pubsub: $pubsubMessageId)');
       return const Acknowledged('missing data.message');
     }
 
-    final sender = _asMap(messageResource['sender']);
-    if (_isBotMessage(sender)) {
+    final sender = utils.asMap(messageResource['sender']);
+    if (utils.isBotMessage(sender, botUser: _botUser)) {
       _log.fine('Filtering bot message (pubsub: $pubsubMessageId)');
       return const Filtered('bot message');
     }
@@ -194,7 +195,7 @@ class CloudEventAdapter {
   /// Iterates over `data.messages[]`, parsing each entry's `message` field.
   /// Skips individual messages that are bot-originated or malformed.
   AdapterResult _handleBatchCreated(Map<String, dynamic> cloudEvent, String pubsubMessageId) {
-    final data = _asMap(cloudEvent['data']);
+    final data = utils.asMap(cloudEvent['data']);
     final messagesArray = data?['messages'];
     if (messagesArray is! List || messagesArray.isEmpty) {
       _log.warning('CloudEvent batchCreated missing or empty data.messages (pubsub: $pubsubMessageId)');
@@ -203,15 +204,15 @@ class CloudEventAdapter {
 
     final channelMessages = <ChannelMessage>[];
     for (var i = 0; i < messagesArray.length; i++) {
-      final entry = _asMap(messagesArray[i]);
-      final messageResource = _asMap(entry?['message']);
+      final entry = utils.asMap(messagesArray[i]);
+      final messageResource = utils.asMap(entry?['message']);
       if (messageResource == null) {
         _log.fine('Skipping batch entry $i — missing message resource (pubsub: $pubsubMessageId)');
         continue;
       }
 
-      final sender = _asMap(messageResource['sender']);
-      if (_isBotMessage(sender)) {
+      final sender = utils.asMap(messageResource['sender']);
+      if (utils.isBotMessage(sender, botUser: _botUser)) {
         _log.fine('Filtering bot message in batch entry $i (pubsub: $pubsubMessageId)');
         continue;
       }
@@ -244,9 +245,9 @@ class CloudEventAdapter {
     Map<String, dynamic> cloudEvent,
     String pubsubMessageId,
   ) {
-    final sender = _asMap(messageResource['sender']);
+    final sender = utils.asMap(messageResource['sender']);
     final senderJid = sender?['name'] as String?;
-    final space = _asMap(messageResource['space']);
+    final space = utils.asMap(messageResource['space']);
     final spaceName = space?['name'] as String?;
 
     if (senderJid == null || senderJid.isEmpty || spaceName == null || spaceName.isEmpty) {
@@ -254,22 +255,16 @@ class CloudEventAdapter {
       return null;
     }
 
-    // Prefer argumentText (strips @mention prefix), fall back to text
-    final argumentText = (messageResource['argumentText'] as String?)?.trim();
-    final plainText = (messageResource['text'] as String?)?.trim();
-    final text = (argumentText != null && argumentText.isNotEmpty) ? argumentText : plainText;
+    final text = utils.resolveMessageText(messageResource);
     if (text == null || text.isEmpty) {
       _log.fine('CloudEvent message has empty text (pubsub: $pubsubMessageId)');
       return null;
     }
 
-    // Resolve space type and group JID (same logic as GoogleChatWebhookHandler)
-    final spaceType = space?['type'] as String?;
-    final groupJid = switch (spaceType) {
-      'DM' => null,
-      'ROOM' || 'SPACE' => spaceName,
-      _ => spaceName, // Default to group for unknown space types
-    };
+    // Space Events CloudEvents may omit space.type — default to SPACE since
+    // only named spaces have Workspace Events subscriptions (not DMs).
+    final spaceType = (space?['type'] as String?) ?? (space?['spaceType'] as String?) ?? 'SPACE';
+    final groupJid = utils.resolveGroupJid(spaceType: spaceType, spaceName: spaceName);
 
     // Parse timestamp
     DateTime? timestamp;
@@ -295,33 +290,15 @@ class CloudEventAdapter {
       timestamp: timestamp,
       metadata: {
         'spaceName': spaceName,
-        'spaceType': ?spaceType,
+        'spaceType': spaceType,
         'spaceDisplayName': ?spaceDisplayName,
         'senderDisplayName': ?senderDisplayName,
         'senderAvatarUrl': ?senderAvatarUrl,
         'messageName': ?messageName,
+        'messageCreateTime': ?createTimeRaw,
         if (threadName != null && threadName.isNotEmpty) 'threadName': threadName,
       },
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  /// Returns `true` if the sender is a bot (type `BOT` or matching
-  /// configured [_botUser]).
-  bool _isBotMessage(Map<String, dynamic>? sender) {
-    if (sender == null) return false;
-    if (sender['type'] == 'BOT') return true;
-    final configuredBotUser = _botUser;
-    return configuredBotUser != null && configuredBotUser.isNotEmpty && sender['name'] == configuredBotUser;
-  }
-
-  /// Safely casts a value to `Map<String, dynamic>`, or returns `null`.
-  static Map<String, dynamic>? _asMap(Object? value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) return value.map((key, value) => MapEntry('$key', value));
-    return null;
-  }
 }

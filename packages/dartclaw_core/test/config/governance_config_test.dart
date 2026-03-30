@@ -236,6 +236,35 @@ governance:
 ''');
         expect(config.governance.queueStrategy, QueueStrategy.fair);
       });
+
+      test('turn_progress parses stall timeout and action', () {
+        final config = _loadYaml('''
+governance:
+  turn_progress:
+    stall_timeout: 45s
+    stall_action: cancel
+''');
+        final dynamic governance = config.governance;
+        final dynamic turnProgress = governance.turnProgress;
+
+        expect(turnProgress.stallTimeout, const Duration(seconds: 45));
+        expect(_enumName(turnProgress.stallAction), 'cancel');
+      });
+
+      test('invalid turn_progress action warns and keeps the default', () {
+        final config = _loadYaml('''
+governance:
+  turn_progress:
+    stall_timeout: 30s
+    stall_action: explode
+''');
+        final dynamic governance = config.governance;
+        final dynamic turnProgress = governance.turnProgress;
+
+        expect(turnProgress.stallTimeout, const Duration(seconds: 30));
+        expect(_enumName(turnProgress.stallAction), 'warn');
+        expect(config.warnings, anyElement(contains('governance.turn_progress.stall_action')));
+      });
     });
 
     group('equality', () {
@@ -250,4 +279,13 @@ governance:
       });
     });
   });
+}
+
+String _enumName(dynamic value) {
+  final dynamic dynamicValue = value;
+  try {
+    return dynamicValue.name as String;
+  } catch (_) {
+    return dynamicValue.toString().split('.').last;
+  }
 }

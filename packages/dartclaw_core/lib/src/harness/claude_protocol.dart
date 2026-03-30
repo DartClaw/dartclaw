@@ -14,7 +14,7 @@ const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CO
 
 sealed class ClaudeMessage {}
 
-/// System init event — emitted once at session start.
+/// System init event — emitted by the CLI at the start of each turn response.
 final class SystemInit extends ClaudeMessage {
   final String? sessionId;
   final int toolCount;

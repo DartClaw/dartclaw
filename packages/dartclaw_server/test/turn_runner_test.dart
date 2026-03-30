@@ -17,6 +17,7 @@ TurnRunner _buildRunner({
   required SessionService sessions,
   required TurnStateStore turnState,
   required KvService kvService,
+  SessionResetService? resetService,
   String providerId = 'claude',
 }) {
   return TurnRunner(
@@ -26,6 +27,7 @@ TurnRunner _buildRunner({
     sessions: sessions,
     turnState: turnState,
     kv: kvService,
+    resetService: resetService,
     providerId: providerId,
   );
 }
@@ -73,6 +75,17 @@ Future<Map<String, dynamic>> _readSessionCost(KvService kvService, String sessio
   final raw = await kvService.get('session_cost:$sessionId');
   expect(raw, isNotNull);
   return jsonDecode(raw!) as Map<String, dynamic>;
+}
+
+class _RecordingSessionResetService extends SessionResetService {
+  final List<String> touchedSessions = [];
+
+  _RecordingSessionResetService({required super.sessions, required super.messages});
+
+  @override
+  void touchActivity(String sessionId) {
+    touchedSessions.add(sessionId);
+  }
 }
 
 void main() {
@@ -488,6 +501,40 @@ void main() {
     expect(outcome.turnDuration.inMilliseconds, greaterThanOrEqualTo(0));
   });
 
+  test('progress events reset session activity throughout a running turn', () async {
+    final resetService = _RecordingSessionResetService(sessions: sessions, messages: messages);
+    final resetAwareRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      resetService: resetService,
+    );
+    final session = await sessions.getOrCreateMain();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('thinking'));
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tool-1', input: {'command': 'ls'}));
+      worker.emit(ToolResultEvent(toolId: 'tool-1', output: 'ok', isError: false));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await resetAwareRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'keep the idle timer alive'},
+    ]);
+    final outcome = await resetAwareRunner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(
+      resetService.touchedSessions,
+      [session.id, session.id, session.id, session.id],
+      reason: 'reserveTurn should touch once and every progress event should refresh activity',
+    );
+  });
+
   test('failed tool call produces ToolCallRecord with success: false and errorType: tool_error', () async {
     final session = await sessions.getOrCreateMain();
 
@@ -511,5 +558,109 @@ void main() {
     expect(record.name, 'bash');
     expect(record.success, isFalse);
     expect(record.errorType, 'tool_error');
+  });
+
+  test('progressEvents emits TextDelta, ToolStarted, ToolCompleted in correct order', () async {
+    final session = await sessions.getOrCreateMain();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('hello'));
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_p1', input: {'command': 'ls'}));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.emit(ToolResultEvent(toolId: 'tu_p1', output: 'ok', isError: false));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'progress test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(events, hasLength(3));
+    expect(events[0], isA<TextDeltaProgressEvent>());
+    expect((events[0] as TextDeltaProgressEvent).text, 'hello');
+    expect(events[1], isA<ToolStartedProgressEvent>());
+    expect((events[1] as ToolStartedProgressEvent).toolName, 'bash');
+    expect((events[1] as ToolStartedProgressEvent).toolCallCount, 1);
+    expect(events[2], isA<ToolCompletedProgressEvent>());
+    expect((events[2] as ToolCompletedProgressEvent).toolName, 'bash');
+    expect((events[2] as ToolCompletedProgressEvent).isError, isFalse);
+  });
+
+  test('progressEvents snapshot has correct textLength and toolCallCount', () async {
+    final session = await sessions.getOrCreateMain();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('abc')); // 3 chars
+      worker.emit(DeltaEvent('de')); // +2 = 5 chars
+      worker.emit(ToolUseEvent(toolName: 'read', toolId: 'tu_s1', input: {}));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.emit(ToolResultEvent(toolId: 'tu_s1', output: 'ok', isError: false));
+      worker.emit(ToolUseEvent(toolName: 'write', toolId: 'tu_s2', input: {}));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      worker.emit(ToolResultEvent(toolId: 'tu_s2', output: 'ok', isError: false));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'snapshot test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    // 2 deltas + 2 tool starts + 2 tool completes = 6 events
+    expect(events, hasLength(6));
+
+    // First delta: textLength=3, toolCallCount=0
+    expect(events[0].snapshot.textLength, 3);
+    expect(events[0].snapshot.toolCallCount, 0);
+
+    // Second delta: textLength=5, toolCallCount=0
+    expect(events[1].snapshot.textLength, 5);
+    expect(events[1].snapshot.toolCallCount, 0);
+
+    // First tool started: toolCallCount=1
+    expect(events[2].snapshot.toolCallCount, 1);
+    expect(events[2].snapshot.textLength, 5);
+
+    // First tool completed: toolCallCount=1
+    expect(events[3].snapshot.toolCallCount, 1);
+
+    // Second tool started: toolCallCount=2
+    expect(events[4].snapshot.toolCallCount, 2);
+
+    // Second tool completed: toolCallCount=2
+    expect(events[5].snapshot.toolCallCount, 2);
+    expect(events[5].snapshot.textLength, 5);
+  });
+
+  test('progressEvents not emitted for unrelated events (SystemInitEvent)', () async {
+    final session = await sessions.getOrCreateMain();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(SystemInitEvent(contextWindow: 200000));
+      worker.emit(DeltaEvent('only'));
+      worker.completeSuccess(_turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'init event test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(events, hasLength(1));
+    expect(events[0], isA<TextDeltaProgressEvent>());
+    expect((events[0] as TextDeltaProgressEvent).text, 'only');
   });
 }

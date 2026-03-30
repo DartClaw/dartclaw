@@ -78,11 +78,7 @@ void main() {
         'autoShare': true,
         'showQr': true,
       });
-      expect(canvas['workshopMode'], {
-        'taskBoard': true,
-        'showContributorStats': true,
-        'showBudgetBar': true,
-      });
+      expect(canvas['workshopMode'], {'taskBoard': true, 'showContributorStats': true, 'showBudgetBar': true});
 
       final governance = json['governance'] as Map<String, dynamic>;
       expect(governance['queueStrategy'], 'fifo');
@@ -332,12 +328,12 @@ void main() {
                 ),
                 webhookPath: '/integrations/googlechat',
                 botUser: 'users/123',
-                typingIndicatorMode: TypingIndicatorMode.emoji,
-                quoteReply: true,
+                quoteReplyMode: QuoteReplyMode.native,
+                typingIndicatorMode: TypingIndicatorMode.disabled,
                 dmAccess: DmAccessMode.allowlist,
                 dmAllowlist: ['spaces/AAA/users/1'],
                 groupAccess: GroupAccessMode.open,
-                groupAllowlist: ['spaces/AAA'],
+                groupAllowlist: [GroupEntry(id: 'spaces/AAA')],
                 requireMention: false,
                 taskTrigger: TaskTriggerConfig(
                   enabled: true,
@@ -358,12 +354,12 @@ void main() {
 
       expect(googleChat['enabled'], isTrue);
       expect(googleChat['serviceAccount'], '/tmp/google-service-account.json');
-      expect(googleChat['oauthCredentials'], '/tmp/google-oauth-client.json');
+      expect(googleChat['oauthCredentials'], isTrue);
       expect(googleChat['audience'], {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'});
       expect(googleChat['webhookPath'], '/integrations/googlechat');
       expect(googleChat['botUser'], 'users/123');
-      expect(googleChat['typingIndicator'], 'emoji');
-      expect(googleChat['quoteReply'], isTrue);
+      expect(googleChat['quoteReplyMode'], 'native');
+      expect(googleChat['typingIndicator'], 'disabled');
       expect(googleChat['dmAccess'], 'allowlist');
       expect(googleChat['dmAllowlist'], ['spaces/AAA/users/1']);
       expect(googleChat['groupAccess'], 'open');
@@ -375,6 +371,38 @@ void main() {
         'defaultType': 'automation',
         'autoStart': false,
       });
+    });
+
+    test('google chat reactionsAuth serializes as disabled by default', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final googleChat = ((json['channels'] as Map<String, dynamic>)['googleChat'] as Map<String, dynamic>);
+
+      expect(googleChat['reactionsAuth'], 'disabled');
+    });
+
+    test('google chat reactionsAuth serializes from loaded config', () {
+      final config = DartclawConfig.load(
+        fileReader: (path) {
+          if (path == 'dartclaw.yaml') {
+            return '''
+channels:
+  google_chat:
+    reactions_auth: user
+''';
+          }
+          return null;
+        },
+        env: {'HOME': '/tmp'},
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final googleChat = ((json['channels'] as Map<String, dynamic>)['googleChat'] as Map<String, dynamic>);
+
+      expect(googleChat['reactionsAuth'], 'user');
     });
 
     test('google chat inline service account is redacted to client email', () {
@@ -399,6 +427,37 @@ void main() {
       final googleChat = channels['googleChat'] as Map<String, dynamic>;
 
       expect(googleChat['serviceAccount'], 'chat-bot@example.iam.gserviceaccount.com');
+    });
+
+    test('google chat feedback config serializes when enabled', () {
+      final config = DartclawConfig.load(
+        fileReader: (path) {
+          if (path == 'dartclaw.yaml') {
+            return '''
+channels:
+  google_chat:
+    feedback:
+      enabled: true
+      min_feedback_delay: 2s
+      status_interval: 30s
+      status_style: minimal
+''';
+          }
+          return null;
+        },
+        env: {'HOME': '/tmp'},
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final feedback =
+          ((json['channels'] as Map<String, dynamic>)['googleChat'] as Map<String, dynamic>)['feedback']
+              as Map<String, dynamic>;
+
+      expect(feedback['enabled'], isTrue);
+      expect(feedback['statusStyle'], 'minimal');
+      expect(feedback['minFeedbackDelay'], anyOf(2, '2s', const Duration(seconds: 2)));
+      expect(feedback['statusInterval'], anyOf(30, '30s', const Duration(seconds: 30)));
     });
 
     test('whatsapp config serializes from parsed typed config', () {
@@ -461,6 +520,30 @@ void main() {
         'defaultType': 'research',
         'autoStart': true,
       });
+    });
+
+    test('governance turn progress serializes nested stall settings', () {
+      final config = DartclawConfig.load(
+        fileReader: (path) {
+          if (path == 'dartclaw.yaml') {
+            return '''
+governance:
+  turn_progress:
+    stall_timeout: 45s
+    stall_action: cancel
+''';
+          }
+          return null;
+        },
+        env: {'HOME': '/tmp'},
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final turnProgress = ((json['governance'] as Map<String, dynamic>)['turnProgress']) as Map<String, dynamic>;
+
+      expect(turnProgress['stallAction'], 'cancel');
+      expect(turnProgress['stallTimeout'], anyOf(45, '45s', const Duration(seconds: 45)));
     });
   });
 
@@ -556,12 +639,12 @@ Map<String, dynamic> _googleChatChannelConfig(GoogleChatConfig config) => {
     },
   'webhook_path': config.webhookPath,
   if (config.botUser != null) 'bot_user': config.botUser,
+  'quote_reply': config.quoteReplyMode.name,
   'typing_indicator': config.typingIndicatorMode.name,
-  'quote_reply': config.quoteReply,
   'dm_access': config.dmAccess.name,
   'dm_allowlist': config.dmAllowlist,
   'group_access': config.groupAccess.name,
-  'group_allowlist': config.groupAllowlist,
+  'group_allowlist': config.groupIds,
   'require_mention': config.requireMention,
   'task_trigger': {
     'enabled': config.taskTrigger.enabled,

@@ -24,12 +24,7 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final result = await client.sendMessageInThread(
-        'spaces/AAA',
-        'Hello',
-        threadKey: 'task-123',
-        quotedMessageName: 'spaces/AAA/messages/SRC',
-      );
+      final result = await client.sendMessageInThread('spaces/AAA', 'Hello', threadKey: 'task-123');
 
       expect(result.messageName, equals('spaces/AAA/messages/BBB'));
       expect(result.threadName, equals('spaces/AAA/threads/CCC'));
@@ -39,7 +34,6 @@ void main() {
       expect(body['text'], equals('Hello'));
       expect(body['thread'], equals({'threadKey': 'task-123'}));
       expect(body['messageReplyOption'], equals('REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD'));
-      expect(body['quotedMessageMetadata'], equals({'name': 'spaces/AAA/messages/SRC'}));
     });
 
     test('returns nulls on HTTP error', () async {
@@ -104,12 +98,7 @@ void main() {
         ],
       };
 
-      final result = await client.sendCardInThread(
-        'spaces/AAA',
-        cardPayload,
-        threadKey: 'task-456',
-        quotedMessageName: 'spaces/AAA/messages/SRC',
-      );
+      final result = await client.sendCardInThread('spaces/AAA', cardPayload, threadKey: 'task-456');
 
       expect(result.messageName, equals('spaces/AAA/messages/DDD'));
       expect(result.threadName, equals('spaces/AAA/threads/EEE'));
@@ -117,7 +106,6 @@ void main() {
       expect(body.containsKey('cardsV2'), isTrue);
       expect(body['thread'], equals({'threadKey': 'task-456'}));
       expect(body['messageReplyOption'], equals('REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD'));
-      expect(body['quotedMessageMetadata'], equals({'name': 'spaces/AAA/messages/SRC'}));
     });
 
     test('returns nulls on HTTP error', () async {
@@ -176,14 +164,12 @@ void main() {
         'spaces/AAA',
         'Hello again',
         threadName: 'spaces/AAA/threads/CCC',
-        quotedMessageName: 'spaces/AAA/messages/SRC',
       );
 
       expect(messageName, 'spaces/AAA/messages/FFF');
       final body = jsonDecode(captured.body) as Map<String, dynamic>;
       expect(body['thread'], {'name': 'spaces/AAA/threads/CCC'});
       expect(body['text'], 'Hello again');
-      expect(body['quotedMessageMetadata'], {'name': 'spaces/AAA/messages/SRC'});
     });
 
     test('sendCardToThread targets an existing thread name', () async {
@@ -207,14 +193,12 @@ void main() {
           ],
         },
         threadName: 'spaces/AAA/threads/CCC',
-        quotedMessageName: 'spaces/AAA/messages/SRC',
       );
 
       expect(messageName, 'spaces/AAA/messages/GGG');
       final body = jsonDecode(captured.body) as Map<String, dynamic>;
       expect(body['thread'], {'name': 'spaces/AAA/threads/CCC'});
       expect(body['cardsV2'], isNotEmpty);
-      expect(body['quotedMessageMetadata'], {'name': 'spaces/AAA/messages/SRC'});
     });
   });
 }

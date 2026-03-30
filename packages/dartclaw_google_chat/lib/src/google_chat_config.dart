@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show DmAccessMode, GroupAccessMode, TaskTriggerConfig;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show DmAccessMode, GroupAccessMode, GroupEntry, TaskTriggerConfig, tryParseDuration;
 
 /// Configuration for the Cloud Pub/Sub pull client.
 class PubSubConfig {
@@ -80,18 +81,6 @@ class PubSubConfig {
       maxMessagesPerPull: maxMessagesPerPull,
     );
   }
-}
-
-/// How the typing indicator is shown to the user.
-enum TypingIndicatorMode {
-  /// Send a placeholder message that gets replaced by the real response.
-  message,
-
-  /// React to the inbound message with an emoji, removed on reply.
-  emoji,
-
-  /// No typing indicator.
-  disabled,
 }
 
 /// Configuration for Workspace Events API subscriptions.
@@ -269,6 +258,117 @@ class SpaceEventsConfig {
   }
 }
 
+/// How the typing indicator is shown to the user.
+enum TypingIndicatorMode {
+  /// No typing indicator.
+  disabled,
+
+  /// Send a placeholder message that gets replaced by the real response.
+  message,
+
+  /// React to the inbound message with an emoji, removed on reply.
+  emoji,
+}
+
+/// How outbound replies attribute the inbound sender in Google Chat.
+enum QuoteReplyMode {
+  /// No attribution or quoting.
+  disabled,
+
+  /// Prepend `*@Sender* – ` to the first response chunk in multi-user spaces.
+  /// Works with any auth mode (including `chat.bot` service account).
+  sender,
+
+  /// Use Google Chat `quotedMessageMetadata` for a native quote bubble.
+  /// Requires user-level auth (`chat.messages.create` scope).
+  /// Falls back to [sender] attribution when the API returns 403.
+  native,
+}
+
+/// Auth mode for message reactions in Google Chat.
+enum ReactionsAuth {
+  /// Reactions are disabled.
+  disabled,
+
+  /// Reactions use user-level OAuth authentication.
+  user,
+}
+
+/// Style of long-running progress updates shown in Google Chat.
+enum GoogleChatFeedbackStatusStyle { creative, minimal, silent }
+
+/// Progress-feedback configuration for Google Chat replies.
+class GoogleChatFeedbackConfig {
+  final bool enabled;
+  final Duration minFeedbackDelay;
+  final Duration statusInterval;
+  final GoogleChatFeedbackStatusStyle statusStyle;
+
+  const GoogleChatFeedbackConfig({
+    this.enabled = false,
+    this.minFeedbackDelay = Duration.zero,
+    this.statusInterval = const Duration(seconds: 30),
+    this.statusStyle = GoogleChatFeedbackStatusStyle.creative,
+  });
+
+  const GoogleChatFeedbackConfig.disabled() : this();
+
+  factory GoogleChatFeedbackConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+    var enabled = false;
+    final enabledRaw = yaml['enabled'];
+    if (enabledRaw is bool) {
+      enabled = enabledRaw;
+    } else if (enabledRaw != null) {
+      warns.add('Invalid type for google_chat.feedback.enabled: "${enabledRaw.runtimeType}" — using default');
+    }
+
+    var minFeedbackDelay = Duration.zero;
+    final minFeedbackDelayRaw = yaml['min_feedback_delay'];
+    if (minFeedbackDelayRaw != null) {
+      final parsed = tryParseDuration(minFeedbackDelayRaw);
+      if (parsed != null) {
+        minFeedbackDelay = parsed;
+      } else {
+        warns.add('Invalid value for google_chat.feedback.min_feedback_delay: "$minFeedbackDelayRaw" — using default');
+      }
+    }
+
+    var statusInterval = const Duration(seconds: 30);
+    final statusIntervalRaw = yaml['status_interval'];
+    if (statusIntervalRaw != null) {
+      final parsed = tryParseDuration(statusIntervalRaw);
+      if (parsed != null) {
+        statusInterval = parsed;
+      } else {
+        warns.add('Invalid value for google_chat.feedback.status_interval: "$statusIntervalRaw" — using default');
+      }
+    }
+
+    var statusStyle = GoogleChatFeedbackStatusStyle.creative;
+    final statusStyleRaw = yaml['status_style'];
+    if (statusStyleRaw is String) {
+      statusStyle = switch (statusStyleRaw) {
+        'creative' => GoogleChatFeedbackStatusStyle.creative,
+        'minimal' => GoogleChatFeedbackStatusStyle.minimal,
+        'silent' => GoogleChatFeedbackStatusStyle.silent,
+        _ => () {
+          warns.add('Invalid google_chat.feedback.status_style: "$statusStyleRaw" — using default');
+          return GoogleChatFeedbackStatusStyle.creative;
+        }(),
+      };
+    } else if (statusStyleRaw != null) {
+      warns.add('Invalid type for google_chat.feedback.status_style: "${statusStyleRaw.runtimeType}" — using default');
+    }
+
+    return GoogleChatFeedbackConfig(
+      enabled: enabled,
+      minFeedbackDelay: minFeedbackDelay,
+      statusInterval: statusInterval,
+      statusStyle: statusStyle,
+    );
+  }
+}
+
 /// Audience format used when validating Google Chat JWT tokens.
 enum GoogleChatAudienceMode {
   /// Audience is the HTTPS app URL configured for the Chat app.
@@ -313,9 +413,6 @@ class GoogleChatConfig {
   /// How the typing indicator is shown to the user.
   final TypingIndicatorMode typingIndicatorMode;
 
-  /// Whether channel responses are quoted as replies.
-  final bool quoteReply;
-
   /// Direct-message access policy for one-to-one Google Chat spaces.
   final DmAccessMode dmAccess;
 
@@ -325,11 +422,17 @@ class GoogleChatConfig {
   /// Group-space access policy.
   final GroupAccessMode groupAccess;
 
-  /// Approved group space identifiers when [groupAccess] is restricted.
-  final List<String> groupAllowlist;
+  /// Approved group space entries when [groupAccess] is restricted.
+  final List<GroupEntry> groupAllowlist;
 
   /// Whether group messages must mention the bot.
   final bool requireMention;
+
+  /// How outbound replies quote the inbound message.
+  final QuoteReplyMode quoteReplyMode;
+
+  /// Auth mode for message reactions.
+  final ReactionsAuth reactionsAuth;
 
   /// Per-channel task trigger configuration.
   final TaskTriggerConfig taskTrigger;
@@ -340,6 +443,9 @@ class GoogleChatConfig {
   /// Workspace Events subscription configuration.
   final SpaceEventsConfig spaceEvents;
 
+  /// Progress-feedback configuration for long-running turns.
+  final GoogleChatFeedbackConfig feedback;
+
   /// Creates immutable Google Chat channel configuration.
   const GoogleChatConfig({
     this.enabled = false,
@@ -348,27 +454,40 @@ class GoogleChatConfig {
     this.audience,
     this.webhookPath = '/integrations/googlechat',
     this.botUser,
-    TypingIndicatorMode? typingIndicatorMode,
-    bool? typingIndicator,
-    this.quoteReply = false,
+    this.typingIndicatorMode = TypingIndicatorMode.message,
     this.dmAccess = DmAccessMode.pairing,
     this.dmAllowlist = const [],
     this.groupAccess = GroupAccessMode.disabled,
-    this.groupAllowlist = const [],
+    this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
+    this.quoteReplyMode = QuoteReplyMode.disabled,
+    this.reactionsAuth = ReactionsAuth.disabled,
     this.taskTrigger = const TaskTriggerConfig.disabled(),
     this.pubsub = const PubSubConfig.disabled(),
     this.spaceEvents = const SpaceEventsConfig.disabled(),
-  }) : typingIndicatorMode =
-           typingIndicatorMode ??
-           (typingIndicator == null
-               ? TypingIndicatorMode.message
-               : typingIndicator
-               ? TypingIndicatorMode.message
-               : TypingIndicatorMode.disabled);
+    this.feedback = const GoogleChatFeedbackConfig.disabled(),
+  });
 
   /// Creates a disabled Google Chat configuration.
   const GoogleChatConfig.disabled() : this();
+
+  /// Returns the group IDs from [groupAllowlist] as a plain string list.
+  ///
+  /// Provides backward-compatible access equivalent to the previous
+  /// `List<String> groupAllowlist` field.
+  List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
+
+  /// OAuth scopes required to create and remove reactions.
+  Set<String> get requiredReactionScopes =>
+      reactionsAuth == ReactionsAuth.user ? {'https://www.googleapis.com/auth/chat.messages.reactions'} : {};
+
+  /// OAuth scopes required for native quote-reply via `quotedMessageMetadata`.
+  ///
+  /// Google Chat API requires user-level auth (`chat.messages.create`) for
+  /// native quoting — the `chat.bot` service-account scope does not support it.
+  /// Sender attribution (`QuoteReplyMode.sender`) needs no extra scopes.
+  Set<String> get requiredQuoteReplyScopes =>
+      quoteReplyMode == QuoteReplyMode.native ? {'https://www.googleapis.com/auth/chat.messages.create'} : {};
 
   /// Parses Google Chat configuration from YAML, appending warnings to [warns].
   factory GoogleChatConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
@@ -403,8 +522,7 @@ class GoogleChatConfig {
     if (typingIndicatorRaw is bool) {
       typingIndicatorMode = typingIndicatorRaw ? TypingIndicatorMode.message : TypingIndicatorMode.disabled;
     } else if (typingIndicatorRaw is String) {
-      final normalizedTypingIndicator = typingIndicatorRaw.trim();
-      typingIndicatorMode = switch (normalizedTypingIndicator) {
+      typingIndicatorMode = switch (typingIndicatorRaw) {
         'true' || 'message' => TypingIndicatorMode.message,
         'false' || 'disabled' => TypingIndicatorMode.disabled,
         'emoji' => TypingIndicatorMode.emoji,
@@ -415,14 +533,6 @@ class GoogleChatConfig {
       };
     } else if (typingIndicatorRaw != null) {
       warns.add('Invalid type for google_chat.typing_indicator: "${typingIndicatorRaw.runtimeType}" — using default');
-    }
-
-    var quoteReply = false;
-    final quoteReplyRaw = yaml['quote_reply'];
-    if (quoteReplyRaw is bool) {
-      quoteReply = quoteReplyRaw;
-    } else if (quoteReplyRaw != null) {
-      warns.add('Invalid type for google_chat.quote_reply: "${quoteReplyRaw.runtimeType}" — using default');
     }
 
     var dmAccess = DmAccessMode.pairing;
@@ -459,6 +569,37 @@ class GoogleChatConfig {
       warns.add('Invalid type for google_chat.require_mention: "${requireMentionRaw.runtimeType}" — using default');
     }
 
+    var quoteReplyMode = QuoteReplyMode.disabled;
+    final quoteReplyRaw = yaml['quote_reply'];
+    if (quoteReplyRaw is bool) {
+      quoteReplyMode = quoteReplyRaw ? QuoteReplyMode.sender : QuoteReplyMode.disabled;
+    } else if (quoteReplyRaw is String) {
+      quoteReplyMode = switch (quoteReplyRaw) {
+        'true' || 'sender' || 'text' || 'attribution' => QuoteReplyMode.sender,
+        'false' || 'disabled' => QuoteReplyMode.disabled,
+        'native' => QuoteReplyMode.native,
+        _ => () {
+          warns.add('Invalid google_chat.quote_reply: "$quoteReplyRaw" — using default');
+          return QuoteReplyMode.disabled;
+        }(),
+      };
+    } else if (quoteReplyRaw != null) {
+      warns.add('Invalid type for google_chat.quote_reply: "${quoteReplyRaw.runtimeType}" — using default');
+    }
+
+    var reactionsAuth = ReactionsAuth.disabled;
+    final reactionsAuthRaw = yaml['reactions_auth'];
+    if (reactionsAuthRaw is String) {
+      final parsed = ReactionsAuth.values.where((v) => v.name == reactionsAuthRaw).firstOrNull;
+      if (parsed != null) {
+        reactionsAuth = parsed;
+      } else {
+        warns.add('Invalid value for google_chat.reactions_auth: "$reactionsAuthRaw" — using default');
+      }
+    } else if (reactionsAuthRaw != null) {
+      warns.add('Invalid type for google_chat.reactions_auth: "${reactionsAuthRaw.runtimeType}" — using default');
+    }
+
     var taskTrigger = const TaskTriggerConfig.disabled();
     final taskTriggerRaw = yaml['task_trigger'];
     if (taskTriggerRaw is Map) {
@@ -481,6 +622,14 @@ class GoogleChatConfig {
       spaceEvents = SpaceEventsConfig.fromYaml(Map<String, dynamic>.from(spaceEventsRaw), warns);
     } else if (spaceEventsRaw != null) {
       warns.add('Invalid type for google_chat.space_events: "${spaceEventsRaw.runtimeType}" — using default');
+    }
+
+    var feedback = const GoogleChatFeedbackConfig.disabled();
+    final feedbackRaw = yaml['feedback'];
+    if (feedbackRaw is Map) {
+      feedback = GoogleChatFeedbackConfig.fromYaml(Map<String, dynamic>.from(feedbackRaw), warns);
+    } else if (feedbackRaw != null) {
+      warns.add('Invalid type for google_chat.feedback: "${feedbackRaw.runtimeType}" — using default');
     }
 
     final normalizedServiceAccount = serviceAccount is String ? serviceAccount.trim() : null;
@@ -532,15 +681,20 @@ class GoogleChatConfig {
       webhookPath: webhookPath is String ? webhookPath : '/integrations/googlechat',
       botUser: botUser is String ? botUser : null,
       typingIndicatorMode: typingIndicatorMode,
-      quoteReply: quoteReply,
       dmAccess: dmAccess,
       dmAllowlist: _parseStringList(yaml['dm_allowlist']),
       groupAccess: groupAccess,
-      groupAllowlist: _parseStringList(yaml['group_allowlist']),
+      groupAllowlist: GroupEntry.parseList(
+        yaml['group_allowlist'] is List ? yaml['group_allowlist'] as List : null,
+        onWarning: warns.add,
+      ),
       requireMention: requireMention,
+      quoteReplyMode: quoteReplyMode,
+      reactionsAuth: reactionsAuth,
       taskTrigger: taskTrigger,
       pubsub: pubsub,
       spaceEvents: spaceEvents,
+      feedback: feedback,
     );
   }
 
@@ -586,7 +740,4 @@ class GoogleChatConfig {
     }
     return [];
   }
-
-  /// Compatibility alias for the legacy boolean typing-indicator flag.
-  bool get typingIndicator => typingIndicatorMode != TypingIndicatorMode.disabled;
 }

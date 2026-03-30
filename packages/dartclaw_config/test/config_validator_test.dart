@@ -163,30 +163,11 @@ void main() {
         expect(errors.first.field, 'channels.google_chat.task_trigger.default_type');
         expect(errors.first.message, contains('must not be empty'));
       });
-
-      test('google chat typing_indicator accepts enum values and legacy booleans', () {
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'message'}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'emoji'}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'disabled'}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': true}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': false}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'true'}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'false'}), isEmpty);
-      });
-
-      test('google chat typing_indicator trims whitespace around string values', () {
-        expect(validator.validate({'channels.google_chat.typing_indicator': 'emoji '}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': ' disabled '}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': ' message\t'}), isEmpty);
-        expect(validator.validate({'channels.google_chat.typing_indicator': ' true '}), isEmpty);
-      });
     });
 
     group('string list fields', () {
       test('advisor.triggers rejects unknown trigger names', () {
-        final errors = validator.validate({
-          'advisor.triggers': ['explicit', 'bad_trigger'],
-        });
+        final errors = validator.validate({'advisor.triggers': ['explicit', 'bad_trigger']});
         expect(errors, hasLength(1));
         expect(errors.first.field, 'advisor.triggers');
         expect(errors.first.message, contains('bad_trigger'));
@@ -255,7 +236,10 @@ void main() {
 
     group('space events cross-field validation', () {
       test('no error when space_events.enabled is false', () {
-        expect(validator.validate({'channels.google_chat.space_events.enabled': false}), isEmpty);
+        expect(
+          validator.validate({'channels.google_chat.space_events.enabled': false}),
+          isEmpty,
+        );
       });
 
       test('errors when space_events enabled without pubsub.project_id', () {
@@ -324,7 +308,9 @@ void main() {
       });
 
       test('error message references space_events.enabled as trigger', () {
-        final errors = validator.validate({'channels.google_chat.space_events.enabled': true});
+        final errors = validator.validate(
+          {'channels.google_chat.space_events.enabled': true},
+        );
         expect(errors.any((e) => e.message.contains('space_events.enabled')), isTrue);
       });
     });

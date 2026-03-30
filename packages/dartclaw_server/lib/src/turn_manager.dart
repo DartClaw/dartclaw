@@ -144,6 +144,8 @@ class TurnManager {
     MessageRedactor? redactor,
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
+    Duration stallTimeout = Duration.zero,
+    TurnProgressAction stallAction = TurnProgressAction.warn,
     Duration outcomeTtl = const Duration(seconds: 30),
   }) : _pool = HarnessPool(
          runners: [
@@ -162,6 +164,8 @@ class TurnManager {
              redactor: redactor,
              selfImprovement: selfImprovement,
              usageTracker: usageTracker,
+             stallTimeout: stallTimeout,
+             stallAction: stallAction,
              outcomeTtl: outcomeTtl,
            ),
          ],

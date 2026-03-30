@@ -14,13 +14,13 @@ void main() {
           'audience': {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'},
           'webhook_path': '/hooks/google-chat',
           'bot_user': 'users/123456',
-          'typing_indicator': 'emoji',
-          'quote_reply': true,
+          'typing_indicator': false,
           'dm_access': 'allowlist',
           'dm_allowlist': ['spaces/AAA/users/1'],
           'group_access': 'allowlist',
           'group_allowlist': ['spaces/AAA'],
           'require_mention': false,
+          'quote_reply': true,
           'task_trigger': {'enabled': true, 'prefix': 'do:', 'default_type': 'automation', 'auto_start': false},
         }, warns);
 
@@ -33,14 +33,13 @@ void main() {
         expect(config.audience!.value, 'https://example.com/integrations/googlechat');
         expect(config.webhookPath, '/hooks/google-chat');
         expect(config.botUser, 'users/123456');
-        expect(config.typingIndicatorMode, TypingIndicatorMode.emoji);
-        expect(config.typingIndicator, isTrue);
-        expect(config.quoteReply, isTrue);
+        expect(config.typingIndicatorMode, TypingIndicatorMode.disabled);
         expect(config.dmAccess, DmAccessMode.allowlist);
         expect(config.dmAllowlist, ['spaces/AAA/users/1']);
         expect(config.groupAccess, GroupAccessMode.allowlist);
-        expect(config.groupAllowlist, ['spaces/AAA']);
+        expect(config.groupIds, ['spaces/AAA']);
         expect(config.requireMention, isFalse);
+        expect(config.quoteReplyMode, QuoteReplyMode.sender);
         expect(config.taskTrigger.enabled, isTrue);
         expect(config.taskTrigger.prefix, 'do:');
         expect(config.taskTrigger.defaultType, 'automation');
@@ -72,53 +71,75 @@ void main() {
         expect(warns, isEmpty);
         expect(config.webhookPath, '/integrations/googlechat');
         expect(config.typingIndicatorMode, TypingIndicatorMode.message);
-        expect(config.typingIndicator, isTrue);
-        expect(config.quoteReply, isFalse);
         expect(config.dmAccess, DmAccessMode.pairing);
         expect(config.dmAllowlist, isEmpty);
         expect(config.groupAccess, GroupAccessMode.disabled);
-        expect(config.groupAllowlist, isEmpty);
+        expect(config.groupIds, isEmpty);
         expect(config.requireMention, isTrue);
+        expect(config.quoteReplyMode, QuoteReplyMode.disabled);
         expect(config.taskTrigger.enabled, isFalse);
       });
 
-      test('parses typing_indicator aliases', () {
-        final cases = <({Object? raw, TypingIndicatorMode expected})>[
-          (raw: true, expected: TypingIndicatorMode.message),
-          (raw: false, expected: TypingIndicatorMode.disabled),
-          (raw: 'message', expected: TypingIndicatorMode.message),
-          (raw: 'emoji', expected: TypingIndicatorMode.emoji),
-          (raw: 'disabled', expected: TypingIndicatorMode.disabled),
-          (raw: 'true', expected: TypingIndicatorMode.message),
-          (raw: 'false', expected: TypingIndicatorMode.disabled),
-        ];
+      test('warns on invalid quote_reply type', () {
+        final warns = <String>[];
+        final config = GoogleChatConfig.fromYaml({'quote_reply': 'yes'}, warns);
 
-        for (final testCase in cases) {
-          final warns = <String>[];
-          final config = GoogleChatConfig.fromYaml({'typing_indicator': testCase.raw}, warns);
-
-          expect(warns, isEmpty, reason: 'unexpected warning for ${testCase.raw}');
-          expect(config.typingIndicatorMode, testCase.expected);
-        }
+        expect(config.quoteReplyMode, QuoteReplyMode.disabled);
+        expect(warns, contains(contains('google_chat.quote_reply')));
       });
 
-      test('trims whitespace around typing_indicator enum values', () {
-        final cases = <({String raw, TypingIndicatorMode expected})>[
-          (raw: 'emoji ', expected: TypingIndicatorMode.emoji),
-          (raw: ' disabled ', expected: TypingIndicatorMode.disabled),
-          (raw: ' message\t', expected: TypingIndicatorMode.message),
-        ];
+      test('defaults reactions_auth to disabled', () {
+        final config = GoogleChatConfig.fromYaml({}, []);
 
-        for (final testCase in cases) {
-          final warns = <String>[];
-          final config = GoogleChatConfig.fromYaml({'typing_indicator': testCase.raw}, warns);
-
-          expect(warns, isEmpty, reason: 'unexpected warning for ${testCase.raw}');
-          expect(config.typingIndicatorMode, testCase.expected);
-        }
+        expect(config.reactionsAuth, ReactionsAuth.disabled);
+        expect(config.requiredReactionScopes, isEmpty);
       });
 
-      test('warns on invalid typing_indicator and quote_reply types', () {
+      test('parses reactions_auth=user and exposes reaction scope', () {
+        final warns = <String>[];
+        final config = GoogleChatConfig.fromYaml({'reactions_auth': 'user'}, warns);
+
+        expect(warns, isEmpty);
+        expect(config.reactionsAuth, ReactionsAuth.user);
+        expect(config.requiredReactionScopes, {'https://www.googleapis.com/auth/chat.messages.reactions'});
+      });
+
+      test('warns on invalid reactions_auth value', () {
+        final warns = <String>[];
+        final config = GoogleChatConfig.fromYaml({'reactions_auth': 'service_account'}, warns);
+
+        expect(config.reactionsAuth, ReactionsAuth.disabled);
+        expect(config.requiredReactionScopes, isEmpty);
+        expect(warns, contains(contains('google_chat.reactions_auth')));
+      });
+
+      test('parses feedback section for progress updates', () {
+        final warns = <String>[];
+        final config = GoogleChatConfig.fromYaml({
+          'feedback': {
+            'enabled': true,
+            'min_feedback_delay': '2s',
+            'status_interval': '30s',
+            'status_style': 'minimal',
+          },
+        }, warns);
+        final feedback = config.feedback;
+
+        expect(warns, isEmpty);
+        expect(feedback.enabled, isTrue);
+        expect(feedback.minFeedbackDelay, const Duration(seconds: 2));
+        expect(feedback.statusInterval, const Duration(seconds: 30));
+        expect(feedback.statusStyle, GoogleChatFeedbackStatusStyle.minimal);
+      });
+
+      test('feedback defaults stay disabled when section is absent', () {
+        final config = GoogleChatConfig.fromYaml({}, []);
+        final feedback = config.feedback;
+
+        expect(feedback.enabled, isFalse);
+      });
+
+      test('warns on invalid types', () {
         final warns = <String>[];
         GoogleChatConfig.fromYaml({
           'enabled': 'yes',
@@ -127,16 +148,12 @@ void main() {
           'audience': 'bad',
           'webhook_path': false,
           'bot_user': 99,
-          'typing_indicator': 123,
-          'quote_reply': 'yes',
+          'typing_indicator': 'yes',
           'dm_access': 7,
           'group_access': 9,
           'require_mention': 'no',
         }, warns);
-        expect(warns, contains(contains('google_chat.typing_indicator')));
-        expect(warns, contains(contains('google_chat.quote_reply')));
-        expect(warns, contains(contains('google_chat.enabled')));
-        expect(warns, contains(contains('google_chat.service_account')));
+        expect(warns, hasLength(10));
       });
 
       test('warns on invalid dm_access value', () {
@@ -192,18 +209,6 @@ void main() {
 
         expect(config.audience, isNull);
         expect(warns, contains('Missing or invalid google_chat.audience when channel is enabled'));
-      });
-
-      test('defaults quote_reply to false when absent', () {
-        final config = GoogleChatConfig.fromYaml({}, []);
-        expect(config.quoteReply, isFalse);
-      });
-
-      test('warns on invalid quote_reply type', () {
-        final warns = <String>[];
-        final config = GoogleChatConfig.fromYaml({'quote_reply': 'yes'}, warns);
-        expect(config.quoteReply, isFalse);
-        expect(warns, contains(contains('google_chat.quote_reply')));
       });
 
       test('warns when enabled space events use unsupported event types for auth mode', () {
@@ -302,6 +307,29 @@ void main() {
         }, warns);
         expect(warns.where((w) => w.contains('required') && w.contains('space_events')), isEmpty);
         expect(warns.where((w) => w.contains('required') && w.contains('pubsub')), isEmpty);
+      });
+
+      test('mixed string/map group_allowlist parses to correct groupAllowlist entries', () {
+        final warns = <String>[];
+        final config = GoogleChatConfig.fromYaml({
+          'group_allowlist': [
+            'spaces/AAA',
+            {'id': 'spaces/BBB', 'name': 'Dev Space', 'model': 'sonnet'},
+            {'id': 'spaces/CCC'},
+          ],
+        }, warns);
+        expect(warns, isEmpty);
+        expect(config.groupIds, ['spaces/AAA', 'spaces/BBB', 'spaces/CCC']);
+        expect(config.groupAllowlist[1].name, 'Dev Space');
+        expect(config.groupAllowlist[1].model, 'sonnet');
+        expect(config.groupAllowlist[0].name, isNull);
+      });
+
+      test('plain string group_allowlist is backward compatible', () {
+        final config = GoogleChatConfig.fromYaml({
+          'group_allowlist': ['spaces/AAA', 'spaces/BBB'],
+        }, []);
+        expect(config.groupIds, ['spaces/AAA', 'spaces/BBB']);
       });
     });
   });
@@ -479,8 +507,6 @@ void main() {
 
       expect(googleChatConfig.enabled, isFalse);
       expect(googleChatConfig.webhookPath, '/integrations/googlechat');
-      expect(googleChatConfig.typingIndicatorMode, TypingIndicatorMode.message);
-      expect(googleChatConfig.quoteReply, isFalse);
       expect(googleChatConfig.groupAccess, GroupAccessMode.disabled);
       expect(googleChatConfig.requireMention, isTrue);
       expect(googleChatConfig.taskTrigger.enabled, isFalse);
@@ -502,8 +528,7 @@ channels:
       value: https://example.com/integrations/googlechat
     webhook_path: /integrations/googlechat
     bot_user: users/123
-    typing_indicator: emoji
-    quote_reply: true
+    typing_indicator: false
     dm_access: allowlist
     group_access: open
     require_mention: false
@@ -525,8 +550,7 @@ channels:
       expect(googleChatConfig.audience, isNotNull);
       expect(googleChatConfig.audience!.mode, GoogleChatAudienceMode.appUrl);
       expect(googleChatConfig.botUser, 'users/123');
-      expect(googleChatConfig.typingIndicatorMode, TypingIndicatorMode.emoji);
-      expect(googleChatConfig.quoteReply, isTrue);
+      expect(googleChatConfig.typingIndicatorMode, TypingIndicatorMode.disabled);
       expect(googleChatConfig.dmAccess, DmAccessMode.allowlist);
       expect(googleChatConfig.groupAccess, GroupAccessMode.open);
       expect(googleChatConfig.requireMention, isFalse);

@@ -75,6 +75,9 @@ class ChannelResponse {
   /// Opaque metadata preserved between formatting and delivery.
   final Map<String, dynamic> metadata;
 
+  /// Optional channel-specific message name to reply to.
+  final String? replyToMessageId;
+
   /// Optional channel-specific structured payload.
   ///
   /// Channels that support structured rendering can prefer this over [text].
@@ -82,16 +85,13 @@ class ChannelResponse {
   /// synthesize a minimal fallback when this is set but [text] is empty.
   final Map<String, dynamic>? structuredPayload;
 
-  /// Message id this response should reply to, when the channel supports it.
-  final String? replyToMessageId;
-
   /// Creates a channel response chunk ready for delivery.
   const ChannelResponse({
     required this.text,
     this.mediaAttachments = const [],
     this.metadata = const {},
-    this.structuredPayload,
     this.replyToMessageId,
+    this.structuredPayload,
   });
 }
 

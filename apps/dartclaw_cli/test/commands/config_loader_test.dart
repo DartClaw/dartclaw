@@ -24,7 +24,7 @@ channels:
     expect(() => config.getChannelConfig<Object>(ChannelType.googlechat), returnsNormally);
     expect(() => config.getChannelConfig<Object>(ChannelType.signal), returnsNormally);
     expect(() => config.getChannelConfig<Object>(ChannelType.whatsapp), returnsNormally);
-    expect(config.warnings, contains('Invalid type for google_chat.typing_indicator: "String" — using default'));
+    expect(config.warnings, contains('Invalid google_chat.typing_indicator: "invalid" — using default'));
     expect(config.warnings, contains('Invalid type for signal.port: "String" — using default'));
     expect(config.warnings, contains('Invalid type for whatsapp.gowa_port: "String" — using default'));
   });

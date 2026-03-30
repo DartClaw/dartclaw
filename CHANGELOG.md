@@ -7,32 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.14.4] — 2026-03-26
+## [0.14.5]
 
-Quote-Reply Attribution — outbound Google Chat messages can now quote the inbound message they're replying to, providing visual attribution in busy crowd-coding spaces. Channel-agnostic plumbing (`ChannelResponse.replyToMessageId`) enables future WhatsApp/Signal support.
+Multi-Space Configuration — per-group model/effort overrides, project binding, structured allowlist entries, and conversation history recovery. Groups across all channels (WhatsApp, Signal, Google Chat) can now be independently configured with display names, project bindings, and model/effort overrides via structured YAML entries. The flat string allowlist format remains backward-compatible.
 
 ### Added
 
-- **Google Chat quoted replies**: Outbound messages include `quotedMessageMetadata` referencing the inbound message, showing the original user message as a quoted excerpt in the reply. Works for both plain text and Cards v2 responses. Gated by `google_chat.quote_reply` config (default `false`). All six REST client send methods (including thread-aware variants) support quoting
-- **Channel-agnostic reply-to plumbing**: `ChannelResponse.replyToMessageId` field populated by `MessageQueue` for all channel types. Error responses (busy, queue-full, budget-exhausted) also carry reply context
-- **Configurable typing indicator mode**: `typing_indicator` config accepts `message` (placeholder message, default), `emoji` (eyes reaction on inbound, removed on reply), or `disabled`. Boolean values still accepted for backward compatibility
-- **`--source-dir` and `--templates-dir` CLI flags**: Set the base directory for resolving default template and static file paths when running from an external directory. Also supported via `source_dir`/`templates_dir` in YAML
-- **`deleteMessage`, `addReaction`, `removeReaction` in `GoogleChatRestClient`**: New API methods for message lifecycle and emoji reactions
+- **`GroupEntry` data class** (S02): Shared model in `dartclaw_core` with `parseList()` for mixed string/map YAML parsing. Supports `id`, `name`, `project`, `model`, and `effort` fields. Malformed entries skipped with warning; duplicate IDs resolve last-entry-wins
+- **`GroupConfigResolver` lookup service** (S02): Keyed by `(ChannelType, groupId)` with config-key-to-runtime-key normalization (`google_chat` → `googlechat`). Returns `GroupEntry` for structured entries, `null` for plain strings
+- **Structured `group_allowlist` entries** (S02): All three channel configs (`WhatsAppConfig`, `SignalConfig`, `GoogleChatConfig`) upgraded from `List<String>` to `List<GroupEntry>`. `groupIds` convenience getter preserves backward compatibility with existing access control call sites
+- **Per-group model/effort overrides** (S03): `resolveChannelTurnOverrides()` extended with per-group tier as highest precedence — structured `GroupEntry` with `model`/`effort` overrides applies before per-channel and crowd-coding fallback chain. Explicit regression preservation for `governance.crowd_coding.model`/`effort` when no per-group override exists
+- **Per-group project binding** (S03): `TaskCreator` typedef extended with `String? projectId` named parameter. `ChannelTaskBridge` looks up `GroupEntry.project` via `GroupConfigResolver` and passes through task creation. Invalid/missing project ID falls back to default with warning
+- **`GroupEntry.name` display name resolution** (S02): Wired into `GroupSessionInitializer` display name chain — structured name → resolver callback → raw ID. Appears as session title in sidebar for shared-scope groups
+- **`HistoryConfig`** (S01): `agent.history` config sub-section with `max_message_chars` and `max_total_chars` budget fields for controlling conversation history injection size
+- **Process spawn logging**: `ClaudeCodeHarness` now logs generation number and PID when spawning the Claude process
 
 ### Fixed
 
-- **409 ALREADY_EXISTS in Space Events subscriptions**: Subscription creation now recovers when Google returns 409 by extracting the existing subscription name, fetching its details via GET, and persisting locally
-- **Quoted replies with typing indicator**: When quoting is active and a placeholder exists, the placeholder is deleted before sending the quoted reply (placeholder edits cannot carry `quotedMessageMetadata`). Falls back gracefully if the quoted send fails
+- **Conversation history lost on harness restart** (S01): Replay-safe history injection via `<conversation_history>` block in user message content on cold process turns. Filters out guard-blocked exchanges, synthetic markers, and interrupted turns. `_turnsSinceStart` counter gates injection to cold process only (first turn after start/restart)
+- **False harness restarts on effort mismatch** (S01): Effort tolerance in restart check — adopts per-turn effort on first use without restarting when `_processEffort` is null. Parameter-change restarts now emit warning log entry
+- **Dead `_withConversationHistory()` removed** (S01): Replaced by `buildReplaySafeHistory()`. `ClaudeProtocolAdapter.buildTurnRequest()` `history` param documented as intentionally unused (kept for Codex compatibility)
+- **`system:init` protocol documentation**: Corrected — emitted per-turn (not once per session) by the Claude CLI
 
 ### Changed
 
-- **`typing_indicator` config type**: Changed from boolean to enum (`message`/`emoji`/`disabled`). Boolean values still accepted for backward compatibility
-- **`ChannelResponse` model**: Added optional `replyToMessageId` field (backward-compatible, defaults to `null`)
+- **`ChannelGroupConfig` DTO**: `groupAllowlist` field renamed to `groupEntries` carrying `List<GroupEntry>`
+- **`ConfigChangedEvent` handling**: Updated for structured group entries
+- **Version display**: Updated from 0.14.4 to 0.14.5
 
-### Security
+---
 
-- **`removeReaction` input validation**: Validates reaction resource names against a pattern before constructing HTTP requests, preventing potential SSRF
-- **`addReaction` rate-limit compliance**: Now routes through the per-space write queue, consistent with all other write operations
+## [0.14.4]
+
+### Added
+
+- **Google Chat quoted replies**: Outbound messages include `quotedMessageMetadata` referencing the inbound message, showing the original user message as a quoted excerpt in the reply. Works for both plain text and Cards v2 responses. Only activates for Google Chat-originated messages
+- **Configurable typing indicator mode**: `typing_indicator` config accepts `true` (placeholder message, default), `false` (disabled), or `emoji` (react with eyes emoji on inbound message). Emoji mode avoids the placeholder edit conflict with quoted replies. Adds `addReaction`/`removeReaction` to `GoogleChatRestClient`
+- **`--source-dir` CLI flag**: Sets the base directory for resolving default template and static file paths when running from an external directory. Eliminates the need for symlinks. Also supported via `source_dir` in YAML. Resolution: `--templates-dir`/`--static-dir` > YAML > source-dir-relative > defaults
+- **`--templates-dir` CLI flag**: Explicit HTML templates directory override, same pattern as existing `--static-dir`
+- **`deleteMessage` in `GoogleChatRestClient`**: Deletes a Google Chat message by resource name
+
+### Fixed
+
+- **Sender attribution broken via Space Events path**: `getMemberDisplayName` constructed an invalid API URL (`spaces/{space}/members/users/{id}` instead of `spaces/{space}/members/{id}`), returning HTTP 404. When Pub/Sub won the dedup race and the CloudEvent payload lacked `sender.displayName`, the fallback API call always failed, silently dropping sender attribution
+- **Channel turns lost conversation history on restart**: Two issues — (1) `_dispatchChannelTurn` only passed `[userMsg]` to the harness instead of the full session history, (2) `ClaudeCodeHarness.turn()` only sent `messages.last` to the CLI, ignoring prior entries. Now loads all persisted messages and injects prior conversation history into the system prompt so the CLI has context even after process restart
+- **Dispatcher path lost inbound message metadata**: The webhook handler's dispatcher fallback (`_sendChunks`) dropped `senderDisplayName`, `spaceType`, `messageName`, and `messageCreateTime` from outbound `ChannelResponse` chunks. Replaced with `_formatWithMetadata()` that reconstructs metadata from the original `ChannelMessage`, matching the `MessageQueue` pattern
+- **409 ALREADY_EXISTS in Space Events subscriptions**: `_createSubscription` now recovers when Google returns 409 by extracting the existing subscription name from the error response, fetching its details via GET, and persisting locally. Previously returned null, silently losing the subscription on restart
+- **Quoted replies with typing indicator**: When quoting is active and a typing indicator placeholder exists, the placeholder is deleted before sending the quoted reply (placeholder edits cannot carry `quotedMessageMetadata`)
+
+### Changed
+
+- **`typing_indicator` config type**: Changed from `bool` to enum (`disabled`/`message`/`emoji`). Boolean values still accepted for backward compatibility
+- **`messageNamePattern` visibility**: Promoted from file-private to public in `GoogleChatRestClient` for reuse in channel quoting logic
 
 ---
 

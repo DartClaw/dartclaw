@@ -51,8 +51,7 @@ channels:
       value: https://example.com/integrations/googlechat
     webhook_path: /integrations/googlechat
     bot_user: users/123
-    typing_indicator: emoji
-    quote_reply: true
+    typing_indicator: false
     dm_access: allowlist
     dm_allowlist:
       - spaces/AAA/users/1
@@ -94,8 +93,7 @@ channels:
         'audience': {'type': 'app-url', 'value': 'https://example.com/integrations/googlechat'},
         'webhook_path': '/integrations/googlechat',
         'bot_user': 'users/123',
-        'typing_indicator': 'emoji',
-        'quote_reply': true,
+        'typing_indicator': false,
         'dm_access': 'allowlist',
         'dm_allowlist': ['spaces/AAA/users/1'],
         'group_access': 'open',
@@ -176,8 +174,7 @@ channels:
       });
       expect(channels['googleChat']['webhookPath'], '/integrations/googlechat');
       expect(channels['googleChat']['botUser'], 'users/123');
-      expect(channels['googleChat']['typingIndicator'], 'emoji');
-      expect(channels['googleChat']['quoteReply'], true);
+      expect(channels['googleChat']['typingIndicator'], 'disabled');
       expect(channels['googleChat']['dmAccess'], 'allowlist');
       expect(channels['googleChat']['dmAllowlist'], ['spaces/AAA/users/1']);
       expect(channels['googleChat']['groupAccess'], 'open');
@@ -208,8 +205,6 @@ channels:
       expect(fields.containsKey('channels.google_chat.dm_allowlist'), isTrue);
       expect(fields.containsKey('channels.google_chat.webhook_path'), isTrue);
       expect(fields.containsKey('channels.google_chat.bot_user'), isTrue);
-      expect(fields.containsKey('channels.google_chat.typing_indicator'), isTrue);
-      expect(fields.containsKey('channels.google_chat.quote_reply'), isTrue);
       expect(fields.containsKey('channels.google_chat.group_allowlist'), isTrue);
       expect(fields.containsKey('channels.whatsapp.task_trigger.enabled'), isTrue);
       expect(fields.containsKey('channels.whatsapp.task_trigger.prefix'), isTrue);
@@ -232,15 +227,6 @@ channels:
       final gcServiceAccount = fields['channels.google_chat.service_account'] as Map<String, dynamic>;
       expect(gcServiceAccount['mutable'], 'readonly');
       expect(gcServiceAccount['type'], 'string');
-
-      final gcTypingIndicator = fields['channels.google_chat.typing_indicator'] as Map<String, dynamic>;
-      expect(gcTypingIndicator['mutable'], 'restart');
-      expect(gcTypingIndicator['type'], 'enum');
-      expect(gcTypingIndicator['allowedValues'], ['message', 'emoji', 'disabled']);
-
-      final gcQuoteReply = fields['channels.google_chat.quote_reply'] as Map<String, dynamic>;
-      expect(gcQuoteReply['mutable'], 'restart');
-      expect(gcQuoteReply['type'], 'bool');
 
       final waTaskTriggerPrefix = fields['channels.whatsapp.task_trigger.prefix'] as Map<String, dynamic>;
       expect(waTaskTriggerPrefix['mutable'], 'restart');

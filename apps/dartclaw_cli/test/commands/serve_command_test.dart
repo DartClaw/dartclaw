@@ -92,10 +92,12 @@ void main() {
       expect(hostOption.abbr, 'H');
     });
 
-    test('has data-dir, static-dir, worker-timeout options', () {
+    test('has data-dir, source-dir, static-dir, templates-dir, worker-timeout options', () {
       final options = serveCommand.argParser.options;
       expect(options.containsKey('data-dir'), isTrue);
+      expect(options.containsKey('source-dir'), isTrue);
       expect(options.containsKey('static-dir'), isTrue);
+      expect(options.containsKey('templates-dir'), isTrue);
       expect(options.containsKey('worker-timeout'), isTrue);
     });
 

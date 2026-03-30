@@ -112,6 +112,27 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
     ),
+    'source_dir': FieldMeta(
+      yamlPath: 'source_dir',
+      jsonKey: 'sourceDir',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'static_dir': FieldMeta(
+      yamlPath: 'static_dir',
+      jsonKey: 'staticDir',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'templates_dir': FieldMeta(
+      yamlPath: 'templates_dir',
+      jsonKey: 'templatesDir',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
     'worker_timeout': FieldMeta(
       yamlPath: 'worker_timeout',
       jsonKey: 'workerTimeout',
@@ -635,13 +656,7 @@ abstract final class ConfigMeta {
       jsonKey: 'channels.googleChat.typingIndicator',
       type: ConfigFieldType.enum_,
       mutability: ConfigMutability.restart,
-      allowedValues: ['message', 'emoji', 'disabled'],
-    ),
-    'channels.google_chat.quote_reply': FieldMeta(
-      yamlPath: 'channels.google_chat.quote_reply',
-      jsonKey: 'channels.googleChat.quoteReply',
-      type: ConfigFieldType.bool_,
-      mutability: ConfigMutability.restart,
+      allowedValues: ['disabled', 'message', 'emoji', 'true', 'false'],
     ),
     'channels.google_chat.dm_access': FieldMeta(
       yamlPath: 'channels.google_chat.dm_access',
@@ -676,6 +691,20 @@ abstract final class ConfigMeta {
       jsonKey: 'channels.googleChat.requireMention',
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.quote_reply': FieldMeta(
+      yamlPath: 'channels.google_chat.quote_reply',
+      jsonKey: 'channels.googleChat.quoteReplyMode',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['disabled', 'sender', 'native'],
+    ),
+    'channels.google_chat.reactions_auth': FieldMeta(
+      yamlPath: 'channels.google_chat.reactions_auth',
+      jsonKey: 'channels.googleChat.reactionsAuth',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['disabled', 'user'],
     ),
     'channels.google_chat.task_trigger.enabled': FieldMeta(
       yamlPath: 'channels.google_chat.task_trigger.enabled',
@@ -768,6 +797,31 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       allowedValues: ['user', 'app'],
     ),
+    'channels.google_chat.feedback.enabled': FieldMeta(
+      yamlPath: 'channels.google_chat.feedback.enabled',
+      jsonKey: 'channels.googleChat.feedback.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.feedback.min_feedback_delay': FieldMeta(
+      yamlPath: 'channels.google_chat.feedback.min_feedback_delay',
+      jsonKey: 'channels.googleChat.feedback.minFeedbackDelay',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.feedback.status_interval': FieldMeta(
+      yamlPath: 'channels.google_chat.feedback.status_interval',
+      jsonKey: 'channels.googleChat.feedback.statusInterval',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'channels.google_chat.feedback.status_style': FieldMeta(
+      yamlPath: 'channels.google_chat.feedback.status_style',
+      jsonKey: 'channels.googleChat.feedback.statusStyle',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['creative', 'minimal', 'silent'],
+    ),
 
     // Automation — scheduled tasks (restart-required, list type)
     // Individual entries validated during parsing — registered as a section marker.
@@ -799,6 +853,19 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.stringList,
       mutability: ConfigMutability.restart,
       nullable: true,
+    ),
+    'governance.turn_progress.stall_timeout': FieldMeta(
+      yamlPath: 'governance.turn_progress.stall_timeout',
+      jsonKey: 'governance.turnProgress.stallTimeout',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'governance.turn_progress.stall_action': FieldMeta(
+      yamlPath: 'governance.turn_progress.stall_action',
+      jsonKey: 'governance.turnProgress.stallAction',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['warn', 'cancel', 'ignore'],
     ),
     'governance.queue_strategy': FieldMeta(
       yamlPath: 'governance.queue_strategy',

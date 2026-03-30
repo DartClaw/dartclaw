@@ -7,6 +7,8 @@ import 'package:logging/logging.dart';
 
 import 'google_chat_config.dart';
 
+typedef SpaceDiscoveryCallback = Future<List<String>> Function();
+
 /// Persisted metadata for a single Workspace Events subscription.
 class SubscriptionRecord {
   /// The Google Chat space ID (bare ID without `spaces/` prefix, e.g. `AAAA`).
@@ -29,7 +31,10 @@ class SubscriptionRecord {
   });
 
   /// Whether this subscription has expired.
-  bool get isExpired => DateTime.now().toUtc().isAfter(expireTime);
+  bool get isExpired => isExpiredAt();
+
+  /// Whether this subscription has expired relative to the given [now] time.
+  bool isExpiredAt([DateTime? now]) => (now ?? DateTime.now().toUtc()).isAfter(expireTime);
 
   /// Parses a record from persisted JSON.
   factory SubscriptionRecord.fromJson(Map<String, dynamic> json) {
@@ -50,10 +55,7 @@ class SubscriptionRecord {
   };
 
   /// Returns a copy with updated fields.
-  SubscriptionRecord copyWith({
-    String? subscriptionName,
-    DateTime? expireTime,
-  }) {
+  SubscriptionRecord copyWith({String? subscriptionName, DateTime? expireTime}) {
     return SubscriptionRecord(
       spaceId: spaceId,
       subscriptionName: subscriptionName ?? this.subscriptionName,
@@ -69,7 +71,6 @@ class SubscriptionRecord {
 /// recreates expired subscriptions, and persists metadata for crash recovery.
 class WorkspaceEventsManager {
   static const _apiBase = 'https://workspaceevents.googleapis.com/v1';
-  static const _eventTypePrefix = 'google.workspace.chat.';
 
   /// Default TTL for full-data subscriptions (4 hours in seconds).
   static const _defaultTtlSeconds = 14400;
@@ -86,6 +87,7 @@ class WorkspaceEventsManager {
   final http.Client _httpClient;
   final SpaceEventsConfig _config;
   final File _persistFile;
+  final SpaceDiscoveryCallback? _discoverSpaces;
   final Future<void> Function(Duration)? _delayOverride;
   final DateTime Function()? _clockOverride;
   final Logger _log = Logger('WorkspaceEventsManager');
@@ -109,11 +111,13 @@ class WorkspaceEventsManager {
     required http.Client authClient,
     required SpaceEventsConfig config,
     required String dataDir,
+    SpaceDiscoveryCallback? discoverSpaces,
     Future<void> Function(Duration)? delay,
     DateTime Function()? clock,
   }) : _httpClient = authClient,
        _config = config,
        _persistFile = File('$dataDir/google-chat-subscriptions.json'),
+       _discoverSpaces = discoverSpaces,
        _delayOverride = delay,
        _clockOverride = clock;
 
@@ -134,21 +138,9 @@ class WorkspaceEventsManager {
 
   /// Expands event type shorthand to fully-qualified form.
   ///
-  /// `message.created` -> `google.workspace.chat.message.v1.created`
-  /// Already-qualified types (starting with `google.workspace.`) pass through.
+  /// Delegates to [SpaceEventsConfig.expandEventType].
   static List<String> expandEventTypes(List<String> shorthand) {
-    return shorthand.map((type) {
-      if (type.startsWith('google.workspace.')) {
-        return type;
-      }
-      final dotIndex = type.indexOf('.');
-      if (dotIndex == -1) {
-        return type; // pass through malformed shorthand
-      }
-      final resource = type.substring(0, dotIndex);
-      final action = type.substring(dotIndex + 1);
-      return '$_eventTypePrefix$resource.v1.$action';
-    }).toList();
+    return shorthand.map(SpaceEventsConfig.expandEventType).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -195,9 +187,7 @@ class WorkspaceEventsManager {
 
   /// Persists current subscription records to disk (atomic write).
   Future<void> _saveToDisk() async {
-    final json = {
-      'subscriptions': _subscriptions.values.map((r) => r.toJson()).toList(),
-    };
+    final json = {'subscriptions': _subscriptions.values.map((r) => r.toJson()).toList()};
     final tempFile = File('${_persistFile.path}.tmp');
     try {
       await _persistFile.parent.create(recursive: true);
@@ -238,7 +228,7 @@ class WorkspaceEventsManager {
 
     final normalized = normalizeSpaceId(spaceId);
     final existing = _subscriptions[normalized];
-    if (existing != null && !existing.isExpired) {
+    if (existing != null && !existing.isExpiredAt(_now())) {
       _log.fine('Subscription already exists for space $normalized');
       return existing;
     }
@@ -285,55 +275,113 @@ class WorkspaceEventsManager {
     }
 
     await _loadFromDisk();
-    if (_subscriptions.isEmpty) {
-      _log.fine('No persisted subscriptions to reconcile');
-      return;
-    }
 
-    _log.info('Reconciling ${_subscriptions.length} persisted subscriptions');
-    final spaceIds = _subscriptions.keys.toList();
     var updated = false;
 
-    for (final spaceId in spaceIds) {
-      if (_disposed) break;
+    if (_subscriptions.isEmpty) {
+      _log.fine('No persisted subscriptions to reconcile');
+    } else {
+      _log.info('Reconciling ${_subscriptions.length} persisted subscriptions');
+      final spaceIds = _subscriptions.keys.toList();
 
-      final record = _subscriptions[spaceId];
-      if (record == null) continue;
-
-      if (record.isExpired) {
-        _log.info('Subscription for space $spaceId expired — recreating');
-        await _deleteSubscription(record.subscriptionName);
-        final newRecord = await _createSubscription(spaceId);
-        if (newRecord == null) {
-          _subscriptions.remove(spaceId);
-          _log.warning('Failed to recreate subscription for space $spaceId — removing');
+      for (final spaceId in spaceIds) {
+        if (_disposed) {
+          break;
         }
-        updated = true;
-      } else {
-        final verified = await _verifySubscription(record);
-        if (verified) {
-          _scheduleRenewal(_subscriptions[spaceId]!);
-        } else {
-          _log.info('Subscription for space $spaceId not verifiable — recreating');
+
+        final record = _subscriptions[spaceId];
+        if (record == null) {
+          continue;
+        }
+
+        if (record.isExpiredAt(_now())) {
+          _log.info('Subscription for space $spaceId expired — recreating');
+          await _deleteSubscription(record.subscriptionName);
           final newRecord = await _createSubscription(spaceId);
           if (newRecord == null) {
             _subscriptions.remove(spaceId);
             _log.warning('Failed to recreate subscription for space $spaceId — removing');
           }
           updated = true;
+        } else {
+          final verified = await _verifySubscription(record);
+          if (verified) {
+            _scheduleRenewal(_subscriptions[spaceId]!);
+          } else {
+            _log.info('Subscription for space $spaceId not verifiable — recreating');
+            final newRecord = await _createSubscription(spaceId);
+            if (newRecord == null) {
+              _subscriptions.remove(spaceId);
+              _log.warning('Failed to recreate subscription for space $spaceId — removing');
+            }
+            updated = true;
+          }
         }
-      }
 
-      if (!_disposed) {
-        final delay = _delayOverride ?? Future.delayed;
-        await delay(_reconciliationDelay);
+        if (!_disposed) {
+          final delay = _delayOverride ?? Future.delayed;
+          await delay(_reconciliationDelay);
+        }
       }
     }
 
     if (updated) {
       await _saveToDisk();
     }
+    await _discoverAndSubscribe();
     _log.info('Reconciliation complete: ${_subscriptions.length} active subscriptions');
+  }
+
+  Future<void> _discoverAndSubscribe() async {
+    final discoverSpaces = _discoverSpaces;
+    if (discoverSpaces == null || _disposed) {
+      return;
+    }
+
+    List<String> discoveredSpaces;
+    try {
+      discoveredSpaces = await discoverSpaces();
+    } catch (error, stackTrace) {
+      _log.warning('Space discovery failed during reconciliation', error, stackTrace);
+      return;
+    }
+
+    final spacesToSubscribe = <String>[];
+    var skippedExisting = 0;
+    for (final spaceName in discoveredSpaces) {
+      final normalizedSpaceId = normalizeSpaceId(spaceName);
+      final existing = _subscriptions[normalizedSpaceId];
+      if (existing != null && !existing.isExpiredAt(_now())) {
+        skippedExisting++;
+        continue;
+      }
+      spacesToSubscribe.add(spaceName);
+    }
+
+    _log.info(
+      'Space discovery found ${discoveredSpaces.length} spaces; '
+      'skipped $skippedExisting active subscriptions; '
+      'subscribing ${spacesToSubscribe.length} spaces',
+    );
+
+    var subscribedCount = 0;
+    final delay = _delayOverride ?? Future.delayed;
+    for (var i = 0; i < spacesToSubscribe.length; i++) {
+      if (_disposed) {
+        break;
+      }
+
+      final record = await subscribe(spacesToSubscribe[i]);
+      if (record != null) {
+        subscribedCount++;
+      }
+
+      if (i < spacesToSubscribe.length - 1 && !_disposed) {
+        await delay(_reconciliationDelay);
+      }
+    }
+
+    _log.info('Space discovery subscribed $subscribedCount spaces');
   }
 
   /// Disposes the manager — cancels all renewal timers.
@@ -363,12 +411,8 @@ class WorkspaceEventsManager {
     final body = {
       'targetResource': '//chat.googleapis.com/spaces/$spaceId',
       'eventTypes': expandedEventTypes,
-      'notificationEndpoint': {
-        'pubsubTopic': _config.pubsubTopic,
-      },
-      'payloadOptions': {
-        'includeResource': _config.includeResource,
-      },
+      'notificationEndpoint': {'pubsubTopic': _config.pubsubTopic},
+      'payloadOptions': {'includeResource': _config.includeResource},
     };
 
     try {
@@ -377,6 +421,12 @@ class WorkspaceEventsManager {
         headers: const {'content-type': 'application/json'},
         body: jsonEncode(body),
       );
+
+      // Handle 409 ALREADY_EXISTS — subscription exists server-side but
+      // was lost locally (e.g. after restart). Recover by fetching it.
+      if (response.statusCode == 409) {
+        return _recoverExistingSubscription(spaceId, response.body);
+      }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         _log.warning(
@@ -392,10 +442,18 @@ class WorkspaceEventsManager {
         return null;
       }
 
-      final subscriptionName = decoded['name'] as String?;
-      final expireTimeStr = decoded['expireTime'] as String?;
+      // The Workspace Events API may return an LRO wrapper. Unwrap if present.
+      final subscription = decoded['done'] == true && decoded['response'] is Map<String, dynamic>
+          ? decoded['response'] as Map<String, dynamic>
+          : decoded;
+
+      final subscriptionName = subscription['name'] as String?;
+      final expireTimeStr = subscription['expireTime'] as String?;
       if (subscriptionName == null || expireTimeStr == null) {
-        _log.warning('Missing name or expireTime in create response for space $spaceId');
+        _log.warning(
+          'Missing name or expireTime in create response for space $spaceId '
+          '(keys: ${decoded.keys.join(', ')})',
+        );
         return null;
       }
 
@@ -413,6 +471,113 @@ class WorkspaceEventsManager {
       return record;
     } on Exception catch (e, st) {
       _log.warning('Exception creating subscription for space $spaceId', e, st);
+      return null;
+    }
+  }
+
+  /// Recovers a subscription after a 409 ALREADY_EXISTS response.
+  ///
+  /// Extracts the subscription name from the error body, fetches its current
+  /// state via GET, and returns a [SubscriptionRecord] if it's ACTIVE.
+  Future<SubscriptionRecord?> _recoverExistingSubscription(String spaceId, String responseBody) async {
+    // Extract subscription name from the 409 error response.
+    String? subscriptionName;
+    try {
+      final error = jsonDecode(responseBody);
+      if (error is Map<String, dynamic>) {
+        final errorObj = error['error'];
+        if (errorObj is Map<String, dynamic>) {
+          // Try error.details[0].metadata.name first
+          final details = errorObj['details'];
+          if (details is List && details.isNotEmpty) {
+            final first = details[0];
+            if (first is Map<String, dynamic>) {
+              final metadata = first['metadata'];
+              if (metadata is Map<String, dynamic>) {
+                final name = metadata['name'];
+                if (name is String && name.startsWith('subscriptions/')) {
+                  subscriptionName = name;
+                }
+              }
+            }
+          }
+          // Fallback: parse from error.message ("ALREADY_EXISTS: subscriptions/...")
+          if (subscriptionName == null) {
+            final message = errorObj['message'] as String?;
+            if (message != null) {
+              final marker = 'ALREADY_EXISTS: ';
+              final idx = message.indexOf(marker);
+              if (idx != -1) {
+                final candidate = message.substring(idx + marker.length).trim();
+                if (candidate.startsWith('subscriptions/')) {
+                  subscriptionName = candidate;
+                }
+              }
+            }
+          }
+        }
+      }
+    } on Exception {
+      // JSON parse failure — fall through
+    }
+
+    if (subscriptionName == null) {
+      _log.warning(
+        'Subscription already exists for space $spaceId but could not '
+        'extract name from 409 response',
+      );
+      return null;
+    }
+
+    // GET the existing subscription to retrieve expireTime and state.
+    try {
+      final getResponse = await _httpClient.get(Uri.parse('$_apiBase/$subscriptionName'));
+      if (getResponse.statusCode < 200 || getResponse.statusCode >= 300) {
+        _log.warning(
+          'Failed to fetch existing subscription $subscriptionName '
+          'for space $spaceId: HTTP ${getResponse.statusCode}',
+        );
+        return null;
+      }
+
+      final decoded = jsonDecode(getResponse.body);
+      if (decoded is! Map<String, dynamic>) {
+        _log.warning('Invalid GET response for subscription $subscriptionName');
+        return null;
+      }
+
+      final state = decoded['state'] as String?;
+      if (state != 'ACTIVE') {
+        _log.warning(
+          'Existing subscription $subscriptionName for space $spaceId '
+          'is in state $state — cannot recover',
+        );
+        return null;
+      }
+
+      final expireTimeStr = decoded['expireTime'] as String?;
+      if (expireTimeStr == null) {
+        _log.warning('Missing expireTime in GET response for $subscriptionName');
+        return null;
+      }
+
+      final record = SubscriptionRecord(
+        spaceId: spaceId,
+        subscriptionName: subscriptionName,
+        expireTime: DateTime.parse(expireTimeStr),
+        createdAt: _now(),
+      );
+
+      _subscriptions[spaceId] = record;
+      await _saveToDisk();
+      _scheduleRenewal(record);
+      _log.info(
+        'Recovered existing subscription for space $spaceId: '
+        '$subscriptionName (expires $expireTimeStr)',
+      );
+      return record;
+    } on Exception catch (e, st) {
+      _log.warning('Exception recovering subscription $subscriptionName for space $spaceId', e, st);
       return null;
     }
   }
@@ -452,9 +617,7 @@ class WorkspaceEventsManager {
             // Update expireTime from API (may differ from persisted)
             final expireTimeStr = decoded['expireTime'] as String?;
             if (expireTimeStr != null) {
-              _subscriptions[record.spaceId] = record.copyWith(
-                expireTime: DateTime.parse(expireTimeStr),
-              );
+              _subscriptions[record.spaceId] = record.copyWith(expireTime: DateTime.parse(expireTimeStr));
             }
             return true;
           }
@@ -488,9 +651,7 @@ class WorkspaceEventsManager {
     // This is correct after reconciliation where createdAt may be stale but
     // expireTime is fresh from the API.
     final remaining = record.expireTime.difference(_now());
-    final delayFromNow = Duration(
-      microseconds: (remaining.inMicroseconds * _renewalFraction).round(),
-    );
+    final delayFromNow = Duration(microseconds: (remaining.inMicroseconds * _renewalFraction).round());
 
     if (delayFromNow.isNegative || delayFromNow == Duration.zero) {
       _log.fine('Renewal overdue for space ${record.spaceId} — renewing immediately');
@@ -519,7 +680,7 @@ class WorkspaceEventsManager {
       return;
     }
 
-    if (record.isExpired) {
+    if (record.isExpiredAt(_now())) {
       _log.info('Subscription for space $spaceId has expired — recreating');
       await _deleteSubscription(record.subscriptionName);
       _subscriptions.remove(spaceId);
@@ -540,9 +701,7 @@ class WorkspaceEventsManager {
         if (decoded is Map<String, dynamic>) {
           final newExpireTimeStr = decoded['expireTime'] as String?;
           if (newExpireTimeStr != null) {
-            final updated = record.copyWith(
-              expireTime: DateTime.parse(newExpireTimeStr),
-            );
+            final updated = record.copyWith(expireTime: DateTime.parse(newExpireTimeStr));
             _subscriptions[spaceId] = updated;
             await _saveToDisk();
             _scheduleRenewal(updated);

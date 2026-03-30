@@ -1,5 +1,7 @@
 import 'package:logging/logging.dart';
 
+import 'google_chat_utils.dart' as utils;
+
 /// Parsed slash command from a Google Chat event payload.
 class SlashCommand {
   /// Slash command name without the leading `/`.
@@ -30,12 +32,12 @@ class SlashCommandParser {
 
   /// Parses a slash command from a `MESSAGE` event payload.
   SlashCommand? parseFromMessage(Map<String, dynamic> payload) {
-    final message = _asMap(payload['message']);
+    final message = utils.asMap(payload['message']);
     if (message == null) {
       return null;
     }
 
-    final directSlashCommand = _asMap(message['slashCommand']);
+    final directSlashCommand = utils.asMap(message['slashCommand']);
     final slashCommand = directSlashCommand ?? _findSlashCommandAnnotation(message);
     if (slashCommand == null) {
       return null;
@@ -56,7 +58,7 @@ class SlashCommandParser {
 
   /// Parses a slash command from an `APP_COMMAND` event payload.
   SlashCommand? parseFromAppCommand(Map<String, dynamic> payload) {
-    final appCommandMetadata = _asMap(payload['appCommandMetadata']);
+    final appCommandMetadata = utils.asMap(payload['appCommandMetadata']);
     if (appCommandMetadata == null) {
       return null;
     }
@@ -67,7 +69,7 @@ class SlashCommandParser {
       return null;
     }
 
-    final message = _asMap(payload['message']);
+    final message = utils.asMap(payload['message']);
     _log.fine('Parsed Google Chat slash command from APP_COMMAND shape: /$commandName');
     return SlashCommand(name: commandName, arguments: message == null ? '' : _extractArguments(message));
   }
@@ -121,16 +123,6 @@ class SlashCommandParser {
     return trimmed.substring(firstSpace + 1).trim();
   }
 
-  Map<String, dynamic>? _asMap(Object? value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      return value.map((key, value) => MapEntry('$key', value));
-    }
-    return null;
-  }
-
   Map<String, dynamic>? _findSlashCommandAnnotation(Map<String, dynamic> message) {
     final annotations = message['annotations'];
     if (annotations is! List) {
@@ -138,8 +130,8 @@ class SlashCommandParser {
     }
 
     for (final annotation in annotations) {
-      final annotationMap = _asMap(annotation);
-      final slashCommand = _asMap(annotationMap?['slashCommand']);
+      final annotationMap = utils.asMap(annotation);
+      final slashCommand = utils.asMap(annotationMap?['slashCommand']);
       if (slashCommand != null) {
         return slashCommand;
       }

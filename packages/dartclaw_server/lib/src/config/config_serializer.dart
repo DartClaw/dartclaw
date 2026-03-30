@@ -166,7 +166,7 @@ class ConfigSerializer {
         'googleChat': {
           'enabled': googleChatConfig.enabled,
           'serviceAccount': _serializeGoogleServiceAccount(googleChatConfig.serviceAccount),
-          'oauthCredentials': googleChatConfig.oauthCredentials,
+          'oauthCredentials': googleChatConfig.oauthCredentials != null,
           'audience': googleChatConfig.audience == null
               ? null
               : {
@@ -176,11 +176,18 @@ class ConfigSerializer {
           'webhookPath': googleChatConfig.webhookPath,
           'botUser': googleChatConfig.botUser,
           'typingIndicator': googleChatConfig.typingIndicatorMode.name,
-          'quoteReply': googleChatConfig.quoteReply,
+          'quoteReplyMode': googleChatConfig.quoteReplyMode.name,
+          'reactionsAuth': googleChatConfig.reactionsAuth.name,
+          'feedback': {
+            'enabled': googleChatConfig.feedback.enabled,
+            'minFeedbackDelay': _durationString(googleChatConfig.feedback.minFeedbackDelay),
+            'statusInterval': _durationString(googleChatConfig.feedback.statusInterval),
+            'statusStyle': googleChatConfig.feedback.statusStyle.name,
+          },
           'dmAccess': googleChatConfig.dmAccess.name,
           'dmAllowlist': googleChatConfig.dmAllowlist,
           'groupAccess': googleChatConfig.groupAccess.name,
-          'groupAllowlist': googleChatConfig.groupAllowlist,
+          'groupAllowlist': googleChatConfig.groupIds,
           'requireMention': googleChatConfig.requireMention,
           'taskTrigger': _taskTriggerJson(googleChatConfig.taskTrigger),
         },
@@ -193,9 +200,10 @@ class ConfigSerializer {
       'governance': {
         'adminSenders': config.governance.adminSenders,
         'queueStrategy': config.governance.queueStrategy.name,
-        'crowdCoding': {
-          'model': config.governance.crowdCoding.model,
-          'effort': config.governance.crowdCoding.effort,
+        'crowdCoding': {'model': config.governance.crowdCoding.model, 'effort': config.governance.crowdCoding.effort},
+        'turnProgress': {
+          'stallTimeout': _durationString(config.governance.turnProgress.stallTimeout),
+          'stallAction': config.governance.turnProgress.stallAction.name,
         },
         'rateLimits': {
           'perSender': {
@@ -287,4 +295,6 @@ class ConfigSerializer {
     'defaultType': config.defaultType,
     'autoStart': config.autoStart,
   };
+
+  static String _durationString(Duration duration) => '${duration.inSeconds}s';
 }

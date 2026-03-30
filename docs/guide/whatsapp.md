@@ -74,6 +74,22 @@ Use WhatsApp JIDs in `dm_allowlist` and `group_allowlist`.
 
 Tip: check GOWA logs or the guard audit log to discover the exact JID for a contact or group.
 
+`group_allowlist` accepts both plain strings and structured entries with optional per-group overrides:
+
+```yaml
+channels:
+  whatsapp:
+    group_allowlist:
+      - id: "120363041234567890@g.us"
+        name: "Workshop A"       # display name in session sidebar
+        model: haiku             # per-group model override
+        effort: low
+        project: proj-workshop-a # tasks from this group go to this project
+      - "120363099999999999@g.us" # plain string — same as before
+```
+
+See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
+
 ### 4. Group Policies
 
 In groups, the agent only responds when mentioned (default `mention` mode). Configure mention patterns in `dartclaw.yaml`. The agent also responds to replies to its own messages.

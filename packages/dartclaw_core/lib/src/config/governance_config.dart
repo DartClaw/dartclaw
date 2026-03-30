@@ -68,6 +68,27 @@ enum QueueStrategy {
   String toYaml() => name;
 }
 
+/// Action to take when a turn stops emitting progress events.
+enum TurnProgressAction {
+  /// Log and surface the stall, but keep the turn running.
+  warn,
+
+  /// Cancel the active turn when the stall timeout is reached.
+  cancel,
+
+  /// Ignore stalls entirely after detection.
+  ignore;
+
+  static TurnProgressAction? fromYaml(String value) => switch (value) {
+    'warn' => TurnProgressAction.warn,
+    'cancel' => TurnProgressAction.cancel,
+    'ignore' => TurnProgressAction.ignore,
+    _ => null,
+  };
+
+  String toYaml() => name;
+}
+
 // ---------------------------------------------------------------------------
 // Sub-config classes
 // ---------------------------------------------------------------------------
@@ -166,7 +187,7 @@ class RateLimitsConfig {
   String toString() => 'RateLimitsConfig(perSender: $perSender, global: $global)';
 }
 
-/// Token budget configuration. Parsed but not enforced until S09.
+/// Token budget configuration.
 class BudgetConfig {
   /// Maximum daily token usage. 0 = disabled.
   final int dailyTokens;
@@ -196,7 +217,7 @@ class BudgetConfig {
   String toString() => 'BudgetConfig(dailyTokens: $dailyTokens, action: $action, timezone: $timezone)';
 }
 
-/// Loop detection configuration. Parsed but not enforced until S10.
+/// Loop detection configuration.
 class LoopDetectionConfig {
   /// Whether loop detection is active.
   final bool enabled;
@@ -278,15 +299,41 @@ class CrowdCodingConfig {
   String toString() => 'CrowdCodingConfig(model: $model, effort: $effort)';
 }
 
+/// Progress-aware turn stall detection config.
+class TurnProgressConfig {
+  /// Maximum silent period before the turn is considered stalled.
+  final Duration stallTimeout;
+
+  /// Action to take when the timeout elapses.
+  final TurnProgressAction stallAction;
+
+  /// Whether turn-progress monitoring is active.
+  bool get enabled => stallTimeout > Duration.zero;
+
+  const TurnProgressConfig({this.stallTimeout = Duration.zero, this.stallAction = TurnProgressAction.warn});
+
+  const TurnProgressConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TurnProgressConfig && stallTimeout == other.stallTimeout && stallAction == other.stallAction;
+
+  @override
+  int get hashCode => Object.hash(stallTimeout, stallAction);
+
+  @override
+  String toString() => 'TurnProgressConfig(stallTimeout: $stallTimeout, stallAction: $stallAction)';
+}
+
 // ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
 /// Top-level governance configuration.
 ///
-/// Rate limiting is enforced in S08. Budget ([budget]) and loop detection
-/// ([loopDetection]) sections are parsed here for schema completeness but
-/// their enforcement is implemented in S09 and S10 respectively.
+/// Controls rate limiting, budget enforcement, loop detection, queue strategy,
+/// crowd coding defaults, and turn progress monitoring.
 class GovernanceConfig {
   /// Sender IDs that are exempt from all per-sender rate limits.
   ///
@@ -309,6 +356,9 @@ class GovernanceConfig {
   /// Crowd coding model/effort defaults for channel-routed group sessions.
   final CrowdCodingConfig crowdCoding;
 
+  /// Progress-aware turn stall detection config.
+  final TurnProgressConfig turnProgress;
+
   const GovernanceConfig({
     this.adminSenders = const [],
     this.rateLimits = const RateLimitsConfig.defaults(),
@@ -316,6 +366,7 @@ class GovernanceConfig {
     this.loopDetection = const LoopDetectionConfig.defaults(),
     this.queueStrategy = QueueStrategy.fifo,
     this.crowdCoding = const CrowdCodingConfig.defaults(),
+    this.turnProgress = const TurnProgressConfig.defaults(),
   });
 
   /// Default governance config — all features disabled, all senders are admins.
@@ -339,17 +390,25 @@ class GovernanceConfig {
           budget == other.budget &&
           loopDetection == other.loopDetection &&
           queueStrategy == other.queueStrategy &&
-          crowdCoding == other.crowdCoding;
+          crowdCoding == other.crowdCoding &&
+          turnProgress == other.turnProgress;
 
   @override
-  int get hashCode =>
-      Object.hash(Object.hashAll(adminSenders), rateLimits, budget, loopDetection, queueStrategy, crowdCoding);
+  int get hashCode => Object.hash(
+    Object.hashAll(adminSenders),
+    rateLimits,
+    budget,
+    loopDetection,
+    queueStrategy,
+    crowdCoding,
+    turnProgress,
+  );
 
   @override
   String toString() =>
       'GovernanceConfig(adminSenders: $adminSenders, rateLimits: $rateLimits, '
       'budget: $budget, loopDetection: $loopDetection, queueStrategy: $queueStrategy, '
-      'crowdCoding: $crowdCoding)';
+      'crowdCoding: $crowdCoding, turnProgress: $turnProgress)';
 
   static bool _listEquals(List<String> a, List<String> b) {
     if (a.length != b.length) return false;

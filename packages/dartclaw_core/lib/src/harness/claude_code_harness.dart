@@ -8,11 +8,13 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../bridge/bridge_events.dart';
+import '../config/history_config.dart';
 import '../container/container_manager.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
+import 'conversation_history.dart';
 import 'harness_config.dart';
 import 'process_lifecycle.dart';
 import 'protocol_message.dart' as proto;
@@ -71,6 +73,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
   final HarnessConfig harnessConfig;
+  final HistoryConfig historyConfig;
   final ContainerManager? containerManager;
   final ClaudeProtocolAdapter _adapter;
   final Duration _killGracePeriod;
@@ -90,6 +93,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   String? _containerMcpConfigPath;
   int _crashCount = 0;
   int _spawnGeneration = 0;
+  int _turnsSinceStart = 0;
   Process? _process;
   String? _sessionId;
   Completer<Map<String, dynamic>>? _turnCompleter;
@@ -124,6 +128,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     this.onMemorySearch,
     this.onMemoryRead,
     this.harnessConfig = const HarnessConfig(),
+    this.historyConfig = const HistoryConfig.defaults(),
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
     Duration killGracePeriod = const Duration(seconds: 2),
@@ -261,6 +266,18 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     final desiredModel = _resolveModel(model);
     final desiredEffort = _resolveEffort(effort);
     final desiredMaxTurns = _resolveMaxTurns(maxTurns);
+
+    // First-use adoption: when the process was spawned with null effort/model
+    // and the first turn supplies a non-null value, adopt it without restarting.
+    // This prevents unnecessary restarts when governance.crowd_coding.effort
+    // is set but agent.effort is not.
+    if (_processEffort == null && desiredEffort != null) {
+      _processEffort = desiredEffort;
+    }
+    if (_processModel == null && desiredModel != null) {
+      _processModel = desiredModel;
+    }
+
     if (desiredWorkingDirectory != _processWorkingDirectory ||
         desiredModel != _processModel ||
         desiredEffort != _processEffort ||
@@ -310,8 +327,31 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
     try {
       final messageContent = messages.last['content'];
+      final messageText =
+          messageContent is String ? messageContent : messageContent?.toString() ?? '';
+
+      // Inject replay-safe conversation history on cold process (first turn after
+      // start/restart) when prior messages exist.
+      String effectiveMessage;
+      if (_turnsSinceStart == 0 && messages.length > 1) {
+        final priorMessages = messages.sublist(0, messages.length - 1);
+        final historyBlock = buildReplaySafeHistory(priorMessages, historyConfig);
+        if (historyBlock.isNotEmpty) {
+          _log.info(
+            'Injecting conversation history: '
+            '${priorMessages.length} prior messages, '
+            '${historyBlock.length} chars',
+          );
+          effectiveMessage = '$historyBlock\n\n$messageText';
+        } else {
+          effectiveMessage = messageText;
+        }
+      } else {
+        effectiveMessage = messageText;
+      }
+
       final payload = _adapter.buildTurnRequest(
-        message: messageContent is String ? messageContent : messageContent?.toString() ?? '',
+        message: effectiveMessage,
         systemPrompt: promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty ? systemPrompt : null,
         resume: resume,
       );
@@ -323,6 +363,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
         _crashCount = 0;
         _state = WorkerState.idle;
       }
+      _turnsSinceStart++;
       return result;
     } catch (e) {
       timeoutTimer.cancel();
@@ -338,6 +379,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   // -------------------------------------------------------------------------
 
   Future<void> _startInternal() async {
+    _turnsSinceStart = 0;
     final cm = containerManager;
     if (cm == null) {
       // Check claude binary.
@@ -443,6 +485,8 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
     final generation = ++_spawnGeneration;
     _process = process;
+    _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
+
 
     // Listen to stdout lines → parse JSONL → route messages.
     _stdoutSub = process.stdout
@@ -525,6 +569,22 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
           _processMaxTurns == maxTurns &&
           _state != WorkerState.stopped) {
         return;
+      }
+      final changes = <String>[];
+      if (_processWorkingDirectory != workingDirectory) {
+        changes.add('workingDirectory: $_processWorkingDirectory -> $workingDirectory');
+      }
+      if (_processModel != model) {
+        changes.add('model: $_processModel -> $model');
+      }
+      if (_processEffort != effort) {
+        changes.add('effort: $_processEffort -> $effort');
+      }
+      if (_processMaxTurns != maxTurns) {
+        changes.add('maxTurns: $_processMaxTurns -> $maxTurns');
+      }
+      if (changes.isNotEmpty) {
+        _log.warning('Restarting harness due to parameter change: ${changes.join(', ')}');
       }
       await _stopInternal();
       _processWorkingDirectory = workingDirectory;

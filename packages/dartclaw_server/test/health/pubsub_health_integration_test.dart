@@ -17,7 +17,12 @@ class _FakeRestClient extends GoogleChatRestClient {
   _FakeRestClient() : super(authClient: MockClient((_) async => http.Response('{}', 200)));
 
   @override
-  Future<String?> sendMessage(String spaceName, String text, {String? quotedMessageName}) async => null;
+  Future<String?> sendMessage(
+    String spaceName,
+    String text, {
+    String? quotedMessageName,
+    String? quotedMessageLastUpdateTime,
+  }) async => null;
   @override
   Future<void> testConnection() async {}
 }
@@ -102,7 +107,7 @@ void main() {
           webhookPath: '/integrations/googlechat',
           dmAccess: DmAccessMode.open,
           groupAccess: GroupAccessMode.open,
-          typingIndicator: false,
+          typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
         dispatchMessage: (msg) async {
           dispatched = msg;
@@ -164,7 +169,7 @@ void main() {
           webhookPath: '/integrations/googlechat',
           dmAccess: DmAccessMode.open,
           groupAccess: GroupAccessMode.open,
-          typingIndicator: false,
+          typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
         dispatchMessage: (msg) async {
           dispatched = msg;

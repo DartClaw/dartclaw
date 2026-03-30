@@ -55,22 +55,28 @@ MockClient createMockClient({
     final path = request.url.path;
     if (request.method == 'POST' && path.endsWith('/subscriptions')) {
       return http.Response(
-        jsonEncode(createResponse ?? {
-          'name': 'subscriptions/new-sub-1',
-          'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-          'state': 'ACTIVE',
-        }),
+        jsonEncode(
+          createResponse ??
+              {
+                'name': 'subscriptions/new-sub-1',
+                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
+                'state': 'ACTIVE',
+              },
+        ),
         createStatus,
         headers: {'content-type': 'application/json'},
       );
     }
     if (request.method == 'PATCH') {
       return http.Response(
-        jsonEncode(patchResponse ?? {
-          'name': 'subscriptions/new-sub-1',
-          'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-          'state': 'ACTIVE',
-        }),
+        jsonEncode(
+          patchResponse ??
+              {
+                'name': 'subscriptions/new-sub-1',
+                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
+                'state': 'ACTIVE',
+              },
+        ),
         patchStatus,
         headers: {'content-type': 'application/json'},
       );
@@ -80,11 +86,14 @@ MockClient createMockClient({
     }
     if (request.method == 'GET') {
       return http.Response(
-        jsonEncode(getResponse ?? {
-          'name': 'subscriptions/new-sub-1',
-          'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-          'state': 'ACTIVE',
-        }),
+        jsonEncode(
+          getResponse ??
+              {
+                'name': 'subscriptions/new-sub-1',
+                'expireTime': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
+                'state': 'ACTIVE',
+              },
+        ),
         getStatus,
         headers: {'content-type': 'application/json'},
       );
@@ -97,6 +106,7 @@ WorkspaceEventsManager makeManager({
   required http.Client mockClient,
   required Directory dataDir,
   SpaceEventsConfig? config,
+  SpaceDiscoveryCallback? discoverSpaces,
   Future<void> Function(Duration)? delay,
   DateTime Function()? clock,
 }) {
@@ -104,6 +114,7 @@ WorkspaceEventsManager makeManager({
     authClient: mockClient,
     config: config ?? testConfig(),
     dataDir: dataDir.path,
+    discoverSpaces: discoverSpaces,
     delay: delay ?? (_) async {},
     clock: clock,
   );
@@ -160,26 +171,19 @@ void main() {
     });
 
     test('isExpired returns true for past expireTime', () {
-      final record = sampleRecord(
-        expireTime: DateTime.now().toUtc().subtract(const Duration(hours: 1)),
-      );
+      final record = sampleRecord(expireTime: DateTime.now().toUtc().subtract(const Duration(hours: 1)));
       expect(record.isExpired, isTrue);
     });
 
     test('isExpired returns false for future expireTime', () {
-      final record = sampleRecord(
-        expireTime: DateTime.now().toUtc().add(const Duration(hours: 1)),
-      );
+      final record = sampleRecord(expireTime: DateTime.now().toUtc().add(const Duration(hours: 1)));
       expect(record.isExpired, isFalse);
     });
 
     test('copyWith updates specified fields', () {
       final original = sampleRecord();
       final newExpire = DateTime.now().toUtc().add(const Duration(hours: 8));
-      final updated = original.copyWith(
-        subscriptionName: 'subscriptions/new-sub',
-        expireTime: newExpire,
-      );
+      final updated = original.copyWith(subscriptionName: 'subscriptions/new-sub', expireTime: newExpire);
       expect(updated.spaceId, original.spaceId);
       expect(updated.subscriptionName, 'subscriptions/new-sub');
       expect(updated.expireTime, newExpire);
@@ -190,10 +194,7 @@ void main() {
   group('expandEventTypes', () {
     test('expands shorthand to fully-qualified form', () {
       final result = WorkspaceEventsManager.expandEventTypes(['message.created', 'message.updated']);
-      expect(result, [
-        'google.workspace.chat.message.v1.created',
-        'google.workspace.chat.message.v1.updated',
-      ]);
+      expect(result, ['google.workspace.chat.message.v1.created', 'google.workspace.chat.message.v1.updated']);
     });
 
     test('passes through already-qualified types', () {
@@ -312,10 +313,7 @@ void main() {
     });
 
     test('returns null on API error', () async {
-      final manager = makeManager(
-        mockClient: createMockClient(createStatus: 500),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(createStatus: 500), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       final result = await manager.subscribe('SPACE_1');
@@ -355,6 +353,167 @@ void main() {
       final result = await manager.subscribe('SPACE_1');
       expect(result, isNull);
       expect(requests, isEmpty);
+    });
+
+    group('409 recovery', () {
+      test('recovers an existing subscription from error.details metadata', () async {
+        final requests = <http.Request>[];
+        final manager = makeManager(
+          mockClient: createMockClient(
+            createStatus: 409,
+            createResponse: {
+              'error': {
+                'details': [
+                  {
+                    'metadata': {'name': 'subscriptions/existing-sub'},
+                  },
+                ],
+              },
+            },
+            getResponse: {
+              'name': 'subscriptions/existing-sub',
+              'expireTime': '2024-03-15T14:30:00Z',
+              'state': 'ACTIVE',
+            },
+            onRequest: requests.add,
+          ),
+          dataDir: tempDir,
+          clock: () => DateTime.utc(2024, 3, 15, 10, 30),
+        );
+        addTearDown(manager.dispose);
+
+        final record = await manager.subscribe('SPACE_1');
+
+        expect(record, isNotNull);
+        expect(record!.subscriptionName, 'subscriptions/existing-sub');
+        expect(record.expireTime, DateTime.utc(2024, 3, 15, 14, 30));
+        expect(requests.map((request) => request.method), ['POST', 'GET']);
+      });
+
+      test('recovers an existing subscription from the error.message fallback', () async {
+        final requests = <http.Request>[];
+        final manager = makeManager(
+          mockClient: createMockClient(
+            createStatus: 409,
+            createResponse: {
+              'error': {'message': 'Request failed with ALREADY_EXISTS: subscriptions/from-message'},
+            },
+            getResponse: {
+              'name': 'subscriptions/from-message',
+              'expireTime': '2024-03-15T14:30:00Z',
+              'state': 'ACTIVE',
+            },
+            onRequest: requests.add,
+          ),
+          dataDir: tempDir,
+          clock: () => DateTime.utc(2024, 3, 15, 10, 30),
+        );
+        addTearDown(manager.dispose);
+
+        final record = await manager.subscribe('SPACE_1');
+
+        expect(record, isNotNull);
+        expect(record!.subscriptionName, 'subscriptions/from-message');
+        expect(requests.map((request) => request.method), ['POST', 'GET']);
+      });
+
+      test('returns null when the 409 body is unparseable', () async {
+        final requests = <http.Request>[];
+        final manager = WorkspaceEventsManager(
+          authClient: MockClient((request) async {
+            requests.add(request);
+            if (request.method == 'POST') {
+              return http.Response('not-json', 409);
+            }
+            fail('unexpected follow-up request: ${request.method} ${request.url}');
+          }),
+          config: testConfig(),
+          dataDir: tempDir.path,
+          delay: (_) async {},
+        );
+        addTearDown(manager.dispose);
+
+        final record = await manager.subscribe('SPACE_1');
+
+        expect(record, isNull);
+        expect(requests.map((request) => request.method), ['POST']);
+      });
+
+      test('returns null when the recovered subscription is not ACTIVE', () async {
+        final requests = <http.Request>[];
+        final manager = makeManager(
+          mockClient: createMockClient(
+            createStatus: 409,
+            createResponse: {
+              'error': {
+                'details': [
+                  {
+                    'metadata': {'name': 'subscriptions/existing-sub'},
+                  },
+                ],
+              },
+            },
+            getResponse: {
+              'name': 'subscriptions/existing-sub',
+              'expireTime': '2024-03-15T14:30:00Z',
+              'state': 'SUSPENDED',
+            },
+            onRequest: requests.add,
+          ),
+          dataDir: tempDir,
+        );
+        addTearDown(manager.dispose);
+
+        final record = await manager.subscribe('SPACE_1');
+
+        expect(record, isNull);
+        expect(requests.map((request) => request.method), ['POST', 'GET']);
+      });
+
+      test('persists and schedules renewal when recovery returns ACTIVE with expireTime', () async {
+        final delays = <Duration>[];
+        final manager = makeManager(
+          mockClient: createMockClient(
+            createStatus: 409,
+            createResponse: {
+              'error': {
+                'details': [
+                  {
+                    'metadata': {'name': 'subscriptions/existing-sub'},
+                  },
+                ],
+              },
+            },
+            getResponse: {
+              'name': 'subscriptions/existing-sub',
+              'expireTime': '2024-03-15T14:30:00Z',
+              'state': 'ACTIVE',
+            },
+          ),
+          dataDir: tempDir,
+          clock: () => DateTime.utc(2024, 3, 15, 10, 30),
+          delay: (duration) async {
+            delays.add(duration);
+          },
+        );
+        addTearDown(manager.dispose);
+
+        final record = await manager.subscribe('SPACE_1');
+
+        expect(record, isNotNull);
+        final file = File('${tempDir.path}/google-chat-subscriptions.json');
+        expect(file.existsSync(), isTrue);
+        final persisted = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        expect(persisted['subscriptions'], [
+          {
+            'spaceId': 'SPACE_1',
+            'subscriptionName': 'subscriptions/existing-sub',
+            'expireTime': '2024-03-15T14:30:00.000Z',
+            'createdAt': '2024-03-15T10:30:00.000Z',
+          },
+        ]);
+        expect(delays, [const Duration(hours: 3)]);
+      });
     });
   });
 
@@ -396,10 +555,7 @@ void main() {
     });
 
     test('handles 404 on delete gracefully', () async {
-      final manager = makeManager(
-        mockClient: createMockClient(deleteStatus: 404),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(deleteStatus: 404), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.subscribe('SPACE_1');
@@ -410,10 +566,7 @@ void main() {
     });
 
     test('handles API error on delete — record still removed from local state', () async {
-      final manager = makeManager(
-        mockClient: createMockClient(deleteStatus: 500),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(deleteStatus: 500), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.subscribe('SPACE_1');
@@ -504,16 +657,18 @@ void main() {
       // Write a subscription that is already expired to disk
       final expiredTime = DateTime.now().toUtc().subtract(const Duration(hours: 1));
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          {
-            'spaceId': 'SPACE_1',
-            'subscriptionName': 'subscriptions/sub-expired',
-            'expireTime': expiredTime.toIso8601String(),
-            'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
-          },
-        ],
-      }));
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            {
+              'spaceId': 'SPACE_1',
+              'subscriptionName': 'subscriptions/sub-expired',
+              'expireTime': expiredTime.toIso8601String(),
+              'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
+            },
+          ],
+        }),
+      );
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -610,16 +765,18 @@ void main() {
       // Write a subscriptions JSON file
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          {
-            'spaceId': 'SPACE_1',
-            'subscriptionName': 'subscriptions/sub-1',
-            'expireTime': expireTime.toIso8601String(),
-            'createdAt': DateTime.now().toUtc().toIso8601String(),
-          },
-        ],
-      }));
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            {
+              'spaceId': 'SPACE_1',
+              'subscriptionName': 'subscriptions/sub-1',
+              'expireTime': expireTime.toIso8601String(),
+              'createdAt': DateTime.now().toUtc().toIso8601String(),
+            },
+          ],
+        }),
+      );
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -638,16 +795,18 @@ void main() {
     test('recreates expired subscriptions', () async {
       final expiredTime = DateTime.now().toUtc().subtract(const Duration(hours: 1));
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          {
-            'spaceId': 'SPACE_1',
-            'subscriptionName': 'subscriptions/sub-expired',
-            'expireTime': expiredTime.toIso8601String(),
-            'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
-          },
-        ],
-      }));
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            {
+              'spaceId': 'SPACE_1',
+              'subscriptionName': 'subscriptions/sub-expired',
+              'expireTime': expiredTime.toIso8601String(),
+              'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
+            },
+          ],
+        }),
+      );
 
       final requests = <http.Request>[];
       final manager = makeManager(
@@ -668,21 +827,20 @@ void main() {
     test('handles missing subscriptions (404 on GET)', () async {
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          {
-            'spaceId': 'SPACE_1',
-            'subscriptionName': 'subscriptions/sub-1',
-            'expireTime': expireTime.toIso8601String(),
-            'createdAt': DateTime.now().toUtc().toIso8601String(),
-          },
-        ],
-      }));
-
-      final manager = makeManager(
-        mockClient: createMockClient(getStatus: 404),
-        dataDir: tempDir,
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            {
+              'spaceId': 'SPACE_1',
+              'subscriptionName': 'subscriptions/sub-1',
+              'expireTime': expireTime.toIso8601String(),
+              'createdAt': DateTime.now().toUtc().toIso8601String(),
+            },
+          ],
+        }),
       );
+
+      final manager = makeManager(mockClient: createMockClient(getStatus: 404), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.reconcile();
@@ -694,21 +852,20 @@ void main() {
     test('prunes records when recreation fails', () async {
       final expiredTime = DateTime.now().toUtc().subtract(const Duration(hours: 1));
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          {
-            'spaceId': 'SPACE_1',
-            'subscriptionName': 'subscriptions/sub-expired',
-            'expireTime': expiredTime.toIso8601String(),
-            'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
-          },
-        ],
-      }));
-
-      final manager = makeManager(
-        mockClient: createMockClient(createStatus: 500),
-        dataDir: tempDir,
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            {
+              'spaceId': 'SPACE_1',
+              'subscriptionName': 'subscriptions/sub-expired',
+              'expireTime': expiredTime.toIso8601String(),
+              'createdAt': DateTime.now().toUtc().subtract(const Duration(hours: 5)).toIso8601String(),
+            },
+          ],
+        }),
       );
+
+      final manager = makeManager(mockClient: createMockClient(createStatus: 500), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.reconcile();
@@ -753,17 +910,19 @@ void main() {
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
       // Write 3 records
-      file.writeAsStringSync(jsonEncode({
-        'subscriptions': [
-          for (var i = 1; i <= 3; i++)
-            {
-              'spaceId': 'SPACE_$i',
-              'subscriptionName': 'subscriptions/sub-$i',
-              'expireTime': expireTime.toIso8601String(),
-              'createdAt': DateTime.now().toUtc().toIso8601String(),
-            },
-        ],
-      }));
+      file.writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [
+            for (var i = 1; i <= 3; i++)
+              {
+                'spaceId': 'SPACE_$i',
+                'subscriptionName': 'subscriptions/sub-$i',
+                'expireTime': expireTime.toIso8601String(),
+                'createdAt': DateTime.now().toUtc().toIso8601String(),
+              },
+          ],
+        }),
+      );
 
       final manager = WorkspaceEventsManager(
         authClient: createMockClient(),
@@ -781,12 +940,96 @@ void main() {
     });
   });
 
-  group('persistence', () {
-    test('persists after subscribe', () async {
+  group('reconcile with space discovery', () {
+    test('discovers and subscribes when persisted storage is empty', () async {
+      final requests = <http.Request>[];
+      final callbackHits = <String>[];
+      final manager = makeManager(
+        mockClient: createMockClient(onRequest: requests.add),
+        dataDir: tempDir,
+        discoverSpaces: () async {
+          callbackHits.add('called');
+          return ['SPACE_A', 'SPACE_B'];
+        },
+      );
+      addTearDown(manager.dispose);
+
+      await expectLater(manager.reconcile(), completes);
+
+      expect(callbackHits, ['called']);
+      expect(requests.where((request) => request.method == 'POST'), hasLength(2));
+      expect(manager.subscriptions.keys, containsAll(['SPACE_A', 'SPACE_B']));
+    });
+
+    test('skips spaces that are already subscribed', () async {
+      final requests = <http.Request>[];
+      final existing = sampleRecord(spaceId: 'SPACE_A');
+      File('${tempDir.path}/google-chat-subscriptions.json').writeAsStringSync(
+        jsonEncode({
+          'subscriptions': [existing.toJson()],
+        }),
+      );
+
+      final manager = makeManager(
+        mockClient: createMockClient(onRequest: requests.add),
+        dataDir: tempDir,
+        discoverSpaces: () async => ['SPACE_A', 'SPACE_B'],
+      );
+      addTearDown(manager.dispose);
+
+      await expectLater(manager.reconcile(), completes);
+
+      expect(requests.where((request) => request.method == 'POST'), hasLength(1));
+      expect(manager.subscriptions.keys, containsAll(['SPACE_A', 'SPACE_B']));
+    });
+
+    test('swallows discovery callback errors and completes reconcile', () async {
+      final requests = <http.Request>[];
+      final manager = makeManager(
+        mockClient: createMockClient(onRequest: requests.add),
+        dataDir: tempDir,
+        discoverSpaces: () => throw StateError('boom'),
+      );
+      addTearDown(manager.dispose);
+
+      await expectLater(manager.reconcile(), completes);
+
+      expect(requests, isEmpty);
+    });
+
+    test('null discovery callback is a no-op', () async {
+      final requests = <http.Request>[];
+      final manager = makeManager(
+        mockClient: createMockClient(onRequest: requests.add),
+        dataDir: tempDir,
+        discoverSpaces: null,
+      );
+      addTearDown(manager.dispose);
+
+      await expectLater(manager.reconcile(), completes);
+
+      expect(requests, isEmpty);
+    });
+
+    test('waits 200ms between discovered subscribe calls', () async {
+      final delays = <Duration>[];
       final manager = makeManager(
         mockClient: createMockClient(),
         dataDir: tempDir,
+        delay: (duration) async => delays.add(duration),
+        discoverSpaces: () async => ['SPACE_A', 'SPACE_B', 'SPACE_C'],
       );
+      addTearDown(manager.dispose);
+
+      await expectLater(manager.reconcile(), completes);
+
+      expect(delays.where((duration) => duration == const Duration(milliseconds: 200)), hasLength(2));
+    });
+  });
+
+  group('persistence', () {
+    test('persists after subscribe', () async {
+      final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.subscribe('SPACE_1');
@@ -799,10 +1042,7 @@ void main() {
     });
 
     test('persists after unsubscribe', () async {
-      final manager = makeManager(
-        mockClient: createMockClient(),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       await manager.subscribe('SPACE_1');
@@ -817,10 +1057,7 @@ void main() {
       final file = File('${tempDir.path}/google-chat-subscriptions.json');
       file.writeAsStringSync('not json!');
 
-      final manager = makeManager(
-        mockClient: createMockClient(),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       addTearDown(manager.dispose);
 
       // Should not throw
@@ -847,20 +1084,14 @@ void main() {
 
   group('dispose', () {
     test('isDisposed reflects state', () {
-      final manager = makeManager(
-        mockClient: createMockClient(),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       expect(manager.isDisposed, isFalse);
       manager.dispose();
       expect(manager.isDisposed, isTrue);
     });
 
     test('double dispose is safe', () {
-      final manager = makeManager(
-        mockClient: createMockClient(),
-        dataDir: tempDir,
-      );
+      final manager = makeManager(mockClient: createMockClient(), dataDir: tempDir);
       manager.dispose();
       expect(() => manager.dispose(), returnsNormally);
     });

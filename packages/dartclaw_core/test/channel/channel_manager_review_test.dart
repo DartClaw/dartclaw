@@ -392,8 +392,10 @@ class _TaskOps {
     String? goalId,
     String? acceptanceCriteria,
     String? createdBy,
+    String? projectId,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
+    String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
     var task = Task(

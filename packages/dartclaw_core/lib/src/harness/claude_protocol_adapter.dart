@@ -54,6 +54,14 @@ class ClaudeProtocolAdapter implements ProtocolAdapter {
     };
   }
 
+  /// Builds a Claude JSONL turn request.
+  ///
+  /// The [history] parameter is intentionally unused here — the Claude CLI
+  /// stream-json protocol has no `previousResponseItems` equivalent. History
+  /// replay is handled by [ClaudeCodeHarness] via user-message injection on
+  /// cold-process turns. [CodexProtocolAdapter] actively uses [history] for
+  /// `previousResponseItems`; the parameter remains on the [ProtocolAdapter]
+  /// interface so Codex call sites are unaffected.
   @override
   Map<String, dynamic> buildTurnRequest({
     required String message,

@@ -31,6 +31,9 @@ void main() {
         expect(ConfigMeta.fields, contains('port'));
         expect(ConfigMeta.fields, contains('host'));
         expect(ConfigMeta.fields, contains('data_dir'));
+        expect(ConfigMeta.fields, contains('source_dir'));
+        expect(ConfigMeta.fields, contains('static_dir'));
+        expect(ConfigMeta.fields, contains('templates_dir'));
         expect(ConfigMeta.fields, contains('worker_timeout'));
         // memory_max_bytes was removed — top-level field no longer registered
         expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
@@ -82,6 +85,7 @@ void main() {
         expect(ConfigMeta.fields, contains('channels.google_chat.webhook_path'));
         expect(ConfigMeta.fields, contains('channels.google_chat.bot_user'));
         expect(ConfigMeta.fields, contains('channels.google_chat.typing_indicator'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.quote_reply'));
         expect(ConfigMeta.fields, contains('channels.google_chat.dm_access'));
         expect(ConfigMeta.fields, contains('channels.google_chat.dm_allowlist'));
         expect(ConfigMeta.fields, contains('channels.google_chat.group_access'));
@@ -111,7 +115,13 @@ void main() {
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.event_types'));
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.include_resource'));
         expect(ConfigMeta.fields, contains('channels.google_chat.space_events.auth_mode'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.enabled'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.min_feedback_delay'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.status_interval'));
+        expect(ConfigMeta.fields, contains('channels.google_chat.feedback.status_style'));
         expect(ConfigMeta.fields, contains('governance.queue_strategy'));
+        expect(ConfigMeta.fields, contains('governance.turn_progress.stall_timeout'));
+        expect(ConfigMeta.fields, contains('governance.turn_progress.stall_action'));
         expect(ConfigMeta.fields, contains('governance.crowd_coding.model'));
         expect(ConfigMeta.fields, contains('governance.crowd_coding.effort'));
         expect(ConfigMeta.fields, contains('governance.rate_limits.per_sender.max_queued'));
@@ -238,6 +248,24 @@ void main() {
         expect(
           ConfigMeta.fields['channels.google_chat.oauth_credentials']!.jsonKey,
           equals('channels.googleChat.oauthCredentials'),
+        );
+      });
+
+      test('workspace and quote-reply fields map correctly', () {
+        expect(ConfigMeta.fields['source_dir']!.jsonKey, equals('sourceDir'));
+        expect(ConfigMeta.fields['static_dir']!.jsonKey, equals('staticDir'));
+        expect(ConfigMeta.fields['templates_dir']!.jsonKey, equals('templatesDir'));
+        expect(
+          ConfigMeta.fields['channels.google_chat.quote_reply']!.jsonKey,
+          equals('channels.googleChat.quoteReplyMode'),
+        );
+        expect(
+          ConfigMeta.fields['channels.google_chat.feedback.status_interval']!.jsonKey,
+          equals('channels.googleChat.feedback.statusInterval'),
+        );
+        expect(
+          ConfigMeta.fields['governance.turn_progress.stall_timeout']!.jsonKey,
+          equals('governance.turnProgress.stallTimeout'),
         );
       });
     });

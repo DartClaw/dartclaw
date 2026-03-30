@@ -826,6 +826,257 @@ void main() {
         expect(fake.killSignals, [ProcessSignal.sigterm]);
       });
     });
+
+    // -------------------------------------------------------------------------
+    // T11: Effort tolerance — null -> non-null does not restart harness
+    // -------------------------------------------------------------------------
+
+    group('T11: Effort tolerance', () {
+      test('null processEffort adopts first-use non-null effort without restart', () async {
+        var spawnCount = 0;
+        final stdinLines = <Map<String, dynamic>>[];
+
+        Future<Process> makeProcess() async {
+          spawnCount++;
+          final fake = CapturingFakeProcess(stdinLines);
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          Future.delayed(const Duration(milliseconds: 20), () {
+            fake.emitStdout(
+              jsonEncode({
+                'type': 'result',
+                'result': 'ok',
+                'cost_usd': 0.001,
+                'duration_ms': 10,
+                'duration_api_ms': 5,
+                'num_turns': 1,
+                'is_error': false,
+                'session_id': 'test-session',
+              }),
+            );
+          });
+          return fake;
+        }
+
+        // Harness spawned with no effort (null).
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          harnessConfig: const HarnessConfig(effort: null),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
+              makeProcess(),
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        expect(spawnCount, 1, reason: 'Should spawn exactly once on start');
+
+        // Call turn() with effort: 'medium' — should be adopted without restart.
+        await h.turn(
+          sessionId: 'test',
+          messages: const [{'role': 'user', 'content': 'hello'}],
+          systemPrompt: '',
+          effort: 'medium',
+        );
+
+        // Only one spawn — no restart triggered for null -> 'medium' adoption.
+        expect(spawnCount, 1, reason: 'First-use adoption must not trigger a restart');
+        expect(h.state, WorkerState.idle);
+      });
+
+      test('non-null -> different non-null effort triggers restart', () async {
+        var spawnCount = 0;
+
+        Future<Process> makeProcess() async {
+          spawnCount++;
+          final fake = FakeProcess();
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          Future.delayed(const Duration(milliseconds: 20), () {
+            fake.emitStdout(
+              jsonEncode({
+                'type': 'result',
+                'result': 'ok',
+                'cost_usd': 0.001,
+                'duration_ms': 10,
+                'duration_api_ms': 5,
+                'num_turns': 1,
+                'is_error': false,
+                'session_id': 'test-session',
+              }),
+            );
+          });
+          return fake;
+        }
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          harnessConfig: const HarnessConfig(effort: 'low'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
+              makeProcess(),
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        expect(spawnCount, 1);
+
+        // Turn with different effort — should trigger restart.
+        await h.turn(
+          sessionId: 'test',
+          messages: const [{'role': 'user', 'content': 'hello'}],
+          systemPrompt: '',
+          effort: 'high',
+        );
+
+        expect(spawnCount, 2, reason: 'Different non-null effort must trigger restart');
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // T12: Restart mid-session produces <conversation_history> in JSONL
+    // -------------------------------------------------------------------------
+
+    group('T12: Restart mid-session produces conversation_history', () {
+      test('second spawn receives <conversation_history> when messages > 1', () async {
+        var spawnCount = 0;
+        final capturedPayloads = <Map<String, dynamic>>[];
+
+        Future<Process> makeProcess() async {
+          spawnCount++;
+          final fake = CapturingFakeProcess(capturedPayloads);
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          // Schedule a turn result so the turn call completes.
+          Future.delayed(const Duration(milliseconds: 30), () {
+            fake.emitStdout(
+              jsonEncode({
+                'type': 'result',
+                'result': 'done',
+                'cost_usd': 0.001,
+                'duration_ms': 10,
+                'duration_api_ms': 5,
+                'num_turns': 1,
+                'is_error': false,
+                'session_id': 's1',
+              }),
+            );
+          });
+          return fake;
+        }
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          harnessConfig: const HarnessConfig(model: 'sonnet'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
+              makeProcess(),
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        // First turn (warm — no history injection).
+        await h.turn(
+          sessionId: 'test',
+          messages: const [{'role': 'user', 'content': 'first message'}],
+          systemPrompt: '',
+        );
+        expect(spawnCount, 1);
+
+        // Second turn with model change — triggers restart (cold process).
+        // Pass 3 messages: prior user+assistant pair + the current user message.
+        // The history block requires at least one complete user+assistant exchange.
+        await h.turn(
+          sessionId: 'test',
+          messages: const [
+            {'role': 'user', 'content': 'first message'},
+            {'role': 'assistant', 'content': 'first response'},
+            {'role': 'user', 'content': 'second message'},
+          ],
+          systemPrompt: '',
+          model: 'opus',
+        );
+        expect(spawnCount, 2, reason: 'Model change should trigger restart');
+
+        // The payload sent to the second process should contain conversation_history.
+        final userPayloads = capturedPayloads.where((p) => p['type'] == 'user').toList();
+        final secondTurnPayload = userPayloads.last;
+        final messageContent = secondTurnPayload['message']?['content'] as String? ?? '';
+        expect(messageContent, contains('<conversation_history>'),
+            reason: 'Cold process turn with prior messages must inject conversation history');
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // T13: Parameter-change restart emits warning log
+    // -------------------------------------------------------------------------
+
+    group('T13: Parameter-change restart emits warning log', () {
+      test('model change restart emits Restarting harness warning', () async {
+        final logRecords = <LogRecord>[];
+        final sub = Logger('ClaudeCodeHarness').onRecord.listen(logRecords.add);
+        addTearDown(sub.cancel);
+
+        Future<Process> makeProcess() async {
+          final fake = FakeProcess();
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          Future.delayed(const Duration(milliseconds: 20), () {
+            fake.emitStdout(
+              jsonEncode({
+                'type': 'result',
+                'result': 'ok',
+                'cost_usd': 0.001,
+                'duration_ms': 10,
+                'duration_api_ms': 5,
+                'num_turns': 1,
+                'is_error': false,
+                'session_id': 's1',
+              }),
+            );
+          });
+          return fake;
+        }
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          harnessConfig: const HarnessConfig(model: 'sonnet'),
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
+              makeProcess(),
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        // Trigger a model-change restart.
+        await h.turn(
+          sessionId: 'test',
+          messages: const [{'role': 'user', 'content': 'hello'}],
+          systemPrompt: '',
+          model: 'opus',
+        );
+
+        final warnings = logRecords
+            .where((r) => r.level == Level.WARNING && r.message.contains('Restarting harness due to parameter change'))
+            .toList();
+        expect(warnings, isNotEmpty, reason: 'Should emit warning on parameter-change restart');
+        expect(warnings.first.message, contains('model:'));
+      });
+    });
   });
 }
 

@@ -101,21 +101,21 @@ class GoogleChatWebhookHandler {
   }
 
   Future<Response> _handleMessage(Map<String, dynamic> payload) async {
-    final message = _asMap(payload['message']);
-    final space = _asMap(payload['space']);
-    final user = _asMap(payload['user']);
-    final sender = _asMap(message?['sender']);
+    final message = asMap(payload['message']);
+    final space = asMap(payload['space']);
+    final user = asMap(payload['user']);
+    final sender = asMap(message?['sender']);
     if (message == null || space == null || user == null) {
       return _jsonResponse(const {});
     }
-    if (_isBotMessage(sender)) {
+    if (isBotMessage(sender, botUser: config.botUser)) {
       return _jsonResponse(const {});
     }
 
     final senderJid = (user['name'] as String?) ?? (sender?['name'] as String?);
     final spaceName = space['name'] as String?;
     final spaceType = space['type'] as String?;
-    final thread = _asMap(message['thread']);
+    final thread = asMap(message['thread']);
     if (senderJid == null || senderJid.isEmpty || spaceName == null || spaceName.isEmpty) {
       return _jsonResponse(const {});
     }
@@ -137,7 +137,7 @@ class GoogleChatWebhookHandler {
       }
     }
 
-    final text = _resolveMessageText(message);
+    final text = resolveMessageText(message);
     if (text == null || text.isEmpty) {
       return _jsonResponse(const {});
     }
@@ -146,11 +146,7 @@ class GoogleChatWebhookHandler {
       id: (message['name'] as String?) ?? (message['messageId'] as String?),
       channelType: ChannelType.googlechat,
       senderJid: senderJid,
-      groupJid: switch (spaceType) {
-        'DM' => null,
-        'ROOM' || 'SPACE' => spaceName,
-        _ => spaceName,
-      },
+      groupJid: spaceType != null ? resolveGroupJid(spaceType: spaceType, spaceName: spaceName) : spaceName,
       text: text,
       mentionedJids: _extractMentionedJids(message),
       metadata: {
@@ -160,6 +156,7 @@ class GoogleChatWebhookHandler {
         if (user['displayName'] case final String displayName) 'senderDisplayName': displayName,
         if (sender?['avatarUrl'] case final String avatarUrl when avatarUrl.isNotEmpty) 'senderAvatarUrl': avatarUrl,
         if (message['name'] case final String messageName) 'messageName': messageName,
+        if (message['createTime'] case final String createTime) 'messageCreateTime': createTime,
         if (thread?['name'] case final String threadName when threadName.isNotEmpty) 'threadName': threadName,
       },
     );
@@ -188,7 +185,7 @@ class GoogleChatWebhookHandler {
         _log.fine('Dropping group message from $spaceName (group access disabled)');
         return _jsonResponse(const {});
       }
-      if (config.groupAccess == GroupAccessMode.allowlist && !config.groupAllowlist.contains(spaceName)) {
+      if (config.groupAccess == GroupAccessMode.allowlist && !config.groupIds.contains(spaceName)) {
         _log.fine('Dropping group message from unlisted space $spaceName');
         return _jsonResponse(const {});
       }
@@ -213,7 +210,7 @@ class GoogleChatWebhookHandler {
         }
       }
 
-      await _applyTypingIndicator(channelMessage, spaceName);
+      await _sendTypingIndicator(spaceName, channelMessage);
       manager.handleInboundMessage(channelMessage);
       return _jsonResponse(const {});
     }
@@ -237,7 +234,7 @@ class GoogleChatWebhookHandler {
     }
 
     if (!timedOut) {
-      final formatted = channel.formatResponse(responseText ?? '');
+      final formatted = _formatWithMetadata(channelMessage, responseText ?? '');
       if (formatted.isEmpty) {
         return _jsonResponse(const {});
       }
@@ -247,13 +244,13 @@ class GoogleChatWebhookHandler {
       return _jsonResponse({'text': formatted.first.text});
     }
 
-    await _applyTypingIndicator(channelMessage, spaceName);
-    unawaited(_deliverDeferredResponse(spaceName, responseFuture, channelMessage.id));
+    await _sendTypingIndicator(spaceName, channelMessage);
+    unawaited(_deliverDeferredResponse(spaceName, responseFuture, channelMessage));
     return _jsonResponse(const {});
   }
 
   Future<Response> _handleAddedToSpace(Map<String, dynamic> payload) async {
-    final space = _asMap(payload['space']);
+    final space = asMap(payload['space']);
     final spaceName = space?['name'] as String?;
     if (spaceName != null && spaceName.isNotEmpty) {
       await channel.restClient.sendMessage(spaceName, _welcomeMessage);
@@ -274,7 +271,7 @@ class GoogleChatWebhookHandler {
   }
 
   Future<Response> _handleRemovedFromSpace(Map<String, dynamic> payload) async {
-    final space = _asMap(payload['space']);
+    final space = asMap(payload['space']);
     final spaceName = space?['name'] as String?;
     if (spaceName != null && spaceName.isNotEmpty) {
       _log.info('Google Chat bot removed from $spaceName');
@@ -292,9 +289,9 @@ class GoogleChatWebhookHandler {
   }
 
   Future<Response> _handleCardClicked(Map<String, dynamic> payload) async {
-    final common = _asMap(payload['common']);
+    final common = asMap(payload['common']);
     final invokedFunction = common?['invokedFunction'] as String?;
-    final space = _asMap(payload['space']);
+    final space = asMap(payload['space']);
     final spaceName = space?['name'] as String?;
     if (invokedFunction == null || invokedFunction.isEmpty || spaceName == null || spaceName.isEmpty) {
       _log.warning('CARD_CLICKED event missing invokedFunction or space');
@@ -346,9 +343,9 @@ class GoogleChatWebhookHandler {
   }
 
   Future<Response> _handleAppCommand(Map<String, dynamic> payload) async {
-    final space = _asMap(payload['space']);
-    final user = _asMap(payload['user']);
-    final message = _asMap(payload['message']);
+    final space = asMap(payload['space']);
+    final user = asMap(payload['user']);
+    final message = asMap(payload['message']);
     final spaceName = space?['name'] as String?;
     final senderJid = user?['name'] as String?;
     final spaceType = space?['type'] as String?;
@@ -381,17 +378,7 @@ class GoogleChatWebhookHandler {
     return _jsonResponse(response);
   }
 
-  Future<void> _deliverDeferredResponse(String spaceName, Future<String> responseFuture, String sourceMessageId) async {
-    try {
-      final responseText = await responseFuture;
-      await _sendChunks(spaceName, channel.formatResponse(responseText), sourceMessageId: sourceMessageId);
-    } catch (error, stackTrace) {
-      _log.warning('Google Chat async delivery failed', error, stackTrace);
-      await _sendError(spaceName);
-    }
-  }
-
-  Future<void> _applyTypingIndicator(ChannelMessage channelMessage, String spaceName) async {
+  Future<void> _sendTypingIndicator(String spaceName, ChannelMessage channelMessage) async {
     switch (config.typingIndicatorMode) {
       case TypingIndicatorMode.message:
         final placeholderName = await channel.restClient.sendMessage(spaceName, _typingMessage);
@@ -399,7 +386,8 @@ class GoogleChatWebhookHandler {
           channel.setPlaceholder(spaceName: spaceName, turnId: channelMessage.id, messageName: placeholderName);
         }
       case TypingIndicatorMode.emoji:
-        final reactionName = await channel.restClient.addReaction(channelMessage.id, typingReactionEmoji);
+        final reactionTarget = channelMessage.metadata['messageName'] as String? ?? channelMessage.id;
+        final reactionName = await channel.restClient.addReaction(reactionTarget, typingIndicatorEmoji);
         if (reactionName != null) {
           channel.setReaction(spaceName: spaceName, turnId: channelMessage.id, reactionName: reactionName);
         }
@@ -408,22 +396,41 @@ class GoogleChatWebhookHandler {
     }
   }
 
-  Future<void> _sendChunks(String spaceName, Iterable<ChannelResponse> chunks, {String? sourceMessageId}) async {
-    for (final chunk in chunks) {
-      await channel.sendMessage(
-        spaceName,
-        sourceMessageId == null
-            ? chunk
-            : ChannelResponse(
-                text: chunk.text,
-                mediaAttachments: chunk.mediaAttachments,
-                metadata: {
-                  ...chunk.metadata,
-                  sourceMessageIdMetadataKey: sourceMessageId,
-                },
-                replyToMessageId: sourceMessageId,
-              ),
+  Future<void> _deliverDeferredResponse(String spaceName, Future<String> responseFuture, ChannelMessage message) async {
+    try {
+      final responseText = await responseFuture;
+      await _sendChunks(spaceName, _formatWithMetadata(message, responseText));
+    } catch (error, stackTrace) {
+      _log.warning('Google Chat async delivery failed', error, stackTrace);
+      await _sendError(spaceName);
+    }
+  }
+
+  /// Formats response text into [ChannelResponse] chunks with inbound message
+  /// metadata restored — matching the same pattern used by [MessageQueue].
+  List<ChannelResponse> _formatWithMetadata(ChannelMessage message, String responseText) {
+    return channel.formatResponse(responseText).map((chunk) {
+      return ChannelResponse(
+        text: chunk.text,
+        mediaAttachments: chunk.mediaAttachments,
+        metadata: {
+          ...chunk.metadata,
+          sourceMessageIdMetadataKey: message.id,
+          if (message.metadata['messageName'] case final String messageName) 'messageName': messageName,
+          if (message.metadata['messageCreateTime'] case final String createTime) 'messageCreateTime': createTime,
+          if (message.metadata['senderDisplayName'] case final String senderDisplayName)
+            'senderDisplayName': senderDisplayName,
+          if (message.metadata['spaceType'] case final String spaceType) 'spaceType': spaceType,
+        },
+        replyToMessageId: message.metadata['messageName'] as String?,
+        structuredPayload: chunk.structuredPayload,
       );
+    }).toList();
+  }
+
+  Future<void> _sendChunks(String spaceName, Iterable<ChannelResponse> chunks) async {
+    for (final chunk in chunks) {
+      await channel.sendMessage(spaceName, chunk);
     }
   }
 
@@ -446,21 +453,21 @@ class GoogleChatWebhookHandler {
   /// field (`messagePayload`, `addedToSpacePayload`, etc.) is present inside
   /// `chat`.
   Map<String, dynamic>? _normalizeAddOnPayload(Map<String, dynamic> raw) {
-    final common = _asMap(raw['commonEventObject']);
+    final common = asMap(raw['commonEventObject']);
     if (common?['hostApp'] != 'CHAT') return null;
 
-    final chat = _asMap(raw['chat']);
+    final chat = asMap(raw['chat']);
     if (chat == null) return null;
 
-    final user = _asMap(chat['user']);
+    final user = asMap(chat['user']);
     final eventTime = chat['eventTime'] as String?;
 
     // Detect event type by which payload key is present.
     if (chat.containsKey('messagePayload')) {
-      final mp = _asMap(chat['messagePayload']);
+      final mp = asMap(chat['messagePayload']);
       return <String, dynamic>{
         'type': 'MESSAGE',
-        'space': mp?['space'] ?? _asMap(chat['space']),
+        'space': mp?['space'] ?? asMap(chat['space']),
         'message': mp?['message'],
         'user': user,
         'eventTime': ?eventTime,
@@ -468,28 +475,28 @@ class GoogleChatWebhookHandler {
       };
     }
     if (chat.containsKey('addedToSpacePayload')) {
-      final ap = _asMap(chat['addedToSpacePayload']);
+      final ap = asMap(chat['addedToSpacePayload']);
       return <String, dynamic>{
         'type': 'ADDED_TO_SPACE',
-        'space': ap?['space'] ?? _asMap(chat['space']),
+        'space': ap?['space'] ?? asMap(chat['space']),
         'user': user,
         'eventTime': ?eventTime,
       };
     }
     if (chat.containsKey('removedFromSpacePayload')) {
-      final rp = _asMap(chat['removedFromSpacePayload']);
+      final rp = asMap(chat['removedFromSpacePayload']);
       return <String, dynamic>{
         'type': 'REMOVED_FROM_SPACE',
-        'space': rp?['space'] ?? _asMap(chat['space']),
+        'space': rp?['space'] ?? asMap(chat['space']),
         'user': user,
         'eventTime': ?eventTime,
       };
     }
     if (chat.containsKey('buttonClickedPayload')) {
-      final bp = _asMap(chat['buttonClickedPayload']);
+      final bp = asMap(chat['buttonClickedPayload']);
       return <String, dynamic>{
         'type': 'CARD_CLICKED',
-        'space': bp?['space'] ?? _asMap(chat['space']),
+        'space': bp?['space'] ?? asMap(chat['space']),
         'message': bp?['message'],
         'user': user,
         'common': ?common,
@@ -497,10 +504,10 @@ class GoogleChatWebhookHandler {
       };
     }
     if (chat.containsKey('appCommandPayload')) {
-      final acp = _asMap(chat['appCommandPayload']);
+      final acp = asMap(chat['appCommandPayload']);
       return <String, dynamic>{
         'type': 'APP_COMMAND',
-        'space': acp?['space'] ?? _asMap(chat['space']),
+        'space': acp?['space'] ?? asMap(chat['space']),
         'message': acp?['message'],
         'user': user,
         'appCommandMetadata': ?acp?['appCommandMetadata'],
@@ -523,29 +530,6 @@ class GoogleChatWebhookHandler {
     } catch (error, stackTrace) {
       _log.warning('Invalid Google Chat webhook payload', error, stackTrace);
     }
-    return null;
-  }
-
-  bool _isBotMessage(Map<String, dynamic>? sender) {
-    if (sender?['type'] == 'BOT') {
-      return true;
-    }
-
-    final configuredBotUser = config.botUser;
-    return configuredBotUser != null && configuredBotUser.isNotEmpty && sender?['name'] == configuredBotUser;
-  }
-
-  String? _resolveMessageText(Map<String, dynamic> message) {
-    final argumentText = (message['argumentText'] as String?)?.trim();
-    if (argumentText != null && argumentText.isNotEmpty) {
-      return argumentText;
-    }
-
-    final text = (message['text'] as String?)?.trim();
-    if (text != null && text.isNotEmpty) {
-      return text;
-    }
-
     return null;
   }
 
@@ -575,28 +559,18 @@ class GoogleChatWebhookHandler {
 
     final mentioned = <String>[];
     for (final annotation in annotations) {
-      final annotationMap = _asMap(annotation);
+      final annotationMap = asMap(annotation);
       if (annotationMap == null || annotationMap['type'] != 'USER_MENTION') {
         continue;
       }
-      final userMention = _asMap(annotationMap['userMention']);
-      final user = _asMap(userMention?['user']);
+      final userMention = asMap(annotationMap['userMention']);
+      final user = asMap(userMention?['user']);
       final userName = user?['name'];
       if (userName is String && userName.isNotEmpty) {
         mentioned.add(userName);
       }
     }
     return mentioned;
-  }
-
-  Map<String, dynamic>? _asMap(Object? value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      return value.map((key, value) => MapEntry('$key', value));
-    }
-    return null;
   }
 
   Map<String, String> _extractFlatParameters(Object? rawParameters) {
@@ -634,7 +608,7 @@ class GoogleChatWebhookHandler {
 
     final parameters = <String, String>{};
     for (final entry in rawParameters) {
-      final map = _asMap(entry);
+      final map = asMap(entry);
       final key = map?['key'];
       final value = map?['value'];
       if (key is! String || value is! String) {

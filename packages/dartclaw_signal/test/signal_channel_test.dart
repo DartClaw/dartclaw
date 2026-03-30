@@ -348,7 +348,7 @@ void main() {
         config: const SignalConfig(
           enabled: true,
           groupAccess: SignalGroupAccessMode.allowlist,
-          groupAllowlist: ['grp-allowed'],
+          groupAllowlist: [GroupEntry(id: 'grp-allowed')],
         ),
         dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
@@ -403,7 +403,7 @@ void main() {
       expect(config.dmAccess, DmAccessMode.open);
       expect(config.groupAccess, SignalGroupAccessMode.allowlist);
       expect(config.dmAllowlist, ['+9999999999']);
-      expect(config.groupAllowlist, ['grp-abc']);
+      expect(config.groupIds, ['grp-abc']);
       expect(config.requireMention, isFalse);
       expect(config.mentionPatterns, [r'@bot']);
     });
@@ -415,7 +415,7 @@ void main() {
       expect(config.dmAccess, DmAccessMode.allowlist);
       expect(config.groupAccess, SignalGroupAccessMode.disabled);
       expect(config.dmAllowlist, isEmpty);
-      expect(config.groupAllowlist, isEmpty);
+      expect(config.groupIds, isEmpty);
       expect(config.requireMention, isTrue);
       expect(config.mentionPatterns, isEmpty);
     });
@@ -443,6 +443,28 @@ void main() {
       expect(warns, hasLength(1));
       expect(warns.first, contains('group_access'));
       expect(config.groupAccess, SignalGroupAccessMode.disabled); // default
+    });
+
+    test('mixed string/map group_allowlist parses to correct entries', () {
+      final warns = <String>[];
+      final config = SignalConfig.fromYaml({
+        'group_allowlist': [
+          'grp-plain',
+          {'id': 'grp-structured', 'name': 'Dev Group', 'effort': 'high'},
+        ],
+      }, warns);
+      expect(warns, isEmpty);
+      expect(config.groupIds, ['grp-plain', 'grp-structured']);
+      expect(config.groupAllowlist[1].name, 'Dev Group');
+      expect(config.groupAllowlist[1].effort, 'high');
+      expect(config.groupAllowlist[0].name, isNull);
+    });
+
+    test('plain string group_allowlist is backward compatible', () {
+      final config = SignalConfig.fromYaml({
+        'group_allowlist': ['grp-1', 'grp-2'],
+      }, []);
+      expect(config.groupIds, ['grp-1', 'grp-2']);
     });
   });
 

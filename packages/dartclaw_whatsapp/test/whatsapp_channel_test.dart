@@ -417,4 +417,57 @@ void main() {
       expect(dmAccess.pendingPairings, isEmpty);
     });
   });
+
+  // ---- WhatsAppConfig group_allowlist parsing ----
+  group('WhatsAppConfig group_allowlist parsing', () {
+    test('mixed string/map group_allowlist parses to correct entries', () {
+      final warns = <String>[];
+      final config = WhatsAppConfig.fromYaml({
+        'group_allowlist': [
+          '123@g.us',
+          {'id': '456@g.us', 'name': 'Dev Team', 'model': 'sonnet'},
+        ],
+      }, warns);
+      expect(warns, isEmpty);
+      expect(config.groupIds, ['123@g.us', '456@g.us']);
+      expect(config.groupAllowlist[1].name, 'Dev Team');
+      expect(config.groupAllowlist[1].model, 'sonnet');
+      expect(config.groupAllowlist[0].name, isNull);
+    });
+
+    test('plain string group_allowlist is backward compatible', () {
+      final config = WhatsAppConfig.fromYaml({
+        'group_allowlist': ['123@g.us', '456@g.us'],
+      }, []);
+      expect(config.groupIds, ['123@g.us', '456@g.us']);
+    });
+
+    test('allowlist access control uses groupIds', () {
+      final channel = WhatsAppChannel(
+        gowa: gowa,
+        config: WhatsAppConfig(
+          enabled: true,
+          groupAccess: GroupAccessMode.allowlist,
+          groupAllowlist: [const GroupEntry(id: '123@g.us')],
+          requireMention: false,
+        ),
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
+        channelManager: channelManager,
+        workspaceDir: '/tmp',
+      );
+
+      // Listed group -> accepted
+      channel.handleWebhook(
+        _v8Envelope(payload: {'from': 'sender@s.whatsapp.net', 'body': 'hi', 'chat_id': '123@g.us', 'is_group': true}),
+      );
+      expect(channelManager.received, hasLength(1));
+
+      // Unlisted group -> dropped
+      channel.handleWebhook(
+        _v8Envelope(payload: {'from': 'sender@s.whatsapp.net', 'body': 'hi', 'chat_id': '999@g.us', 'is_group': true}),
+      );
+      expect(channelManager.received, hasLength(1));
+    });
+  });
 }

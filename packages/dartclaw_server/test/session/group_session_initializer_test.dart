@@ -29,9 +29,9 @@ void main() {
           const ChannelGroupConfig(
             channelType: 'whatsapp',
             groupAccessEnabled: true,
-            groupAllowlist: ['grp-wa-1', 'grp-wa-2'],
+            groupEntries: [GroupEntry(id: 'grp-wa-1'), GroupEntry(id: 'grp-wa-2')],
           ),
-          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupAllowlist: ['grp-sig-1']),
+          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-sig-1')]),
         ],
       );
       await init.initialize();
@@ -46,8 +46,8 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupAllowlist: ['grp-wa-1']),
-          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupAllowlist: ['grp-sig-1']),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
+          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-sig-1')]),
         ],
       );
       await init.initialize();
@@ -62,7 +62,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['grp-wa-1']),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
         ],
       );
       await init.initialize();
@@ -74,7 +74,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['grp-wa-1']),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
         ],
       );
       await init2.initialize();
@@ -90,7 +90,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: []),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: []),
         ],
       );
       await init.initialize();
@@ -107,7 +107,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: []),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: []),
         ],
       );
       await init.initialize();
@@ -138,7 +138,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupAllowlist: []),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupEntries: []),
         ],
       );
       await init.initialize();
@@ -192,7 +192,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['my-group']),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'my-group')]),
         ],
       );
       await init.initialize();
@@ -211,7 +211,7 @@ void main() {
           const ChannelGroupConfig(
             channelType: 'googlechat',
             groupAccessEnabled: true,
-            groupAllowlist: ['spaces/AAAA'],
+            groupEntries: [GroupEntry(id: 'spaces/AAAA')],
           ),
         ],
         displayNameResolver: (channelType, groupId) async {
@@ -236,7 +236,7 @@ void main() {
           const ChannelGroupConfig(
             channelType: 'googlechat',
             groupAccessEnabled: true,
-            groupAllowlist: ['spaces/AAAA'],
+            groupEntries: [GroupEntry(id: 'spaces/AAAA')],
           ),
         ],
         displayNameResolver: (_, _) async => null,
@@ -257,7 +257,7 @@ void main() {
           const ChannelGroupConfig(
             channelType: 'googlechat',
             groupAccessEnabled: true,
-            groupAllowlist: ['spaces/AAAA'],
+            groupEntries: [GroupEntry(id: 'spaces/AAAA')],
           ),
         ],
         displayNameResolver: (_, _) async => throw StateError('boom'),
@@ -280,7 +280,7 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupAllowlist: ['my-group']),
+          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'my-group')]),
         ],
       );
       await init.initialize();
@@ -289,6 +289,73 @@ void main() {
       final allSessions = await sessions.listSessions(type: SessionType.channel);
       expect(allSessions, hasLength(1));
       expect(allSessions.first.title, 'Custom Name');
+    });
+  });
+
+  group('GroupEntry.name in display name chain', () {
+    test('structured GroupEntry with name uses that name as session title', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-1', name: 'Dev Team')],
+          ),
+        ],
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions, hasLength(1));
+      expect(allSessions.first.title, 'Dev Team');
+    });
+
+    test('structured GroupEntry with name wins over resolver callback', () async {
+      var resolverCalled = false;
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-1', name: 'Structured Name')],
+          ),
+        ],
+        displayNameResolver: (_, _) async {
+          resolverCalled = true;
+          return 'Resolver Name';
+        },
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions.first.title, 'Structured Name');
+      expect(resolverCalled, isFalse);
+    });
+
+    test('structured GroupEntry without name falls through to resolver callback', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-1')],
+          ),
+        ],
+        displayNameResolver: (_, _) async => 'Resolver Title',
+      );
+      await init.initialize();
+      init.dispose();
+
+      final allSessions = await sessions.listSessions(type: SessionType.channel);
+      expect(allSessions.first.title, 'Resolver Title');
     });
   });
 

@@ -105,6 +105,22 @@ Same as SMS registration but delivers the verification code via voice call. Use 
 
 In groups, the agent only responds when mentioned (default `require_mention: true`). Configure mention patterns in `dartclaw.yaml`. Mention detection uses regex matching against message text.
 
+`group_allowlist` accepts both plain strings and structured entries with optional per-group overrides:
+
+```yaml
+channels:
+  signal:
+    group_allowlist:
+      - id: "base64groupid=="
+        name: "Workshop A"       # display name in session sidebar
+        model: haiku             # per-group model override
+        effort: low
+        project: proj-workshop-a # tasks from this group go to this project
+      - "anotherbase64id=="       # plain string — same as before
+```
+
+See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
+
 ## Message Handling
 
 - **Text chunking**: Long responses split at ~4000 chars with smart break points (paragraph > sentence > word)

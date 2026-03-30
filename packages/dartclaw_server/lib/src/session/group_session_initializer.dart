@@ -9,9 +9,16 @@ import 'package:logging/logging.dart';
 class ChannelGroupConfig {
   final String channelType;
   final bool groupAccessEnabled;
-  final List<String> groupAllowlist;
+  final List<GroupEntry> groupEntries;
 
-  const ChannelGroupConfig({required this.channelType, required this.groupAccessEnabled, required this.groupAllowlist});
+  const ChannelGroupConfig({
+    required this.channelType,
+    required this.groupAccessEnabled,
+    required this.groupEntries,
+  });
+
+  /// Returns the group IDs from [groupEntries] as a plain string list.
+  List<String> get groupIds => groupEntries.map((e) => e.id).toList();
 }
 
 /// Pre-creates sessions for allowlisted groups so they appear in the sidebar
@@ -45,28 +52,37 @@ class GroupSessionInitializer {
 
     for (final config in _channelConfigs) {
       if (!config.groupAccessEnabled) continue;
-      await _ensureGroupSessions(config.channelType, config.groupAllowlist);
+      await _ensureGroupSessions(config.channelType, config.groupEntries);
     }
   }
 
-  Future<void> _ensureGroupSessions(String channelType, List<String> groupIds) async {
-    for (final groupId in groupIds) {
+  Future<void> _ensureGroupSessions(String channelType, List<GroupEntry> entries) async {
+    for (final entry in entries) {
+      final groupId = entry.id;
       try {
         final key = SessionKey.groupShared(channelType: channelType, groupId: groupId);
         final session = await _sessions.getOrCreateByKey(key, type: SessionType.channel);
-        // Set title to group ID only if title is null (newly created).
-        // Don't overwrite user-set titles.
+        // Set title only if null (newly created) — don't overwrite user-set titles.
         if (session.title == null) {
+          // Display name resolution chain:
+          // 1. Structured GroupEntry.name (trimmed, non-empty)
+          // 2. displayNameResolver callback
+          // 3. Raw group ID
           var title = groupId;
-          final resolver = _displayNameResolver;
-          if (resolver != null) {
-            try {
-              final resolved = await resolver(channelType, groupId);
-              if (resolved != null && resolved.trim().isNotEmpty) {
-                title = resolved.trim();
+          final structuredName = entry.name;
+          if (structuredName != null && structuredName.trim().isNotEmpty) {
+            title = structuredName.trim();
+          } else {
+            final resolver = _displayNameResolver;
+            if (resolver != null) {
+              try {
+                final resolved = await resolver(channelType, groupId);
+                if (resolved != null && resolved.trim().isNotEmpty) {
+                  title = resolved.trim();
+                }
+              } catch (e, st) {
+                _log.warning('Failed to resolve display name for $channelType:$groupId', e, st);
               }
-            } catch (e, st) {
-              _log.warning('Failed to resolve display name for $channelType:$groupId', e, st);
             }
           }
           await _sessions.updateTitle(session.id, title);
@@ -92,11 +108,24 @@ class GroupSessionInitializer {
       final newList = event.newValues[key];
       if (newList is! List) continue;
 
-      final groupIds = newList.whereType<String>().toList();
+      // Extract IDs from mixed list (strings or maps with 'id' key).
+      // Wrap as GroupEntry(id: ...) — structured overrides not available here
+      // since config change fires with raw YAML values.
+      final entries = <GroupEntry>[];
+      for (final item in newList) {
+        if (item is String) {
+          entries.add(GroupEntry(id: item));
+        } else if (item is Map) {
+          final id = item['id'];
+          if (id is String && id.trim().isNotEmpty) {
+            entries.add(GroupEntry(id: id));
+          }
+        }
+      }
       unawaited(
         _ensureGroupSessions(
           channelType,
-          groupIds,
+          entries,
         ).catchError((Object e) => _log.warning('Failed to auto-create group sessions on config change', e)),
       );
     }

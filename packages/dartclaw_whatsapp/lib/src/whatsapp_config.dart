@@ -26,8 +26,8 @@ class WhatsAppConfig {
   /// Approved direct-message senders when [dmAccess] is allowlist-based.
   final List<String> dmAllowlist;
 
-  /// Approved group identifiers when [groupAccess] is allowlist-based.
-  final List<String> groupAllowlist;
+  /// Approved group entries when [groupAccess] is allowlist-based.
+  final List<GroupEntry> groupAllowlist;
 
   /// Whether group messages must explicitly mention the bot.
   final bool requireMention;
@@ -57,7 +57,7 @@ class WhatsAppConfig {
     this.dmAccess = DmAccessMode.pairing,
     this.groupAccess = GroupAccessMode.disabled,
     this.dmAllowlist = const [],
-    this.groupAllowlist = const [],
+    this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
     this.mentionPatterns = const [],
     this.responsePrefix = '{model} -- {agent.identity.name}',
@@ -65,6 +65,12 @@ class WhatsAppConfig {
     this.retryPolicy = const RetryPolicy(),
     this.taskTrigger = const TaskTriggerConfig.disabled(),
   });
+
+  /// Returns the group IDs from [groupAllowlist] as a plain string list.
+  ///
+  /// Provides backward-compatible access equivalent to the previous
+  /// `List<String> groupAllowlist` field.
+  List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
 
   /// Creates a disabled WhatsApp configuration.
   const WhatsAppConfig.disabled() : this();
@@ -122,7 +128,11 @@ class WhatsAppConfig {
     }
 
     final dmAllowlist = _parseStringList(yaml['dm_allowlist']);
-    final groupAllowlist = _parseStringList(yaml['group_allowlist']);
+    final groupAllowlistRaw = yaml['group_allowlist'];
+    final groupAllowlist = GroupEntry.parseList(
+      groupAllowlistRaw is List ? groupAllowlistRaw : null,
+      onWarning: warns.add,
+    );
     final mentionPatterns = _parseStringList(yaml['mention_patterns']);
 
     var requireMention = true;

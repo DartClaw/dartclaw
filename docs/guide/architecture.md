@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.14.3**
+> Current through: **0.14.4**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -193,7 +193,7 @@ For more detail on memory configuration, see the [Search guide](search.md).
 A "turn" is a single round-trip: user message in, agent response out. The Dart host manages turns through several layers:
 
 1. **TurnManager** — receives the user message, selects a harness from the pool, delegates to a TurnRunner
-2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, cost tracking, crash recovery
+2. **TurnRunner** — executes the full turn lifecycle for a single harness: guard evaluation, message persistence, system prompt composition, streaming, progress-aware stall handling, cost tracking, crash recovery
 3. **AgentHarness** — abstract interface to agent binaries. `ClaudeCodeHarness` (Claude) and `CodexHarness` (OpenAI) are the concrete implementations. `HarnessFactory` creates the appropriate type based on provider ID
 4. **HarnessPool** — manages multiple harness instances for concurrent execution. Runner 0 is the "primary" (reserved for interactive chat, cron, channels). Runners 1..N are the "task pool" (acquired by the task executor for background work). In mixed deployments, pool workers can be from different providers
 
@@ -216,6 +216,8 @@ TurnRunner (per-harness)
     └── Self-improvement (errors.md / learnings.md on failure)
 ```
 
+Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.
+
 ## Channel System
 
 DartClaw receives messages from multiple sources through a unified channel abstraction. Each channel normalizes inbound messages into a `ChannelMessage` and formats outbound responses for its delivery requirements.
@@ -230,6 +232,8 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
 
 For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which keeps task discussion and review commands such as `accept`, `reject`, and `push back` scoped to the task instead of falling back to the shared room session.
+
+Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so enabling `channels.google_chat.quote_reply: true` lets outbound replies render as native quoted replies for both webhook-originated messages and Space Events messages. Optional `channels.google_chat.feedback.*` settings let long-running turns update a placeholder message or emoji reaction while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
 
 Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
 

@@ -213,6 +213,19 @@ void main() {
         expect(ts.minute, 30);
       });
 
+      test('stores createTime in metadata as messageCreateTime', () {
+        final adapter = CloudEventAdapter();
+        final result = adapter.processMessage(
+          receivedMessageFrom(sampleCreatedEvent(createTime: '2024-03-15T10:30:00.260127Z')),
+        );
+
+        expect(result, isA<MessageResult>());
+        expect(
+          (result as MessageResult).messages.first.metadata['messageCreateTime'],
+          '2024-03-15T10:30:00.260127Z',
+        );
+      });
+
       test('uses message name as id', () {
         final adapter = CloudEventAdapter();
         final result = adapter.processMessage(
@@ -244,7 +257,7 @@ void main() {
         expect((result as MessageResult).messages.first.id, 'fallback-id');
       });
 
-      test('omits spaceType from metadata when absent', () {
+      test('defaults spaceType to SPACE when absent from CloudEvent', () {
         final event = <String, dynamic>{
           'id': 'evt-1',
           'type': 'google.workspace.chat.message.v1.created',
@@ -256,7 +269,7 @@ void main() {
               'text': 'Hello',
               'space': <String, dynamic>{
                 'name': 'spaces/S',
-                // no 'type' key
+                // no 'type' key — Space Events CloudEvents may omit this
               },
             },
           },
@@ -266,10 +279,10 @@ void main() {
         final result = adapter.processMessage(receivedMessageFrom(event));
         expect(result, isA<MessageResult>());
         final metadata = (result as MessageResult).messages.first.metadata;
-        expect(metadata.containsKey('spaceType'), isFalse);
+        expect(metadata['spaceType'], 'SPACE');
       });
 
-      test('omits senderDisplayName from metadata when absent', () {
+      test('omits senderDisplayName from metadata when absent from CloudEvent', () {
         final adapter = CloudEventAdapter();
         final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(senderDisplayName: null)));
         expect(result, isA<MessageResult>());

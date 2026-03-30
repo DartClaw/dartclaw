@@ -17,6 +17,7 @@ typedef TaskCreator =
       String? goalId,
       String? acceptanceCriteria,
       String? createdBy,
+      String? projectId,
       Map<String, dynamic> configJson,
       DateTime? now,
       String trigger,

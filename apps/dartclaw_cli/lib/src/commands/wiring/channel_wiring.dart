@@ -5,7 +5,7 @@ import 'dart:math';
 
 import 'package:dartclaw_config/dartclaw_config.dart' as config_tools;
 import 'package:http/http.dart' as http;
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide ReservedCommandHandler;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
@@ -13,9 +13,12 @@ import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'channel_session_title.dart';
+import 'feedback_observer_factory.dart';
+import 'model_resolver.dart';
+import 'reserved_command_handler.dart';
 import 'storage_wiring.dart';
 import 'task_wiring.dart';
-import 'model_resolver.dart';
 
 /// Constructs and exposes channel-layer services.
 ///
@@ -59,6 +62,7 @@ class ChannelWiring {
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig>? _channelGroupConfigs;
+  GroupConfigResolver? _groupConfigResolver;
 
   ChannelManager? get channelManager => _channelManager;
   WhatsAppChannel? get whatsAppChannel => _whatsAppChannel;
@@ -71,6 +75,7 @@ class ChannelWiring {
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig> get channelGroupConfigs => _channelGroupConfigs ?? const [];
+  GroupConfigResolver? get groupConfigResolver => _groupConfigResolver;
 
   /// Wires channel services. [serverRefGetter] resolves lazily for dispatch
   /// closures that must reference the server after it is built.
@@ -151,17 +156,19 @@ class ChannelWiring {
 
       _channelManager = _buildChannelManager(
         config: config,
+        googleChatConfig: googleChatConfig,
         liveScopeConfig: liveScopeConfig,
         sessions: sessions,
         messages: messages,
         serverRef: serverRefGetter,
+        turnManagerGetter: turnManagerGetter,
         redactor: messageRedactor,
         pauseController: pauseController,
         taskBridge: ChannelTaskBridge(
           // Reserved command handler: /stop (and stop! for WA/Signal), /pause, /resume, /bind, /unbind.
           // TurnManager resolved lazily — created after channel wiring but
           // before any inbound channel messages can arrive.
-          reservedCommandHandler: (message, channel) => _handleReservedCommand(
+          reservedCommandHandler: (message, channel) => ReservedCommandHandler.handle(
             message,
             channel,
             governance: governance,
@@ -175,6 +182,7 @@ class ChannelWiring {
           ),
           taskCreator: taskService.create,
           taskLister: taskService.list,
+          groupConfigResolverGetter: () => _groupConfigResolver,
           reviewCommandParser: const ReviewCommandParser(),
           reviewHandler: reviewHandler,
           triggerParser: const TaskTriggerParser(),
@@ -255,6 +263,40 @@ class ChannelWiring {
           serviceAccountJson: credentialJson,
           scopes: const ['https://www.googleapis.com/auth/chat.bot'],
         ).initialize();
+        http.Client? reactionClient;
+        if (googleChatConfig.reactionsAuth == ReactionsAuth.user) {
+          final credentialStore = UserOAuthCredentialStore(dataDir: _dataDir);
+          final userCredentials = credentialStore.load();
+          if (userCredentials == null) {
+            _log.warning(
+              'reactions_auth is "user" but no user OAuth credentials found. '
+              'Run "dartclaw google-auth" to authenticate. Continuing without a reactions user OAuth client.',
+            );
+          } else {
+            final missingScopes = googleChatConfig.requiredReactionScopes.difference(userCredentials.scopes.toSet());
+            if (missingScopes.isEmpty) {
+              try {
+                reactionClient = UserOAuthAuthService.createClient(credentials: userCredentials);
+                _log.info('Google Chat reactions using user OAuth authentication');
+              } catch (e) {
+                _log.warning('Failed to create Google Chat reactions user OAuth client: $e');
+              }
+            } else {
+              _log.warning(
+                'Stored user OAuth credentials are missing required Google Chat reaction scopes: '
+                '${missingScopes.join(', ')}. '
+                'Run "dartclaw google-auth --force" to refresh them. Continuing without a reactions user OAuth client.',
+              );
+            }
+          }
+        }
+        if (googleChatConfig.quoteReplyMode == QuoteReplyMode.native) {
+          _log.warning(
+            'quote_reply: native requires user-level auth (chat.messages.create scope) — '
+            'the chat.bot service-account scope does not support quotedMessageMetadata. '
+            'Consider quote_reply: text as an alternative that works with service accounts.',
+          );
+        }
         final googleChatDmAccess = DmAccessController(
           mode: googleChatConfig.dmAccess,
           allowlist: googleChatConfig.dmAllowlist.toSet(),
@@ -266,7 +308,7 @@ class ChannelWiring {
         );
         final channel = GoogleChatChannel(
           config: googleChatConfig,
-          restClient: GoogleChatRestClient(authClient: authClient),
+          restClient: GoogleChatRestClient(authClient: authClient, reactionClient: reactionClient),
           channelManager: activeChannelManager,
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
@@ -286,8 +328,11 @@ class ChannelWiring {
             sseBroadcast: sseBroadcast,
           ).execute(stoppedBy: stoppedBy),
           isAdmin: config.governance.isAdmin,
-          onDrain: (collapsed) =>
-              _drainPauseQueue(collapsed: collapsed, sessions: sessions, turnManagerGetter: turnManagerGetter),
+          onDrain: (collapsed) => ReservedCommandHandler.drainPauseQueue(
+            collapsed: collapsed,
+            sessions: sessions,
+            turnManagerGetter: turnManagerGetter,
+          ),
           defaultTaskType: googleChatConfig.taskTrigger.defaultType,
           autoStartTasks: googleChatConfig.taskTrigger.autoStart,
         );
@@ -345,6 +390,7 @@ class ChannelWiring {
               authClient: spaceEventsAuthClient,
               config: googleChatConfig.spaceEvents,
               dataDir: _dataDir,
+              discoverSpaces: channel.restClient.listSpaces,
             );
             _log.info('Space Events infrastructure initialized (dedup + subscription manager)');
           } catch (e) {
@@ -380,6 +426,7 @@ class ChannelWiring {
             serverRef: serverRefGetter,
             config: config,
             message: message,
+            groupConfigResolver: _groupConfigResolver,
           ),
         );
 
@@ -408,7 +455,6 @@ class ChannelWiring {
               deduplicator: deduplicator,
               channelManager: activeChannelManager,
               channel: channel,
-              config: googleChatConfig,
             );
             _log.info('Space Events Pub/Sub wiring created');
 
@@ -491,17 +537,19 @@ class ChannelWiring {
       _taskNotificationSubscriber!.subscribe(_eventBus);
     }
 
-    // Build per-channel group configs for GroupSessionInitializer.
+    // Build per-channel group configs for GroupSessionInitializer and resolver.
     final groupConfigs = <ChannelGroupConfig>[];
+    final resolverEntries = <ChannelType, List<GroupEntry>>{};
     if (_whatsAppChannel != null) {
       final waConf = _whatsAppChannel!.config;
       groupConfigs.add(
         ChannelGroupConfig(
           channelType: 'whatsapp',
           groupAccessEnabled: waConf.groupAccess != GroupAccessMode.disabled,
-          groupAllowlist: waConf.groupAllowlist,
+          groupEntries: waConf.groupAllowlist,
         ),
       );
+      resolverEntries[ChannelType.whatsapp] = waConf.groupAllowlist;
     }
     if (_signalChannel != null) {
       final sigConf = _signalChannel!.config;
@@ -509,9 +557,10 @@ class ChannelWiring {
         ChannelGroupConfig(
           channelType: 'signal',
           groupAccessEnabled: sigConf.groupAccess != SignalGroupAccessMode.disabled,
-          groupAllowlist: sigConf.groupAllowlist,
+          groupEntries: sigConf.groupAllowlist,
         ),
       );
+      resolverEntries[ChannelType.signal] = sigConf.groupAllowlist;
     }
     if (_googleChatChannel != null) {
       final gcConf = _googleChatChannel!.config;
@@ -519,11 +568,13 @@ class ChannelWiring {
         ChannelGroupConfig(
           channelType: 'googlechat',
           groupAccessEnabled: gcConf.groupAccess != GroupAccessMode.disabled,
-          groupAllowlist: gcConf.groupAllowlist,
+          groupEntries: gcConf.groupAllowlist,
         ),
       );
+      resolverEntries[ChannelType.googlechat] = gcConf.groupAllowlist;
     }
     _channelGroupConfigs = groupConfigs;
+    _groupConfigResolver = GroupConfigResolver.fromChannelEntries(resolverEntries);
   }
 
   /// Builds the shared [ChannelManager] used by all messaging channels.
@@ -532,10 +583,12 @@ class ChannelWiring {
   /// server reference is resolved at dispatch time, after it's been assigned.
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
+    required GoogleChatConfig googleChatConfig,
     required LiveScopeConfig liveScopeConfig,
     required SessionService sessions,
     required MessageService messages,
     required DartclawServer Function() serverRef,
+    required TurnManager Function() turnManagerGetter,
     MessageRedactor? redactor,
     ChannelTaskBridge? taskBridge,
     PauseController? pauseController,
@@ -549,8 +602,17 @@ class ChannelWiring {
       queueStrategy: config.governance.queueStrategy,
       redactor: redactor,
       isAdmin: config.governance.isAdmin,
+      turnObserver: FeedbackObserverFactory.build(
+        googleChatConfig: googleChatConfig,
+        sessions: sessions,
+        turnManagerGetter: turnManagerGetter,
+      ),
       dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-        final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config);
+        final overrides = resolveChannelTurnOverrides(
+          sessionKey: sessionKey,
+          config: config,
+          groupConfigResolver: _groupConfigResolver,
+        );
         return _dispatchChannelTurn(
           sessions: sessions,
           messages: messages,
@@ -592,9 +654,14 @@ class ChannelWiring {
     required DartclawServer Function() serverRef,
     required DartclawConfig config,
     required ChannelMessage message,
+    GroupConfigResolver? groupConfigResolver,
   }) {
     final sessionKey = channelManager.deriveSessionKey(message);
-    final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config);
+    final overrides = resolveChannelTurnOverrides(
+      sessionKey: sessionKey,
+      config: config,
+      groupConfigResolver: groupConfigResolver,
+    );
     return _dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
@@ -624,14 +691,19 @@ class ChannelWiring {
     await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
 
     if (session.title == null && senderJid != null) {
-      await sessions.updateTitle(session.id, _channelSessionTitle(senderJid));
+      await sessions.updateTitle(session.id, channelSessionTitle(senderJid));
     }
 
-    final userMsg = <String, dynamic>{'role': 'user', 'content': message};
+    // Load full conversation history — the current message was already
+    // inserted above. This ensures the Claude CLI sees prior turns, matching
+    // the web UI path (session_routes.dart).
+    final history = await messages.getMessages(session.id);
+    final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
+
     final srv = serverRef();
     final turnId = await srv.turns.startTurn(
       session.id,
-      [userMsg],
+      messagesList,
       source: 'channel',
       isHumanInput: true,
       model: model,
@@ -639,305 +711,5 @@ class ChannelWiring {
     );
     final outcome = await srv.turns.waitForOutcome(session.id, turnId);
     return outcome.responseText ?? '';
-  }
-
-  /// Handles reserved commands: `/stop` (and `stop!`), `/pause`, `/resume`, `/bind`, and `/unbind`.
-  ///
-  /// Returns a non-null string when the command was consumed (handled or
-  /// rejected). Returns null when the message is not a recognized reserved command.
-  static Future<String?> _handleReservedCommand(
-    ChannelMessage message,
-    Channel channel, {
-    required GovernanceConfig governance,
-    required TurnManager Function() turnManagerGetter,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required SseBroadcast sseBroadcast,
-    required PauseController pauseController,
-    required SessionService sessions,
-    required ThreadBindingStore? threadBindingStore,
-  }) async {
-    final lower = message.text.trim().toLowerCase();
-
-    final isStop = lower == '/stop' || lower.startsWith('/stop ') || lower == 'stop!';
-    final isPause = lower.startsWith('/pause');
-    final isResume = lower.startsWith('/resume');
-    final isBind = lower.startsWith('/bind ');
-    final isUnbind = lower == '/unbind' || lower.startsWith('/unbind ');
-
-    if (!isStop && !isPause && !isResume && !isBind && !isUnbind) return null;
-
-    final senderId = message.senderJid;
-    final senderName = message.senderDisplayName ?? senderId;
-    final recipientId = resolveRecipientId(message);
-
-    // Admin check — same for all reserved commands.
-    if (!governance.isAdmin(senderId)) {
-      try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: 'Only admin senders can use this command.'));
-      } catch (e) {
-        _log.warning('Failed to send reserved command rejection to $senderId', e);
-      }
-      return 'rejected';
-    }
-
-    if (isStop) {
-      final stopHandler = EmergencyStopHandler(
-        turnManager: turnManagerGetter(),
-        taskService: taskService,
-        eventBus: eventBus,
-        sseBroadcast: sseBroadcast,
-      );
-      final result = await stopHandler.execute(stoppedBy: senderName);
-
-      final turnCount = result.turnsCancelled;
-      final taskCount = result.tasksCancelled;
-      final responseText = result.hadActivity
-          ? 'All activity stopped by $senderName. '
-                '$turnCount turn${turnCount == 1 ? '' : 's'} cancelled, '
-                '$taskCount task${taskCount == 1 ? '' : 's'} cancelled.'
-          : 'No active tasks or turns to stop.';
-
-      try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
-      } catch (e) {
-        _log.warning('Failed to send stop confirmation to $senderId', e);
-      }
-      return 'executed';
-    }
-
-    if (isBind) {
-      return _handleBindCommand(
-        message,
-        channel,
-        taskService: taskService,
-        threadBindingStore: threadBindingStore,
-        recipientId: recipientId,
-      );
-    }
-
-    if (isUnbind) {
-      return _handleUnbindCommand(message, channel, threadBindingStore: threadBindingStore, recipientId: recipientId);
-    }
-
-    if (isPause) {
-      final wasNewlyPaused = pauseController.pause(senderName);
-      final responseText = wasNewlyPaused
-          ? 'Agent paused by $senderName. Incoming messages will be queued. Send /resume to continue.'
-          : 'Agent is already paused by ${pauseController.pausedBy ?? senderName}.';
-      try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
-      } catch (e) {
-        _log.warning('Failed to send pause confirmation to $senderId', e);
-      }
-      return 'executed';
-    }
-
-    // isResume
-    if (!pauseController.isPaused) {
-      try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: 'Agent is not paused.'));
-      } catch (e) {
-        _log.warning('Failed to send resume response to $senderId', e);
-      }
-      return 'executed';
-    }
-
-    final queueDepth = pauseController.queueDepth;
-    final collapsed = pauseController.drain();
-    if (collapsed != null && collapsed.isNotEmpty) {
-      await _drainPauseQueue(collapsed: collapsed, sessions: sessions, turnManagerGetter: turnManagerGetter);
-    }
-
-    final sessionCount = collapsed?.length ?? 0;
-    final responseText = queueDepth == 0
-        ? 'Agent resumed by $senderName. No messages were queued.'
-        : 'Agent resumed by $senderName. $queueDepth queued message${queueDepth == 1 ? '' : 's'} '
-              'from $sessionCount session${sessionCount == 1 ? '' : 's'} delivered.';
-    try {
-      await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
-    } catch (e) {
-      _log.warning('Failed to send resume confirmation to $senderId', e);
-    }
-    return 'executed';
-  }
-
-  static Future<String> _handleBindCommand(
-    ChannelMessage message,
-    Channel channel, {
-    required TaskService taskService,
-    required ThreadBindingStore? threadBindingStore,
-    required String recipientId,
-  }) async {
-    if (threadBindingStore == null) {
-      await _sendReservedResponse(
-        channel,
-        recipientId,
-        'Thread binding is not enabled. Set features.thread_binding.enabled: true.',
-      );
-      return 'rejected';
-    }
-
-    final parts = message.text.trim().split(RegExp(r'\s+'));
-    if (parts.length < 2 || parts[1].trim().isEmpty) {
-      await _sendReservedResponse(channel, recipientId, 'Usage: /bind <taskId>');
-      return 'rejected';
-    }
-    final taskId = parts[1].trim();
-
-    final bindingKey = _extractBindingKey(message);
-    if (bindingKey == null) {
-      await _sendReservedResponse(channel, recipientId, 'Cannot bind — this message is not in a thread or group.');
-      return 'rejected';
-    }
-
-    final matches = (await taskService.list()).where((task) => task.id.startsWith(taskId)).toList(growable: false);
-    if (matches.isEmpty) {
-      await _sendReservedResponse(channel, recipientId, 'Task $taskId not found.');
-      return 'rejected';
-    }
-    if (matches.length > 1) {
-      await _sendReservedResponse(
-        channel,
-        recipientId,
-        'Task prefix $taskId is ambiguous. Matches: ${matches.take(3).map((task) => _shortTaskId(task.id)).join(', ')}.',
-      );
-      return 'rejected';
-    }
-    final task = matches.single;
-    if (task.status.terminal) {
-      await _sendReservedResponse(
-        channel,
-        recipientId,
-        'Task $taskId is ${task.status.name} — cannot bind to a completed task.',
-      );
-      return 'rejected';
-    }
-
-    final channelType = message.channelType.name;
-    final existing = threadBindingStore.lookupByThread(channelType, bindingKey);
-    if (existing != null) {
-      if (existing.taskId == task.id) {
-        await _sendReservedResponse(channel, recipientId, 'Already bound to task ${_shortTaskId(task.id)}.');
-        return 'executed';
-      }
-      await _sendReservedResponse(
-        channel,
-        recipientId,
-        'Already bound to task ${_shortTaskId(existing.taskId)} — /unbind first.',
-      );
-      return 'rejected';
-    }
-
-    final now = DateTime.now();
-    await threadBindingStore.create(
-      ThreadBinding(
-        channelType: channelType,
-        threadId: bindingKey,
-        taskId: task.id,
-        sessionKey: task.sessionId ?? SessionKey.taskSession(taskId: task.id),
-        createdAt: now,
-        lastActivity: now,
-      ),
-    );
-
-    await _sendReservedResponse(
-      channel,
-      recipientId,
-      'Bound to task ${_shortTaskId(task.id)}. Messages here now route to the task session.',
-    );
-    return 'executed';
-  }
-
-  static Future<String> _handleUnbindCommand(
-    ChannelMessage message,
-    Channel channel, {
-    required ThreadBindingStore? threadBindingStore,
-    required String recipientId,
-  }) async {
-    if (threadBindingStore == null) {
-      await _sendReservedResponse(channel, recipientId, 'Thread binding is not enabled.');
-      return 'rejected';
-    }
-
-    final bindingKey = _extractBindingKey(message);
-    if (bindingKey == null) {
-      await _sendReservedResponse(channel, recipientId, 'Cannot unbind — this message is not in a thread or group.');
-      return 'rejected';
-    }
-
-    final existing = threadBindingStore.lookupByThread(message.channelType.name, bindingKey);
-    if (existing == null) {
-      await _sendReservedResponse(channel, recipientId, 'No binding found for this thread/group.');
-      return 'executed';
-    }
-
-    await threadBindingStore.delete(message.channelType.name, bindingKey);
-    await _sendReservedResponse(
-      channel,
-      recipientId,
-      'Unbound from task ${_shortTaskId(existing.taskId)}. Messages here return to normal routing.',
-    );
-    return 'executed';
-  }
-
-  static String? _extractBindingKey(ChannelMessage message) {
-    final threadId = extractThreadId(message);
-    if (threadId != null) return threadId;
-    final groupJid = message.groupJid;
-    if (groupJid != null && groupJid.isNotEmpty) return groupJid;
-    return null;
-  }
-
-  static Future<void> _sendReservedResponse(Channel channel, String recipientId, String text) async {
-    try {
-      await channel.sendMessage(recipientId, ChannelResponse(text: text));
-    } catch (e) {
-      _log.warning('Failed to send reserved command response to $recipientId', e);
-    }
-  }
-
-  static String _shortTaskId(String taskId) {
-    if (taskId.length <= 8) return taskId;
-    return taskId.substring(0, 8);
-  }
-
-  /// Delivers collapsed pause queue messages by creating turns via [TurnManager].
-  ///
-  /// Each session in [collapsed] gets one turn with the concatenated text.
-  /// Errors per session are logged and skipped — partial delivery is acceptable.
-  static Future<void> _drainPauseQueue({
-    required Map<String, String> collapsed,
-    required SessionService sessions,
-    required TurnManager Function() turnManagerGetter,
-  }) async {
-    final turns = turnManagerGetter();
-    for (final MapEntry(key: sessionKey, value: text) in collapsed.entries) {
-      try {
-        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-        final messages = [
-          {'role': 'user', 'content': text},
-        ];
-        await turns.startTurn(session.id, messages, source: 'pause-queue', isHumanInput: true);
-      } catch (e, st) {
-        _log.warning('Failed to deliver paused messages for session $sessionKey', e, st);
-      }
-    }
-  }
-
-  static String _channelSessionTitle(String senderJid) {
-    if (senderJid.contains('@')) {
-      return 'WA › ${senderJid.split('@').first}';
-    }
-    if (senderJid.startsWith('users/')) {
-      return 'Google Chat › ${senderJid.substring('users/'.length)}';
-    }
-    if (senderJid.startsWith('spaces/')) {
-      return 'Google Chat › ${senderJid.substring('spaces/'.length)}';
-    }
-    if (senderJid.startsWith('+')) {
-      return 'Signal › $senderJid';
-    }
-    return 'Signal › ${senderJid.substring(0, min(8, senderJid.length))}';
   }
 }

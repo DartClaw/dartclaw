@@ -207,6 +207,7 @@ export 'src/harness_pool.dart' show HarnessPool;
 
 // Turn runner
 export 'src/turn_runner.dart' show TurnRunner;
+export 'src/turn_progress_monitor.dart' show TurnProgressMonitor;
 
 // Turn manager
 export 'src/turn_manager.dart' show TurnStatus, TurnContext, TurnOutcome, BusyTurnException, TurnManager;

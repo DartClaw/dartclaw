@@ -148,6 +148,7 @@ channels:
             dataDir: tempDir.path,
             runConsentFlow: ({required clientId, required clientSecret, required scopes, required listenPort}) async {
               expect(scopes, ['https://www.googleapis.com/auth/chat.messages.readonly']);
+              expect(scopes, isNot(contains('https://www.googleapis.com/auth/chat.messages.reactions')));
               expect(listenPort, 0);
               return 'fresh-refresh-token';
             },
@@ -160,6 +161,57 @@ channels:
       expect(stored, isNotNull);
       expect(stored!.refreshToken, 'fresh-refresh-token');
       expect(stored.scopes, ['https://www.googleapis.com/auth/chat.messages.readonly']);
+    });
+
+    test('merges reaction scope when reactions_auth is user', () async {
+      final credPath = '${tempDir.path}/creds.json';
+      writeClientCredentials(credPath);
+      final configFile = '${tempDir.path}/dartclaw.yaml';
+      File(configFile).writeAsStringSync('''
+server:
+  data_dir: ${tempDir.path}
+channels:
+  google_chat:
+    oauth_credentials: $credPath
+    space_events:
+      enabled: true
+      pubsub_topic: projects/my-project/topics/chat-events
+      event_types:
+        - message.created
+    reactions_auth: user
+''');
+
+      final runner = DartclawRunner()
+        ..addCommand(
+          GoogleAuthCommand(
+            writeLine: output.add,
+            dataDir: tempDir.path,
+            runConsentFlow: ({required clientId, required clientSecret, required scopes, required listenPort}) async {
+              expect(scopes, hasLength(2));
+              expect(
+                scopes,
+                containsAll([
+                  'https://www.googleapis.com/auth/chat.messages.readonly',
+                  'https://www.googleapis.com/auth/chat.messages.reactions',
+                ]),
+              );
+              expect(listenPort, 0);
+              return 'fresh-refresh-token';
+            },
+          ),
+        );
+
+      await runner.run(['--config', configFile, 'google-auth']);
+
+      final stored = UserOAuthCredentialStore(dataDir: tempDir.path).load();
+      expect(stored, isNotNull);
+      expect(
+        stored!.scopes,
+        containsAll([
+          'https://www.googleapis.com/auth/chat.messages.readonly',
+          'https://www.googleapis.com/auth/chat.messages.reactions',
+        ]),
+      );
     });
 
     test('fails when consent flow does not return a refresh token', () async {

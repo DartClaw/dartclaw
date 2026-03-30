@@ -28,6 +28,17 @@ abstract interface class BudgetExhaustedError {
 typedef TurnDispatcher =
     Future<String> Function(String sessionKey, String message, {String? senderJid, String? senderDisplayName});
 
+/// Observer for a queued turn. Can watch the running response future and
+/// optionally suppress the normal send when the response was already delivered.
+typedef TurnObserver =
+    Future<bool> Function(
+      String sessionKey,
+      ChannelMessage message,
+      Channel sourceChannel,
+      String recipientJid,
+      Future<String> responseFuture,
+    );
+
 typedef _DebounceKey = ({String sessionKey, String senderJid});
 
 class _QueueEntry {
@@ -52,6 +63,7 @@ class MessageQueue {
   final RetryPolicy defaultRetryPolicy;
   final QueueStrategy queueStrategy;
   final TurnDispatcher _dispatcher;
+  final TurnObserver? _turnObserver;
   final MessageRedactor? _redactor;
   final Random _random;
   final bool Function(String senderId)? _isAdmin;
@@ -90,10 +102,12 @@ class MessageQueue {
     this.defaultRetryPolicy = const RetryPolicy(),
     this.queueStrategy = QueueStrategy.fifo,
     required TurnDispatcher dispatcher,
+    TurnObserver? turnObserver,
     MessageRedactor? redactor,
     Random? random,
     bool Function(String senderId)? isAdmin,
   }) : _dispatcher = dispatcher,
+       _turnObserver = turnObserver,
        _redactor = redactor,
        _random = random ?? Random.secure(),
        _isAdmin = isAdmin;
@@ -109,7 +123,7 @@ class MessageQueue {
     final queue = _sessionQueues[sessionKey];
     if (queue != null && queue.length >= maxQueueDepth) {
       _log.warning('Queue full for $sessionKey (${queue.length}/$maxQueueDepth) — sending busy response');
-      _sendBusy(sourceChannel, resolveRecipientId(message), replyToMessageId: message.id);
+      _sendBusy(sourceChannel, resolveRecipientId(message));
       return;
     }
 
@@ -185,7 +199,7 @@ class MessageQueue {
 
     if (queue.length >= maxQueueDepth) {
       _log.warning('Queue full for ${entry.sessionKey} — sending busy response');
-      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message), replyToMessageId: entry.message.id);
+      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message));
       return;
     }
 
@@ -196,7 +210,7 @@ class MessageQueue {
           'Per-sender queue limit reached for ${entry.senderJid} in ${entry.sessionKey} '
           '($senderCount/$maxQueued) — rejecting',
         );
-        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message), replyToMessageId: entry.message.id);
+        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message));
         return;
       }
     }
@@ -232,21 +246,50 @@ class MessageQueue {
           _activeFairSender[sessionKey] = entry.senderJid;
         }
         try {
-          var response = await _dispatcher(
+          final responseFuture = _dispatcher(
             entry.sessionKey,
             entry.message.text,
             senderJid: entry.message.senderJid,
             senderDisplayName: entry.message.senderDisplayName,
           );
-          response = _redactor?.redact(response) ?? response;
+          final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
+          final observer = _turnObserver;
+          final skipSendFuture = observer != null
+              ? observer(
+                  entry.sessionKey,
+                  entry.message,
+                  entry.sourceChannel,
+                  resolveRecipientId(entry.message),
+                  redactedResponseFuture,
+                )
+              : null;
+          final response = await redactedResponseFuture;
+          final skipSend = skipSendFuture != null
+              ? await skipSendFuture.catchError((Object e, StackTrace st) {
+                  _log.warning('Turn observer failed for ${entry.sessionKey}', e, st);
+                  return false;
+                })
+              : false;
+          if (skipSend) {
+            continue;
+          }
           final formatted = entry.sourceChannel
               .formatResponse(response)
               .map(
                 (chunk) => ChannelResponse(
                   text: chunk.text,
                   mediaAttachments: chunk.mediaAttachments,
-                  metadata: {...chunk.metadata, sourceMessageIdMetadataKey: entry.message.id},
-                  replyToMessageId: entry.message.id,
+                  metadata: {
+                    ...chunk.metadata,
+                    sourceMessageIdMetadataKey: entry.message.id,
+                    if (entry.message.metadata['messageName'] case final String messageName) 'messageName': messageName,
+                    if (entry.message.metadata['messageCreateTime'] case final String createTime)
+                      'messageCreateTime': createTime,
+                    if (entry.message.metadata['senderDisplayName'] case final String senderDisplayName)
+                      'senderDisplayName': senderDisplayName,
+                    if (entry.message.metadata['spaceType'] case final String spaceType) 'spaceType': spaceType,
+                  },
+                  replyToMessageId: entry.message.metadata['messageName'] as String?,
                 ),
               );
           final recipientJid = resolveRecipientId(entry.message);
@@ -268,7 +311,6 @@ class MessageQueue {
                     'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
                     'New turns are blocked until the daily budget resets. '
                     'An admin can increase the budget via the web dashboard.',
-                replyToMessageId: entry.message.id,
               ),
             );
           } catch (sendErr) {
@@ -297,10 +339,7 @@ class MessageQueue {
               final recipientJid = resolveRecipientId(entry.message);
               await entry.sourceChannel.sendMessage(
                 recipientJid,
-                ChannelResponse(
-                  text: 'Sorry, I was unable to process your message. Please try again later.',
-                  replyToMessageId: entry.message.id,
-                ),
+                const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
               );
             } catch (sendErr) {
               _log.severe('Failed to send dead-letter notification', sendErr);
@@ -418,23 +457,20 @@ class MessageQueue {
     return Duration(milliseconds: delayMs.round());
   }
 
-  Future<void> _sendBusy(Channel channel, String recipientJid, {String? replyToMessageId}) async {
+  Future<void> _sendBusy(Channel channel, String recipientJid) async {
     try {
       await channel.sendMessage(
         recipientJid,
-        ChannelResponse(text: 'I\'m currently busy. Please try again shortly.', replyToMessageId: replyToMessageId),
+        const ChannelResponse(text: 'I\'m currently busy. Please try again shortly.'),
       );
     } catch (e) {
       _log.warning('Failed to send busy response', e);
     }
   }
 
-  Future<void> _sendQueueFull(Channel channel, String recipientJid, {String? replyToMessageId}) async {
+  Future<void> _sendQueueFull(Channel channel, String recipientJid) async {
     try {
-      await channel.sendMessage(
-        recipientJid,
-        ChannelResponse(text: 'Queue full -- try again shortly.', replyToMessageId: replyToMessageId),
-      );
+      await channel.sendMessage(recipientJid, const ChannelResponse(text: 'Queue full -- try again shortly.'));
     } catch (e) {
       _log.warning('Failed to send queue-full response', e);
     }

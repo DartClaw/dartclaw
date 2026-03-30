@@ -25,13 +25,14 @@ export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEven
 
 // Channel interfaces
 export 'src/runtime/channel_type.dart' show ChannelType;
-export 'src/channel/channel.dart'
-    show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
+export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
+export 'src/channel/channel_feedback.dart'
+    show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
 export 'src/channel/channel_manager.dart' show ChannelManager;
 export 'src/channel/channel_task_bridge.dart' show ChannelTaskBridge, ReservedCommandHandler;
 export 'src/channel/recipient_resolver.dart' show resolveRecipientId;
 export 'src/channel/mention_gating.dart' show MentionGating;
-export 'src/channel/message_queue.dart' show MessageQueue, TurnDispatcher, BudgetExhaustedError;
+export 'src/channel/message_queue.dart' show BudgetExhaustedError, MessageQueue, TurnDispatcher, TurnObserver;
 export 'src/channel/review_command_parser.dart'
     show
         ReviewCommand,
@@ -46,6 +47,14 @@ export 'src/channel/task_creator.dart' show TaskCreator, TaskLister;
 export 'src/channel/task_trigger_config.dart' show TaskTriggerConfig;
 export 'src/channel/task_trigger_parser.dart' show TaskTriggerParser, TaskTriggerResult;
 export 'src/channel/text_chunking.dart' show chunkText;
+export 'src/channel/turn_progress_event.dart'
+    show
+        TurnProgressEvent,
+        ToolStartedProgressEvent,
+        ToolCompletedProgressEvent,
+        TextDeltaProgressEvent,
+        StatusTickProgressEvent,
+        TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
 export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
@@ -55,6 +64,7 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/conversation_history.dart' show buildReplaySafeHistory;
 export 'src/harness/canonical_tool.dart' show CanonicalTool;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
@@ -90,6 +100,7 @@ export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTime
 
 // Config — section types
 export 'src/config/agent_config.dart' show AgentConfig;
+export 'src/config/history_config.dart' show HistoryConfig;
 export 'src/config/advisor_config.dart' show AdvisorConfig;
 export 'src/config/credential_registry.dart' show CredentialRegistry;
 export 'src/config/credentials_config.dart' show CredentialsConfig, CredentialEntry;
@@ -121,6 +132,8 @@ export 'src/container/docker_validator.dart' show DockerValidator;
 export 'src/container/security_profile.dart' show SecurityProfile;
 export 'src/scoping/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
 export 'src/scoping/channel_config_provider.dart' show ChannelConfigProvider;
+export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
+export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
 export 'src/scoping/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
@@ -134,6 +147,8 @@ export 'src/config/governance_config.dart'
         BudgetConfig,
         BudgetAction,
         QueueStrategy,
+        TurnProgressConfig,
+        TurnProgressAction,
         LoopDetectionConfig,
         LoopAction;
 export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
@@ -196,5 +211,6 @@ export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, L
 export 'src/governance/loop_detector.dart' show LoopDetector;
 
 // Utilities
+export 'src/utils/duration_parser.dart' show tryParseDuration;
 export 'src/utils/path_utils.dart' show expandHome;
 export 'src/worker/worker_state.dart' show WorkerState;

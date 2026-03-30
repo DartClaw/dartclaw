@@ -96,6 +96,7 @@ void main() {
               String? goalId,
               String? acceptanceCriteria,
               String? createdBy,
+              String? projectId,
               Map<String, dynamic> configJson = const {},
               DateTime? now,
               String trigger = 'system',
@@ -174,7 +175,6 @@ void main() {
 
       final created = (await tasks.list()).single;
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
-      expect(channel.sentMessages.single.$2.replyToMessageId, 'wamid-123');
       expect(TaskOrigin.fromConfigJson(created.configJson)?.sourceMessageId, 'wamid-123');
     });
 
@@ -215,6 +215,7 @@ void main() {
               goalId,
               acceptanceCriteria,
               createdBy,
+              projectId,
               configJson = const {},
               now,
               trigger = 'system',
@@ -254,12 +255,102 @@ void main() {
       expect(mentions.single.channelType, 'whatsapp');
     });
   });
+
+  group('ChannelTaskBridge — project binding', () {
+    late FakeChannel channel;
+    late InMemoryTaskRepository repo;
+    late _TaskOps tasks;
+
+    setUp(() {
+      channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
+      repo = InMemoryTaskRepository();
+      tasks = _TaskOps(repo);
+    });
+
+    tearDown(() => tasks.dispose());
+
+    ChannelMessage makeGroupMessage({String groupJid = 'group@g.us'}) {
+      return ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'sender@s.whatsapp.net',
+        text: 'task: fix login',
+        groupJid: groupJid,
+      );
+    }
+
+    test('group with project binding passes projectId to task creator', () async {
+      final resolver = GroupConfigResolver.fromChannelEntries({
+        ChannelType.whatsapp: [GroupEntry(id: 'group@g.us', project: 'my-project')],
+      });
+      final bridge = ChannelTaskBridge(
+        taskCreator: tasks.create,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        groupConfigResolverGetter: () => resolver,
+      );
+
+      await bridge.tryHandle(
+        makeGroupMessage(),
+        channel,
+        sessionKey: 'agent:main:group:whatsapp:group%40g.us',
+      );
+
+      expect(tasks.lastProjectId, 'my-project');
+    });
+
+    test('group entry without project passes null projectId', () async {
+      final resolver = GroupConfigResolver.fromChannelEntries({
+        ChannelType.whatsapp: [GroupEntry(id: 'group@g.us', model: 'haiku')],
+      });
+      final bridge = ChannelTaskBridge(
+        taskCreator: tasks.create,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        groupConfigResolverGetter: () => resolver,
+      );
+
+      await bridge.tryHandle(
+        makeGroupMessage(),
+        channel,
+        sessionKey: 'agent:main:group:whatsapp:group%40g.us',
+      );
+
+      expect(tasks.lastProjectId, isNull);
+    });
+
+    test('DM message (no groupJid) passes null projectId', () async {
+      final resolver = GroupConfigResolver.fromChannelEntries({
+        ChannelType.whatsapp: [GroupEntry(id: 'group@g.us', project: 'my-project')],
+      });
+      final bridge = ChannelTaskBridge(
+        taskCreator: tasks.create,
+        triggerParser: const TaskTriggerParser(),
+        taskTriggerConfigs: const {ChannelType.whatsapp: TaskTriggerConfig(enabled: true)},
+        groupConfigResolverGetter: () => resolver,
+      );
+      final dmMessage = ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'sender@s.whatsapp.net',
+        text: 'task: fix login',
+      );
+
+      await bridge.tryHandle(
+        dmMessage,
+        channel,
+        sessionKey: 'agent:main:dm:whatsapp:sender%40s.whatsapp.net',
+      );
+
+      expect(tasks.lastProjectId, isNull);
+    });
+  });
 }
 
 class _TaskOps {
   final InMemoryTaskRepository _repo;
 
   _TaskOps(this._repo);
+
+  String? lastProjectId;
 
   Future<Task> create({
     required String id,
@@ -270,10 +361,12 @@ class _TaskOps {
     String? goalId,
     String? acceptanceCriteria,
     String? createdBy,
+    String? projectId,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
     String trigger = 'system',
   }) async {
+    lastProjectId = projectId;
     final timestamp = now ?? DateTime.now();
     var task = Task(
       id: id,

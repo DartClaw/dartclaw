@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/src/container/container_config.dart';
 import 'package:dartclaw_core/src/container/container_manager.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
+import 'package:dartclaw_core/src/harness/claude_protocol.dart' show claudeHardeningEnvVars;
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
 import 'package:test/test.dart';
@@ -26,6 +27,19 @@ CapturingFakeProcess _bufferedCapturingFakeProcess() => CapturingFakeProcess(
   stdoutController: StreamController<List<int>>(),
   stderrController: StreamController<List<int>>(),
 );
+
+void _expectSecurityExecArgs(List<String> args) {
+  for (final entry in claudeHardeningEnvVars.entries) {
+    expect(args, contains('${entry.key}=${entry.value}'));
+  }
+}
+
+void _expectSecurityEnvironment(Map<String, String>? environment) {
+  expect(environment, isNotNull);
+  for (final entry in claudeHardeningEnvVars.entries) {
+    expect(environment![entry.key], equals(entry.value));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -278,7 +292,7 @@ void main() {
             },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
-        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
         harnessConfig: const HarnessConfig(),
       );
 
@@ -376,13 +390,7 @@ void main() {
     });
   });
 
-  // These tests verify that DartClaw passes CLAUDE_CODE_SIMPLE=1 to
-  // restricted containers only. The actual behavioral lockdown — disabling
-  // MCP server loading, hook execution, and CLAUDE.md file loading — is
-  // enforced by the claude binary itself, not by DartClaw code. DartClaw's
-  // responsibility is limited to setting the env var correctly based on the
-  // container profile. See: docs/specs/0.10/fis/s10-restricted-session-hardening.md
-  group('CLAUDE_CODE_SIMPLE for restricted containers', () {
+  group('harness spawn hardening', () {
     ContainerManager makeContainerManager(String profileId, List<String> capturedArgs) {
       final fake = _bufferedFakeProcess();
       return ContainerManager(
@@ -413,7 +421,7 @@ void main() {
       );
     }
 
-    test('passes CLAUDE_CODE_SIMPLE=1 to exec for restricted container', () async {
+    test('restricted container includes simple mode and hardened env vars', () async {
       final capturedArgs = <String>[];
       final containerManager = makeContainerManager('restricted', capturedArgs);
 
@@ -428,17 +436,15 @@ void main() {
 
       await harness.start();
 
-      // docker exec args contain -e CLAUDE_CODE_SIMPLE=1
-      final envIdx = capturedArgs.indexOf('-e');
-      expect(envIdx, isNot(-1), reason: 'expected -e flag in docker exec args');
-      expect(capturedArgs[envIdx + 1], equals('CLAUDE_CODE_SIMPLE=1'));
+      expect(capturedArgs, contains('CLAUDE_CODE_SIMPLE=1'));
+      _expectSecurityExecArgs(capturedArgs);
       expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
       expect(capturedArgs, containsAll(['--permission-prompt-tool', 'stdio']));
 
       await harness.dispose();
     });
 
-    test('does not pass CLAUDE_CODE_SIMPLE for workspace container', () async {
+    test('workspace container includes hardened env vars without simple mode', () async {
       final capturedArgs = <String>[];
       final containerManager = makeContainerManager('workspace', capturedArgs);
 
@@ -453,15 +459,55 @@ void main() {
 
       await harness.start();
 
-      // docker exec args should NOT contain CLAUDE_CODE_SIMPLE
       expect(capturedArgs, isNot(contains('CLAUDE_CODE_SIMPLE=1')));
+      _expectSecurityExecArgs(capturedArgs);
       expect(capturedArgs, contains('--dangerously-skip-permissions'));
       expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
 
       await harness.dispose();
     });
 
-    test('does not pass CLAUDE_CODE_SIMPLE for direct (no container) execution', () async {
+    test('direct execution preserves setting-sources and hardened env vars', () async {
+      Map<String, String>? capturedEnvironment;
+      List<String>? capturedArgs;
+      final fake = _bufferedFakeProcess();
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedArgs = args;
+              capturedEnvironment = environment;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
+        harnessConfig: const HarnessConfig(),
+      );
+
+      await harness.start();
+
+      expect(capturedArgs, contains('--setting-sources'));
+      expect(capturedArgs, contains('project'));
+      expect(capturedArgs, isNot(contains('--bare')));
+      _expectSecurityEnvironment(capturedEnvironment);
+      expect(capturedEnvironment, isNotNull);
+      expect(capturedEnvironment!.containsKey('CLAUDE_CODE_SIMPLE'), isFalse);
+
+      await harness.dispose();
+    });
+
+    test('passes through CLAUDE_CODE_SUBAGENT_MODEL when present in environment', () async {
       Map<String, String>? capturedEnvironment;
       final fake = _bufferedFakeProcess();
 
@@ -483,15 +529,133 @@ void main() {
             },
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
-        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        environment: {
+          'ANTHROPIC_API_KEY': 'sk-test',
+          ...claudeHardeningEnvVars,
+          'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet',
+        },
         harnessConfig: const HarnessConfig(),
       );
 
       await harness.start();
 
-      // No CLAUDE_CODE_SIMPLE in environment for direct execution
       expect(capturedEnvironment, isNotNull);
-      expect(capturedEnvironment!.containsKey('CLAUDE_CODE_SIMPLE'), isFalse);
+      expect(capturedEnvironment!['CLAUDE_CODE_SUBAGENT_MODEL'], equals('sonnet'));
+
+      await harness.dispose();
+    });
+
+    test('does not inject CLAUDE_CODE_SUBAGENT_MODEL when absent from environment', () async {
+      Map<String, String>? capturedEnvironment;
+      final fake = _bufferedFakeProcess();
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory:
+            (
+              exe,
+              args, {
+              String? workingDirectory,
+              Map<String, String>? environment,
+              bool includeParentEnvironment = true,
+            }) async {
+              capturedEnvironment = environment;
+              scheduleMicrotask(() {
+                fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+              });
+              return fake;
+            },
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
+        harnessConfig: const HarnessConfig(),
+      );
+
+      await harness.start();
+
+      expect(capturedEnvironment, isNotNull);
+      expect(capturedEnvironment!.containsKey('CLAUDE_CODE_SUBAGENT_MODEL'), isFalse);
+
+      await harness.dispose();
+    });
+
+    test('containerized spawn forwards CLAUDE_CODE_SUBAGENT_MODEL from environment', () async {
+      final capturedArgs = <String>[];
+      final containerManager = makeContainerManager('workspace', capturedArgs);
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {
+          'ANTHROPIC_API_KEY': 'sk-test',
+          ...claudeHardeningEnvVars,
+          'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet',
+        },
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      expect(capturedArgs, contains('CLAUDE_CODE_SUBAGENT_MODEL=sonnet'));
+      _expectSecurityExecArgs(capturedArgs);
+
+      await harness.dispose();
+    });
+
+    test('containerized spawn omits CLAUDE_CODE_SUBAGENT_MODEL when absent from environment', () async {
+      final capturedArgs = <String>[];
+      final containerManager = makeContainerManager('workspace', capturedArgs);
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test', ...claudeHardeningEnvVars},
+        harnessConfig: const HarnessConfig(),
+        containerManager: containerManager,
+      );
+
+      await harness.start();
+
+      final subagentArgs = capturedArgs.where((a) => a.contains('CLAUDE_CODE_SUBAGENT_MODEL'));
+      expect(subagentArgs, isEmpty);
+      _expectSecurityExecArgs(capturedArgs);
+
+      await harness.dispose();
+    });
+  });
+
+  group('OAuth-backed startup', () {
+    test('startup succeeds with local OAuth auth when ANTHROPIC_API_KEY is absent', () async {
+      final fake = _bufferedFakeProcess();
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory:
+            (exe, args, {String? workingDirectory, Map<String, String>? environment, bool includeParentEnvironment = true}) async {
+          scheduleMicrotask(() {
+            fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+          });
+          return fake;
+        },
+        // Simulate `claude auth status` returning logged in via OAuth.
+        commandProbe: (exe, args) async {
+          if (args.contains('--version')) return _result(stdout: '2.1.87');
+          if (args.contains('auth')) {
+            return _result(stdout: jsonEncode({'loggedIn': true, 'authMethod': 'claude.ai'}));
+          }
+          return _result();
+        },
+        delayFactory: _noOpDelay,
+        // No ANTHROPIC_API_KEY — OAuth only.
+        environment: const {...claudeHardeningEnvVars},
+        harnessConfig: const HarnessConfig(),
+      );
+
+      await harness.start();
+      expect(harness.state.name, equals('idle'));
 
       await harness.dispose();
     });

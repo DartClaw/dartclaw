@@ -262,7 +262,7 @@ void main() {
       expect(dynamicHarness.supportsCostReporting, isTrue);
       expect(dynamicHarness.supportsToolApproval, isTrue);
       expect(dynamicHarness.supportsStreaming, isTrue);
-      expect(dynamicHarness.supportsCachedTokens, isFalse);
+      expect(dynamicHarness.supportsCachedTokens, isTrue);
     });
 
     test('FakeAgentHarness capability configuration is constructor-driven', () {

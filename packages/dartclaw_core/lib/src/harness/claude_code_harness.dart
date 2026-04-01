@@ -42,9 +42,6 @@ List<String> _buildClaudeArgs({
   '--include-partial-messages',
   '--no-session-persistence',
   if (skipNativePermissions) '--dangerously-skip-permissions' else ...['--permission-prompt-tool', 'stdio'],
-  // Restrict to project-level settings only (non-containerized only) — prevents
-  // inherited user/enterprise marketplace plugins and SSH-backed git pulls from
-  // affecting harness startup. Containerized spawns already have filesystem isolation.
   if (settingSourcesProject) ...['--setting-sources', 'project'],
   '--model',
   model ?? 'opus[1m]',
@@ -52,6 +49,10 @@ List<String> _buildClaudeArgs({
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
 ];
+
+/// Env var forwarded from [_environment] to containerized spawns when present.
+/// Set at the wiring layer for task runners only.
+const _subagentModelEnvVar = 'CLAUDE_CODE_SUBAGENT_MODEL';
 
 // ---------------------------------------------------------------------------
 // ClaudeCodeHarness
@@ -327,8 +328,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
     try {
       final messageContent = messages.last['content'];
-      final messageText =
-          messageContent is String ? messageContent : messageContent?.toString() ?? '';
+      final messageText = messageContent is String ? messageContent : messageContent?.toString() ?? '';
 
       // Inject replay-safe conversation history on cold process (first turn after
       // start/restart) when prior messages exist.
@@ -453,12 +453,9 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       effort: _processEffort ?? harnessConfig.effort,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
-      // Non-containerized only: restrict to project-level settings to avoid
-      // inheriting user/enterprise marketplace plugins or SSH git prompts.
       settingSourcesProject: cm == null,
-      // Restricted containers run in Claude simple mode, which disables hooks.
-      // They must keep native permission prompts enabled so tool requests still
-      // flow through the provider permission channel.
+      // Restricted containers keep native permission prompts enabled so tool
+      // requests still flow through the provider permission channel.
       skipNativePermissions: cm?.profileId != 'restricted',
     );
     final Process process;
@@ -466,8 +463,11 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       final containerExecutable = claudeExecutable.contains('/')
           ? claudeExecutable
           : ContainerManager.containerClaudeExecutable;
-      // Restricted containers use simple mode — disables MCP, hooks, CLAUDE.md
-      final containerEnv = cm.profileId == 'restricted' ? {'CLAUDE_CODE_SIMPLE': '1'} : null;
+      final containerEnv = <String, String>{
+        ...claudeHardeningEnvVars,
+        if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
+        _subagentModelEnvVar: ?_environment[_subagentModelEnvVar],
+      };
       process = await cm.exec(
         [containerExecutable, ...args],
         workingDirectory: _processWorkingDirectory,
@@ -486,7 +486,6 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     final generation = ++_spawnGeneration;
     _process = process;
     _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
-
 
     // Listen to stdout lines → parse JSONL → route messages.
     _stdoutSub = process.stdout

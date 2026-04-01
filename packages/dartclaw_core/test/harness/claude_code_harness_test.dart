@@ -117,11 +117,9 @@ class _KillTrackingFakeProcess extends FakeProcess {
   final bool _completeExitOnKill;
   final int _killExitCode;
 
-  _KillTrackingFakeProcess({
-    bool completeExitOnKill = false,
-    int killExitCode = 0,
-  }) : _completeExitOnKill = completeExitOnKill,
-       _killExitCode = killExitCode;
+  _KillTrackingFakeProcess({bool completeExitOnKill = false, int killExitCode = 0})
+    : _completeExitOnKill = completeExitOnKill,
+      _killExitCode = killExitCode;
 
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
@@ -380,6 +378,7 @@ void main() {
         expect(capturedArgs, contains('--print'));
         expect(capturedArgs, contains('--output-format'));
         expect(capturedArgs, contains('stream-json'));
+        expect(capturedArgs, contains('--setting-sources'));
         expect(capturedArgs, contains('--dangerously-skip-permissions'));
         expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
         // Nesting-detection env vars should be stripped.
@@ -651,10 +650,12 @@ void main() {
         final stdinLines = <Map<String, dynamic>>[];
         final guard = _RecordingGuard();
         late CapturingFakeProcess fake;
+        List<String>? capturedArgs;
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
             fake = CapturingFakeProcess(stdinLines);
             scheduleMicrotask(() {
               fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
@@ -669,6 +670,7 @@ void main() {
         addTeardownAsync(() => h.dispose());
 
         await h.start();
+        expect(capturedArgs, contains('--setting-sources'));
         fake.emitStdout(
           jsonEncode({
             'type': 'control_request',
@@ -877,7 +879,9 @@ void main() {
         // Call turn() with effort: 'medium' — should be adopted without restart.
         await h.turn(
           sessionId: 'test',
-          messages: const [{'role': 'user', 'content': 'hello'}],
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
           systemPrompt: '',
           effort: 'medium',
         );
@@ -930,7 +934,9 @@ void main() {
         // Turn with different effort — should trigger restart.
         await h.turn(
           sessionId: 'test',
-          messages: const [{'role': 'user', 'content': 'hello'}],
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
           systemPrompt: '',
           effort: 'high',
         );
@@ -988,7 +994,9 @@ void main() {
         // First turn (warm — no history injection).
         await h.turn(
           sessionId: 'test',
-          messages: const [{'role': 'user', 'content': 'first message'}],
+          messages: const [
+            {'role': 'user', 'content': 'first message'},
+          ],
           systemPrompt: '',
         );
         expect(spawnCount, 1);
@@ -1012,8 +1020,11 @@ void main() {
         final userPayloads = capturedPayloads.where((p) => p['type'] == 'user').toList();
         final secondTurnPayload = userPayloads.last;
         final messageContent = secondTurnPayload['message']?['content'] as String? ?? '';
-        expect(messageContent, contains('<conversation_history>'),
-            reason: 'Cold process turn with prior messages must inject conversation history');
+        expect(
+          messageContent,
+          contains('<conversation_history>'),
+          reason: 'Cold process turn with prior messages must inject conversation history',
+        );
       });
     });
 
@@ -1065,7 +1076,9 @@ void main() {
         // Trigger a model-change restart.
         await h.turn(
           sessionId: 'test',
-          messages: const [{'role': 'user', 'content': 'hello'}],
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
           systemPrompt: '',
           model: 'opus',
         );

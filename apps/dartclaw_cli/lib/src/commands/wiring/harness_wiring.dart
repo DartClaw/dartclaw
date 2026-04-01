@@ -389,7 +389,10 @@ class HarnessWiring {
                   historyConfig: config.agent.history,
                   providerOptions: plan.options,
                   containerManager: containerManager,
-                  environment: _providerEnvironment(plan.providerId, credentialRegistry),
+                  environment: {
+                    ..._providerEnvironment(plan.providerId, credentialRegistry),
+                    ..._taskRunnerSubagentEnvironment,
+                  },
                 ),
               );
               await taskHarness.start();
@@ -427,12 +430,16 @@ class HarnessWiring {
   }
 }
 
+const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'};
+
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
   // Preserve the normal execution environment, but ensure only the selected
   // provider credential is passed through to the subprocess.
   final environment = Map<String, String>.from(Platform.environment)
     ..remove('ANTHROPIC_API_KEY')
-    ..remove('OPENAI_API_KEY');
+    ..remove('OPENAI_API_KEY')
+    ..remove('CLAUDE_CODE_SUBAGENT_MODEL')
+    ..addAll(claudeHardeningEnvVars);
   final apiKey = registry.getApiKey(providerId);
   final envVar = CredentialRegistry.envVarFor(providerId);
   if (apiKey != null && envVar != null) {

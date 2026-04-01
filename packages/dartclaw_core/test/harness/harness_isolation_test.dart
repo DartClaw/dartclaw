@@ -18,7 +18,8 @@ ClaudeCodeHarness _buildHarness({
 }) {
   return ClaudeCodeHarness(
     cwd: '/tmp',
-    processFactory: processFactory ??
+    processFactory:
+        processFactory ??
         (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
           final fake = _FakeProcess();
           scheduleMicrotask(() {
@@ -60,8 +61,7 @@ void main() {
       expect(capturedArgs, isNotNull);
       final idx = capturedArgs!.indexOf('--setting-sources');
       expect(idx, isNot(-1), reason: '--setting-sources flag must be present');
-      expect(capturedArgs![idx + 1], 'project',
-          reason: '--setting-sources value must be "project"');
+      expect(capturedArgs![idx + 1], 'project', reason: '--setting-sources value must be "project"');
     });
 
     test('--setting-sources appears before --model', () async {

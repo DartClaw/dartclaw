@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.6]
+
+Harness Spawn Hardening — security environment defaults on all Claude spawns and cheaper subagent routing on task runners. `--bare` mode evaluated and rejected after live CLI validation showed it is incompatible with DartClaw's hook-based harness behavior and OAuth-backed local workflows.
+
+### Added
+
+- **Security environment variables on all harness spawns**: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, `DISABLE_AUTOUPDATER=1`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` applied to every Claude process — both direct spawns (host environment map) and containerized spawns (`docker exec -e`). Reduces credential-exfiltration risk, prevents mid-session updater surprises, and suppresses non-essential traffic
+- **Task-runner subagent model routing**: `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` set on lazily spawned task runners only, reducing background-work cost without affecting the primary interactive runner. Forwarded through both direct and containerized spawn paths
+- **Shared `claudeHardeningEnvVars` constant**: Single source of truth for security env vars in `claude_protocol.dart`, exported from `dartclaw_core` barrel. Eliminates previous duplication across harness and wiring layers
+- **Positive OAuth startup test**: Regression guard verifying harness startup succeeds with local OAuth auth and no `ANTHROPIC_API_KEY`
+
+### Fixed
+
+- **Workspace containers received no env vars**: Previously, workspace-profile containers passed `null` to `ContainerManager.exec(env:)`, silently skipping all environment injection. Now receives hardening vars alongside restricted containers
+- **Parent shell `CLAUDE_CODE_SUBAGENT_MODEL` leaked into primary runner**: `_providerEnvironment()` now strips `CLAUDE_CODE_SUBAGENT_MODEL` from the inherited `Platform.environment` before composing the base env map, ensuring only task runners receive it
+- **Stale `ClaudeCodeHarness` capability test**: `codex_harness_crash_test.dart` expected `supportsCachedTokens == false` but the harness now returns `true`
+
+### Changed
+
+- **Version display**: Updated from 0.14.5 to 0.14.6
+
+---
+
 ## [0.14.5]
 
 Multi-Space Configuration — per-group model/effort overrides, project binding, structured allowlist entries, and conversation history recovery. Groups across all channels (WhatsApp, Signal, Google Chat) can now be independently configured with display names, project bindings, and model/effort overrides via structured YAML entries. The flat string allowlist format remains backward-compatible.

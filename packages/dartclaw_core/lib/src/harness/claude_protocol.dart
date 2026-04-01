@@ -8,6 +8,16 @@ final _log = Logger('ClaudeProtocol');
 /// Shared between [ClaudeCodeHarness] and [ClaudeBinaryClassifier].
 const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
 
+/// Security-hardening env vars applied to every Claude harness spawn.
+///
+/// Used by both the direct-spawn path (host environment map) and the
+/// containerized-spawn path (`ContainerManager.exec(env:)`).
+const claudeHardeningEnvVars = <String, String>{
+  'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
+  'DISABLE_AUTOUPDATER': '1',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+};
+
 // ---------------------------------------------------------------------------
 // Sealed class hierarchy for claude binary JSONL messages
 // ---------------------------------------------------------------------------

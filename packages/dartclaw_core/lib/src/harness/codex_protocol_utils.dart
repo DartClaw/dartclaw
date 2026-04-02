@@ -1,49 +1,96 @@
 import 'dart:convert';
 
-Map<String, dynamic>? codexMapValue(Object? value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return Map<String, dynamic>.from(value);
-  }
-  return null;
-}
+import 'base_protocol_adapter.dart' show codexErrorSummary, codexPrimaryFileChange, intValue, mapValue, stringValue;
+import 'canonical_tool.dart';
+import 'protocol_message.dart';
 
-String codexStringifyMessageContent(Object? content) {
-  if (content is String) {
-    return content;
-  }
-  if (content is List && content.isNotEmpty) {
-    return content.map((item) => item.toString()).join('\n');
-  }
-  return content?.toString() ?? '';
-}
+export 'base_protocol_adapter.dart'
+    show
+        decodeJsonObject,
+        intValue,
+        listValue,
+        mapValue,
+        stringifyMessageContent,
+        stringifyValue,
+        stringValue,
+        warnOnUnmappedToolName,
+        codexErrorSummary,
+        codexMapToolName,
+        codexPrimaryFileChange,
+        codexUnknownItemInput;
 
-/// Extracts a [String] from a dynamic value, stringifying numbers and bools.
-String? codexStringValue(Object? value) {
-  return switch (value) {
-    String() => value,
-    num() || bool() => '$value',
-    _ => null,
-  };
-}
-
-/// Extracts an [int] from a dynamic value, parsing strings.
-int? codexIntValue(Object? value) {
-  return switch (value) {
-    int() => value,
-    num() => value.toInt(),
-    String() => int.tryParse(value),
-    _ => null,
-  };
-}
-
-/// Decodes a single JSON line into a [Map], or returns `null`.
-Map<String, dynamic>? codexDecodeJsonObject(String line) {
-  try {
-    return codexMapValue(jsonDecode(line));
-  } on FormatException {
+ToolUse? codexBuildCommandExecutionToolUse(Map<String, dynamic> item, {required CanonicalTool? tool}) {
+  if (tool == null) {
     return null;
   }
+
+  return ToolUse(
+    name: tool.stableName,
+    id: stringValue(item['id']) ?? '',
+    input: {'command': stringValue(item['command']) ?? ''},
+  );
+}
+
+ToolUse codexBuildFileChangeToolUse(
+  Map<String, dynamic> item, {
+  required CanonicalTool? Function(String providerToolName, {String? kind}) mapToolName,
+  bool preferPrimaryChange = false,
+  String fallbackName = 'codex:file_change',
+}) {
+  final change = preferPrimaryChange ? codexPrimaryFileChange(item) : null;
+  final kind = stringValue(change?['kind']) ?? stringValue(item['kind']);
+  final path = stringValue(change?['path']) ?? stringValue(item['path']) ?? '';
+  final tool = mapToolName('file_change', kind: kind);
+
+  return ToolUse(
+    name: tool?.stableName ?? fallbackName,
+    id: stringValue(item['id']) ?? '',
+    input: {'path': path, 'kind': kind ?? ''},
+  );
+}
+
+ToolUse? codexBuildMcpToolUse(Map<String, dynamic> item, {required CanonicalTool? tool}) {
+  if (tool == null) {
+    return null;
+  }
+
+  return ToolUse(
+    name: tool.stableName,
+    id: stringValue(item['id']) ?? '',
+    input: {
+      'server': stringValue(item['server']) ?? '',
+      'tool': stringValue(item['tool']) ?? '',
+      'arguments': mapValue(item['arguments']) ?? const <String, dynamic>{},
+    },
+  );
+}
+
+TextDelta? codexBuildAgentMessageDelta(Map<String, dynamic> item, {bool allowDeltaFallback = true}) {
+  final text = stringValue(item['text']) ?? (allowDeltaFallback ? stringValue(item['delta']) : null);
+  if (text == null) {
+    return null;
+  }
+  return TextDelta(text);
+}
+
+ToolResult codexBuildCommandExecutionToolResult(Map<String, dynamic> item) {
+  return ToolResult(
+    toolId: stringValue(item['id']) ?? '',
+    output: stringValue(item['aggregated_output']) ?? codexErrorSummary(item['error']) ?? '',
+    isError: (intValue(item['exit_code']) ?? 0) != 0,
+  );
+}
+
+ToolResult codexBuildJsonFieldToolResult(Map<String, dynamic> item, {required String field, bool isError = false}) {
+  return ToolResult(toolId: stringValue(item['id']) ?? '', output: jsonEncode(item[field]), isError: isError);
+}
+
+TurnComplete codexBuildTurnComplete(Map<String, dynamic> usage, {required String stopReason}) {
+  return TurnComplete(
+    stopReason: stopReason,
+    inputTokens: intValue(usage['input_tokens']),
+    outputTokens: intValue(usage['output_tokens']),
+    cacheReadTokens: intValue(usage['cached_input_tokens']),
+    cacheWriteTokens: 0,
+  );
 }

@@ -1,22 +1,23 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeChannel, InMemoryTaskRepository, RecordingMessageQueue, TaskOps, flushAsync, shortTaskId;
 import 'package:test/test.dart';
 
 void main() {
   group('ChannelManager task trigger bridge', () {
-    late _RecordingMessageQueue queue;
+    late RecordingMessageQueue queue;
     late FakeChannel channel;
     late InMemoryTaskRepository repo;
-    late _TaskOps tasks;
+    late TaskOps tasks;
     late ChannelManager manager;
 
     setUp(() {
-      queue = _RecordingMessageQueue();
+      queue = RecordingMessageQueue();
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
-      tasks = _TaskOps(repo);
+      tasks = TaskOps(repo);
       manager = ChannelManager(
         queue: queue,
         config: const ChannelConfig.defaults(),
@@ -43,7 +44,7 @@ void main() {
           metadata: const {sourceMessageIdMetadataKey: 'wamid-123'},
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       final created = (await tasks.list()).single;
       final origin = TaskOrigin.fromConfigJson(created.configJson);
@@ -62,7 +63,7 @@ void main() {
       expect(channel.sentMessages.single.$1, 'sender@s.whatsapp.net');
       expect(
         channel.sentMessages.single.$2.text,
-        'Task created: fix login redirect [research] -- ID: ${_shortTaskId(created.id)} -- Queued (will start when a slot opens)',
+        'Task created: fix login redirect [research] -- ID: ${shortTaskId(created.id)} -- Queued (will start when a slot opens)',
       );
       expect(channel.sentMessages.single.$2.metadata, containsPair(sourceMessageIdMetadataKey, 'wamid-123'));
       // Note: TaskStatusChangedEvent is now fired by TaskService, not ChannelManager.
@@ -88,7 +89,7 @@ void main() {
           text: 'task: fix login redirect',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, hasLength(1));
       expect((await tasks.list()), isEmpty);
@@ -103,7 +104,7 @@ void main() {
           text: 'just a normal message',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, hasLength(1));
       expect((await tasks.list()), isEmpty);
@@ -119,7 +120,7 @@ void main() {
           metadata: const {sourceMessageIdMetadataKey: 'wamid-empty'},
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, isEmpty);
       expect((await tasks.list()), isEmpty);
@@ -137,7 +138,7 @@ void main() {
           metadata: const {sourceMessageIdMetadataKey: 'wamid-typed-empty'},
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, isEmpty);
       expect((await tasks.list()), isEmpty);
@@ -164,7 +165,7 @@ void main() {
           text: 'task: fix login redirect',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, isEmpty);
       expect(channel.sentMessages, hasLength(1));
@@ -193,7 +194,7 @@ void main() {
           text: 'task: fix login redirect',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, isEmpty);
       expect(channel.sentMessages, hasLength(1));
@@ -219,14 +220,14 @@ void main() {
           text: 'task: writing: draft release notes',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       final created = (await tasks.list()).single;
       expect(created.status, TaskStatus.draft);
       expect(created.type, TaskType.writing);
       expect(
         channel.sentMessages.single.$2.text,
-        'Task drafted: draft release notes [writing] -- ID: ${_shortTaskId(created.id)}',
+        'Task drafted: draft release notes [writing] -- ID: ${shortTaskId(created.id)}',
       );
     });
 
@@ -251,7 +252,7 @@ void main() {
           text: 'task: triage the incident',
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       final created = (await tasks.list()).single;
       final origin = TaskOrigin.fromConfigJson(created.configJson)!;
@@ -261,8 +262,8 @@ void main() {
     });
 
     test('uses spaceName recipient ids for google chat messages', () async {
-      final googleChatQueue = _RecordingMessageQueue();
-      final googleChatTasks = _TaskOps(InMemoryTaskRepository());
+      final googleChatQueue = RecordingMessageQueue();
+      final googleChatTasks = TaskOps(InMemoryTaskRepository());
       addTearDown(googleChatTasks.dispose);
       final googleChatChannel = FakeChannel(type: ChannelType.googlechat, ownedJids: {'spaces/AAAA'});
       final googleChatManager = ChannelManager(
@@ -286,7 +287,7 @@ void main() {
           metadata: const {'spaceName': 'spaces/AAAA'},
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       final created = (await googleChatTasks.list()).single;
       final origin = TaskOrigin.fromConfigJson(created.configJson)!;
@@ -303,71 +304,7 @@ void main() {
   });
 }
 
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-}
-
-String _shortTaskId(String taskId) => taskId.replaceAll('-', '').substring(0, 6);
-
-class _RecordingMessageQueue extends MessageQueue {
-  final List<(ChannelMessage, Channel, String)> enqueued = [];
-
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
-    enqueued.add((message, sourceChannel, sessionKey));
-  }
-
-  @override
-  void dispose() {}
-}
-
-class _TaskOps {
-  final InMemoryTaskRepository _repo;
-
-  _TaskOps(this._repo);
-
-  Future<Task> create({
-    required String id,
-    required String title,
-    required String description,
-    required TaskType type,
-    bool autoStart = false,
-    String? goalId,
-    String? acceptanceCriteria,
-    String? createdBy,
-    String? projectId,
-    Map<String, dynamic> configJson = const {},
-    DateTime? now,
-    String trigger = 'system',
-  }) async {
-    final timestamp = now ?? DateTime.now();
-    var task = Task(
-      id: id,
-      title: title,
-      description: description,
-      type: type,
-      goalId: goalId,
-      acceptanceCriteria: acceptanceCriteria,
-      createdBy: createdBy,
-      configJson: configJson,
-      createdAt: timestamp,
-    );
-    if (autoStart) {
-      task = task.transition(TaskStatus.queued, now: timestamp);
-    }
-    await _repo.insert(task);
-    return task;
-  }
-
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
-
-  Future<void> dispose() => _repo.dispose();
-}
-
-class _FailingTaskService extends _TaskOps {
+class _FailingTaskService extends TaskOps {
   _FailingTaskService() : super(InMemoryTaskRepository());
 
   @override

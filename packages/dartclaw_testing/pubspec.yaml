@@ -18,8 +18,15 @@ resolution: workspace
 dependencies:
   dartclaw_core:
     path: ../dartclaw_core
+  dartclaw_google_chat:
+    path: ../dartclaw_google_chat
+  dartclaw_models:
+    path: ../dartclaw_models
   dartclaw_security:
     path: ../dartclaw_security
+  dartclaw_server:
+    path: ../dartclaw_server
+  http: ^1.6.0
 
 dev_dependencies:
   test: ^1.31.0

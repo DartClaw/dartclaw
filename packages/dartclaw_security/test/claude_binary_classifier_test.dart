@@ -2,35 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
 import 'package:dartclaw_security/src/claude_binary_classifier.dart';
 import 'package:test/test.dart';
-
-/// A minimal IOSink that discards all writes.
-class _NullIOSink implements IOSink {
-  @override
-  Encoding encoding = utf8;
-
-  @override
-  void add(List<int> data) {}
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
-  @override
-  Future<void> addStream(Stream<List<int>> stream) async {}
-  @override
-  Future<void> close() async {}
-  @override
-  Future<void> get done => Completer<void>().future;
-  @override
-  Future<void> flush() async {}
-  @override
-  void write(Object? object) {}
-  @override
-  void writeAll(Iterable<Object?> objects, [String separator = '']) {}
-  @override
-  void writeCharCode(int charCode) {}
-  @override
-  void writeln([Object? object = '']) {}
-}
 
 /// Fake Process that returns preconfigured stdout/stderr/exit code.
 class FakeProcess implements Process {
@@ -47,7 +21,7 @@ class FakeProcess implements Process {
   int get pid => 99;
 
   @override
-  IOSink get stdin => _NullIOSink();
+  IOSink get stdin => NullIoSink();
 
   @override
   Stream<List<int>> get stdout => Stream.value(utf8.encode(_stdout));

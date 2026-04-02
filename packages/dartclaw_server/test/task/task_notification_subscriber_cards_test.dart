@@ -4,6 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -21,7 +22,7 @@ void main() {
   });
 
   test('sends Google Chat review notifications as cards with review buttons', () async {
-    final channel = _RecordingChannel(type: ChannelType.googlechat);
+    final channel = FakeChannel(type: ChannelType.googlechat, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     addTearDown(() async {
@@ -48,7 +49,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T11:00:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     expect(response.text, "Task 'Fix login' needs review. Reply 'accept' or 'reject'.");
@@ -95,7 +96,7 @@ void main() {
   });
 
   test('sends Google Chat running notifications as cards without review buttons', () async {
-    final channel = _RecordingChannel(type: ChannelType.googlechat);
+    final channel = FakeChannel(type: ChannelType.googlechat, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     addTearDown(() async {
@@ -116,7 +117,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T10:30:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     final cardEntry =
@@ -127,7 +128,7 @@ void main() {
   });
 
   test('sends Google Chat accepted notifications as cards without review buttons', () async {
-    final channel = _RecordingChannel(type: ChannelType.googlechat);
+    final channel = FakeChannel(type: ChannelType.googlechat, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     addTearDown(() async {
@@ -155,7 +156,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T11:15:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     expect(response.text, "Task 'Fix login' accepted.");
@@ -174,7 +175,7 @@ void main() {
   });
 
   test('includes error summary in Google Chat failure cards when present', () async {
-    final channel = _RecordingChannel(type: ChannelType.googlechat);
+    final channel = FakeChannel(type: ChannelType.googlechat, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     addTearDown(() async {
@@ -211,7 +212,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T11:15:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     expect(response.text, "Task 'Fix login' failed: Token budget exceeded.");
@@ -230,7 +231,7 @@ void main() {
   });
 
   test('keeps non-Google Chat notifications as plain text responses', () async {
-    final channel = _RecordingChannel(type: ChannelType.whatsapp);
+    final channel = FakeChannel(type: ChannelType.whatsapp, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     addTearDown(() async {
@@ -255,7 +256,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T10:30:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     expect(response.structuredPayload, isNull);
@@ -263,7 +264,7 @@ void main() {
   });
 
   test('falls back to plain text when card construction fails', () async {
-    final channel = _RecordingChannel(type: ChannelType.googlechat);
+    final channel = FakeChannel(type: ChannelType.googlechat, ownsAllJids: true);
     final manager = _buildChannelManager(channel);
     final subscriber = TaskNotificationSubscriber(
       tasks: tasks,
@@ -288,7 +289,7 @@ void main() {
         timestamp: DateTime.parse('2026-03-13T10:30:00Z'),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final response = channel.sentMessages.single.$2;
     expect(response.structuredPayload, isNull);
@@ -296,8 +297,8 @@ void main() {
   });
 }
 
-ChannelManager _buildChannelManager(_RecordingChannel channel) {
-  final manager = ChannelManager(queue: _RecordingMessageQueue(), config: const ChannelConfig.defaults());
+ChannelManager _buildChannelManager(FakeChannel channel) {
+  final manager = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults());
   manager.registerChannel(channel);
   return manager;
 }
@@ -323,44 +324,6 @@ Future<Task> _createChannelTask(
     },
     now: DateTime.parse('2026-03-13T10:00:00Z'),
   );
-}
-
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-}
-
-class _RecordingChannel extends Channel {
-  @override
-  final String name = 'recording';
-
-  @override
-  final ChannelType type;
-
-  final List<(String, ChannelResponse)> sentMessages = [];
-
-  _RecordingChannel({required this.type});
-
-  @override
-  Future<void> connect() async {}
-
-  @override
-  Future<void> disconnect() async {}
-
-  @override
-  bool ownsJid(String jid) => true;
-
-  @override
-  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
-    sentMessages.add((recipientJid, response));
-  }
-}
-
-class _RecordingMessageQueue extends MessageQueue {
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void dispose() {}
 }
 
 class _ThrowingChatCardBuilder extends ChatCardBuilder {

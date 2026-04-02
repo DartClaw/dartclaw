@@ -5,54 +5,9 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:http/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
-
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
-  final List<(String, Map<String, dynamic>)> sentCards = [];
-
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<String?> sendCard(
-    String spaceName,
-    Map<String, dynamic> cardPayload, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentCards.add((spaceName, cardPayload));
-    return '$spaceName/messages/card-${sentCards.length}';
-  }
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    return '$spaceName/messages/text-${sentMessages.length}';
-  }
-
-  @override
-  Future<void> testConnection() async {}
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => true;
-}
 
 Future<Response> _post(GoogleChatWebhookHandler handler, Object payload) {
   return handler.handle(
@@ -68,7 +23,7 @@ Future<Response> _post(GoogleChatWebhookHandler handler, Object payload) {
 void main() {
   late TaskService tasks;
   late EventBus eventBus;
-  late _FakeGoogleChatRestClient restClient;
+  late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
   late ChannelManager manager;
   late TaskReviewService reviewService;
@@ -78,19 +33,19 @@ void main() {
   setUp(() {
     eventBus = EventBus();
     tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
-    restClient = _FakeGoogleChatRestClient();
+    restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
       restClient: restClient,
     );
-    manager = ChannelManager(queue: _RecordingMessageQueue(), config: const ChannelConfig.defaults());
+    manager = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults());
     manager.registerChannel(channel);
     reviewService = TaskReviewService(tasks: tasks);
     notificationSubscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
     notificationSubscriber.subscribe(eventBus);
     webhookHandler = GoogleChatWebhookHandler(
       channel: channel,
-      jwtVerifier: _FakeGoogleJwtVerifier(),
+      jwtVerifier: FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
       reviewHandler: reviewService.channelReviewHandler(trigger: 'channel'),
     );
@@ -123,7 +78,7 @@ void main() {
     await tasks.transition(task.id, TaskStatus.review);
     // TaskService.transition() now fires TaskStatusChangedEvent automatically.
     // Allow async review-ready event to complete.
-    await _flushAsync();
+    await flushAsync();
 
     // At least one notification card was sent for the running→review transition.
     // (There may also be a card for queued→running.)
@@ -180,7 +135,7 @@ void main() {
       'user': {'name': 'users/123', 'displayName': 'Alice'},
     });
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
-    await _flushAsync();
+    await flushAsync();
 
     expect((await tasks.get(task.id))!.status, TaskStatus.accepted);
     expect(body['cardsV2'], isA<List<dynamic>>());
@@ -201,16 +156,4 @@ void main() {
       isFalse,
     );
   });
-}
-
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-}
-
-class _RecordingMessageQueue extends MessageQueue {
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void dispose() {}
 }

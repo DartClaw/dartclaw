@@ -5,29 +5,9 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:http/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
-
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<void> testConnection() async {}
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => true;
-}
 
 void main() {
   late Directory tempDir;
@@ -288,9 +268,9 @@ GoogleChatWebhookHandler _buildHandler({
   return GoogleChatWebhookHandler(
     channel: GoogleChatChannel(
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
-      restClient: _FakeGoogleChatRestClient(),
+      restClient: FakeGoogleChatRestClient(),
     ),
-    jwtVerifier: _FakeGoogleJwtVerifier(),
+    jwtVerifier: FakeGoogleJwtVerifier(),
     config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
     channelManager: null,
     dispatchMessage: dispatchMessage,

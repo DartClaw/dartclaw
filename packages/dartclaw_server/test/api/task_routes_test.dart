@@ -54,6 +54,24 @@ void main() {
     await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-10T10:10:00Z'));
   }
 
+  FakeProjectService makeProjectService() {
+    return FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+  }
+
   group('POST /api/tasks', () {
     test('creates task in draft', () async {
       final response = await handler(
@@ -86,7 +104,7 @@ void main() {
     });
 
     test('persists projectId when provided', () async {
-      final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
+      final handlerWithProjects = taskRoutes(tasks, projectService: makeProjectService()).call;
 
       final response = await handlerWithProjects(
         jsonRequest('POST', '/api/tasks', {
@@ -104,7 +122,7 @@ void main() {
     });
 
     test('returns 400 for unknown projectId', () async {
-      final handlerWithProjects = taskRoutes(tasks, projectService: _FakeProjectService()).call;
+      final handlerWithProjects = taskRoutes(tasks, projectService: makeProjectService()).call;
 
       final response = await handlerWithProjects(
         jsonRequest('POST', '/api/tasks', {
@@ -572,7 +590,7 @@ void main() {
         tasks,
         worktreeManager: worktreeManager,
         taskFileGuard: taskFileGuard,
-        projectService: _FakeProjectService(),
+        projectService: makeProjectService(),
       ).call;
 
       await createTask('task-project', autoStart: true);
@@ -1117,65 +1135,4 @@ class _RecordingWorktreeManager extends WorktreeManager {
     cleanedTaskIds.add(taskId);
     cleanedProjectIds.add(project?.id);
   }
-}
-
-class _FakeProjectService implements ProjectService {
-  final Map<String, Project> _projects = {
-    'my-app': Project(
-      id: 'my-app',
-      name: 'My App',
-      remoteUrl: 'git@github.com:acme/my-app.git',
-      localPath: '/projects/my-app',
-      defaultBranch: 'main',
-      status: ProjectStatus.ready,
-      createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
-    ),
-  };
-
-  @override
-  Future<Project?> get(String id) async => _projects[id];
-
-  @override
-  Future<List<Project>> getAll() async => _projects.values.toList(growable: false);
-
-  @override
-  Future<Project> getDefaultProject() async => _projects.values.first;
-
-  @override
-  Project getLocalProject() => throw UnimplementedError();
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> update(
-    String id, {
-    String? name,
-    String? remoteUrl,
-    String? defaultBranch,
-    String? credentialsRef,
-    PrConfig? pr,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> fetch(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
 }

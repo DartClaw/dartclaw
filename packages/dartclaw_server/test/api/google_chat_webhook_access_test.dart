@@ -3,45 +3,9 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:http/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
-
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
-
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    return '$spaceName/messages/1';
-  }
-
-  @override
-  Future<bool> editMessage(String messageName, String newText) async => true;
-
-  @override
-  Future<void> testConnection() async {}
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => true;
-}
 
 Map<String, dynamic> _payload({
   String type = 'MESSAGE',
@@ -79,8 +43,8 @@ Future<Response> _post(GoogleChatWebhookHandler handler, {required Object body})
 }
 
 void main() {
-  late _FakeGoogleChatRestClient restClient;
-  late _FakeGoogleJwtVerifier jwtVerifier;
+  late FakeGoogleChatRestClient restClient;
+  late FakeGoogleJwtVerifier jwtVerifier;
   late ChannelMessage? dispatchedMessage;
 
   GoogleChatWebhookHandler buildHandler({
@@ -125,8 +89,8 @@ void main() {
   }
 
   setUp(() {
-    restClient = _FakeGoogleChatRestClient();
-    jwtVerifier = _FakeGoogleJwtVerifier();
+    restClient = FakeGoogleChatRestClient();
+    jwtVerifier = FakeGoogleJwtVerifier();
     dispatchedMessage = null;
   });
 

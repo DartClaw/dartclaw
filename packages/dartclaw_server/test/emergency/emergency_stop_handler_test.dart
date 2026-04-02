@@ -21,17 +21,8 @@ void main() {
 
   final ts = DateTime.parse('2026-03-21T12:00:00Z');
 
-  Future<Task> makeTask({
-    required String id,
-    required TaskStatus status,
-  }) async {
-    final task = Task(
-      id: id,
-      title: 'Task $id',
-      description: 'do work',
-      type: TaskType.research,
-      createdAt: ts,
-    );
+  Future<Task> makeTask({required String id, required TaskStatus status}) async {
+    final task = Task(id: id, title: 'Task $id', description: 'do work', type: TaskType.research, createdAt: ts);
     // Insert via repo directly to set status without event side-effects.
     await repo.insert(task);
     if (status != TaskStatus.draft) {
@@ -49,10 +40,7 @@ void main() {
       await makeTask(id: 't1', status: TaskStatus.running);
       await makeTask(id: 't2', status: TaskStatus.running);
 
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       expect(result.tasksCancelled, 2);
@@ -69,10 +57,7 @@ void main() {
       await makeTask(id: 'q1', status: TaskStatus.queued);
       await makeTask(id: 'q2', status: TaskStatus.queued);
 
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       expect(result.tasksCancelled, 2);
@@ -84,10 +69,7 @@ void main() {
       await makeTask(id: 'r1', status: TaskStatus.running);
       await makeTask(id: 'q1', status: TaskStatus.queued);
 
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       final result = await handler.execute(stoppedBy: 'bob', now: ts);
 
       expect(result.tasksCancelled, 2);
@@ -98,10 +80,7 @@ void main() {
       // We cannot reach review/accepted/rejected via direct service without
       // more setup, but we verify draft is untouched.
 
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       expect(result.tasksCancelled, 0);
@@ -111,10 +90,7 @@ void main() {
     });
 
     test('no activity — hadActivity is false', () async {
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       expect(result.hadActivity, isFalse);
@@ -130,10 +106,7 @@ void main() {
       // as cancelled manually in the repo before execute() runs its cancel pass.
       repo.concurrentVersionOnNextTransition = true;
 
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
 
       // Should not throw — concurrent modification is caught.
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
@@ -145,31 +118,27 @@ void main() {
 
   group('EmergencyStopHandler — turn cancellation', () {
     test('cancels active turn sessions across all runners', () async {
-      final fakeTurns = _FakeTurnManager(
-        activeSessionIds: {'sess-1', 'sess-2'},
-      );
+      final fakeTurns = FakeTurnManager(activeSessionIds: const {'sess-1', 'sess-2'});
 
-      final handler = EmergencyStopHandler(
-        turnManager: fakeTurns,
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: fakeTurns, taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       expect(result.turnsCancelled, 2);
-      expect(fakeTurns.cancelledSessions, unorderedEquals(['sess-1', 'sess-2']));
+      expect(fakeTurns.cancelledSessionIds, unorderedEquals(['sess-1', 'sess-2']));
     });
 
     test('turn cancel failure is logged but stop continues', () async {
-      final fakeTurns = _FakeTurnManager(
-        activeSessionIds: {'sess-good', 'sess-fail'},
-        failOnCancel: {'sess-fail'},
+      final fakeTurns = FakeTurnManager(
+        activeSessionIds: const {'sess-good', 'sess-fail'},
+        onCancelTurn: (sessionId) async {
+          if (sessionId == 'sess-fail') {
+            throw StateError('Simulated cancel failure for $sessionId');
+          }
+        },
       );
       await makeTask(id: 'r1', status: TaskStatus.running);
 
-      final handler = EmergencyStopHandler(
-        turnManager: fakeTurns,
-        taskService: taskService,
-      );
+      final handler = EmergencyStopHandler(turnManager: fakeTurns, taskService: taskService);
       final result = await handler.execute(stoppedBy: 'alice', now: ts);
 
       // sess-fail threw — only 1 turn counted, but task still cancelled.
@@ -181,13 +150,9 @@ void main() {
   group('EmergencyStopHandler — events', () {
     test('fires EmergencyStopEvent on EventBus with correct data', () async {
       await makeTask(id: 'r1', status: TaskStatus.running);
-      final fakeTurns = _FakeTurnManager(activeSessionIds: {'sess-1'});
+      final fakeTurns = FakeTurnManager(activeSessionIds: const {'sess-1'});
 
-      final handler = EmergencyStopHandler(
-        turnManager: fakeTurns,
-        taskService: taskService,
-        eventBus: eventBus,
-      );
+      final handler = EmergencyStopHandler(turnManager: fakeTurns, taskService: taskService, eventBus: eventBus);
       await handler.execute(stoppedBy: 'carol', now: ts);
 
       final events = eventBus.firedEvents.whereType<EmergencyStopEvent>().toList();
@@ -201,7 +166,7 @@ void main() {
     test('fires emergency_stop SSE broadcast', () async {
       final sseBroadcast = _FakeSseBroadcast();
       final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
+        turnManager: FakeTurnManager(),
         taskService: taskService,
         sseBroadcast: sseBroadcast,
       );
@@ -213,80 +178,10 @@ void main() {
     });
 
     test('no EventBus — executes without error', () async {
-      final handler = EmergencyStopHandler(
-        turnManager: _FakeTurnManager(activeSessionIds: {}),
-        taskService: taskService,
-        // eventBus: null (default)
-      );
+      final handler = EmergencyStopHandler(turnManager: FakeTurnManager(), taskService: taskService);
       expect(() => handler.execute(stoppedBy: 'alice', now: ts), returnsNormally);
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Test doubles
-// ---------------------------------------------------------------------------
-
-/// Fake [TurnManager] that reports configurable active session IDs and
-/// records which sessions were cancelled.
-class _FakeTurnManager implements TurnManager {
-  final Set<String> _activeSessionIds;
-  final Set<String> _failOnCancel;
-  final List<String> cancelledSessions = [];
-
-  _FakeTurnManager({
-    required Set<String> activeSessionIds,
-    Set<String> failOnCancel = const {},
-  })  : _activeSessionIds = activeSessionIds,
-        _failOnCancel = failOnCancel;
-
-  @override
-  HarnessPool get pool => _FakePool(this);
-
-  // All other TurnManager methods — not needed for these tests.
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakeTurnManager');
-}
-
-/// Fake [HarnessPool] that exposes a single [_FakeRunner] backed by the turn manager.
-class _FakePool implements HarnessPool {
-  final _FakeTurnManager _manager;
-  late final _FakeRunner _runner = _FakeRunner(_manager);
-
-  _FakePool(this._manager);
-
-  @override
-  List<TurnRunner> get runners => [_runner];
-
-  @override
-  TurnRunner get primary => _runner;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakePool');
-}
-
-/// Fake [TurnRunner] that exposes configured active sessions and records cancellations.
-class _FakeRunner implements TurnRunner {
-  final _FakeTurnManager _manager;
-
-  _FakeRunner(this._manager);
-
-  @override
-  Iterable<String> get activeSessionIds => _manager._activeSessionIds;
-
-  @override
-  Future<void> cancelTurn(String sessionId) async {
-    if (_manager._failOnCancel.contains(sessionId)) {
-      throw StateError('Simulated cancel failure for $sessionId');
-    }
-    _manager.cancelledSessions.add(sessionId);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakeRunner');
 }
 
 /// Fake [SseBroadcast] that records broadcast calls.

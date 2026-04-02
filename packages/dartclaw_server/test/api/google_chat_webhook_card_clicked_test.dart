@@ -1,31 +1,12 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/src/channel/review_command_parser.dart';
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show ChannelReviewError, ChannelReviewMergeConflict, ChannelReviewResult, ChannelReviewSuccess;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:http/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
-
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<void> testConnection() async {}
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => true;
-}
 
 Map<String, dynamic> _payload({
   String invokedFunction = 'task_accept',
@@ -61,8 +42,8 @@ void main() {
     reviewCalls = [];
     reviewResult = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
     handler = GoogleChatWebhookHandler(
-      channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: _FakeGoogleChatRestClient()),
-      jwtVerifier: _FakeGoogleJwtVerifier(),
+      channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: FakeGoogleChatRestClient()),
+      jwtVerifier: FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(),
       reviewHandler: (taskId, action, {String? comment}) async {
         reviewCalls.add((taskId, action));
@@ -144,8 +125,8 @@ void main() {
 
   test('returns an error when no review handler is configured', () async {
     handler = GoogleChatWebhookHandler(
-      channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: _FakeGoogleChatRestClient()),
-      jwtVerifier: _FakeGoogleJwtVerifier(),
+      channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: FakeGoogleChatRestClient()),
+      jwtVerifier: FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(),
     );
 

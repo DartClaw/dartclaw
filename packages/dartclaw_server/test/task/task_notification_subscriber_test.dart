@@ -3,21 +3,22 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
   late TaskService tasks;
   late EventBus eventBus;
-  late _FakeChannel channel;
-  late _RecordingMessageQueue queue;
+  late FakeChannel channel;
+  late RecordingMessageQueue queue;
   late ChannelManager channelManager;
   late TaskNotificationSubscriber subscriber;
 
   setUp(() {
     tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
     eventBus = EventBus();
-    queue = _RecordingMessageQueue();
-    channel = _FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
+    queue = RecordingMessageQueue();
+    channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
     channelManager = ChannelManager(
       queue: queue,
       config: const ChannelConfig.defaults(),
@@ -48,14 +49,14 @@ void main() {
         text: 'task: fix the login bug',
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     final task = (await tasks.list()).single;
     expect(queue.enqueued, isEmpty);
     expect(channel.sentMessages, hasLength(1));
     expect(
       channel.sentMessages.first.$2.text,
-      'Task created: fix the login bug [research] -- ID: ${_shortTaskId(task.id)} -- Queued (will start when a slot opens)',
+      'Task created: fix the login bug [research] -- ID: ${shortTaskId(task.id)} -- Queued (will start when a slot opens)',
     );
 
     final running = await tasks.transition(task.id, TaskStatus.running);
@@ -68,7 +69,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages, hasLength(2));
     expect(channel.sentMessages.last.$1, 'sender@s.whatsapp.net');
@@ -89,7 +90,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages.single.$2.text, "Task '${task.title}' needs review. Reply 'accept' or 'reject'.");
   });
@@ -108,7 +109,7 @@ void main() {
         description: 'Task',
         type: TaskType.research,
         autoStart: true,
-        configJson: {'origin': _originJson()},
+        configJson: {'origin': channelOriginJson()},
       );
       await tasks.transition(task.id, TaskStatus.running);
       final review = await tasks.transition(task.id, TaskStatus.review);
@@ -123,7 +124,7 @@ void main() {
           timestamp: DateTime.now(),
         ),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(channel.sentMessages, hasLength(1));
       expect(channel.sentMessages.single.$1, 'sender@s.whatsapp.net');
@@ -138,7 +139,7 @@ void main() {
       description: 'Task',
       type: TaskType.coding,
       autoStart: true,
-      configJson: {'origin': _originJson()},
+      configJson: {'origin': channelOriginJson()},
     );
     await tasks.updateFields(
       task.id,
@@ -161,7 +162,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages.single.$2.text, "Task 'Task' accepted. Changes merged.");
   });
@@ -185,7 +186,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages, isEmpty);
   });
@@ -202,7 +203,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages, isEmpty);
   });
@@ -222,7 +223,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect((await tasks.get(task.id))!.status, TaskStatus.review);
   });
@@ -249,7 +250,7 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages, isEmpty);
   });
@@ -261,7 +262,7 @@ void main() {
       description: 'Description',
       type: TaskType.research,
       autoStart: true,
-      configJson: {'origin': _originJson(), 'errorSummary': 'token budget exceeded'},
+      configJson: {'origin': channelOriginJson(), 'errorSummary': 'token budget exceeded'},
     );
     final running = await tasks.transition(task.id, TaskStatus.running);
     await tasks.transition(task.id, TaskStatus.failed);
@@ -275,67 +276,10 @@ void main() {
         timestamp: DateTime.now(),
       ),
     );
-    await _flushAsync();
+    await flushAsync();
 
     expect(channel.sentMessages.single.$2.text, "Task 'Task' failed: token budget exceeded.");
   });
-}
-
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-}
-
-String _shortTaskId(String taskId) => taskId.replaceAll('-', '').substring(0, 6);
-
-Map<String, dynamic> _originJson({String recipientId = 'sender@s.whatsapp.net'}) => {
-  'channelType': 'whatsapp',
-  'sessionKey': 'agent:main:dm:contact:${Uri.encodeComponent(recipientId)}',
-  'recipientId': recipientId,
-  'contactId': recipientId,
-};
-
-class _FakeChannel extends Channel {
-  @override
-  final String name = 'fake';
-  @override
-  final ChannelType type = ChannelType.whatsapp;
-  final Set<String> ownedJids;
-  bool throwOnSend = false;
-  final List<(String, ChannelResponse)> sentMessages = [];
-
-  _FakeChannel({this.ownedJids = const {}});
-
-  @override
-  Future<void> connect() async {}
-
-  @override
-  Future<void> disconnect() async {}
-
-  @override
-  bool ownsJid(String jid) => ownedJids.contains(jid);
-
-  @override
-  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
-    if (throwOnSend) {
-      throw StateError('send failed');
-    }
-    sentMessages.add((recipientJid, response));
-  }
-}
-
-class _RecordingMessageQueue extends MessageQueue {
-  final List<(ChannelMessage, Channel, String)> enqueued = [];
-
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
-    enqueued.add((message, sourceChannel, sessionKey));
-  }
-
-  @override
-  void dispose() {}
 }
 
 Future<Task> _createChannelTask(TaskService tasks, {bool autoStart = true}) {
@@ -345,6 +289,6 @@ Future<Task> _createChannelTask(TaskService tasks, {bool autoStart = true}) {
     description: 'Task',
     type: TaskType.research,
     autoStart: autoStart,
-    configJson: {'origin': _originJson()},
+    configJson: {'origin': channelOriginJson()},
   );
 }

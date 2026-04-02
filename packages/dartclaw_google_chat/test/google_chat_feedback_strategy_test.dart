@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGoogleChatRestClient;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:fake_async/fake_async.dart';
-import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 class _FakeChannel extends Channel {
@@ -33,34 +33,10 @@ class _FakeChannel extends Channel {
   }
 }
 
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String messageName, String text)> editedMessages = [];
-  final List<(String spaceName, String text)> sentMessages = [];
-
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<bool> editMessage(String messageName, String newText) async {
-    editedMessages.add((messageName, newText));
-    return true;
-  }
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    return 'spaces/AAA/messages/generated-placeholder';
-  }
-}
-
 void main() {
   group('GoogleChatFeedbackStrategy', () {
     test('onToolUse edits the placeholder with tool progress', () async {
-      final restClient = _FakeGoogleChatRestClient();
+      final restClient = FakeGoogleChatRestClient();
       final strategy = GoogleChatFeedbackStrategy(restClient: restClient);
       final context = FeedbackContext(
         channel: _FakeChannel(),
@@ -88,7 +64,7 @@ void main() {
 
     test('throttles placeholder edits inside the one-second window', () {
       fakeAsync((async) {
-        final restClient = _FakeGoogleChatRestClient();
+        final restClient = FakeGoogleChatRestClient();
         var now = DateTime.utc(2026, 3, 26, 12);
         final strategy = GoogleChatFeedbackStrategy(restClient: restClient, now: () => now);
         final context = FeedbackContext(
@@ -134,7 +110,7 @@ void main() {
     });
 
     test('status ticks vary across elapsed-time buckets', () async {
-      final restClient = _FakeGoogleChatRestClient();
+      final restClient = FakeGoogleChatRestClient();
       var now = DateTime.utc(2026, 3, 26, 12);
       final strategy = GoogleChatFeedbackStrategy(
         restClient: restClient,
@@ -187,7 +163,7 @@ void main() {
     });
 
     test('onTurnCompleted returns true when a placeholder exists', () async {
-      final restClient = _FakeGoogleChatRestClient();
+      final restClient = FakeGoogleChatRestClient();
       final strategy = GoogleChatFeedbackStrategy(restClient: restClient);
       final context = FeedbackContext(
         channel: _FakeChannel(),
@@ -204,7 +180,7 @@ void main() {
     });
 
     test('onTurnCompleted returns false when no placeholder exists', () async {
-      final restClient = _FakeGoogleChatRestClient();
+      final restClient = FakeGoogleChatRestClient();
       final strategy = GoogleChatFeedbackStrategy(restClient: restClient);
       final context = FeedbackContext(
         channel: _FakeChannel(),

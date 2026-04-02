@@ -148,7 +148,8 @@ export 'src/provider_status_service.dart' show AuthProbe, ProviderStatus, Provid
 export 'src/restart_service.dart' show RestartService;
 
 // Server
-export 'src/server.dart' show DartclawServer, DartclawServerBuilder;
+export 'src/server.dart' show DartclawServer;
+export 'src/server_builder.dart' show DartclawServerBuilder;
 
 // Emergency stop
 export 'src/emergency/emergency_stop_handler.dart' show EmergencyStopHandler, EmergencyStopResult;

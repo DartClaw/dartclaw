@@ -1,27 +1,21 @@
-import 'dart:convert';
-
 import 'canonical_tool.dart';
+import 'base_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
-import 'protocol_adapter.dart';
 import 'protocol_message.dart';
 
 /// Codex exec-mode implementation of [ProtocolAdapter].
-class CodexExecProtocolAdapter implements ProtocolAdapter {
+class CodexExecProtocolAdapter extends BaseProtocolAdapter {
   @override
   ProtocolMessage? parseLine(String line) {
-    if (line.trim().isEmpty) {
-      return null;
-    }
-
-    final decoded = codexDecodeJsonObject(line);
+    final decoded = decodeJsonObject(line);
     if (decoded == null) {
       return null;
     }
 
-    return switch (codexStringValue(decoded['type'])) {
+    return switch (stringValue(decoded['type'])) {
       'thread.started' || 'turn.started' => null,
-      'item.started' => _extractToolUse(codexMapValue(decoded['item'])),
-      'item.completed' => _extractCompletedItem(codexMapValue(decoded['item'])),
+      'item.started' => _extractToolUse(mapValue(decoded['item'])),
+      'item.completed' => _extractCompletedItem(mapValue(decoded['item'])),
       'turn.completed' => _extractTurnComplete(decoded),
       _ => null,
     };
@@ -51,15 +45,7 @@ class CodexExecProtocolAdapter implements ProtocolAdapter {
 
   @override
   CanonicalTool? mapToolName(String providerToolName, {String? kind}) {
-    return switch (providerToolName) {
-      'command_execution' => CanonicalTool.shell,
-      'file_change' => switch (kind) {
-        'update' || 'modify' => CanonicalTool.fileEdit,
-        _ => CanonicalTool.fileWrite,
-      },
-      'mcp_tool_call' => CanonicalTool.mcpCall,
-      _ => null,
-    };
+    return codexMapToolName(providerToolName, kind: kind);
   }
 
   ToolUse? _extractToolUse(Map<String, dynamic>? item) {
@@ -67,7 +53,7 @@ class CodexExecProtocolAdapter implements ProtocolAdapter {
       return null;
     }
 
-    final itemType = codexStringValue(item['type']);
+    final itemType = stringValue(item['type']);
     if (itemType == null) {
       return null;
     }
@@ -81,47 +67,15 @@ class CodexExecProtocolAdapter implements ProtocolAdapter {
   }
 
   ToolUse? _buildCommandExecutionToolUse(Map<String, dynamic> item) {
-    final name = mapToolName('command_execution');
-    if (name == null) {
-      return null;
-    }
-
-    return ToolUse(
-      name: name.stableName,
-      id: codexStringValue(item['id']) ?? '',
-      input: {'command': codexStringValue(item['command']) ?? ''},
-    );
+    return codexBuildCommandExecutionToolUse(item, tool: mapToolName('command_execution'));
   }
 
   ToolUse? _buildFileChangeToolUse(Map<String, dynamic> item) {
-    final kind = codexStringValue(item['kind']);
-    final name = mapToolName('file_change', kind: kind);
-    if (name == null) {
-      return null;
-    }
-
-    return ToolUse(
-      name: name.stableName,
-      id: codexStringValue(item['id']) ?? '',
-      input: {'path': codexStringValue(item['path']) ?? '', 'kind': kind ?? ''},
-    );
+    return codexBuildFileChangeToolUse(item, mapToolName: mapToolName);
   }
 
   ToolUse? _buildMcpToolUse(Map<String, dynamic> item) {
-    final name = mapToolName('mcp_tool_call');
-    if (name == null) {
-      return null;
-    }
-
-    return ToolUse(
-      name: name.stableName,
-      id: codexStringValue(item['id']) ?? '',
-      input: {
-        'server': codexStringValue(item['server']) ?? '',
-        'tool': codexStringValue(item['tool']) ?? '',
-        'arguments': codexMapValue(item['arguments']) ?? const <String, dynamic>{},
-      },
-    );
+    return codexBuildMcpToolUse(item, tool: mapToolName('mcp_tool_call'));
   }
 
   ProtocolMessage? _extractCompletedItem(Map<String, dynamic>? item) {
@@ -129,7 +83,7 @@ class CodexExecProtocolAdapter implements ProtocolAdapter {
       return null;
     }
 
-    return switch (codexStringValue(item['type'])) {
+    return switch (stringValue(item['type'])) {
       'agent_message' => _extractAgentMessage(item),
       'command_execution' => _extractCommandExecutionResult(item),
       'file_change' => _extractJsonEncodedResult(item, field: 'changes'),
@@ -139,33 +93,19 @@ class CodexExecProtocolAdapter implements ProtocolAdapter {
   }
 
   TextDelta? _extractAgentMessage(Map<String, dynamic> item) {
-    final text = codexStringValue(item['text']);
-    if (text == null) {
-      return null;
-    }
-    return TextDelta(text);
+    return codexBuildAgentMessageDelta(item, allowDeltaFallback: false);
   }
 
   ToolResult _extractCommandExecutionResult(Map<String, dynamic> item) {
-    return ToolResult(
-      toolId: codexStringValue(item['id']) ?? '',
-      output: codexStringValue(item['aggregated_output']) ?? '',
-      isError: (codexIntValue(item['exit_code']) ?? 0) != 0,
-    );
+    return codexBuildCommandExecutionToolResult(item);
   }
 
   ToolResult _extractJsonEncodedResult(Map<String, dynamic> item, {required String field}) {
-    return ToolResult(toolId: codexStringValue(item['id']) ?? '', output: jsonEncode(item[field]), isError: false);
+    return codexBuildJsonFieldToolResult(item, field: field);
   }
 
   TurnComplete _extractTurnComplete(Map<String, dynamic> decoded) {
-    final usage = codexMapValue(decoded['usage']) ?? const <String, dynamic>{};
-    return TurnComplete(
-      stopReason: 'end_turn',
-      inputTokens: codexIntValue(usage['input_tokens']),
-      outputTokens: codexIntValue(usage['output_tokens']),
-      cacheReadTokens: codexIntValue(usage['cached_input_tokens']),
-      cacheWriteTokens: 0,
-    );
+    final usage = mapValue(decoded['usage']) ?? const <String, dynamic>{};
+    return codexBuildTurnComplete(usage, stopReason: 'end_turn');
   }
 }

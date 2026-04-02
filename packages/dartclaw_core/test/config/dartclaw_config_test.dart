@@ -1,9 +1,24 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:test/test.dart';
 
+class _FakeGoogleChatConfig {
+  final bool enabled;
+
+  const _FakeGoogleChatConfig({this.enabled = false});
+}
+
+void _ensureTestGoogleChatRegistered() {
+  DartclawConfig.registerChannelConfigParser(ChannelType.googlechat, (yaml, warns) {
+    final enabled = yaml['enabled'];
+    if (enabled != null && enabled is! bool) {
+      warns.add('Invalid type for google_chat.enabled: "${enabled.runtimeType}" — using default');
+    }
+    return _FakeGoogleChatConfig(enabled: enabled is bool ? enabled : false);
+  });
+}
+
 void main() {
-  setUpAll(ensureDartclawGoogleChatRegistered);
+  setUpAll(_ensureTestGoogleChatRegistered);
 
   group('DartclawConfig', () {
     group('defaults', () {
@@ -109,8 +124,8 @@ void main() {
 
       test('google chat parser works after explicit package registration', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
-        expect(googleChatConfig, isA<GoogleChatConfig>());
+        final googleChatConfig = config.getChannelConfig<_FakeGoogleChatConfig>(ChannelType.googlechat);
+        expect(googleChatConfig, isA<_FakeGoogleChatConfig>());
         expect(googleChatConfig.enabled, isFalse);
       });
 
@@ -126,8 +141,8 @@ void main() {
 
       test('getChannelConfig keeps other extracted channels externally registered', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
-        expect(googleChatConfig, isA<GoogleChatConfig>());
+        final googleChatConfig = config.getChannelConfig<_FakeGoogleChatConfig>(ChannelType.googlechat);
+        expect(googleChatConfig, isA<_FakeGoogleChatConfig>());
         expect(() => config.getChannelConfig<Object>(ChannelType.whatsapp), throwsStateError);
         expect(() => config.getChannelConfig<Object>(ChannelType.signal), throwsStateError);
       });
@@ -739,14 +754,8 @@ projects:
           fileReader: noFile,
           env: {'HOME': '/home/user'},
         );
-        expect(
-          config.server.staticDir,
-          '/opt/dartclaw/packages/dartclaw_server/lib/src/static',
-        );
-        expect(
-          config.server.templatesDir,
-          '/opt/dartclaw/packages/dartclaw_server/lib/src/templates',
-        );
+        expect(config.server.staticDir, '/opt/dartclaw/packages/dartclaw_server/lib/src/static');
+        expect(config.server.templatesDir, '/opt/dartclaw/packages/dartclaw_server/lib/src/templates');
       });
 
       test('source_dir from YAML resolves default paths', () {
@@ -757,23 +766,13 @@ projects:
           },
           env: {'HOME': '/home/user'},
         );
-        expect(
-          config.server.staticDir,
-          '/opt/dartclaw/packages/dartclaw_server/lib/src/static',
-        );
-        expect(
-          config.server.templatesDir,
-          '/opt/dartclaw/packages/dartclaw_server/lib/src/templates',
-        );
+        expect(config.server.staticDir, '/opt/dartclaw/packages/dartclaw_server/lib/src/static');
+        expect(config.server.templatesDir, '/opt/dartclaw/packages/dartclaw_server/lib/src/templates');
       });
 
       test('explicit static_dir/templates_dir override source_dir', () {
         final config = DartclawConfig.load(
-          cliOverrides: {
-            'source_dir': '/opt/dartclaw',
-            'static_dir': '/my/static',
-            'templates_dir': '/my/templates',
-          },
+          cliOverrides: {'source_dir': '/opt/dartclaw', 'static_dir': '/my/static', 'templates_dir': '/my/templates'},
           fileReader: noFile,
           env: {'HOME': '/home/user'},
         );

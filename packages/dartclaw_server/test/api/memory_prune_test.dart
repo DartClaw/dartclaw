@@ -129,8 +129,10 @@ void main() {
       final raw = await kvService.get('prune_history');
       final history = jsonDecode(raw!) as List;
       expect(history, hasLength(10)); // Still 10, not 11
-      // Latest entry should be last
-      expect(history.last['timestamp'], startsWith('2026-03'));
+      // Latest entry should be the newly appended prune run, not one of the
+      // pre-seeded January entries.
+      expect(history.last['timestamp'], startsWith('2026-'));
+      expect(history.last['timestamp'], isNot(startsWith('2026-01-')));
     });
 
     test('returns 200 with zeros for empty MEMORY.md', () async {

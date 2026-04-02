@@ -5,70 +5,20 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-class _FakeProjectService implements ProjectService {
-  final List<Project> _projects;
-  final Project _default;
-
-  _FakeProjectService(this._projects, this._default);
-
-  @override
-  Future<List<Project>> getAll() async => _projects;
-
-  @override
-  Future<Project> getDefaultProject() async => _default;
-
-  @override
-  Future<Project?> get(String id) async =>
-      _projects.where((p) => p.id == id).firstOrNull;
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> update(String id, {String? name, String? remoteUrl, String? defaultBranch, String? credentialsRef, PrConfig? pr}) => throw UnimplementedError();
-
-  @override
-  Future<Project> fetch(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) => throw UnimplementedError();
-
-  @override
-  Project getLocalProject() => _projects.firstWhere((p) => p.id == '_local');
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
-}
-
-Project _makeProject({
-  required String id,
-  String name = 'Test Project',
-  ProjectStatus status = ProjectStatus.ready,
-}) => Project(
-  id: id,
-  name: name,
-  remoteUrl: 'https://github.com/user/repo.git',
-  localPath: '/tmp/$id',
-  status: status,
-  createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
-);
+Project _makeProject({required String id, String name = 'Test Project', ProjectStatus status = ProjectStatus.ready}) =>
+    Project(
+      id: id,
+      name: name,
+      remoteUrl: 'https://github.com/user/repo.git',
+      localPath: '/tmp/$id',
+      status: status,
+      createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
+    );
 
 void main() {
   late Database db;
@@ -109,12 +59,14 @@ void main() {
     await nextFramePayload(iterator);
 
     // Fire a project status change event.
-    eventBus.fire(ProjectStatusChangedEvent(
-      projectId: 'my-project',
-      oldStatus: ProjectStatus.cloning,
-      newStatus: ProjectStatus.ready,
-      timestamp: DateTime.now(),
-    ));
+    eventBus.fire(
+      ProjectStatusChangedEvent(
+        projectId: 'my-project',
+        oldStatus: ProjectStatus.cloning,
+        newStatus: ProjectStatus.ready,
+        timestamp: DateTime.now(),
+      ),
+    );
 
     final payload = await nextFramePayload(iterator);
     expect(payload['type'], 'project_status');
@@ -131,12 +83,14 @@ void main() {
 
     await nextFramePayload(iterator); // consume connected
 
-    eventBus.fire(ProjectStatusChangedEvent(
-      projectId: 'new-project',
-      oldStatus: null,
-      newStatus: ProjectStatus.cloning,
-      timestamp: DateTime.now(),
-    ));
+    eventBus.fire(
+      ProjectStatusChangedEvent(
+        projectId: 'new-project',
+        oldStatus: null,
+        newStatus: ProjectStatus.cloning,
+        timestamp: DateTime.now(),
+      ),
+    );
 
     final payload = await nextFramePayload(iterator);
     expect(payload['type'], 'project_status');
@@ -148,7 +102,7 @@ void main() {
   test('connected payload includes project summary when ProjectService is provided', () async {
     final localProject = _makeProject(id: '_local', name: 'Local');
     final extProject = _makeProject(id: 'ext-proj', name: 'Ext Project', status: ProjectStatus.cloning);
-    final projectService = _FakeProjectService([localProject, extProject], localProject);
+    final projectService = FakeProjectService(projects: [extProject], localProject: localProject);
 
     final handler = taskSseRoutes(tasks, eventBus, projects: projectService).call;
     final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));

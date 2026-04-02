@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.7]
+
+Preparatory Refactoring — internal structural improvements ahead of 0.15 Workflow Platform. ~7,300 lines removed, ~1,300 added across 68 files in 9 packages. Pure SRP-driven file splits, base class extraction, pattern consolidation, and test double deduplication. Zero behavioral changes, zero public API changes, zero barrel export changes.
+
+### Added
+
+- **`BaseHarness` abstract class**: Shared lifecycle state machine, crash recovery with exponential backoff, and stream management extracted from `ClaudeCodeHarness`, `CodexHarness`, and `CodexExecHarness`. Three template methods (`buildStartArgs`, `buildProtocolAdapter`, `configureHarness`) define the extension points
+- **`BaseProtocolAdapter` + shared protocol utilities**: Common JSONL parsing functions (`decodeJsonObject`, `mapValue`, `stringValue`, `intValue`, etc.) and Codex tool name mapping extracted from duplicated adapter code
+- **`CommonChannelFields<T>` generic class**: Shared YAML parsing for the ~140 LOC of field extraction duplicated between `WhatsAppConfig` and `SignalConfig` (enabled, dmAccess, groupAccess, allowlists, mention patterns, retry policy, task trigger)
+- **`TurnGuardEvaluator` + `TurnGovernanceEnforcer`**: Guard chain evaluation and governance enforcement (budget, loop detection, rate limiting) extracted from `TurnRunner` into focused collaborators
+- **`DartclawServerBuilder`**: Builder extracted from `server.dart` — constructs the server handler from `ServiceWiring`
+- **`ReviewCommandDispatcher`**: Review command handling (accept/reject/push back, task resolution, response formatting) extracted from channel bridge support into a focused single-responsibility collaborator
+- **Server builder integration test (TD-047)**: End-to-end test constructing `ServiceWiring` with realistic config, asserting `builder.build()` produces a working handler that serves `/` and `/health`
+- **8 shared test doubles in `dartclaw_testing`**: `NullIoSink`, `RecordingMessageQueue`, `FakeGoogleChatRestClient`, `FakeGoogleJwtVerifier`, `FakeProjectService`, `FakeTurnManager`, `TaskOps`, `RecordingReviewHandler` — replacing 46+ private copies across test files
+- **`flushAsync` shared helper**: Microtask drain utility using `Duration.zero` timer-queue yields, replacing 11 private copies with inconsistent delay strategies
+- **`dart_test.yaml`** in `apps/dartclaw_cli/` for integration-tagged test support
+
+### Changed
+
+- **`dartclaw_config.dart` decomposed** (2,171 → ~300 LOC): Split into `config_parser.dart` (~1,400 LOC), `config_channel_provider.dart` (~150 LOC), `config_extensions.dart` (~100 LOC), and `config_parser_governance.dart` via `part` files
+- **`governance_config.dart` decomposed**: 12 types split into `rate_limits_config.dart`, `budget_config.dart`, `loop_detection_config.dart`, `crowd_coding_config.dart`, `turn_progress_config.dart`
+- **`dartclaw_event.dart` decomposed**: 20+ sealed event types split into 8 domain-specific `part of` files (auth, session, task, container, agent, governance, advisor, project) — sealed exhaustiveness preserved
+- **`channel_task_bridge.dart` decomposed** (598 → 182 LOC): Split into `task_trigger_evaluator.dart`, `thread_binding_router.dart`, `channel_task_bridge_support.dart`, and `review_command_dispatcher.dart`
+- **`server.dart` decomposed**: `DartclawServerBuilder` extracted to `server_builder.dart`
+- **`turn_runner.dart` decomposed**: Guard evaluation and governance enforcement extracted to `turn_guard_evaluator.dart` and `turn_governance_enforcer.dart`
+- **Utilities relocated**: `duration_parser.dart` moved from `utils/` to `config/`; `sliding_window_rate_limiter.dart` moved from `utils/` to `governance/`
+- **Removed `dartclaw_google_chat` dev dependency** from `dartclaw_core` — cross-boundary test import fixed
+- **Redundant channel bridge tests removed**: `channel_task_bridge_review_test.dart` eliminated — coverage maintained by equivalent manager-level tests
+- **`TESTING-STRATEGY.md`** refreshed to "Current through 0.14.7" with shared fakes table
+- **Version display**: Updated from 0.14.6 to 0.14.7
+
+---
+
 ## [0.14.6]
 
 Harness Spawn Hardening — security environment defaults on all Claude spawns and cheaper subagent routing on task runners. `--bare` mode evaluated and rejected after live CLI validation showed it is incompatible with DartClaw's hook-based harness behavior and OAuth-backed local workflows.

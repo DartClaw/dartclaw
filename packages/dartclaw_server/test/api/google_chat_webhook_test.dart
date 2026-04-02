@@ -5,60 +5,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
-
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
-  final List<(String, String)> editedMessages = [];
-  final List<(String, String)> addedReactions = [];
-  int _counter = 0;
-
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    _counter++;
-    return '$spaceName/messages/$_counter';
-  }
-
-  @override
-  Future<bool> editMessage(String messageName, String newText) async {
-    editedMessages.add((messageName, newText));
-    return true;
-  }
-
-  @override
-  Future<String?> addReaction(String messageName, String emoji) async {
-    addedReactions.add((messageName, emoji));
-    return '$messageName/reactions/${addedReactions.length}';
-  }
-
-  @override
-  Future<void> testConnection() async {}
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  bool shouldVerify = true;
-
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => shouldVerify;
-}
 
 Map<String, dynamic> _payload({
   String type = 'MESSAGE',
@@ -127,15 +75,21 @@ ChannelManager _buildChannelManager({
 }
 
 void main() {
-  late _FakeGoogleChatRestClient restClient;
+  late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
-  late _FakeGoogleJwtVerifier jwtVerifier;
+  late FakeGoogleJwtVerifier jwtVerifier;
   late ChannelMessage? dispatchedMessage;
   late EventBus eventBus;
   late GoogleChatWebhookHandler handler;
 
   setUp(() {
-    restClient = _FakeGoogleChatRestClient();
+    var sentMessageCounter = 0;
+    restClient = FakeGoogleChatRestClient(
+      onSendMessage: (spaceName, text, {quotedMessageName, quotedMessageLastUpdateTime}) async {
+        sentMessageCounter += 1;
+        return '$spaceName/messages/$sentMessageCounter';
+      },
+    );
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(
         webhookPath: '/integrations/googlechat',
@@ -145,7 +99,7 @@ void main() {
       ),
       restClient: restClient,
     );
-    jwtVerifier = _FakeGoogleJwtVerifier();
+    jwtVerifier = FakeGoogleJwtVerifier();
     eventBus = EventBus();
     dispatchedMessage = null;
     handler = GoogleChatWebhookHandler(

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -338,7 +339,11 @@ void main() {
       dataDir: tempDir.path,
       workspaceDir: workspaceDir,
       diffGenerator: mockDiffGen,
-      projectService: _FakeProjectService(project),
+      projectService: FakeProjectService(
+        projects: [project],
+        includeLocalProjectInGetAll: false,
+        defaultProjectId: project.id,
+      ),
       baseRef: 'main',
     );
 
@@ -406,57 +411,4 @@ class _MockDiffGenerator extends DiffGenerator {
     }
     return result ?? DiffResult(files: const [], totalAdditions: 0, totalDeletions: 0, filesChanged: 0);
   }
-}
-
-class _FakeProjectService implements ProjectService {
-  final Project project;
-
-  _FakeProjectService(this.project);
-
-  @override
-  Future<Project?> get(String id) async => id == project.id ? project : null;
-
-  @override
-  Future<List<Project>> getAll() async => [project];
-
-  @override
-  Future<Project> getDefaultProject() async => project;
-
-  @override
-  Project getLocalProject() => throw UnimplementedError();
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> update(
-    String id, {
-    String? name,
-    String? remoteUrl,
-    String? defaultBranch,
-    String? credentialsRef,
-    PrConfig? pr,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> fetch(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
 }

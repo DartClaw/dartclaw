@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -362,7 +363,7 @@ void main() {
       // We can't easily unit-test timer firing without a TurnManager,
       // but we can verify start/stop lifecycle doesn't throw
       final service = ScheduleService(
-        turns: _FakeTurnManager(),
+        turns: FakeTurnManager(),
         sessions: _FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
@@ -377,14 +378,14 @@ void main() {
     });
 
     test('start with empty jobs is no-op', () {
-      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       service.start();
       service.stop();
     });
 
     test('double start is idempotent', () {
       final service = ScheduleService(
-        turns: _FakeTurnManager(),
+        turns: FakeTurnManager(),
         sessions: _FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
@@ -401,7 +402,7 @@ void main() {
 
     test('pauseJob marks job as paused', () {
       final service = ScheduleService(
-        turns: _FakeTurnManager(),
+        turns: FakeTurnManager(),
         sessions: _FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
@@ -420,7 +421,7 @@ void main() {
 
     test('resumeJob clears paused state', () {
       final service = ScheduleService(
-        turns: _FakeTurnManager(),
+        turns: FakeTurnManager(),
         sessions: _FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
@@ -439,7 +440,7 @@ void main() {
     });
 
     test('pauseJob/resumeJob are idempotent', () {
-      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       // Operations on unknown job IDs should not throw
       expect(() => service.pauseJob('nonexistent'), returnsNormally);
       expect(() => service.resumeJob('nonexistent'), returnsNormally);
@@ -510,12 +511,6 @@ void main() {
       service.stop();
     });
   });
-}
-
-// Minimal fakes to construct ScheduleService without real dependencies
-class _FakeTurnManager implements TurnManager {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 /// Configurable fake for execution tests.

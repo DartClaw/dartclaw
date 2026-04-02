@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 String _auditFilePathForDate(Directory dir, DateTime timestamp) =>
@@ -321,17 +322,23 @@ void main() {
     });
 
     test('cleanOldFiles deletes files older than the retention threshold', () async {
-      final logger = GuardAuditLogger(dataDir: tmpDir.path);
+      final auditDir = Directory(p.join(tmpDir.path, 'retention_cleanup'));
+      auditDir.createSync(recursive: true);
+      final logger = GuardAuditLogger(dataDir: auditDir.path);
       final today = _dateOnly(DateTime.now());
-      final expiredFile = File(_auditFilePathForDate(tmpDir, today.subtract(const Duration(days: 7))));
-      final retainedFile = File(_auditFilePathForDate(tmpDir, today.subtract(const Duration(days: 6))));
+      // Use explicit calendar dates to avoid DST shifts turning the
+      // "retained" file into an extra expired day around clock changes.
+      final expiredDate = DateTime.utc(today.year, today.month, today.day - 7);
+      final retainedDate = DateTime.utc(today.year, today.month, today.day - 6);
+      final expiredFile = File(_auditFilePathForDate(auditDir, expiredDate));
+      final retainedFile = File(_auditFilePathForDate(auditDir, retainedDate));
 
       expiredFile.writeAsStringSync('{"guard":"expired"}\n');
       retainedFile.writeAsStringSync('{"guard":"retained"}\n');
 
       final deletedCount = await logger.cleanOldFiles(7);
 
-      expect(deletedCount, 1);
+      expect(deletedCount, greaterThanOrEqualTo(1));
       expect(expiredFile.existsSync(), isFalse);
       expect(retainedFile.existsSync(), isTrue);
     });

@@ -1,54 +1,28 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
+import '../bridge/bridge_events.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
-import '../bridge/bridge_events.dart';
-import '../worker/worker_state.dart';
 import 'agent_harness.dart';
+import 'base_harness.dart';
 import 'codex_environment.dart';
 import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
 import 'harness_config.dart';
-import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
+import '../worker/worker_state.dart';
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends AgentHarness with SequentialLock {
-  /// Working directory for the Codex subprocess.
-  final String cwd;
-
+class CodexHarness extends BaseHarness {
   /// Codex executable path or name.
   final String executable;
 
-  /// Maximum time allowed for a single turn.
-  final Duration turnTimeout;
-
-  /// Maximum number of crash recovery attempts before the harness gives up.
-  final int maxRetries;
-
-  /// Base backoff applied before restarting after a crash.
-  final Duration baseBackoff;
-
-  /// Injectable process spawn callback.
-  final ProcessFactory processFactory;
-
-  /// Injectable command probe, used for binary availability checks.
-  final CommandProbe commandProbe;
-
-  /// Injectable delay callback used during shutdown.
-  final DelayFactory delayFactory;
-
   /// Environment passed to the Codex subprocess.
   final Map<String, String> environment;
-
-  /// Provider-agnostic configuration used to initialize the Codex worker.
-  final HarnessConfig harnessConfig;
 
   /// Provider-specific options used for Codex request settings translation.
   final Map<String, dynamic> providerOptions;
@@ -61,49 +35,51 @@ class CodexHarness extends AgentHarness with SequentialLock {
 
   static final _log = Logger('CodexHarness');
 
-  WorkerState _state = WorkerState.stopped;
-  Process? _process;
-  int _crashCount = 0;
   final Map<String, String> _threadIds = <String, String>{};
   String? _activeSessionId;
   int _nextRequestId = 0;
-  int _spawnGeneration = 0;
   Object? _initializeRequestId;
   Object? _threadStartRequestId;
   Completer<Map<String, dynamic>>? _initializeCompleter;
   Completer<String>? _threadStartCompleter;
   Completer<Map<String, dynamic>>? _turnCompleter;
-  StreamSubscription<String>? _stdoutSub;
-  StreamSubscription<String>? _stderrSub;
-  final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final Set<String> _agentMessageDeltaIds = <String>{};
   CodexEnvironment? _environment;
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
 
+  // ignore: use_super_parameters
   CodexHarness({
-    required this.cwd,
+    required String cwd,
     this.executable = 'codex',
-    this.turnTimeout = const Duration(seconds: 600),
-    this.maxRetries = 5,
-    this.baseBackoff = const Duration(seconds: 5),
+    Duration turnTimeout = const Duration(seconds: 600),
+    int maxRetries = 5,
+    Duration baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
     Map<String, String>? environment,
-    this.harnessConfig = const HarnessConfig(),
+    HarnessConfig harnessConfig = const HarnessConfig(),
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
     Duration killGracePeriod = const Duration(seconds: 2),
-  }) : processFactory = processFactory ?? Process.start,
-       commandProbe = commandProbe ?? Process.run,
-       delayFactory = delayFactory ?? Future<void>.delayed,
-       environment = environment ?? Platform.environment,
+  }) : environment = environment ?? Platform.environment,
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        adapter = adapter ?? CodexProtocolAdapter(),
-       _killGracePeriod = killGracePeriod;
+       _killGracePeriod = killGracePeriod,
+       super(
+         log: _log,
+         cwd: cwd,
+         turnTimeout: turnTimeout,
+         maxRetries: maxRetries,
+         baseBackoff: baseBackoff,
+         processFactory: processFactory ?? Process.start,
+         commandProbe: commandProbe ?? Process.run,
+         delayFactory: delayFactory ?? Future<void>.delayed,
+         harnessConfig: harnessConfig,
+       );
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -115,38 +91,29 @@ class CodexHarness extends AgentHarness with SequentialLock {
   bool get supportsCachedTokens => true;
 
   @override
-  WorkerState get state => _state;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() => withLock(() async {
-    if (_state == WorkerState.idle) {
-      return;
-    }
-    if (_state == WorkerState.busy) {
-      throw StateError('Cannot start CodexHarness while busy');
-    }
-
-    await _cleanupEnvironment();
-    await _verifyExecutable();
-    _environment = CodexEnvironment(
-      developerInstructions: harnessConfig.appendSystemPrompt ?? '',
-      mcpServerUrl: harnessConfig.mcpServerUrl,
-      mcpGatewayToken: harnessConfig.mcpGatewayToken,
-    );
-
-    try {
-      await _environment!.setup();
-      await _spawnProcess();
-      await _initialize();
-      _state = WorkerState.idle;
-    } catch (_) {
-      await _cleanupStartupFailure();
-      rethrow;
-    }
-  });
+  Future<void> start() => startLifecycle(
+    busyMessage: 'Cannot start CodexHarness while busy',
+    beforeStart: () async {
+      await _cleanupEnvironment();
+      await _verifyExecutable();
+      _environment = CodexEnvironment(
+        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+        mcpServerUrl: harnessConfig.mcpServerUrl,
+        mcpGatewayToken: harnessConfig.mcpGatewayToken,
+      );
+    },
+    start: () async {
+      try {
+        await _environment!.setup();
+        await _spawnProcess();
+        await _initialize();
+        currentState = WorkerState.idle;
+      } catch (_) {
+        await _cleanupStartupFailure();
+        rethrow;
+      }
+    },
+  );
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -160,39 +127,29 @@ class CodexHarness extends AgentHarness with SequentialLock {
     String? effort,
     int? maxTurns,
   }) async {
-    while (_state == WorkerState.crashed) {
-      if (_crashCount > maxRetries) {
-        throw StateError('Harness unavailable: max retries exceeded');
-      }
-      final backoff = baseBackoff * pow(2, _crashCount - 1).toInt();
-      await delayFactory(backoff);
-      await withLock(() async {
-        if (_state == WorkerState.stopped) {
-          throw StateError('Harness stopped during backoff');
-        }
-        if (_state == WorkerState.crashed) {
-          try {
-            await _restartAfterCrash();
-          } catch (_) {
-            if (_state != WorkerState.crashed) {
-              rethrow;
-            }
+    while (currentState == WorkerState.crashed) {
+      await recoverFromCrash(() async {
+        try {
+          await _restartAfterCrash();
+        } catch (_) {
+          if (currentState != WorkerState.crashed) {
+            rethrow;
           }
         }
       });
     }
 
-    if (_state != WorkerState.idle) {
-      throw StateError('CodexHarness is not idle (state: $_state)');
+    if (currentState != WorkerState.idle) {
+      throw StateError('CodexHarness is not idle (state: $currentState)');
     }
-    if (_process == null) {
+    if (currentProcess == null) {
       throw StateError('CodexHarness has not completed startup');
     }
     if (messages.isEmpty) {
       throw StateError('CodexHarness requires at least one message');
     }
 
-    _state = WorkerState.busy;
+    currentState = WorkerState.busy;
     _activeSessionId = sessionId;
     _turnCompleter = Completer<Map<String, dynamic>>();
     Timer? timeoutTimer;
@@ -213,7 +170,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
           ? messages.sublist(0, messages.length - 1)
           : const <Map<String, dynamic>>[];
       final payload = adapter.buildTurnRequest(
-        message: codexStringifyMessageContent(messages.last['content']),
+        message: stringifyMessageContent(messages.last['content']),
         systemPrompt: systemPrompt.trim().isEmpty ? null : systemPrompt,
         threadId: threadId,
         history: previousMessages,
@@ -234,17 +191,17 @@ class CodexHarness extends AgentHarness with SequentialLock {
         stopwatch.stop();
       }
       result['duration_ms'] ??= stopwatch.elapsedMilliseconds;
-      if (_state != WorkerState.stopped && _state != WorkerState.crashed) {
-        _crashCount = 0;
-        _state = WorkerState.idle;
+      if (currentState != WorkerState.stopped && currentState != WorkerState.crashed) {
+        crashCount = 0;
+        currentState = WorkerState.idle;
       }
       return result;
     } catch (_) {
       if (stopwatch.isRunning) {
         stopwatch.stop();
       }
-      if (_state != WorkerState.stopped && _state != WorkerState.crashed) {
-        _state = WorkerState.idle;
+      if (currentState != WorkerState.stopped && currentState != WorkerState.crashed) {
+        currentState = WorkerState.idle;
       }
       rethrow;
     } finally {
@@ -257,7 +214,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
 
   @override
   Future<void> cancel() async {
-    final process = _process;
+    final process = currentProcess;
     if (process == null) {
       return;
     }
@@ -271,40 +228,29 @@ class CodexHarness extends AgentHarness with SequentialLock {
   Future<void> stop() => withLock(_stopInternal);
 
   Future<void> _stopInternal() async {
-    if (_state == WorkerState.busy) {
+    final process = currentProcess;
+    final wasBusy = currentState == WorkerState.busy;
+    if (wasBusy) {
       await cancel();
       await delayFactory(const Duration(milliseconds: 50));
     }
 
-    _state = WorkerState.stopped;
+    currentState = WorkerState.stopped;
     _threadIds.clear();
     _completePendingWithError(StateError('CodexHarness stopped'));
 
-    await _stdoutSub?.cancel();
-    _stdoutSub = null;
-    await _stderrSub?.cancel();
-    _stderrSub = null;
-
-    final process = _process;
-    _process = null;
+    await shutdownCurrentProcess(
+      label: 'Codex',
+      gracePeriod: _killGracePeriod,
+      alreadySignalled: wasBusy,
+      process: process,
+    );
     if (process == null) {
       await _cleanupEnvironment();
       return;
     }
 
-    try {
-      await process.stdin.close();
-    } catch (_) {}
-    await killWithEscalation(process, label: 'Codex', gracePeriod: _killGracePeriod, log: _log);
     await _cleanupEnvironment();
-  }
-
-  @override
-  Future<void> dispose() async {
-    await stop();
-    if (!_eventsCtrl.isClosed) {
-      await _eventsCtrl.close();
-    }
   }
 
   Future<void> _verifyExecutable() async {
@@ -328,63 +274,24 @@ class CodexHarness extends AgentHarness with SequentialLock {
       includeParentEnvironment: false,
     );
 
-    final generation = ++_spawnGeneration;
-    _process = process;
-
-    _stdoutSub = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .where((line) => line.trim().isNotEmpty)
-        .listen(_handleLine);
-
-    _stderrSub = process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((_) {});
-
-    unawaited(
-      process.exitCode.then((code) {
-        if (generation != _spawnGeneration) {
-          return;
-        }
-        if (_state == WorkerState.stopped) {
-          return;
-        }
-        _threadIds.clear();
-        _state = WorkerState.crashed;
-        _crashCount++;
-        _completePendingWithError(StateError('Codex process exited with code $code'));
-      }),
-    );
+    attachProcess(process, dropEmptyStdoutLines: true);
   }
 
   Future<void> _restartAfterCrash() async {
-    await _stdoutSub?.cancel();
-    _stdoutSub = null;
-    await _stderrSub?.cancel();
-    _stderrSub = null;
-    _process = null;
+    await cancelTrackedSubscriptions();
+    currentProcess = null;
     _threadIds.clear();
     await _spawnProcess();
     await _initialize();
-    _state = WorkerState.idle;
+    currentState = WorkerState.idle;
   }
 
   Future<void> _cleanupStartupFailure() async {
-    _state = WorkerState.stopped;
+    currentState = WorkerState.stopped;
     _threadIds.clear();
     _completePendingWithError(StateError('CodexHarness startup failed'));
 
-    await _stdoutSub?.cancel();
-    _stdoutSub = null;
-    await _stderrSub?.cancel();
-    _stderrSub = null;
-
-    final process = _process;
-    _process = null;
-    if (process != null) {
-      try {
-        await process.stdin.close();
-      } catch (_) {}
-      await killWithEscalation(process, label: 'Codex', gracePeriod: _killGracePeriod, log: _log);
-    }
+    await shutdownCurrentProcess(label: 'Codex', gracePeriod: _killGracePeriod);
 
     await _cleanupEnvironment();
   }
@@ -419,7 +326,8 @@ class CodexHarness extends AgentHarness with SequentialLock {
     return threadId;
   }
 
-  void _handleLine(String line) {
+  @override
+  void handleProcessStdoutLine(String line) {
     _emitCompletedAgentMessageFallback(line);
     _handlePendingResponse(line);
 
@@ -430,13 +338,13 @@ class CodexHarness extends AgentHarness with SequentialLock {
 
     switch (message) {
       case proto.TextDelta(:final text):
-        _eventsCtrl.add(DeltaEvent(text));
+        emitEvent(DeltaEvent(text));
 
       case proto.ToolUse(:final name, :final id, :final input):
-        _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
+        emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
 
       case proto.ToolResult(:final toolId, :final output, :final isError):
-        _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
+        emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         unawaited(_dispatchControlRequest(requestId, subtype, data, sessionId: _activeSessionId));
@@ -467,21 +375,32 @@ class CodexHarness extends AgentHarness with SequentialLock {
 
       case proto.SystemInit(:final contextWindow):
         if (contextWindow != null) {
-          _eventsCtrl.add(SystemInitEvent(contextWindow: contextWindow));
+          emitEvent(SystemInitEvent(contextWindow: contextWindow));
         }
     }
   }
 
+  @override
+  void handleUnexpectedProcessExit(int exitCode) {
+    if (currentState == WorkerState.stopped) {
+      return;
+    }
+    _threadIds.clear();
+    currentState = WorkerState.crashed;
+    crashCount++;
+    _completePendingWithError(StateError('Codex process exited with code $exitCode'));
+  }
+
   void _emitCompletedAgentMessageFallback(String line) {
-    final decoded = codexDecodeJsonObject(line);
+    final decoded = decodeJsonObject(line);
     if (decoded == null) {
       return;
     }
 
-    final method = codexStringValue(decoded['method']);
-    final params = codexMapValue(decoded['params']);
+    final method = stringValue(decoded['method']);
+    final params = mapValue(decoded['params']);
     if (method == 'item/agentMessage/delta') {
-      final itemId = codexStringValue(params?['itemId']);
+      final itemId = stringValue(params?['itemId']);
       if (itemId != null && itemId.isNotEmpty) {
         _agentMessageDeltaIds.add(itemId);
       }
@@ -492,22 +411,22 @@ class CodexHarness extends AgentHarness with SequentialLock {
       return;
     }
 
-    final item = codexMapValue(params?['item']);
-    final itemType = codexStringValue(item?['type']);
+    final item = mapValue(params?['item']);
+    final itemType = stringValue(item?['type']);
     if (item == null || (itemType != 'agentMessage' && itemType != 'agent_message')) {
       return;
     }
 
-    final itemId = codexStringValue(item['id']);
+    final itemId = stringValue(item['id']);
     if (itemId != null && _agentMessageDeltaIds.contains(itemId)) {
       return;
     }
 
-    final text = codexStringValue(item['text']) ?? codexStringValue(item['delta']);
+    final text = stringValue(item['text']) ?? stringValue(item['delta']);
     if (text == null || text.isEmpty) {
       return;
     }
-    _eventsCtrl.add(DeltaEvent(text));
+    emitEvent(DeltaEvent(text));
   }
 
   Future<void> _dispatchControlRequest(
@@ -531,7 +450,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
 
   Future<void> _handleApprovalRequest(String requestId, Map<String, dynamic> data, {String? sessionId}) async {
     final rawToolName = data['tool_name'] as String? ?? '';
-    final providerToolInput = Map<String, dynamic>.from(codexMapValue(data['tool_input']) ?? const <String, dynamic>{});
+    final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
     // Codex approval responses can only allow or deny; they cannot mutate the
     // provider's actual tool_input. Redact and normalize a DartClaw-side copy
     // so guards and audit logs never see raw credentials.
@@ -568,13 +487,13 @@ class CodexHarness extends AgentHarness with SequentialLock {
   }
 
   void _handlePendingResponse(String line) {
-    final decoded = codexDecodeJsonObject(line);
+    final decoded = decodeJsonObject(line);
     if (decoded == null) {
       return;
     }
 
     final id = decoded['id'];
-    final result = codexMapValue(decoded['result']);
+    final result = mapValue(decoded['result']);
     final error = decoded['error'];
 
     if (_initializeCompleter != null && !(_initializeCompleter!.isCompleted) && id == _initializeRequestId) {
@@ -588,7 +507,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
     }
 
     if (_threadStartCompleter != null && !(_threadStartCompleter!.isCompleted) && id == _threadStartRequestId) {
-      final thread = codexMapValue(result?['thread']);
+      final thread = mapValue(result?['thread']);
       final threadId = result?['thread_id'] ?? result?['id'] ?? thread?['id'];
       if (error != null) {
         _threadStartCompleter!.completeError(StateError('Codex thread/start failed: $error'));
@@ -639,11 +558,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
   }
 
   void _writeLine(Map<String, dynamic> message) {
-    final process = _process;
-    if (process == null) {
-      throw StateError('Codex process is not running');
-    }
-    process.stdin.add(utf8.encode('${jsonEncode(message)}\n'));
+    writeJsonLine(message, processNotRunningMessage: 'Codex process is not running');
   }
 
   static String? _inferFileChangeKind(Map<String, dynamic> toolInput) {
@@ -655,7 +570,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
     final changes = toolInput['changes'];
     if (changes is List) {
       for (final change in changes) {
-        final changeMap = codexMapValue(change);
+        final changeMap = mapValue(change);
         final nestedKind = changeMap?['kind'];
         if (nestedKind is String && nestedKind.isNotEmpty) {
           return nestedKind;
@@ -675,30 +590,30 @@ class CodexHarness extends AgentHarness with SequentialLock {
     }
 
     final primaryChange = _primaryFileChange(guardToolInput);
-    final filePath = codexStringValue(guardToolInput['path']) ?? codexStringValue(primaryChange?['path']);
+    final filePath = stringValue(guardToolInput['path']) ?? stringValue(primaryChange?['path']);
     if (filePath != null && filePath.isNotEmpty) {
       guardToolInput['file_path'] = filePath;
     }
 
-    final kind = codexStringValue(guardToolInput['kind']) ?? codexStringValue(primaryChange?['kind']);
+    final kind = stringValue(guardToolInput['kind']) ?? stringValue(primaryChange?['kind']);
     if (kind != null && kind.isNotEmpty) {
       guardToolInput['kind'] = kind;
     }
 
     final oldString =
-        codexStringValue(guardToolInput['old_string']) ??
-        codexStringValue(guardToolInput['old_text']) ??
-        codexStringValue(primaryChange?['old_string']) ??
-        codexStringValue(primaryChange?['old_text']);
+        stringValue(guardToolInput['old_string']) ??
+        stringValue(guardToolInput['old_text']) ??
+        stringValue(primaryChange?['old_string']) ??
+        stringValue(primaryChange?['old_text']);
     if (oldString != null) {
       guardToolInput['old_string'] = oldString;
     }
 
     final newString =
-        codexStringValue(guardToolInput['new_string']) ??
-        codexStringValue(guardToolInput['new_text']) ??
-        codexStringValue(primaryChange?['new_string']) ??
-        codexStringValue(primaryChange?['new_text']);
+        stringValue(guardToolInput['new_string']) ??
+        stringValue(guardToolInput['new_text']) ??
+        stringValue(primaryChange?['new_string']) ??
+        stringValue(primaryChange?['new_text']);
     if (newString != null) {
       guardToolInput['new_string'] = newString;
     }
@@ -713,7 +628,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
     }
 
     for (final change in changes) {
-      final changeMap = codexMapValue(change);
+      final changeMap = mapValue(change);
       if (changeMap != null) {
         return changeMap;
       }
@@ -723,7 +638,7 @@ class CodexHarness extends AgentHarness with SequentialLock {
   }
 
   static void _stripOpenAiApiKey(Map<String, dynamic> toolInput) {
-    final envMap = codexMapValue(toolInput['env']);
+    final envMap = mapValue(toolInput['env']);
     if (envMap == null || !envMap.containsKey('OPENAI_API_KEY')) {
       return;
     }
@@ -733,15 +648,15 @@ class CodexHarness extends AgentHarness with SequentialLock {
   }
 
   static String? _extractTurnFailedError(String line) {
-    final decoded = codexDecodeJsonObject(line);
-    final params = codexMapValue(decoded?['params']);
+    final decoded = decodeJsonObject(line);
+    final params = mapValue(decoded?['params']);
     final error = params?['error'];
 
     if (error is String && error.isNotEmpty) {
       return error;
     }
 
-    final errorMap = codexMapValue(error);
+    final errorMap = mapValue(error);
     final message = errorMap?['message'];
     if (message is String && message.isNotEmpty) {
       return message;

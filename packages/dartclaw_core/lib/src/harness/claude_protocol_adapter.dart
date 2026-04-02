@@ -2,12 +2,12 @@ import 'package:logging/logging.dart';
 
 import 'claude_protocol.dart' as claude_protocol;
 import 'canonical_tool.dart';
-import 'protocol_adapter.dart';
+import 'base_protocol_adapter.dart';
 import 'protocol_message.dart';
 import 'tool_policy.dart' as tool_policy;
 
 /// Claude-specific implementation of [ProtocolAdapter].
-class ClaudeProtocolAdapter implements ProtocolAdapter {
+class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   static final _log = Logger('ClaudeProtocolAdapter');
 
   @override
@@ -142,10 +142,6 @@ class ClaudeProtocolAdapter implements ProtocolAdapter {
       _ => null,
     };
 
-    if (canonical == null) {
-      _log.warning('Unmapped Claude tool name: $providerToolName');
-    }
-
-    return canonical;
+    return warnOnUnmappedToolName(_log, 'Claude', providerToolName, canonical);
   }
 }

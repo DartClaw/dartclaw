@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_server/src/auth/auth_utils.dart';
-import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -52,28 +52,11 @@ class _FakeChannelManager extends ChannelManager {
   void handleInboundMessage(ChannelMessage message) {}
 }
 
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-}
-
-class _FakeGoogleJwtVerifier extends GoogleJwtVerifier {
-  _FakeGoogleJwtVerifier()
-    : super(
-        audience: const GoogleChatAudienceConfig(
-          mode: GoogleChatAudienceMode.appUrl,
-          value: 'https://example.com/integrations/googlechat',
-        ),
-      );
-
-  @override
-  Future<bool> verify(String? authHeader) async => true;
-}
-
 class _NeverExitProcess implements Process {
   @override
   int get pid => 1;
   @override
-  IOSink get stdin => _NullIOSink();
+  IOSink get stdin => NullIoSink();
   @override
   Stream<List<int>> get stdout => const Stream.empty();
   @override
@@ -82,33 +65,6 @@ class _NeverExitProcess implements Process {
   Future<int> get exitCode => Future.value(0);
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
-}
-
-class _NullIOSink implements IOSink {
-  @override
-  Encoding get encoding => utf8;
-  @override
-  set encoding(Encoding value) {}
-  @override
-  void add(List<int> data) {}
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => Future.value();
-  @override
-  Future<void> close() => Future.value();
-  @override
-  Future<void> get done => Future.value();
-  @override
-  Future<void> flush() => Future.value();
-  @override
-  void write(Object? object) {}
-  @override
-  void writeAll(Iterable<Object?> objects, [String separator = '']) {}
-  @override
-  void writeCharCode(int charCode) {}
-  @override
-  void writeln([Object? object = '']) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -224,11 +180,17 @@ void main() {
     final router = webhookRoutes(
       googleChat: GoogleChatWebhookHandler(
         channel: GoogleChatChannel(
-          config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicatorMode: TypingIndicatorMode.disabled),
-          restClient: _FakeGoogleChatRestClient(),
+          config: const GoogleChatConfig(
+            webhookPath: '/integrations/googlechat',
+            typingIndicatorMode: TypingIndicatorMode.disabled,
+          ),
+          restClient: FakeGoogleChatRestClient(),
         ),
-        jwtVerifier: _FakeGoogleJwtVerifier(),
-        config: const GoogleChatConfig(webhookPath: '/integrations/googlechat', typingIndicatorMode: TypingIndicatorMode.disabled),
+        jwtVerifier: FakeGoogleJwtVerifier(),
+        config: const GoogleChatConfig(
+          webhookPath: '/integrations/googlechat',
+          typingIndicatorMode: TypingIndicatorMode.disabled,
+        ),
         channelManager: _FakeChannelManager(),
       ),
     );

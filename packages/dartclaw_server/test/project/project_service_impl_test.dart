@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
@@ -12,6 +13,23 @@ GitRunner _fakeGitRunner({int exitCode = 0, String stderr = '', String stdout = 
   return (args, {environment, workingDirectory}) async => (exitCode: exitCode, stderr: stderr, stdout: stdout);
 }
 
+Future<void> deleteTempDirWithRetries(Directory dir) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    if (!dir.existsSync()) {
+      return;
+    }
+    try {
+      await dir.delete(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt == 4) {
+        rethrow;
+      }
+      await Future<void>.delayed(Duration(milliseconds: 25 * (attempt + 1)));
+    }
+  }
+}
+
 void main() {
   late Directory tempDir;
   late String dataDir;
@@ -21,8 +39,8 @@ void main() {
     dataDir = tempDir.path;
   });
 
-  tearDown(() {
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  tearDown(() async {
+    await deleteTempDirWithRetries(tempDir);
   });
 
   ProjectServiceImpl makeService({

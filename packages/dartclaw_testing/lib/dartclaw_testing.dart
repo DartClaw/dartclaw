@@ -15,6 +15,8 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         DartclawEvent,
         EventBus,
         PromptStrategy,
+        ProjectService,
+        SessionKey,
         SessionService,
         Task,
         TaskArtifact,
@@ -22,7 +24,14 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         TaskStatus,
         TaskType,
         WorkerState;
+export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
+    show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
+export 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
+export 'package:dartclaw_server/dartclaw_server.dart'
+    show BusyTurnException, GoogleJwtVerifier, HarnessPool, TurnManager, TurnOutcome, TurnRunner, TurnStatus;
+export 'src/channel_test_helpers.dart'
+    show RecordingReviewHandler, TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
 export 'src/codex_harness_test_helpers.dart'
     show
         defaultCommandProbe,
@@ -36,8 +45,15 @@ export 'src/codex_harness_test_helpers.dart'
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
 export 'src/fake_channel.dart' show FakeChannel;
 export 'src/fake_codex_process.dart' show FakeCodexProcess;
+export 'src/fake_google_chat_rest_client.dart' show FakeGoogleChatRestClient;
+export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier;
 export 'src/fake_guard.dart' show FakeGuard;
+export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
+export 'src/fake_turn_manager.dart' show FakeTurnManager;
+export 'src/flush_async.dart' show flushAsync;
 export 'src/in_memory_session_service.dart' show InMemorySessionService;
 export 'src/in_memory_task_repository.dart' show InMemoryTaskRepository;
+export 'src/null_io_sink.dart' show NullIoSink;
+export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;

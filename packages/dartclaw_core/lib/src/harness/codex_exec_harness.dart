@@ -1,74 +1,68 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
+import '../bridge/bridge_events.dart';
 import 'package:logging/logging.dart';
 
-import '../bridge/bridge_events.dart';
-import '../worker/worker_state.dart';
 import 'agent_harness.dart';
+import 'base_harness.dart';
 import 'codex_environment.dart';
 import 'codex_exec_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'harness_config.dart';
-import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
+import '../worker/worker_state.dart';
 
 /// Lightweight one-shot harness for `codex exec --json`.
-class CodexExecHarness extends AgentHarness with SequentialLock {
-  /// Working directory used when no per-turn directory override is supplied.
-  final String cwd;
-
+class CodexExecHarness extends BaseHarness {
   /// Codex executable path or binary name.
   final String codexExecutable;
 
   /// Sandbox mode passed to `codex exec`.
   final String sandboxMode;
 
-  /// Maximum time allowed for a single turn.
-  final Duration turnTimeout;
-
-  /// Injectable process spawn callback.
-  final ProcessFactory processFactory;
-
   /// Environment passed to each Codex subprocess.
   final Map<String, String> environment;
-
-  /// Static Codex configuration shared with the app-server harness.
-  final HarnessConfig harnessConfig;
 
   /// Exec-mode protocol adapter used for stdout parsing.
   final CodexExecProtocolAdapter adapter;
 
   static final _log = Logger('CodexExecHarness');
 
-  WorkerState _state = WorkerState.stopped;
-  Process? _activeProcess;
-  StreamSubscription<String>? _stdoutSub;
-  StreamSubscription<String>? _stderrSub;
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void>? _processReadyCompleter;
   bool _cancelRequested = false;
-  final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
+  List<String>? _stderrLines;
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
 
+  // ignore: use_super_parameters
   CodexExecHarness({
-    required this.cwd,
+    required String cwd,
     this.codexExecutable = 'codex',
     this.sandboxMode = 'danger-full-access',
-    this.turnTimeout = const Duration(seconds: 600),
+    Duration turnTimeout = const Duration(seconds: 600),
     ProcessFactory? processFactory,
     Map<String, String>? environment,
-    this.harnessConfig = const HarnessConfig(),
+    HarnessConfig harnessConfig = const HarnessConfig(),
     CodexExecProtocolAdapter? adapter,
     Duration killGracePeriod = const Duration(seconds: 2),
-  }) : processFactory = processFactory ?? Process.start,
-       environment = environment ?? Platform.environment,
+  }) : environment = environment ?? Platform.environment,
        adapter = adapter ?? CodexExecProtocolAdapter(),
-       _killGracePeriod = killGracePeriod;
+       _killGracePeriod = killGracePeriod,
+       super(
+         log: _log,
+         cwd: cwd,
+         turnTimeout: turnTimeout,
+         maxRetries: 0,
+         baseBackoff: Duration.zero,
+         processFactory: processFactory ?? Process.start,
+         commandProbe: Process.run,
+         delayFactory: Future<void>.delayed,
+         harnessConfig: harnessConfig,
+       );
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -86,19 +80,15 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
   bool get supportsCachedTokens => true;
 
   @override
-  WorkerState get state => _state;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() => withLock(() async {
-    if (_state == WorkerState.busy) {
-      throw StateError('Cannot start CodexExecHarness while busy');
-    }
-    _cancelRequested = false;
-    _state = WorkerState.idle;
-  });
+  Future<void> start() => startLifecycle(
+    busyMessage: 'Cannot start CodexExecHarness while busy',
+    beforeStart: () async {
+      _cancelRequested = false;
+    },
+    start: () async {
+      currentState = WorkerState.idle;
+    },
+  );
 
   @override
   Future<Map<String, dynamic>> turn({
@@ -114,15 +104,16 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
   }) async {
     late final Completer<Map<String, dynamic>> completer;
     await withLock(() async {
-      if (_state == WorkerState.busy) {
-        throw StateError('CodexExecHarness is not idle (state: $_state)');
+      if (currentState == WorkerState.busy) {
+        throw StateError('CodexExecHarness is not idle (state: $currentState)');
       }
       if (messages.isEmpty) {
         throw StateError('CodexExecHarness requires at least one message');
       }
 
-      _state = WorkerState.busy;
+      currentState = WorkerState.busy;
       _cancelRequested = false;
+      _stderrLines = <String>[];
       completer = Completer<Map<String, dynamic>>();
       _turnCompleter = completer;
       _processReadyCompleter = Completer<void>();
@@ -134,9 +125,8 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
       mcpGatewayToken: harnessConfig.mcpGatewayToken,
     );
     await codexEnvironment.setup();
-    final stderrLines = <String>[];
     final spawnSettled = Completer<void>();
-    final prompt = codexStringifyMessageContent(messages.last['content']);
+    final prompt = stringifyMessageContent(messages.last['content']);
     final resolvedModel = model ?? harnessConfig.model;
     final args = <String>[
       'exec',
@@ -153,19 +143,17 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
     ];
 
     Future<void> cleanup() async {
-      await _stdoutSub?.cancel();
-      _stdoutSub = null;
-      await _stderrSub?.cancel();
-      _stderrSub = null;
-      _activeProcess = null;
+      await cancelTrackedSubscriptions();
+      currentProcess = null;
       _turnCompleter = null;
       if (_processReadyCompleter != null && !_processReadyCompleter!.isCompleted) {
         _processReadyCompleter!.complete();
       }
       _processReadyCompleter = null;
+      _stderrLines = null;
       _cancelRequested = false;
-      if (_state != WorkerState.stopped) {
-        _state = WorkerState.idle;
+      if (currentState != WorkerState.stopped) {
+        currentState = WorkerState.idle;
       }
       await codexEnvironment.cleanup();
     }
@@ -179,7 +167,7 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
           environment: <String, String>{...environment, ...codexEnvironment.environmentOverrides()},
           includeParentEnvironment: false,
         );
-        _activeProcess = process;
+        attachProcess(process, dropEmptyStdoutLines: true, watchForUnexpectedExit: false);
         if (_processReadyCompleter != null && !_processReadyCompleter!.isCompleted) {
           _processReadyCompleter!.complete();
         }
@@ -187,20 +175,11 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
           process.kill(ProcessSignal.sigterm);
         }
 
-        _stdoutSub = process.stdout
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())
-            .where((line) => line.trim().isNotEmpty)
-            .listen(_handleStdoutLine);
-        _stderrSub = process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-          stderrLines.add(line);
-          _log.fine('codex exec stderr: $line');
-        });
-
         final exitCode = await process.exitCode;
         await Future<void>.delayed(Duration.zero);
         if (!completer.isCompleted) {
           if (exitCode != 0) {
+            final stderrLines = _stderrLines ?? const <String>[];
             completer.complete({
               'stop_reason': 'error',
               'error': stderrLines.isEmpty ? 'codex exec exited with code $exitCode' : stderrLines.join('\n'),
@@ -232,7 +211,7 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
       return await completer.future;
     } finally {
       timeoutTimer.cancel();
-      if (spawnSettled.isCompleted || _activeProcess != null) {
+      if (spawnSettled.isCompleted || currentProcess != null) {
         await cleanup();
       } else {
         unawaited(spawnSettled.future.then((_) => cleanup()));
@@ -243,7 +222,7 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
   @override
   Future<void> cancel() async {
     _cancelRequested = true;
-    final process = _activeProcess;
+    final process = currentProcess;
     if (process == null) {
       return;
     }
@@ -255,35 +234,27 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
     Completer<Map<String, dynamic>>? completer;
     await withLock(() async {
       completer = _turnCompleter;
-      _state = WorkerState.stopped;
+      currentState = WorkerState.stopped;
     });
 
-    final process = _activeProcess;
+    final process = currentProcess;
     await cancel();
     if (completer != null && !completer!.isCompleted) {
       completer!.complete({'stop_reason': 'error', 'error': 'CodexExecHarness stopped'});
     }
     // Ensure the process actually exits after SIGTERM (cancel() already sent it).
     if (process != null) {
-      await killWithEscalation(
-        process,
+      await shutdownCurrentProcess(
         label: 'Codex exec',
         gracePeriod: _killGracePeriod,
-        log: _log,
         alreadySignalled: true,
+        process: process,
       );
     }
   }
 
   @override
-  Future<void> dispose() async {
-    await stop();
-    if (!_eventsCtrl.isClosed) {
-      await _eventsCtrl.close();
-    }
-  }
-
-  void _handleStdoutLine(String line) {
+  void handleProcessStdoutLine(String line) {
     final message = adapter.parseLine(line);
     if (message == null) {
       return;
@@ -291,11 +262,11 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
 
     switch (message) {
       case proto.TextDelta(:final text):
-        _eventsCtrl.add(DeltaEvent(text));
+        emitEvent(DeltaEvent(text));
       case proto.ToolUse(:final name, :final id, :final input):
-        _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
+        emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
       case proto.ToolResult(:final toolId, :final output, :final isError):
-        _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
+        emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
       case proto.TurnComplete(
         :final stopReason,
         :final inputTokens,
@@ -318,6 +289,15 @@ class CodexExecHarness extends AgentHarness with SequentialLock {
         return;
     }
   }
+
+  @override
+  void handleProcessStderrLine(String line) {
+    _stderrLines?.add(line);
+    _log.fine('codex exec stderr: $line');
+  }
+
+  @override
+  void handleUnexpectedProcessExit(int exitCode) {}
 
   Map<String, dynamic> _minimalTurnResult() {
     return <String, dynamic>{

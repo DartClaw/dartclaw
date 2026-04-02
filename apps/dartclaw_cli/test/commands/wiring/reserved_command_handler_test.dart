@@ -40,10 +40,10 @@ void main() {
       message,
       channel,
       governance: governance ?? allAdminsGovernance,
-      turnManagerGetter: () => _FakeTurnManager(activeSessionIds: {}),
+      turnManagerGetter: FakeTurnManager.new,
       taskService: taskService,
       eventBus: eventBus,
-      sseBroadcast: _FakeSseBroadcast(),
+      sseBroadcast: SseBroadcast(),
       pauseController: pauseController,
       sessions: InMemorySessionService(),
       threadBindingStore: threadBindingStore,
@@ -118,63 +118,4 @@ void main() {
       expect(channel.sentMessages.first.$2.text, contains('not enabled'));
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Test doubles
-// ---------------------------------------------------------------------------
-
-class _FakeTurnManager implements TurnManager {
-  final Set<String> _activeSessionIds;
-
-  _FakeTurnManager({required Set<String> activeSessionIds}) : _activeSessionIds = activeSessionIds;
-
-  @override
-  HarnessPool get pool => _FakePool(this);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakeTurnManager');
-}
-
-class _FakePool implements HarnessPool {
-  final _FakeTurnManager _manager;
-  late final _FakeRunner _runner = _FakeRunner(_manager);
-
-  _FakePool(this._manager);
-
-  @override
-  List<TurnRunner> get runners => [_runner];
-
-  @override
-  TurnRunner get primary => _runner;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakePool');
-}
-
-class _FakeRunner implements TurnRunner {
-  final _FakeTurnManager _manager;
-
-  _FakeRunner(this._manager);
-
-  @override
-  Iterable<String> get activeSessionIds => _manager._activeSessionIds;
-
-  @override
-  Future<void> cancelTurn(String sessionId) async {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakeRunner');
-}
-
-class _FakeSseBroadcast implements SseBroadcast {
-  @override
-  void broadcast(String event, Map<String, dynamic> data) {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} not implemented in _FakeSseBroadcast');
 }

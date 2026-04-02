@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -34,42 +32,43 @@ class FakeChannel extends Channel {
   }
 }
 
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
+enum _FakeQuoteReplyMode { native, sender }
+
+class _FakeGoogleChatChannel extends Channel {
+  _FakeGoogleChatChannel({required this.quoteReplyMode});
+
+  final _FakeQuoteReplyMode quoteReplyMode;
   final List<(String spaceName, String text)> sentMessages = [];
   String? lastQuotedMessageName;
   String? lastQuotedMessageLastUpdateTime;
 
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
+  @override
+  final String name = 'googlechat';
 
   @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    lastQuotedMessageName = quotedMessageName;
-    lastQuotedMessageLastUpdateTime = quotedMessageLastUpdateTime;
-    return '$spaceName/messages/generated';
-  }
+  final ChannelType type = ChannelType.googlechat;
 
   @override
-  Future<({String? messageName, bool usedQuotedMessageMetadata})> sendMessageWithQuoteFallback(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-    String? textWithoutQuote,
-    bool fallbackOnQuoteFailure = true,
-  }) async {
-    final name = await sendMessage(
-      spaceName,
-      text,
-      quotedMessageName: quotedMessageName,
-      quotedMessageLastUpdateTime: quotedMessageLastUpdateTime,
-    );
-    return (messageName: name, usedQuotedMessageMetadata: quotedMessageName != null);
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  bool ownsJid(String jid) => jid.startsWith('spaces/');
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    var text = response.text;
+    final senderDisplayName = response.metadata['senderDisplayName'];
+    if (quoteReplyMode == _FakeQuoteReplyMode.sender &&
+        response.metadata['spaceType'] == 'SPACE' &&
+        senderDisplayName is String) {
+      text = '*@$senderDisplayName* – $text';
+    }
+    sentMessages.add((recipientJid, text));
+    lastQuotedMessageName = response.metadata['messageName'] as String?;
+    lastQuotedMessageLastUpdateTime = response.metadata['messageCreateTime'] as String?;
   }
 }
 
@@ -458,11 +457,7 @@ void main() {
     });
 
     test('preserves Google Chat quote metadata through the queued path', () async {
-      final restClient = _FakeGoogleChatRestClient();
-      final googleChatChannel = GoogleChatChannel(
-        config: const GoogleChatConfig(enabled: true, quoteReplyMode: QuoteReplyMode.native),
-        restClient: restClient,
-      );
+      final googleChatChannel = _FakeGoogleChatChannel(quoteReplyMode: _FakeQuoteReplyMode.native);
       final queue = makeQueue();
       addTearDown(queue.dispose);
 
@@ -483,17 +478,13 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      expect(restClient.sentMessages, [('spaces/AAAA', 'response')]);
-      expect(restClient.lastQuotedMessageName, 'spaces/AAAA/messages/source');
-      expect(restClient.lastQuotedMessageLastUpdateTime, '2024-03-15T10:30:00.260127Z');
+      expect(googleChatChannel.sentMessages, [('spaces/AAAA', 'response')]);
+      expect(googleChatChannel.lastQuotedMessageName, 'spaces/AAAA/messages/source');
+      expect(googleChatChannel.lastQuotedMessageLastUpdateTime, '2024-03-15T10:30:00.260127Z');
     });
 
     test('preserves senderDisplayName for sender attribution through the queued path', () async {
-      final restClient = _FakeGoogleChatRestClient();
-      final googleChatChannel = GoogleChatChannel(
-        config: const GoogleChatConfig(enabled: true, quoteReplyMode: QuoteReplyMode.sender),
-        restClient: restClient,
-      );
+      final googleChatChannel = _FakeGoogleChatChannel(quoteReplyMode: _FakeQuoteReplyMode.sender);
       final queue = makeQueue();
       addTearDown(queue.dispose);
 
@@ -502,11 +493,7 @@ void main() {
           channelType: ChannelType.googlechat,
           senderJid: 'users/123',
           text: 'hello',
-          metadata: const {
-            'spaceName': 'spaces/AAAA',
-            'spaceType': 'SPACE',
-            'senderDisplayName': 'Alice Smith',
-          },
+          metadata: const {'spaceName': 'spaces/AAAA', 'spaceType': 'SPACE', 'senderDisplayName': 'Alice Smith'},
         ),
         googleChatChannel,
         'session-1',
@@ -514,8 +501,8 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      expect(restClient.sentMessages, hasLength(1));
-      expect(restClient.sentMessages.single.$2, startsWith('*@Alice Smith* – '));
+      expect(googleChatChannel.sentMessages, hasLength(1));
+      expect(googleChatChannel.sentMessages.single.$2, startsWith('*@Alice Smith* – '));
     });
   });
 }

@@ -13,11 +13,11 @@ import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
 import 'governance/budget_enforcer.dart';
-import 'governance/budget_exhausted_exception.dart';
 import 'logging/log_context.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
-import 'task/tool_call_summary.dart';
+import 'turn_governance_enforcer.dart';
+import 'turn_guard_evaluator.dart';
 import 'turn_manager.dart';
 import 'turn_progress_monitor.dart';
 
@@ -39,7 +39,6 @@ class TurnRunner {
   final SessionService? _sessions;
   final TurnStateStore? _turnState;
   final KvService? _kv;
-  final GuardChain? _guardChain;
   final SessionLockManager _lockManager;
   final SessionResetService? _resetService;
   final ContextMonitor _contextMonitor;
@@ -48,17 +47,12 @@ class TurnRunner {
   final SelfImprovementService? _selfImprovement;
   final UsageTracker? _usageTracker;
   final SseBroadcast? _sseBroadcast;
-  final SlidingWindowRateLimiter? _globalRateLimiter;
-  final BudgetEnforcer? _budgetEnforcer;
-  final LoopDetector? _loopDetector;
+  final TurnGuardEvaluator _guardEvaluator;
+  final TurnGovernanceEnforcer _governanceEnforcer;
   final LoopAction? _loopAction;
-  final EventBus? _eventBus;
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
-  Future<void> Function(String sessionId, BudgetCheckResult result)? _budgetWarningNotifier;
-  Future<void> Function(String sessionId, LoopDetection detection, String action)? _loopDetectionNotifier;
   final Duration _outcomeTtl;
-  bool _rateLimitWarningEmitted = false;
 
   /// Tracks turn IDs that were cancelled due to mid-turn loop detection.
   final Map<String, LoopDetection> _loopDetectedTurns = {};
@@ -96,6 +90,8 @@ class TurnRunner {
     SelfImprovementService? selfImprovement,
     UsageTracker? usageTracker,
     SseBroadcast? sseBroadcast,
+    TurnGuardEvaluator? guardEvaluator,
+    TurnGovernanceEnforcer? governanceEnforcer,
     SlidingWindowRateLimiter? globalRateLimiter,
     BudgetEnforcer? budgetEnforcer,
     LoopDetector? loopDetector,
@@ -114,7 +110,6 @@ class TurnRunner {
        _sessions = sessions,
        _turnState = turnState,
        _kv = kv,
-       _guardChain = guardChain,
        _lockManager = lockManager ?? SessionLockManager(),
        _resetService = resetService,
        _contextMonitor = contextMonitor ?? ContextMonitor(),
@@ -123,14 +118,28 @@ class TurnRunner {
        _selfImprovement = selfImprovement,
        _usageTracker = usageTracker,
        _sseBroadcast = sseBroadcast,
-       _globalRateLimiter = globalRateLimiter,
-       _budgetEnforcer = budgetEnforcer,
-       _loopDetector = loopDetector,
+       _guardEvaluator =
+           guardEvaluator ??
+           TurnGuardEvaluator(
+             guardChain: guardChain,
+             messages: messages,
+             sessions: sessions,
+             selfImprovement: selfImprovement,
+           ),
+       _governanceEnforcer =
+           governanceEnforcer ??
+           TurnGovernanceEnforcer(
+             budgetEnforcer: budgetEnforcer,
+             globalRateLimiter: globalRateLimiter,
+             loopDetector: loopDetector,
+             loopAction: loopAction,
+             sseBroadcast: sseBroadcast,
+             eventBus: eventBus,
+             budgetWarningNotifier: budgetWarningNotifier,
+           ),
        _loopAction = loopAction,
-       _eventBus = eventBus,
        _stallTimeout = stallTimeout,
        _stallAction = stallAction,
-       _budgetWarningNotifier = budgetWarningNotifier,
        _outcomeTtl = outcomeTtl;
 
   // ---------------------------------------------------------------------------
@@ -181,18 +190,11 @@ class TurnRunner {
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
   }) async {
-    // Budget check — before acquiring the session lock to avoid holding the lock
-    // while blocked.
-    await _checkBudget(sessionId);
-
-    // Loop detection — pre-turn checks.
-    await _checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
-
-    // Global rate limit check — defer until window capacity opens.
-    final rateLimiter = _globalRateLimiter;
-    if (rateLimiter != null) {
-      await _awaitRateLimitWindow(rateLimiter);
-    }
+    // Governance checks happen before the session lock so blocked turns do not
+    // hold the lock while waiting or failing fast.
+    await _governanceEnforcer.checkBudget(sessionId);
+    await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
+    await _governanceEnforcer.awaitRateLimitWindow();
 
     await _lockManager.acquire(sessionId);
     final turnId = _uuid.v4();
@@ -334,152 +336,16 @@ class TurnRunner {
 
   /// Configures a best-effort notifier for newly emitted budget warnings.
   set budgetWarningNotifier(Future<void> Function(String sessionId, BudgetCheckResult result)? notifier) {
-    _budgetWarningNotifier = notifier;
+    _governanceEnforcer.budgetWarningNotifier = notifier;
   }
 
   /// Configures a best-effort notifier for loop detection events.
   set loopDetectionNotifier(Future<void> Function(String sessionId, LoopDetection detection, String action)? notifier) {
-    _loopDetectionNotifier = notifier;
+    _governanceEnforcer.loopDetectionNotifier = notifier;
   }
-
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
-
-  /// Checks the daily token budget before reserving a turn.
-  ///
-  /// Broadcasts a one-time SSE warning at 80% usage. Throws
-  /// [BudgetExhaustedException] when budget is exhausted and action is
-  /// [BudgetAction.block].
-  Future<void> _checkBudget(String sessionId) async {
-    final enforcer = _budgetEnforcer;
-    if (enforcer == null) return;
-
-    final result = await enforcer.check();
-
-    if (result.warningIsNew && result.decision != BudgetDecision.allow) {
-      _log.warning(
-        'Daily token budget at ${result.percentage}% '
-        '(${result.tokensUsed}/${result.budget} tokens)',
-      );
-      _sseBroadcast?.broadcast('budget_warning', {
-        'tokens_used': result.tokensUsed,
-        'budget': result.budget,
-        'percentage': result.percentage,
-        'action': result.decision == BudgetDecision.block ? 'block' : 'warn',
-      });
-
-      final notifier = _budgetWarningNotifier;
-      if (notifier != null) {
-        try {
-          await notifier(sessionId, result);
-        } catch (error, stackTrace) {
-          _log.warning('Failed to deliver channel budget warning for $sessionId', error, stackTrace);
-        }
-      }
-    }
-
-    if (result.decision == BudgetDecision.block) {
-      throw BudgetExhaustedException(tokensUsed: result.tokensUsed, budget: result.budget);
-    }
-  }
-
-  /// Pre-turn loop detection checks (Mechanisms 1 and 2).
-  ///
-  /// Resets the turn chain on human input; increments on autonomous turns.
-  /// Checks token velocity. Throws [LoopDetectedException] if action is abort.
-  Future<void> _checkLoopPreTurn(String sessionId, {required bool isHumanInput}) async {
-    final detector = _loopDetector;
-    if (detector == null || !detector.enabled) return;
-
-    if (isHumanInput) {
-      detector.resetTurnChain(sessionId);
-      // Human input resets the chain but is not itself counted as an autonomous
-      // turn — skip recordTurnStart so the next autonomous turn starts at depth=1.
-    }
-
-    // Check turn chain depth (autonomous turns only).
-    final chainDetection = isHumanInput ? null : detector.recordTurnStart(sessionId);
-    if (chainDetection != null) {
-      _handleLoopDetection(chainDetection, sessionId);
-      if (_loopAction == LoopAction.abort) {
-        throw LoopDetectedException(chainDetection.message, chainDetection);
-      }
-    }
-
-    // Check token velocity.
-    try {
-      final velDetection = detector.checkTokenVelocity(sessionId);
-      if (velDetection != null) {
-        _handleLoopDetection(velDetection, sessionId);
-        if (_loopAction == LoopAction.abort) {
-          throw LoopDetectedException(velDetection.message, velDetection);
-        }
-      }
-    } catch (e) {
-      if (e is LoopDetectedException) rethrow;
-      _log.fine('Loop velocity pre-check failed (non-fatal): $e');
-    }
-  }
-
-  /// Handles a loop detection result: logs, fires EventBus event, broadcasts
-  /// SSE, and notifies the originating channel.
-  void _handleLoopDetection(LoopDetection detection, String sessionId) {
-    _log.warning('Loop detected: ${detection.message}');
-    final action = _loopAction == LoopAction.abort ? 'abort' : 'warn';
-    _eventBus?.fire(
-      LoopDetectedEvent(
-        sessionId: sessionId,
-        mechanism: detection.mechanism.name,
-        message: detection.message,
-        action: action,
-        detail: detection.detail,
-        timestamp: DateTime.now(),
-      ),
-    );
-    _sseBroadcast?.broadcast('loop_detected', {
-      'sessionId': sessionId,
-      'mechanism': detection.mechanism.name,
-      'message': detection.message,
-      'action': action,
-      ...detection.detail,
-    });
-
-    final notifier = _loopDetectionNotifier;
-    if (notifier != null) {
-      notifier(sessionId, detection, action).catchError((Object error, StackTrace stackTrace) {
-        _log.warning('Failed to deliver loop detection notification for $sessionId', error, stackTrace);
-      });
-    }
-  }
-
-  /// Defers until global turn rate limit capacity opens.
-  ///
-  /// Emits a one-shot SSE warning at 80% usage (with hysteresis: resets when
-  /// usage drops below 60%). Polls every second while at limit.
-  Future<void> _awaitRateLimitWindow(SlidingWindowRateLimiter limiter) async {
-    // Emit warning at 80% capacity (once, with hysteresis).
-    if (limiter.usage('global') >= 0.8 && !_rateLimitWarningEmitted) {
-      _rateLimitWarningEmitted = true;
-      _log.warning('Global turn rate at ${(limiter.usage('global') * 100).round()}% of limit');
-      _sseBroadcast?.broadcast('rate_limit_warning', {
-        'type': 'global_turn',
-        'usage': limiter.usage('global'),
-        'message': 'Global turn rate approaching limit (80%)',
-      });
-    }
-
-    // Wait for window capacity — each failing check does NOT record an event.
-    while (!limiter.check('global')) {
-      _log.info('Global turn rate limit reached — deferring turn reservation');
-      await Future.delayed(const Duration(seconds: 1));
-    }
-
-    // Reset warning when usage drops to 60% or below.
-    if (limiter.usage('global') < 0.6) {
-      _rateLimitWarningEmitted = false;
-    }
-  }
 
   Future<String> _buildSystemPrompt(String sessionId) async {
     if (_worker.promptStrategy == PromptStrategy.append) return '';
@@ -523,13 +389,8 @@ class TurnRunner {
     String? source,
   }) async {
     final buffer = StringBuffer();
-    final toolEvents = <ToolUseEvent>[];
-    final pendingToolCalls = <String, ({String name, String? context, DateTime startedAt})>{};
-    final completedToolCalls = <ToolCallRecord>[];
     final stopwatch = Stopwatch()..start();
     var progressTextLength = 0;
-    var progressToolCount = 0;
-    String? progressLastToolName;
     final progressMonitor = _stallTimeout > Duration.zero
         ? TurnProgressMonitor(
             stallTimeout: _stallTimeout,
@@ -538,11 +399,26 @@ class TurnRunner {
           )
         : null;
 
+    late final TurnToolHookCallbackHandler toolHooks;
     TurnProgressSnapshot buildSnapshot() => TurnProgressSnapshot(
       elapsed: stopwatch.elapsed,
-      toolCallCount: progressToolCount,
-      lastToolName: progressLastToolName,
+      toolCallCount: toolHooks.toolCallCount,
+      lastToolName: toolHooks.lastToolName,
       textLength: progressTextLength,
+    );
+    toolHooks = TurnToolHookCallbackHandler(
+      sessionId: sessionId,
+      turnId: turnId,
+      governanceEnforcer: _governanceEnforcer,
+      resetService: _resetService,
+      progressMonitor: progressMonitor,
+      loopAction: _loopAction,
+      buildSnapshot: buildSnapshot,
+      emitProgressEvent: _progressController.add,
+      onLoopAbort: (detection) {
+        _loopDetectedTurns[turnId] = detection;
+        unawaited(cancelTurn(sessionId));
+      },
     );
     _turnProgressSnapshots[sessionId] = buildSnapshot;
 
@@ -563,51 +439,9 @@ class TurnRunner {
         progressTextLength += event.text.length;
         _progressController.add(TextDeltaProgressEvent(snapshot: buildSnapshot(), text: event.text));
       } else if (event is ToolUseEvent) {
-        toolEvents.add(event);
-        progressMonitor?.recordProgress();
-        _resetService?.touchActivity(sessionId);
-        pendingToolCalls[event.toolId] = (
-          name: event.toolName,
-          context: summarizeToolInput(event.toolName, event.input),
-          startedAt: DateTime.now(),
-        );
-        progressToolCount += 1;
-        progressLastToolName = event.toolName;
-        _progressController.add(
-          ToolStartedProgressEvent(
-            snapshot: buildSnapshot(),
-            toolName: event.toolName,
-            toolCallCount: progressToolCount,
-          ),
-        );
-        // Tool-call fingerprint loop detection (mid-turn, mechanism 3).
-        final fpDetection = _loopDetector?.recordToolCall(turnId, sessionId, event.toolName, event.input);
-        if (fpDetection != null) {
-          _handleLoopDetection(fpDetection, sessionId);
-          if (_loopAction == LoopAction.abort) {
-            _loopDetectedTurns[turnId] = fpDetection;
-            unawaited(cancelTurn(sessionId));
-          }
-        }
+        toolHooks.handleToolUse(event);
       } else if (event is ToolResultEvent) {
-        progressMonitor?.recordProgress();
-        _resetService?.touchActivity(sessionId);
-        final pending = pendingToolCalls.remove(event.toolId);
-        if (pending != null) {
-          final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
-          completedToolCalls.add(
-            ToolCallRecord(
-              name: pending.name,
-              success: !event.isError,
-              durationMs: durationMs,
-              errorType: event.isError ? 'tool_error' : null,
-              context: pending.context,
-            ),
-          );
-          _progressController.add(
-            ToolCompletedProgressEvent(snapshot: buildSnapshot(), toolName: pending.name, isError: event.isError),
-          );
-        }
+        toolHooks.handleToolResult(event);
       } else if (event is SystemInitEvent) {
         _contextMonitor.update(contextWindow: event.contextWindow);
       }
@@ -617,31 +451,15 @@ class TurnRunner {
     Timer? statusTickTimer;
     try {
       try {
-        final chain = _guardChain;
-        if (chain != null && userMessageFull != null && userMessageFull.isNotEmpty) {
-          final msgVerdict = await chain.evaluateMessageReceived(userMessageFull, source: source, sessionId: sessionId);
-          if (msgVerdict.isBlock) {
-            await _messages.insertMessage(
-              sessionId: sessionId,
-              role: 'assistant',
-              content: '[Blocked by guard: ${msgVerdict.message}]',
-            );
-            outcome = TurnOutcome(
-              turnId: turnId,
-              sessionId: sessionId,
-              status: TurnStatus.failed,
-              errorMessage: 'Blocked by guard: ${msgVerdict.message}',
-              completedAt: DateTime.now(),
-            );
-            unawaited(
-              _selfImprovement?.appendError(
-                errorType: 'GUARD_BLOCK',
-                sessionId: sessionId,
-                context: msgVerdict.message ?? 'unknown',
-              ),
-            );
-            return;
-          }
+        final guardOutcome = await _guardEvaluator.evaluateMessageReceived(
+          turnId: turnId,
+          sessionId: sessionId,
+          source: source,
+          userMessageFull: userMessageFull,
+        );
+        if (guardOutcome != null) {
+          outcome = guardOutcome;
+          return;
         }
 
         final systemPrompt = await _buildSystemPrompt(sessionId);
@@ -662,21 +480,7 @@ class TurnRunner {
           maxTurns: turnCtx?.maxTurns,
         );
         final accumulated = buffer.toString();
-        // Finalize any pending tool calls (incomplete — no matching result received).
-        final turnEndedAt = DateTime.now();
-        for (final entry in pendingToolCalls.entries) {
-          final durationMs = turnEndedAt.difference(entry.value.startedAt).inMilliseconds;
-          completedToolCalls.add(
-            ToolCallRecord(
-              name: entry.value.name,
-              success: false,
-              durationMs: durationMs,
-              errorType: 'incomplete',
-              context: entry.value.context,
-            ),
-          );
-        }
-        pendingToolCalls.clear();
+        toolHooks.finalizePendingToolCalls();
         stopwatch.stop();
         final cacheReadTokens = _worker.supportsCachedTokens ? (result['cache_read_tokens'] as int? ?? 0) : 0;
         final cacheWriteTokens = _worker.supportsCachedTokens ? (result['cache_write_tokens'] as int? ?? 0) : 0;
@@ -714,13 +518,9 @@ class TurnRunner {
 
           // Post-hoc token velocity check (Mechanism 2).
           try {
-            _loopDetector?.recordTokens(sessionId, inputTokens + outputTokens);
-            final velDetection = _loopDetector?.checkTokenVelocity(sessionId);
-            if (velDetection != null) {
-              _handleLoopDetection(velDetection, sessionId);
-              // Velocity detection post-hoc: fire warn event even in abort mode
-              // (tokens already spent). Next pre-turn check will abort if still over.
-            }
+            _governanceEnforcer.recordTokensAndCheckVelocity(sessionId, inputTokens + outputTokens);
+            // Velocity detection post-hoc: fire warn event even in abort mode
+            // (tokens already spent). Next pre-turn check will abort if still over.
           } catch (e) {
             _log.fine('Loop velocity check failed (non-fatal): $e');
           }
@@ -742,35 +542,23 @@ class TurnRunner {
           _log.fine('Failed to emit context warning: $e');
         }
 
-        if (chain != null && accumulated.isNotEmpty) {
-          final sendVerdict = await chain.evaluateBeforeAgentSend(accumulated, sessionId: sessionId);
-          if (sendVerdict.isBlock) {
-            await _messages.insertMessage(
-              sessionId: sessionId,
-              role: 'assistant',
-              content: '[Response blocked by guard: ${sendVerdict.message}]',
-            );
-            await _sessions?.touchUpdatedAt(sessionId);
-            outcome = TurnOutcome(
-              turnId: turnId,
-              sessionId: sessionId,
-              status: TurnStatus.failed,
-              errorMessage: 'Response blocked by guard: ${sendVerdict.message}',
-              completedAt: DateTime.now(),
-            );
-            unawaited(
-              _selfImprovement?.appendError(
-                errorType: 'RESPONSE_BLOCKED',
-                sessionId: sessionId,
-                context: sendVerdict.message ?? 'unknown',
-              ),
-            );
+        if (accumulated.isNotEmpty) {
+          final sendOutcome = await _guardEvaluator.evaluateBeforeAgentSend(
+            turnId: turnId,
+            sessionId: sessionId,
+            accumulated: accumulated,
+          );
+          if (sendOutcome != null) {
+            outcome = sendOutcome;
             return;
           }
         }
 
         final redacted = _redactor?.redact(accumulated) ?? accumulated;
-        final trimmed = _explorationSummarizer.summarizeOrTrim(redacted, fileHint: _lastToolFileHint(toolEvents));
+        final trimmed = _explorationSummarizer.summarizeOrTrim(
+          redacted,
+          fileHint: _lastToolFileHint(toolHooks.toolEvents),
+        );
         await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: trimmed);
         await _sessions?.touchUpdatedAt(sessionId);
         outcome = TurnOutcome(
@@ -783,7 +571,7 @@ class TurnRunner {
           cacheReadTokens: cacheReadTokens,
           cacheWriteTokens: cacheWriteTokens,
           turnDuration: stopwatch.elapsed,
-          toolCalls: List.unmodifiable(completedToolCalls),
+          toolCalls: List.unmodifiable(toolHooks.completedToolCalls),
           completedAt: DateTime.now(),
         );
 
@@ -791,7 +579,7 @@ class TurnRunner {
           await _appendDailyLog(
             sessionId: sessionId,
             userMessage: userMessage,
-            toolEvents: toolEvents,
+            toolEvents: toolHooks.toolEvents,
             result: redacted,
           );
         } catch (e) {
@@ -848,7 +636,7 @@ class TurnRunner {
       _activeTurns.remove(sessionId);
       _lockManager.release(sessionId);
       // Clean up loop detection state for this turn.
-      _loopDetector?.cleanupTurn(turnId);
+      _governanceEnforcer.cleanupTurn(turnId);
 
       final turnState = _turnState;
       if (turnState != null) {

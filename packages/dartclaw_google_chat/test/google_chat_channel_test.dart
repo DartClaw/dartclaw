@@ -1,108 +1,14 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show ChannelResponse, ChannelType, sourceMessageIdMetadataKey;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGoogleChatRestClient;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  final List<(String, String)> sentMessages = [];
-  final List<(String, String)> editedMessages = [];
-  final List<String> deletedMessages = [];
-  final List<
-    ({
-      String spaceName,
-      String text,
-      String? quotedMessageName,
-      String? quotedMessageLastUpdateTime,
-      String? textWithoutQuote,
-    })
-  >
-  quoteFallbackCalls = [];
-  String? lastQuotedMessageName;
-  String? lastQuotedMessageLastUpdateTime;
-  bool quoteFallbackUsesQuotedMessageMetadata = true;
-  bool closeCalled = false;
-  bool testConnectionCalled = false;
-  bool failEdit = false;
-  bool failDelete = false;
-
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  @override
-  Future<void> close() async {
-    closeCalled = true;
-  }
-
-  @override
-  Future<bool> editMessage(String messageName, String newText) async {
-    editedMessages.add((messageName, newText));
-    return !failEdit;
-  }
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    lastQuotedMessageName = quotedMessageName;
-    lastQuotedMessageLastUpdateTime = quotedMessageLastUpdateTime;
-    return 'spaces/AAA/messages/BBB';
-  }
-
-  bool failQuotedSend = false;
-
-  @override
-  Future<({String? messageName, bool usedQuotedMessageMetadata})> sendMessageWithQuoteFallback(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-    String? textWithoutQuote,
-    bool fallbackOnQuoteFailure = true,
-  }) async {
-    quoteFallbackCalls.add((
-      spaceName: spaceName,
-      text: text,
-      quotedMessageName: quotedMessageName,
-      quotedMessageLastUpdateTime: quotedMessageLastUpdateTime,
-      textWithoutQuote: textWithoutQuote,
-    ));
-
-    if (failQuotedSend && quotedMessageName != null) {
-      if (!fallbackOnQuoteFailure) {
-        return (messageName: null, usedQuotedMessageMetadata: false);
-      }
-      sentMessages.add((spaceName, textWithoutQuote ?? text));
-      return (messageName: 'spaces/AAA/messages/BBB', usedQuotedMessageMetadata: false);
-    }
-
-    lastQuotedMessageName = quoteFallbackUsesQuotedMessageMetadata ? quotedMessageName : null;
-    lastQuotedMessageLastUpdateTime = quoteFallbackUsesQuotedMessageMetadata ? quotedMessageLastUpdateTime : null;
-    sentMessages.add((spaceName, quoteFallbackUsesQuotedMessageMetadata ? text : (textWithoutQuote ?? text)));
-
-    return (messageName: 'spaces/AAA/messages/BBB', usedQuotedMessageMetadata: quoteFallbackUsesQuotedMessageMetadata);
-  }
-
-  @override
-  Future<bool> deleteMessage(String messageName) async {
-    deletedMessages.add(messageName);
-    return !failDelete;
-  }
-
-  @override
-  Future<void> testConnection() async {
-    testConnectionCalled = true;
-  }
-}
-
 void main() {
-  late _FakeGoogleChatRestClient restClient;
+  late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
 
   setUp(() {
-    restClient = _FakeGoogleChatRestClient();
+    restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(config: const GoogleChatConfig(enabled: true), restClient: restClient);
   });
 
@@ -448,10 +354,7 @@ void main() {
         restClient: restClient,
       );
 
-      await channel.sendMessage(
-        'spaces/AAA',
-        const ChannelResponse(text: 'Hello', metadata: {'spaceType': 'SPACE'}),
-      );
+      await channel.sendMessage('spaces/AAA', const ChannelResponse(text: 'Hello', metadata: {'spaceType': 'SPACE'}));
 
       expect(restClient.sentMessages, [('spaces/AAA', 'Hello')]);
     });

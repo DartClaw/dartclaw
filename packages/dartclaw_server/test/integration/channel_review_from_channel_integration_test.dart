@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 void main() {
   late TaskService tasks;
   late EventBus eventBus;
-  late _RecordingMessageQueue queue;
+  late RecordingMessageQueue queue;
   late FakeChannel channel;
   late _RecordingMergeExecutor mergeExecutor;
   late _RecordingWorktreeManager worktreeManager;
@@ -21,7 +21,7 @@ void main() {
   setUp(() {
     eventBus = EventBus();
     tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
-    queue = _RecordingMessageQueue();
+    queue = RecordingMessageQueue();
     channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
     mergeExecutor = _RecordingMergeExecutor(
       result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
@@ -59,7 +59,7 @@ void main() {
   });
 
   test('accept from channel preserves provenance, notifies origin, and replies with confirmation', () async {
-    final task = await _putTaskInReview(
+    final task = await putTaskInReview(
       tasks,
       'task-1',
       title: 'Fix login',
@@ -75,6 +75,11 @@ void main() {
           sourceMessageId: 'msg-1',
         ).toJson(),
       },
+      worktreeJson: const {
+        'path': '/tmp/worktree',
+        'branch': 'dartclaw/task-task-1',
+        'createdAt': '2026-03-13T10:00:00.000Z',
+      },
     );
     taskFileGuard.register(task.id, '/tmp/worktree');
 
@@ -86,7 +91,7 @@ void main() {
     manager.handleInboundMessage(
       ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'accept'),
     );
-    await _flushAsync();
+    await flushAsync(3);
 
     final updated = await tasks.get(task.id);
     expect(updated!.status, TaskStatus.accepted);
@@ -103,53 +108,6 @@ void main() {
       contains("Task 'Fix login' accepted. Changes merged."),
     );
   });
-}
-
-Future<Task> _putTaskInReview(
-  TaskService tasks,
-  String id, {
-  required String title,
-  Map<String, dynamic>? configJson,
-}) async {
-  await tasks.create(
-    id: id,
-    title: title,
-    description: title,
-    type: TaskType.coding,
-    autoStart: true,
-    configJson: configJson ?? const {},
-    now: DateTime.parse('2026-03-13T10:00:00Z'),
-  );
-  await tasks.transition(id, TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
-  await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
-  return tasks.updateFields(
-    id,
-    worktreeJson: const {
-      'path': '/tmp/worktree',
-      'branch': 'dartclaw/task-task-1',
-      'createdAt': '2026-03-13T10:00:00.000Z',
-    },
-  );
-}
-
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(const Duration(milliseconds: 10));
-}
-
-class _RecordingMessageQueue extends MessageQueue {
-  final List<(ChannelMessage, Channel, String)> enqueued = [];
-
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
-    enqueued.add((message, sourceChannel, sessionKey));
-  }
-
-  @override
-  void dispose() {}
 }
 
 class _RecordingMergeExecutor extends MergeExecutor {

@@ -1,22 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
+import '../bridge/bridge_events.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import '../bridge/bridge_events.dart';
 import '../config/history_config.dart';
 import '../container/container_manager.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
+import 'base_harness.dart';
+import 'base_protocol_adapter.dart';
 import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
 import 'conversation_history.dart';
 import 'harness_config.dart';
-import 'process_lifecycle.dart';
 import 'protocol_message.dart' as proto;
 import 'process_types.dart';
 import 'tool_policy.dart';
@@ -60,20 +60,12 @@ const _subagentModelEnvVar = 'CLAUDE_CODE_SUBAGENT_MODEL';
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends AgentHarness with SequentialLock {
+class ClaudeCodeHarness extends BaseHarness {
   final String claudeExecutable;
-  final String cwd;
-  final Duration turnTimeout;
-  final int maxRetries;
-  final Duration baseBackoff;
-  final ProcessFactory _processFactory;
-  final CommandProbe _commandProbe;
-  final DelayFactory _delayFactory;
   final Map<String, String> _environment;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
-  final HarnessConfig harnessConfig;
   final HistoryConfig historyConfig;
   final ContainerManager? containerManager;
   final ClaudeProtocolAdapter _adapter;
@@ -88,14 +80,9 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
   static final _log = Logger('ClaudeCodeHarness');
 
-  WorkerState _state = WorkerState.stopped;
-  bool _stopping = false;
   String? _mcpConfigPath;
   String? _containerMcpConfigPath;
-  int _crashCount = 0;
-  int _spawnGeneration = 0;
   int _turnsSinceStart = 0;
-  Process? _process;
   String? _sessionId;
   Completer<Map<String, dynamic>>? _turnCompleter;
   late String _processWorkingDirectory;
@@ -103,21 +90,16 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   String? _processEffort;
   int? _processMaxTurns;
 
-  /// Stable broadcast stream that survives process restarts.
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-
-  StreamSubscription<String>? _stdoutSub;
-  StreamSubscription<String>? _stderrSub;
-
   /// Completer for the initialize handshake response.
   Completer<Map<String, dynamic>>? _initCompleter;
 
+  // ignore: use_super_parameters
   ClaudeCodeHarness({
     this.claudeExecutable = 'claude',
-    required this.cwd,
-    this.turnTimeout = const Duration(seconds: 600),
-    this.maxRetries = 5,
-    this.baseBackoff = const Duration(seconds: 5),
+    required String cwd,
+    Duration turnTimeout = const Duration(seconds: 600),
+    int maxRetries = 5,
+    Duration baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
@@ -128,17 +110,25 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     this.onMemorySave,
     this.onMemorySearch,
     this.onMemoryRead,
-    this.harnessConfig = const HarnessConfig(),
+    HarnessConfig harnessConfig = const HarnessConfig(),
     this.historyConfig = const HistoryConfig.defaults(),
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
     Duration killGracePeriod = const Duration(seconds: 2),
-  }) : _processFactory = processFactory ?? Process.start,
-       _commandProbe = commandProbe ?? Process.run,
-       _delayFactory = delayFactory ?? ((d) => Future<void>.delayed(d)),
-       _environment = environment ?? Platform.environment,
+  }) : _environment = environment ?? Platform.environment,
        _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
-       _killGracePeriod = killGracePeriod {
+       _killGracePeriod = killGracePeriod,
+       super(
+         log: _log,
+         cwd: cwd,
+         turnTimeout: turnTimeout,
+         maxRetries: maxRetries,
+         baseBackoff: baseBackoff,
+         processFactory: processFactory ?? Process.start,
+         commandProbe: commandProbe ?? Process.run,
+         delayFactory: delayFactory ?? ((d) => Future<void>.delayed(d)),
+         harnessConfig: harnessConfig,
+       ) {
     _processWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
@@ -151,12 +141,6 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   @override
   bool get supportsCachedTokens => true;
 
-  @override
-  WorkerState get state => _state;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
   /// Session ID assigned by the claude binary after init.
   String? get sessionId => _sessionId;
 
@@ -165,60 +149,47 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   // -------------------------------------------------------------------------
 
   @override
-  Future<void> start() => withLock(() async {
-    if (_state == WorkerState.idle) return;
-    if (_state == WorkerState.busy) {
-      throw StateError('Cannot start: harness is busy');
-    }
-    _stopping = false;
-    await _startInternal();
-  });
+  Future<void> start() => startLifecycle(
+    busyMessage: 'Cannot start: harness is busy',
+    beforeStart: () async {
+      isStopping = false;
+    },
+    start: _startInternal,
+  );
 
   @override
   Future<void> cancel() async {
     // JSONL protocol has no cancel command — close stdin and SIGTERM.
-    try {
-      await _process?.stdin.close();
-    } catch (e) {
-      _log.fine('Failed to close stdin during cancel: $e');
-    }
-    _process?.kill();
+    await closeCurrentProcessStdin();
+    currentProcess?.kill();
   }
 
   @override
   Future<void> stop() {
     // Set immediately (before lock) so the exitCode crash handler can
     // distinguish intentional shutdown from unexpected process exit.
-    _stopping = true;
+    isStopping = true;
     return withLock(_stopInternal);
   }
 
   Future<void> _stopInternal() async {
-    if (_state == WorkerState.busy) {
+    final process = currentProcess;
+    final wasBusy = currentState == WorkerState.busy;
+    if (wasBusy) {
       try {
         await cancel();
       } catch (e) {
         _log.fine('Failed to cancel during stop: $e');
       }
-      await _delayFactory(const Duration(milliseconds: 500));
+      await delayFactory(const Duration(milliseconds: 500));
     }
-    _state = WorkerState.stopped;
-    await _stdoutSub?.cancel();
-    _stdoutSub = null;
-    await _stderrSub?.cancel();
-    _stderrSub = null;
-    try {
-      await _process?.stdin.close();
-    } catch (e) {
-      _log.fine('Failed to close stdin during stop: $e');
-    }
-
-    // Capture reference before clearing — needed for SIGKILL escalation.
-    final process = _process;
-    _process = null;
-    if (process != null) {
-      await killWithEscalation(process, label: 'Claude', gracePeriod: _killGracePeriod, log: _log);
-    }
+    currentState = WorkerState.stopped;
+    await shutdownCurrentProcess(
+      label: 'Claude',
+      gracePeriod: _killGracePeriod,
+      alreadySignalled: wasBusy,
+      process: process,
+    );
 
     final containerMcpPath = _containerMcpConfigPath;
     if (containerMcpPath != null) {
@@ -239,12 +210,6 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       }
       _mcpConfigPath = null;
     }
-  }
-
-  @override
-  Future<void> dispose() async {
-    await stop();
-    if (!_eventsCtrl.isClosed) await _eventsCtrl.close();
   }
 
   // -------------------------------------------------------------------------
@@ -283,7 +248,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
         desiredModel != _processModel ||
         desiredEffort != _processEffort ||
         desiredMaxTurns != _processMaxTurns ||
-        _state == WorkerState.stopped) {
+        currentState == WorkerState.stopped) {
       await _restartForExecution(
         workingDirectory: desiredWorkingDirectory,
         model: desiredModel,
@@ -292,25 +257,12 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       );
     }
 
-    // Crash restart with exponential backoff.
-    if (_state == WorkerState.crashed) {
-      if (_crashCount > maxRetries) {
-        throw StateError('Harness unavailable: max retries exceeded');
-      }
-      final backoff = baseBackoff * pow(2, _crashCount - 1).toInt();
-      await _delayFactory(backoff);
-      await withLock(() async {
-        if (_state == WorkerState.stopped) {
-          throw StateError('Harness stopped during backoff');
-        }
-        if (_state == WorkerState.crashed) await _startInternal();
-      });
-    }
+    await recoverFromCrash(_startInternal);
 
-    if (_state != WorkerState.idle) {
-      throw StateError('Harness is not idle (state: $_state)');
+    if (currentState != WorkerState.idle) {
+      throw StateError('Harness is not idle (state: $currentState)');
     }
-    _state = WorkerState.busy;
+    currentState = WorkerState.busy;
 
     Timer? timeoutTimer;
     timeoutTimer = Timer(turnTimeout, () async {
@@ -320,8 +272,8 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       } catch (e) {
         _log.fine('Failed to cancel during turn timeout: $e');
       }
-      await _delayFactory(const Duration(seconds: 5));
-      _process?.kill();
+      await delayFactory(const Duration(seconds: 5));
+      currentProcess?.kill();
     });
 
     _turnCompleter = Completer<Map<String, dynamic>>();
@@ -359,16 +311,16 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
       final result = await _turnCompleter!.future;
       timeoutTimer.cancel();
-      if (_state != WorkerState.stopped) {
-        _crashCount = 0;
-        _state = WorkerState.idle;
+      if (currentState != WorkerState.stopped) {
+        crashCount = 0;
+        currentState = WorkerState.idle;
       }
       _turnsSinceStart++;
       return result;
     } catch (e) {
       timeoutTimer.cancel();
-      if (_state != WorkerState.crashed && _state != WorkerState.stopped) {
-        _state = WorkerState.idle;
+      if (currentState != WorkerState.crashed && currentState != WorkerState.stopped) {
+        currentState = WorkerState.idle;
       }
       rethrow;
     }
@@ -383,7 +335,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     final cm = containerManager;
     if (cm == null) {
       // Check claude binary.
-      final claudeResult = await _commandProbe(claudeExecutable, ['--version']);
+      final claudeResult = await commandProbe(claudeExecutable, ['--version']);
       if (claudeResult.exitCode != 0) {
         throw StateError('claude binary not found at $claudeExecutable');
       }
@@ -474,7 +426,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
         env: containerEnv,
       );
     } else {
-      process = await _processFactory(
+      process = await processFactory(
         claudeExecutable,
         args,
         workingDirectory: _processWorkingDirectory,
@@ -483,44 +435,17 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       );
     }
 
-    final generation = ++_spawnGeneration;
-    _process = process;
-    _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
-
-    // Listen to stdout lines → parse JSONL → route messages.
-    _stdoutSub = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .where((line) => line.isNotEmpty)
-        .listen(_handleLine, onError: (Object e) => _log.warning('stdout error: $e'));
-
-    // Capture stderr.
-    _stderrSub = process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _log.warning('[claude stderr] $line'));
-
-    // Crash detection via process exit.
-    unawaited(
-      process.exitCode.then((code) {
-        if (generation != _spawnGeneration) return;
-        if (_state == WorkerState.stopped || _stopping) return;
-        _log.warning('Claude process exited unexpectedly: exit code $code');
-        if (_state != WorkerState.crashed) {
-          _state = WorkerState.crashed;
-          _crashCount++;
-        }
-        // Complete any pending turn with an error.
-        if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
-          _turnCompleter!.completeError(StateError('Claude process exited with code $code'));
-        }
-      }),
+    final generation = attachProcess(
+      process,
+      dropEmptyStdoutLines: true,
+      onStdoutError: (error) => _log.warning('stdout error: $error'),
     );
+    _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
 
     // Initialize handshake.
     await _sendInitialize();
 
-    _state = WorkerState.idle;
+    currentState = WorkerState.idle;
   }
 
   String _resolveWorkingDirectory(String? directory) {
@@ -559,14 +484,14 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     required int? maxTurns,
   }) async {
     await withLock(() async {
-      if (_state == WorkerState.busy) {
+      if (currentState == WorkerState.busy) {
         throw StateError('Cannot change working directory, model, or effort while harness is busy');
       }
       if (_processWorkingDirectory == workingDirectory &&
           _processModel == model &&
           _processEffort == effort &&
           _processMaxTurns == maxTurns &&
-          _state != WorkerState.stopped) {
+          currentState != WorkerState.stopped) {
         return;
       }
       final changes = <String>[];
@@ -599,7 +524,7 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
     final hasApiKey = _environment['ANTHROPIC_API_KEY']?.trim().isNotEmpty ?? false;
     if (hasApiKey) return;
 
-    final result = await _commandProbe(claudeExecutable, ['auth', 'status']);
+    final result = await commandProbe(claudeExecutable, ['auth', 'status']);
     if (result.exitCode == 0) {
       try {
         final status = jsonDecode(result.stdout as String) as Map<String, dynamic>;
@@ -660,8 +585,8 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
       _log.info('Initialize handshake complete');
     } on TimeoutException {
       _log.severe('Initialize handshake timed out — killing process');
-      _process?.kill();
-      _process = null;
+      currentProcess?.kill();
+      currentProcess = null;
       throw StateError('Initialize handshake timed out after 10s');
     }
   }
@@ -717,19 +642,19 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   // JSONL message routing
   // -------------------------------------------------------------------------
 
-  void _handleLine(String line) {
+  @override
+  void handleProcessStdoutLine(String line) {
     // First check for control_response (handled before protocol parsing, needed
     // for the initialize handshake).
     if (_initCompleter != null && !_initCompleter!.isCompleted) {
-      try {
-        final json = jsonDecode(line) as Map<String, dynamic>;
-        if (json['type'] == 'control_response') {
-          _initCompleter!.complete(json);
-          return;
-        }
-      } catch (e) {
+      final json = decodeJsonObject(line);
+      if (json != null && stringValue(json['type']) == 'control_response') {
+        _initCompleter!.complete(json);
+        return;
+      }
+      if (json == null) {
         // Not a control_response JSON — fall through to normal parsing.
-        _log.fine('Non-JSON or non-control_response line during init: $e');
+        _log.fine('Non-JSON or non-control_response line during init');
       }
     }
 
@@ -738,13 +663,13 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
     switch (msg) {
       case proto.TextDelta(:final text):
-        _eventsCtrl.add(DeltaEvent(text));
+        emitEvent(DeltaEvent(text));
 
       case proto.ToolUse(:final name, :final id, :final input):
-        _eventsCtrl.add(ToolUseEvent(toolName: name, toolId: id, input: input));
+        emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
 
       case proto.ToolResult(:final toolId, :final output, :final isError):
-        _eventsCtrl.add(ToolResultEvent(toolId: toolId, output: output, isError: isError));
+        emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         _handleControlRequest(requestId, subtype, data);
@@ -774,8 +699,29 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
         _sessionId = sessionId;
         _log.info('Session init: id=$sessionId, tools=$toolCount, contextWindow=$contextWindow');
         if (contextWindow != null) {
-          _eventsCtrl.add(SystemInitEvent(contextWindow: contextWindow));
+          emitEvent(SystemInitEvent(contextWindow: contextWindow));
         }
+    }
+  }
+
+  @override
+  void handleProcessStderrLine(String line) {
+    _log.warning('[claude stderr] $line');
+  }
+
+  @override
+  void handleUnexpectedProcessExit(int exitCode) {
+    if (currentState == WorkerState.stopped || isStopping) {
+      return;
+    }
+    _log.warning('Claude process exited unexpectedly: exit code $exitCode');
+    if (currentState != WorkerState.crashed) {
+      currentState = WorkerState.crashed;
+      crashCount++;
+    }
+    final turnCompleter = _turnCompleter;
+    if (turnCompleter != null && !turnCompleter.isCompleted) {
+      turnCompleter.completeError(StateError('Claude process exited with code $exitCode'));
     }
   }
 
@@ -876,8 +822,8 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
 
   static Map<String, dynamic> _parseToolResponse(Object? raw) {
     try {
-      if (raw is Map) return Map<String, dynamic>.from(raw);
-      if (raw is String) return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      if (raw is Map) return mapValue(raw) ?? <String, dynamic>{};
+      if (raw is String) return decodeJsonObject(raw) ?? <String, dynamic>{};
     } catch (e) {
       _log.fine('Tool response parse failed: $e');
     }
@@ -889,7 +835,6 @@ class ClaudeCodeHarness extends AgentHarness with SequentialLock {
   // -------------------------------------------------------------------------
 
   void _writeLine(Map<String, dynamic> json) {
-    final line = '${jsonEncode(json)}\n';
-    _process?.stdin.add(utf8.encode(line));
+    writeJsonLine(json);
   }
 }

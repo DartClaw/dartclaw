@@ -75,10 +75,21 @@ class SignalConfig {
 
   /// Parses Signal configuration from YAML, appending warnings to [warns].
   factory SignalConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    final enabled = yaml['enabled'];
-    if (enabled != null && enabled is! bool) {
-      warns.add('Invalid type for signal.enabled: "${enabled.runtimeType}" — using default');
-    }
+    final common = CommonChannelFields<SignalGroupAccessMode>.fromYaml(
+      'signal',
+      yaml,
+      warns,
+      defaultDmAccess: DmAccessMode.allowlist,
+      defaultGroupAccess: SignalGroupAccessMode.disabled,
+      parseGroupAccess: (value) {
+        for (final candidate in SignalGroupAccessMode.values) {
+          if (candidate.name == value) {
+            return candidate;
+          }
+        }
+        return null;
+      },
+    );
 
     final phone = yaml['phone_number'];
     if (phone != null && phone is! String) {
@@ -94,7 +105,6 @@ class SignalConfig {
     if (host != null && host is! String) {
       warns.add('Invalid type for signal.host: "${host.runtimeType}" — using default');
     }
-
     var port = 8080;
     final portRaw = yaml['port'];
     if (portRaw is int) {
@@ -107,84 +117,21 @@ class SignalConfig {
       warns.add('Invalid type for signal.port: "${portRaw.runtimeType}" — using default');
     }
 
-    var maxChunkSize = 4000;
-    final mcs = yaml['max_chunk_size'];
-    if (mcs is int) {
-      maxChunkSize = mcs;
-    } else if (mcs != null) {
-      warns.add('Invalid type for signal.max_chunk_size: "${mcs.runtimeType}" — using default');
-    }
-
-    var dmAccessMode = DmAccessMode.allowlist;
-    final dm = yaml['dm_access'];
-    if (dm is String) {
-      final parsed = DmAccessMode.values.where((v) => v.name == dm).firstOrNull;
-      if (parsed != null) {
-        dmAccessMode = parsed;
-      } else {
-        warns.add('Invalid signal.dm_access: "$dm" — using default');
-      }
-    }
-
-    var groupAccessMode = SignalGroupAccessMode.disabled;
-    final ga = yaml['group_access'];
-    if (ga is String) {
-      final parsed = SignalGroupAccessMode.values.where((v) => v.name == ga).firstOrNull;
-      if (parsed != null) {
-        groupAccessMode = parsed;
-      } else {
-        warns.add('Invalid signal.group_access: "$ga" — using default');
-      }
-    }
-
-    final dmAllowlist = _parseStringList(yaml['dm_allowlist']);
-    final groupAllowlistRaw = yaml['group_allowlist'];
-    final groupAllowlist = GroupEntry.parseList(
-      groupAllowlistRaw is List ? groupAllowlistRaw : null,
-      onWarning: warns.add,
-    );
-    final mentionPatterns = _parseStringList(yaml['mention_patterns']);
-
-    var requireMention = true;
-    final rm = yaml['require_mention'];
-    if (rm is bool) requireMention = rm;
-
-    var retryPolicy = const RetryPolicy();
-    final rpRaw = yaml['retry_policy'];
-    if (rpRaw is Map) {
-      retryPolicy = RetryPolicy.fromYaml(Map<String, dynamic>.from(rpRaw), warns);
-    } else if (rpRaw != null) {
-      warns.add('Invalid type for signal.retry_policy: "${rpRaw.runtimeType}" — using default');
-    }
-
-    var taskTrigger = const TaskTriggerConfig.disabled();
-    final taskTriggerRaw = yaml['task_trigger'];
-    if (taskTriggerRaw is Map) {
-      taskTrigger = TaskTriggerConfig.fromYaml(Map<String, dynamic>.from(taskTriggerRaw), warns);
-    } else if (taskTriggerRaw != null) {
-      warns.add('Invalid type for signal.task_trigger: "${taskTriggerRaw.runtimeType}" — using default');
-    }
-
     return SignalConfig(
-      enabled: enabled is bool ? enabled : false,
+      enabled: common.enabled,
       phoneNumber: phone is String ? phone : '',
       executable: executable is String ? executable : 'signal-cli',
       host: host is String ? host : '127.0.0.1',
       port: port,
-      maxChunkSize: maxChunkSize,
-      dmAccess: dmAccessMode,
-      groupAccess: groupAccessMode,
-      dmAllowlist: dmAllowlist,
-      groupAllowlist: groupAllowlist,
-      requireMention: requireMention,
-      mentionPatterns: mentionPatterns,
-      retryPolicy: retryPolicy,
-      taskTrigger: taskTrigger,
+      maxChunkSize: common.maxChunkSize,
+      dmAccess: common.dmAccess,
+      groupAccess: common.groupAccess,
+      dmAllowlist: common.dmAllowlist,
+      groupAllowlist: common.groupAllowlist,
+      requireMention: common.requireMention,
+      mentionPatterns: common.mentionPatterns,
+      retryPolicy: common.retryPolicy,
+      taskTrigger: common.taskTrigger,
     );
-  }
-
-  static List<String> _parseStringList(Object? raw) {
-    if (raw is List) return raw.whereType<String>().toList();
-    return [];
   }
 }

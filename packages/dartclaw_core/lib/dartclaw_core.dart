@@ -132,6 +132,7 @@ export 'src/container/credential_proxy.dart' show CredentialProxy;
 export 'src/container/docker_validator.dart' show DockerValidator;
 export 'src/container/security_profile.dart' show SecurityProfile;
 export 'src/scoping/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
+export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
 export 'src/scoping/channel_config_provider.dart' show ChannelConfigProvider;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
@@ -154,7 +155,7 @@ export 'src/config/governance_config.dart'
         LoopAction;
 export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
 export 'src/config/project_config.dart' show ProjectConfig, ProjectDefinition;
-export 'src/utils/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
+export 'src/governance/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 
 // Agents
 export 'src/agents/agent_definition.dart' show AgentDefinition;
@@ -212,6 +213,6 @@ export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, L
 export 'src/governance/loop_detector.dart' show LoopDetector;
 
 // Utilities
-export 'src/utils/duration_parser.dart' show tryParseDuration;
+export 'src/config/duration_parser.dart' show tryParseDuration;
 export 'src/utils/path_utils.dart' show expandHome;
 export 'src/worker/worker_state.dart' show WorkerState;

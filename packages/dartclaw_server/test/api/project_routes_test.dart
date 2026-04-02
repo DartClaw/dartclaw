@@ -1,7 +1,6 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, ProjectService, TaskStatus, TaskType;
-import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -12,136 +11,12 @@ Request _emptyRequest(String method, String path) {
   return Request(method, Uri.parse('http://localhost$path'));
 }
 
-// ---------------------------------------------------------------------------
-// In-memory fake ProjectService
-// ---------------------------------------------------------------------------
-
-class _FakeProjectService implements ProjectService {
-  final Map<String, Project> _projects = {};
-  final Project _local;
-
-  _FakeProjectService()
-    : _local = Project(
-        id: '_local',
-        name: 'local',
-        remoteUrl: '',
-        localPath: '/workspace',
-        defaultBranch: 'main',
-        status: ProjectStatus.ready,
-        createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
-      );
-
-  void seed(Project project) {
-    _projects[project.id] = project;
-  }
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  Future<Project?> get(String id) async {
-    if (id == '_local') return _local;
-    return _projects[id];
-  }
-
-  @override
-  Future<List<Project>> getAll() async {
-    return [_local, ..._projects.values];
-  }
-
-  @override
-  Project getLocalProject() => _local;
-
-  @override
-  Future<Project> getDefaultProject() async {
-    if (_projects.isNotEmpty) return _projects.values.first;
-    return _local;
-  }
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) async {
-    final id = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9-]'), '-');
-    if (id == '_local') throw ArgumentError('Reserved ID "_local"');
-    if (_projects.containsKey(id)) throw ArgumentError('Project "$id" already exists');
-
-    final project = Project(
-      id: id,
-      name: name,
-      remoteUrl: remoteUrl,
-      localPath: '/data/projects/$id',
-      defaultBranch: defaultBranch,
-      credentialsRef: credentialsRef,
-      cloneStrategy: cloneStrategy,
-      pr: pr,
-      status: ProjectStatus.cloning,
-      createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
-    );
-    _projects[id] = project;
-    return project;
-  }
-
-  @override
-  Future<Project> update(
-    String id, {
-    String? name,
-    String? remoteUrl,
-    String? defaultBranch,
-    String? credentialsRef,
-    PrConfig? pr,
-  }) async {
-    final existing = _projects[id] ?? (throw ArgumentError('Not found: $id'));
-    if (existing.configDefined) throw StateError('Config-defined project $id');
-    final remoteChanging = remoteUrl != null && remoteUrl != existing.remoteUrl;
-    final branchChanging = defaultBranch != null && defaultBranch != existing.defaultBranch;
-    final updated = existing.copyWith(
-      name: name,
-      remoteUrl: remoteUrl,
-      defaultBranch: defaultBranch,
-      credentialsRef: credentialsRef,
-      pr: pr,
-      status: (remoteChanging || branchChanging) ? ProjectStatus.cloning : existing.status,
-      lastFetchAt: (remoteChanging || branchChanging) ? null : existing.lastFetchAt,
-      errorMessage: (remoteChanging || branchChanging) ? null : existing.errorMessage,
-    );
-    _projects[id] = updated;
-    return updated;
-  }
-
-  @override
-  Future<Project> fetch(String id) async {
-    final existing = _projects[id] ?? (throw ArgumentError('Not found: $id'));
-    final updated = existing.copyWith(status: ProjectStatus.ready, lastFetchAt: DateTime.parse('2026-01-01T12:00:00Z'));
-    _projects[id] = updated;
-    return updated;
-  }
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) async {
-    final existing = _projects[id] ?? (throw ArgumentError('Not found: $id'));
-    if (existing.configDefined) throw StateError('Config-defined project $id');
-    _projects.remove(id);
-  }
-}
-
 void main() {
-  late _FakeProjectService projects;
+  late FakeProjectService projects;
   late Handler handler;
 
   setUp(() {
-    projects = _FakeProjectService();
+    projects = FakeProjectService();
     handler = projectRoutes(projects).call;
   });
 
@@ -190,9 +65,7 @@ void main() {
     });
 
     test('missing name returns 400', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/projects', {'remoteUrl': 'https://github.com/x/y.git'}),
-      );
+      final response = await handler(jsonRequest('POST', '/api/projects', {'remoteUrl': 'https://github.com/x/y.git'}));
       expect(response.statusCode, 400);
       expect(await errorCode(response), 'INVALID_INPUT');
     });

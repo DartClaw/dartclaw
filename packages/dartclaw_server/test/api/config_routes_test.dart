@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -183,7 +183,7 @@ void main() {
 
   group('job pause/resume via ScheduleService', () {
     test('pause/resume toggle updates service state', () async {
-      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       final jobs = <Map<String, dynamic>>[
         {'name': 'daily-report', 'status': 'active', 'schedule': '0 9 * * *'},
       ];
@@ -215,7 +215,7 @@ void main() {
     });
 
     test('job toggle accepts form-encoded body', () async {
-      final service = ScheduleService(turns: _FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
       final jobs = <Map<String, dynamic>>[
         {'name': 'nightly-sync', 'status': 'active'},
       ];
@@ -232,11 +232,6 @@ void main() {
       expect(service.isJobPaused('nightly-sync'), isTrue);
     });
   });
-}
-
-class _FakeTurnManager implements TurnManager {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 class _FakeSessionService implements SessionService {

@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
@@ -77,7 +77,7 @@ class _NeverExitProcess implements Process {
   @override
   int get pid => 1;
   @override
-  IOSink get stdin => _NullIOSink();
+  IOSink get stdin => NullIoSink();
   @override
   Stream<List<int>> get stdout => const Stream.empty();
   @override
@@ -86,33 +86,6 @@ class _NeverExitProcess implements Process {
   Future<int> get exitCode => Completer<int>().future;
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
-}
-
-class _NullIOSink implements IOSink {
-  @override
-  Encoding get encoding => utf8;
-  @override
-  set encoding(Encoding value) {}
-  @override
-  void add(List<int> data) {}
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => Future.value();
-  @override
-  Future<void> close() => Future.value();
-  @override
-  Future<void> get done => Future.value();
-  @override
-  Future<void> flush() => Future.value();
-  @override
-  void write(Object? object) {}
-  @override
-  void writeAll(Iterable<Object?> objects, [String separator = '']) {}
-  @override
-  void writeCharCode(int charCode) {}
-  @override
-  void writeln([Object? object = '']) {}
 }
 
 /// Build a GOWA v8 webhook envelope for testing.

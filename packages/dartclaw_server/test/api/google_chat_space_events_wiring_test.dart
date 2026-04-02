@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
@@ -41,35 +42,6 @@ class _FakeAdapter extends CloudEventAdapter {
   AdapterResult processMessage(ReceivedMessage message) => result;
 }
 
-class _FakeGoogleChatRestClient extends GoogleChatRestClient {
-  _FakeGoogleChatRestClient() : super(authClient: MockClient((request) async => throw UnimplementedError()));
-
-  final List<(String, String)> sentMessages = [];
-  int _counter = 0;
-
-  /// Configurable member display name responses keyed by sender JID.
-  final Map<String, String?> memberDisplayNames = {};
-  final List<(String, String)> getMemberDisplayNameCalls = [];
-
-  @override
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    sentMessages.add((spaceName, text));
-    _counter += 1;
-    return '$spaceName/messages/$_counter';
-  }
-
-  @override
-  Future<String?> getMemberDisplayName(String spaceName, String memberName) async {
-    getMemberDisplayNameCalls.add((spaceName, memberName));
-    return memberDisplayNames[memberName];
-  }
-}
-
 class _FakeChannelManager extends ChannelManager {
   _FakeChannelManager()
     : super(
@@ -87,14 +59,14 @@ class _FakeChannelManager extends ChannelManager {
 
 void main() {
   late Directory tempDir;
-  late _FakeGoogleChatRestClient restClient;
+  late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
   late _FakeChannelManager channelManager;
   late MessageDeduplicator deduplicator;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('space_events_wiring_test_');
-    restClient = _FakeGoogleChatRestClient();
+    restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
       restClient: restClient,
@@ -109,10 +81,7 @@ void main() {
     }
   });
 
-  GoogleChatSpaceEventsWiring buildWiring({
-    required AdapterResult result,
-    GoogleChatChannel? typingChannel,
-  }) {
+  GoogleChatSpaceEventsWiring buildWiring({required AdapterResult result, GoogleChatChannel? typingChannel}) {
     return GoogleChatSpaceEventsWiring(
       pubSubClient: _FakePubSubClient(),
       subscriptionManager: _FakeWorkspaceEventsManager(tempDir.path),
@@ -135,10 +104,7 @@ void main() {
   }
 
   test('sends typing indicator before dispatch when enabled', () async {
-    final wiring = buildWiring(
-      result: MessageResult([testMessage()]),
-      typingChannel: channel,
-    );
+    final wiring = buildWiring(result: MessageResult([testMessage()]), typingChannel: channel);
 
     final acked = await wiring.processMessage(
       const ReceivedMessage(
@@ -160,10 +126,7 @@ void main() {
       config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
       restClient: restClient,
     );
-    final wiring = buildWiring(
-      result: MessageResult([testMessage()]),
-      typingChannel: disabledChannel,
-    );
+    final wiring = buildWiring(result: MessageResult([testMessage()]), typingChannel: disabledChannel);
 
     await wiring.processMessage(
       const ReceivedMessage(
@@ -180,9 +143,7 @@ void main() {
   });
 
   test('does not send typing indicator when channel is absent', () async {
-    final wiring = buildWiring(
-      result: MessageResult([testMessage()]),
-    );
+    final wiring = buildWiring(result: MessageResult([testMessage()]));
 
     await wiring.processMessage(
       const ReceivedMessage(
@@ -210,13 +171,16 @@ void main() {
 
     test('enriches missing senderDisplayName via members API', () async {
       restClient.memberDisplayNames['users/123'] = 'Tobias';
-      final wiring = buildWiring(
-        result: MessageResult([testMessage()]),
-        typingChannel: disabledChannel,
-      );
+      final wiring = buildWiring(result: MessageResult([testMessage()]), typingChannel: disabledChannel);
 
       await wiring.processMessage(
-        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+        const ReceivedMessage(
+          ackId: 'ack',
+          data: '',
+          messageId: 'p-1',
+          publishTime: '2026-03-28T10:00:00Z',
+          attributes: {},
+        ),
       );
 
       expect(channelManager.handled, hasLength(1));
@@ -228,13 +192,16 @@ void main() {
       restClient.memberDisplayNames['users/123'] = 'Tobias';
       final msg1 = testMessage(id: 'msg-1', messageName: 'spaces/AAAA/messages/B1');
       final msg2 = testMessage(id: 'msg-2', messageName: 'spaces/AAAA/messages/B2');
-      final wiring = buildWiring(
-        result: MessageResult([msg1, msg2]),
-        typingChannel: disabledChannel,
-      );
+      final wiring = buildWiring(result: MessageResult([msg1, msg2]), typingChannel: disabledChannel);
 
       await wiring.processMessage(
-        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+        const ReceivedMessage(
+          ackId: 'ack',
+          data: '',
+          messageId: 'p-1',
+          publishTime: '2026-03-28T10:00:00Z',
+          attributes: {},
+        ),
       );
 
       expect(channelManager.handled, hasLength(2));
@@ -248,13 +215,16 @@ void main() {
       // No entry in memberDisplayNames → returns null.
       final msg = testMessage();
       msg.metadata['senderDisplayName'] = 'users/123'; // raw ID from adapter
-      final wiring = buildWiring(
-        result: MessageResult([msg]),
-        typingChannel: disabledChannel,
-      );
+      final wiring = buildWiring(result: MessageResult([msg]), typingChannel: disabledChannel);
 
       await wiring.processMessage(
-        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+        const ReceivedMessage(
+          ackId: 'ack',
+          data: '',
+          messageId: 'p-1',
+          publishTime: '2026-03-28T10:00:00Z',
+          attributes: {},
+        ),
       );
 
       expect(channelManager.handled, hasLength(1));
@@ -265,13 +235,16 @@ void main() {
       restClient.memberDisplayNames['users/123'] = 'API Name';
       final msg = testMessage();
       msg.metadata['senderDisplayName'] = 'Webhook Name'; // already populated
-      final wiring = buildWiring(
-        result: MessageResult([msg]),
-        typingChannel: disabledChannel,
-      );
+      final wiring = buildWiring(result: MessageResult([msg]), typingChannel: disabledChannel);
 
       await wiring.processMessage(
-        const ReceivedMessage(ackId: 'ack', data: '', messageId: 'p-1', publishTime: '2026-03-28T10:00:00Z', attributes: {}),
+        const ReceivedMessage(
+          ackId: 'ack',
+          data: '',
+          messageId: 'p-1',
+          publishTime: '2026-03-28T10:00:00Z',
+          attributes: {},
+        ),
       );
 
       expect(channelManager.handled.first.metadata['senderDisplayName'], 'Webhook Name');
@@ -282,10 +255,7 @@ void main() {
   test('dedup prevents duplicate processing', () async {
     final message = testMessage();
     deduplicator.tryProcess(message.metadata['messageName']! as String);
-    final wiring = buildWiring(
-      result: MessageResult([message]),
-      typingChannel: channel,
-    );
+    final wiring = buildWiring(result: MessageResult([message]), typingChannel: channel);
 
     await wiring.processMessage(
       const ReceivedMessage(

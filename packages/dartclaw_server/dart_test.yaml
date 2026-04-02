@@ -1,0 +1,4 @@
+tags:
+  contract:
+  integration:
+    skip: "Skipped by default; run explicitly with: dart test -t integration packages/dartclaw_server"

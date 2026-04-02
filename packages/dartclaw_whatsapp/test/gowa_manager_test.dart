@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
@@ -20,7 +21,7 @@ class FakeProcess implements Process {
   int get pid => 99;
 
   @override
-  IOSink get stdin => _NullIOSink();
+  IOSink get stdin => NullIoSink();
 
   @override
   Stream<List<int>> get stdout => _stdoutCtrl.stream;
@@ -44,33 +45,6 @@ class FakeProcess implements Process {
   void exit(int code) {
     if (!_exitCodeCompleter.isCompleted) _exitCodeCompleter.complete(code);
   }
-}
-
-class _NullIOSink implements IOSink {
-  @override
-  Encoding get encoding => utf8;
-  @override
-  set encoding(Encoding value) {}
-  @override
-  void add(List<int> data) {}
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => Future.value();
-  @override
-  Future<void> close() => Future.value();
-  @override
-  Future<void> get done => Future.value();
-  @override
-  Future<void> flush() => Future.value();
-  @override
-  void write(Object? object) {}
-  @override
-  void writeAll(Iterable<Object?> objects, [String separator = '']) {}
-  @override
-  void writeCharCode(int charCode) {}
-  @override
-  void writeln([Object? object = '']) {}
 }
 
 void main() {

@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeChannel, InMemoryTaskRepository, RecordingMessageQueue, RecordingReviewHandler, flushAsync;
 import 'package:test/test.dart';
 
 void main() {
@@ -364,13 +365,13 @@ void main() {
 
   // TI10: bridge + manager routing precedence integration tests
   group('ChannelManager + ChannelTaskBridge routing precedence', () {
-    late _RecordingMessageQueue queue;
+    late RecordingMessageQueue queue;
     late FakeChannel channel;
     late InMemoryTaskRepository repo;
     late ChannelManager manager;
 
     setUp(() {
-      queue = _RecordingMessageQueue();
+      queue = RecordingMessageQueue();
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       repo = InMemoryTaskRepository();
     });
@@ -394,7 +395,7 @@ void main() {
       manager.handleInboundMessage(
         ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'hello'),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(queue.enqueued, hasLength(1));
     });
@@ -423,7 +424,7 @@ void main() {
       );
       await repo.insert(task);
 
-      final reviewHandler = _RecordingReviewHandler();
+      final reviewHandler = RecordingReviewHandler();
       reviewHandler.result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
 
       manager = ChannelManager(
@@ -442,7 +443,7 @@ void main() {
       manager.handleInboundMessage(
         ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'accept'),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(reviewHandler.calls, [(task.id, 'accept')]);
       expect(queue.enqueued, isEmpty);
@@ -458,32 +459,13 @@ void main() {
       manager.handleInboundMessage(
         ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'hello'),
       );
-      await _flushAsync();
+      await flushAsync();
 
       expect(receivedSessionKey, isNotNull);
       expect(receivedSessionKey, contains('whatsapp'));
       expect(receivedSessionKey, contains(Uri.encodeComponent('sender@s.whatsapp.net')));
     });
   });
-}
-
-Future<void> _flushAsync() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
-}
-
-class _RecordingMessageQueue extends MessageQueue {
-  final List<(ChannelMessage, Channel, String)> enqueued = [];
-
-  _RecordingMessageQueue() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok');
-
-  @override
-  void enqueue(ChannelMessage message, Channel sourceChannel, String sessionKey) {
-    enqueued.add((message, sourceChannel, sessionKey));
-  }
-
-  @override
-  void dispose() {}
 }
 
 class _AlwaysTriggerParser extends TaskTriggerParser {
@@ -495,16 +477,6 @@ class _AlwaysTriggerParser extends TaskTriggerParser {
       return null;
     }
     return const TaskTriggerResult(description: 'should not run', type: TaskType.research, autoStart: true);
-  }
-}
-
-class _RecordingReviewHandler {
-  final List<(String, String)> calls = [];
-  ChannelReviewResult result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
-
-  Future<ChannelReviewResult> call(String taskId, String action, {String? comment}) async {
-    calls.add((taskId, action));
-    return result;
   }
 }
 

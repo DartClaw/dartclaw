@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -351,16 +352,20 @@ void main() {
 
   test('keeps project-backed tasks queued while the project is still cloning', () async {
     worker.responseText = 'Done.';
-    final projectService = _FakeProjectService(
-      project: Project(
-        id: 'my-app',
-        name: 'My App',
-        remoteUrl: 'git@github.com:acme/my-app.git',
-        localPath: '/projects/my-app',
-        defaultBranch: 'main',
-        status: ProjectStatus.cloning,
-        createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
-      ),
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.cloning,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
       tasks: tasks,
@@ -398,17 +403,21 @@ void main() {
   });
 
   test('fails queued project-backed tasks when the project clone has errored', () async {
-    final projectService = _FakeProjectService(
-      project: Project(
-        id: 'my-app',
-        name: 'My App',
-        remoteUrl: 'git@github.com:acme/my-app.git',
-        localPath: '/projects/my-app',
-        defaultBranch: 'main',
-        status: ProjectStatus.error,
-        errorMessage: 'Authentication denied',
-        createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
-      ),
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.error,
+          errorMessage: 'Authentication denied',
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
     );
     final projectExecutor = TaskExecutor(
       tasks: tasks,
@@ -758,57 +767,4 @@ class _BusyOnceTurnManager extends TurnManager {
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     return TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now());
   }
-}
-
-class _FakeProjectService implements ProjectService {
-  final Project project;
-
-  _FakeProjectService({required this.project});
-
-  @override
-  Future<Project?> get(String id) async => id == project.id ? project : null;
-
-  @override
-  Future<List<Project>> getAll() async => [project];
-
-  @override
-  Future<Project> getDefaultProject() async => project;
-
-  @override
-  Project getLocalProject() => throw UnimplementedError();
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> update(
-    String id, {
-    String? name,
-    String? remoteUrl,
-    String? defaultBranch,
-    String? credentialsRef,
-    PrConfig? pr,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> fetch(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
 }

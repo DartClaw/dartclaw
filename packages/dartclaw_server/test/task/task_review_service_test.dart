@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -27,7 +28,7 @@ void main() {
 
   group('TaskReviewService', () {
     test('accepts review tasks and fires status events', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final reviewReadyEvents = <TaskReviewReadyEvent>[];
@@ -50,7 +51,7 @@ void main() {
     });
 
     test('channel review handler preserves channel provenance', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
@@ -66,7 +67,7 @@ void main() {
     });
 
     test('rejects review tasks', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'reject');
@@ -76,7 +77,7 @@ void main() {
     });
 
     test('pushes tasks back to running with comment metadata', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'push_back', comment: 'try again');
@@ -89,7 +90,7 @@ void main() {
     });
 
     test('rejects push_back without a comment', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-1', 'push_back');
@@ -100,7 +101,7 @@ void main() {
     });
 
     test('push_back fires status event with running as new status', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
       final statusEvents = <TaskStatusChangedEvent>[];
       final sub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
@@ -115,7 +116,7 @@ void main() {
     });
 
     test('push_back invokes PushBackFeedbackDelivery callback', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
       final deliveries = <(String taskId, String feedback)>[];
       final service = TaskReviewService(
         tasks: tasks,
@@ -134,7 +135,7 @@ void main() {
     });
 
     test('push_back proceeds even when PushBackFeedbackDelivery callback throws', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(
         tasks: tasks,
 
@@ -151,7 +152,7 @@ void main() {
     });
 
     test('channelReviewHandler passes comment through for push_back', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
+      await putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
       String? capturedComment;
       final service = TaskReviewService(
         tasks: tasks,
@@ -170,7 +171,7 @@ void main() {
     });
 
     test('runs merge and cleans up worktrees for accepted coding tasks', () async {
-      await _putTaskInReview(
+      await putTaskInReview(
         tasks,
         'task-1',
         title: 'Fix login',
@@ -204,7 +205,7 @@ void main() {
     });
 
     test('rejects accepting worktree-backed tasks when merge support is unavailable', () async {
-      await _putTaskInReview(
+      await putTaskInReview(
         tasks,
         'task-1',
         title: 'Fix login',
@@ -227,7 +228,7 @@ void main() {
     });
 
     test('serializes concurrent review accepts so merge runs only once', () async {
-      await _putTaskInReview(
+      await putTaskInReview(
         tasks,
         'task-1',
         title: 'Fix login',
@@ -268,7 +269,7 @@ void main() {
         }
       });
 
-      await _putTaskInReview(
+      await putTaskInReview(
         tasks,
         'task-1',
         title: 'Fix login',
@@ -340,7 +341,7 @@ void main() {
     });
 
     test('returns generic failures for unexpected errors', () async {
-      await _putTaskInReview(
+      await putTaskInReview(
         tasks,
         'task-1',
         title: 'Fix login',
@@ -380,7 +381,7 @@ void main() {
     });
 
     test('push_back action records a pushBack event with the comment', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Review task');
+      await putTaskInReview(tasks, 'task-1', title: 'Review task');
       final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
 
       await service.review('task-1', 'push_back', comment: 'Please fix the tests');
@@ -392,7 +393,7 @@ void main() {
     });
 
     test('accept action does not record a pushBack event', () async {
-      await _putTaskInReview(tasks, 'task-1', title: 'Review task');
+      await putTaskInReview(tasks, 'task-1', title: 'Review task');
       final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
 
       await service.review('task-1', 'accept');
@@ -402,7 +403,7 @@ void main() {
     });
 
     test('null eventRecorder does not affect push_back behavior', () async {
-      await _putTaskInReview(tasks, 'task-2', title: 'Another task');
+      await putTaskInReview(tasks, 'task-2', title: 'Another task');
       final service = TaskReviewService(tasks: tasks);
 
       final result = await service.review('task-2', 'push_back', comment: 'try again');
@@ -420,7 +421,7 @@ void main() {
 
       await _putProjectTaskInReview(tasks, 'task-proj');
 
-      final projectService = _FakeProjectService(
+      final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
           pr: const PrConfig(strategy: PrStrategy.githubPr),
@@ -460,7 +461,7 @@ void main() {
 
       await _putProjectTaskInReview(tasks, 'task-branch');
 
-      final projectService = _FakeProjectService(
+      final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
           pr: const PrConfig(strategy: PrStrategy.branchOnly),
@@ -492,7 +493,7 @@ void main() {
 
       await _putProjectTaskInReview(tasks, 'task-gh');
 
-      final projectService = _FakeProjectService(
+      final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
           pr: const PrConfig(strategy: PrStrategy.githubPr),
@@ -526,7 +527,7 @@ void main() {
 
       await _putProjectTaskInReview(tasks, 'task-auth');
 
-      final projectService = _FakeProjectService(project: _makeProject(id: 'my-app'));
+      final projectService = _projectService(project: _makeProject(id: 'my-app'));
       final pushService = _FakeRemotePushService(
         result: const PushAuthFailure('Authentication denied. Check credentials.'),
       );
@@ -558,7 +559,7 @@ void main() {
 
       await _putProjectTaskInReview(tasks, 'task-reject');
 
-      final projectService = _FakeProjectService(project: _makeProject(id: 'my-app'));
+      final projectService = _projectService(project: _makeProject(id: 'my-app'));
       final pushService = _FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
       final service = TaskReviewService(
         tasks: tasks,
@@ -581,7 +582,7 @@ void main() {
       final service = TaskReviewService(
         tasks: tasks,
 
-        projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
+        projectService: _projectService(project: _makeProject(id: 'my-app')),
         worktreeManager: worktreeManager,
       );
 
@@ -618,12 +619,7 @@ void main() {
         result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-local): Local task'),
       );
       final worktreeManager = _RecordingWorktreeManager();
-      final service = TaskReviewService(
-        tasks: tasks,
-
-        mergeExecutor: mergeExecutor,
-        worktreeManager: worktreeManager,
-      );
+      final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
 
       final result = await service.review('task-local', 'accept');
 
@@ -650,7 +646,7 @@ void main() {
         tasks: tasks,
 
         remotePushService: pushService,
-        projectService: _FakeProjectService(project: _makeProject(id: 'my-app')),
+        projectService: _projectService(project: _makeProject(id: 'my-app')),
       );
 
       final result = await service.review('task-no-wt', 'accept');
@@ -675,35 +671,6 @@ void main() {
       expect((await tasks.get('task-no-push'))!.status, TaskStatus.review);
     });
   });
-}
-
-Future<Task> _putTaskInReview(
-  TaskService tasks,
-  String id, {
-  required String title,
-  Map<String, dynamic>? worktreeJson,
-  String? sessionKey,
-}) async {
-  final configJson = sessionKey != null
-      ? <String, dynamic>{
-          'origin': <String, dynamic>{'sessionKey': sessionKey},
-        }
-      : null;
-  await tasks.create(
-    id: id,
-    title: title,
-    description: title,
-    type: TaskType.coding,
-    autoStart: true,
-    now: DateTime.parse('2026-03-13T10:00:00Z'),
-    configJson: configJson ?? const {},
-  );
-  await tasks.transition(id, TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
-  await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
-  if (worktreeJson != null) {
-    return tasks.updateFields(id, worktreeJson: worktreeJson);
-  }
-  return (await tasks.get(id))!;
 }
 
 class _RecordingMergeExecutor extends MergeExecutor {
@@ -826,57 +793,12 @@ Future<void> _putProjectTaskInReview(TaskService tasks, String id) async {
   );
 }
 
-class _FakeProjectService implements ProjectService {
-  final Project? project;
-
-  _FakeProjectService({required this.project});
-
-  @override
-  Future<Project?> get(String id) async => project?.id == id ? project : null;
-
-  @override
-  Future<List<Project>> getAll() async => project == null ? [] : [project!];
-
-  @override
-  Future<Project> create({
-    required String name,
-    required String remoteUrl,
-    String defaultBranch = 'main',
-    String? credentialsRef,
-    CloneStrategy cloneStrategy = CloneStrategy.shallow,
-    PrConfig pr = const PrConfig.defaults(),
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> update(
-    String id, {
-    String? name,
-    String? remoteUrl,
-    String? defaultBranch,
-    String? credentialsRef,
-    PrConfig? pr,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Project> fetch(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> ensureFresh(Project project) async {}
-
-  @override
-  Future<void> delete(String id) => throw UnimplementedError();
-
-  @override
-  Future<Project> getDefaultProject() async => project!;
-
-  @override
-  Project getLocalProject() => throw UnimplementedError();
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
+FakeProjectService _projectService({required Project? project}) {
+  return FakeProjectService(
+    projects: project == null ? const [] : [project],
+    includeLocalProjectInGetAll: false,
+    defaultProjectId: project?.id,
+  );
 }
 
 class _FakeRemotePushService extends RemotePushService {

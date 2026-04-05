@@ -18,6 +18,12 @@ class Goal {
   /// Timestamp when this goal was created.
   final DateTime createdAt;
 
+  /// Optional maximum token budget for tasks created under this goal.
+  ///
+  /// When a task has no per-task budget and has this goal as its parent,
+  /// this value is used as the budget (before global config defaults).
+  final int? maxTokens;
+
   /// Creates an immutable goal record.
   const Goal({
     required this.id,
@@ -25,6 +31,7 @@ class Goal {
     this.parentGoalId,
     required this.mission,
     required this.createdAt,
+    this.maxTokens,
   });
 
   /// Serializes this goal to the JSON shape used by persistence layers.
@@ -34,6 +41,7 @@ class Goal {
     if (parentGoalId != null) 'parentGoalId': parentGoalId,
     'mission': mission,
     'createdAt': createdAt.toIso8601String(),
+    if (maxTokens != null) 'maxTokens': maxTokens,
   };
 
   /// Deserializes a goal from persisted JSON.
@@ -43,6 +51,7 @@ class Goal {
     parentGoalId: json['parentGoalId'] as String?,
     mission: json['mission'] as String,
     createdAt: DateTime.parse(json['createdAt'] as String),
+    maxTokens: (json['maxTokens'] as num?)?.toInt(),
   );
 
   @override

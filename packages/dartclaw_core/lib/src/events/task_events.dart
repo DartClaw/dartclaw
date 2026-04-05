@@ -102,3 +102,36 @@ final class TaskEventCreatedEvent extends TaskLifecycleEvent {
   @override
   String toString() => 'TaskEventCreatedEvent(task: $taskId, kind: $kind)';
 }
+
+/// Fired when a task's cumulative token consumption reaches the warning threshold.
+///
+/// Downstream consumers (SSE, UI) can use this to display budget warnings.
+final class BudgetWarningEvent extends TaskLifecycleEvent {
+  @override
+  final String taskId;
+
+  /// Fraction of token budget consumed (0.0–1.0+).
+  final double consumedPercent;
+
+  /// Actual tokens consumed at time of warning.
+  final int consumed;
+
+  /// Token budget limit that is being approached.
+  final int limit;
+
+  @override
+  final DateTime timestamp;
+
+  BudgetWarningEvent({
+    required this.taskId,
+    required this.consumedPercent,
+    required this.consumed,
+    required this.limit,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'BudgetWarningEvent(task: $taskId, '
+      '${(consumedPercent * 100).toStringAsFixed(0)}% consumed: $consumed/$limit tokens)';
+}

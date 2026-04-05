@@ -30,6 +30,9 @@ const expectedTemplates = [
   'canvas_admin_panel',
   'canvas_task_board',
   'canvas_stats_bar',
+  'workflow_detail',
+  'workflow_step_detail',
+  'workflow_list',
 ];
 
 TemplateLoaderService? _templateLoader;

@@ -340,6 +340,9 @@ class HarnessWiring {
     final loopAction = config.governance.loopDetection.enabled ? config.governance.loopDetection.action : null;
 
     // Build primary TurnRunner and pool (task runners spawned lazily).
+    // Each runner gets its own TaskToolFilterGuard so per-task allowedTools
+    // enforcement is isolated across concurrent runners.
+    final primaryFilter = TaskToolFilterGuard();
     final primaryRunner = TurnRunner(
       harness: _harness,
       messages: _storage.messages,
@@ -349,6 +352,7 @@ class HarnessWiring {
       turnState: _storage.turnStateStore,
       kv: _storage.kvService,
       guardChain: _security.guardChain,
+      taskToolFilterGuard: primaryFilter,
       lockManager: _lockManager,
       resetService: _resetService,
       contextMonitor: _contextMonitor,
@@ -376,6 +380,10 @@ class HarnessWiring {
             final containerManager =
                 _security.containerManagers[plan.profileId] ?? _security.containerManagers['workspace'];
             try {
+              // Each task runner gets its own TaskToolFilterGuard so per-task
+              // allowedTools enforcement is isolated across concurrent runners.
+              final taskFilter = TaskToolFilterGuard();
+              final taskGuardChain = _buildTaskGuardChain(_security.guardChain, taskFilter);
               final taskHarness = _harnessFactory.create(
                 plan.providerId,
                 HarnessFactoryConfig(
@@ -389,6 +397,7 @@ class HarnessWiring {
                   historyConfig: config.agent.history,
                   providerOptions: plan.options,
                   containerManager: containerManager,
+                  guardChain: taskGuardChain,
                   environment: {
                     ..._providerEnvironment(plan.providerId, credentialRegistry),
                     ..._taskRunnerSubagentEnvironment,
@@ -404,7 +413,8 @@ class HarnessWiring {
                 sessions: _storage.sessions,
                 turnState: _storage.turnStateStore,
                 kv: _storage.kvService,
-                guardChain: _security.guardChain,
+                guardChain: taskGuardChain,
+                taskToolFilterGuard: taskFilter,
                 lockManager: _lockManager,
                 resetService: _resetService,
                 contextMonitor: _contextMonitor,
@@ -431,6 +441,21 @@ class HarnessWiring {
 }
 
 const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MODEL': 'sonnet'};
+
+/// Creates a per-harness [GuardChain] that includes all guards from [base]
+/// plus the per-runner [filter].
+///
+/// Each task runner requires its own guard chain instance so that mutating
+/// [filter.allowedTools] for one runner does not affect others.
+/// When [base] is null, returns a chain with only the filter guard.
+GuardChain _buildTaskGuardChain(GuardChain? base, TaskToolFilterGuard filter) {
+  final guards = <Guard>[...?base?.guards, filter];
+  return GuardChain(
+    guards: guards,
+    onVerdict: base?.onVerdict,
+    failOpen: base?.failOpen ?? false,
+  );
+}
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
   // Preserve the normal execution environment, but ensure only the selected

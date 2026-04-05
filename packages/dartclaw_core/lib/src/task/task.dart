@@ -67,6 +67,33 @@ class Task {
   /// When null, the task uses the default project (typically _local).
   final String? projectId;
 
+  /// Optional maximum token budget for this task.
+  ///
+  /// When set, cumulative token consumption is checked before each turn.
+  /// At the warning threshold: warning event + system message injected.
+  /// At 100%: task fails with `budget_exceeded` reason.
+  /// Overrides goal-level and global defaults.
+  final int? maxTokens;
+
+  /// Optional workflow run that owns this task.
+  final String? workflowRunId;
+
+  /// Optional step index within the workflow (0-based).
+  final int? stepIndex;
+
+  /// Maximum retry attempts on failure (default 0 = no retries).
+  ///
+  /// When a task fails and `retryCount < maxRetries`, the task is
+  /// automatically re-queued with retry context injected into the prompt.
+  /// Error class loop detection prevents retrying the same recurring error.
+  final int maxRetries;
+
+  /// Number of retry attempts consumed so far (default 0).
+  ///
+  /// Incremented each time the task is re-queued after failure.
+  /// When `retryCount >= maxRetries`, the task fails permanently.
+  final int retryCount;
+
   /// Creates an immutable task record.
   Task({
     required this.id,
@@ -86,6 +113,11 @@ class Task {
     this.createdBy,
     this.provider,
     this.projectId,
+    this.maxTokens,
+    this.workflowRunId,
+    this.stepIndex,
+    this.maxRetries = 0,
+    this.retryCount = 0,
   }) : configJson = _freezeJsonMap(configJson ?? const {}),
        worktreeJson = worktreeJson == null ? null : _freezeJsonMap(worktreeJson);
 
@@ -108,6 +140,11 @@ class Task {
     Object? createdBy = _sentinel,
     Object? provider = _sentinel,
     Object? projectId = _sentinel,
+    Object? maxTokens = _sentinel,
+    Object? workflowRunId = _sentinel,
+    Object? stepIndex = _sentinel,
+    int? maxRetries,
+    int? retryCount,
   }) => Task(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -128,6 +165,11 @@ class Task {
     createdBy: identical(createdBy, _sentinel) ? this.createdBy : createdBy as String?,
     provider: identical(provider, _sentinel) ? this.provider : provider as String?,
     projectId: identical(projectId, _sentinel) ? this.projectId : projectId as String?,
+    maxTokens: identical(maxTokens, _sentinel) ? this.maxTokens : maxTokens as int?,
+    workflowRunId: identical(workflowRunId, _sentinel) ? this.workflowRunId : workflowRunId as String?,
+    stepIndex: identical(stepIndex, _sentinel) ? this.stepIndex : stepIndex as int?,
+    maxRetries: maxRetries ?? this.maxRetries,
+    retryCount: retryCount ?? this.retryCount,
   );
 
   /// Applies a validated lifecycle transition and updates timestamps.
@@ -151,7 +193,8 @@ class Task {
     var nextCompletedAt = completedAt;
     if (newStatus.terminal) {
       nextCompletedAt = timestamp;
-    } else if ((status == TaskStatus.review || status == TaskStatus.interrupted) && newStatus == TaskStatus.queued) {
+    } else if ((status == TaskStatus.review || status == TaskStatus.interrupted || status == TaskStatus.failed) &&
+        newStatus == TaskStatus.queued) {
       nextCompletedAt = null;
     }
 
@@ -177,6 +220,11 @@ class Task {
     if (createdBy != null) 'createdBy': createdBy,
     if (provider != null) 'provider': provider,
     if (projectId != null) 'projectId': projectId,
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (workflowRunId != null) 'workflowRunId': workflowRunId,
+    if (stepIndex != null) 'stepIndex': stepIndex,
+    if (maxRetries != 0) 'maxRetries': maxRetries,
+    if (retryCount != 0) 'retryCount': retryCount,
     'configJson': _mutableJsonMap(configJson),
     if (worktreeJson != null) 'worktreeJson': _mutableJsonMap(worktreeJson!),
     'createdAt': createdAt.toIso8601String(),
@@ -203,6 +251,11 @@ class Task {
     createdBy: json['createdBy'] as String?,
     provider: json['provider'] as String?,
     projectId: json['projectId'] as String?,
+    maxTokens: (json['maxTokens'] as num?)?.toInt(),
+    workflowRunId: json['workflowRunId'] as String?,
+    stepIndex: json['stepIndex'] as int?,
+    maxRetries: (json['maxRetries'] as int?) ?? 0,
+    retryCount: (json['retryCount'] as int?) ?? 0,
   );
 }
 

@@ -52,6 +52,24 @@ class SqliteTaskRepository implements TaskRepository {
     if (!columns.contains('project_id')) {
       _db.execute('ALTER TABLE tasks ADD COLUMN project_id TEXT');
     }
+    if (!columns.contains('max_tokens')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN max_tokens INTEGER');
+    }
+    if (!columns.contains('workflow_run_id')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN workflow_run_id TEXT');
+    }
+    if (!columns.contains('step_index')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN step_index INTEGER');
+    }
+    if (!columns.contains('max_retries')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!columns.contains('retry_count')) {
+      _db.execute('ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0');
+    }
+    _db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)',
+    );
     _db.execute('''
       CREATE TABLE IF NOT EXISTS task_artifacts (
         id TEXT PRIMARY KEY,
@@ -72,8 +90,9 @@ class SqliteTaskRepository implements TaskRepository {
       INSERT INTO tasks (
         id, title, description, type, status, version, goal_id, session_id,
         acceptance_criteria, config_json, worktree_json,
-        created_at, started_at, completed_at, created_by, provider, project_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, started_at, completed_at, created_by, provider, project_id,
+        max_tokens, workflow_run_id, step_index, max_retries, retry_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -94,6 +113,11 @@ class SqliteTaskRepository implements TaskRepository {
         task.createdBy,
         task.provider,
         task.projectId,
+        task.maxTokens,
+        task.workflowRunId,
+        task.stepIndex,
+        task.maxRetries,
+        task.retryCount,
       ]);
     } finally {
       stmt.close();
@@ -154,7 +178,11 @@ class SqliteTaskRepository implements TaskRepository {
         worktree_json = ?,
         started_at = ?,
         completed_at = ?,
-        provider = ?
+        provider = ?,
+        workflow_run_id = ?,
+        step_index = ?,
+        max_retries = ?,
+        retry_count = ?
       WHERE id = ? AND version = ?
     ''');
     try {
@@ -171,6 +199,10 @@ class SqliteTaskRepository implements TaskRepository {
         task.startedAt?.toIso8601String(),
         task.completedAt?.toIso8601String(),
         task.provider,
+        task.workflowRunId,
+        task.stepIndex,
+        task.maxRetries,
+        task.retryCount,
         task.id,
         task.version,
       ]);
@@ -222,7 +254,8 @@ class SqliteTaskRepository implements TaskRepository {
         config_json = ?,
         worktree_json = ?,
         provider = ?,
-        project_id = ?
+        project_id = ?,
+        retry_count = ?
       WHERE id = ? AND status = ?
     ''');
     try {
@@ -235,6 +268,7 @@ class SqliteTaskRepository implements TaskRepository {
         _encodeJsonNullable(task.worktreeJson),
         task.provider,
         task.projectId,
+        task.retryCount,
         task.id,
         expectedStatus.name,
       ]);
@@ -332,6 +366,11 @@ class SqliteTaskRepository implements TaskRepository {
       createdBy: row['created_by'] as String?,
       provider: row['provider'] as String?,
       projectId: row['project_id'] as String?,
+      maxTokens: row['max_tokens'] as int?,
+      workflowRunId: row['workflow_run_id'] as String?,
+      stepIndex: row['step_index'] as int?,
+      maxRetries: (row['max_retries'] as int?) ?? 0,
+      retryCount: (row['retry_count'] as int?) ?? 0,
     );
   }
 

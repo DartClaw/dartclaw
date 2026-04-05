@@ -20,16 +20,28 @@ class SqliteGoalRepository implements GoalRepository {
       )
     ''');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_goal_id)');
+    // Migrations: add columns to existing databases that don't have them.
+    final columns = _db.select('PRAGMA table_info(goals)').map((row) => row['name'] as String).toSet();
+    if (!columns.contains('max_tokens')) {
+      _db.execute('ALTER TABLE goals ADD COLUMN max_tokens INTEGER');
+    }
   }
 
   @override
   Future<void> insert(Goal goal) async {
     final stmt = _db.prepare('''
-      INSERT INTO goals (id, title, parent_goal_id, mission, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO goals (id, title, parent_goal_id, mission, created_at, max_tokens)
+      VALUES (?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([goal.id, goal.title, goal.parentGoalId, goal.mission, goal.createdAt.toIso8601String()]);
+      stmt.execute([
+        goal.id,
+        goal.title,
+        goal.parentGoalId,
+        goal.mission,
+        goal.createdAt.toIso8601String(),
+        goal.maxTokens,
+      ]);
     } finally {
       stmt.close();
     }
@@ -76,6 +88,7 @@ class SqliteGoalRepository implements GoalRepository {
       parentGoalId: row['parent_goal_id'] as String?,
       mission: row['mission'] as String,
       createdAt: DateTime.parse(row['created_at'] as String),
+      maxTokens: row['max_tokens'] as int?,
     );
   }
 }

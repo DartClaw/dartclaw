@@ -36,6 +36,8 @@ import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'turn_manager.dart';
+import 'workflow/workflow_definition_source.dart';
+import 'workflow/workflow_service.dart';
 import 'workspace/workspace_git_sync.dart';
 
 /// Builder for [DartclawServer].
@@ -94,6 +96,10 @@ class DartclawServerBuilder {
   // Projects
   ProjectService? projectService;
 
+  // Workflow
+  WorkflowService? workflowService;
+  WorkflowDefinitionSource? workflowDefinitionSource;
+
   // Tasks
   GoalService? goalService;
   TaskService? taskService;
@@ -151,6 +157,7 @@ class DartclawServerBuilder {
             sessions: sessionsForTurns ?? s,
             kv: kv,
             guardChain: guardChain,
+            taskToolFilterGuard: TaskToolFilterGuard(),
             lockManager: lockManager,
             resetService: resetService,
             contextMonitor: contextMonitor,
@@ -231,6 +238,8 @@ class DartclawServerBuilder {
       progressTracker: progressTracker,
       spaceEventsWiring: spaceEventsWiring,
       threadBindingStore: threadBindingStore,
+      workflowService: workflowService,
+      workflowDefinitionSource: workflowDefinitionSource,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,

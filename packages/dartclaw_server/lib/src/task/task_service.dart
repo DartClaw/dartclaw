@@ -52,6 +52,10 @@ class TaskService {
     String? createdBy,
     String? provider,
     String? projectId,
+    int? maxTokens,
+    String? workflowRunId,
+    int? stepIndex,
+    int maxRetries = 0,
     Map<String, dynamic> configJson = const {},
     DateTime? now,
     String trigger = 'system',
@@ -74,6 +78,10 @@ class TaskService {
       createdBy: createdBy,
       provider: persistedProvider,
       projectId: projectId?.trim().isEmpty ?? true ? null : projectId?.trim(),
+      maxTokens: maxTokens != null && maxTokens > 0 ? maxTokens : null,
+      workflowRunId: workflowRunId?.trim().isEmpty ?? true ? null : workflowRunId?.trim(),
+      stepIndex: stepIndex,
+      maxRetries: maxRetries > 0 ? maxRetries : 0,
     );
     if (autoStart) {
       task = task.transition(TaskStatus.queued, now: timestamp);
@@ -156,30 +164,39 @@ class TaskService {
     return persistedTransition;
   }
 
+  static const _sentinel = Object();
+
   /// Updates mutable fields on a non-terminal task.
+  ///
+  /// Use [clearSessionId] to explicitly clear the session ID (e.g., on retry).
+  /// Use [retryCount] to update the retry attempt counter.
   Future<Task> updateFields(
     String taskId, {
     String? title,
     String? description,
     String? acceptanceCriteria,
     Map<String, dynamic>? configJson,
-    String? sessionId,
+    Object? sessionId = _sentinel,
     Map<String, dynamic>? worktreeJson,
     String? projectId,
+    int? retryCount,
   }) async {
     final task = await _requireTask(taskId);
     if (task.status.terminal) {
       throw StateError('Cannot update terminal task: ${task.status.name}');
     }
 
+    final resolvedSessionId = identical(sessionId, _sentinel) ? task.sessionId : sessionId as String?;
+
     final updated = task.copyWith(
       title: title,
       description: description,
       acceptanceCriteria: acceptanceCriteria ?? task.acceptanceCriteria,
       configJson: configJson ?? task.configJson,
-      sessionId: sessionId ?? task.sessionId,
+      sessionId: resolvedSessionId,
       worktreeJson: worktreeJson ?? task.worktreeJson,
       projectId: projectId ?? task.projectId,
+      retryCount: retryCount,
     );
 
     final persisted = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);

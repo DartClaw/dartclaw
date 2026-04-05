@@ -1,0 +1,83 @@
+name: refactor
+description: >-
+  Refactoring pipeline — analyze current state, plan the approach,
+  execute the refactoring, and verify no regressions.
+variables:
+  TARGET:
+    required: true
+    description: What to refactor — module, class, pattern, or area of concern
+  PROJECT:
+    required: false
+    description: Target project for the refactoring (omit for default project)
+
+steps:
+  - id: analyze
+    name: Analyze Current State
+    type: analysis
+    prompt: |
+      Analyze the current state of: {{TARGET}}
+
+      Examine:
+      - Current code structure and dependencies
+      - Code smells and anti-patterns
+      - Complexity metrics (nesting depth, method length, coupling)
+      - Test coverage of the target area
+      - Impact surface — what other code depends on this
+
+      Provide a structured assessment of what needs to change and why.
+    contextOutputs: [current_state_analysis]
+
+  - id: plan
+    name: Plan Refactoring
+    type: writing
+    prompt: |
+      Plan the refactoring based on this analysis:
+      {{context.current_state_analysis}}
+
+      Target: {{TARGET}}
+
+      Create a refactoring plan with:
+      - Specific changes ordered by dependency (what must change first)
+      - For each change: what, why, risk level, test implications
+      - Rollback strategy if issues arise
+      - Acceptance criteria for the refactoring
+      - Estimated scope (files changed, lines affected)
+    contextInputs: [current_state_analysis]
+    contextOutputs: [refactoring_plan]
+
+  - id: execute
+    name: Execute Refactoring
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Execute this refactoring plan:
+      {{context.refactoring_plan}}
+
+      Target: {{TARGET}}
+      Current state: {{context.current_state_analysis}}
+
+      Follow the plan step by step. Run tests after each significant change.
+      If a step causes test failures, fix them before proceeding.
+      Do not make changes beyond the scope of the plan.
+    contextInputs: [refactoring_plan, current_state_analysis]
+    contextOutputs: [diff_summary]
+
+  - id: verify
+    name: Verify Refactoring
+    type: analysis
+    prompt: |
+      Verify the refactoring:
+      {{context.diff_summary}}
+
+      Plan: {{context.refactoring_plan}}
+      Original analysis: {{context.current_state_analysis}}
+
+      Check:
+      - All planned changes are implemented
+      - All tests pass (no regressions)
+      - Code quality improved (reduced complexity, better structure)
+      - No unplanned changes snuck in
+      - Acceptance criteria from the plan are met
+    contextInputs: [diff_summary, refactoring_plan, current_state_analysis]
+    gate: "execute.status == accepted"

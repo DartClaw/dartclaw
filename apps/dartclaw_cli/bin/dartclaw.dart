@@ -8,6 +8,7 @@ import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/commands/sessions_command.dart';
 import 'package:dartclaw_cli/src/commands/status_command.dart';
 import 'package:dartclaw_cli/src/commands/token_command.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 
 Future<void> main(List<String> args) async {
@@ -19,7 +20,8 @@ Future<void> main(List<String> args) async {
         ..addCommand(SessionsCommand())
         ..addCommand(StatusCommand())
         ..addCommand(RebuildIndexCommand())
-        ..addCommand(TokenCommand());
+        ..addCommand(TokenCommand())
+        ..addCommand(WorkflowCommand());
 
   try {
     await runner.run(args);

@@ -53,16 +53,23 @@ void main() {
         expect(TaskStatus.review.canTransitionTo(TaskStatus.interrupted), isFalse);
       });
 
-      test('has no outbound transitions from terminal states', () {
+      test('has no outbound transitions from accepted, rejected, cancelled', () {
         for (final terminal in const [
           TaskStatus.accepted,
           TaskStatus.rejected,
           TaskStatus.cancelled,
-          TaskStatus.failed,
         ]) {
           for (final target in TaskStatus.values) {
             expect(terminal.canTransitionTo(target), isFalse, reason: '$terminal should not transition to $target');
           }
+        }
+      });
+
+      test('failed can only transition to queued (retry path)', () {
+        expect(TaskStatus.failed.canTransitionTo(TaskStatus.queued), isTrue);
+        for (final target in TaskStatus.values.where((s) => s != TaskStatus.queued)) {
+          expect(TaskStatus.failed.canTransitionTo(target), isFalse,
+              reason: 'failed should not transition to $target');
         }
       });
 
@@ -82,7 +89,7 @@ void main() {
           TaskStatus.accepted: const {},
           TaskStatus.rejected: const {},
           TaskStatus.cancelled: const {},
-          TaskStatus.failed: const {},
+          TaskStatus.failed: {TaskStatus.queued}, // retry path
         };
 
         for (final from in TaskStatus.values) {
@@ -105,13 +112,14 @@ void main() {
         }
       });
 
-      test('validTransitions contains only non-terminal states with edges', () {
+      test('validTransitions contains non-terminal states plus failed (retry path)', () {
         expect(TaskStatus.validTransitions.keys, {
           TaskStatus.draft,
           TaskStatus.queued,
           TaskStatus.running,
           TaskStatus.interrupted,
           TaskStatus.review,
+          TaskStatus.failed, // retry path: failed → queued
         });
       });
     });

@@ -1,0 +1,88 @@
+<div class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner workflow-list-page">
+
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+      <!-- Filters -->
+      <div class="workflow-filters card">
+        <div class="workflow-filter-row">
+          <div class="workflow-filter-group">
+            <label class="form-label">Status</label>
+            <div class="workflow-status-filters">
+              <a tl:each="opt : ${statusOptions}"
+                 tl:classappend="${opt.active} ? 'btn-active' : ''"
+                 class="btn btn-ghost btn-sm"
+                 tl:attr="href=${opt.href},hx-get=${opt.href}"
+                 hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
+                 hx-push-url="true" hx-select-oob="#topbar,#sidebar"
+                 tl:text="${opt.label}">All</a>
+            </div>
+          </div>
+          <div class="workflow-filter-group">
+            <label class="form-label" for="workflow-definition-filter">Workflow</label>
+            <select class="form-input form-input-sm" id="workflow-definition-filter"
+                    onchange="filterByDefinition(this.value)">
+              <option value="">All workflows</option>
+              <option tl:each="def : ${definitionOptions}"
+                      tl:attr="value=${def.value},selected=${def.selected} ? 'selected' : null"
+                      tl:text="${def.label}">workflow</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Runs list -->
+      <div class="workflow-runs-list" id="workflow-runs-list">
+        <div tl:if="${hasRuns}">
+          <div tl:each="run : ${runs}" class="workflow-run-card card">
+            <a tl:attr="href=${run.href},hx-get=${run.href}" class="workflow-run-link"
+               hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML"
+               hx-push-url="true" hx-select-oob="#topbar,#sidebar">
+              <div class="workflow-run-header">
+                <span class="workflow-run-name" tl:text="${run.definitionName}">spec-and-implement</span>
+                <span tl:classappend="${run.statusBadgeClass}" class="status-badge"
+                      tl:text="${run.statusLabel}">running</span>
+              </div>
+              <div class="workflow-run-meta">
+                <span class="workflow-run-progress">
+                  <span tl:text="${run.completedSteps}">3</span>/<span tl:text="${run.totalSteps}">6</span> steps
+                </span>
+                <div class="workflow-run-progress-bar-sm">
+                  <div class="workflow-run-progress-fill-sm"
+                       tl:attr="style='width: ' + ${run.progressPercent} + '%'"></div>
+                </div>
+                <span class="workflow-run-time" tl:text="${run.startedAtDisplay}">2h ago</span>
+              </div>
+            </a>
+          </div>
+        </div>
+        <div tl:unless="${hasRuns}" class="empty-state">
+          <span class="empty-state-text">No workflow runs found.</span>
+        </div>
+      </div>
+
+      <!-- Definition browser -->
+      <div tl:if="${hasDefinitions}" class="workflow-definitions-section">
+        <div class="sidebar-section-label">Available Workflows</div>
+        <div class="workflow-definitions-grid">
+          <div tl:each="def : ${definitions}" class="workflow-definition-card card">
+            <div class="workflow-definition-header">
+              <span class="workflow-definition-name" tl:text="${def.name}">spec-and-implement</span>
+              <span class="workflow-definition-step-count"
+                    tl:text="${def.stepCount} + ' steps'">6 steps</span>
+              <span tl:if="${def.hasLoops}" class="workflow-loop-badge">Loop</span>
+            </div>
+            <p class="workflow-definition-desc" tl:text="${def.description}">Description</p>
+            <div class="workflow-definition-vars">
+              <span tl:each="v : ${def.variableNames}" class="workflow-var-chip" tl:text="${v}">FEATURE</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>

@@ -32,6 +32,8 @@ import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../turn_manager.dart';
+import '../workflow/workflow_definition_source.dart';
+import '../workflow/workflow_service.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
@@ -83,6 +85,8 @@ Router webRoutes(
   TaskProgressTracker? progressTracker,
   ThreadBindingStore? threadBindingStore,
   bool canvasEnabled = false,
+  WorkflowService? workflowService,
+  WorkflowDefinitionSource? workflowDefinitionSource,
 }) {
   final router = Router();
   final auditReader = appDisplay.dataDir != null ? AuditLogReader(dataDir: appDisplay.dataDir!) : null;
@@ -120,6 +124,7 @@ Router webRoutes(
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
       showCanvas: canvasEnabled,
+      showWorkflows: workflowService != null,
     );
   }
   final systemNav = registry.navItems(activePage: '');
@@ -138,6 +143,8 @@ Router webRoutes(
     taskEventService: taskEventService,
     progressTracker: progressTracker,
     threadBindingStore: threadBindingStore,
+    workflowService: workflowService,
+    definitionSource: workflowDefinitionSource,
     buildSidebarData: () => buildSidebarData(
       sessions,
       kvService: kvService,
@@ -566,6 +573,28 @@ Router webRoutes(
       return await tasksPage.handler(request, pageContext);
     } catch (e) {
       return _htmlError('Failed to load task detail: $e');
+    }
+  });
+
+  // Workflow detail sub-routes: /workflows/<runId> and /workflows/<runId>/steps/<stepIndex>
+  // The page registry registers an exact /workflows match; parameterized sub-paths need
+  // explicit entries here — same pattern as /tasks/<id> above.
+  router.get('/workflows/<runId>', (Request request, String runId) async {
+    try {
+      final workflowsPage = registry.resolve('/workflows');
+      if (workflowsPage == null) return _htmlNotFound('Workflows page not registered');
+      return await workflowsPage.handler(request, pageContext);
+    } catch (e) {
+      return _htmlError('Failed to load workflow detail: $e');
+    }
+  });
+  router.get('/workflows/<runId>/steps/<stepIndex>', (Request request, String runId, String stepIndex) async {
+    try {
+      final workflowsPage = registry.resolve('/workflows');
+      if (workflowsPage == null) return _htmlNotFound('Workflows page not registered');
+      return await workflowsPage.handler(request, pageContext);
+    } catch (e) {
+      return _htmlError('Failed to load workflow step detail: $e');
     }
   });
 

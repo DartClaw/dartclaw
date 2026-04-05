@@ -365,6 +365,97 @@ void main() {
         expect(task.type, TaskType.automation);
         expect(task.status, TaskStatus.running);
       });
+
+      group('workflowRunId and stepIndex', () {
+        test('toJson includes workflowRunId and stepIndex when set', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            workflowRunId: 'run-42',
+            stepIndex: 2,
+          );
+          final json = task.toJson();
+          expect(json['workflowRunId'], 'run-42');
+          expect(json['stepIndex'], 2);
+        });
+
+        test('toJson omits workflowRunId and stepIndex when null', () {
+          final task = createTask();
+          final json = task.toJson();
+          expect(json.containsKey('workflowRunId'), isFalse);
+          expect(json.containsKey('stepIndex'), isFalse);
+        });
+
+        test('fromJson parses workflowRunId and stepIndex', () {
+          final task = Task.fromJson({
+            'id': 'task-1',
+            'title': 'T',
+            'description': 'D',
+            'type': 'coding',
+            'status': 'draft',
+            'configJson': const {},
+            'createdAt': '2026-03-10T10:00:00Z',
+            'workflowRunId': 'run-42',
+            'stepIndex': 3,
+          });
+          expect(task.workflowRunId, 'run-42');
+          expect(task.stepIndex, 3);
+        });
+
+        test('fromJson defaults workflowRunId and stepIndex to null when absent', () {
+          final task = Task.fromJson({
+            'id': 'task-1',
+            'title': 'T',
+            'description': 'D',
+            'type': 'coding',
+            'status': 'draft',
+            'configJson': const {},
+            'createdAt': '2026-03-10T10:00:00Z',
+          });
+          expect(task.workflowRunId, isNull);
+          expect(task.stepIndex, isNull);
+        });
+
+        test('copyWith sets workflowRunId and stepIndex', () {
+          final task = createTask();
+          final updated = task.copyWith(workflowRunId: 'run-1', stepIndex: 0);
+          expect(updated.workflowRunId, 'run-1');
+          expect(updated.stepIndex, 0);
+        });
+
+        test('copyWith clears workflowRunId to null', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            workflowRunId: 'run-1',
+            stepIndex: 1,
+          );
+          final updated = task.copyWith(workflowRunId: null, stepIndex: null);
+          expect(updated.workflowRunId, isNull);
+          expect(updated.stepIndex, isNull);
+        });
+
+        test('copyWith without workflow fields preserves existing values', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            workflowRunId: 'run-1',
+            stepIndex: 2,
+          );
+          final updated = task.copyWith(title: 'Changed');
+          expect(updated.workflowRunId, 'run-1');
+          expect(updated.stepIndex, 2);
+        });
+      });
     });
   });
 }

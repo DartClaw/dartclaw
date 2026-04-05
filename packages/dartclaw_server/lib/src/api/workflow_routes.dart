@@ -1,0 +1,402 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        EventBus,
+        LoopIterationCompletedEvent,
+        ParallelGroupCompletedEvent,
+        Task,
+        TaskStatusChangedEvent,
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
+        WorkflowStepCompletedEvent;
+import 'package:logging/logging.dart';
+import 'package:shelf/shelf.dart';
+import 'package:shelf_router/shelf_router.dart';
+
+import '../task/task_service.dart';
+import '../workflow/workflow_definition_source.dart';
+import '../workflow/workflow_service.dart';
+import '../workflow/workflow_view_helpers.dart';
+import 'api_helpers.dart';
+
+final _log = Logger('WorkflowRoutes');
+
+/// Creates a [Router] exposing workflow lifecycle API endpoints.
+///
+/// All endpoints require authentication (handled by the server pipeline).
+/// Business logic delegated to [WorkflowService] — routes are thin
+/// request/response translators.
+Router workflowRoutes(
+  WorkflowService workflows,
+  TaskService tasks,
+  WorkflowDefinitionSource definitions, {
+  EventBus? eventBus,
+}) {
+  final router = Router();
+
+  // POST /api/workflows/run
+  router.post('/api/workflows/run', (Request request) async {
+    try {
+      final body = await readJsonObject(request);
+      if (body.error != null) return body.error!;
+
+      final definitionField = body.value!['definition'];
+      if (definitionField == null) {
+        return errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition');
+      }
+      if (definitionField is! String || definitionField.trim().isEmpty) {
+        return errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string');
+      }
+
+      final definition = definitions.getByName(definitionField.trim());
+      if (definition == null) {
+        return errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $definitionField');
+      }
+
+      final variablesField = body.value!['variables'];
+      if (variablesField != null && variablesField is! Map) {
+        return errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'});
+      }
+      final rawVariables = variablesField as Map? ?? const {};
+      final variables = <String, String>{
+        for (final entry in rawVariables.entries) entry.key.toString(): entry.value.toString(),
+      };
+
+      // Check for missing required variables (those without defaults).
+      final missing = <String>[];
+      for (final entry in definition.variables.entries) {
+        if (entry.value.required &&
+            entry.value.defaultValue == null &&
+            !variables.containsKey(entry.key)) {
+          missing.add(entry.key);
+        }
+      }
+      if (missing.isNotEmpty) {
+        return errorResponse(
+          400,
+          'INVALID_INPUT',
+          'Missing required variable(s): ${missing.join(', ')}',
+          {'missingVariables': missing},
+        );
+      }
+
+      final projectField = body.value!['project'];
+      final projectId = projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null;
+
+      final run = await workflows.start(definition, variables, projectId: projectId);
+      return jsonResponse(201, run.toJson());
+    } on ArgumentError catch (e) {
+      return errorResponse(400, 'INVALID_INPUT', e.message.toString());
+    } catch (e, st) {
+      _log.severe('Failed to start workflow', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
+    }
+  });
+
+  // GET /api/workflows/runs
+  router.get('/api/workflows/runs', (Request request) async {
+    try {
+      final params = request.url.queryParameters;
+      final statusParam = params['status'];
+      final status = statusParam != null ? WorkflowRunStatus.values.asNameMap()[statusParam] : null;
+      final definitionName = params['definition'];
+
+      final runs = await workflows.list(status: status, definitionName: definitionName);
+      return jsonResponse(200, runs.map((r) => r.toJson()).toList());
+    } catch (e, st) {
+      _log.severe('Failed to list workflow runs', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list workflow runs');
+    }
+  });
+
+  // GET /api/workflows/runs/<id>
+  router.get('/api/workflows/runs/<id>', (Request request, String id) async {
+    try {
+      final run = await workflows.get(id);
+      if (run == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final enriched = await _enrichRunDetail(run, tasks);
+      return jsonResponse(200, enriched);
+    } catch (e, st) {
+      _log.severe('Failed to get workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/pause
+  router.post('/api/workflows/runs/<id>/pause', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.pause(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to pause workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to pause workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/resume
+  router.post('/api/workflows/runs/<id>/resume', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.resume(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to resume workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/cancel
+  router.post('/api/workflows/runs/<id>/cancel', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      if (existing.status.terminal) {
+        return errorResponse(409, 'INVALID_TRANSITION', 'Workflow run is already in a terminal state: ${existing.status.name}');
+      }
+      await workflows.cancel(id);
+      return Response(204);
+    } catch (e, st) {
+      _log.severe('Failed to cancel workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run');
+    }
+  });
+
+  // GET /api/workflows/definitions
+  router.get('/api/workflows/definitions', (Request request) async {
+    try {
+      final defs = definitions.listAll();
+      return jsonResponse(200, defs.map(_definitionSummary).toList());
+    } catch (e, st) {
+      _log.severe('Failed to list workflow definitions', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list workflow definitions');
+    }
+  });
+
+  // GET /api/workflows/runs/<id>/events — per-run SSE stream.
+  router.get('/api/workflows/runs/<id>/events', (Request request, String id) async {
+    final bus = eventBus;
+    if (bus == null) {
+      return errorResponse(503, 'SERVICE_UNAVAILABLE', 'Event bus not configured');
+    }
+    return _workflowRunSseHandler(id, workflows, tasks, bus);
+  });
+
+  return router;
+}
+
+/// Enriches a [WorkflowRun] with per-step status and child task IDs.
+Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks) async {
+  WorkflowDefinition definition;
+  try {
+    definition = WorkflowDefinition.fromJson(run.definitionJson);
+  } catch (e) {
+    _log.warning('Failed to deserialize definitionJson for run ${run.id}: $e');
+    return run.toJson();
+  }
+
+  final allTasks = await tasks.list();
+  final childTasks = allTasks.where((t) => t.workflowRunId == run.id).toList();
+  final tasksByStepIndex = <int, Task>{
+    for (final t in childTasks)
+      if (t.stepIndex != null) t.stepIndex!: t,
+  };
+
+  final steps = <Map<String, dynamic>>[];
+  for (var i = 0; i < definition.steps.length; i++) {
+    final step = definition.steps[i];
+    final task = tasksByStepIndex[i];
+    steps.add({
+      'index': i,
+      'id': step.id,
+      'name': step.name,
+      'status': stepStatusFromTask(run, i, task),
+      'taskId': task?.id,
+    });
+  }
+
+  final childTaskIds = childTasks.map((t) => t.id).toList();
+  return run.toJson()
+    ..['steps'] = steps
+    ..['childTaskIds'] = childTaskIds;
+}
+
+Map<String, dynamic> _definitionSummary(WorkflowDefinition def) => {
+  'name': def.name,
+  'description': def.description,
+  'stepCount': def.steps.length,
+  'variables': {
+    for (final entry in def.variables.entries)
+      entry.key: {
+        'required': entry.value.required,
+        'description': entry.value.description,
+        'default': entry.value.defaultValue,
+      },
+  },
+  'hasLoops': def.loops.isNotEmpty,
+  'maxTokens': def.maxTokens,
+};
+
+/// Per-run SSE handler — streams workflow lifecycle and child task status events.
+Future<Response> _workflowRunSseHandler(
+  String runId,
+  WorkflowService workflows,
+  TaskService tasks,
+  EventBus eventBus,
+) async {
+  final run = await workflows.get(runId);
+  if (run == null) {
+    return Response.notFound(jsonEncode({'error': 'Workflow run not found: $runId'}));
+  }
+
+  final controller = StreamController<List<int>>();
+
+  // Track known child task IDs for TaskStatusChangedEvent filtering.
+  final childTaskIds = <String>{};
+  final allTasks = await tasks.list();
+  for (final t in allTasks) {
+    if (t.workflowRunId == runId) childTaskIds.add(t.id);
+  }
+
+  // Build connected payload with current run state and step statuses.
+  WorkflowDefinition definition;
+  try {
+    definition = WorkflowDefinition.fromJson(run.definitionJson);
+  } catch (e) {
+    _log.warning('Failed to deserialize definitionJson for run $runId: $e');
+    definition = WorkflowDefinition(
+      name: run.definitionName,
+      description: '',
+      steps: const [],
+      variables: const {},
+    );
+  }
+  final tasksByStepIndex = <int, Task>{
+    for (final t in allTasks.where((t) => t.workflowRunId == runId))
+      if (t.stepIndex != null) t.stepIndex!: t,
+  };
+  final stepsPayload = [
+    for (var i = 0; i < definition.steps.length; i++)
+      {
+        'index': i,
+        'id': definition.steps[i].id,
+        'name': definition.steps[i].name,
+        'status': stepStatusFromTask(run, i, tasksByStepIndex[i]),
+        'taskId': tasksByStepIndex[i]?.id,
+      },
+  ];
+  _sendSse(controller, {
+    'type': 'connected',
+    'run': {
+      'id': run.id,
+      'status': run.status.name,
+      'currentStepIndex': run.currentStepIndex,
+      'totalTokens': run.totalTokens,
+    },
+    'steps': stepsPayload,
+  });
+
+  // Subscribe to workflow lifecycle events.
+  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
+    _sendSse(controller, {
+      'type': 'workflow_status_changed',
+      'runId': event.runId,
+      'oldStatus': event.oldStatus.name,
+      'newStatus': event.newStatus.name,
+      if (event.errorMessage != null) 'errorMessage': event.errorMessage,
+    });
+  });
+
+  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    childTaskIds.add(event.taskId);
+    _sendSse(controller, {
+      'type': 'workflow_step_completed',
+      'runId': event.runId,
+      'stepId': event.stepId,
+      'stepIndex': event.stepIndex,
+      'totalSteps': event.totalSteps,
+      'taskId': event.taskId,
+      'success': event.success,
+      'tokenCount': event.tokenCount,
+    });
+  });
+
+  final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    _sendSse(controller, {
+      'type': 'parallel_group_completed',
+      'runId': event.runId,
+      'stepIds': event.stepIds,
+      'successCount': event.successCount,
+      'failureCount': event.failureCount,
+      'totalTokens': event.totalTokens,
+    });
+  });
+
+  final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    _sendSse(controller, {
+      'type': 'loop_iteration_completed',
+      'runId': event.runId,
+      'loopId': event.loopId,
+      'iteration': event.iteration,
+      'maxIterations': event.maxIterations,
+      'gateResult': event.gateResult,
+    });
+  });
+
+  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().where((e) => childTaskIds.contains(e.taskId)).listen(
+    (event) async {
+      final task = await tasks.get(event.taskId);
+      _sendSse(controller, {
+        'type': 'task_status_changed',
+        'taskId': event.taskId,
+        if (task?.stepIndex != null) 'stepIndex': task!.stepIndex,
+        'oldStatus': event.oldStatus.name,
+        'newStatus': event.newStatus.name,
+      });
+    },
+  );
+
+  controller.onCancel = () {
+    runStatusSub.cancel();
+    stepCompletedSub.cancel();
+    parallelSub.cancel();
+    loopSub.cancel();
+    taskStatusSub.cancel();
+  };
+
+  return Response.ok(
+    controller.stream,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  );
+}
+
+void _sendSse(StreamController<List<int>> controller, Map<String, dynamic> data) {
+  if (controller.isClosed) return;
+  try {
+    controller.add(utf8.encode('data: ${jsonEncode(data)}\n\n'));
+  } catch (_) {
+    // Client disconnected — cleaned up by onCancel.
+  }
+}

@@ -189,6 +189,10 @@ class TaskWiring {
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
+      kvService: _storage.kvService,
+      budgetConfig: config.tasks.budget,
+      eventBus: _eventBus,
+      dataDir: _dataDir,
     );
     _taskExecutor.start();
     _log.fine('TaskExecutor started');

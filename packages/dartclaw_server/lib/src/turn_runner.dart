@@ -49,6 +49,7 @@ class TurnRunner {
   final SseBroadcast? _sseBroadcast;
   final TurnGuardEvaluator _guardEvaluator;
   final TurnGovernanceEnforcer _governanceEnforcer;
+  final TaskToolFilterGuard? _taskToolFilterGuard;
   final LoopAction? _loopAction;
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
@@ -82,6 +83,7 @@ class TurnRunner {
     TurnStateStore? turnState,
     KvService? kv,
     GuardChain? guardChain,
+    TaskToolFilterGuard? taskToolFilterGuard,
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
@@ -137,6 +139,7 @@ class TurnRunner {
              eventBus: eventBus,
              budgetWarningNotifier: budgetWarningNotifier,
            ),
+       _taskToolFilterGuard = taskToolFilterGuard,
        _loopAction = loopAction,
        _stallTimeout = stallTimeout,
        _stallAction = stallAction,
@@ -343,6 +346,16 @@ class TurnRunner {
   set loopDetectionNotifier(Future<void> Function(String sessionId, LoopDetection detection, String action)? notifier) {
     _governanceEnforcer.loopDetectionNotifier = notifier;
   }
+
+  /// Updates the per-task tool allowlist on the underlying [TaskToolFilterGuard].
+  ///
+  /// Called by [TaskExecutor] before each task turn to activate filtering,
+  /// and after the turn (with null) to restore pass-through mode.
+  /// No-op when this runner has no [TaskToolFilterGuard].
+  void setTaskToolFilter(List<String>? allowedTools) {
+    _taskToolFilterGuard?.allowedTools = allowedTools;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

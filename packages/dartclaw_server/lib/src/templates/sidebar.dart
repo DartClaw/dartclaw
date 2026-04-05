@@ -120,10 +120,12 @@ String sidebarTemplate({
       'showSystemNav': systemNavItems.isNotEmpty,
       'showExtensionNav': extensionNavItems.isNotEmpty,
       'systemNavItems': systemNavItems.map((item) {
-        // Inject hidden badge span for the Tasks nav item (populated by JS via SSE).
+        // Inject hidden badge spans for Tasks and Workflows nav items (populated by JS via SSE).
         final labelHtml = item.label == 'Tasks'
             ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
-            : escapeHtml(item.label);
+            : item.label == 'Workflows'
+                ? '${escapeHtml(item.label)}<span id="workflows-badge" class="nav-badge" style="display:none"></span>'
+                : escapeHtml(item.label);
         return {
           'label': labelHtml,
           'href': item.href,

@@ -17,6 +17,7 @@ import 'pages/projects_page.dart';
 import 'pages/scheduling_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/tasks_page.dart';
+import 'pages/workflows_page.dart';
 
 void registerSystemDashboardPages(
   PageRegistry registry, {
@@ -40,6 +41,7 @@ void registerSystemDashboardPages(
   bool showScheduling = true,
   bool showTasks = true,
   bool showCanvas = false,
+  bool showWorkflows = false,
   ProjectService? projectService,
 }) {
   if (showHealth) {
@@ -87,5 +89,8 @@ void registerSystemDashboardPages(
   }
   if (projectService != null) {
     registry.register(ProjectsPage());
+  }
+  if (showWorkflows) {
+    registry.register(WorkflowsPage());
   }
 }

@@ -1,0 +1,119 @@
+<div class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div tl:utext="${topbar}">topbar</div>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content">
+    <div class="page-inner workflow-detail-page" tl:attr="data-run-id=${runId}">
+
+      <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
+
+      <!-- Workflow metadata card -->
+      <div class="workflow-meta-card card">
+        <div class="task-meta-grid">
+          <div class="task-meta-item">
+            <span class="task-meta-label">Workflow</span>
+            <span tl:text="${definitionName}">spec-and-implement</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Status</span>
+            <span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">running</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Started</span>
+            <span tl:text="${startedAtDisplay}">2h ago</span>
+          </div>
+          <div tl:if="${hasCompletedAt}" class="task-meta-item">
+            <span class="task-meta-label">Completed</span>
+            <span tl:text="${completedAtDisplay}">30m ago</span>
+          </div>
+          <div class="task-meta-item">
+            <span class="task-meta-label">Tokens</span>
+            <span tl:text="${totalTokens}">15,000</span>
+          </div>
+        </div>
+        <div tl:if="${hasError}" class="workflow-error-message">
+          <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+          <span tl:text="${errorMessage}">Error message</span>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="workflow-progress-section">
+        <div class="workflow-progress-label">
+          <span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps
+        </div>
+        <div class="workflow-progress-bar">
+          <div class="workflow-progress-fill" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="workflow-actions">
+        <button tl:if="${canPause}" type="button" class="btn btn-ghost"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/pause'"
+                hx-swap="none">
+          Pause
+        </button>
+        <button tl:if="${canResume}" type="button" class="btn btn-primary"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                hx-swap="none">
+          Resume
+        </button>
+        <button tl:if="${canCancel}" type="button" class="btn btn-danger"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/cancel'"
+                hx-swap="none"
+                hx-confirm="Cancel this workflow? Running tasks will be stopped.">
+          Cancel
+        </button>
+      </div>
+
+      <!-- Vertical pipeline -->
+      <div class="workflow-pipeline">
+        <div tl:each="step : ${steps}" class="workflow-step-wrapper">
+          <div class="workflow-step-connector" tl:unless="${stepStat.first}"></div>
+          <div tl:classappend="${step.isActiveStep} ? 'workflow-step-active' : ''"
+               class="workflow-step-card card"
+               tl:attr="data-step-index=${step.index},data-step-status=${step.status},data-step-id=${step.id}">
+            <div class="workflow-step-header" data-step-toggle="">
+              <span tl:classappend="'status-badge-' + ${step.status}" class="status-badge"
+                    tl:text="${step.statusLabel}">pending</span>
+              <span class="workflow-step-name" tl:text="${step.name}">Research</span>
+              <span tl:if="${step.isLoopStep}" class="workflow-loop-badge"
+                    tl:attr="data-loop-id=${step.loopId}"
+                    tl:text="'Iteration ' + ${step.loopIteration} + '/' + ${step.loopMaxIterations}">Iteration 1/3</span>
+              <span tl:if="${step.isParallel}" class="workflow-parallel-badge">Parallel</span>
+              <span class="workflow-step-type" tl:text="${step.typeLabel}">research</span>
+              <span tl:if="${step.taskId}" class="workflow-step-task-link">
+                <a tl:attr="href='/tasks/' + ${step.taskId}">View task</a>
+              </span>
+              <span class="workflow-step-expand-icon icon icon-chevron-down" aria-hidden="true"></span>
+            </div>
+            <div class="workflow-step-detail" tl:attr="id='step-detail-' + ${step.index}"
+                 style="display: none;">
+              <div class="workflow-step-detail-loading"
+                   tl:attr="hx-get='/workflows/' + ${runId} + '/steps/' + ${step.index},hx-trigger='intersect once',hx-swap='innerHTML'">
+                Loading step details...
+              </div>
+            </div>
+          </div>
+        </div>
+        <div tl:unless="${hasSteps}" class="empty-state-text">No steps defined.</div>
+      </div>
+
+      <!-- Shared context viewer -->
+      <div tl:if="${hasContext}" class="workflow-context-viewer card">
+        <div class="workflow-context-header" data-context-toggle="">
+          <span>Shared Context</span>
+          <span class="icon icon-chevron-down" aria-hidden="true"></span>
+        </div>
+        <div class="workflow-context-body" style="display: none;">
+          <div tl:each="entry : ${contextEntries}" class="workflow-context-entry">
+            <span class="workflow-context-key" tl:text="${entry.key}">key</span>
+            <span tl:classappend="${entry.isLong} ? 'workflow-context-value-long' : ''"
+                  class="workflow-context-value" tl:text="${entry.value}">value</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>

@@ -1280,6 +1280,42 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
     }
   }
 
+  var budget = defaults.budget;
+  final budgetRaw = tasksMap?['budget'];
+  if (budgetRaw is Map) {
+    final defaultMaxTokens = _parseInt(
+      'tasks.budget.default_max_tokens',
+      null,
+      budgetRaw['default_max_tokens'],
+      -1,
+      warns,
+    );
+    final warningThresholdRaw = budgetRaw['warning_threshold'];
+    var warningThreshold = defaults.budget.warningThreshold;
+    if (warningThresholdRaw != null) {
+      final parsed = switch (warningThresholdRaw) {
+        final double d => d,
+        final int i => i.toDouble(),
+        final String s => double.tryParse(s),
+        _ => null,
+      };
+      if (parsed != null && parsed >= 0.0 && parsed <= 1.0) {
+        warningThreshold = parsed;
+      } else {
+        warns.add(
+          'Invalid value for tasks.budget.warning_threshold: "$warningThresholdRaw" — using default '
+          '"${defaults.budget.warningThreshold}"',
+        );
+      }
+    }
+    budget = TaskBudgetConfig(
+      defaultMaxTokens: defaultMaxTokens > 0 ? defaultMaxTokens : null,
+      warningThreshold: warningThreshold,
+    );
+  } else if (budgetRaw != null) {
+    warns.add('Invalid type for tasks.budget: "${budgetRaw.runtimeType}" — using defaults');
+  }
+
   return TaskConfig(
     maxConcurrent: maxConcurrent,
     artifactRetentionDays: artifactRetentionDays,
@@ -1287,6 +1323,7 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
     worktreeBaseRef: worktreeBaseRef,
     worktreeStaleTimeoutHours: worktreeStaleTimeoutHours,
     worktreeMergeStrategy: worktreeMergeStrategy,
+    budget: budget,
   );
 }
 

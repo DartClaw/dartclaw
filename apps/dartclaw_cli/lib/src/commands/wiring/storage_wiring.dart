@@ -46,6 +46,7 @@ class StorageWiring {
   late MemoryFileService _memoryFile;
   late MemoryService _memory;
   late KvService _kvService;
+  late SqliteWorkflowRunRepository _workflowRunRepository;
   QmdManager? _qmdManager;
   late SearchBackend _searchBackend;
 
@@ -61,6 +62,7 @@ class StorageWiring {
   MemoryFileService get memoryFile => _memoryFile;
   MemoryService get memory => _memory;
   KvService get kvService => _kvService;
+  SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   QmdManager? get qmdManager => _qmdManager;
   SearchBackend get searchBackend => _searchBackend;
 
@@ -87,6 +89,7 @@ class StorageWiring {
       _taskEventService = TaskEventService(taskDb);
       _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
       _taskService = TaskService(taskRepository, eventBus: _eventBus, eventRecorder: _taskEventRecorder);
+      _workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
     } catch (e, st) {
       try {
         _searchDb.close();

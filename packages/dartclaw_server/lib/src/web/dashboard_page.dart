@@ -8,6 +8,8 @@ import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../templates/sidebar.dart';
+import '../workflow/workflow_definition_source.dart';
+import '../workflow/workflow_service.dart';
 
 /// Base class for pages rendered in the dashboard shell.
 abstract class DashboardPage {
@@ -47,6 +49,8 @@ class PageContext {
     this.taskEventService,
     this.progressTracker,
     this.threadBindingStore,
+    this.workflowService,
+    this.definitionSource,
     required Future<SidebarData> Function() buildSidebarData,
     required String Function() restartBannerHtml,
     required List<NavItem> Function({required String activePage}) buildNavItems,
@@ -68,6 +72,8 @@ class PageContext {
   final TaskEventService? taskEventService;
   final TaskProgressTracker? progressTracker;
   final ThreadBindingStore? threadBindingStore;
+  final WorkflowService? workflowService;
+  final WorkflowDefinitionSource? definitionSource;
   final Future<SidebarData> Function() _buildSidebarData;
   final String Function() _restartBannerHtml;
   final List<NavItem> Function({required String activePage}) _buildNavItems;

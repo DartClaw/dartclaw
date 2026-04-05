@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show ProjectStatus;
+import 'package:dartclaw_models/dartclaw_models.dart' show ProjectStatus, WorkflowRunStatus;
 
 import '../task/task_status.dart';
 
@@ -10,6 +10,7 @@ part 'governance_events.dart';
 part 'project_events.dart';
 part 'session_events.dart';
 part 'task_events.dart';
+part 'workflow_events.dart';
 
 /// Sealed event hierarchy for the DartClaw internal event bus.
 ///

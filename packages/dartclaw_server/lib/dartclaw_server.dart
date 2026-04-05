@@ -222,3 +222,14 @@ export 'src/web/dashboard_page.dart' show DashboardPage, PageContext;
 export 'src/web/page_registry.dart' show PageRegistry;
 export 'src/web/signal_pairing_routes.dart' show signalPairingRoutes;
 export 'src/web/web_routes.dart' show webRoutes;
+
+// Workflow engine
+export 'src/api/workflow_routes.dart' show workflowRoutes;
+export 'src/workflow/context_extractor.dart' show ContextExtractor;
+export 'src/workflow/gate_evaluator.dart' show GateEvaluator;
+export 'src/workflow/workflow_definition_source.dart'
+    show WorkflowDefinitionSource, InMemoryDefinitionSource;
+export 'src/workflow/workflow_executor.dart' show WorkflowExecutor;
+export 'src/workflow/workflow_registry.dart' show WorkflowRegistry, WorkflowSource;
+export 'src/workflow/workflow_service.dart' show WorkflowService;
+export 'src/workflow/workflow_view_helpers.dart' show buildLoopInfo, formatContextForDisplay, stepStatusFromTask;

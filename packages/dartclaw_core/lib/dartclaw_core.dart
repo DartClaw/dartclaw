@@ -119,7 +119,7 @@ export 'src/config/search_config.dart' show SearchConfig, SearchProviderEntry;
 export 'src/config/security_config.dart' show SecurityConfig;
 export 'src/config/server_config.dart' show ServerConfig;
 export 'src/config/session_config.dart' show SessionConfig;
-export 'src/config/task_config.dart' show TaskConfig;
+export 'src/config/task_config.dart' show TaskBudgetConfig, TaskConfig;
 export 'src/config/usage_config.dart' show UsageConfig;
 export 'src/config/workspace_config.dart' show WorkspaceConfig;
 // Config — top-level
@@ -206,7 +206,14 @@ export 'src/events/dartclaw_event.dart'
         EmergencyStopEvent,
         ProjectLifecycleEvent,
         ProjectStatusChangedEvent,
-        TaskEventCreatedEvent;
+        TaskEventCreatedEvent,
+        BudgetWarningEvent,
+        LoopIterationCompletedEvent,
+        ParallelGroupCompletedEvent,
+        WorkflowBudgetWarningEvent,
+        WorkflowLifecycleEvent,
+        WorkflowRunStatusChangedEvent,
+        WorkflowStepCompletedEvent;
 
 // Governance
 export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;
@@ -216,3 +223,14 @@ export 'src/governance/loop_detector.dart' show LoopDetector;
 export 'src/config/duration_parser.dart' show tryParseDuration;
 export 'src/utils/path_utils.dart' show expandHome;
 export 'src/worker/worker_state.dart' show WorkerState;
+
+// Workflow
+export 'src/workflow/built_in_workflows.dart' show builtInWorkflowYaml;
+export 'src/workflow/workflow_context.dart' show WorkflowContext;
+export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
+export 'src/workflow/workflow_definition_validator.dart'
+    show WorkflowDefinitionValidator, ValidationError, ValidationErrorType;
+export 'src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
+// Note: parseDuration (workflow/duration_parser.dart) is NOT re-exported here
+// because dartclaw_server has a local parseDuration in canvas_utils.dart.
+// The WorkflowDefinitionParser imports it directly from the src path.

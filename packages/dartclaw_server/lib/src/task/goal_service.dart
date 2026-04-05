@@ -15,6 +15,7 @@ class GoalService {
     required String title,
     required String mission,
     String? parentGoalId,
+    int? maxTokens,
     DateTime? now,
   }) async {
     if (parentGoalId != null) {
@@ -33,6 +34,7 @@ class GoalService {
       parentGoalId: parentGoalId,
       mission: mission,
       createdAt: now ?? DateTime.now(),
+      maxTokens: maxTokens != null && maxTokens > 0 ? maxTokens : null,
     );
     await _repo.insert(goal);
     return goal;

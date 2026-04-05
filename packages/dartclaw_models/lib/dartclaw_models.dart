@@ -7,6 +7,8 @@
 /// - [SessionKey] -- typed session identifier
 /// - [MemoryChunk] / [MemorySearchResult] -- memory system types
 /// - [Project] / [ProjectStatus] / [CloneStrategy] / [PrStrategy] -- project management
+/// - [WorkflowDefinition] / [WorkflowStep] / [WorkflowVariable] / [WorkflowLoop] -- workflow domain models
+/// - [WorkflowRun] / [WorkflowRunStatus] -- workflow execution state
 library;
 
 export 'src/models.dart'
@@ -19,3 +21,13 @@ export 'src/turn_trace.dart' show TurnTrace;
 export 'src/turn_trace_summary.dart' show TurnTraceSummary;
 export 'src/task_event.dart'
     show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
+export 'src/workflow_definition.dart'
+    show
+        WorkflowDefinition,
+        WorkflowStep,
+        WorkflowVariable,
+        WorkflowLoop,
+        StepReviewMode,
+        ExtractionType,
+        ExtractionConfig;
+export 'src/workflow_run.dart' show WorkflowRun, WorkflowRunStatus;

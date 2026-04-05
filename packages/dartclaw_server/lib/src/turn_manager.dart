@@ -137,6 +137,7 @@ class TurnManager {
     SessionService? sessions,
     KvService? kv,
     GuardChain? guardChain,
+    TaskToolFilterGuard? taskToolFilterGuard,
     SessionLockManager? lockManager,
     SessionResetService? resetService,
     ContextMonitor? contextMonitor,
@@ -157,6 +158,7 @@ class TurnManager {
              sessions: sessions,
              kv: kv,
              guardChain: guardChain,
+             taskToolFilterGuard: taskToolFilterGuard,
              lockManager: lockManager,
              resetService: resetService,
              contextMonitor: contextMonitor,
@@ -332,6 +334,14 @@ class TurnManager {
   Future<List<String>> detectAndCleanOrphanedTurns() => _primary.detectAndCleanOrphanedTurns();
 
   bool consumeRecoveryNotice(String sessionId) => _primary.consumeRecoveryNotice(sessionId);
+
+  /// Updates the per-task tool allowlist on the primary runner's guard.
+  ///
+  /// Used by [TaskExecutor] in single-harness mode — passes through to
+  /// the primary [TurnRunner.setTaskToolFilter].
+  void setTaskToolFilter(List<String>? allowedTools) {
+    _primary.setTaskToolFilter(allowedTools);
+  }
 
   Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {
     final activeRunner = _providerSessionRunners[sessionId];

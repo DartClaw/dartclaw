@@ -1,7 +1,29 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        AgentStateChangedEvent,
+        ArtifactCreated,
+        EventBus,
+        ProjectService,
+        ProjectStatusChangedEvent,
+        ProviderIdentity,
+        PushBack,
+        StatusChanged,
+        Task,
+        TaskErrorEvent,
+        TaskEventCreatedEvent,
+        TaskEventKind,
+        TaskStatus,
+        TaskStatusChangedEvent,
+        TokenUpdate,
+        ToolCalled,
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
+        WorkflowStepCompletedEvent;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -11,19 +33,26 @@ import '../task/task_service.dart';
 import '../task/tool_call_summary.dart';
 import '../templates/helpers.dart';
 import '../templates/task_event_display.dart';
+import '../workflow/workflow_service.dart';
 
 /// Creates a [Router] with the task SSE endpoint.
 ///
 /// `GET /api/tasks/events` streams [TaskStatusChangedEvent],
 /// [AgentStateChangedEvent], [ProjectStatusChangedEvent],
-/// [TaskProgressSnapshot] (task_progress), and [TaskEventCreatedEvent]
-/// (task_event) updates to connected clients via Server-Sent Events.
+/// [TaskProgressSnapshot] (task_progress), [TaskEventCreatedEvent]
+/// (task_event), and workflow sidebar updates to connected clients via
+/// Server-Sent Events.
+///
+/// When [workflows] is provided, the SSE stream also includes
+/// `activeWorkflows` in the `connected` payload and sends
+/// `workflow_sidebar_update` events on workflow state changes.
 Router taskSseRoutes(
   TaskService tasks,
   EventBus eventBus, {
   AgentObserver? observer,
   ProjectService? projects,
   TaskProgressTracker? progressTracker,
+  WorkflowService? workflows,
 }) {
   final router = Router();
 
@@ -36,6 +65,7 @@ Router taskSseRoutes(
       'type': 'connected',
       'reviewCount': reviewTasks.length,
       'activeTasks': await _buildActiveTasks(tasks),
+      if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
     };
     if (observer != null) {
       final pool = observer.poolStatus;
@@ -135,6 +165,43 @@ Router taskSseRoutes(
       }
     });
 
+    // Subscribe to workflow run status changes for sidebar updates.
+    StreamSubscription<WorkflowRunStatusChangedEvent>? workflowStatusSub;
+    if (workflows != null) {
+      workflowStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) async {
+        final activeWorkflows = await _buildActiveWorkflows(workflows, tasks);
+        final isTerminal = event.newStatus == WorkflowRunStatus.completed ||
+            event.newStatus == WorkflowRunStatus.failed ||
+            event.newStatus == WorkflowRunStatus.cancelled;
+        final data = jsonEncode({
+          'type': 'workflow_sidebar_update',
+          'activeWorkflows': activeWorkflows,
+          'notification': isTerminal,
+          'runId': event.runId,
+          'newStatus': event.newStatus.name,
+        });
+        if (!controller.isClosed) {
+          controller.add(utf8.encode('data: $data\n\n'));
+        }
+      });
+    }
+
+    // Subscribe to workflow step completions for sidebar step progress updates.
+    StreamSubscription<WorkflowStepCompletedEvent>? workflowStepSub;
+    if (workflows != null) {
+      workflowStepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) async {
+        final activeWorkflows = await _buildActiveWorkflows(workflows, tasks);
+        final data = jsonEncode({
+          'type': 'workflow_sidebar_update',
+          'activeWorkflows': activeWorkflows,
+          'notification': false,
+        });
+        if (!controller.isClosed) {
+          controller.add(utf8.encode('data: $data\n\n'));
+        }
+      });
+    }
+
     // Clean up on client disconnect.
     controller.onCancel = () {
       taskSub.cancel();
@@ -142,6 +209,8 @@ Router taskSseRoutes(
       projectSub.cancel();
       progressSub?.cancel();
       taskEventSub.cancel();
+      workflowStatusSub?.cancel();
+      workflowStepSub?.cancel();
     };
 
     return Response.ok(
@@ -156,6 +225,47 @@ Router taskSseRoutes(
   });
 
   return router;
+}
+
+/// Builds lightweight workflow run summaries for sidebar display.
+///
+/// Returns running and paused runs with step progress counts. Each entry
+/// includes `completedSteps` / `totalSteps` derived from child tasks.
+/// Returns empty list when [workflows] is null (workflows not configured).
+Future<List<Map<String, dynamic>>> _buildActiveWorkflows(
+  WorkflowService workflows,
+  TaskService tasks,
+) async {
+  final running = await workflows.list(status: WorkflowRunStatus.running);
+  final paused = await workflows.list(status: WorkflowRunStatus.paused);
+  final activeRuns = [...running, ...paused];
+
+  if (activeRuns.isEmpty) return [];
+
+  final allTasks = await tasks.list();
+  return activeRuns.map((WorkflowRun run) {
+    WorkflowDefinition? definition;
+    try {
+      definition = WorkflowDefinition.fromJson(run.definitionJson);
+    } catch (_) {}
+    final totalSteps = definition?.steps.length ?? 0;
+    final childTasks = allTasks.where((Task t) => t.workflowRunId == run.id);
+    // Use distinct step indices to avoid overcounting in loop workflows.
+    final completedStepIndices = childTasks
+        .where((Task t) => t.status == TaskStatus.accepted && t.stepIndex != null)
+        .map((Task t) => t.stepIndex!)
+        .toSet()
+        .length;
+    final completedSteps = totalSteps > 0 ? completedStepIndices.clamp(0, totalSteps) : 0;
+
+    return {
+      'id': run.id,
+      'definitionName': run.definitionName,
+      'status': run.status.name,
+      'completedSteps': completedSteps,
+      'totalSteps': totalSteps,
+    };
+  }).toList();
 }
 
 Future<List<Map<String, dynamic>>> _buildActiveTasks(TaskService tasks) async {

@@ -286,6 +286,39 @@ void main() {
         expect(await repository.getArtifactById(artifact.id), isNull);
       });
     });
+
+    group('workflow column migration', () {
+      test('index idx_tasks_workflow_run_id is created', () {
+        final rows = db.select(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_tasks_workflow_run_id'",
+        );
+        expect(rows.length, 1);
+      });
+
+      test('tasks with workflowRunId and stepIndex can be inserted and read', () async {
+        final task = Task(
+          id: 'task-wf',
+          title: 'Workflow task',
+          description: 'A task created by a workflow',
+          type: TaskType.research,
+          createdAt: DateTime.parse('2026-01-01T10:00:00Z'),
+          workflowRunId: 'run-99',
+          stepIndex: 2,
+        );
+        await repository.insert(task);
+        final loaded = await repository.getById(task.id);
+        expect(loaded!.workflowRunId, 'run-99');
+        expect(loaded.stepIndex, 2);
+      });
+
+      test('existing tasks without workflow columns read correctly (null values)', () async {
+        final task = _task(id: 'task-no-wf');
+        await repository.insert(task);
+        final loaded = await repository.getById(task.id);
+        expect(loaded!.workflowRunId, isNull);
+        expect(loaded.stepIndex, isNull);
+      });
+    });
   });
 }
 

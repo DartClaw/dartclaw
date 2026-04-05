@@ -13,6 +13,7 @@ import 'package:shelf_static/shelf_static.dart';
 
 import 'api/agent_routes.dart';
 import 'api/config_api_routes.dart';
+import 'api/workflow_routes.dart';
 import 'api/config_routes.dart';
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
@@ -67,6 +68,8 @@ import 'web/system_pages.dart';
 import 'web/web_routes.dart';
 import 'web/web_utils.dart';
 import 'web/whatsapp_pairing_routes.dart';
+import 'workflow/workflow_definition_source.dart';
+import 'workflow/workflow_service.dart';
 import 'workspace/workspace_git_sync.dart';
 
 /// Shelf-based HTTP server composing all DartClaw routes and middleware.
@@ -124,6 +127,8 @@ class DartclawServer {
   final TaskProgressTracker? _progressTracker;
   final GoogleChatSpaceEventsWiring? _spaceEventsWiring;
   final ThreadBindingStore? _threadBindingStore;
+  final WorkflowService? _workflowService;
+  final WorkflowDefinitionSource? _workflowDefinitionSource;
 
   // Display params — all final
   final ContentGuardDisplayParams _contentGuardDisplay;
@@ -194,6 +199,8 @@ class DartclawServer {
     required TaskProgressTracker? progressTracker,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
     required ThreadBindingStore? threadBindingStore,
+    required WorkflowService? workflowService,
+    required WorkflowDefinitionSource? workflowDefinitionSource,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
     required SchedulingDisplayParams schedulingDisplay,
@@ -249,6 +256,8 @@ class DartclawServer {
        _progressTracker = progressTracker,
        _spaceEventsWiring = spaceEventsWiring,
        _threadBindingStore = threadBindingStore,
+       _workflowService = workflowService,
+       _workflowDefinitionSource = workflowDefinitionSource,
        _contentGuardDisplay = contentGuardDisplay,
        _heartbeatDisplay = heartbeatDisplay,
        _schedulingDisplay = schedulingDisplay,
@@ -309,6 +318,8 @@ class DartclawServer {
     required TaskProgressTracker? progressTracker,
     required GoogleChatSpaceEventsWiring? spaceEventsWiring,
     required ThreadBindingStore? threadBindingStore,
+    required WorkflowService? workflowService,
+    required WorkflowDefinitionSource? workflowDefinitionSource,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
     required SchedulingDisplayParams schedulingDisplay,
@@ -365,6 +376,8 @@ class DartclawServer {
       progressTracker: progressTracker,
       spaceEventsWiring: spaceEventsWiring,
       threadBindingStore: threadBindingStore,
+      workflowService: workflowService,
+      workflowDefinitionSource: workflowDefinitionSource,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
@@ -406,6 +419,7 @@ class DartclawServer {
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
+      showWorkflows: workflowService != null,
       projectService: projectService,
     );
 
@@ -583,6 +597,7 @@ class DartclawServer {
     _mountGoalRoutes(router);
     _mountProjectRoutes(router);
     _mountTaskRoutes(router);
+    _mountWorkflowRoutes(router);
     _mountGoogleChatSubscriptionRoutes(router);
     _mountAgentRoutes(router);
     _mountSessionRoutes(router);
@@ -747,6 +762,7 @@ class DartclawServer {
         observer: _agentObserver,
         projects: _projectService,
         progressTracker: _progressTracker,
+        workflows: _workflowService,
       );
       router.mount('/', taskSseRouter.call);
       final taskRouter = taskRoutes(
@@ -767,6 +783,16 @@ class DartclawServer {
     final ts = _traceService;
     if (ts != null) {
       router.mount('/', traceRoutes(ts).call);
+    }
+  }
+
+  void _mountWorkflowRoutes(Router router) {
+    final wf = _workflowService;
+    final ts = _taskService;
+    final ds = _workflowDefinitionSource;
+    if (wf != null && ts != null && ds != null) {
+      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus);
+      router.mount('/', workflowRouter.call);
     }
   }
 
@@ -879,6 +905,8 @@ class DartclawServer {
       progressTracker: _progressTracker,
       threadBindingStore: _threadBindingStore,
       canvasEnabled: _canvasService != null,
+      workflowService: _workflowService,
+      workflowDefinitionSource: _workflowDefinitionSource,
     );
     router.mount('/', webRouter.call);
   }

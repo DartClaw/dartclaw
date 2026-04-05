@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.0]
+
+Workflow Platform — deterministic multi-step agent orchestration in compiled Dart. Replaces LLM-driven prompt choreography with a `WorkflowExecutor` that uses `Future.wait()` for parallelism, `try/catch` for error handling, and real process control for stuck detection. 12 stories across 4 phases: foundation → engine core → content & refinements → workflow UI.
+
+### Added
+
+- **Workflow data model + YAML parsing** (S02): `WorkflowDefinition`, `WorkflowStep`, `WorkflowVariable`, `WorkflowContext`, `WorkflowRun` models. YAML parser with schema validation (required fields, unique step IDs, valid variable references, gate syntax, loop constraints). `{{variable}}` and `{{context.key}}` template engine. `WorkflowRun` persistence in SQLite
+- **WorkflowExecutor — sequential execution** (S03): Processes steps sequentially, resolves prompt templates against `WorkflowContext`, creates Tasks via `TaskService`, waits for completion, extracts context outputs (artifact-to-context mapping). State machine: `pending → running → paused → completed/failed/cancelled`. Crash recovery resumes from last completed step. Gate expressions block steps when conditions not met
+- **Parallel step groups** (S04): Contiguous `parallel: true` steps collected into groups and executed concurrently via `Future.wait()`, bounded by `HarnessPool` capacity. Results merged in definition order. Partial failure: other steps complete, workflow pauses. Resume re-runs only failed steps (successful outputs preserved)
+- **Iterative loops** (S04): `maxIterations` circuit breaker, `exitGate` (agent-evaluated exit condition), sequential step execution per iteration. Context accumulates per iteration (`loop.<id>.iteration` counter). Pauses if `maxIterations` reached without gate passing
+- **Workflow API routes** (S05): `POST /api/workflows/run`, `GET /api/workflows/runs`, `GET /api/workflows/runs/<id>`, pause/resume/cancel endpoints, `GET /api/workflows/definitions`. Auth required on all endpoints
+- **5 built-in workflows** (S06): `spec-and-implement` (6 steps), `research-and-evaluate` (4 steps), `fix-bug` (5 steps), `refactor` (4 steps), `review-and-remediate` (4 steps with iterative loop). Evaluator calibration (anti-leniency, structured grading, acceptance criteria reference). `WorkflowRegistry` with custom workflow discovery from workspace directories
+- **CLI workflow commands** (S07): `dartclaw workflow list`, `run <name> --var KEY=VALUE`, `status <runId>`. Structured machine-parseable progress output. Exit codes: 0=completed, 1=failed, 2=paused. Review steps auto-accepted in headless mode
+- **Per-task token budget enforcement** (S01): `maxTokens` on Task model. 80% warning (`BudgetWarningEvent` + agent system message), 100% hard-stop (`budget_exceeded` status + `BudgetArtifact`). `tasks.budget.*` config section. Fail-safe open policy
+- **Per-task autonomy dial** (S08): `allowedTools` (tool subset restriction), `reviewMode` (`auto-accept`/`mandatory`/`coding-only`), `model` override per task. "Advanced" section in New Task dialog
+- **Auto-retry with loop detection** (S09): `maxRetries` on Task (opt-in). Re-queues failed tasks with error context in prompt. Same error class on consecutive attempts → permanent failure. Per-retry budget reset. Workflow pauses only after all retries exhausted
+- **Workflow picker** (S10): Tab switcher in New Task dialog: "Single Task" | "Workflow". Variable input form generated from definition, project selector for scoped steps
+- **Workflow run detail page** (S11): Vertical pipeline visualization at `/workflows/<runId>`. Per-step status badges, live SSE updates, expandable task chat panels, progress bar, context viewer, loop iteration indicator, pause/resume/cancel actions
+- **Workflow management page + sidebar** (S12): Run listing with status/definition filtering, definition browser. Active workflows in sidebar with step progress indicator, notification badges, link to detail page. SSE for live sidebar updates
+- **Workflow-level budget warnings** (gap fix H2): `WorkflowBudgetWarningEvent` fires once at 80% of `maxTokens` ceiling before hard-stop at 100%
+- **Per-task tool filter guard** (`dartclaw_security`): `TaskToolFilterGuard` enforces `allowedTools` restriction in the guard pipeline
+
+### Fixed
+
+- **Parallel-group resume skipped failed steps** (gap fix H1): `currentStepIndex` was advanced past the group before checking failures. Now stays at group start on failure; resume detects `_parallel.failed.stepIds` and re-executes only those steps
+- **Loop-step resume replayed entire iteration** (gap fix M1): Persists `_loop.current.stepId` on failure. Resume skips already-completed steps within the iteration, re-runs from the failed step. Crash recovery still re-runs the full iteration (distinct from user resume)
+- **Executor crashes left runs stuck in `running`** (gap fix M2): Unexpected exceptions in `_spawnExecutor()` now transition the run to `WorkflowRunStatus.failed` with error message and fire `WorkflowRunStatusChangedEvent`
+- **Loop workflows showed impossible progress** (gap fix M3): Management page and sidebar counted raw accepted tasks instead of unique step indices. Loop iterations overcounted (e.g., "5/4 steps"). Now uses distinct `stepIndex` values, clamped to `totalSteps`
+
+### Changed
+
+- **Version display**: Updated from 0.14.7 to 0.15.0
+- **Architecture docs**: `system-architecture.md`, `data-model.md`, `control-protocol.md`, `security-architecture.md` updated to "Current through: 0.15"
+- **Public architecture guide**: Updated to "Current through: 0.15"
+- **Ubiquitous language**: 10 workflow terms added (Workflow, Workflow Run, Workflow Step, Workflow Context, Workflow Definition, Loop Iteration, Parallel Group, Exit Gate, WorkflowExecutor, WorkflowRegistry)
+- **Feature comparison**: Workflow engine marked as shipped in 0.15
+
+---
+
 ## [0.14.7]
 
 Preparatory Refactoring — internal structural improvements ahead of 0.15 Workflow Platform. ~7,300 lines removed, ~1,300 added across 68 files in 9 packages. Pure SRP-driven file splits, base class extraction, pattern consolidation, and test double deduplication. Zero behavioral changes, zero public API changes, zero barrel export changes.

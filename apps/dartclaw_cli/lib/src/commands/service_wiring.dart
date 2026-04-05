@@ -277,6 +277,34 @@ class ServiceWiring {
     // 7. Tasks (post-server) — executor, artifacts, observer — need live turns.
     await task.wirePostServer(turns: serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
 
+    // Workflow service — wired after task executor so TaskService is live.
+    final workflowService = WorkflowService(
+      repository: storage.workflowRunRepository,
+      taskService: storage.taskService,
+      messageService: storage.messages,
+      eventBus: eventBus,
+      kvService: storage.kvService,
+      dataDir: dataDir,
+    );
+    await workflowService.recoverIncompleteRuns();
+
+    // Workflow registry — load built-in workflows, then discover custom ones
+    // from workspace and per-project directories.
+    final workflowRegistry = WorkflowRegistry(
+      parser: WorkflowDefinitionParser(),
+      validator: WorkflowDefinitionValidator(),
+    );
+    workflowRegistry.loadBuiltIn();
+    await workflowRegistry.loadFromDirectory(
+      p.join(config.workspaceDir, 'workflows'),
+    );
+    for (final projectDef in config.projects.definitions.values) {
+      final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
+      await workflowRegistry.loadFromDirectory(
+        p.join(projectCloneDir, 'workflows'),
+      );
+    }
+
     // Thread binding reconciliation — prune bindings for terminal tasks.
     final threadBindingStore = channel.threadBindingStore;
     ThreadBindingLifecycleManager? lifecycleManager;
@@ -377,6 +405,8 @@ class ServiceWiring {
       ..baseRef = config.tasks.worktreeBaseRef
       ..spaceEventsWiring = channel.spaceEventsWiring
       ..threadBindingStore = channel.threadBindingStore
+      ..workflowService = workflowService
+      ..workflowDefinitionSource = workflowRegistry
       ..schedulingDisplay = SchedulingDisplayParams(
         jobs: scheduling.displayJobs,
         systemJobNames: scheduling.systemJobNames,
@@ -502,6 +532,7 @@ class ServiceWiring {
       projectService: project.projectService,
       shutdownExtras: () async {
         lifecycleManager?.dispose();
+        await workflowService.dispose();
         await task.dispose();
         await channel.taskNotificationSubscriber?.dispose();
         await security.dispose();

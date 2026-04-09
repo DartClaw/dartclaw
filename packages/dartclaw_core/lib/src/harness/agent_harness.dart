@@ -31,6 +31,13 @@ abstract class AgentHarness {
   /// Whether this harness reports cached token counts.
   bool get supportsCachedTokens => false;
 
+  /// Whether this harness supports continuing an existing conversation session.
+  ///
+  /// When true, multi-prompt workflow steps can send follow-up turns in the
+  /// same session (via `resume: true`). When false, multi-prompt steps targeting
+  /// this provider type are rejected at workflow load time.
+  bool get supportsSessionContinuity => false;
+
   /// Current lifecycle state of the harness.
   WorkerState get state;
 

@@ -101,9 +101,9 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
-        const WorkflowStep(id: 'p3', name: 'P3', prompt: 'Do p3', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+        const WorkflowStep(id: 'p3', name: 'P3', prompts: ['Do p3'], parallel: true),
       ],
     );
 
@@ -133,8 +133,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 
@@ -163,9 +163,9 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
-        const WorkflowStep(id: 'p3', name: 'P3', prompt: 'Do p3', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
+        const WorkflowStep(id: 'p3', name: 'P3', prompts: ['Do p3'], parallel: true),
       ],
     );
 
@@ -209,8 +209,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 
@@ -238,15 +238,15 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
         const WorkflowStep(
           id: 'p2',
           name: 'P2',
-          prompt: 'Do p2',
+          prompts: ['Do p2'],
           parallel: true,
           gate: 'approved == true',
         ),
-        const WorkflowStep(id: 'p3', name: 'P3', prompt: 'Do p3', parallel: true),
+        const WorkflowStep(id: 'p3', name: 'P3', prompts: ['Do p3'], parallel: true),
       ],
     );
 
@@ -280,8 +280,8 @@ void main() {
       description: 'Test',
       maxTokens: 100,
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 
@@ -312,10 +312,10 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'seq1', name: 'Seq1', prompt: 'Do seq1'),
-        const WorkflowStep(id: 'par1', name: 'Par1', prompt: 'Do par1', parallel: true),
-        const WorkflowStep(id: 'par2', name: 'Par2', prompt: 'Do par2', parallel: true),
-        const WorkflowStep(id: 'seq2', name: 'Seq2', prompt: 'Do seq2'),
+        const WorkflowStep(id: 'seq1', name: 'Seq1', prompts: ['Do seq1']),
+        const WorkflowStep(id: 'par1', name: 'Par1', prompts: ['Do par1'], parallel: true),
+        const WorkflowStep(id: 'par2', name: 'Par2', prompts: ['Do par2'], parallel: true),
+        const WorkflowStep(id: 'seq2', name: 'Seq2', prompts: ['Do seq2']),
       ],
     );
 
@@ -345,8 +345,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 
@@ -380,8 +380,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 
@@ -413,8 +413,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'p1', name: 'P1', prompt: 'Do p1', parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompt: 'Do p2', parallel: true),
+        const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true),
       ],
     );
 

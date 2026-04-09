@@ -158,15 +158,21 @@ class CliWorkflowWiring {
       repository: workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
+      turnManager: turns,
       eventBus: eventBus,
       kvService: kvService,
       dataDir: dataDir,
     );
 
     // Registry — load built-in workflows, then discover custom ones.
+    final continuityProviders = pool.runners
+        .where((r) => r.harness.supportsSessionContinuity)
+        .map((r) => r.providerId)
+        .toSet();
     registry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(),
+      continuityProviders: continuityProviders,
     );
     registry.loadBuiltIn();
     await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'));

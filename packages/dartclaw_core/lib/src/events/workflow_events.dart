@@ -195,3 +195,98 @@ final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
       'LoopIterationCompletedEvent(run: $runId, loop: $loopId, '
       'iteration: $iteration/$maxIterations, gate: $gateResult)';
 }
+
+/// Fired when a single iteration of a map/fan-out step completes.
+final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the map step.
+  final String stepId;
+
+  /// 0-based index of this iteration in the collection.
+  final int iterationIndex;
+
+  /// Total number of items in the collection.
+  final int totalIterations;
+
+  /// Item's `id` field if present (e.g. "s01"). Null if items have no `id`.
+  final String? itemId;
+
+  /// Task that executed this iteration.
+  final String taskId;
+
+  /// Whether the iteration completed successfully.
+  final bool success;
+
+  /// Tokens consumed by this iteration.
+  final int tokenCount;
+
+  @override
+  final DateTime timestamp;
+
+  MapIterationCompletedEvent({
+    required this.runId,
+    required this.stepId,
+    required this.iterationIndex,
+    required this.totalIterations,
+    this.itemId,
+    required this.taskId,
+    required this.success,
+    required this.tokenCount,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'MapIterationCompletedEvent(run: $runId, step: $stepId, '
+      'iter: $iterationIndex/$totalIterations, task: $taskId, success: $success)';
+}
+
+/// Fired when all iterations of a map/fan-out step have settled.
+final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the map step.
+  final String stepId;
+
+  /// Human-readable name of the step.
+  final String stepName;
+
+  /// Total number of items in the collection.
+  final int totalIterations;
+
+  /// Number of iterations that completed successfully.
+  final int successCount;
+
+  /// Number of iterations that failed.
+  final int failureCount;
+
+  /// Number of iterations that were cancelled (e.g. due to budget exhaustion).
+  final int cancelledCount;
+
+  /// Aggregate tokens consumed across all completed iterations.
+  final int totalTokens;
+
+  @override
+  final DateTime timestamp;
+
+  MapStepCompletedEvent({
+    required this.runId,
+    required this.stepId,
+    required this.stepName,
+    required this.totalIterations,
+    required this.successCount,
+    required this.failureCount,
+    required this.cancelledCount,
+    required this.totalTokens,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'MapStepCompletedEvent(run: $runId, step: $stepId, '
+      'total: $totalIterations, ok: $successCount, fail: $failureCount, '
+      'cancelled: $cancelledCount, tokens: $totalTokens)';
+}

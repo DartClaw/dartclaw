@@ -27,6 +27,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |
+| [Workflows](workflows.md) | Writing custom workflows, progressive refinement, YAML field reference, built-in workflows |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
 | [Canvas](canvas.md) | Shareable visual canvas for workshops: share links, projector display, task board, stats |
 | [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |

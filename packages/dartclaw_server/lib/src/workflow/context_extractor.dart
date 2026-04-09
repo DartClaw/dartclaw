@@ -2,7 +2,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show MessageService, Task, WorkflowStep, ExtractionConfig, ExtractionType;
+    show
+        MessageService,
+        OutputConfig,
+        OutputFormat,
+        SchemaValidator,
+        Task,
+        WorkflowStep,
+        ExtractionConfig,
+        ExtractionType,
+        extractJson,
+        extractLines,
+        schemaPresets;
 
 import '../task/task_service.dart';
 import 'package:logging/logging.dart';
@@ -25,14 +36,17 @@ class ContextExtractor {
   final TaskService _taskService;
   final MessageService _messageService;
   final String _dataDir;
+  final SchemaValidator _schemaValidator;
 
   ContextExtractor({
     required TaskService taskService,
     required MessageService messageService,
     required String dataDir,
+    SchemaValidator? schemaValidator,
   }) : _taskService = taskService,
        _messageService = messageService,
-       _dataDir = dataDir;
+       _dataDir = dataDir,
+       _schemaValidator = schemaValidator ?? const SchemaValidator();
 
   /// Extracts context outputs for the given [step] from the completed [task].
   ///
@@ -40,7 +54,7 @@ class ContextExtractor {
   Future<Map<String, dynamic>> extract(WorkflowStep step, Task task) async {
     final outputs = <String, dynamic>{};
 
-    // 1. Explicit ExtractionConfig takes priority.
+    // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
     if (step.extraction != null && step.contextOutputs.isNotEmpty) {
       final extracted = await _applyExtractionConfig(step.extraction!, task);
       if (extracted != null) {
@@ -48,9 +62,47 @@ class ContextExtractor {
       }
     }
 
-    // 2. Convention-based extraction for each declared output key not yet extracted.
+    // 2. For each declared output key not yet extracted.
     for (final outputKey in step.contextOutputs) {
       if (outputs.containsKey(outputKey)) continue;
+
+      // Determine output config for this key.
+      final config = step.outputs?[outputKey];
+
+      if (config != null && config.format != OutputFormat.text) {
+        // Format-aware extraction (json or lines).
+        final rawContent = await _extractRawContent(step, task, outputKey);
+        if (rawContent == null || rawContent.isEmpty) {
+          _log.warning(
+            'No raw content for format-aware extraction of "$outputKey" '
+            'from step "${step.id}" (task ${task.id})',
+          );
+          outputs[outputKey] = '';
+          continue;
+        }
+
+        switch (config.format) {
+          case OutputFormat.json:
+            try {
+              final parsed = extractJson(rawContent);
+              // Soft validation if schema is present.
+              _softValidate(parsed, config, step.id, outputKey);
+              outputs[outputKey] = parsed; // Store as Map/List, not String.
+            } on FormatException catch (e) {
+              _log.severe(
+                'JSON extraction failed for "$outputKey" from step "${step.id}": $e',
+              );
+              rethrow;
+            }
+          case OutputFormat.lines:
+            outputs[outputKey] = extractLines(rawContent);
+          case OutputFormat.text:
+            break; // Unreachable — guarded above.
+        }
+        continue;
+      }
+
+      // Fall through to convention-based extraction (text format or no config).
 
       // Try agent convention (## Context Output) first.
       final conventionValue = await _extractFromAgentConvention(task, outputKey);
@@ -97,6 +149,64 @@ class ContextExtractor {
     return outputs;
   }
 
+  /// Extracts raw text content for format-aware processing.
+  ///
+  /// Priority: explicit extraction config → agent convention → last assistant message → first .md artifact.
+  Future<String?> _extractRawContent(
+    WorkflowStep step,
+    Task task,
+    String outputKey,
+  ) async {
+    // 1. Explicit extraction config.
+    if (step.extraction != null) {
+      return _applyExtractionConfig(step.extraction!, task);
+    }
+
+    // 2. Agent convention (## Context Output).
+    final convention = await _extractFromAgentConvention(task, outputKey);
+    if (convention != null) return convention;
+
+    // 3. Last assistant message content (full text for JSON extraction).
+    if (task.sessionId != null) {
+      final messages = await _messageService.getMessagesTail(
+        task.sessionId!,
+        count: 5,
+      );
+      final lastAssistant = messages.where((m) => m.role == 'assistant').lastOrNull;
+      if (lastAssistant != null) return lastAssistant.content;
+    }
+
+    // 4. First .md artifact.
+    return _extractFirstMdArtifact(task);
+  }
+
+  /// Soft-validates parsed JSON against the output config's schema.
+  ///
+  /// Logs warnings but never throws.
+  void _softValidate(
+    Object parsed,
+    OutputConfig config,
+    String stepId,
+    String outputKey,
+  ) {
+    Map<String, dynamic>? schema;
+
+    if (config.presetName != null) {
+      schema = schemaPresets[config.presetName]?.schema;
+    } else if (config.inlineSchema != null) {
+      schema = config.inlineSchema;
+    }
+
+    if (schema == null) return;
+
+    final warnings = _schemaValidator.validate(parsed, schema);
+    for (final w in warnings) {
+      _log.warning(
+        'Schema validation for "$outputKey" in step "$stepId": $w',
+      );
+    }
+  }
+
   /// Dispatches to the appropriate extraction handler based on [config.type].
   Future<String?> _applyExtractionConfig(ExtractionConfig config, Task task) async {
     switch (config.type) {
@@ -133,10 +243,9 @@ class ContextExtractor {
     if (task.sessionId == null) return null;
 
     final messages = await _messageService.getMessagesTail(task.sessionId!, count: 50);
-    final lastAssistant = messages.lastWhere(
-      (m) => m.role == 'assistant',
-      orElse: () => throw StateError('no assistant message'),
-    );
+    final assistants = messages.where((m) => m.role == 'assistant');
+    if (assistants.isEmpty) return null;
+    final lastAssistant = assistants.last;
 
     // Find ## Context Output section.
     final content = lastAssistant.content;

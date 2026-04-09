@@ -644,6 +644,72 @@ void main() {
     expect(processed, isTrue);
     expect((await tasks.get('task-no-trace'))!.status, TaskStatus.review);
   });
+
+  group('prompt scope selection', () {
+    late _CapturingTurnManager capturing;
+    late TaskExecutor scopeExecutor;
+
+    setUp(() {
+      capturing = _CapturingTurnManager(messages, worker);
+      scopeExecutor = TaskExecutor(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        turns: capturing,
+        artifactCollector: collector,
+        pollInterval: const Duration(milliseconds: 10),
+      );
+    });
+
+    tearDown(() async {
+      await scopeExecutor.stop();
+    });
+
+    test('regular task gets task scope', () async {
+      worker.responseText = 'Done.';
+      await tasks.create(
+        id: 'task-scope-regular',
+        title: 'Scope test',
+        description: 'Regular task.',
+        type: TaskType.automation,
+        autoStart: true,
+      );
+      await scopeExecutor.pollOnce();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(capturing.lastPromptScope, PromptScope.task);
+    });
+
+    test('evaluator task (configJson evaluator=true) gets evaluator scope', () async {
+      worker.responseText = 'Done.';
+      await tasks.create(
+        id: 'task-scope-eval',
+        title: 'Evaluator task',
+        description: 'Evaluator step.',
+        type: TaskType.automation,
+        configJson: {'evaluator': true},
+        autoStart: true,
+      );
+      await scopeExecutor.pollOnce();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(capturing.lastPromptScope, PromptScope.evaluator);
+    });
+
+    test('evaluator scope takes precedence over restricted profile', () async {
+      // Single-harness: even if task type would resolve to restricted, evaluator wins.
+      worker.responseText = 'Done.';
+      await tasks.create(
+        id: 'task-scope-eval-restricted',
+        title: 'Evaluator+restricted',
+        description: 'Both evaluator and research type.',
+        type: TaskType.research,
+        configJson: {'evaluator': true},
+        autoStart: true,
+      );
+      await scopeExecutor.pollOnce();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(capturing.lastPromptScope, PromptScope.evaluator);
+    });
+  });
 }
 
 class _FakeTaskWorker implements AgentHarness {
@@ -668,6 +734,9 @@ class _FakeTaskWorker implements AgentHarness {
 
   @override
   bool get supportsCachedTokens => false;
+
+  @override
+  bool get supportsSessionContinuity => false;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
@@ -722,6 +791,57 @@ class _FakeTaskWorker implements AgentHarness {
   }
 }
 
+class _CapturingTurnManager extends TurnManager {
+  _CapturingTurnManager(MessageService messages, AgentHarness worker)
+    : super(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/dartclaw-scope-test'),
+      );
+
+  PromptScope? lastPromptScope;
+
+  @override
+  Iterable<String> get activeSessionIds => const <String>[];
+
+  @override
+  Future<String> reserveTurn(
+    String sessionId, {
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+    bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
+  }) async {
+    lastPromptScope = promptScope;
+    return 'scope-turn';
+  }
+
+  @override
+  void executeTurn(
+    String sessionId,
+    String turnId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+    bool resume = false,
+  }) {}
+
+  @override
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
+    return TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: TurnStatus.completed,
+      responseText: 'Done.',
+      completedAt: DateTime.now(),
+    );
+  }
+}
+
 class _BusyOnceTurnManager extends TurnManager {
   _BusyOnceTurnManager(MessageService messages, AgentHarness worker)
     : super(
@@ -745,6 +865,7 @@ class _BusyOnceTurnManager extends TurnManager {
     int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     if (_busyOnce) {
       _busyOnce = false;
@@ -761,6 +882,7 @@ class _BusyOnceTurnManager extends TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    bool resume = false,
   }) {}
 
   @override

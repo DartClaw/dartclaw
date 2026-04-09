@@ -10,8 +10,8 @@ void main() {
   final validator = WorkflowDefinitionValidator();
 
   group('builtInWorkflowYaml map', () {
-    test('contains exactly 5 entries', () {
-      expect(builtInWorkflowYaml, hasLength(5));
+    test('contains exactly 6 entries', () {
+      expect(builtInWorkflowYaml, hasLength(6));
     });
 
     test('contains expected workflow names as keys', () {
@@ -23,6 +23,7 @@ void main() {
           'fix-bug',
           'refactor',
           'review-and-remediate',
+          'plan-and-execute',
         ]),
       );
     });
@@ -271,6 +272,86 @@ void main() {
     });
   });
 
+  group('plan-and-execute', () {
+    late final definition = parser.parse(
+      builtInWorkflowYaml['plan-and-execute']!,
+      sourcePath: 'built-in:plan-and-execute',
+    );
+
+    test('has 3 steps', () {
+      expect(definition.steps, hasLength(3));
+    });
+
+    test('has expected step IDs', () {
+      final ids = definition.steps.map((s) => s.id).toList();
+      expect(ids, equals(['plan', 'implement', 'review']));
+    });
+
+    test('declares REQUIREMENTS (required), PROJECT (optional), MAX_PARALLEL (optional with default)', () {
+      expect(definition.variables['REQUIREMENTS']?.required, isTrue);
+      expect(definition.variables['PROJECT']?.required, isFalse);
+      expect(definition.variables['MAX_PARALLEL']?.required, isFalse);
+      expect(definition.variables['MAX_PARALLEL']?.defaultValue, equals('2'));
+    });
+
+    test('plan step has type: analysis and no skill field', () {
+      final plan = definition.steps.firstWhere((s) => s.id == 'plan');
+      expect(plan.type, equals('analysis'));
+      expect(plan.skill, isNull);
+    });
+
+    test('implement step has type: coding and mapOver: stories', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.type, equals('coding'));
+      expect(implement.mapOver, equals('stories'));
+    });
+
+    test('implement step is a map step', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.isMapStep, isTrue);
+    });
+
+    test('implement step has max_items: 15', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.maxItems, equals(15));
+    });
+
+    test('implement step max_parallel is template "{{MAX_PARALLEL}}"', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.maxParallel, equals('{{MAX_PARALLEL}}'));
+    });
+
+    test('review step has evaluator: true and mapOver: stories', () {
+      final review = definition.steps.firstWhere((s) => s.id == 'review');
+      expect(review.evaluator, isTrue);
+      expect(review.mapOver, equals('stories'));
+    });
+
+    test('review step max_parallel is 3', () {
+      final review = definition.steps.firstWhere((s) => s.id == 'review');
+      expect(review.maxParallel, equals(3));
+    });
+
+    test('review prompt contains implement_results[map.index]', () {
+      final review = definition.steps.firstWhere((s) => s.id == 'review');
+      expect(review.prompt, contains('implement_results[map.index]'));
+    });
+
+    test('plan prompt contains "independent" (independence instruction)', () {
+      final plan = definition.steps.firstWhere((s) => s.id == 'plan');
+      expect(plan.prompt, contains('independent'));
+    });
+
+    test('stepDefaults is non-null and has 3 entries', () {
+      expect(definition.stepDefaults, isNotNull);
+      expect(definition.stepDefaults!, hasLength(3));
+    });
+
+    test('first stepDefaults entry matches "implement*" pattern', () {
+      expect(definition.stepDefaults![0].match, equals('implement*'));
+    });
+  });
+
   group('prompts use only {{variable}} or {{context.key}} syntax', () {
     // Handlebars conditionals ({{#if}}, {{#each}}) must not appear.
     final handlebarsPattern = RegExp(r'\{\{#');
@@ -280,7 +361,7 @@ void main() {
         final definition = parser.parse(entry.value, sourcePath: 'built-in:${entry.key}');
         for (final step in definition.steps) {
           expect(
-            handlebarsPattern.hasMatch(step.prompt),
+            handlebarsPattern.hasMatch(step.prompt ?? ''),
             isFalse,
             reason: 'Step "${step.id}" prompt contains Handlebars conditional syntax',
           );

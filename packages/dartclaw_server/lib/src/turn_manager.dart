@@ -45,6 +45,11 @@ class TurnContext {
   /// [TaskExecutor] to read project-specific CLAUDE.md and AGENTS.md files.
   final BehaviorFileService? behaviorOverride;
 
+  /// Prompt scope controlling which workspace behavior files are included.
+  ///
+  /// When null, [PromptScope.interactive] is used as the default.
+  final PromptScope? promptScope;
+
   TurnContext({
     required this.turnId,
     required this.sessionId,
@@ -55,6 +60,7 @@ class TurnContext {
     this.effort,
     this.maxTurns,
     this.behaviorOverride,
+    this.promptScope,
   });
 }
 
@@ -185,6 +191,9 @@ class TurnManager {
   /// task runners.
   HarnessPool get pool => _pool;
 
+  /// Number of runners currently available to accept a new task.
+  int get availableRunnerCount => _pool.availableCount;
+
   Iterable<String> get activeSessionIds sync* {
     for (final runner in _pool.runners) {
       yield* runner.activeSessionIds;
@@ -221,6 +230,7 @@ class TurnManager {
     int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     final runner = await _reserveRunnerForSession(sessionId);
     try {
@@ -233,6 +243,7 @@ class TurnManager {
         maxTurns: maxTurns,
         isHumanInput: isHumanInput,
         behaviorOverride: behaviorOverride,
+        promptScope: promptScope,
       );
       _reservedTurnRunners[turnId] = runner;
       return turnId;
@@ -250,9 +261,10 @@ class TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    bool resume = false,
   }) {
     final runner = _reservedTurnRunners[turnId] ?? _providerSessionRunners[sessionId] ?? _primary;
-    runner.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
+    runner.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName, resume: resume);
     unawaited(
       runner.waitForOutcome(sessionId, turnId).whenComplete(() {
         _reservedTurnRunners.remove(turnId);

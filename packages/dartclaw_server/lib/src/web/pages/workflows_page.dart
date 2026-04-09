@@ -316,7 +316,7 @@ class WorkflowsPage extends DashboardPage {
     if (definition != null && stepIndex < definition.steps.length) {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
-      for (final key in _extractContextKeys(step.prompt)) {
+      for (final key in _extractContextKeys(step.prompt ?? '')) {
         final value = run.contextJson[key];
         if (value != null) {
           final str = value.toString();
@@ -372,11 +372,8 @@ class WorkflowsPage extends DashboardPage {
     return regex.allMatches(prompt).map((m) => m.group(1)!).toSet().toList();
   }
 
-  /// Returns context output keys from a workflow step if the step has a
-  /// `contextOutputs` property. Falls back to empty list.
+  /// Returns context output keys declared by a workflow step.
   static List<String> _stepContextOutputKeys(WorkflowStep step) {
-    // WorkflowStep doesn't expose contextOutputs directly yet.
-    // Return empty — this is a graceful no-op.
-    return const [];
+    return step.contextOutputs;
   }
 }

@@ -82,6 +82,86 @@ void main() {
       expect(restored.steps, ['step-a', 'step-b']);
       expect(restored.maxIterations, 5);
       expect(restored.exitGate, 'step-a.status == done');
+      expect(restored.finally_, isNull);
+    });
+
+    test('round-trips with finally_ field (S03)', () {
+      const loop = WorkflowLoop(
+        id: 'loop-1',
+        steps: ['loop-step'],
+        maxIterations: 3,
+        exitGate: 'loop-step.done == true',
+        finally_: 'summarize',
+      );
+      final json = loop.toJson();
+      expect(json['finally'], 'summarize');
+      expect(json.containsKey('finally_'), false);
+      final restored = WorkflowLoop.fromJson(json);
+      expect(restored.finally_, 'summarize');
+    });
+
+    test('finally_ absent from json when null (S03)', () {
+      const loop = WorkflowLoop(
+        id: 'l',
+        steps: ['s'],
+        maxIterations: 1,
+        exitGate: 'e',
+      );
+      final json = loop.toJson();
+      expect(json.containsKey('finally'), false);
+    });
+  });
+
+  group('StepConfigDefault (S03)', () {
+    test('round-trips with all fields', () {
+      const d = StepConfigDefault(
+        match: 'review*',
+        provider: 'claude',
+        model: 'claude-opus-4',
+        maxTokens: 8000,
+        maxCostUsd: 2.5,
+        maxRetries: 2,
+        allowedTools: ['Read', 'Grep'],
+      );
+      final json = d.toJson();
+      final restored = StepConfigDefault.fromJson(json);
+      expect(restored.match, 'review*');
+      expect(restored.provider, 'claude');
+      expect(restored.model, 'claude-opus-4');
+      expect(restored.maxTokens, 8000);
+      expect(restored.maxCostUsd, 2.5);
+      expect(restored.maxRetries, 2);
+      expect(restored.allowedTools, ['Read', 'Grep']);
+    });
+
+    test('round-trips with only match (all optionals null)', () {
+      const d = StepConfigDefault(match: '*');
+      final restored = StepConfigDefault.fromJson(d.toJson());
+      expect(restored.match, '*');
+      expect(restored.provider, isNull);
+      expect(restored.model, isNull);
+      expect(restored.maxTokens, isNull);
+      expect(restored.maxCostUsd, isNull);
+      expect(restored.maxRetries, isNull);
+      expect(restored.allowedTools, isNull);
+    });
+
+    test('null fields omitted from json', () {
+      const d = StepConfigDefault(match: 'impl*');
+      final json = d.toJson();
+      expect(json.containsKey('provider'), false);
+      expect(json.containsKey('model'), false);
+      expect(json.containsKey('maxTokens'), false);
+      expect(json.containsKey('maxCostUsd'), false);
+      expect(json.containsKey('maxRetries'), false);
+      expect(json.containsKey('allowedTools'), false);
+    });
+
+    test('maxCostUsd int-as-num round-trips to double', () {
+      final json = {'match': 'review*', 'maxCostUsd': 2};
+      final restored = StepConfigDefault.fromJson(json);
+      expect(restored.maxCostUsd, 2.0);
+      expect(restored.maxCostUsd, isA<double>());
     });
   });
 
@@ -90,7 +170,7 @@ void main() {
       const step = WorkflowStep(
         id: 'step-1',
         name: 'My Step',
-        prompt: 'Do {{VAR}} and {{context.key}}',
+        prompts: ['Do {{VAR}} and {{context.key}}'],
         type: 'coding',
         project: '{{PROJECT}}',
         provider: 'claude',
@@ -133,7 +213,7 @@ void main() {
       const step = WorkflowStep(
         id: 'step-1',
         name: 'Step One',
-        prompt: 'Just do it',
+        prompts: ['Just do it'],
       );
       final restored = WorkflowStep.fromJson(step.toJson());
       expect(restored.type, 'research');
@@ -150,13 +230,79 @@ void main() {
       const step = WorkflowStep(
         id: 's',
         name: 'S',
-        prompt: 'p',
+        prompts: ['p'],
         timeoutSeconds: 1800,
       );
       final json = step.toJson();
       expect(json['timeout'], 1800);
       final restored = WorkflowStep.fromJson(json);
       expect(restored.timeoutSeconds, 1800);
+    });
+
+    test('round-trips maxCostUsd (S03)', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['p'],
+        maxCostUsd: 1.5,
+      );
+      final json = step.toJson();
+      expect(json['maxCostUsd'], 1.5);
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.maxCostUsd, 1.5);
+    });
+
+    test('maxCostUsd absent from json when null (S03)', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      final json = step.toJson();
+      expect(json.containsKey('maxCostUsd'), false);
+      expect(WorkflowStep.fromJson(json).maxCostUsd, isNull);
+    });
+
+    test('maxCostUsd int-as-num in json normalizes to double (S03)', () {
+      final json = {
+        'id': 's', 'name': 'S', 'prompt': 'p',
+        'maxCostUsd': 2,
+      };
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.maxCostUsd, 2.0);
+      expect(restored.maxCostUsd, isA<double>());
+    });
+
+    test('skill field round-trips (S04)', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        skill: 'andthen:review-code',
+        prompts: ['Do the review'],
+      );
+      final json = step.toJson();
+      expect(json['skill'], 'andthen:review-code');
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.skill, 'andthen:review-code');
+    });
+
+    test('skill-only step (no prompts) round-trips (S04)', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        skill: 'andthen:review-code',
+      );
+      final json = step.toJson();
+      expect(json.containsKey('prompts'), isFalse);
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.skill, 'andthen:review-code');
+      expect(restored.prompts, isNull);
+      expect(restored.prompt, isNull);
+    });
+
+    test('step without skill has null skill field (S04)', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      expect(step.skill, isNull);
+      final json = step.toJson();
+      expect(json.containsKey('skill'), isFalse);
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.skill, isNull);
     });
   });
 
@@ -169,8 +315,8 @@ void main() {
           'VAR': WorkflowVariable(description: 'A variable'),
         },
         steps: [
-          WorkflowStep(id: 'step-1', name: 'Step One', prompt: 'Do {{VAR}}'),
-          WorkflowStep(id: 'step-2', name: 'Step Two', prompt: 'Use {{context.result}}'),
+          WorkflowStep(id: 'step-1', name: 'Step One', prompts: ['Do {{VAR}}']),
+          WorkflowStep(id: 'step-2', name: 'Step Two', prompts: ['Use {{context.result}}']),
         ],
         loops: [
           WorkflowLoop(
@@ -205,11 +351,326 @@ void main() {
       const def = WorkflowDefinition(
         name: 'simple',
         description: 'Simple',
-        steps: [WorkflowStep(id: 's', name: 'S', prompt: 'p')],
+        steps: [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
       );
       final restored = WorkflowDefinition.fromJson(def.toJson());
       expect(restored.loops, isEmpty);
       expect(restored.maxTokens, isNull);
+      expect(restored.stepDefaults, isNull);
+    });
+
+    test('round-trips with stepDefaults (S03)', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        stepDefaults: [
+          StepConfigDefault(match: 'review*', model: 'claude-opus-4'),
+          StepConfigDefault(match: '*', provider: 'claude'),
+        ],
+      );
+      final json = def.toJson();
+      expect(json.containsKey('stepDefaults'), true);
+      final restored = WorkflowDefinition.fromJson(json);
+      expect(restored.stepDefaults, isNotNull);
+      expect(restored.stepDefaults!.length, 2);
+      expect(restored.stepDefaults![0].match, 'review*');
+      expect(restored.stepDefaults![0].model, 'claude-opus-4');
+      expect(restored.stepDefaults![1].match, '*');
+      expect(restored.stepDefaults![1].provider, 'claude');
+    });
+
+    test('stepDefaults absent from json when null (S03)', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+      );
+      final json = def.toJson();
+      expect(json.containsKey('stepDefaults'), false);
+      expect(WorkflowDefinition.fromJson(json).stepDefaults, isNull);
+    });
+  });
+
+  group('OutputFormat (S01)', () {
+    test('fromYaml maps text', () {
+      expect(OutputFormat.fromYaml('text'), OutputFormat.text);
+    });
+
+    test('fromYaml maps json', () {
+      expect(OutputFormat.fromYaml('json'), OutputFormat.json);
+    });
+
+    test('fromYaml maps lines', () {
+      expect(OutputFormat.fromYaml('lines'), OutputFormat.lines);
+    });
+
+    test('fromYaml returns null for unknown', () {
+      expect(OutputFormat.fromYaml('invalid'), isNull);
+    });
+  });
+
+  group('OutputConfig (S01)', () {
+    test('defaults to text format with no schema', () {
+      const config = OutputConfig();
+      expect(config.format, OutputFormat.text);
+      expect(config.schema, isNull);
+      expect(config.hasSchema, false);
+      expect(config.presetName, isNull);
+      expect(config.inlineSchema, isNull);
+    });
+
+    test('round-trips via toJson/fromJson with preset schema', () {
+      const config = OutputConfig(format: OutputFormat.json, schema: 'verdict');
+      final json = config.toJson();
+      final restored = OutputConfig.fromJson(json);
+      expect(restored.format, OutputFormat.json);
+      expect(restored.presetName, 'verdict');
+      expect(restored.hasSchema, true);
+    });
+
+    test('round-trips via toJson/fromJson with inline schema', () {
+      final schema = {'type': 'object', 'properties': {'key': {'type': 'string'}}};
+      final config = OutputConfig(format: OutputFormat.json, schema: schema);
+      final json = config.toJson();
+      final restored = OutputConfig.fromJson(json);
+      expect(restored.format, OutputFormat.json);
+      expect(restored.inlineSchema, isNotNull);
+      expect(restored.inlineSchema!['type'], 'object');
+    });
+
+    test('round-trips via toJson/fromJson with no schema', () {
+      const config = OutputConfig(format: OutputFormat.lines);
+      final restored = OutputConfig.fromJson(config.toJson());
+      expect(restored.format, OutputFormat.lines);
+      expect(restored.schema, isNull);
+    });
+
+    test('presetName returns null when schema is not a string', () {
+      final config = OutputConfig(
+        schema: {'type': 'object'},
+      );
+      expect(config.presetName, isNull);
+    });
+
+    test('inlineSchema returns null when schema is a string', () {
+      const config = OutputConfig(schema: 'verdict');
+      expect(config.inlineSchema, isNull);
+    });
+  });
+
+  group('WorkflowStep outputs and evaluator fields (S01)', () {
+    test('round-trips outputs map with preset schema', () {
+      final step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: const ['p'],
+        contextOutputs: const ['result'],
+        outputs: const {
+          'result': OutputConfig(format: OutputFormat.json, schema: 'verdict'),
+        },
+      );
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.outputs, isNotNull);
+      expect(restored.outputs!['result']!.format, OutputFormat.json);
+      expect(restored.outputs!['result']!.presetName, 'verdict');
+    });
+
+    test('round-trips evaluator: true', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['p'],
+        evaluator: true,
+      );
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.evaluator, true);
+    });
+
+    test('evaluator defaults to false', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.evaluator, false);
+    });
+
+    test('outputs null when not set (backward compat)', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      final json = step.toJson();
+      expect(json.containsKey('outputs'), false);
+      final restored = WorkflowStep.fromJson(json);
+      expect(restored.outputs, isNull);
+    });
+
+    test('evaluator false not serialized to json (optimization)', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      final json = step.toJson();
+      // evaluator: false is not serialized since it's the default.
+      expect(json.containsKey('evaluator'), false);
+    });
+
+    test('evaluator true is serialized to json', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['p'],
+        evaluator: true,
+      );
+      final json = step.toJson();
+      expect(json['evaluator'], true);
+    });
+  });
+
+  group('WorkflowStep multi-prompt (S02)', () {
+    test('single-string prompt normalized to 1-element list on fromJson', () {
+      final json = <String, dynamic>{
+        'id': 's',
+        'name': 'S',
+        'prompt': 'Do it',
+        'type': 'research',
+        'review': 'codingOnly',
+        'parallel': false,
+        'contextInputs': <String>[],
+        'contextOutputs': <String>[],
+      };
+      final step = WorkflowStep.fromJson(json);
+      expect(step.prompts, ['Do it']);
+      expect(step.prompt, 'Do it');
+      expect(step.isMultiPrompt, false);
+    });
+
+    test('multi-string prompt list preserved on fromJson', () {
+      final json = <String, dynamic>{
+        'id': 's',
+        'name': 'S',
+        'prompts': ['First', 'Second', 'Third'],
+        'type': 'research',
+        'review': 'codingOnly',
+        'parallel': false,
+        'contextInputs': <String>[],
+        'contextOutputs': <String>[],
+      };
+      final step = WorkflowStep.fromJson(json);
+      expect(step.prompts, ['First', 'Second', 'Third']);
+      expect(step.prompt, 'First');
+      expect(step.isMultiPrompt, true);
+    });
+
+    test('toJson serializes multi-prompt as list', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['A', 'B'],
+      );
+      final json = step.toJson();
+      expect(json['prompts'], ['A', 'B']);
+      expect(json.containsKey('prompt'), false);
+    });
+
+    test('round-trip: multi-prompt step preserves all prompts', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['Step one', 'Step two', 'Step three'],
+      );
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.prompts, ['Step one', 'Step two', 'Step three']);
+      expect(restored.isMultiPrompt, true);
+    });
+
+    test('single-prompt isMultiPrompt is false', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      expect(step.isMultiPrompt, false);
+    });
+
+    test('multi-prompt prompt getter returns first element', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['first', 'second']);
+      expect(step.prompt, 'first');
+    });
+  });
+
+  group('WorkflowStep map fields (S06)', () {
+    test('defaults: mapOver null, maxParallel null, maxItems 20', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      expect(step.mapOver, isNull);
+      expect(step.maxParallel, isNull);
+      expect(step.maxItems, 20);
+      expect(step.isMapStep, false);
+    });
+
+    test('mapOver set marks step as map step', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories');
+      expect(step.mapOver, 'stories');
+      expect(step.isMapStep, true);
+    });
+
+    test('round-trip: mapOver string', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories');
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.mapOver, 'stories');
+    });
+
+    test('round-trip: maxParallel as int', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 3);
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.maxParallel, 3);
+    });
+
+    test('round-trip: maxParallel as "unlimited" string', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: 'unlimited');
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.maxParallel, 'unlimited');
+    });
+
+    test('round-trip: maxParallel as template string', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['p'],
+        maxParallel: '{{MAX_PARALLEL}}',
+      );
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.maxParallel, '{{MAX_PARALLEL}}');
+    });
+
+    test('round-trip: maxItems custom value', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxItems: 15);
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.maxItems, 15);
+    });
+
+    test('toJson omits mapOver when null', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
+      final json = step.toJson();
+      expect(json.containsKey('mapOver'), false);
+      expect(json.containsKey('maxParallel'), false);
+      expect(json.containsKey('maxItems'), false);
+    });
+
+    test('toJson omits maxItems when default (20)', () {
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'items');
+      final json = step.toJson();
+      expect(json.containsKey('maxItems'), false);
+    });
+
+    test('fromJson defaults maxItems to 20 when absent', () {
+      final json = <String, dynamic>{'id': 's', 'name': 'S', 'prompts': ['p']};
+      final step = WorkflowStep.fromJson(json);
+      expect(step.maxItems, 20);
+    });
+
+    test('round-trip: all map fields set together', () {
+      const step = WorkflowStep(
+        id: 's',
+        name: 'S',
+        prompts: ['p'],
+        mapOver: 'stories',
+        maxParallel: 4,
+        maxItems: 50,
+      );
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.mapOver, 'stories');
+      expect(restored.maxParallel, 4);
+      expect(restored.maxItems, 50);
     });
   });
 }

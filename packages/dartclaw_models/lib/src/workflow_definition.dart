@@ -1,3 +1,63 @@
+/// Output format for context extraction.
+enum OutputFormat {
+  /// Raw string extraction (default, current behavior).
+  text,
+
+  /// Multi-strategy JSON extraction with fallback chain.
+  json,
+
+  /// Split output into list of trimmed non-empty lines.
+  lines;
+
+  static OutputFormat? fromYaml(String value) => switch (value) {
+    'text' => text,
+    'json' => json,
+    'lines' => lines,
+    _ => null,
+  };
+}
+
+/// Configuration for a single output key's extraction and validation.
+class OutputConfig {
+  /// Output format determining extraction strategy.
+  final OutputFormat format;
+
+  /// Schema for validation and prompt augmentation.
+  ///
+  /// Can be:
+  /// - A [String] preset name (e.g. 'verdict', 'story-plan')
+  /// - A [Map<String, dynamic>] inline JSON Schema
+  /// - null (no schema constraint)
+  final Object? schema;
+
+  const OutputConfig({
+    this.format = OutputFormat.text,
+    this.schema,
+  });
+
+  /// Whether this config has a schema (preset name or inline).
+  bool get hasSchema => schema != null;
+
+  /// Returns the schema preset name if [schema] is a String, else null.
+  String? get presetName => schema is String ? schema as String : null;
+
+  /// Returns the inline schema if [schema] is a Map, else null.
+  Map<String, dynamic>? get inlineSchema =>
+      schema is Map<String, dynamic> ? schema as Map<String, dynamic> : null;
+
+  Map<String, dynamic> toJson() => {
+    'format': format.name,
+    if (schema != null) 'schema': schema,
+  };
+
+  factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
+    format: json['format'] != null
+        ? OutputFormat.values.byName(json['format'] as String)
+        : OutputFormat.text,
+    schema: json['schema'],
+  );
+}
+
 /// Review mode for workflow steps.
 enum StepReviewMode {
   /// Step always enters review status.
@@ -80,6 +140,64 @@ class WorkflowVariable {
       );
 }
 
+/// Pattern-based step config default entry.
+///
+/// Each entry has a glob [match] pattern and optional config overrides.
+/// Applied in order — first match wins. Per-step explicit config takes precedence.
+class StepConfigDefault {
+  /// Glob pattern matched against step IDs (e.g. "review*", "*").
+  final String match;
+
+  /// Optional provider override.
+  final String? provider;
+
+  /// Optional model override.
+  final String? model;
+
+  /// Optional per-step token budget.
+  final int? maxTokens;
+
+  /// Optional per-step cost ceiling in USD.
+  final double? maxCostUsd;
+
+  /// Optional per-step retry limit.
+  final int? maxRetries;
+
+  /// Optional per-step tool allowlist.
+  final List<String>? allowedTools;
+
+  const StepConfigDefault({
+    required this.match,
+    this.provider,
+    this.model,
+    this.maxTokens,
+    this.maxCostUsd,
+    this.maxRetries,
+    this.allowedTools,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'match': match,
+    if (provider != null) 'provider': provider,
+    if (model != null) 'model': model,
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
+    if (maxRetries != null) 'maxRetries': maxRetries,
+    if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
+  };
+
+  factory StepConfigDefault.fromJson(Map<String, dynamic> json) =>
+      StepConfigDefault(
+        match: json['match'] as String,
+        provider: json['provider'] as String?,
+        model: json['model'] as String?,
+        maxTokens: json['maxTokens'] as int?,
+        maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
+        maxRetries: json['maxRetries'] as int?,
+        allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
+      );
+}
+
 /// A loop construct over a set of workflow steps.
 class WorkflowLoop {
   /// Unique identifier for this loop.
@@ -94,18 +212,27 @@ class WorkflowLoop {
   /// Condition expression for early termination.
   final String exitGate;
 
+  /// Optional step ID to execute after loop terminates (regardless of exit reason).
+  ///
+  /// Must reference a step in the workflow's [WorkflowDefinition.steps] that is
+  /// NOT in this loop's [steps] list. Named `finally_` in Dart because `finally`
+  /// is a reserved keyword; serialized as `finally` in JSON/YAML.
+  final String? finally_;
+
   const WorkflowLoop({
     required this.id,
     required this.steps,
     required this.maxIterations,
     required this.exitGate,
+    this.finally_,
   });
 
   Map<String, dynamic> toJson() => {
     'id': id,
-    'steps': List<String>.from(steps),
+    'steps': steps.toList(),
     'maxIterations': maxIterations,
     'exitGate': exitGate,
+    if (finally_ != null) 'finally': finally_,
   };
 
   factory WorkflowLoop.fromJson(Map<String, dynamic> json) =>
@@ -114,6 +241,7 @@ class WorkflowLoop {
         steps: (json['steps'] as List).cast<String>(),
         maxIterations: json['maxIterations'] as int,
         exitGate: json['exitGate'] as String,
+        finally_: json['finally'] as String?,
       );
 }
 
@@ -125,8 +253,20 @@ class WorkflowStep {
   /// Human-readable step name.
   final String name;
 
-  /// Prompt template with `{{variable}}` and `{{context.key}}` references.
-  final String prompt;
+  /// Optional skill reference for skill-aware steps.
+  ///
+  /// When present, the engine constructs the agent prompt as:
+  /// `"Use the '<skill>' skill. <resolved prompt or context>"`
+  final String? skill;
+
+  /// Ordered list of prompt templates for this step.
+  ///
+  /// Required when [skill] is null. Optional when [skill] is present
+  /// (context from [contextInputs] used when absent).
+  /// Each entry uses `{{variable}}` and `{{context.key}}` references.
+  /// Single-prompt steps have exactly one element; multi-prompt steps have two or more,
+  /// which execute as sequential turns in the same conversation session.
+  final List<String>? prompts;
 
   /// Task type string (research, analysis, writing, coding, automation, custom).
   /// Stored as string to avoid cross-package dependency on dartclaw_core's TaskType.
@@ -162,8 +302,23 @@ class WorkflowStep {
   /// Optional custom extraction configuration.
   final ExtractionConfig? extraction;
 
+  /// Per-output extraction and format configuration.
+  ///
+  /// Keys correspond to entries in [contextOutputs].
+  /// When null, all outputs use default text extraction.
+  final Map<String, OutputConfig>? outputs;
+
+  /// Whether this step acts as an evaluator.
+  ///
+  /// When true and format is json with no explicit schema,
+  /// defaults to the 'verdict' schema preset.
+  final bool evaluator;
+
   /// Optional per-step token budget.
   final int? maxTokens;
+
+  /// Optional per-step cost ceiling in USD.
+  final double? maxCostUsd;
 
   /// Optional per-step retry limit.
   final int? maxRetries;
@@ -171,10 +326,45 @@ class WorkflowStep {
   /// Optional per-step tool allowlist.
   final List<String>? allowedTools;
 
+  /// Context key referencing a JSON array produced by a prior step.
+  ///
+  /// When set, this step is a map/fan-out step that iterates over the
+  /// collection at this key. The collection is resolved from workflow context
+  /// at execution time (S07). Template engine can access `{{map.item}}`,
+  /// `{{map.index}}`, `{{map.length}}`, and `{{map.item.field}}` references.
+  final String? mapOver;
+
+  /// Maximum number of parallel map iterations.
+  ///
+  /// Stored as [Object?] because the value may be:
+  /// - `int`: explicit concurrency limit
+  /// - `String` `"unlimited"`: no concurrency cap
+  /// - `String` template: e.g. `"{{MAX_PARALLEL}}"`, resolved at runtime (S07)
+  /// - `null`: default (S07 determines the default)
+  final Object? maxParallel;
+
+  /// Maximum number of items to process from the map collection (default 20).
+  ///
+  /// Acts as a safety cap to prevent runaway fan-out.
+  final int maxItems;
+
+  /// Convenience getter returning the first (or only) prompt.
+  ///
+  /// Returns null when this is a skill-only step with no prompt.
+  /// Use [prompts] directly when iterating all prompts in a multi-prompt step.
+  String? get prompt => prompts?.firstOrNull;
+
+  /// Whether this step sends more than one turn in the same session.
+  bool get isMultiPrompt => (prompts?.length ?? 0) > 1;
+
+  /// Whether this step is a map/fan-out step.
+  bool get isMapStep => mapOver != null;
+
   const WorkflowStep({
     required this.id,
     required this.name,
-    required this.prompt,
+    this.prompts,
+    this.skill,
     this.type = 'research',
     this.project,
     this.provider,
@@ -186,15 +376,22 @@ class WorkflowStep {
     this.contextInputs = const [],
     this.contextOutputs = const [],
     this.extraction,
+    this.outputs,
+    this.evaluator = false,
     this.maxTokens,
+    this.maxCostUsd,
     this.maxRetries,
     this.allowedTools,
+    this.mapOver,
+    this.maxParallel,
+    this.maxItems = 20,
   });
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
-    'prompt': prompt,
+    if (skill != null) 'skill': skill,
+    if (prompts != null) 'prompts': prompts!.toList(),
     'type': type,
     'review': review.name,
     'parallel': parallel,
@@ -203,37 +400,65 @@ class WorkflowStep {
     if (model != null) 'model': model,
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (gate != null) 'gate': gate,
-    'contextInputs': List<String>.from(contextInputs),
-    'contextOutputs': List<String>.from(contextOutputs),
+    'contextInputs': contextInputs.toList(),
+    'contextOutputs': contextOutputs.toList(),
     if (extraction != null) 'extraction': extraction!.toJson(),
+    if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
+    if (evaluator) 'evaluator': true,
     if (maxTokens != null) 'maxTokens': maxTokens,
+    if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
     if (maxRetries != null) 'maxRetries': maxRetries,
-    if (allowedTools != null) 'allowedTools': List<String>.from(allowedTools!),
+    if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
+    if (mapOver != null) 'mapOver': mapOver,
+    if (maxParallel != null) 'maxParallel': maxParallel,
+    if (maxItems != 20) 'maxItems': maxItems,
   };
 
-  factory WorkflowStep.fromJson(Map<String, dynamic> json) => WorkflowStep(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    prompt: json['prompt'] as String,
-    type: (json['type'] as String?) ?? 'research',
-    project: json['project'] as String?,
-    provider: json['provider'] as String?,
-    model: json['model'] as String?,
-    timeoutSeconds: json['timeout'] as int?,
-    review: json['review'] != null
-        ? StepReviewMode.values.byName(json['review'] as String)
-        : StepReviewMode.codingOnly,
-    parallel: (json['parallel'] as bool?) ?? false,
-    gate: json['gate'] as String?,
-    contextInputs: (json['contextInputs'] as List?)?.cast<String>() ?? const [],
-    contextOutputs: (json['contextOutputs'] as List?)?.cast<String>() ?? const [],
-    extraction: json['extraction'] != null
-        ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
-        : null,
-    maxTokens: json['maxTokens'] as int?,
-    maxRetries: json['maxRetries'] as int?,
-    allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
-  );
+  factory WorkflowStep.fromJson(Map<String, dynamic> json) {
+    // Accept both legacy String and new List<String> for 'prompts'/'prompt'.
+    // Null is valid when 'skill' is present.
+    final List<String>? prompts;
+    final rawPrompts = json['prompts'] ?? json['prompt'];
+    if (rawPrompts is String) {
+      prompts = [rawPrompts];
+    } else if (rawPrompts is List) {
+      prompts = rawPrompts.cast<String>();
+    } else {
+      prompts = null;
+    }
+    return WorkflowStep(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      skill: json['skill'] as String?,
+      prompts: prompts,
+      type: (json['type'] as String?) ?? 'research',
+      project: json['project'] as String?,
+      provider: json['provider'] as String?,
+      model: json['model'] as String?,
+      timeoutSeconds: json['timeout'] as int?,
+      review: json['review'] != null
+          ? StepReviewMode.values.byName(json['review'] as String)
+          : StepReviewMode.codingOnly,
+      parallel: (json['parallel'] as bool?) ?? false,
+      gate: json['gate'] as String?,
+      contextInputs: (json['contextInputs'] as List?)?.cast<String>() ?? const [],
+      contextOutputs: (json['contextOutputs'] as List?)?.cast<String>() ?? const [],
+      extraction: json['extraction'] != null
+          ? ExtractionConfig.fromJson(json['extraction'] as Map<String, dynamic>)
+          : null,
+      outputs: (json['outputs'] as Map<String, dynamic>?)?.map(
+        (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
+      ),
+      evaluator: (json['evaluator'] as bool?) ?? false,
+      maxTokens: json['maxTokens'] as int?,
+      maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
+      maxRetries: json['maxRetries'] as int?,
+      allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
+      mapOver: json['mapOver'] as String?,
+      maxParallel: json['maxParallel'],
+      maxItems: (json['maxItems'] as int?) ?? 20,
+    );
+  }
 }
 
 /// A workflow definition parsed from a YAML file.
@@ -260,6 +485,9 @@ class WorkflowDefinition {
   /// Optional workflow-level token budget ceiling.
   final int? maxTokens;
 
+  /// Optional pattern-based step config defaults applied in order (first match wins).
+  final List<StepConfigDefault>? stepDefaults;
+
   const WorkflowDefinition({
     required this.name,
     required this.description,
@@ -267,6 +495,7 @@ class WorkflowDefinition {
     required this.steps,
     this.loops = const [],
     this.maxTokens,
+    this.stepDefaults,
   });
 
   Map<String, dynamic> toJson() => {
@@ -276,6 +505,7 @@ class WorkflowDefinition {
     'steps': steps.map((s) => s.toJson()).toList(),
     'loops': loops.map((l) => l.toJson()).toList(),
     if (maxTokens != null) 'maxTokens': maxTokens,
+    if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
   };
 
   factory WorkflowDefinition.fromJson(Map<String, dynamic> json) =>
@@ -294,5 +524,8 @@ class WorkflowDefinition {
                 .toList(growable: false) ??
             const [],
         maxTokens: json['maxTokens'] as int?,
+        stepDefaults: (json['stepDefaults'] as List?)
+            ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
+            .toList(growable: false),
       );
 }

@@ -99,6 +99,7 @@ class DartclawServerBuilder {
   // Workflow
   WorkflowService? workflowService;
   WorkflowDefinitionSource? workflowDefinitionSource;
+  SkillRegistry? skillRegistry;
 
   // Tasks
   GoalService? goalService;
@@ -240,6 +241,7 @@ class DartclawServerBuilder {
       threadBindingStore: threadBindingStore,
       workflowService: workflowService,
       workflowDefinitionSource: workflowDefinitionSource,
+      skillRegistry: skillRegistry,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,

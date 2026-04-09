@@ -20,6 +20,9 @@ class _StubHarness implements AgentHarness {
   bool get supportsCachedTokens => false;
 
   @override
+  bool get supportsSessionContinuity => false;
+
+  @override
   WorkerState get state => WorkerState.idle;
   @override
   Stream<BridgeEvent> get events => const Stream.empty();

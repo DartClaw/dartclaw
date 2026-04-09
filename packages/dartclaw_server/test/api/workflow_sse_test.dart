@@ -21,8 +21,8 @@ WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
     description: 'test',
     variables: const {},
     steps: const [
-      WorkflowStep(id: 'research', name: 'Research', prompt: 'research'),
-      WorkflowStep(id: 'implement', name: 'Implement', prompt: 'implement'),
+      WorkflowStep(id: 'research', name: 'Research', prompts: ['research']),
+      WorkflowStep(id: 'implement', name: 'Implement', prompts: ['implement']),
     ],
   );
 }

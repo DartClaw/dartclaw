@@ -62,6 +62,29 @@ class HarnessConfig {
     this.mcpGatewayToken,
   });
 
+  /// Returns a copy with selected fields replaced.
+  HarnessConfig copyWith({
+    List<String>? disallowedTools,
+    int? maxTurns,
+    String? model,
+    String? effort,
+    Map<String, dynamic>? agents,
+    String? appendSystemPrompt,
+    String? mcpServerUrl,
+    String? mcpGatewayToken,
+  }) {
+    return HarnessConfig(
+      disallowedTools: disallowedTools ?? this.disallowedTools,
+      maxTurns: maxTurns ?? this.maxTurns,
+      model: model ?? this.model,
+      effort: effort ?? this.effort,
+      agents: agents ?? this.agents,
+      appendSystemPrompt: appendSystemPrompt ?? this.appendSystemPrompt,
+      mcpServerUrl: mcpServerUrl ?? this.mcpServerUrl,
+      mcpGatewayToken: mcpGatewayToken ?? this.mcpGatewayToken,
+    );
+  }
+
   /// Returns non-null fields as map entries for the initialize handshake.
   Map<String, dynamic> toInitializeFields() {
     return {

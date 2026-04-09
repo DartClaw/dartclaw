@@ -1,0 +1,96 @@
+name: plan-and-execute
+description: >-
+  Dynamically plan implementation stories from requirements,
+  then implement and review each story in parallel.
+variables:
+  REQUIREMENTS:
+    required: true
+    description: Requirements, PRD, or feature description to implement
+  PROJECT:
+    required: false
+    description: Project ID for worktree isolation
+  MAX_PARALLEL:
+    required: false
+    description: Max parallel story executions
+    default: "2"
+
+stepDefaults:
+  - match: "implement*"
+    provider: claude
+    maxTokens: 100000
+    maxCostUsd: 5.00
+  - match: "review*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 50000
+
+steps:
+  - id: plan
+    name: Plan Implementation Stories
+    type: analysis
+    maxCostUsd: 3.00
+    prompt: |
+      Analyze the following requirements and decompose into implementation stories.
+      Each story should be an independent, vertical slice that can be implemented
+      and tested without depending on code changes from other stories.
+      Order stories by natural build sequence (foundational first).
+
+      Requirements:
+      {{REQUIREMENTS}}
+    contextOutputs: [stories]
+    outputs:
+      stories:
+        format: json
+        schema: story-plan
+
+  - id: implement
+    name: Implement Story
+    type: coding
+    map_over: stories
+    max_parallel: "{{MAX_PARALLEL}}"
+    max_items: 15
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Implement the following story:
+
+      **{{map.item.title}}** ({{map.item.id}})
+
+      {{map.item.description}}
+
+      Acceptance criteria:
+      {{map.item.acceptance_criteria}}
+
+      Key files: {{map.item.key_files}}
+
+      Story {{map.index}} of {{map.length}}.
+    contextInputs: [stories]
+    contextOutputs: [implement_results]
+    outputs:
+      implement_results:
+        format: text
+
+  - id: review
+    name: Review Implementation
+    type: analysis
+    evaluator: true
+    map_over: stories
+    max_parallel: 3
+    prompt: |
+      Review the implementation of story "{{map.item.title}}" ({{map.item.id}}).
+
+      Implementation output:
+      {{context.implement_results[map.index]}}
+
+      Expected behavior:
+      {{map.item.acceptance_criteria}}
+
+      Evaluate: correctness, test coverage, security, code quality.
+    contextInputs: [stories, implement_results]
+    contextOutputs: [review_results]
+    outputs:
+      review_results:
+        format: json
+        schema: verdict

@@ -33,6 +33,7 @@ class WorkflowDefinitionParser {
       steps: _parseSteps(yaml['steps'], sourcePath),
       loops: _parseLoops(yaml['loops']),
       maxTokens: yaml['maxTokens'] as int?,
+      stepDefaults: _parseStepDefaults(yaml['stepDefaults'], sourcePath),
     );
   }
 
@@ -63,7 +64,6 @@ class WorkflowDefinitionParser {
   }
 
   Map<String, WorkflowVariable> _parseVariables(Object? raw) {
-    if (raw == null) return const {};
     if (raw is! YamlMap) return const {};
     return {
       for (final entry in raw.entries)
@@ -72,7 +72,6 @@ class WorkflowDefinitionParser {
   }
 
   WorkflowVariable _parseVariable(Object? raw) {
-    if (raw == null) return const WorkflowVariable();
     if (raw is! YamlMap) return const WorkflowVariable();
     return WorkflowVariable(
       required: (raw['required'] as bool?) ?? true,
@@ -113,10 +112,49 @@ class WorkflowDefinitionParser {
         'Step "$id" must have a non-empty "name" field${_at(sourcePath)}.',
       );
     }
-    final prompt = raw['prompt'];
-    if (prompt == null || prompt is! String || prompt.isEmpty) {
+    // Parse skill field (optional — skill-aware steps may omit prompt).
+    final skill = raw['skill'] as String?;
+
+    // Parse prompt — optional when skill is present.
+    // Accepts: List<String> (S02 canonical), String (legacy, normalized to
+    // single-element list), or null (when skill is present).
+    final promptRaw = raw['prompt'];
+    final List<String>? prompts;
+    if (promptRaw == null) {
+      prompts = null;
+    } else if (promptRaw is String) {
+      if (promptRaw.isEmpty) {
+        throw FormatException(
+          'Step "$id" must have a non-empty "prompt" field${_at(sourcePath)}.',
+        );
+      }
+      prompts = [promptRaw];
+    } else if (promptRaw is YamlList) {
+      if (promptRaw.isEmpty) {
+        throw FormatException(
+          'Step "$id": "prompt" list must not be empty${_at(sourcePath)}.',
+        );
+      }
+      final castedPrompts = <String>[];
+      for (final item in promptRaw) {
+        if (item is! String || item.isEmpty) {
+          throw FormatException(
+            'Step "$id": each prompt in the list must be a non-empty string${_at(sourcePath)}.',
+          );
+        }
+        castedPrompts.add(item);
+      }
+      prompts = castedPrompts;
+    } else {
       throw FormatException(
-        'Step "$id" must have a non-empty "prompt" field${_at(sourcePath)}.',
+        'Step "$id": "prompt" must be a string or list of strings${_at(sourcePath)}.',
+      );
+    }
+
+    // Reject no-skill + no-prompt at parse time.
+    if (skill == null && (prompts == null || prompts.isEmpty)) {
+      throw FormatException(
+        'Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.',
       );
     }
 
@@ -147,10 +185,45 @@ class WorkflowDefinitionParser {
       );
     }
 
+    // Parse evaluator flag.
+    final evaluator = (raw['evaluator'] as bool?) ?? false;
+
+    // Parse outputs map (new 0.15.1 syntax).
+    final outputsRaw = raw['outputs'];
+    Map<String, OutputConfig>? outputs;
+    if (outputsRaw is YamlMap) {
+      outputs = {};
+      for (final entry in outputsRaw.entries) {
+        final key = entry.key as String;
+        final value = entry.value;
+        if (value is YamlMap) {
+          final formatRaw = value['format'] as String?;
+          final format = formatRaw != null
+              ? (OutputFormat.fromYaml(formatRaw) ??
+                  (throw FormatException(
+                    'Step "$id" output "$key": unknown format "$formatRaw"${_at(sourcePath)}.',
+                  )))
+              : OutputFormat.text;
+          final schema = _parseSchema(value['schema']);
+          outputs[key] = OutputConfig(format: format, schema: schema);
+        } else {
+          // Shorthand: `key: json` or `key: lines`
+          final format = OutputFormat.fromYaml(value.toString());
+          outputs[key] = OutputConfig(format: format ?? OutputFormat.text);
+        }
+      }
+    }
+
+    // Parse map step fields. Accept both snake_case (primary) and camelCase (alias).
+    final mapOver = (raw['map_over'] ?? raw['mapOver']) as String?;
+    final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
+    final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+
     return WorkflowStep(
       id: id,
       name: name,
-      prompt: prompt,
+      skill: skill,
+      prompts: prompts,
       type: (raw['type'] as String?) ?? 'research',
       project: raw['project'] as String?,
       provider: raw['provider'] as String?,
@@ -162,14 +235,55 @@ class WorkflowDefinitionParser {
       contextInputs: _parseStringList(raw['contextInputs']),
       contextOutputs: _parseStringList(raw['contextOutputs']),
       extraction: extraction,
+      outputs: outputs,
+      evaluator: evaluator,
       maxTokens: raw['maxTokens'] as int?,
+      maxCostUsd: _parseDouble(raw['maxCostUsd']),
       maxRetries: raw['maxRetries'] as int?,
       allowedTools: _parseOptionalStringList(raw['allowedTools']),
+      mapOver: mapOver,
+      maxParallel: maxParallel,
+      maxItems: maxItems,
     );
   }
 
+  /// Parses the `max_parallel` value from YAML.
+  ///
+  /// Accepts int (concurrency limit), String "unlimited", or String template.
+  /// Returns null if absent.
+  Object? _parseMaxParallel(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is String) return raw;
+    throw FormatException(
+      'Step "$stepId": "max_parallel" must be an integer or string '
+      '(e.g., 3, "unlimited", or a template like "{{MAX_PARALLEL}}")${_at(sourcePath)}.',
+    );
+  }
+
+  /// Parses a schema value: String (preset name), Map (inline schema), or null.
+  Object? _parseSchema(Object? raw) {
+    if (raw == null) return null;
+    if (raw is String) return raw; // Preset name.
+    if (raw is YamlMap) return _yamlToMap(raw); // Inline JSON Schema.
+    return null;
+  }
+
+  /// Deep-converts a [YamlMap] to a plain `Map<String, dynamic>`.
+  Map<String, dynamic> _yamlToMap(YamlMap yaml) {
+    return {
+      for (final entry in yaml.entries)
+        entry.key.toString(): _yamlToValue(entry.value),
+    };
+  }
+
+  dynamic _yamlToValue(Object? value) {
+    if (value is YamlMap) return _yamlToMap(value);
+    if (value is YamlList) return value.map(_yamlToValue).toList();
+    return value;
+  }
+
   List<WorkflowLoop> _parseLoops(Object? raw) {
-    if (raw == null) return const [];
     if (raw is! YamlList) return const [];
     return raw.map((l) => _parseLoop(l as YamlMap)).toList(growable: false);
   }
@@ -180,19 +294,54 @@ class WorkflowDefinitionParser {
       steps: _parseStringList(raw['steps']),
       maxIterations: raw['maxIterations'] as int,
       exitGate: (raw['exitGate'] as String?) ?? '',
+      finally_: raw['finally'] as String?,
     );
   }
 
+  List<StepConfigDefault>? _parseStepDefaults(Object? raw, String? sourcePath) {
+    if (raw is! YamlList) return null;
+    return raw.map((entry) {
+      if (entry is! YamlMap) {
+        throw FormatException(
+          'Each stepDefaults entry must be a mapping${_at(sourcePath)}.',
+        );
+      }
+      final match = entry['match'];
+      if (match == null || match is! String || match.isEmpty) {
+        throw FormatException(
+          'Each stepDefaults entry must have a non-empty "match" field${_at(sourcePath)}.',
+        );
+      }
+      return StepConfigDefault(
+        match: match,
+        provider: entry['provider'] as String?,
+        model: entry['model'] as String?,
+        maxTokens: entry['maxTokens'] as int?,
+        maxCostUsd: _parseDouble(entry['maxCostUsd']),
+        maxRetries: entry['maxRetries'] as int?,
+        allowedTools: _parseOptionalStringList(entry['allowedTools']),
+      );
+    }).toList(growable: false);
+  }
+
   List<String> _parseStringList(Object? raw) {
-    if (raw == null) return const [];
     if (raw is! YamlList) return const [];
     return raw.cast<String>().toList(growable: false);
   }
 
   List<String>? _parseOptionalStringList(Object? raw) {
-    if (raw == null) return null;
     if (raw is! YamlList) return null;
     return raw.cast<String>().toList(growable: false);
+  }
+
+  /// Parses a numeric value as [double], accepting both int and double YAML values.
+  ///
+  /// YAML parses bare numbers like `2` as int, not double. This normalizes them.
+  double? _parseDouble(Object? raw) {
+    if (raw == null) return null;
+    if (raw is double) return raw;
+    if (raw is int) return raw.toDouble();
+    return null;
   }
 
   String _at(String? sourcePath) =>

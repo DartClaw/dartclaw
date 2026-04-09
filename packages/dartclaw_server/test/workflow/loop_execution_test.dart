@@ -101,7 +101,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'loop-step1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'loop-step1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -140,7 +140,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -179,7 +179,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -220,7 +220,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -258,7 +258,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1 iter {{context.loop.loop1.iteration}}'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1 iter {{context.loop.loop1.iteration}}']),
       ],
       loops: [
         const WorkflowLoop(
@@ -299,7 +299,7 @@ void main() {
         const WorkflowStep(
           id: 'ls1',
           name: 'LS1',
-          prompt: 'Do ls1',
+          prompts: ['Do ls1'],
           contextOutputs: ['analysis'],
         ),
       ],
@@ -338,7 +338,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -377,8 +377,8 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
-        const WorkflowStep(id: 'ls2', name: 'LS2', prompt: 'Do ls2'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+        const WorkflowStep(id: 'ls2', name: 'LS2', prompts: ['Do ls2']),
       ],
       loops: [
         const WorkflowLoop(
@@ -425,9 +425,9 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'seq1', name: 'Seq1', prompt: 'Do seq1'),
-        const WorkflowStep(id: 'seq2', name: 'Seq2', prompt: 'Do seq2'),
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'seq1', name: 'Seq1', prompts: ['Do seq1']),
+        const WorkflowStep(id: 'seq2', name: 'Seq2', prompts: ['Do seq2']),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -466,7 +466,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -510,7 +510,7 @@ void main() {
       name: 'test',
       description: 'Test',
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -566,7 +566,7 @@ void main() {
       description: 'Test',
       steps: [
         // parallel:true inside loop should be ignored (warning logged).
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1', parallel: true),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1'], parallel: true),
       ],
       loops: [
         const WorkflowLoop(
@@ -606,7 +606,7 @@ void main() {
       description: 'Test',
       maxTokens: 100,
       steps: [
-        const WorkflowStep(id: 'ls1', name: 'LS1', prompt: 'Do ls1'),
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
       ],
       loops: [
         const WorkflowLoop(
@@ -638,5 +638,279 @@ void main() {
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.paused));
     expect(finalRun?.errorMessage, contains('budget'));
+  });
+
+  // ── S03: Loop finalizer tests ────────────────────────────────────────────────
+
+  test('S03: finalizer runs after gate pass — workflow completes', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(id: 'loop-step', name: 'Loop Step', prompts: ['Do loop']),
+        WorkflowStep(id: 'summarize', name: 'Summarize', prompts: ['Summarize']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['loop-step'],
+          maxIterations: 3,
+          exitGate: 'loop.loop1.iteration == 1',
+          finally_: 'summarize',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final taskIds = <String>[];
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskIds.add(e.taskId);
+          await completeTask(e.taskId);
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    // 1 loop iteration + 1 finalizer = 2 tasks.
+    expect(taskIds.length, equals(2));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('S03: finalizer runs after maxIterations — workflow pauses', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+        WorkflowStep(id: 'finalizer', name: 'Finalizer', prompts: ['Finalize']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['ls1'],
+          maxIterations: 2,
+          exitGate: 'never.passes == true',
+          finally_: 'finalizer',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var taskCount = 0;
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          await completeTask(e.taskId);
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    // 2 loop iterations + 1 finalizer = 3 tasks.
+    expect(taskCount, equals(3));
+    final finalRun = await repository.getById('run-1');
+    // Loop pauses (maxIterations exceeded), even though finalizer ran.
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.errorMessage, contains('max iterations'));
+  });
+
+  test('S03: finalizer runs after step failure — workflow pauses', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+        WorkflowStep(id: 'cleanup', name: 'Cleanup', prompts: ['Clean up']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['ls1'],
+          maxIterations: 3,
+          exitGate: 'ls1.status == accepted',
+          finally_: 'cleanup',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var taskCount = 0;
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          // First task (ls1) fails; second task (cleanup/finalizer) succeeds.
+          if (taskCount == 1) {
+            await completeTask(e.taskId, status: TaskStatus.failed);
+          } else {
+            await completeTask(e.taskId);
+          }
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    // ls1 failed (1) + cleanup finalizer ran (1) = 2 tasks.
+    expect(taskCount, equals(2));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+  });
+
+  test('S03: finalizer failure pauses workflow with finalizer error', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+        WorkflowStep(id: 'bad-cleanup', name: 'Bad Cleanup', prompts: ['Fail']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['ls1'],
+          maxIterations: 3,
+          exitGate: 'loop.loop1.iteration == 1',
+          finally_: 'bad-cleanup',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var taskCount = 0;
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          // ls1 succeeds, bad-cleanup fails.
+          if (taskCount == 1) {
+            await completeTask(e.taskId);
+          } else {
+            await completeTask(e.taskId, status: TaskStatus.failed);
+          }
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(taskCount, equals(2));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.errorMessage, contains('finalizer'));
+    expect(finalRun?.errorMessage, contains('Bad Cleanup'));
+  });
+
+  test('S03: finalizer accesses loop context (iteration count)', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(
+          id: 'ls1',
+          name: 'LS1',
+          prompts: ['Iter {{context.loop.loop1.iteration}}'],
+          contextOutputs: ['result'],
+        ),
+        WorkflowStep(
+          id: 'finalizer',
+          name: 'Finalizer',
+          prompts: ['Summary after {{context.loop.loop1.iteration}} iterations'],
+        ),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['ls1'],
+          maxIterations: 3,
+          exitGate: 'loop.loop1.iteration == 2',
+          finally_: 'finalizer',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    int? iterationAtFinalizer;
+    var taskCount = 0;
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          // 3rd task is the finalizer — capture iteration from context.
+          if (taskCount == 3) {
+            iterationAtFinalizer = context['loop.loop1.iteration'] as int?;
+          }
+          await completeTask(e.taskId);
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    // 2 loop iterations + 1 finalizer = 3.
+    expect(taskCount, equals(3));
+    // Finalizer sees iteration = 2 (the iteration at which the gate passed).
+    expect(iterationAtFinalizer, equals(2));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('S03: loop without finally works unchanged (no regression)', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: const [
+        WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'loop1',
+          steps: ['ls1'],
+          maxIterations: 2,
+          exitGate: 'loop.loop1.iteration == 1',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    var taskCount = 0;
+    final sub = eventBus.on<TaskStatusChangedEvent>()
+        .where((e) => e.newStatus == TaskStatus.queued)
+        .listen((e) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          await completeTask(e.taskId);
+        });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(taskCount, equals(1));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 }

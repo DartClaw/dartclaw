@@ -7,12 +7,15 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ExtractionConfig,
         ExtractionType,
         MessageService,
+        OutputConfig,
+        OutputFormat,
         SessionService,
         Task,
         TaskType,
         WorkflowStep;
 import 'package:dartclaw_server/dartclaw_server.dart' show ContextExtractor, TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -33,11 +36,7 @@ void main() {
     taskService = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
-    extractor = ContextExtractor(
-      taskService: taskService,
-      messageService: messageService,
-      dataDir: tempDir.path,
-    );
+    extractor = ContextExtractor(taskService: taskService, messageService: messageService, dataDir: tempDir.path);
   });
 
   tearDown(() async {
@@ -59,13 +58,15 @@ void main() {
   WorkflowStep makeStep({
     List<String> contextOutputs = const [],
     ExtractionConfig? extraction,
+    Map<String, OutputConfig>? outputs,
   }) {
     return WorkflowStep(
       id: 'step1',
       name: 'Step 1',
-      prompt: 'Do something',
+      prompts: ['Do something'],
       contextOutputs: contextOutputs,
       extraction: extraction,
+      outputs: outputs,
     );
   }
 
@@ -105,15 +106,12 @@ void main() {
 
   test('extracts from agent ## Context Output convention (key: value)', () async {
     final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'user',
-      content: 'Do some research',
-    );
+    await messageService.insertMessage(sessionId: session.id, role: 'user', content: 'Do some research');
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
-      content: 'Here is my response.\n\n## Context Output\nresearch_notes: Found important findings about X.\nsummary: Brief summary here.',
+      content:
+          'Here is my response.\n\n## Context Output\nresearch_notes: Found important findings about X.\nsummary: Brief summary here.',
     );
 
     // Task needs a sessionId — create it via updateFields after autoStart.
@@ -137,7 +135,8 @@ void main() {
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
-      content: 'Done.\n\n## Context Output\n```json\n{"research_notes": "JSON extracted value", "summary": "JSON summary"}\n```',
+      content:
+          'Done.\n\n## Context Output\n```json\n{"research_notes": "JSON extracted value", "summary": "JSON summary"}\n```',
     );
 
     await taskService.create(
@@ -155,16 +154,109 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
+  test('format-aware json output stores parsed list from last assistant message', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '[{"id":"s01"},{"id":"s02"}]',
+    );
+
+    await taskService.create(
+      id: 'task-json-list-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-json-list-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-json-list-1'))!;
+
+    final step = makeStep(
+      contextOutputs: ['result'],
+      outputs: {'result': const OutputConfig(format: OutputFormat.json)},
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+    final result = outputs['result'] as List<Object?>;
+
+    expect(result, hasLength(2));
+    expect((result.first as Map<String, dynamic>)['id'], equals('s01'));
+    expect((result.last as Map<String, dynamic>)['id'], equals('s02'));
+  });
+
+  test('format-aware lines output stores trimmed non-empty lines', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: 'alpha\n  beta  \n\n gamma ');
+
+    await taskService.create(
+      id: 'task-lines-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-lines-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-lines-1'))!;
+
+    final step = makeStep(
+      contextOutputs: ['result'],
+      outputs: {'result': const OutputConfig(format: OutputFormat.lines)},
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+    expect(outputs['result'], equals(['alpha', 'beta', 'gamma']));
+  });
+
+  test('schema preset warnings stay soft for format-aware json extraction', () async {
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final records = <LogRecord>[];
+    final sub = Logger('ContextExtractor').onRecord.listen(records.add);
+    addTearDown(() async {
+      Logger.root.level = previousLevel;
+      await sub.cancel();
+    });
+
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: '{"summary":"Only summary"}');
+
+    await taskService.create(
+      id: 'task-schema-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-schema-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-schema-1'))!;
+
+    final step = makeStep(
+      contextOutputs: ['result'],
+      outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
+    );
+
+    final outputs = await extractor.extract(step, taskWithSession);
+    final result = outputs['result'] as Map<String, dynamic>;
+
+    expect(result['summary'], equals('Only summary'));
+    expect(
+      records.any(
+        (record) =>
+            record.level == Level.WARNING &&
+            record.message.contains('Schema validation for "result"') &&
+            record.message.contains('"pass"'),
+      ),
+      isTrue,
+    );
+  });
+
   test('extracts diff.json artifact for diff-related key', () async {
     final task = await createTask();
     final artifactsDir = Directory(p.join(tempDir.path, 'tasks', 'task-1', 'artifacts'));
     artifactsDir.createSync(recursive: true);
     final diffFile = File(p.join(artifactsDir.path, 'diff.json'));
-    diffFile.writeAsStringSync(jsonEncode({
-      'files': 3,
-      'additions': 45,
-      'deletions': 12,
-    }));
+    diffFile.writeAsStringSync(jsonEncode({'files': 3, 'additions': 45, 'deletions': 12}));
 
     await taskService.addArtifact(
       id: 'diff-artifact-1',

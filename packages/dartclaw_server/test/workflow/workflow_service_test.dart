@@ -69,7 +69,7 @@ void main() {
       description: 'Test workflow',
       variables: variables,
       steps: steps ?? [
-        const WorkflowStep(id: 'step1', name: 'Step 1', prompt: 'Do step 1'),
+        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
       ],
     );
   }
@@ -139,7 +139,7 @@ void main() {
   test('pause() transitions running to paused', () async {
     final definition = makeDefinition(steps: [
       // Long running step — we pause before it completes.
-      const WorkflowStep(id: 'step1', name: 'Step 1', prompt: 'Long step'),
+      const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Long step']),
     ]);
 
     final run = await workflowService.start(definition, {});

@@ -1,5 +1,9 @@
 import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:logging/logging.dart';
 
+import 'schema_presets.dart' show schemaPresets;
+import 'skill_registry.dart';
+import 'step_config_resolver.dart' show globMatchStepId;
 import 'workflow_template_engine.dart';
 
 /// Classification of validation errors.
@@ -11,6 +15,7 @@ enum ValidationErrorType {
   missingMaxIterations,
   contextInconsistency,
   loopOverlap,
+  unsupportedProviderCapability,
 }
 
 /// A structured validation error with category and location.
@@ -39,10 +44,27 @@ class ValidationError {
 /// Returns a list of validation errors. An empty list means the
 /// definition is valid.
 class WorkflowDefinitionValidator {
+  static final _log = Logger('WorkflowDefinitionValidator');
+  static final _gateConditionPattern = RegExp(
+    r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$',
+  );
   final _engine = WorkflowTemplateEngine();
 
+  /// Optional skill registry for skill-aware validation.
+  ///
+  /// When null, skill reference validation is skipped (e.g. in tests or
+  /// parsing-only contexts where no registry is configured).
+  SkillRegistry? skillRegistry;
+
   /// Validates [definition] and returns all errors found.
-  List<ValidationError> validate(WorkflowDefinition definition) {
+  ///
+  /// [continuityProviders]: optional set of provider names that support session
+  /// continuity (e.g. `{'claude'}`). When provided, multi-prompt steps targeting
+  /// other providers produce a validation error. When null, this check is skipped.
+  List<ValidationError> validate(
+    WorkflowDefinition definition, {
+    Set<String>? continuityProviders,
+  }) {
     final errors = <ValidationError>[];
     _validateRequiredFields(definition, errors);
     _validateUniqueStepIds(definition, errors);
@@ -53,7 +75,70 @@ class WorkflowDefinitionValidator {
     _validateLoopReferences(definition, errors);
     _validateLoopMaxIterations(definition, errors);
     _validateLoopStepOverlap(definition, errors);
+    _validateLoopFinalizers(definition, errors);
+    _validateStepDefaults(definition);
+    _validateOutputConfigs(definition, errors);
+    _validateMapOverReferences(definition, errors);
+    _validateMapStepConstraints(definition, errors);
+    if (continuityProviders != null) {
+      _validateMultiPromptProviders(definition, errors, continuityProviders);
+    }
+    _validateSkillReferences(definition, errors);
     return errors;
+  }
+
+  void _validateSkillReferences(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+  ) {
+    if (skillRegistry == null) return;
+
+    for (final step in definition.steps) {
+      if (step.skill == null) continue;
+
+      final error = skillRegistry!.validateRef(step.skill!);
+      if (error != null) {
+        errors.add(
+          ValidationError(
+            message: 'Step "${step.id}": $error',
+            type: ValidationErrorType.invalidReference,
+            stepId: step.id,
+          ),
+        );
+        continue; // Skip harness checks if skill doesn't exist.
+      }
+
+      // Harness compatibility check.
+      final stepProvider = step.provider;
+      if (stepProvider != null) {
+        // Explicit provider: hard error if skill not native for that harness.
+        if (!skillRegistry!.isNativeFor(step.skill!, stepProvider)) {
+          final skill = skillRegistry!.getByName(step.skill!);
+          final available = skill?.nativeHarnesses.join(', ') ?? 'none';
+          errors.add(
+            ValidationError(
+              message: 'Step "${step.id}": skill "${step.skill}" not available '
+                  'for provider "$stepProvider". '
+                  'Skill is native for: $available. '
+                  'Install it in the provider\'s skill directory or remove the '
+                  'explicit provider.',
+              type: ValidationErrorType.invalidReference,
+              stepId: step.id,
+            ),
+          );
+        }
+      } else {
+        // Default provider: warn if skill only found in one harness.
+        final skill = skillRegistry!.getByName(step.skill!);
+        if (skill != null && skill.nativeHarnesses.length == 1) {
+          _log.warning(
+            'Step "${step.id}": skill "${step.skill}" found only in '
+            '${skill.nativeHarnesses.first} harness. If the default provider '
+            'changes, the skill may not be available.',
+          );
+        }
+      }
+    }
   }
 
   void _validateRequiredFields(
@@ -87,10 +172,10 @@ class WorkflowDefinitionValidator {
     for (final step in definition.steps) {
       if (step.id.isEmpty) {
         errors.add(
-          ValidationError(
+          const ValidationError(
             message: 'Step must have a non-empty id.',
             type: ValidationErrorType.missingField,
-            stepId: step.id.isEmpty ? '<empty>' : step.id,
+            stepId: '<empty>',
           ),
         );
       }
@@ -103,14 +188,28 @@ class WorkflowDefinitionValidator {
           ),
         );
       }
-      if (step.prompt.isEmpty) {
+      // Prompt is optional when skill is present (S04).
+      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty)) {
         errors.add(
           ValidationError(
-            message: 'Step "${step.id}" must have a non-empty prompt.',
+            message: 'Step "${step.id}" must have at least one prompt.',
             type: ValidationErrorType.missingField,
             stepId: step.id,
           ),
         );
+      } else if (step.prompts != null) {
+        for (final p in step.prompts!) {
+          if (p.isEmpty) {
+            errors.add(
+              ValidationError(
+                message: 'Step "${step.id}" has an empty prompt — all prompts must be non-empty.',
+                type: ValidationErrorType.missingField,
+                stepId: step.id,
+              ),
+            );
+            break;
+          }
+        }
       }
     }
   }
@@ -157,8 +256,12 @@ class WorkflowDefinitionValidator {
   ) {
     final declaredVars = definition.variables.keys.toSet();
     for (final step in definition.steps) {
-      final refs = _engine.extractVariableReferences(step.prompt);
-      for (final ref in refs) {
+      // Extract variable references from all prompts combined (prompts optional for skill steps).
+      final allPromptRefs = <String>{
+        for (final p in step.prompts ?? const <String>[])
+          ..._engine.extractVariableReferences(p),
+      };
+      for (final ref in allPromptRefs) {
         if (!declaredVars.contains(ref)) {
           errors.add(
             ValidationError(
@@ -246,17 +349,12 @@ class WorkflowDefinitionValidator {
     List<ValidationError> errors,
   ) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
-    // Pattern: stepId.key operator value (with && between conditions).
-    // Step IDs may contain hyphens (e.g. "gap-analysis"), so use [\w-]+ for the ID part.
-    final conditionPattern = RegExp(
-      r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$',
-    );
 
     for (final step in definition.steps) {
       if (step.gate == null) continue;
       final conditions = step.gate!.split('&&').map((c) => c.trim());
       for (final condition in conditions) {
-        final match = conditionPattern.firstMatch(condition);
+        final match = _gateConditionPattern.firstMatch(condition);
         if (match == null) {
           errors.add(
             ValidationError(
@@ -342,6 +440,183 @@ class WorkflowDefinitionValidator {
         } else {
           stepToLoop[stepId] = loop.id;
         }
+      }
+    }
+  }
+
+  void _validateLoopFinalizers(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+  ) {
+    final stepIds = definition.steps.map((s) => s.id).toSet();
+    for (final loop in definition.loops) {
+      final finallyStep = loop.finally_;
+      if (finallyStep == null) continue;
+
+      if (!stepIds.contains(finallyStep)) {
+        errors.add(
+          ValidationError(
+            message:
+                'Loop "${loop.id}" finalizer "$finallyStep" references a non-existent step.',
+            type: ValidationErrorType.invalidReference,
+            loopId: loop.id,
+          ),
+        );
+      } else if (loop.steps.contains(finallyStep)) {
+        errors.add(
+          ValidationError(
+            message:
+                'Loop "${loop.id}" finalizer "$finallyStep" must not be one of the loop\'s '
+                'iteration steps.',
+            type: ValidationErrorType.loopOverlap,
+            loopId: loop.id,
+          ),
+        );
+      }
+    }
+  }
+
+  void _validateStepDefaults(WorkflowDefinition definition) {
+    final defaults = definition.stepDefaults;
+    if (defaults == null || defaults.isEmpty) return;
+    final stepIds = definition.steps.map((s) => s.id).toList();
+    for (final d in defaults) {
+      final matches = stepIds.any((id) => globMatchStepId(d.match, id));
+      if (!matches) {
+        _log.warning(
+          'stepDefaults pattern "${d.match}" does not match any step in '
+          '"${definition.name}". Pattern may be targeting future steps.',
+        );
+      }
+    }
+  }
+
+  void _validateOutputConfigs(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+  ) {
+    for (final step in definition.steps) {
+      if (step.outputs == null) continue;
+
+      for (final entry in step.outputs!.entries) {
+        final key = entry.key;
+        final config = entry.value;
+
+        // Output key must be in contextOutputs.
+        if (!step.contextOutputs.contains(key)) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" output "$key" is not declared in contextOutputs.',
+              type: ValidationErrorType.contextInconsistency,
+              stepId: step.id,
+            ),
+          );
+        }
+
+        // Schema preset name must be known.
+        if (config.presetName != null) {
+          if (!schemaPresets.containsKey(config.presetName)) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
+                type: ValidationErrorType.invalidReference,
+                stepId: step.id,
+              ),
+            );
+          }
+        }
+
+        // Inline schema must be an object with 'type'.
+        if (config.inlineSchema != null) {
+          if (!config.inlineSchema!.containsKey('type')) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" output "$key" inline schema missing "type" field.',
+                type: ValidationErrorType.missingField,
+                stepId: step.id,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  void _validateMapOverReferences(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+  ) {
+    // Build the set of context keys produced by steps in order.
+    // For each step with mapOver, verify the referenced key was produced by a prior step.
+    final producedSoFar = <String>{};
+    for (final step in definition.steps) {
+      final mapOver = step.mapOver;
+      if (mapOver != null) {
+        if (!producedSoFar.contains(mapOver)) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" mapOver references "$mapOver" but no prior step '
+                  'declares it as a contextOutput.',
+              type: ValidationErrorType.contextInconsistency,
+              stepId: step.id,
+            ),
+          );
+        }
+      }
+      producedSoFar.addAll(step.contextOutputs);
+    }
+  }
+
+  void _validateMapStepConstraints(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+  ) {
+    for (final step in definition.steps) {
+      if (step.mapOver == null) continue;
+
+      // A map step cannot also be a parallel step.
+      if (step.parallel) {
+        errors.add(
+          ValidationError(
+            message: 'Map step "${step.id}" cannot also be a parallel step.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      // Warn when a map step has no contextOutputs — results will be discarded.
+      if (step.contextOutputs.isEmpty) {
+        _log.warning(
+          'Map step "${step.id}" has no contextOutputs; results will not be stored in context.',
+        );
+      }
+    }
+  }
+
+  void _validateMultiPromptProviders(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+    Set<String> continuityProviders,
+  ) {
+    for (final step in definition.steps) {
+      if (!step.isMultiPrompt) continue;
+      final provider = step.provider;
+      if (provider == null) continue; // No explicit provider — skip (default may support it).
+      if (!continuityProviders.contains(provider)) {
+        errors.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" uses multi-prompt but targets provider "$provider" '
+                'which does not support session continuity.',
+            type: ValidationErrorType.unsupportedProviderCapability,
+            stepId: step.id,
+          ),
+        );
       }
     }
   }

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        SkillRegistry,
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
@@ -45,6 +46,7 @@ class _RegisteredWorkflow {
 class WorkflowRegistry implements WorkflowDefinitionSource {
   final WorkflowDefinitionParser _parser;
   final WorkflowDefinitionValidator _validator;
+  final Set<String>? _continuityProviders;
   final Logger _log;
 
   final Map<String, _RegisteredWorkflow> _definitions = {};
@@ -52,10 +54,16 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   WorkflowRegistry({
     required WorkflowDefinitionParser parser,
     required WorkflowDefinitionValidator validator,
+    Set<String>? continuityProviders,
     Logger? log,
   }) : _parser = parser,
        _validator = validator,
+       _continuityProviders = continuityProviders,
        _log = log ?? Logger('WorkflowRegistry');
+
+  /// Sets the skill registry on the validator for skill-aware validation (S04).
+  set skillRegistry(SkillRegistry? registry) =>
+      _validator.skillRegistry = registry;
 
   /// Loads all built-in workflow definitions from embedded constants.
   ///
@@ -66,7 +74,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
     for (final entry in builtInWorkflowYaml.entries) {
       try {
         final definition = _parser.parse(entry.value, sourcePath: 'built-in:${entry.key}');
-        final errors = _validator.validate(definition);
+        final errors = _validator.validate(definition, continuityProviders: _continuityProviders);
         if (errors.isNotEmpty) {
           _log.severe(
             'Built-in workflow "${entry.key}" failed validation: '
@@ -109,7 +117,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
       try {
         final content = await entity.readAsString();
         final definition = _parser.parse(content, sourcePath: entity.path);
-        final errors = _validator.validate(definition);
+        final errors = _validator.validate(definition, continuityProviders: _continuityProviders);
         if (errors.isNotEmpty) {
           _log.warning(
             'Custom workflow excluded: ${entity.path} — '

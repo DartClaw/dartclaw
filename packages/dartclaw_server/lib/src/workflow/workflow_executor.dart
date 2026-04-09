@@ -1,4 +1,5 @@
 import 'dart:async' show Completer, StreamSubscription, TimeoutException;
+import 'dart:collection' show Queue;
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,7 +8,16 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         EventBus,
         KvService,
         LoopIterationCompletedEvent,
+        MapContext,
+        MapIterationCompletedEvent,
+        MapStepCompletedEvent,
+        MessageService,
+        OutputConfig,
+        OutputFormat,
         ParallelGroupCompletedEvent,
+        PromptAugmenter,
+        ResolvedStepConfig,
+        SkillPromptBuilder,
         Task,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -22,15 +32,19 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStep,
         WorkflowStepCompletedEvent,
         WorkflowTemplateEngine,
-        atomicWriteJson;
+        atomicWriteJson,
+        resolveStepConfig;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../task/task_service.dart';
+import '../turn_manager.dart' show TurnManager, TurnStatus;
 import 'context_extractor.dart';
+import 'dependency_graph.dart';
 import 'gate_evaluator.dart';
+import 'map_step_context.dart';
 
 /// Result of a single step within a parallel group.
 class _ParallelStepResult {
@@ -51,6 +65,23 @@ class _ParallelStepResult {
   });
 }
 
+/// Result of a map/fan-out step execution.
+class _MapStepResult {
+  /// Index-ordered result array (one slot per collection item).
+  final List<dynamic> results;
+
+  /// Total tokens consumed across all iterations.
+  final int totalTokens;
+
+  /// Whether all iterations succeeded.
+  final bool success;
+
+  /// Error message if any iteration failed or the step itself failed.
+  final String? error;
+
+  const _MapStepResult({required this.results, required this.totalTokens, required this.success, this.error});
+}
+
 /// Sequential + parallel + iterative workflow execution engine.
 ///
 /// Processes linear steps (sequentially or in parallel groups), then executes
@@ -66,6 +97,9 @@ class WorkflowExecutor {
   final GateEvaluator _gateEvaluator;
   final ContextExtractor _contextExtractor;
   final WorkflowTemplateEngine _templateEngine;
+  final SkillPromptBuilder _skillPromptBuilder;
+  final MessageService? _messageService;
+  final TurnManager? _turnManager;
   final String _dataDir;
   final Uuid _uuid;
 
@@ -78,6 +112,10 @@ class WorkflowExecutor {
     required ContextExtractor contextExtractor,
     required String dataDir,
     WorkflowTemplateEngine? templateEngine,
+    PromptAugmenter? promptAugmenter,
+    SkillPromptBuilder? skillPromptBuilder,
+    MessageService? messageService,
+    TurnManager? turnManager,
     Uuid? uuid,
   }) : _taskService = taskService,
        _eventBus = eventBus,
@@ -86,6 +124,10 @@ class WorkflowExecutor {
        _gateEvaluator = gateEvaluator,
        _contextExtractor = contextExtractor,
        _templateEngine = templateEngine ?? WorkflowTemplateEngine(),
+       _skillPromptBuilder =
+           skillPromptBuilder ?? SkillPromptBuilder(augmenter: promptAugmenter ?? const PromptAugmenter()),
+       _messageService = messageService,
+       _turnManager = turnManager,
        _dataDir = dataDir,
        _uuid = uuid ?? const Uuid();
 
@@ -103,12 +145,14 @@ class WorkflowExecutor {
     String? startFromLoopStepId,
     bool Function()? isCancelled,
   }) async {
-    _log.info(
-      "Workflow '${definition.name}' (${run.id}) executing from step $startFromStepIndex",
-    );
+    _log.info("Workflow '${definition.name}' (${run.id}) executing from step $startFromStepIndex");
 
-    // Build set of loop-owned step IDs.
-    final loopStepIds = definition.loops.expand((l) => l.steps).toSet();
+    // Build set of loop-owned step IDs (iteration steps + finalizer steps).
+    // Finalizer steps are excluded from the linear pass — executed by _executeLoop.
+    final loopStepIds = {
+      ...definition.loops.expand((l) => l.steps),
+      ...definition.loops.map((l) => l.finally_).whereType<String>(),
+    };
     final totalSteps = definition.steps.length;
 
     // ── Linear pass ──────────────────────────────────────────────────────────
@@ -129,6 +173,89 @@ class WorkflowExecutor {
         continue;
       }
 
+      if (step.mapOver != null) {
+        // ── Map step ─────────────────────────────────────────────────────────
+        // Evaluate gate before map step.
+        if (step.gate != null) {
+          final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
+          if (!gatePasses) {
+            final msg = "Gate failed for map step '${step.name}': ${step.gate}";
+            _log.info("Workflow '${run.id}': $msg");
+            await _pauseRun(run, msg);
+            return;
+          }
+        }
+
+        // Budget check before map step.
+        final refreshedRun = await _repository.getById(run.id) ?? run;
+        run = refreshedRun;
+        run = await _checkWorkflowBudgetWarning(run, definition);
+        if (_workflowBudgetExceeded(run, definition)) {
+          final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
+          _log.info("Workflow '${run.id}': $msg");
+          await _pauseRun(run, msg);
+          return;
+        }
+
+        final mapResult = await _executeMapStep(run, definition, step, context, stepIndex: stepIndex);
+        if (mapResult == null) return; // Already paused.
+
+        // Always store results in context (even on partial failure — completed
+        // results are preserved; error slots contain error objects).
+        for (final outputKey in step.contextOutputs) {
+          context[outputKey] = mapResult.results;
+        }
+
+        if (!mapResult.success) {
+          final msg = mapResult.error ?? "Map step '${step.id}' failed";
+          _log.info("Workflow '${run.id}': $msg");
+          // Persist results before pausing so they're available in context.
+          run = run.copyWith(
+            totalTokens: run.totalTokens + mapResult.totalTokens,
+            contextJson: {
+              for (final e in run.contextJson.entries)
+                if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+              ...context.toJson(),
+            },
+            updatedAt: DateTime.now(),
+          );
+          await _persistContext(run.id, context);
+          await _repository.update(run);
+          await _pauseRun(run, msg);
+          return;
+        }
+
+        run = run.copyWith(
+          totalTokens: run.totalTokens + mapResult.totalTokens,
+          currentStepIndex: stepIndex + 1,
+          contextJson: {
+            for (final e in run.contextJson.entries)
+              if (e.key.startsWith('_') && !e.key.startsWith('_map.current')) e.key: e.value,
+            ...context.toJson(),
+          },
+          updatedAt: DateTime.now(),
+        );
+        await _persistContext(run.id, context);
+        await _repository.update(run);
+
+        _eventBus.fire(
+          WorkflowStepCompletedEvent(
+            runId: run.id,
+            stepId: step.id,
+            stepName: step.name,
+            stepIndex: stepIndex,
+            totalSteps: totalSteps,
+            taskId: '',
+            success: true,
+            tokenCount: mapResult.totalTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+
+        stepIndex++;
+        continue;
+      }
+
       if (step.parallel) {
         // ── Parallel group ───────────────────────────────────────────────────
         final fullGroup = _collectParallelGroup(definition.steps, stepIndex, loopStepIds);
@@ -140,9 +267,7 @@ class WorkflowExecutor {
             ? Set<String>.from(failedStepIdsRaw.cast<String>())
             : <String>{};
         final isParallelResume = resumeFailedIds.isNotEmpty;
-        final group = isParallelResume
-            ? fullGroup.where((s) => resumeFailedIds.contains(s.id)).toList()
-            : fullGroup;
+        final group = isParallelResume ? fullGroup.where((s) => resumeFailedIds.contains(s.id)).toList() : fullGroup;
 
         if (isParallelResume) {
           _log.info(
@@ -170,8 +295,7 @@ class WorkflowExecutor {
         run = refreshedRun;
         run = await _checkWorkflowBudgetWarning(run, definition);
         if (_workflowBudgetExceeded(run, definition)) {
-          final msg =
-              'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
+          final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
           _log.info("Workflow '${run.id}': $msg");
           await _pauseRun(run, msg);
           return;
@@ -179,10 +303,7 @@ class WorkflowExecutor {
 
         // Track parallel group state for resume support.
         run = run.copyWith(
-          contextJson: {
-            ...run.contextJson,
-            '_parallel.current.stepIds': fullGroupStepIds,
-          },
+          contextJson: {...run.contextJson, '_parallel.current.stepIds': fullGroupStepIds},
           updatedAt: DateTime.now(),
         );
         await _repository.update(run);
@@ -254,8 +375,7 @@ class WorkflowExecutor {
           currentStepIndex: stepIndex + fullGroup.length,
           contextJson: {
             for (final e in run.contextJson.entries)
-              if (e.key != '_parallel.current.stepIds' && e.key != '_parallel.failed.stepIds')
-                e.key: e.value,
+              if (e.key != '_parallel.current.stepIds' && e.key != '_parallel.failed.stepIds') e.key: e.value,
             ...context.toJson(),
           },
           updatedAt: DateTime.now(),
@@ -283,8 +403,7 @@ class WorkflowExecutor {
       run = refreshedRun;
       run = await _checkWorkflowBudgetWarning(run, definition);
       if (_workflowBudgetExceeded(run, definition)) {
-        final msg =
-            'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
+        final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
         _log.info("Workflow '${run.id}': $msg");
         await _pauseRun(run, msg);
         return;
@@ -305,7 +424,8 @@ class WorkflowExecutor {
 
       if (!result.success) {
         final reason = result.task?.configJson['failReason'] as String?;
-        final msg = "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
+        final msg =
+            "Step '${step.id}' (${step.name}) ${result.task?.status.name ?? 'failed'}"
             "${reason != null ? ': $reason' : ''}";
         _log.info("Workflow '${run.id}': $msg");
         await _pauseRun(run, msg);
@@ -358,9 +478,7 @@ class WorkflowExecutor {
         return;
       }
 
-      final iterStart = (loopIdx == loopStartIndex && startFromLoopIteration != null)
-          ? startFromLoopIteration
-          : 1;
+      final iterStart = (loopIdx == loopStartIndex && startFromLoopIteration != null) ? startFromLoopIteration : 1;
 
       // Only pass the resume step ID for the first loop being resumed.
       final loopStepId = (loopIdx == loopStartIndex) ? startFromLoopStepId : null;
@@ -387,11 +505,7 @@ class WorkflowExecutor {
 
   /// Collects contiguous parallel steps starting at [startIndex], skipping
   /// loop-owned steps. Stops at the first non-parallel, non-loop-owned step.
-  List<WorkflowStep> _collectParallelGroup(
-    List<WorkflowStep> steps,
-    int startIndex,
-    Set<String> loopStepIds,
-  ) {
+  List<WorkflowStep> _collectParallelGroup(List<WorkflowStep> steps, int startIndex, Set<String> loopStepIds) {
     final group = <WorkflowStep>[];
     for (var i = startIndex; i < steps.length; i++) {
       final step = steps[i];
@@ -413,25 +527,43 @@ class WorkflowExecutor {
     WorkflowContext context,
   ) async {
     final futures = group.map((step) async {
-      // Warn if step has parallel:true inside a loop (shouldn't happen via this
-      // path, but guard for clarity).
-      final prompt = _templateEngine.resolve(step.prompt, context);
-      final taskConfig = _buildStepConfig(step);
+      // Resolve effective config (per-step overrides matching stepDefaults entry).
+      final resolved = resolveStepConfig(step, definition.stepDefaults);
+
+      // Apply evaluator defaults. For single-prompt, augment now; for multi-prompt,
+      // first prompt is unaugmented (augmentation happens on the last prompt in
+      // _executeFollowUpPrompts).
+      final effectiveOutputs = _applyEvaluatorDefaults(step);
+      final resolvedFirstPrompt = step.prompts != null ? _templateEngine.resolve(step.prompts!.first, context) : null;
+      final contextSummary = step.skill != null && resolvedFirstPrompt == null
+          ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+          : null;
+      final prompt = step.isMultiPrompt
+          ? _skillPromptBuilder.build(
+              skill: step.skill,
+              resolvedPrompt: resolvedFirstPrompt,
+              contextSummary: contextSummary,
+            )
+          : _skillPromptBuilder.build(
+              skill: step.skill,
+              resolvedPrompt: resolvedFirstPrompt,
+              contextSummary: contextSummary,
+              outputs: effectiveOutputs,
+              evaluator: step.evaluator,
+            );
+      final taskConfig = _buildStepConfig(step, resolved);
       final taskId = _uuid.v4();
 
       // Subscribe before create to avoid race condition.
       final completer = Completer<Task>();
-      final sub = _eventBus
-          .on<TaskStatusChangedEvent>()
-          .where((e) => e.taskId == taskId)
-          .listen((event) async {
-            if (event.newStatus.terminal) {
-              if (!completer.isCompleted) {
-                final t = await _taskService.get(taskId);
-                if (t != null) completer.complete(t);
-              }
-            }
-          });
+      final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
+        if (event.newStatus.terminal) {
+          if (!completer.isCompleted) {
+            final t = await _taskService.get(taskId);
+            if (t != null) completer.complete(t);
+          }
+        }
+      });
 
       try {
         await _taskService.create(
@@ -440,26 +572,25 @@ class WorkflowExecutor {
           description: prompt,
           type: _mapStepType(step.type),
           autoStart: true,
-          provider: step.provider,
-          maxTokens: step.maxTokens,
+          provider: resolved.provider,
+          maxTokens: resolved.maxTokens,
+          maxRetries: resolved.maxRetries ?? 0,
           workflowRunId: run.id,
           stepIndex: definition.steps.indexOf(step),
           configJson: taskConfig,
           trigger: 'workflow',
         );
 
-        final Task finalTask;
+        Task parallelTask;
         try {
           if (step.timeoutSeconds != null) {
-            finalTask = await completer.future.timeout(
+            parallelTask = await completer.future.timeout(
               Duration(seconds: step.timeoutSeconds!),
-              onTimeout: () => throw TimeoutException(
-                'Step "${step.name}" timed out',
-                Duration(seconds: step.timeoutSeconds!),
-              ),
+              onTimeout: () =>
+                  throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
             );
           } else {
-            finalTask = await completer.future;
+            parallelTask = await completer.future;
           }
         } on TimeoutException catch (e) {
           _log.warning("Parallel step '${step.name}' timed out: $e");
@@ -474,23 +605,38 @@ class WorkflowExecutor {
           await sub.cancel();
         }
 
-        final success =
-            finalTask.status != TaskStatus.failed && finalTask.status != TaskStatus.cancelled;
+        var success = parallelTask.status != TaskStatus.failed && parallelTask.status != TaskStatus.cancelled;
+
+        // Multi-prompt: send follow-up turns in the same session.
+        int cumulativeTokens = 0;
+        if (success && step.isMultiPrompt) {
+          final followUpResult = await _executeFollowUpPrompts(run, step, parallelTask, context, effectiveOutputs);
+          if (followUpResult != null) {
+            parallelTask = followUpResult.$1;
+            cumulativeTokens = followUpResult.$2;
+            success = parallelTask.status != TaskStatus.failed && parallelTask.status != TaskStatus.cancelled;
+          } else {
+            // _executeFollowUpPrompts already paused the run.
+            success = false;
+          }
+        }
 
         Map<String, dynamic> outputs = {};
-        int tokenCount = 0;
+        int tokenCount = cumulativeTokens;
         if (success) {
           try {
-            outputs = await _contextExtractor.extract(step, finalTask);
+            outputs = await _contextExtractor.extract(step, parallelTask);
           } catch (e) {
             _log.warning("Context extraction failed for parallel step '${step.id}': $e");
           }
-          tokenCount = await _readStepTokenCount(finalTask);
+          if (cumulativeTokens == 0) {
+            tokenCount = await _readStepTokenCount(parallelTask);
+          }
         }
 
         return _ParallelStepResult(
           step: step,
-          task: finalTask,
+          task: parallelTask,
           outputs: outputs,
           tokenCount: tokenCount,
           success: success,
@@ -498,13 +644,7 @@ class WorkflowExecutor {
       } catch (e, st) {
         await sub.cancel();
         _log.severe("Parallel step '${step.name}' failed: $e", e, st);
-        return _ParallelStepResult(
-          step: step,
-          outputs: {},
-          tokenCount: 0,
-          success: false,
-          error: e.toString(),
-        );
+        return _ParallelStepResult(step: step, outputs: {}, tokenCount: 0, success: false, error: e.toString());
       }
     }).toList();
 
@@ -520,8 +660,7 @@ class WorkflowExecutor {
       if (result.success) {
         context.merge(result.outputs);
       }
-      context['${result.step.id}.status'] =
-          result.success ? (result.task?.status.name ?? 'unknown') : 'failed';
+      context['${result.step.id}.status'] = result.success ? (result.task?.status.name ?? 'unknown') : 'failed';
       context['${result.step.id}.tokenCount'] = result.tokenCount;
     }
   }
@@ -529,10 +668,7 @@ class WorkflowExecutor {
   /// Accumulates token counts from all parallel results into [run.totalTokens].
   WorkflowRun _updateParallelBudget(WorkflowRun run, List<_ParallelStepResult> results) {
     final total = results.fold(0, (sum, r) => sum + r.tokenCount);
-    return run.copyWith(
-      totalTokens: run.totalTokens + total,
-      updatedAt: DateTime.now(),
-    );
+    return run.copyWith(totalTokens: run.totalTokens + total, updatedAt: DateTime.now());
   }
 
   // ── Loop execution ──────────────────────────────────────────────────────────
@@ -592,9 +728,7 @@ class WorkflowExecutor {
         resumeStepId = null;
 
         if (isCancelled?.call() ?? false) {
-          _log.info(
-            "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration",
-          );
+          _log.info("Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration");
           return true;
         }
 
@@ -611,8 +745,7 @@ class WorkflowExecutor {
         if (step.gate != null) {
           final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
           if (!gatePasses) {
-            final msg =
-                "Gate failed in loop '${loop.id}' iteration $iteration: ${step.gate}";
+            final msg = "Gate failed in loop '${loop.id}' iteration $iteration: ${step.gate}";
             _log.info("Workflow '${run.id}': $msg");
             await _pauseRun(run, msg);
             return true;
@@ -662,10 +795,24 @@ class WorkflowExecutor {
         if (isCancelled?.call() ?? false) return true;
 
         if (!result.success) {
-          final msg =
-              "Loop '${loop.id}' step '${step.name}' failed in iteration $iteration";
-          _log.info("Workflow '${run.id}': $msg");
-          await _pauseRun(run, msg);
+          final failMsg = "Loop '${loop.id}' step '${step.name}' failed in iteration $iteration";
+          _log.info("Workflow '${run.id}': $failMsg");
+          // Run the finalizer before pausing (if defined).
+          if (loop.finally_ != null) {
+            final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
+              run,
+              definition,
+              loop,
+              context,
+              onRunUpdated: onRunUpdated,
+            );
+            run = updatedRun;
+            if (finalizerMsg != null) {
+              await _pauseRun(run, finalizerMsg);
+              return true;
+            }
+          }
+          await _pauseRun(run, failMsg);
           return true;
         }
 
@@ -673,10 +820,7 @@ class WorkflowExecutor {
         context['${step.id}.status'] = result.task!.status.name;
         context['${step.id}.tokenCount'] = result.tokenCount;
 
-        run = run.copyWith(
-          totalTokens: run.totalTokens + result.tokenCount,
-          updatedAt: DateTime.now(),
-        );
+        run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
         onRunUpdated(run);
 
         _eventBus.fire(
@@ -697,9 +841,7 @@ class WorkflowExecutor {
       // Evaluate exit gate after all steps in this iteration.
       if (_gateEvaluator.evaluate(loop.exitGate, context)) {
         gatePassed = true;
-        _log.info(
-          "Loop '${loop.id}' completed: exit gate passed at iteration $iteration",
-        );
+        _log.info("Loop '${loop.id}' completed: exit gate passed at iteration $iteration");
         _eventBus.fire(
           LoopIterationCompletedEvent(
             runId: run.id,
@@ -710,6 +852,21 @@ class WorkflowExecutor {
             timestamp: DateTime.now(),
           ),
         );
+        // Run the finalizer before exiting the loop (if defined).
+        if (loop.finally_ != null) {
+          final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
+            run,
+            definition,
+            loop,
+            context,
+            onRunUpdated: onRunUpdated,
+          );
+          run = updatedRun;
+          if (finalizerMsg != null) {
+            await _pauseRun(run, finalizerMsg);
+            return true;
+          }
+        }
         break;
       }
 
@@ -727,10 +884,7 @@ class WorkflowExecutor {
 
       // Persist context after each iteration.
       await _persistContext(run.id, context);
-      run = run.copyWith(
-        contextJson: context.toJson(),
-        updatedAt: DateTime.now(),
-      );
+      run = run.copyWith(contextJson: context.toJson(), updatedAt: DateTime.now());
       await _repository.update(run);
       onRunUpdated(run);
     }
@@ -740,14 +894,31 @@ class WorkflowExecutor {
       run = run.copyWith(
         contextJson: {
           for (final e in run.contextJson.entries)
-            if (e.key != '_loop.current.id' && e.key != '_loop.current.iteration') e.key: e.value,
+            if (!e.key.startsWith('_loop.current')) e.key: e.value,
         },
         updatedAt: DateTime.now(),
       );
       await _repository.update(run);
       onRunUpdated(run);
 
-      final msg = "Loop '${loop.id}' reached max iterations (${loop.maxIterations}). "
+      // Run the finalizer before pausing (if defined).
+      if (loop.finally_ != null) {
+        final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
+          run,
+          definition,
+          loop,
+          context,
+          onRunUpdated: onRunUpdated,
+        );
+        run = updatedRun;
+        if (finalizerMsg != null) {
+          await _pauseRun(run, finalizerMsg);
+          return true;
+        }
+      }
+
+      final msg =
+          "Loop '${loop.id}' reached max iterations (${loop.maxIterations}). "
           'Exit condition not met: ${loop.exitGate}';
       _log.info("Workflow '${run.id}': $msg");
       await _pauseRun(run, msg);
@@ -758,7 +929,7 @@ class WorkflowExecutor {
     run = run.copyWith(
       contextJson: {
         for (final e in run.contextJson.entries)
-          if (e.key != '_loop.current.id' && e.key != '_loop.current.iteration') e.key: e.value,
+          if (!e.key.startsWith('_loop.current')) e.key: e.value,
         ...context.toJson(),
       },
       updatedAt: DateTime.now(),
@@ -767,6 +938,61 @@ class WorkflowExecutor {
     onRunUpdated(run);
 
     return false;
+  }
+
+  /// Executes the finalizer step for a loop, if one is defined.
+  ///
+  /// Returns a record of (updated run, error message). If [errorMessage] is non-null,
+  /// the caller should pause the run with that message. If null, the finalizer
+  /// completed successfully and execution may continue.
+  Future<(WorkflowRun, String?)> _executeLoopFinalizer(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowLoop loop,
+    WorkflowContext context, {
+    required void Function(WorkflowRun) onRunUpdated,
+  }) async {
+    final finallyStepId = loop.finally_!;
+    final finallyStep = definition.steps.firstWhere((s) => s.id == finallyStepId);
+    final stepIndex = definition.steps.indexOf(finallyStep);
+
+    _log.info("Workflow '${run.id}': executing finalizer '${finallyStep.id}' for loop '${loop.id}'");
+
+    final result = await _executeStep(run, definition, finallyStep, context, stepIndex: stepIndex);
+
+    if (result == null) {
+      // Task creation failed — already paused by _executeStep.
+      return (run, null);
+    }
+
+    if (!result.success) {
+      final msg = "Loop '${loop.id}' finalizer '${finallyStep.name}' failed";
+      _log.info("Workflow '${run.id}': $msg");
+      return (run, msg);
+    }
+
+    context.merge(result.outputs);
+    context['${finallyStep.id}.status'] = result.task!.status.name;
+    context['${finallyStep.id}.tokenCount'] = result.tokenCount;
+
+    run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
+    onRunUpdated(run);
+
+    _eventBus.fire(
+      WorkflowStepCompletedEvent(
+        runId: run.id,
+        stepId: finallyStep.id,
+        stepName: finallyStep.name,
+        stepIndex: stepIndex,
+        totalSteps: definition.steps.length,
+        taskId: result.task!.id,
+        success: true,
+        tokenCount: result.tokenCount,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    return (run, null);
   }
 
   // ── Single step execution ───────────────────────────────────────────────────
@@ -784,50 +1010,71 @@ class WorkflowExecutor {
     String? loopId,
     int? loopIteration,
   }) async {
-    final prompt = _templateEngine.resolve(step.prompt, context);
-    final taskConfig = _buildStepConfig(step);
+    // Resolve effective config (per-step overrides matching stepDefaults entry).
+    final resolved = resolveStepConfig(step, definition.stepDefaults);
+
+    // Apply evaluator defaults. Augment only the LAST prompt with schema instructions.
+    final effectiveOutputs = _applyEvaluatorDefaults(step);
+    final resolvedFirstPrompt = step.prompts != null ? _templateEngine.resolve(step.prompts!.first, context) : null;
+    final contextSummary = step.skill != null && resolvedFirstPrompt == null
+        ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+        : null;
+    final taskConfig = _buildStepConfig(step, resolved);
     final taskId = _uuid.v4();
 
     // Subscribe before create to avoid race condition.
     final completer = Completer<Task>();
-    final sub = _eventBus
-        .on<TaskStatusChangedEvent>()
-        .where((e) => e.taskId == taskId)
-        .listen((event) async {
-          if (event.newStatus == TaskStatus.failed) {
-            // Check whether this is a retry-in-progress or permanent failure.
-            final t = await _taskService.get(taskId);
-            if (t == null) return; // task vanished — ignore, will timeout or get another event
-            // If task already re-queued (retry happened fast), continue waiting.
-            if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
-            // Retries remain — retry is imminent, continue waiting.
-            if (t.retryCount < t.maxRetries) return;
-            // All retries exhausted (or no retries configured) — permanent failure.
-            if (!completer.isCompleted) completer.complete(t);
-          } else if (event.newStatus.terminal) {
-            if (!completer.isCompleted) {
-              final t = await _taskService.get(taskId);
-              if (t != null) completer.complete(t);
-            }
-          } else if (event.newStatus == TaskStatus.review) {
-            // TaskExecutor handles auto-accept via configJson['reviewMode'].
-          }
-        });
+    final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
+      if (event.newStatus == TaskStatus.failed) {
+        // Check whether this is a retry-in-progress or permanent failure.
+        final t = await _taskService.get(taskId);
+        if (t == null) return; // task vanished — ignore, will timeout or get another event
+        // If task already re-queued (retry happened fast), continue waiting.
+        if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
+        // Retries remain — retry is imminent, continue waiting.
+        if (t.retryCount < t.maxRetries) return;
+        // All retries exhausted (or no retries configured) — permanent failure.
+        if (!completer.isCompleted) completer.complete(t);
+      } else if (event.newStatus.terminal) {
+        if (!completer.isCompleted) {
+          final t = await _taskService.get(taskId);
+          if (t != null) completer.complete(t);
+        }
+      } else if (event.newStatus == TaskStatus.review) {
+        // TaskExecutor handles auto-accept via configJson['reviewMode'].
+      }
+    });
 
     final title = loopId != null
         ? '${definition.name} — ${step.name} ($loopId iter $loopIteration)'
         : '${definition.name} — ${step.name}';
 
+    // For single-prompt steps, augment the first (only) prompt now.
+    // For multi-prompt, augment the last prompt later; first prompt is unaugmented.
+    final firstTaskPrompt = step.isMultiPrompt
+        ? _skillPromptBuilder.build(
+            skill: step.skill,
+            resolvedPrompt: resolvedFirstPrompt,
+            contextSummary: contextSummary,
+          )
+        : _skillPromptBuilder.build(
+            skill: step.skill,
+            resolvedPrompt: resolvedFirstPrompt,
+            contextSummary: contextSummary,
+            outputs: effectiveOutputs,
+            evaluator: step.evaluator,
+          );
+
     try {
       await _taskService.create(
         id: taskId,
         title: title,
-        description: prompt,
+        description: firstTaskPrompt,
         type: _mapStepType(step.type),
         autoStart: true,
-        provider: step.provider,
-        maxTokens: step.maxTokens,
-        maxRetries: step.maxRetries ?? 0,
+        provider: resolved.provider,
+        maxTokens: resolved.maxTokens,
+        maxRetries: resolved.maxRetries ?? 0,
         workflowRunId: run.id,
         stepIndex: stepIndex,
         configJson: taskConfig,
@@ -858,31 +1105,160 @@ class WorkflowExecutor {
       return null;
     }
 
-    final success =
-        finalTask.status != TaskStatus.failed && finalTask.status != TaskStatus.cancelled;
+    // If step failed at first prompt, return failure immediately.
+    if (finalTask.status == TaskStatus.failed || finalTask.status == TaskStatus.cancelled) {
+      return _ParallelStepResult(step: step, task: finalTask, outputs: {}, tokenCount: 0, success: false);
+    }
+
+    // Multi-prompt: send follow-up turns in the same session.
+    if (step.isMultiPrompt) {
+      final followUpResult = await _executeFollowUpPrompts(run, step, finalTask, context, effectiveOutputs);
+      if (followUpResult == null) return null; // Paused by budget/error.
+      finalTask = followUpResult.$1;
+      // If a follow-up prompt failed, return failure.
+      if (finalTask.status == TaskStatus.failed || finalTask.status == TaskStatus.cancelled) {
+        return _ParallelStepResult(
+          step: step,
+          task: finalTask,
+          outputs: {},
+          tokenCount: followUpResult.$2,
+          success: false,
+        );
+      }
+    }
 
     Map<String, dynamic> outputs = {};
     int tokenCount = 0;
-    if (success) {
-      try {
-        outputs = await _contextExtractor.extract(step, finalTask);
-      } catch (e, st) {
-        _log.warning(
-          "Context extraction failed for step '${step.id}'",
-          e,
-          st,
-        );
-      }
-      tokenCount = await _readStepTokenCount(finalTask);
+    try {
+      outputs = await _contextExtractor.extract(step, finalTask);
+    } catch (e, st) {
+      _log.warning("Context extraction failed for step '${step.id}'", e, st);
+    }
+    tokenCount = await _readStepTokenCount(finalTask);
+
+    return _ParallelStepResult(step: step, task: finalTask, outputs: outputs, tokenCount: tokenCount, success: true);
+  }
+
+  /// Sends follow-up prompts (prompts[1..]) as continuation turns on the same session.
+  ///
+  /// Returns `(finalTask, cumulativeTokens)` on success, null if the step must be paused.
+  Future<(Task, int)?> _executeFollowUpPrompts(
+    WorkflowRun run,
+    WorkflowStep step,
+    Task task,
+    WorkflowContext context,
+    Map<String, OutputConfig>? effectiveOutputs,
+  ) async {
+    final messageService = _messageService;
+    final turnManager = _turnManager;
+    if (messageService == null || turnManager == null) {
+      // No turn infrastructure available — multi-prompt not supported in this configuration.
+      _log.warning(
+        "Step '${step.id}' is multi-prompt but WorkflowExecutor has no MessageService/TurnManager. "
+        'Follow-up prompts skipped.',
+      );
+      return (task, 0);
     }
 
-    return _ParallelStepResult(
-      step: step,
-      task: finalTask,
-      outputs: outputs,
-      tokenCount: tokenCount,
-      success: success,
-    );
+    var currentTask = task;
+    var cumulativeTokens = await _readStepTokenCount(currentTask);
+    final prompts = step.prompts!;
+
+    for (var i = 1; i < prompts.length; i++) {
+      final isLast = i == prompts.length - 1;
+      final rawPrompt = prompts[i];
+
+      // Per-step budget check before each follow-up prompt.
+      if (step.maxTokens != null && cumulativeTokens >= step.maxTokens!) {
+        final msg =
+            "Step '${step.id}' budget exceeded before prompt ${i + 1}: "
+            '$cumulativeTokens / ${step.maxTokens} tokens';
+        _log.info("Workflow '${run.id}': $msg");
+        await _pauseRun(run, msg);
+        return null;
+      }
+
+      // Resolve template variables/context refs.
+      final resolvedFollowUp = _templateEngine.resolve(rawPrompt, context);
+
+      // Augment only the final prompt with schema instructions.
+      final prompt = isLast
+          ? _skillPromptBuilder.build(
+              skill: null, // skill prefix applied to first prompt only
+              resolvedPrompt: resolvedFollowUp,
+              outputs: effectiveOutputs,
+              evaluator: step.evaluator,
+            )
+          : resolvedFollowUp;
+
+      // Refresh task to get the session ID (set by TaskExecutor during first turn).
+      currentTask = await _taskService.get(currentTask.id) ?? currentTask;
+      final sessionId = currentTask.sessionId;
+      if (sessionId == null) {
+        final msg = "Step '${step.id}' has no session ID after prompt $i: cannot send follow-up";
+        _log.warning("Workflow '${run.id}': $msg");
+        await _pauseRun(run, msg);
+        return null;
+      }
+
+      // Insert user message into the session.
+      try {
+        await messageService.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
+      } catch (e, st) {
+        final msg = "Step '${step.id}' failed to insert follow-up message at prompt ${i + 1}: $e";
+        _log.severe("Workflow '${run.id}': $msg", e, st);
+        await _pauseRun(run, msg);
+        return null;
+      }
+
+      // Reserve and execute the continuation turn.
+      final String turnId;
+      try {
+        turnId = await turnManager.reserveTurn(sessionId);
+      } catch (e, st) {
+        final msg = "Step '${step.id}' failed to reserve turn for prompt ${i + 1}: $e";
+        _log.severe("Workflow '${run.id}': $msg", e, st);
+        await _pauseRun(run, msg);
+        return null;
+      }
+
+      // Fetch all session messages for the turn payload.
+      final sessionMessages = await messageService.getMessages(sessionId);
+      final turnMessages = sessionMessages
+          .map(
+            (message) => <String, dynamic>{
+              'id': message.id,
+              'sessionId': message.sessionId,
+              'role': message.role,
+              'content': message.content,
+              'cursor': message.cursor,
+              'metadata': message.metadata,
+              'createdAt': message.createdAt.toIso8601String(),
+            },
+          )
+          .toList(growable: false);
+
+      turnManager.executeTurn(sessionId, turnId, turnMessages, source: 'workflow', resume: true);
+      final outcome = await turnManager.waitForOutcome(sessionId, turnId);
+
+      if (outcome.status != TurnStatus.completed) {
+        _log.info(
+          "Workflow '${run.id}': step '${step.id}' follow-up prompt ${i + 1} failed "
+          '(${outcome.status.name})',
+        );
+        // Return a failed task view — step fails.
+        return (currentTask.copyWith(status: TaskStatus.failed), cumulativeTokens);
+      }
+
+      // Accumulate token count after each follow-up turn.
+      cumulativeTokens = await _readStepTokenCount(currentTask);
+      _log.fine(
+        "Workflow '${run.id}': step '${step.id}' prompt ${i + 1}/${prompts.length} complete "
+        '($cumulativeTokens tokens cumulative)',
+      );
+    }
+
+    return (currentTask, cumulativeTokens);
   }
 
   // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -898,10 +1274,8 @@ class WorkflowExecutor {
       if (step.timeoutSeconds != null) {
         return await completer.future.timeout(
           Duration(seconds: step.timeoutSeconds!),
-          onTimeout: () => throw TimeoutException(
-            'Step "${step.name}" timed out',
-            Duration(seconds: step.timeoutSeconds!),
-          ),
+          onTimeout: () =>
+              throw TimeoutException('Step "${step.name}" timed out', Duration(seconds: step.timeoutSeconds!)),
         );
       } else {
         return await completer.future;
@@ -911,18 +1285,41 @@ class WorkflowExecutor {
     }
   }
 
-  /// Builds configJson for a task from a workflow step.
-  Map<String, dynamic> _buildStepConfig(WorkflowStep step) {
+  /// Applies evaluator default schema to step outputs.
+  ///
+  /// When [step.evaluator] is true, sets the first json output without a schema
+  /// to use the 'verdict' preset. Returns original outputs if no defaults apply.
+  Map<String, OutputConfig>? _applyEvaluatorDefaults(WorkflowStep step) {
+    if (!step.evaluator) return step.outputs;
+    if (step.outputs == null) return step.outputs;
+
+    // Find first json output without a schema.
+    final modified = Map<String, OutputConfig>.from(step.outputs!);
+    var applied = false;
+    for (final entry in modified.entries) {
+      if (entry.value.format == OutputFormat.json && !entry.value.hasSchema && !applied) {
+        modified[entry.key] = const OutputConfig(format: OutputFormat.json, schema: 'verdict');
+        applied = true;
+      }
+    }
+    return modified;
+  }
+
+  /// Builds configJson for a task from a workflow step and its resolved config.
+  Map<String, dynamic> _buildStepConfig(WorkflowStep step, ResolvedStepConfig resolved) {
     final config = <String, dynamic>{};
-    if (step.model != null) config['model'] = step.model;
-    if (step.maxTokens != null) config['tokenBudget'] = step.maxTokens;
-    if (step.allowedTools != null) config['allowedTools'] = step.allowedTools;
+    if (resolved.model != null) config['model'] = resolved.model;
+    if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
+    if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
+    if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
     config['reviewMode'] = switch (step.review.name) {
       'never' => 'auto-accept',
       'always' => 'mandatory',
       'codingOnly' => 'coding-only',
       _ => 'coding-only',
     };
+    // Propagate evaluator flag for S05 (TaskExecutor scope selection).
+    if (step.evaluator) config['evaluator'] = true;
     return config;
   }
 
@@ -946,10 +1343,7 @@ class WorkflowExecutor {
   ///
   /// Deduplicated via `_budget.warningFired` in [run.contextJson] — fires once per run.
   /// Returns updated [run] if the flag was set, otherwise returns [run] unchanged.
-  Future<WorkflowRun> _checkWorkflowBudgetWarning(
-    WorkflowRun run,
-    WorkflowDefinition definition,
-  ) async {
+  Future<WorkflowRun> _checkWorkflowBudgetWarning(WorkflowRun run, WorkflowDefinition definition) async {
     if (definition.maxTokens == null) return run;
     if (run.contextJson['_budget.warningFired'] == true) return run;
     final threshold = (definition.maxTokens! * 0.8).toInt();
@@ -972,10 +1366,7 @@ class WorkflowExecutor {
     );
 
     // Persist dedupe flag.
-    run = run.copyWith(
-      contextJson: {...run.contextJson, '_budget.warningFired': true},
-      updatedAt: DateTime.now(),
-    );
+    run = run.copyWith(contextJson: {...run.contextJson, '_budget.warningFired': true}, updatedAt: DateTime.now());
     await _repository.update(run);
     return run;
   }
@@ -1001,13 +1392,518 @@ class WorkflowExecutor {
     await atomicWriteJson(file, context.toJson());
   }
 
-  /// Transitions the workflow run to paused and fires status changed event.
-  Future<void> _pauseRun(WorkflowRun run, String reason) async {
-    final paused = run.copyWith(
-      status: WorkflowRunStatus.paused,
-      errorMessage: reason,
+  // ── Map step execution ─────────────────────────────────────────────────────
+
+  /// Resolves the `maxParallel` field from `step.maxParallel` at runtime.
+  ///
+  /// - `null` → default 1 (sequential)
+  /// - `int` → use directly
+  /// - `"unlimited"` → `null` (no cap)
+  /// - template string (e.g. `"{{MAX_PARALLEL}}"`) → resolve via [context] then parse
+  ///
+  /// Throws [ArgumentError] if the resolved value cannot be parsed as an integer.
+  int? _resolveMaxParallel(Object? raw, WorkflowContext context, String stepId) {
+    if (raw == null) return 1; // Default: sequential.
+    if (raw is int) return raw;
+    if (raw is! String) return 1;
+
+    // Resolve template references if present.
+    final resolved = raw.contains('{{') ? _templateEngine.resolve(raw, context) : raw;
+
+    if (resolved.toLowerCase() == 'unlimited') return null;
+    final parsed = int.tryParse(resolved.trim());
+    if (parsed != null) return parsed;
+    throw ArgumentError(
+      "Map step '$stepId': maxParallel '$raw' resolved to '$resolved' "
+      'which is not an integer or "unlimited".',
+    );
+  }
+
+  /// Builds a structured coding task result from a completed [task].
+  ///
+  /// Returns a Map with `text`, `task_id`, `diff`, and `worktree` fields.
+  /// `diff` and `worktree` may be null if not available.
+  Future<Map<String, dynamic>> _buildCodingResult(Task task, Map<String, dynamic> outputs) async {
+    final text = outputs.values.whereType<String>().firstOrNull ?? '';
+    final diff = await _readCodingDiff(task);
+    final worktree = _readWorktreePath(task);
+    return {'text': text, 'task_id': task.id, 'diff': diff, 'worktree': worktree};
+  }
+
+  /// Reads the diff summary from the task's `diff.json` artifact, if present.
+  Future<String?> _readCodingDiff(Task task) async {
+    try {
+      final artifacts = await _taskService.listArtifacts(task.id);
+      for (final artifact in artifacts) {
+        if (artifact.path.endsWith('diff.json')) {
+          final file = File(
+            p.isAbsolute(artifact.path)
+                ? artifact.path
+                : p.join(_dataDir, 'tasks', task.id, 'artifacts', artifact.path),
+          );
+          if (!file.existsSync()) return null;
+          final raw = await file.readAsString();
+          try {
+            final json = jsonDecode(raw) as Map<String, dynamic>;
+            final files = (json['files'] as int?) ?? 0;
+            final additions = (json['additions'] as int?) ?? 0;
+            final deletions = (json['deletions'] as int?) ?? 0;
+            return '$files files changed, +$additions -$deletions';
+          } catch (_) {
+            return raw;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Extracts the worktree path from a task's `worktreeJson`, if available.
+  String? _readWorktreePath(Task task) {
+    final wj = task.worktreeJson;
+    if (wj == null) return null;
+    return wj['path'] as String?;
+  }
+
+  /// Executes a map/fan-out step.
+  ///
+  /// Resolves the collection from context, validates size, dispatches per-item
+  /// tasks with bounded concurrency (respecting `maxParallel` and dependency
+  /// ordering), collects index-ordered results, and fires progress events.
+  ///
+  /// Returns `null` if the executor has already paused the run (task creation
+  /// failure). Returns a [_MapStepResult] on success or failure.
+  Future<_MapStepResult?> _executeMapStep(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context, {
+    required int stepIndex,
+  }) async {
+    // 1. Resolve collection from context.
+    final rawCollection = context[step.mapOver!];
+    if (rawCollection == null) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error: "Map step '${step.id}': context key '${step.mapOver}' is null or missing",
+      );
+    }
+    if (rawCollection is! List) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error:
+            "Map step '${step.id}': context key '${step.mapOver}' is not a List "
+            '(got ${rawCollection.runtimeType})',
+      );
+    }
+    final collection = rawCollection;
+
+    // 2. Check maxItems.
+    if (collection.length > step.maxItems) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error:
+            "Map step '${step.id}': collection has ${collection.length} items "
+            'which exceeds maxItems (${step.maxItems}). '
+            'Consider decomposing into smaller batches.',
+      );
+    }
+
+    // 3. Resolve maxParallel.
+    final int? maxParallel;
+    try {
+      maxParallel = _resolveMaxParallel(step.maxParallel, context, step.id);
+    } on ArgumentError catch (e) {
+      return _MapStepResult(results: const [], totalTokens: 0, success: false, error: e.message.toString());
+    }
+
+    // 4. Empty collection → succeed immediately.
+    if (collection.isEmpty) {
+      _log.warning(
+        "Workflow '${run.id}': map step '${step.id}' has empty collection — "
+        'succeeding with empty result array',
+      );
+      return const _MapStepResult(results: [], totalTokens: 0, success: true);
+    }
+
+    // 5. Validate dependencies (detect cycles before any dispatch).
+    final depGraph = DependencyGraph(collection);
+    if (depGraph.hasDependencies) {
+      try {
+        depGraph.validate();
+      } on ArgumentError catch (e) {
+        return _MapStepResult(
+          results: const [],
+          totalTokens: 0,
+          success: false,
+          error: "Map step '${step.id}': ${e.message}",
+        );
+      }
+    }
+
+    // 6. Create MapStepContext.
+    final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: step.maxItems);
+
+    // 7. Persist map tracking state.
+    run = run.copyWith(
+      contextJson: {...run.contextJson, '_map.current.stepId': step.id, '_map.current.total': collection.length},
       updatedAt: DateTime.now(),
     );
+    await _repository.update(run);
+
+    // 8. Resolve step config once for all iterations.
+    final resolved = resolveStepConfig(step, definition.stepDefaults);
+
+    // 9. Bounded concurrency dispatch loop.
+    //    inFlight: index → Future that settles when the iteration completes/fails.
+    //    pending: FIFO queue of indices yet to dispatch.
+    //    completedIds: set of item IDs that have finished (for dep tracking).
+    final inFlight = <int, Future<void>>{};
+    final pending = Queue<int>.from(List.generate(collection.length, (i) => i));
+    final completedIds = <String>{};
+    var totalTokens = 0;
+
+    while (pending.isNotEmpty || inFlight.isNotEmpty) {
+      // Check budget before dispatching more items.
+      if (mapCtx.budgetExhausted) {
+        // Cancel all remaining pending items.
+        while (pending.isNotEmpty) {
+          final cancelIdx = pending.removeFirst();
+          mapCtx.recordCancelled(cancelIdx, 'Cancelled: budget exhausted');
+        }
+        break;
+      }
+
+      // Dispatch eligible items up to the concurrency cap.
+      final poolAvailable = _turnManager?.availableRunnerCount;
+      final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
+      while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
+        // Find the next dependency-eligible index from the pending queue.
+        int? nextIndex;
+        if (depGraph.hasDependencies) {
+          final ready = depGraph.getReady(completedIds);
+          // Find first pending index that is in the ready set.
+          for (final idx in pending) {
+            if (ready.contains(idx)) {
+              nextIndex = idx;
+              break;
+            }
+          }
+        } else {
+          nextIndex = pending.first;
+        }
+        if (nextIndex == null) break; // All remaining blocked on deps.
+        pending.remove(nextIndex);
+
+        final iterIndex = nextIndex;
+        final mapContext = MapContext(
+          item: (collection[iterIndex] as Object?) ?? '',
+          index: iterIndex,
+          length: collection.length,
+        );
+
+        // Resolve per-iteration prompt (resolveWithMap handles {{map.*}}).
+        final rawPrompt = step.prompt;
+        final resolvedPrompt = rawPrompt != null
+            ? _templateEngine.resolveWithMap(rawPrompt, context, mapContext)
+            : null;
+        final contextSummary = step.skill != null && resolvedPrompt == null
+            ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+            : null;
+        final effectiveOutputs = _applyEvaluatorDefaults(step);
+        final iterPrompt = _skillPromptBuilder.build(
+          skill: step.skill,
+          resolvedPrompt: resolvedPrompt,
+          contextSummary: contextSummary,
+          outputs: effectiveOutputs,
+          evaluator: step.evaluator,
+        );
+        final taskConfig = _buildStepConfig(step, resolved);
+        final iterTitle = '${definition.name} — ${step.name} (${iterIndex + 1}/${collection.length})';
+
+        // Dispatch: create the task and await its completion in a detached future.
+        // Increment inFlight count synchronously before awaiting to prevent races.
+        mapCtx.inFlightCount++;
+
+        inFlight[iterIndex] =
+            _dispatchIteration(
+              run: run,
+              definition: definition,
+              step: step,
+              stepIndex: stepIndex,
+              iterIndex: iterIndex,
+              iterPrompt: iterPrompt,
+              iterTitle: iterTitle,
+              taskConfig: taskConfig,
+              resolved: resolved,
+              mapCtx: mapCtx,
+              context: context,
+            ).then((_) {
+              inFlight.remove(iterIndex);
+              final itemId = mapCtx.itemId(iterIndex);
+              if (itemId != null) completedIds.add(itemId);
+            });
+      }
+
+      // If nothing dispatched and nothing in-flight but items remain — deadlock.
+      if (inFlight.isEmpty && pending.isNotEmpty) {
+        _log.warning(
+          "Workflow '${run.id}': map step '${step.id}' — "
+          '${pending.length} items blocked by unsatisfiable dependencies (deadlock guard).',
+        );
+        while (pending.isNotEmpty) {
+          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: dependency deadlock');
+        }
+        break;
+      }
+
+      if (inFlight.isEmpty) break;
+
+      // Wait for any one in-flight iteration to complete.
+      await Future.any(inFlight.values);
+
+      // Budget check after each completion.
+      final refreshedRun = await _repository.getById(run.id) ?? run;
+      run = refreshedRun;
+      if (_workflowBudgetExceeded(run, definition)) {
+        mapCtx.budgetExhausted = true;
+      }
+
+      // Yield to event loop to prevent microtask starvation.
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    // 10. Wait for all remaining in-flight to settle.
+    if (inFlight.isNotEmpty) {
+      await Future.wait(inFlight.values, eagerError: false);
+    }
+
+    // Accumulate total tokens from context metadata keys.
+    for (var i = 0; i < collection.length; i++) {
+      final tokenKey = '${step.id}[$i].tokenCount';
+      final t = context[tokenKey];
+      if (t is int) totalTokens += t;
+    }
+
+    // 11. Fire MapStepCompletedEvent.
+    _eventBus.fire(
+      MapStepCompletedEvent(
+        runId: run.id,
+        stepId: step.id,
+        stepName: step.name,
+        totalIterations: collection.length,
+        successCount: mapCtx.successCount,
+        failureCount: mapCtx.failedIndices.length,
+        cancelledCount: mapCtx.cancelledCount,
+        totalTokens: totalTokens,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    // 12. Return result.
+    if (mapCtx.hasFailures) {
+      final failCount = mapCtx.failedIndices.length;
+      return _MapStepResult(
+        results: List<dynamic>.from(mapCtx.results),
+        totalTokens: totalTokens,
+        success: false,
+        error: "Map step '${step.id}': $failCount iteration(s) failed",
+      );
+    }
+
+    return _MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
+  }
+
+  /// Executes a single map iteration: creates a task, awaits completion,
+  /// extracts outputs, records result in [mapCtx], fires [MapIterationCompletedEvent].
+  Future<void> _dispatchIteration({
+    required WorkflowRun run,
+    required WorkflowDefinition definition,
+    required WorkflowStep step,
+    required int stepIndex,
+    required int iterIndex,
+    required String iterPrompt,
+    required String iterTitle,
+    required Map<String, dynamic> taskConfig,
+    required ResolvedStepConfig resolved,
+    required MapStepContext mapCtx,
+    required WorkflowContext context,
+  }) async {
+    final taskId = _uuid.v4();
+
+    // Subscribe before create to avoid race condition.
+    final completer = Completer<Task>();
+    final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
+      if (event.newStatus == TaskStatus.failed) {
+        final t = await _taskService.get(taskId);
+        if (t == null) return;
+        if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
+        if (t.retryCount < t.maxRetries) return;
+        if (!completer.isCompleted) completer.complete(t);
+      } else if (event.newStatus.terminal) {
+        if (!completer.isCompleted) {
+          final t = await _taskService.get(taskId);
+          if (t != null) completer.complete(t);
+        }
+      }
+    });
+
+    try {
+      await _taskService.create(
+        id: taskId,
+        title: iterTitle,
+        description: iterPrompt,
+        type: _mapStepType(step.type),
+        autoStart: true,
+        provider: resolved.provider,
+        maxTokens: resolved.maxTokens,
+        maxRetries: resolved.maxRetries ?? 0,
+        workflowRunId: run.id,
+        stepIndex: stepIndex,
+        configJson: taskConfig,
+        trigger: 'workflow',
+      );
+    } catch (e, st) {
+      await sub.cancel();
+      _log.severe(
+        "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex "
+        'failed to create task: $e',
+        e,
+        st,
+      );
+      mapCtx.recordFailure(iterIndex, 'Failed to create task: $e', null);
+      mapCtx.inFlightCount--;
+      _eventBus.fire(
+        MapIterationCompletedEvent(
+          runId: run.id,
+          stepId: step.id,
+          iterationIndex: iterIndex,
+          totalIterations: mapCtx.collection.length,
+          itemId: mapCtx.itemId(iterIndex),
+          taskId: taskId,
+          success: false,
+          tokenCount: 0,
+          timestamp: DateTime.now(),
+        ),
+      );
+      return;
+    }
+
+    late Task finalTask;
+    try {
+      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub);
+    } on TimeoutException {
+      _log.warning(
+        "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex "
+        'timed out after ${step.timeoutSeconds}s',
+      );
+      mapCtx.recordFailure(iterIndex, 'Timed out after ${step.timeoutSeconds}s', taskId);
+      mapCtx.inFlightCount--;
+      _eventBus.fire(
+        MapIterationCompletedEvent(
+          runId: run.id,
+          stepId: step.id,
+          iterationIndex: iterIndex,
+          totalIterations: mapCtx.collection.length,
+          itemId: mapCtx.itemId(iterIndex),
+          taskId: taskId,
+          success: false,
+          tokenCount: 0,
+          timestamp: DateTime.now(),
+        ),
+      );
+      return;
+    } catch (e, st) {
+      _log.severe(
+        "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex "
+        'wait failed: $e',
+        e,
+        st,
+      );
+      mapCtx.recordFailure(iterIndex, 'Unexpected error: $e', taskId);
+      mapCtx.inFlightCount--;
+      _eventBus.fire(
+        MapIterationCompletedEvent(
+          runId: run.id,
+          stepId: step.id,
+          iterationIndex: iterIndex,
+          totalIterations: mapCtx.collection.length,
+          itemId: mapCtx.itemId(iterIndex),
+          taskId: taskId,
+          success: false,
+          tokenCount: 0,
+          timestamp: DateTime.now(),
+        ),
+      );
+      return;
+    }
+
+    final taskFailed = finalTask.status == TaskStatus.failed || finalTask.status == TaskStatus.cancelled;
+
+    int tokenCount = 0;
+    if (!taskFailed) {
+      tokenCount = await _readStepTokenCount(finalTask);
+      Map<String, dynamic> outputs = {};
+      try {
+        outputs = await _contextExtractor.extract(step, finalTask);
+      } catch (e, st) {
+        _log.warning(
+          "Workflow '${run.id}': context extraction failed for map step '${step.id}' "
+          'iteration $iterIndex: $e',
+          e,
+          st,
+        );
+      }
+
+      // Merge per-iteration outputs into context with indexed keys.
+      for (final entry in outputs.entries) {
+        context['${step.id}[$iterIndex].${entry.key}'] = entry.value;
+      }
+      context['${step.id}[$iterIndex].tokenCount'] = tokenCount;
+
+      // Build result value.
+      dynamic resultValue;
+      if (step.type == 'coding') {
+        resultValue = await _buildCodingResult(finalTask, outputs);
+      } else if (outputs.length == 1) {
+        resultValue = outputs.values.first;
+      } else {
+        resultValue = outputs;
+      }
+
+      mapCtx.recordResult(iterIndex, resultValue);
+    } else {
+      final reason = finalTask.configJson['failReason'] as String?;
+      final msg = reason ?? finalTask.status.name;
+      mapCtx.recordFailure(iterIndex, msg, taskId);
+    }
+
+    mapCtx.inFlightCount--;
+
+    _eventBus.fire(
+      MapIterationCompletedEvent(
+        runId: run.id,
+        stepId: step.id,
+        iterationIndex: iterIndex,
+        totalIterations: mapCtx.collection.length,
+        itemId: mapCtx.itemId(iterIndex),
+        taskId: taskId,
+        success: !taskFailed,
+        tokenCount: tokenCount,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Transitions the workflow run to paused and fires status changed event.
+  Future<void> _pauseRun(WorkflowRun run, String reason) async {
+    final paused = run.copyWith(status: WorkflowRunStatus.paused, errorMessage: reason, updatedAt: DateTime.now());
     await _repository.update(paused);
     _eventBus.fire(
       WorkflowRunStatusChangedEvent(

@@ -130,9 +130,9 @@ WorkflowDefinition _makeDefinition({
         },
     steps: steps ??
         [
-          const WorkflowStep(id: 'research', name: 'Research', prompt: 'Research {{FEATURE}}'),
-          const WorkflowStep(id: 'spec', name: 'Write Spec', prompt: 'Write spec for {{FEATURE}}'),
-          const WorkflowStep(id: 'implement', name: 'Implement', prompt: 'Implement {{FEATURE}}'),
+          const WorkflowStep(id: 'research', name: 'Research', prompts: ['Research {{FEATURE}}']),
+          const WorkflowStep(id: 'spec', name: 'Write Spec', prompts: ['Write spec for {{FEATURE}}']),
+          const WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{FEATURE}}']),
         ],
   );
 }
@@ -355,7 +355,7 @@ void main() {
           ),
         },
         steps: [
-          const WorkflowStep(id: 's1', name: 'Step 1', prompt: 'Run {{FEATURE}}'),
+          const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Run {{FEATURE}}']),
         ],
       );
       final src = InMemoryDefinitionSource([defWithDefault]);
@@ -704,7 +704,7 @@ void main() {
         name: 'loopy',
         description: 'Has loops.',
         steps: [
-          const WorkflowStep(id: 's1', name: 'Step 1', prompt: 'Do it'),
+          const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Do it']),
         ],
         loops: [
           const WorkflowLoop(

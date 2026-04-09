@@ -49,16 +49,16 @@ void main() {
   // Built-in loading
   // ------------------------------------------------------------------
   group('loadBuiltIn()', () {
-    test('populates registry with 5 built-in workflows', () {
+    test('populates registry with 6 built-in workflows', () {
       final registry = _makeRegistry();
       registry.loadBuiltIn();
-      expect(registry.length, equals(5));
+      expect(registry.length, equals(6));
     });
 
     test('listBuiltIn() returns only built-in definitions', () {
       final registry = _makeRegistry();
       registry.loadBuiltIn();
-      expect(registry.listBuiltIn(), hasLength(5));
+      expect(registry.listBuiltIn(), hasLength(6));
     });
 
     test('listCustom() is empty after loadBuiltIn() only', () {
@@ -87,10 +87,10 @@ void main() {
       expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
     });
 
-    test('listAll() returns all 5 built-in definitions', () {
+    test('listAll() returns all 6 built-in definitions', () {
       final registry = _makeRegistry();
       registry.loadBuiltIn();
-      expect(registry.listAll(), hasLength(5));
+      expect(registry.listAll(), hasLength(6));
     });
 
     test('loads all expected built-in workflow names', () {
@@ -105,6 +105,7 @@ void main() {
           'fix-bug',
           'refactor',
           'review-and-remediate',
+          'plan-and-execute',
         ]),
       );
     });
@@ -240,7 +241,7 @@ void main() {
       // Still built-in
       expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
       // Total count unchanged — custom did not add a new entry
-      expect(registry.length, equals(5));
+      expect(registry.length, equals(6));
     });
 
     test('two custom workflows with same name: last loaded wins', () async {
@@ -270,7 +271,7 @@ void main() {
 
       expect(registry.getByName('unique-wf'), isNotNull);
       expect(registry.getByName('spec-and-implement'), isNotNull);
-      expect(registry.length, equals(6));
+      expect(registry.length, equals(7));
     });
   });
 
@@ -290,11 +291,11 @@ void main() {
       registry.loadBuiltIn();
       await registry.loadFromDirectory(tempDir.path);
 
-      // 5 built-in + 2 valid custom (broken excluded)
-      expect(registry.length, equals(7));
-      expect(registry.listBuiltIn(), hasLength(5));
+      // 6 built-in + 2 valid custom (broken excluded)
+      expect(registry.length, equals(8));
+      expect(registry.listBuiltIn(), hasLength(6));
       expect(registry.listCustom(), hasLength(2));
-      expect(registry.listAll(), hasLength(7));
+      expect(registry.listAll(), hasLength(8));
     });
   });
 }

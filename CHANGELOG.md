@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.1]
+
+Workflow Engine Refinements — output format parsing with schema presets, multi-prompt step sessions, loop finalizers, pattern-based step config defaults, skill discovery + skill-aware workflow steps, task-scoped prompt composition, map/fan-out step execution, built-in plan-and-execute workflow, and workflow authoring guide. 9 stories across 5 phases, all additive and backward-compatible.
+
+### Added
+
+- **Output format parsing + schema presets** (S01): Per-key `outputs` with `format` (text/json/lines), optional `schema` (preset name or inline JSON Schema). 4-strategy JSON extraction engine (raw → json-fenced → bare-fenced → brace/bracket scan). 4 built-in schema presets (`verdict`, `story-plan`, `file-list`, `checklist`) with prompt augmentation ("Required Output Format" section). Evaluator default: `evaluator: true` + `format: json` + no `schema:` → `verdict`. Schema soft validation (warning on mismatch, no failure)
+- **Multi-prompt step sessions** (S02): `WorkflowStep.prompt` accepts list of strings. Prompts 2..N run as follow-up turns via `resume: true` on same session. Only final turn's output extracted. Cumulative budget enforcement. Validation error for non-continuity providers
+- **Loop finalizer** (S03): Optional `finally` field on loop constructs. Runs after loop termination regardless of exit reason (gate pass, maxIterations, step failure). Validation rejects finalizer referencing loop-internal steps
+- **Pattern-based step config defaults** (S03): `stepDefaults` section on `WorkflowDefinition` with glob `match` patterns. First-match-wins. Per-step explicit config takes precedence. Config resolution: per-step → first matching default → workflow-level → global
+- **Skill discovery registry** (S04): `SkillRegistry` with 6 prioritized source directories. YAML frontmatter parsing. Security: symlink blocking, 512KB file size limit, executable warnings. Deduplication by name. `GET /api/skills` endpoint
+- **Skill-aware workflow steps** (S04): Optional `skill` field on `WorkflowStep`. Prompt construction: "Use the '<skill>' skill. <context>". Load-time validation (skill exists, provider compatibility). 4-case handling (skill+prompt, skill-only, prompt-only, error)
+- **Task-scoped prompt composition** (S05): `PromptScope` enum (`interactive`, `task`, `restricted`, `evaluator`). Scope-aware `composeSystemPrompt(scope:)` and `composeStaticPrompt(scope:)`. `task` scope excludes USER.md, MEMORY.md, errors.md, learnings.md, compact instructions. Scope selection in `TaskExecutor`: evaluator/restricted/task. Project SOUL.md deprecated
+- **Append-mode scoped startup prompts** (S09): Task pool runners spawned with `task`-scoped startup prompt instead of full interactive prompt. Primary runner unchanged. Token reduction at spawn time
+- **Map step model + template engine** (S06): `mapOver`, `maxParallel`, `maxItems` on `WorkflowStep`. Template variables `{{map.item}}`, `{{map.index}}`, `{{map.length}}`. Dot notation field access (3 levels). Indexed context `{{context.key[map.index]}}`. Object items → JSON-serialized, scalar → string
+- **Map step execution engine** (S07): Bounded-concurrency dispatch loop with `effectiveConcurrency(poolAvailable)`. Dependency ordering via topological sort. Error handling: failed iterations → error objects in result array, others continue. Budget exhaustion → remaining cancelled. `MapIterationCompletedEvent`, `MapStepCompletedEvent` SSE events
+- **Built-in plan-and-execute workflow** (S08): Plan step (schema: story-plan, inline prompt) → implement (map_over, coding) → review (map_over, evaluator, cross-map indexed context). Uses `stepDefaults`
+- **Workflow authoring guide** (S08): "Writing Custom Workflows" at `docs/guide/workflows.md`. 7-step progressive refinement, Shopify Roast "handwave" philosophy, all new YAML fields, dependency limitation for coding map steps
+
+### Fixed
+
+- **ContextExtractor throw on empty session** (gap review M1): `_extractFromAgentConvention` threw `StateError` when no assistant messages existed. Now returns null gracefully
+- **Loop metadata cleanup** (gap review L1): `_loop.current.stepId` was not cleaned up after loop completion due to specific-key removal instead of prefix filtering. Now uses `!e.key.startsWith('_loop.current')` matching the map cleanup pattern
+
+### Changed
+
+- **Architecture docs**: `system-architecture.md`, `data-model.md` updated to "Current through 0.15.1"
+
+---
+
 ## [0.15.0]
 
 Workflow Platform — deterministic multi-step agent orchestration in compiled Dart. Replaces LLM-driven prompt choreography with a `WorkflowExecutor` that uses `Future.wait()` for parallelism, `try/catch` for error handling, and real process control for stuck detection. 12 stories across 4 phases: foundation → engine core → content & refinements → workflow UI.

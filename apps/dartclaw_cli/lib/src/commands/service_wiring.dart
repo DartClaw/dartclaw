@@ -282,18 +282,36 @@ class ServiceWiring {
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
       messageService: storage.messages,
+      turnManager: serverTurns,
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,
     );
     await workflowService.recoverIncompleteRuns();
 
+    // Skill registry — discover Agent Skills from 6 prioritized sources.
+    final skillRegistry = SkillRegistryImpl();
+    final activeProject = config.projects.definitions.values.firstOrNull;
+    skillRegistry.discover(
+      projectDir: activeProject != null
+          ? p.join(config.projectsClonesDir, activeProject.id)
+          : null,
+      workspaceDir: config.workspaceDir,
+      dataDir: dataDir,
+    );
+
     // Workflow registry — load built-in workflows, then discover custom ones
     // from workspace and per-project directories.
+    final continuityProviders = harness.pool.runners
+        .where((r) => r.harness.supportsSessionContinuity)
+        .map((r) => r.providerId)
+        .toSet();
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(),
+      continuityProviders: continuityProviders,
     );
+    workflowRegistry.skillRegistry = skillRegistry;
     workflowRegistry.loadBuiltIn();
     await workflowRegistry.loadFromDirectory(
       p.join(config.workspaceDir, 'workflows'),
@@ -407,6 +425,7 @@ class ServiceWiring {
       ..threadBindingStore = channel.threadBindingStore
       ..workflowService = workflowService
       ..workflowDefinitionSource = workflowRegistry
+      ..skillRegistry = skillRegistry
       ..schedulingDisplay = SchedulingDisplayParams(
         jobs: scheduling.displayJobs,
         systemJobNames: scheduling.systemJobNames,

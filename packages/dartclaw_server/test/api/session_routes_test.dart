@@ -43,6 +43,7 @@ class FakeTurnManager extends TurnManager {
     int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);
@@ -59,6 +60,7 @@ class FakeTurnManager extends TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    bool resume = false,
   }) {
     // no-op: FakeTurnManager doesn't run real async turns
   }

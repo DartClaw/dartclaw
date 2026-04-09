@@ -141,6 +141,9 @@ class ClaudeCodeHarness extends BaseHarness {
   @override
   bool get supportsCachedTokens => true;
 
+  @override
+  bool get supportsSessionContinuity => true;
+
   /// Session ID assigned by the claude binary after init.
   String? get sessionId => _sessionId;
 

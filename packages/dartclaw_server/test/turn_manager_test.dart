@@ -62,6 +62,9 @@ class FakeWorkerService implements AgentHarness {
   bool get supportsCachedTokens => false;
 
   @override
+  bool get supportsSessionContinuity => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override
@@ -143,6 +146,9 @@ class _AppendStrategyWorker implements AgentHarness {
 
   @override
   bool get supportsCachedTokens => false;
+
+  @override
+  bool get supportsSessionContinuity => false;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;

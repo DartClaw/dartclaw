@@ -27,7 +27,11 @@ export 'src/workflow_definition.dart'
         WorkflowStep,
         WorkflowVariable,
         WorkflowLoop,
+        StepConfigDefault,
         StepReviewMode,
         ExtractionType,
-        ExtractionConfig;
+        ExtractionConfig,
+        OutputFormat,
+        OutputConfig;
 export 'src/workflow_run.dart' show WorkflowRun, WorkflowRunStatus;
+export 'src/skill_info.dart' show SkillInfo, SkillSource;

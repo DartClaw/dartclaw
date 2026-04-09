@@ -27,6 +27,9 @@ class _FakeHarness implements AgentHarness {
   bool get supportsStreaming => true;
   @override
   bool get supportsCachedTokens => false;
+
+  @override
+  bool get supportsSessionContinuity => false;
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
   @override

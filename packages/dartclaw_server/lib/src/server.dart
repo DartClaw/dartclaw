@@ -13,6 +13,7 @@ import 'package:shelf_static/shelf_static.dart';
 
 import 'api/agent_routes.dart';
 import 'api/config_api_routes.dart';
+import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
 import 'api/config_routes.dart';
 import 'api/google_chat_space_events_wiring.dart';
@@ -129,6 +130,7 @@ class DartclawServer {
   final ThreadBindingStore? _threadBindingStore;
   final WorkflowService? _workflowService;
   final WorkflowDefinitionSource? _workflowDefinitionSource;
+  final SkillRegistry? _skillRegistry;
 
   // Display params — all final
   final ContentGuardDisplayParams _contentGuardDisplay;
@@ -201,6 +203,7 @@ class DartclawServer {
     required ThreadBindingStore? threadBindingStore,
     required WorkflowService? workflowService,
     required WorkflowDefinitionSource? workflowDefinitionSource,
+    SkillRegistry? skillRegistry,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
     required SchedulingDisplayParams schedulingDisplay,
@@ -258,6 +261,7 @@ class DartclawServer {
        _threadBindingStore = threadBindingStore,
        _workflowService = workflowService,
        _workflowDefinitionSource = workflowDefinitionSource,
+       _skillRegistry = skillRegistry,
        _contentGuardDisplay = contentGuardDisplay,
        _heartbeatDisplay = heartbeatDisplay,
        _schedulingDisplay = schedulingDisplay,
@@ -320,6 +324,7 @@ class DartclawServer {
     required ThreadBindingStore? threadBindingStore,
     required WorkflowService? workflowService,
     required WorkflowDefinitionSource? workflowDefinitionSource,
+    SkillRegistry? skillRegistry,
     required ContentGuardDisplayParams contentGuardDisplay,
     required HeartbeatDisplayParams heartbeatDisplay,
     required SchedulingDisplayParams schedulingDisplay,
@@ -378,6 +383,7 @@ class DartclawServer {
       threadBindingStore: threadBindingStore,
       workflowService: workflowService,
       workflowDefinitionSource: workflowDefinitionSource,
+      skillRegistry: skillRegistry,
       contentGuardDisplay: contentGuardDisplay,
       heartbeatDisplay: heartbeatDisplay,
       schedulingDisplay: schedulingDisplay,
@@ -793,6 +799,11 @@ class DartclawServer {
     if (wf != null && ts != null && ds != null) {
       final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus);
       router.mount('/', workflowRouter.call);
+    }
+    final skills = _skillRegistry;
+    if (skills != null) {
+      final skillRouter = skillRoutes(skills);
+      router.mount('/', skillRouter.call);
     }
   }
 

@@ -209,6 +209,8 @@ export 'src/events/dartclaw_event.dart'
         TaskEventCreatedEvent,
         BudgetWarningEvent,
         LoopIterationCompletedEvent,
+        MapIterationCompletedEvent,
+        MapStepCompletedEvent,
         ParallelGroupCompletedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
@@ -224,8 +226,26 @@ export 'src/config/duration_parser.dart' show tryParseDuration;
 export 'src/utils/path_utils.dart' show expandHome;
 export 'src/worker/worker_state.dart' show WorkerState;
 
+// Behavior
+export 'src/behavior/prompt_scope.dart' show PromptScope;
+
 // Workflow
+export 'src/workflow/map_context.dart' show MapContext;
+export 'src/workflow/skill_registry.dart' show SkillRegistry;
+export 'src/workflow/skill_prompt_builder.dart' show SkillPromptBuilder;
+export 'src/workflow/step_config_resolver.dart' show ResolvedStepConfig, globMatchStepId, resolveStepConfig;
 export 'src/workflow/built_in_workflows.dart' show builtInWorkflowYaml;
+export 'src/workflow/json_extraction.dart' show extractJson, extractLines;
+export 'src/workflow/prompt_augmenter.dart' show PromptAugmenter;
+export 'src/workflow/schema_presets.dart'
+    show
+        SchemaPreset,
+        schemaPresets,
+        verdictPreset,
+        storyPlanPreset,
+        fileListPreset,
+        checklistPreset;
+export 'src/workflow/schema_validator.dart' show SchemaValidator;
 export 'src/workflow/workflow_context.dart' show WorkflowContext;
 export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
 export 'src/workflow/workflow_definition_validator.dart'

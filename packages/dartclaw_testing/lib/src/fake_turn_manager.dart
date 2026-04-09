@@ -57,6 +57,7 @@ typedef RecordedExecuteTurn = ({
   List<Map<String, dynamic>> messages,
   String? source,
   String agentName,
+  bool resume,
 });
 
 typedef RecordedStartTurn = ({
@@ -171,6 +172,9 @@ class FakeTurnManager implements TurnManager {
   HarnessPool get pool => _pool..attach(this);
 
   @override
+  int get availableRunnerCount => _pool.availableCount;
+
+  @override
   Iterable<String> get activeSessionIds => _activeSessionIds;
 
   @override
@@ -195,6 +199,7 @@ class FakeTurnManager implements TurnManager {
     int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -236,6 +241,7 @@ class FakeTurnManager implements TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    bool resume = false,
   }) {
     executeTurnCallCount += 1;
     executedTurns.add((
@@ -244,6 +250,7 @@ class FakeTurnManager implements TurnManager {
       messages: _cloneMessages(messages),
       source: source,
       agentName: agentName,
+      resume: resume,
     ));
     final callback = onExecuteTurn;
     if (callback != null) {

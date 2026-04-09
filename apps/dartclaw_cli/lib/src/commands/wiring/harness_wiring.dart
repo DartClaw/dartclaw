@@ -384,6 +384,8 @@ class HarnessWiring {
               // allowedTools enforcement is isolated across concurrent runners.
               final taskFilter = TaskToolFilterGuard();
               final taskGuardChain = _buildTaskGuardChain(_security.guardChain, taskFilter);
+              final taskPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
+              final taskHarnessConfig = _harnessConfig.copyWith(appendSystemPrompt: taskPrompt);
               final taskHarness = _harnessFactory.create(
                 plan.providerId,
                 HarnessFactoryConfig(
@@ -393,7 +395,7 @@ class HarnessWiring {
                   onMemorySave: _memoryHandlers.onSave,
                   onMemorySearch: _memoryHandlers.onSearch,
                   onMemoryRead: _memoryHandlers.onRead,
-                  harnessConfig: _harnessConfig,
+                  harnessConfig: taskHarnessConfig,
                   historyConfig: config.agent.history,
                   providerOptions: plan.options,
                   containerManager: containerManager,
@@ -450,11 +452,7 @@ const _taskRunnerSubagentEnvironment = <String, String>{'CLAUDE_CODE_SUBAGENT_MO
 /// When [base] is null, returns a chain with only the filter guard.
 GuardChain _buildTaskGuardChain(GuardChain? base, TaskToolFilterGuard filter) {
   final guards = <Guard>[...?base?.guards, filter];
-  return GuardChain(
-    guards: guards,
-    onVerdict: base?.onVerdict,
-    failOpen: base?.failOpen ?? false,
-  );
+  return GuardChain(guards: guards, onVerdict: base?.onVerdict, failOpen: base?.failOpen ?? false);
 }
 
 Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {

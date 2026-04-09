@@ -192,6 +192,7 @@ class TurnRunner {
     int? maxTurns,
     bool isHumanInput = false,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     // Governance checks happen before the session lock so blocked turns do not
     // hold the lock while waiting or failing fast.
@@ -212,6 +213,7 @@ class TurnRunner {
       effort: effort,
       maxTurns: maxTurns,
       behaviorOverride: behaviorOverride,
+      promptScope: promptScope,
     );
     _outcomePending[turnId] = Completer<TurnOutcome>();
     _resetService?.touchActivity(sessionId);
@@ -235,8 +237,9 @@ class TurnRunner {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
+    bool resume = false,
   }) {
-    unawaited(_runTurn(sessionId: sessionId, turnId: turnId, messages: messages, source: source));
+    unawaited(_runTurn(sessionId: sessionId, turnId: turnId, messages: messages, source: source, resume: resume));
   }
 
   /// Rolls back a [reserveTurn] reservation without executing.
@@ -364,8 +367,11 @@ class TurnRunner {
     if (_worker.promptStrategy == PromptStrategy.append) return '';
 
     // Use task-scoped behavior override when present (project-backed tasks).
-    final effectiveBehavior = _activeTurns[sessionId]?.behaviorOverride ?? _behavior;
-    final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(sessionId: sessionId);
+    final turnContext = _activeTurns[sessionId];
+    final effectiveBehavior = turnContext?.behaviorOverride ?? _behavior;
+    final scope = turnContext?.promptScope ?? PromptScope.interactive;
+
+    final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(scope: scope);
 
     final memFile = _memoryFile;
     if (memFile != null) {
@@ -377,7 +383,7 @@ class TurnRunner {
       }
     }
 
-    final agentsContent = await effectiveBehavior.composeAppendPrompt();
+    final agentsContent = await effectiveBehavior.composeAppendPrompt(scope: scope);
     if (agentsContent.isEmpty) return behaviorPrompt;
     return '$behaviorPrompt\n\n$agentsContent';
   }
@@ -387,9 +393,10 @@ class TurnRunner {
     required String turnId,
     required List<Map<String, dynamic>> messages,
     String? source,
+    bool resume = false,
   }) async {
     return LogContext.runWith(
-      () => _runTurnInner(sessionId: sessionId, turnId: turnId, messages: messages, source: source),
+      () => _runTurnInner(sessionId: sessionId, turnId: turnId, messages: messages, source: source, resume: resume),
       sessionId: sessionId,
       turnId: turnId,
     );
@@ -400,6 +407,7 @@ class TurnRunner {
     required String turnId,
     required List<Map<String, dynamic>> messages,
     String? source,
+    bool resume = false,
   }) async {
     final buffer = StringBuffer();
     final stopwatch = Stopwatch()..start();
@@ -491,6 +499,7 @@ class TurnRunner {
           model: turnCtx?.model,
           effort: turnCtx?.effort,
           maxTurns: turnCtx?.maxTurns,
+          resume: resume,
         );
         final accumulated = buffer.toString();
         toolHooks.finalizePendingToolCalls();

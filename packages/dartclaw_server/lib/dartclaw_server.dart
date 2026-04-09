@@ -211,6 +211,7 @@ export 'src/turn_runner.dart' show TurnRunner;
 export 'src/turn_progress_monitor.dart' show TurnProgressMonitor;
 
 // Turn manager
+export 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
 export 'src/turn_manager.dart' show TurnStatus, TurnContext, TurnOutcome, BusyTurnException, TurnManager;
 
 // Version & startup
@@ -224,9 +225,11 @@ export 'src/web/signal_pairing_routes.dart' show signalPairingRoutes;
 export 'src/web/web_routes.dart' show webRoutes;
 
 // Workflow engine
+export 'src/api/skill_routes.dart' show skillRoutes;
 export 'src/api/workflow_routes.dart' show workflowRoutes;
 export 'src/workflow/context_extractor.dart' show ContextExtractor;
 export 'src/workflow/gate_evaluator.dart' show GateEvaluator;
+export 'src/workflow/skill_registry_impl.dart' show SkillRegistryImpl;
 export 'src/workflow/workflow_definition_source.dart'
     show WorkflowDefinitionSource, InMemoryDefinitionSource;
 export 'src/workflow/workflow_executor.dart' show WorkflowExecutor;

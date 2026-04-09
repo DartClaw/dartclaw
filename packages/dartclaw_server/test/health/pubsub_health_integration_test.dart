@@ -273,6 +273,9 @@ class _FakeHarness implements AgentHarness {
   bool get supportsCachedTokens => false;
 
   @override
+  bool get supportsSessionContinuity => false;
+
+  @override
   WorkerState get state => WorkerState.idle;
 
   @override

@@ -19,7 +19,7 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
     variables: const {},
     steps: List.generate(
       steps,
-      (i) => WorkflowStep(id: 'step-$i', name: 'Step $i', prompt: 'do step $i'),
+      (i) => WorkflowStep(id: 'step-$i', name: 'Step $i', prompts: ['do step $i']),
     ),
   );
 }

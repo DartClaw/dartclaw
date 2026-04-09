@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show SessionKey;
+import 'package:dartclaw_core/dartclaw_core.dart' show PromptScope;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -29,32 +29,74 @@ class BehaviorFileService {
   /// When null, [defaultCompactInstructions] is used.
   final String? compactInstructions;
 
+  /// Tracks whether the project SOUL.md deprecation warning has been logged.
+  bool _projSoulDeprecationWarned = false;
+
   BehaviorFileService({required this.workspaceDir, this.projectDir, this.maxMemoryBytes, this.compactInstructions});
 
-  /// Composes the full system prompt.
+  /// Composes the full system prompt for the given [scope].
   ///
-  /// When [sessionId] is provided, compact instructions are included based
-  /// on the session scope. Task sessions skip compact instructions (short-lived).
-  /// When [sessionId] is null, compact instructions are included by default.
-  Future<String> composeSystemPrompt({String? sessionId}) async {
-    final parts = await _loadCoreParts();
+  /// Files included per scope:
+  /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + MEMORY + compact instructions
+  /// - [PromptScope.task]: SOUL (workspace) + TOOLS
+  /// - [PromptScope.restricted]: TOOLS only
+  /// - [PromptScope.evaluator]: default prompt only
+  ///
+  /// Omitting [scope] is identical to passing [PromptScope.interactive] (backward compat).
+  Future<String> composeSystemPrompt({PromptScope scope = PromptScope.interactive}) async {
+    // Evaluator gets minimal identity — no workspace behavior files.
+    if (scope == PromptScope.evaluator) return defaultPrompt;
 
-    // MEMORY.md — workspace only
-    var memory = await _readFile(p.join(workspaceDir, 'MEMORY.md'));
-    if (memory != null) {
-      final maxBytes = maxMemoryBytes;
-      if (maxBytes != null) {
-        final originalLength = utf8.encode(memory).length;
-        if (originalLength > maxBytes) {
-          memory = _truncateMemory(memory, maxBytes);
-          _log.warning('MEMORY.md truncated from $originalLength to ~$maxBytes bytes');
-        }
+    final parts = <String>[];
+
+    // SOUL.md — workspace only (project SOUL.md is deprecated; harness binary reads CLAUDE.md/AGENTS.md natively)
+    if (scope != PromptScope.restricted) {
+      _checkProjectSoulDeprecation();
+      final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
+      if (globalSoul != null) {
+        parts.add(globalSoul);
+      } else {
+        parts.add(defaultPrompt);
       }
-      parts.add(memory);
     }
 
-    // Compact instructions — skip for task sessions (short-lived, compaction never triggers)
-    if (_shouldIncludeCompactInstructions(sessionId)) {
+    if (scope == PromptScope.restricted) {
+      // Restricted: TOOLS.md only. Apply default prompt if nothing was loaded.
+      await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+      if (parts.isEmpty) parts.add(defaultPrompt);
+      return parts.join('\n\n');
+    }
+
+    // interactive and task scopes: SOUL → USER (interactive only) → TOOLS → ...
+    if (scope == PromptScope.interactive) {
+      // USER.md — workspace only (agent-updatable user context)
+      await _addSection(parts, 'USER.md', '## User Context');
+    }
+
+    // TOOLS.md — workspace only (interactive and task scopes)
+    await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+
+    if (scope == PromptScope.interactive) {
+      // errors.md — auto-populated on failures
+      await _addSection(parts, 'errors.md', '## Recent Errors');
+      // learnings.md — agent-written via memory_save category='learning'
+      await _addSection(parts, 'learnings.md', '## Learnings');
+
+      // MEMORY.md — workspace only
+      var memory = await _readFile(p.join(workspaceDir, 'MEMORY.md'));
+      if (memory != null) {
+        final maxBytes = maxMemoryBytes;
+        if (maxBytes != null) {
+          final originalLength = utf8.encode(memory).length;
+          if (originalLength > maxBytes) {
+            memory = _truncateMemory(memory, maxBytes);
+            _log.warning('MEMORY.md truncated from $originalLength to ~$maxBytes bytes');
+          }
+        }
+        parts.add(memory);
+      }
+
+      // Compact instructions — interactive sessions only (multi-turn, compaction may trigger)
       final instructions = compactInstructions ?? defaultCompactInstructions;
       parts.add('# Compact instructions\n$instructions');
     }
@@ -62,28 +104,50 @@ class BehaviorFileService {
     return parts.join('\n\n');
   }
 
-  /// Whether compact instructions should be included for this session scope.
-  ///
-  /// Includes for: web, dm, group, cron (multi-turn, may hit compaction).
-  /// Skips for: task (single-turn execution, compaction never triggers).
-  /// Defaults to true when sessionId is null or unparseable (conservative).
-  static bool _shouldIncludeCompactInstructions(String? sessionId) {
-    if (sessionId == null) return true;
-    try {
-      final key = SessionKey.parse(sessionId);
-      return key.scope != 'task';
-    } catch (e) {
-      return true;
-    }
-  }
-
   /// Composes static prompt content for append-mode harnesses.
-  /// Includes SOUL, USER, TOOLS, AGENTS (no MEMORY -- agent uses MCP tools).
-  Future<String> composeStaticPrompt() async {
-    final parts = await _loadCoreParts();
+  ///
+  /// Scope controls which workspace files are included at spawn time:
+  /// - [PromptScope.interactive]: SOUL + USER + TOOLS + errors + learnings + AGENTS + memory hint
+  /// - [PromptScope.task]: SOUL + TOOLS + AGENTS + memory hint
+  /// - [PromptScope.restricted]: TOOLS + memory hint
+  /// - [PromptScope.evaluator]: default prompt + memory hint
+  Future<String> composeStaticPrompt({PromptScope scope = PromptScope.interactive}) async {
+    final parts = <String>[];
+
+    if (scope == PromptScope.evaluator) {
+      parts.add(defaultPrompt);
+    } else if (scope == PromptScope.restricted) {
+      await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+      if (parts.isEmpty) {
+        parts.add(defaultPrompt);
+      }
+    } else {
+      _checkProjectSoulDeprecation();
+      final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
+      if (globalSoul != null) {
+        parts.add(globalSoul);
+      } else {
+        parts.add(defaultPrompt);
+      }
+
+      if (scope == PromptScope.interactive) {
+        // USER.md — workspace only (agent-updatable user context)
+        await _addSection(parts, 'USER.md', '## User Context');
+      }
+
+      // TOOLS.md — workspace only (human-maintained environment notes)
+      await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+
+      if (scope == PromptScope.interactive) {
+        // errors.md — auto-populated on failures
+        await _addSection(parts, 'errors.md', '## Recent Errors');
+        // learnings.md — agent-written via memory_save category='learning'
+        await _addSection(parts, 'learnings.md', '## Learnings');
+      }
+    }
 
     // AGENTS.md
-    final agentsMd = await composeAppendPrompt();
+    final agentsMd = await composeAppendPrompt(scope: scope);
     if (agentsMd.isNotEmpty) {
       parts.add(agentsMd);
     }
@@ -94,28 +158,15 @@ class BehaviorFileService {
     return parts.join('\n\n');
   }
 
-  /// Loads the shared core prompt parts: SOUL, USER, TOOLS, errors, learnings.
-  Future<List<String>> _loadCoreParts() async {
-    final parts = <String>[];
-    final projDir = projectDir;
-
-    // SOUL.md — workspace then project
-    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-    if (globalSoul != null) parts.add(globalSoul);
-    final projSoul = projDir != null ? await _readFile(p.join(projDir, 'SOUL.md')) : null;
-    if (projSoul != null) parts.add(projSoul);
-    if (globalSoul == null && projSoul == null) parts.add(defaultPrompt);
-
-    // USER.md — workspace only (agent-updatable user context)
-    await _addSection(parts, 'USER.md', '## User Context');
-    // TOOLS.md — workspace only (human-maintained environment notes)
-    await _addSection(parts, 'TOOLS.md', '## Environment Notes');
-    // errors.md — auto-populated on failures
-    await _addSection(parts, 'errors.md', '## Recent Errors');
-    // learnings.md — agent-written via memory_save category='learning'
-    await _addSection(parts, 'learnings.md', '## Learnings');
-
-    return parts;
+  /// Returns AGENTS.md content for appending to the system prompt.
+  ///
+  /// Returns empty string for [PromptScope.restricted] and [PromptScope.evaluator]
+  /// (no workspace identity in sandboxed/independent contexts).
+  /// Returns empty string if AGENTS.md is missing or unreadable (never throws).
+  Future<String> composeAppendPrompt({PromptScope scope = PromptScope.interactive}) async {
+    if (scope == PromptScope.restricted || scope == PromptScope.evaluator) return '';
+    final content = await _readFile(p.join(workspaceDir, 'AGENTS.md'));
+    return content ?? '';
   }
 
   /// Reads a workspace file and adds it as a headed section if non-empty.
@@ -126,11 +177,19 @@ class BehaviorFileService {
     }
   }
 
-  /// Loads AGENTS.md from workspace and returns its content for append to system prompt.
-  /// Returns empty string if file is missing or unreadable (never throws).
-  Future<String> composeAppendPrompt() async {
-    final content = await _readFile(p.join(workspaceDir, 'AGENTS.md'));
-    return content ?? '';
+  /// Logs a one-shot deprecation warning if project SOUL.md exists.
+  void _checkProjectSoulDeprecation() {
+    if (_projSoulDeprecationWarned) return;
+    final projDir = projectDir;
+    if (projDir == null) return;
+    final projSoulPath = p.join(projDir, 'SOUL.md');
+    if (File(projSoulPath).existsSync()) {
+      _projSoulDeprecationWarned = true;
+      _log.warning(
+        'Project SOUL.md found at $projSoulPath — this file is no longer read. '
+        'Use CLAUDE.md (Claude Code) or AGENTS.md (other agents) instead.',
+      );
+    }
   }
 
   /// Truncates memory content from the start (oldest entries).

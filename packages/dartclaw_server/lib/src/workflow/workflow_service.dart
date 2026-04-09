@@ -21,6 +21,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../task/task_service.dart';
+import '../turn_manager.dart' show TurnManager;
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
 import 'workflow_executor.dart';
@@ -35,6 +36,7 @@ class WorkflowService {
   final SqliteWorkflowRunRepository _repository;
   final TaskService _taskService;
   final MessageService _messageService;
+  final TurnManager? _turnManager;
   final EventBus _eventBus;
   final KvService _kvService;
   final String _dataDir;
@@ -50,6 +52,7 @@ class WorkflowService {
     required SqliteWorkflowRunRepository repository,
     required TaskService taskService,
     required MessageService messageService,
+    TurnManager? turnManager,
     required EventBus eventBus,
     required KvService kvService,
     required String dataDir,
@@ -57,6 +60,7 @@ class WorkflowService {
   }) : _repository = repository,
        _taskService = taskService,
        _messageService = messageService,
+       _turnManager = turnManager,
        _eventBus = eventBus,
        _kvService = kvService,
        _dataDir = dataDir,
@@ -425,6 +429,8 @@ class WorkflowService {
         messageService: _messageService,
         dataDir: _dataDir,
       ),
+      messageService: _messageService,
+      turnManager: _turnManager,
       dataDir: _dataDir,
     );
 

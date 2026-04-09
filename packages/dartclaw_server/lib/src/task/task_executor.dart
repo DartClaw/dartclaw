@@ -279,8 +279,16 @@ class TaskExecutor {
       runningTask,
       runnerIndex: runnerIndex,
       provider: runner.providerId,
+      runnerProfileId: runner.profileId,
       reserveTurn:
-          (sessionId, {String? directory, String? model, String? effort, BehaviorFileService? behaviorOverride}) =>
+          (
+            sessionId, {
+            String? directory,
+            String? model,
+            String? effort,
+            BehaviorFileService? behaviorOverride,
+            PromptScope? promptScope,
+          }) =>
               runner.reserveTurn(
                 sessionId,
                 agentName: 'task',
@@ -288,6 +296,7 @@ class TaskExecutor {
                 model: model,
                 effort: effort,
                 behaviorOverride: behaviorOverride,
+                promptScope: promptScope,
               ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
@@ -300,14 +309,23 @@ class TaskExecutor {
     return _executeCore(
       runningTask,
       runnerIndex: 0,
+      runnerProfileId: resolveProfile(runningTask.type),
       reserveTurn:
-          (sessionId, {String? directory, String? model, String? effort, BehaviorFileService? behaviorOverride}) =>
+          (
+            sessionId, {
+            String? directory,
+            String? model,
+            String? effort,
+            BehaviorFileService? behaviorOverride,
+            PromptScope? promptScope,
+          }) =>
               _reserveSharedTurn(
                 sessionId,
                 directory: directory,
                 model: model,
                 effort: effort,
                 behaviorOverride: behaviorOverride,
+                promptScope: promptScope,
               ),
       executeTurn: _turns.executeTurn,
       waitForOutcome: _turns.waitForOutcome,
@@ -320,12 +338,14 @@ class TaskExecutor {
     Task runningTask, {
     required int runnerIndex,
     String? provider,
+    String? runnerProfileId,
     required Future<String> Function(
       String sessionId, {
       String? directory,
       String? model,
       String? effort,
       BehaviorFileService? behaviorOverride,
+      PromptScope? promptScope,
     })
     reserveTurn,
     required void Function(
@@ -454,12 +474,25 @@ class TaskExecutor {
 
       setTaskToolFilter?.call(_allowedTools(task));
 
+      // Determine prompt scope for this task turn.
+      // Evaluator steps get minimal identity; restricted profile gets tools-only;
+      // all other tasks get the lean task scope (no user/memory noise).
+      final PromptScope promptScope;
+      if (task.configJson['evaluator'] == true) {
+        promptScope = PromptScope.evaluator;
+      } else if (runnerProfileId == 'restricted') {
+        promptScope = PromptScope.restricted;
+      } else {
+        promptScope = PromptScope.task;
+      }
+
       final turnId = await reserveTurn(
         session.id,
         directory: worktreeInfo?.path,
         model: modelOverride,
         effort: effortOverride,
         behaviorOverride: taskBehavior,
+        promptScope: promptScope,
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
@@ -584,6 +617,7 @@ class TaskExecutor {
     String? model,
     String? effort,
     BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
   }) async {
     while (true) {
       try {
@@ -594,6 +628,7 @@ class TaskExecutor {
           model: model,
           effort: effort,
           behaviorOverride: behaviorOverride,
+          promptScope: promptScope,
         );
       } on BusyTurnException {
         await Future<void>.delayed(pollInterval);

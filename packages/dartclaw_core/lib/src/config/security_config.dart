@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:dartclaw_security/dartclaw_security.dart';
 
 /// Configuration for the security subsystem.
@@ -26,4 +27,31 @@ class SecurityConfig {
 
   /// Default configuration.
   const SecurityConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SecurityConfig &&
+          guards == other.guards &&
+          const DeepCollectionEquality().equals(guardsYaml, other.guardsYaml) &&
+          contentGuardEnabled == other.contentGuardEnabled &&
+          contentGuardClassifier == other.contentGuardClassifier &&
+          contentGuardModel == other.contentGuardModel &&
+          contentGuardMaxBytes == other.contentGuardMaxBytes &&
+          inputSanitizerEnabled == other.inputSanitizerEnabled &&
+          inputSanitizerChannelsOnly == other.inputSanitizerChannelsOnly &&
+          guardAuditMaxRetentionDays == other.guardAuditMaxRetentionDays;
+
+  @override
+  int get hashCode => Object.hash(
+    guards,
+    const DeepCollectionEquality().hash(guardsYaml),
+    contentGuardEnabled,
+    contentGuardClassifier,
+    contentGuardModel,
+    contentGuardMaxBytes,
+    inputSanitizerEnabled,
+    inputSanitizerChannelsOnly,
+    guardAuditMaxRetentionDays,
+  );
 }

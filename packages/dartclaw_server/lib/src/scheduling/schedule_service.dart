@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+
 import '../api/sse_broadcast.dart';
 import '../behavior/memory_consolidator.dart';
 import '../turn_manager.dart';
@@ -29,7 +30,7 @@ DeliveryService _defaultDeliveryService(SessionService sessions) {
 /// Each job runs in an isolated session (via [SessionKey.cronSession]) to avoid
 /// polluting user chat. Uses single-shot [Timer] + reschedule pattern
 /// to handle variable cron intervals and timer drift.
-class ScheduleService {
+class ScheduleService implements Reconfigurable {
   final TurnManager _turns;
   final SessionService _sessions;
   final List<ScheduledJob> _jobs;
@@ -40,6 +41,7 @@ class ScheduleService {
   final Set<String> _running = {};
   final Set<String> _paused = {};
   bool _started = false;
+  final EventBus? _eventBus;
 
   ScheduleService({
     required TurnManager turns,
@@ -47,11 +49,13 @@ class ScheduleService {
     required List<ScheduledJob> jobs,
     DeliveryService? delivery,
     MemoryConsolidator? consolidator,
+    EventBus? eventBus,
   }) : _turns = turns,
        _sessions = sessions,
        _jobs = jobs,
        _delivery = delivery ?? _defaultDeliveryService(sessions),
-       _consolidator = consolidator;
+       _consolidator = consolidator,
+       _eventBus = eventBus;
 
   /// Schedule all jobs. Calculates next fire time for each and sets timers.
   void start() {
@@ -181,6 +185,7 @@ class ScheduleService {
 
   Future<void> _executeWithRetry(ScheduledJob job) async {
     final maxAttempts = job.retryAttempts + 1;
+    Object? lastError;
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -190,6 +195,7 @@ class ScheduleService {
         _log.info('Job "${job.id}": completed (attempt $attempt/$maxAttempts)');
         return;
       } catch (e) {
+        lastError = e;
         _log.severe('Job "${job.id}": attempt $attempt/$maxAttempts failed: $e');
         if (attempt < maxAttempts) {
           _log.info('Job "${job.id}": retrying in ${job.retryDelaySeconds}s');
@@ -197,6 +203,16 @@ class ScheduleService {
         }
       }
     }
+
+    // All attempts exhausted — fire alert event if EventBus is wired.
+    _eventBus?.fire(
+      ScheduledJobFailedEvent(
+        jobId: job.id,
+        jobName: job.id,
+        error: lastError?.toString() ?? 'unknown error',
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   Future<String> _runJobTurn(ScheduledJob job) async {
@@ -226,6 +242,14 @@ class ScheduleService {
     }
 
     return outcome.responseText ?? '';
+  }
+
+  @override
+  Set<String> get watchKeys => const {'scheduling.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    _log.info('ScheduleService: scheduling config changed — job list requires restart to take effect');
   }
 
   // Exposed for testing only — do not call from production code.

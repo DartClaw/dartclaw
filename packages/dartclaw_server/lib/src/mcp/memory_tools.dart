@@ -26,6 +26,7 @@ class MemorySaveTool implements McpTool {
       'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
     },
     'required': ['text'],
+    'additionalProperties': false,
   };
 
   @override
@@ -55,6 +56,7 @@ class MemorySearchTool implements McpTool {
       'limit': {'type': 'number', 'description': 'Max results (default 5)'},
     },
     'required': ['query'],
+    'additionalProperties': false,
   };
 
   @override
@@ -77,7 +79,11 @@ class MemoryReadTool implements McpTool {
   String get description => 'Read the full contents of MEMORY.md.';
 
   @override
-  Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': <String, dynamic>{}};
+  Map<String, dynamic> get inputSchema => {
+    'type': 'object',
+    'properties': <String, dynamic>{},
+    'additionalProperties': false,
+  };
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {

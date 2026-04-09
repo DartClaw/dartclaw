@@ -78,6 +78,25 @@ class ClaudeCodeHarness extends BaseHarness {
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
+  /// Callback fired when Claude Code's own permission layer denies a tool call.
+  ///
+  /// Receives the native tool name and an optional reason string. Wired by
+  /// `HarnessWiring` to emit a [ToolPermissionDeniedEvent] on the EventBus.
+  /// Null when permission-denied events are not being observed.
+  final void Function(String toolName, String? reason)? onPermissionDenied;
+
+  /// Invoked when a `PreCompact` hook callback is received.
+  ///
+  /// Parameters: `(sessionId, trigger)`. The wiring layer connects this to
+  /// `EventBus.fire(CompactionStartingEvent(...))`.
+  void Function(String sessionId, String trigger)? onCompactionStarting;
+
+  /// Invoked when a `compact_boundary` system message is received on stdout.
+  ///
+  /// Parameters: `(trigger, preTokens)`. The wiring layer connects this to
+  /// `EventBus.fire(CompactionCompletedEvent(...))`.
+  void Function(String trigger, int? preTokens)? onCompactionCompleted;
+
   static final _log = Logger('ClaudeCodeHarness');
 
   String? _mcpConfigPath;
@@ -110,6 +129,7 @@ class ClaudeCodeHarness extends BaseHarness {
     this.onMemorySave,
     this.onMemorySearch,
     this.onMemoryRead,
+    this.onPermissionDenied,
     HarnessConfig harnessConfig = const HarnessConfig(),
     this.historyConfig = const HistoryConfig.defaults(),
     this.containerManager,
@@ -143,6 +163,9 @@ class ClaudeCodeHarness extends BaseHarness {
 
   @override
   bool get supportsSessionContinuity => true;
+
+  @override
+  bool get supportsPreCompactHook => true;
 
   /// Session ID assigned by the claude binary after init.
   String? get sessionId => _sessionId;
@@ -565,12 +588,34 @@ class ClaudeCodeHarness extends BaseHarness {
               'matcher': null,
               'hookCallbackIds': ['hook_pre_tool'],
               'timeout': 30,
+              // Limit callbacks to tools that guards evaluate, reducing unnecessary
+              // JSONL round-trips for tools like Glob, Grep, WebSearch, etc.
+              // (Claude Code v2.1.91+ if: filtering)
+              'if': {
+                'toolName': {r'$in': ['Bash', 'Write', 'Edit', 'Read', 'MultiEdit']},
+              },
             },
           ],
           'PostToolUse': [
             {
               'matcher': null,
               'hookCallbackIds': ['hook_post_tool'],
+              'timeout': 10,
+              // PostToolUse intentionally unfiltered — DartClaw audits ALL tool
+              // completions for observability.
+            },
+          ],
+          'PermissionDenied': [
+            {
+              'matcher': null,
+              'hookCallbackIds': ['hook_permission_denied'],
+              'timeout': 10,
+            },
+          ],
+          'PreCompact': [
+            {
+              'matcher': null,
+              'hookCallbackIds': ['hook_pre_compact'],
               'timeout': 10,
             },
           ],
@@ -704,6 +749,15 @@ class ClaudeCodeHarness extends BaseHarness {
         if (contextWindow != null) {
           emitEvent(SystemInitEvent(contextWindow: contextWindow));
         }
+
+      case proto.CompactBoundary(:final trigger, :final preTokens):
+        _log.info('Compact boundary: trigger=$trigger, preTokens=$preTokens');
+        onCompactionCompleted?.call(trigger, preTokens);
+
+      case proto.CompactionStarted():
+      case proto.CompactionCompleted():
+        // Codex-only compaction protocol messages — not produced by Claude Code harness
+        break;
     }
   }
 
@@ -760,19 +814,38 @@ class ClaudeCodeHarness extends BaseHarness {
     }
   }
 
-  /// Routes hook_callback by event type: PreToolUse (guard + credential strip)
-  /// or PostToolUse (audit logging).
+  /// Routes hook_callback by event type: PreToolUse (guard + credential strip),
+  /// PostToolUse (audit logging), or PreCompact (compaction notification).
   void _handleHookCallback(String requestId, Map<String, dynamic> data) {
     final hookInput = data['input'] as Map<String, dynamic>?;
     final hookEventName = hookInput?['hook_event_name'] as String?;
+
+    if (hookEventName == 'PreCompact') {
+      _handlePreCompactCallback(requestId, hookInput);
+      return;
+    }
 
     if (hookEventName == 'PostToolUse') {
       _handlePostToolUseCallback(requestId, hookInput);
       return;
     }
 
+    if (hookEventName == 'PermissionDenied') {
+      _handlePermissionDeniedCallback(requestId, hookInput);
+      return;
+    }
+
     // PreToolUse (default path)
     unawaited(_handlePreToolUseCallback(requestId, hookInput));
+  }
+
+  /// Handles the `PreCompact` hook callback: invokes [onCompactionStarting]
+  /// and responds with `allow: true` (compaction is non-blocking).
+  void _handlePreCompactCallback(String requestId, Map<String, dynamic>? hookInput) {
+    final sessionId = hookInput?['session_id'] as String? ?? _sessionId ?? '';
+    final trigger = hookInput?['trigger'] as String? ?? 'auto';
+    onCompactionStarting?.call(sessionId, trigger);
+    _writeLine(_adapter.buildHookResponse(requestId, allow: true));
   }
 
   Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic>? hookInput) async {
@@ -820,6 +893,17 @@ class ClaudeCodeHarness extends BaseHarness {
     final success = toolResponse['error'] == null;
     auditLogger?.logPostToolUse(toolName: toolName, success: success, response: toolResponse);
 
+    _writeLine(_adapter.buildHookResponse(requestId, allow: true));
+  }
+
+  void _handlePermissionDeniedCallback(String requestId, Map<String, dynamic>? hookInput) {
+    final toolName = hookInput?['tool_name'] as String? ?? '';
+    final reason = hookInput?['reason'] as String?;
+
+    onPermissionDenied?.call(toolName, reason);
+
+    // Acknowledge receipt. The denial already occurred at Claude Code's layer;
+    // DartClaw cannot override it — this is informational only.
     _writeLine(_adapter.buildHookResponse(requestId, allow: true));
   }
 

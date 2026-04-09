@@ -385,5 +385,43 @@ void main() {
         expect((msg as TurnResult).costUsd, 1.0);
       });
     });
+
+    // -----------------------------------------------------------------
+    // CompactBoundary (type: system, subtype: compact_boundary)
+    // -----------------------------------------------------------------
+
+    group('CompactBoundary', () {
+      test('parses compact_boundary with trigger and pre_tokens', () {
+        final msg = parseJsonlLine(
+          _j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto', 'pre_tokens': 142857}),
+        );
+
+        expect(msg, isA<CompactBoundary>());
+        final cb = msg as CompactBoundary;
+        expect(cb.trigger, 'auto');
+        expect(cb.preTokens, 142857);
+      });
+
+      test('parses compact_boundary without pre_tokens (null)', () {
+        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual'}));
+
+        expect(msg, isA<CompactBoundary>());
+        final cb = msg as CompactBoundary;
+        expect(cb.trigger, 'manual');
+        expect(cb.preTokens, isNull);
+      });
+
+      test('compact_boundary with missing trigger defaults to "auto"', () {
+        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'compact_boundary'}));
+
+        expect(msg, isA<CompactBoundary>());
+        expect((msg as CompactBoundary).trigger, 'auto');
+      });
+
+      test('system subtype other than init and compact_boundary returns null', () {
+        final msg = parseJsonlLine(_j({'type': 'system', 'subtype': 'unknown_subtype'}));
+        expect(msg, isNull);
+      });
+    });
   });
 }

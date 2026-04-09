@@ -3,19 +3,20 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+
 /// Manages session reset policies: daily timer + per-session idle timeout.
 ///
 /// On reset, keyed sessions (main/channel/cron) are converted to archive type
 /// and a fresh session is created with the same key. User sessions have their
 /// messages cleared in place. The daily timer fires at a configurable hour
 /// (default 4 AM). Idle timeout is opt-in (default 0 = disabled).
-class SessionResetService {
+class SessionResetService implements Reconfigurable {
   static final _log = Logger('SessionResetService');
 
   final SessionService _sessions;
   final MessageService _messages;
-  final int _resetHour;
-  final int _idleTimeoutMinutes;
+  int _resetHour;
+  int _idleTimeoutMinutes;
 
   Timer? _dailyTimer;
   final Map<String, Timer> _idleTimers = {};
@@ -29,6 +30,23 @@ class SessionResetService {
        _messages = messages,
        _resetHour = resetHour,
        _idleTimeoutMinutes = idleTimeoutMinutes;
+
+  @override
+  Set<String> get watchKeys => const {'sessions.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newHour = delta.current.sessions.resetHour;
+    final newIdle = delta.current.sessions.idleTimeoutMinutes;
+    final hourChanged = newHour != _resetHour;
+    _resetHour = newHour;
+    _idleTimeoutMinutes = newIdle;
+    _log.info('SessionResetService reconfigured (resetHour: $_resetHour, idleTimeoutMinutes: $_idleTimeoutMinutes)');
+    if (hourChanged && _dailyTimer != null) {
+      _dailyTimer!.cancel();
+      _scheduleDailyTimer();
+    }
+  }
 
   /// Starts the daily reset timer.
   void start() {

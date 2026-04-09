@@ -35,6 +35,30 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during server builder integration test');
 }
 
+class _RecordingChannel extends Channel {
+  final List<(String, ChannelResponse)> sent = [];
+
+  @override
+  String get name => 'recording-googlechat';
+
+  @override
+  ChannelType get type => ChannelType.googlechat;
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  bool ownsJid(String jid) => true;
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    sent.add((recipientJid, response));
+  }
+}
+
 Future<void> _disposeWiringResult(WiringResult result, LogService logService) async {
   await result.server.shutdown();
   await result.shutdownExtras();
@@ -81,9 +105,7 @@ void main() {
       agent: const AgentConfig(provider: 'claude'),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       providers: ProvidersConfig(
-        entries: {
-          'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0),
-        },
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(authMode: 'none'),
       server: ServerConfig(
@@ -123,5 +145,67 @@ void main() {
 
     final healthBody = jsonDecode(await healthResponse.readAsString()) as Map<String, dynamic>;
     expect(healthBody['status'], equals('healthy'));
+  });
+
+  test('ServiceWiring wires AlertRouter into the production EventBus', () async {
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      alerts: const AlertsConfig(
+        enabled: true,
+        targets: [AlertTarget(channel: 'googlechat', recipient: 'spaces/abc')],
+      ),
+      channels: const ChannelConfig(
+        channelConfigs: {
+          'googlechat': {'enabled': true},
+        },
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final channel = _RecordingChannel();
+    result.channelManager!.registerChannel(channel);
+
+    result.eventBus.fire(
+      GuardBlockEvent(
+        guardName: 'bash-guard',
+        guardCategory: 'file',
+        verdict: 'block',
+        hookPoint: 'PreToolUse',
+        timestamp: DateTime.now(),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(channel.sent, hasLength(1));
+    expect(channel.sent.single.$1, equals('spaces/abc'));
+    expect(channel.sent.single.$2.text, contains('Guard Block'));
   });
 }

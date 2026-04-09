@@ -44,6 +44,7 @@ class WiringResult {
   final Map<String, ContainerManager> containerManagers;
   final Future<void> Function() shutdownExtras;
   final ProjectService projectService;
+  final ConfigNotifier configNotifier;
 
   const WiringResult({
     required this.server,
@@ -64,6 +65,7 @@ class WiringResult {
     required this.containerManagers,
     required this.shutdownExtras,
     required this.projectService,
+    required this.configNotifier,
   });
 }
 
@@ -114,6 +116,8 @@ class ServiceWiring {
     ensureDartclawGoogleChatRegistered();
 
     final eventBus = EventBus();
+    // Create ConfigNotifier — holds live config, notifies registered services on reload.
+    final configNotifier = ConfigNotifier(config);
 
     // 0. Projects — initialize before other services to allow project-aware wiring.
     final project = ProjectWiring(config: config, dataDir: dataDir, eventBus: eventBus);
@@ -134,7 +138,14 @@ class ServiceWiring {
     final agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
 
     // 2. Security — guards, audit, content classifier, container setup.
-    final security = SecurityWiring(config: config, dataDir: dataDir, eventBus: eventBus, exitFn: exitFn);
+    final security = SecurityWiring(
+      config: config,
+      dataDir: dataDir,
+      eventBus: eventBus,
+      exitFn: exitFn,
+      configNotifier: configNotifier,
+      messageRedactor: messageRedactor,
+    );
     await security.wire(agentDefs: agentDefs);
 
     // 3. Harness — agent harness pool, turn runners, behavior, context, auth.
@@ -148,6 +159,7 @@ class ServiceWiring {
       security: security,
       messageRedactor: messageRedactor,
       eventBus: eventBus,
+      configNotifier: configNotifier,
     );
     // Server ref resolved lazily — closures in harness capture the getter.
     late DartclawServer serverRef;
@@ -190,6 +202,25 @@ class ServiceWiring {
       taskService: storage.taskService,
       channelManager: channel.channelManager,
     );
+
+    Channel? lookupAlertChannel(String channelTypeName) {
+      final manager = channel.channelManager;
+      if (manager == null) return null;
+      for (final candidate in manager.channels) {
+        if (candidate.type.name == channelTypeName) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    final alertRouter = AlertRouter(
+      bus: eventBus,
+      adapter: AlertDeliveryAdapter(lookupAlertChannel),
+      config: config.alerts,
+      taskLookup: storage.taskService.get,
+    );
+    configNotifier.register(alertRouter);
 
     // 6. Build server — all pre-server deps known, now create the HTTP server.
     final configWriter = config_tools.ConfigWriter(configPath: resolvedConfigPath);
@@ -273,6 +304,7 @@ class ServiceWiring {
     // emergency stop closure in ChannelWiring.
     serverTurns = builder.buildTurns();
     await serverTurns.detectAndCleanOrphanedTurns();
+    configNotifier.register(serverTurns);
 
     // 7. Tasks (post-server) — executor, artifacts, observer — need live turns.
     await task.wirePostServer(turns: serverTurns, pool: harness.pool, onSpawnNeeded: harness.onSpawnNeeded);
@@ -293,9 +325,7 @@ class ServiceWiring {
     final skillRegistry = SkillRegistryImpl();
     final activeProject = config.projects.definitions.values.firstOrNull;
     skillRegistry.discover(
-      projectDir: activeProject != null
-          ? p.join(config.projectsClonesDir, activeProject.id)
-          : null,
+      projectDir: activeProject != null ? p.join(config.projectsClonesDir, activeProject.id) : null,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
     );
@@ -313,14 +343,10 @@ class ServiceWiring {
     );
     workflowRegistry.skillRegistry = skillRegistry;
     workflowRegistry.loadBuiltIn();
-    await workflowRegistry.loadFromDirectory(
-      p.join(config.workspaceDir, 'workflows'),
-    );
+    await workflowRegistry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'));
     for (final projectDef in config.projects.definitions.values) {
       final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
-      await workflowRegistry.loadFromDirectory(
-        p.join(projectCloneDir, 'workflows'),
-      );
+      await workflowRegistry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));
     }
 
     // Thread binding reconciliation — prune bindings for terminal tasks.
@@ -367,6 +393,7 @@ class ServiceWiring {
       channel: channel,
       security: security,
       sseBroadcast: harness.sseBroadcast,
+      configNotifier: configNotifier,
     );
     await scheduling.wire(serverRefGetter: () => serverRef, turns: serverTurns, contextMonitor: harness.contextMonitor);
 
@@ -408,6 +435,7 @@ class ServiceWiring {
       ..memoryPruner = scheduling.memoryPruner
       ..configWriter = configWriter
       ..config = config
+      ..configNotifier = configNotifier
       ..restartService = restartService
       ..sseBroadcast = harness.sseBroadcast
       ..providerStatus = providerStatus
@@ -549,10 +577,12 @@ class ServiceWiring {
       eventBus: eventBus,
       containerManagers: security.containerManagers,
       projectService: project.projectService,
+      configNotifier: configNotifier,
       shutdownExtras: () async {
         lifecycleManager?.dispose();
         await workflowService.dispose();
         await task.dispose();
+        await alertRouter.cancel();
         await channel.taskNotificationSubscriber?.dispose();
         await security.dispose();
         groupSessionInit.dispose();

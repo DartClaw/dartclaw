@@ -46,6 +46,11 @@ class HarnessFactoryConfig {
   /// Memory read callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
+  /// Callback fired when Claude Code's own permission layer denies a tool call.
+  ///
+  /// Wired in `HarnessWiring` to emit `ToolPermissionDeniedEvent` on the EventBus.
+  final void Function(String toolName, String? reason)? onPermissionDenied;
+
   /// History replay configuration for Claude harnesses.
   final HistoryConfig historyConfig;
 
@@ -64,6 +69,7 @@ class HarnessFactoryConfig {
     this.onMemorySave,
     this.onMemorySearch,
     this.onMemoryRead,
+    this.onPermissionDenied,
   });
 }
 
@@ -109,6 +115,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     onMemorySave: config.onMemorySave,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
+    onPermissionDenied: config.onPermissionDenied,
     harnessConfig: config.harnessConfig,
     historyConfig: config.historyConfig,
     containerManager: config.containerManager,

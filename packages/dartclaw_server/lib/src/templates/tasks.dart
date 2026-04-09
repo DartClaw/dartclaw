@@ -327,6 +327,7 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
       return '${_formatTokens(input + output)} tokens';
     }(),
     TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
+    Compaction() => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
   };
   return {'iconClass': compactEventIconClass(kind), 'iconChar': compactEventIconChar(kind), 'text': text};
 }

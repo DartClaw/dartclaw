@@ -132,6 +132,37 @@ void main() {
     expect(fired[1].kind, 'error');
   });
 
+  test('recordCompaction inserts compaction event with trigger, sessionId, and optional preTokens', () {
+    recorder.recordCompaction('task-c', trigger: 'auto', sessionId: 'sess-xyz', preTokens: 142857);
+
+    final events = eventService.listForTask('task-c');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'compaction');
+    expect(events[0].details['trigger'], 'auto');
+    expect(events[0].details['sessionId'], 'sess-xyz');
+    expect(events[0].details['preTokens'], 142857);
+  });
+
+  test('recordCompaction omits preTokens when null', () {
+    recorder.recordCompaction('task-d', trigger: 'manual', sessionId: 'sess-abc');
+
+    final events = eventService.listForTask('task-d');
+    expect(events, hasLength(1));
+    expect(events[0].details.containsKey('preTokens'), isFalse);
+  });
+
+  test('recordCompaction fires TaskEventCreatedEvent on EventBus', () async {
+    final fired = <TaskEventCreatedEvent>[];
+    bus.on<TaskEventCreatedEvent>().listen(fired.add);
+
+    recorder.recordCompaction('task-e', trigger: 'auto', sessionId: 'sess-e', preTokens: 50000);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(fired, hasLength(1));
+    expect(fired[0].kind, 'compaction');
+    expect(fired[0].taskId, 'task-e');
+  });
+
   test('with null EventBus, recording still inserts to SQLite (no exception)', () {
     final noEventBusRecorder = TaskEventRecorder(eventService: eventService);
     expect(() => noEventBusRecorder.recordError('task-9', message: 'no bus'), returnsNormally);

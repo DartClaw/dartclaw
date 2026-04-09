@@ -98,6 +98,9 @@ class _MinimalHarness implements AgentHarness {
   bool get supportsSessionContinuity => false;
 
   @override
+  bool get supportsPreCompactHook => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
   @override
   WorkerState get state => WorkerState.idle;

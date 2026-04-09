@@ -70,6 +70,34 @@ class FakeCodexProcess extends CapturingFakeProcess {
     });
   }
 
+  /// Emits a Codex v0.118.0 `initialize` response wrapped in a ClientResponse envelope.
+  void emitInitializeResponseV118({Object id = 1, String sessionId = 'sess-123', int contextWindow = 8192}) {
+    emitLine({
+      'id': id,
+      'result': {
+        'response': {
+          'session_id': sessionId,
+          'capabilities': {'context_window': contextWindow},
+          'tools': [
+            {'name': 'shell'},
+          ],
+        },
+      },
+    });
+  }
+
+  /// Emits a Codex v0.118.0 `thread/start` response wrapped in a ClientResponse envelope.
+  void emitThreadStartResponseV118({Object id = 2, String threadId = 'thread-123'}) {
+    emitLine({
+      'id': id,
+      'result': {
+        'response': {
+          'thread': {'id': threadId},
+        },
+      },
+    });
+  }
+
   /// Emits a `turn/started` notification.
   void emitTurnStarted() => emitLine({'method': 'turn/started', 'params': {}});
 

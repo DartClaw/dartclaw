@@ -377,6 +377,19 @@ class CodexHarness extends BaseHarness {
         if (contextWindow != null) {
           emitEvent(SystemInitEvent(contextWindow: contextWindow));
         }
+
+      case proto.CompactBoundary():
+        // CompactBoundary is a Claude Code-specific wire format. Codex
+        // compaction is handled via CodexProtocolAdapter (S02). No-op here.
+        break;
+
+      case proto.CompactionStarted():
+        emitEvent(CompactionStartingBridgeEvent());
+        // TODO(S01+S02): Wire Codex compaction bridge events to DartclawEvents in TurnRunner
+
+      case proto.CompactionCompleted():
+        emitEvent(CompactionCompletedBridgeEvent());
+        // TODO(S01+S02): Wire Codex compaction bridge events to DartclawEvents in TurnRunner
     }
   }
 
@@ -507,7 +520,10 @@ class CodexHarness extends BaseHarness {
     }
 
     if (_threadStartCompleter != null && !(_threadStartCompleter!.isCompleted) && id == _threadStartRequestId) {
-      final thread = mapValue(result?['thread']);
+      // Codex v0.118.0 may wrap the result in a ClientResponse envelope.
+      // Support both flat (legacy) and nested (v0.118.0) shapes.
+      final responseEnvelope = mapValue(result?['response']);
+      final thread = mapValue(result?['thread']) ?? mapValue(responseEnvelope?['thread']);
       final threadId = result?['thread_id'] ?? result?['id'] ?? thread?['id'];
       if (error != null) {
         _threadStartCompleter!.completeError(StateError('Codex thread/start failed: $error'));

@@ -5,6 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentStateChangedEvent,
         ArtifactCreated,
+        Compaction,
         EventBus,
         ProjectService,
         ProjectStatusChangedEvent,
@@ -318,5 +319,6 @@ String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
       return '$total tokens';
     }(),
     TaskErrorEvent() => truncate(details['message']?.toString() ?? 'Error', 80),
+    Compaction() => truncate('Compaction (trigger: ${details['trigger'] ?? 'auto'})', 80),
   };
 }

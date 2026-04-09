@@ -286,6 +286,9 @@ class CodexExecHarness extends BaseHarness {
         }
       case proto.ControlRequest():
       case proto.SystemInit():
+      case proto.CompactBoundary():
+      case proto.CompactionStarted():
+      case proto.CompactionCompleted():
         return;
     }
   }

@@ -984,9 +984,179 @@ workspace:
       expect(json['signal'], 0);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // G4 — Three-tier PATCH partitioning + hot-reload
+  // ---------------------------------------------------------------------------
+
+  group('G4 three-tier PATCH partitioning', () {
+    /// Creates a router wired with a real [ConfigNotifier].
+    Router createRouterWithNotifier(ConfigNotifier notifier, {DartclawConfig? config}) {
+      final cfg = config ?? const DartclawConfig.defaults();
+      final rc = RuntimeConfig(
+        heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+        gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+        gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
+      );
+      final writer = ConfigWriter(configPath: configPath);
+      final validator = const ConfigValidator();
+      final bus = EventBus();
+      ConfigChangeSubscriber(runtimeConfig: rc).subscribe(bus);
+
+      return configApiRoutes(
+        config: cfg,
+        writer: writer,
+        validator: validator,
+        runtimeConfig: rc,
+        dataDir: dataDir,
+        eventBus: bus,
+        configNotifier: notifier,
+      );
+    }
+
+    test('PATCH reloadable field returns in applied, reload() called, no restart.pending', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final router = createRouterWithNotifier(notifier);
+
+      // concurrency.max_parallel_turns is reloadable
+      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], contains('concurrency.max_parallel_turns'));
+      expect(json['pendingRestart'], isEmpty);
+
+      // restart.pending file must NOT exist
+      final restartFile = File(p.join(dataDir, 'restart.pending'));
+      expect(restartFile.existsSync(), isFalse);
+    });
+
+    test('PATCH restart field writes restart.pending and returns in pendingRestart', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final router = createRouterWithNotifier(notifier);
+
+      // server.port is restart-required
+      final response = await patch(router, '/api/config', {'port': 8080});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['pendingRestart'], contains('port'));
+      expect(json['applied'], isEmpty);
+
+      final restartFile = File(p.join(dataDir, 'restart.pending'));
+      expect(restartFile.existsSync(), isTrue);
+    });
+
+    test('mixed PATCH: reloadable in applied, restart field in pendingRestart', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final router = createRouterWithNotifier(notifier);
+
+      final response = await patch(router, '/api/config', {
+        'concurrency.max_parallel_turns': 4,
+        'port': 9090,
+      });
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], contains('concurrency.max_parallel_turns'));
+      expect(json['pendingRestart'], contains('port'));
+      expect(json['pendingRestart'], isNot(contains('concurrency.max_parallel_turns')));
+    });
+
+    test('ConfigNotifier.reload() failure falls back to pendingRestart', () async {
+      // Use _ThrowingConfigNotifier to simulate a reload() failure.
+      final throwingRouter = _buildRouterWithThrowingNotifier(configPath, dataDir);
+
+      final response = await patch(throwingRouter, '/api/config', {'concurrency.max_parallel_turns': 4});
+
+      expect(response.statusCode, 200);
+      final json = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      // Field written to YAML but reload failed → falls back to pendingRestart
+      expect(json['applied'], isEmpty);
+      expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
+
+      final restartFile = File(p.join(dataDir, 'restart.pending'));
+      expect(restartFile.existsSync(), isTrue);
+    });
+
+    test('PATCH live field fires ConfigChangedEvent and returns in applied', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final bus = EventBus();
+      final rc = RuntimeConfig(
+        heartbeatEnabled: true,
+        gitSyncEnabled: false,
+        gitSyncPushEnabled: false,
+      );
+      ConfigChangeSubscriber(runtimeConfig: rc).subscribe(bus);
+
+      ConfigChangedEvent? captured;
+      bus.on<ConfigChangedEvent>().listen((e) => captured = e);
+
+      final router = configApiRoutes(
+        config: const DartclawConfig.defaults(),
+        writer: ConfigWriter(configPath: configPath),
+        validator: const ConfigValidator(),
+        runtimeConfig: rc,
+        dataDir: dataDir,
+        eventBus: bus,
+        configNotifier: notifier,
+      );
+
+      // scheduling.heartbeat.enabled is a live field
+      final response = await patch(router, '/api/config', {'scheduling.heartbeat.enabled': false});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], contains('scheduling.heartbeat.enabled'));
+      expect(json['pendingRestart'], isEmpty);
+      expect(captured, isNotNull);
+      expect(captured!.changedKeys, contains('scheduling.heartbeat.enabled'));
+    });
+
+    test('PATCH with no notifier wired treats reloadable as pendingRestart', () async {
+      // createRouter() does not wire a ConfigNotifier
+      final router = createRouter();
+
+      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['applied'], isEmpty);
+      expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
+    });
+  });
 }
 
 // --- Fakes ---
+
+/// Builds a [configApiRoutes] router whose [ConfigNotifier] throws on [reload].
+/// Used to test the reloadable-fallback-to-pendingRestart path.
+Router _buildRouterWithThrowingNotifier(String configPath, String dataDir) {
+  final cfg = const DartclawConfig.defaults();
+  final rc = RuntimeConfig(
+    heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+    gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+    gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
+  );
+  return configApiRoutes(
+    config: cfg,
+    writer: ConfigWriter(configPath: configPath),
+    validator: const ConfigValidator(),
+    runtimeConfig: rc,
+    dataDir: dataDir,
+    configNotifier: _ThrowingConfigNotifier(cfg),
+  );
+}
+
+/// [ConfigNotifier] subclass whose [reload] always throws.
+class _ThrowingConfigNotifier extends ConfigNotifier {
+  _ThrowingConfigNotifier(super.initial);
+
+  @override
+  ConfigDelta? reload(DartclawConfig newConfig) {
+    throw StateError('simulated reload failure');
+  }
+}
 
 class _FakeGowaManager extends GowaManager {
   _FakeGowaManager() : super(executable: '', host: '', port: 0, webhookUrl: '', osName: '');

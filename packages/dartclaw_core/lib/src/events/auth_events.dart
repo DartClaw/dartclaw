@@ -91,6 +91,36 @@ final class GuardBlockEvent extends DartclawEvent {
       'GuardBlockEvent(guard: $guardName, category: $guardCategory, verdict: $verdict, hook: $hookPoint)';
 }
 
+/// Fired when Claude Code denies a tool call at its own permission layer.
+///
+/// This fires when Claude Code itself denies a tool, NOT when DartClaw's guard
+/// chain blocks it. A tool denied by `PreToolUse` never reaches this hook.
+/// Informational only — no response action needed from DartClaw.
+final class ToolPermissionDeniedEvent extends DartclawEvent {
+  /// Native Claude Code tool name that was denied.
+  final String toolName;
+
+  /// Session ID from the harness, if available.
+  final String? sessionId;
+
+  /// Optional reason provided by Claude Code.
+  final String? reason;
+
+  @override
+  final DateTime timestamp;
+
+  /// Creates a tool permission denied event.
+  ToolPermissionDeniedEvent({
+    required this.toolName,
+    this.sessionId,
+    this.reason,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'ToolPermissionDeniedEvent(tool: $toolName, reason: $reason)';
+}
+
 /// Fired when configuration values change via the config API.
 final class ConfigChangedEvent extends DartclawEvent {
   /// Fully-qualified config keys that changed.

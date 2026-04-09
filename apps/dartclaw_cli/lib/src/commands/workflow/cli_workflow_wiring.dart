@@ -110,6 +110,8 @@ class CliWorkflowWiring {
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
+      identifierPreservation: config.context.identifierPreservation,
+      identifierInstructions: config.context.identifierInstructions,
     );
 
     final primaryRunner = TurnRunner(
@@ -148,6 +150,8 @@ class CliWorkflowWiring {
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
+      identifierPreservation: config.context.identifierPreservation,
+      identifierInstructions: config.context.identifierInstructions,
       budgetConfig: config.tasks.budget,
     );
     taskExecutor.start();

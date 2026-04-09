@@ -264,4 +264,28 @@ void main() {
     final adapter = ClaudeProtocolAdapter();
     expect(adapter.mapToolName('bash'), isNull);
   });
+
+  group('CompactBoundary', () {
+    test('parses compact_boundary with trigger and preTokens', () {
+      final adapter = ClaudeProtocolAdapter();
+      final msg = adapter.parseLine(
+        _j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto', 'pre_tokens': 55000}),
+      );
+
+      expect(msg, isA<CompactBoundary>());
+      final cb = msg! as CompactBoundary;
+      expect(cb.trigger, 'auto');
+      expect(cb.preTokens, 55000);
+    });
+
+    test('parses compact_boundary without pre_tokens', () {
+      final adapter = ClaudeProtocolAdapter();
+      final msg = adapter.parseLine(
+        _j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual'}),
+      );
+
+      expect(msg, isA<CompactBoundary>());
+      expect((msg! as CompactBoundary).preTokens, isNull);
+    });
+  });
 }

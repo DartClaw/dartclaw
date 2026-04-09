@@ -19,6 +19,16 @@ class TaskBudgetConfig {
 
   /// Whether any default budget is configured.
   bool get hasDefaults => defaultMaxTokens != null;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskBudgetConfig &&
+          defaultMaxTokens == other.defaultMaxTokens &&
+          warningThreshold == other.warningThreshold;
+
+  @override
+  int get hashCode => Object.hash(defaultMaxTokens, warningThreshold);
 }
 
 /// Configuration for the task subsystem.
@@ -45,4 +55,27 @@ class TaskConfig {
 
   /// Default configuration.
   const TaskConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskConfig &&
+          maxConcurrent == other.maxConcurrent &&
+          artifactRetentionDays == other.artifactRetentionDays &&
+          completionAction == other.completionAction &&
+          worktreeBaseRef == other.worktreeBaseRef &&
+          worktreeStaleTimeoutHours == other.worktreeStaleTimeoutHours &&
+          worktreeMergeStrategy == other.worktreeMergeStrategy &&
+          budget == other.budget;
+
+  @override
+  int get hashCode => Object.hash(
+    maxConcurrent,
+    artifactRetentionDays,
+    completionAction,
+    worktreeBaseRef,
+    worktreeStaleTimeoutHours,
+    worktreeMergeStrategy,
+    budget,
+  );
 }

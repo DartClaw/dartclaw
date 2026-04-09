@@ -45,6 +45,8 @@ class TaskExecutor {
     String? workspaceDir,
     int? maxMemoryBytes,
     String? compactInstructions,
+    String identifierPreservation = 'strict',
+    String? identifierInstructions,
     KvService? kvService,
     TaskBudgetConfig? budgetConfig,
     EventBus? eventBus,
@@ -68,6 +70,8 @@ class TaskExecutor {
        _workspaceDir = workspaceDir,
        _maxMemoryBytes = maxMemoryBytes,
        _compactInstructions = compactInstructions,
+       _identifierPreservation = identifierPreservation,
+       _identifierInstructions = identifierInstructions,
        _kv = kvService,
        _budgetConfig = budgetConfig,
        _eventBus = eventBus,
@@ -94,6 +98,8 @@ class TaskExecutor {
   final String? _workspaceDir;
   final int? _maxMemoryBytes;
   final String? _compactInstructions;
+  final String _identifierPreservation;
+  final String? _identifierInstructions;
   final KvService? _kv;
   final TaskBudgetConfig? _budgetConfig;
   final EventBus? _eventBus;
@@ -469,6 +475,8 @@ class TaskExecutor {
           projectDir: project.localPath,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
+          identifierPreservation: _identifierPreservation,
+          identifierInstructions: _identifierInstructions,
         );
       }
 

@@ -10,4 +10,14 @@ class UsageConfig {
 
   /// Default configuration.
   const UsageConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UsageConfig &&
+          budgetWarningTokens == other.budgetWarningTokens &&
+          maxFileSizeBytes == other.maxFileSizeBytes;
+
+  @override
+  int get hashCode => Object.hash(budgetWarningTokens, maxFileSizeBytes);
 }

@@ -12,16 +12,30 @@ import '../serve_command.dart' show ExitFn;
 ///
 /// Owns container setup (credential proxy, container managers, health monitor),
 /// guard chain, content guard, audit subscriber, and session lifecycle subscriber.
-class SecurityWiring {
-  SecurityWiring({required this.config, required String dataDir, required EventBus eventBus, required ExitFn exitFn})
-    : _dataDir = dataDir,
-      _eventBus = eventBus,
-      _exitFn = exitFn;
+///
+/// Implements [Reconfigurable] for `guards.*` config changes — on reconfigure,
+/// rebuilds all guards from the updated security config and atomically swaps
+/// the guard list in the existing [GuardChain].
+class SecurityWiring implements Reconfigurable {
+  SecurityWiring({
+    required this.config,
+    required String dataDir,
+    required EventBus eventBus,
+    required ExitFn exitFn,
+    ConfigNotifier? configNotifier,
+    MessageRedactor? messageRedactor,
+  }) : _dataDir = dataDir,
+       _eventBus = eventBus,
+       _exitFn = exitFn,
+       _configNotifier = configNotifier,
+       _messageRedactorForRegistration = messageRedactor;
 
   final DartclawConfig config;
   final String _dataDir;
   final EventBus _eventBus;
   final ExitFn _exitFn;
+  final ConfigNotifier? _configNotifier;
+  final MessageRedactor? _messageRedactorForRegistration;
 
   static final _log = Logger('SecurityWiring');
 
@@ -67,6 +81,61 @@ class SecurityWiring {
       if (agent.sessionStorePath.isNotEmpty) {
         Directory(p.join(config.workspaceDir, agent.sessionStorePath)).createSync(recursive: true);
       }
+    }
+
+    // Register security-layer services with ConfigNotifier via adapters.
+    // (dartclaw_security cannot depend on dartclaw_core — adapters bridge the gap.)
+    if (_configNotifier != null) {
+      if (_messageRedactorForRegistration != null) {
+        final redactor = _messageRedactorForRegistration;
+        _configNotifier.register(_MessageRedactorAdapter(redactor));
+      }
+      // Register self for guards.* hot-reload. Successful rebuilds swap the
+      // entire guard list atomically, including InputSanitizer instances.
+      _configNotifier.register(this);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reconfigurable — guards.* hot-reload
+  // ---------------------------------------------------------------------------
+
+  @override
+  Set<String> get watchKeys => const {'guards.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    if (_guardChain == null) {
+      _log.info('SecurityWiring: guards.* changed but guard chain is not active — skipping rebuild');
+      return;
+    }
+
+    if (!delta.current.security.guards.enabled) {
+      _log.warning(
+        'SecurityWiring: guards.enabled changed to false — '
+        'disabling guards requires a server restart to take effect safely',
+      );
+      return;
+    }
+
+    final result = buildGuardsFromConfig(
+      securityConfig: delta.current.security,
+      dataDir: _dataDir,
+      toolPolicyCascade: _toolPolicyCascade,
+    );
+
+    switch (result) {
+      case GuardBuildSuccess(:final guards, :final warnings):
+        for (final w in warnings) {
+          _log.fine('SecurityWiring guard rebuild: $w');
+        }
+        _guardChain!.replaceGuards(guards);
+        _log.info('SecurityWiring: guard chain rebuilt (${guards.length} guards)');
+      case GuardBuildFailure(:final errors):
+        for (final e in errors) {
+          _log.severe('SecurityWiring guard rebuild failed: $e');
+        }
+        _log.severe('SecurityWiring: guard chain NOT updated — preserving existing chain');
     }
   }
 
@@ -190,64 +259,50 @@ class SecurityWiring {
     );
 
     _auditLogger = GuardAuditLogger(dataDir: _dataDir);
-    _guardChain = config.security.guards.enabled
-        ? GuardChain(
-            failOpen: config.security.guards.failOpen,
-            guards: [
-              InputSanitizer(
-                config: config.security.guardsYaml['input_sanitizer'] is Map
-                    ? InputSanitizerConfig.fromYaml(
-                        Map<String, dynamic>.from(config.security.guardsYaml['input_sanitizer'] as Map),
-                      )
-                    : InputSanitizerConfig(
-                        enabled: config.security.inputSanitizerEnabled,
-                        channelsOnly: config.security.inputSanitizerChannelsOnly,
-                        patterns: InputSanitizerConfig.defaults().patterns,
-                      ),
+
+    if (!config.security.guards.enabled) {
+      _guardChain = null;
+      return;
+    }
+
+    final result = buildGuardsFromConfig(
+      securityConfig: config.security,
+      dataDir: _dataDir,
+      toolPolicyCascade: _toolPolicyCascade,
+    );
+
+    switch (result) {
+      case GuardBuildSuccess(:final guards, :final warnings):
+        for (final w in warnings) {
+          _log.fine('Guard build: $w');
+        }
+        _guardChain = GuardChain(
+          failOpen: config.security.guards.failOpen,
+          guards: guards,
+          onVerdict: (name, category, verdict, message, ctx) {
+            _eventBus.fire(
+              GuardBlockEvent(
+                guardName: name,
+                guardCategory: category,
+                verdict: verdict,
+                verdictMessage: message,
+                hookPoint: ctx.hookPoint,
+                rawProviderToolName: ctx.rawProviderToolName,
+                sessionId: ctx.sessionId,
+                channel: ctx.source,
+                peerId: ctx.peerId,
+                timestamp: ctx.timestamp,
               ),
-              CommandGuard(
-                config: config.security.guardsYaml['command'] is Map
-                    ? CommandGuardConfig.fromYaml(
-                        Map<String, dynamic>.from(config.security.guardsYaml['command'] as Map),
-                      )
-                    : CommandGuardConfig.defaults(),
-              ),
-              FileGuard(
-                config:
-                    (config.security.guardsYaml['file'] is Map
-                            ? FileGuardConfig.fromYaml(
-                                Map<String, dynamic>.from(config.security.guardsYaml['file'] as Map),
-                              )
-                            : FileGuardConfig.defaults())
-                        .withSelfProtection(p.join(_dataDir, 'dartclaw.yaml')),
-              ),
-              NetworkGuard(
-                config: config.security.guardsYaml['network'] is Map
-                    ? NetworkGuardConfig.fromYaml(
-                        Map<String, dynamic>.from(config.security.guardsYaml['network'] as Map),
-                      )
-                    : NetworkGuardConfig.defaults(),
-              ),
-              ToolPolicyGuard(cascade: _toolPolicyCascade),
-            ],
-            onVerdict: (name, category, verdict, message, ctx) {
-              _eventBus.fire(
-                GuardBlockEvent(
-                  guardName: name,
-                  guardCategory: category,
-                  verdict: verdict,
-                  verdictMessage: message,
-                  hookPoint: ctx.hookPoint,
-                  rawProviderToolName: ctx.rawProviderToolName,
-                  sessionId: ctx.sessionId,
-                  channel: ctx.source,
-                  peerId: ctx.peerId,
-                  timestamp: ctx.timestamp,
-                ),
-              );
-            },
-          )
-        : null;
+            );
+          },
+        );
+      case GuardBuildFailure(:final errors):
+        // Fatal at startup.
+        for (final e in errors) {
+          _log.severe('Guard chain build failed: $e');
+        }
+        _exitFn(1);
+    }
   }
 
   void _wireAuditAndLifecycle() {
@@ -305,5 +360,189 @@ class SecurityWiring {
     }
     await _credentialProxy?.stop();
     await _containerHealthMonitor?.stop();
+  }
+}
+
+/// Builds a [List<Guard>] from [SecurityConfig], performing deduplication and
+/// conflict detection on the extra rules before constructing guard instances.
+///
+/// Returns [GuardBuildSuccess] with the guards and any deduplication warnings,
+/// or [GuardBuildFailure] with error descriptions when the config is invalid
+/// (bad regex, conflicting rules). The caller decides whether to swap the chain
+/// or log and preserve the existing one.
+///
+/// [toolPolicyCascade] is appended as-is (not rebuilt from config).
+GuardBuildResult buildGuardsFromConfig({
+  required SecurityConfig securityConfig,
+  required String dataDir,
+  required ToolPolicyCascade toolPolicyCascade,
+  TaskToolFilterGuard? taskToolFilterGuard,
+}) {
+  final yaml = securityConfig.guardsYaml;
+  final errors = <String>[];
+  final warnings = <String>[];
+
+  // --- Validate and deduplicate command.extra_blocked_patterns ---
+  final commandYaml = yaml['command'];
+  if (commandYaml is Map) {
+    final rawExtra = commandYaml['extra_blocked_patterns'];
+    if (rawExtra is List) {
+      final seen = <String>{};
+      final dupes = <String>[];
+      for (final p in rawExtra) {
+        if (p is String) {
+          try {
+            RegExp(p); // validate
+          } catch (e) {
+            errors.add('command.extra_blocked_patterns: invalid regex "$p": $e');
+          }
+          if (!seen.add(p)) dupes.add(p);
+        }
+      }
+      for (final d in dupes) {
+        warnings.add('command.extra_blocked_patterns: duplicate pattern "$d" removed');
+      }
+    }
+  }
+
+  // --- Validate and deduplicate file.extra_rules (detect conflicts) ---
+  final fileYaml = yaml['file'];
+  if (fileYaml is Map) {
+    final rawRules = fileYaml['extra_rules'];
+    if (rawRules is List) {
+      // Map pattern → first-seen level; conflict = same pattern with different level
+      final seen = <String, String>{};
+      final dupeKeys = <String>{};
+      for (final r in rawRules) {
+        if (r is Map) {
+          final pattern = r['pattern'];
+          final level = r['level'];
+          if (pattern is String && level is String) {
+            if (seen.containsKey(pattern)) {
+              if (seen[pattern] != level) {
+                errors.add(
+                  'file.extra_rules: conflicting rules for pattern "$pattern" '
+                  '(levels: ${seen[pattern]} vs $level)',
+                );
+              } else {
+                dupeKeys.add(pattern);
+              }
+            } else {
+              seen[pattern] = level;
+            }
+          }
+        }
+      }
+      for (final d in dupeKeys) {
+        warnings.add('file.extra_rules: duplicate rule for pattern "$d" removed');
+      }
+    }
+  }
+
+  // --- Validate network.extra_exfil_patterns ---
+  final networkYaml = yaml['network'];
+  if (networkYaml is Map) {
+    final rawExfil = networkYaml['extra_exfil_patterns'];
+    if (rawExfil is List) {
+      final seen = <String>{};
+      final dupes = <String>[];
+      for (final p in rawExfil) {
+        if (p is String) {
+          try {
+            RegExp(p); // validate
+          } catch (e) {
+            errors.add('network.extra_exfil_patterns: invalid regex "$p": $e');
+          }
+          if (!seen.add(p)) dupes.add(p);
+        }
+      }
+      for (final d in dupes) {
+        warnings.add('network.extra_exfil_patterns: duplicate pattern "$d" removed');
+      }
+    }
+  }
+
+  // --- Validate input_sanitizer.extra_patterns ---
+  final sanitizerYaml = yaml['input_sanitizer'];
+  if (sanitizerYaml is Map) {
+    final rawExtra = sanitizerYaml['extra_patterns'];
+    if (rawExtra is List) {
+      final seen = <String>{};
+      final dupes = <String>[];
+      for (final p in rawExtra) {
+        if (p is String) {
+          try {
+            RegExp(p); // validate
+          } catch (e) {
+            errors.add('input_sanitizer.extra_patterns: invalid regex "$p": $e');
+          }
+          if (!seen.add(p)) dupes.add(p);
+        }
+      }
+      for (final d in dupes) {
+        warnings.add('input_sanitizer.extra_patterns: duplicate pattern "$d" removed');
+      }
+    }
+  }
+
+  if (errors.isNotEmpty) {
+    return GuardBuildFailure(errors: errors);
+  }
+
+  // --- Construct guards ---
+  final inputSanitizer = InputSanitizer(
+    config: yaml['input_sanitizer'] is Map
+        ? InputSanitizerConfig.fromYaml(Map<String, dynamic>.from(yaml['input_sanitizer'] as Map))
+        : InputSanitizerConfig(
+            enabled: securityConfig.inputSanitizerEnabled,
+            channelsOnly: securityConfig.inputSanitizerChannelsOnly,
+            patterns: InputSanitizerConfig.defaults().patterns,
+          ),
+  );
+
+  final commandGuard = CommandGuard(
+    config: yaml['command'] is Map
+        ? CommandGuardConfig.fromYaml(Map<String, dynamic>.from(yaml['command'] as Map))
+        : CommandGuardConfig.defaults(),
+  );
+
+  final fileGuard = FileGuard(
+    config:
+        (yaml['file'] is Map
+                ? FileGuardConfig.fromYaml(Map<String, dynamic>.from(yaml['file'] as Map))
+                : FileGuardConfig.defaults())
+            .withSelfProtection(p.join(dataDir, 'dartclaw.yaml')),
+  );
+
+  final networkGuard = NetworkGuard(
+    config: yaml['network'] is Map
+        ? NetworkGuardConfig.fromYaml(Map<String, dynamic>.from(yaml['network'] as Map))
+        : NetworkGuardConfig.defaults(),
+  );
+
+  final guards = <Guard>[
+    inputSanitizer,
+    commandGuard,
+    fileGuard,
+    networkGuard,
+    ToolPolicyGuard(cascade: toolPolicyCascade),
+    ?taskToolFilterGuard,
+  ];
+
+  return GuardBuildSuccess(guards: guards, warnings: warnings);
+}
+
+/// Bridges [MessageRedactor] (in dartclaw_security, which cannot depend on
+/// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).
+class _MessageRedactorAdapter implements Reconfigurable {
+  final MessageRedactor _redactor;
+  _MessageRedactorAdapter(this._redactor);
+
+  @override
+  Set<String> get watchKeys => const {'logging.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    _redactor.recompilePatterns(delta.current.logging.redactPatterns);
   }
 }

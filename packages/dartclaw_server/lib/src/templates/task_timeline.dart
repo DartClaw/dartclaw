@@ -1,5 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
+    show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
 
 import '../task/tool_call_summary.dart';
 import 'helpers.dart';
@@ -121,6 +121,15 @@ Map<String, dynamic> _buildEventViewModel(TaskEvent event) {
       label = 'Error';
       final message = details['message']?.toString();
       if (message != null && message.isNotEmpty) detail = truncate(message, 120);
+    case Compaction():
+      label = 'Compaction';
+      final trigger = details['trigger']?.toString();
+      final preTokens = details['preTokens'];
+      if (preTokens != null) {
+        detail = 'trigger: ${trigger ?? 'auto'}, ${formatNumber(preTokens as int)} tokens';
+      } else if (trigger != null) {
+        detail = 'trigger: $trigger';
+      }
   }
 
   final timestamp = event.timestamp;

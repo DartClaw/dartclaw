@@ -40,4 +40,11 @@ class GuardConfig {
     warns.add('Invalid type for guards.$key: "${value.runtimeType}" — using default');
     return defaultValue;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is GuardConfig && failOpen == other.failOpen && enabled == other.enabled;
+
+  @override
+  int get hashCode => Object.hash(failOpen, enabled);
 }

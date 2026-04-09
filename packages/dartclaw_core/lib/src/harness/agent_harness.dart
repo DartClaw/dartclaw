@@ -38,6 +38,12 @@ abstract class AgentHarness {
   /// this provider type are rejected at workflow load time.
   bool get supportsSessionContinuity => false;
 
+  /// Whether this harness registers and receives the `PreCompact` hook callback.
+  ///
+  /// When true, [ContextMonitor] suppresses the heuristic `shouldFlush` check
+  /// because compaction signals are already available via hook callbacks.
+  bool get supportsPreCompactHook => false;
+
   /// Current lifecycle state of the harness.
   WorkerState get state;
 

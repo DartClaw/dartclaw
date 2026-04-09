@@ -114,6 +114,58 @@ class ChatCardBuilder {
     );
   }
 
+  /// Builds a severity-colored alert notification card.
+  ///
+  /// [severity] must be `'info'`, `'warning'`, or `'critical'`. Unrecognized
+  /// values fall back to no color (plain bold label).
+  ///
+  /// Severity colors: critical → `#d93025` (red), warning → `#f9ab00` (amber),
+  /// info → `#1a73e8` (blue). These match existing [_statusColor] values.
+  Map<String, dynamic> alertNotification({
+    required String title,
+    required String severity,
+    required String body,
+    Map<String, String>? details,
+  }) {
+    final color = _alertSeverityColor(severity);
+    final severityLabel = _escapeText(_alertSeverityLabel(severity));
+    final sections = <Map<String, dynamic>>[
+      {
+        'widgets': [
+          {
+            'decoratedText': {
+              'topLabel': 'Severity',
+              'text': color == null ? '<b>$severityLabel</b>' : '<font color="$color"><b>$severityLabel</b></font>',
+              'wrapText': true,
+            },
+          },
+        ],
+      },
+      {
+        'widgets': [
+          {
+            'textParagraph': {'text': _escapeText(body.trim())},
+          },
+        ],
+      },
+    ];
+
+    if (details != null && details.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          for (final entry in details.entries)
+            {'decoratedText': {'topLabel': _escapeText(entry.key), 'text': _escapeText(entry.value)}},
+        ],
+      });
+    }
+
+    return _wrapCard(
+      cardId: 'alert_${severity}_${title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}',
+      header: {'title': _escapeText(title), 'subtitle': _escapeText(_alertSeverityLabel(severity))},
+      sections: sections,
+    );
+  }
+
   /// Builds a simple confirmation card.
   Map<String, dynamic> confirmationCard({required String title, required String message}) {
     return _wrapCard(
@@ -297,6 +349,20 @@ class ChatCardBuilder {
     'rejected' => '#d93025',
     'failed' => '#d93025',
     'error' => '#d93025',
+    _ => null,
+  };
+
+  String _alertSeverityLabel(String severity) => switch (severity) {
+    'critical' => 'Critical',
+    'warning' => 'Warning',
+    'info' => 'Info',
+    _ => severity,
+  };
+
+  String? _alertSeverityColor(String severity) => switch (severity) {
+    'critical' => '#d93025',
+    'warning' => '#f9ab00',
+    'info' => '#1a73e8',
     _ => null,
   };
 

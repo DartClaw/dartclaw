@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 
 import 'behavior/behavior_file_service.dart';
 import 'behavior/self_improvement_service.dart';
@@ -124,7 +125,9 @@ class BusyTurnException implements Exception {
 /// Uses [HarnessPool.primary] for ordinary sessions and provider-matched task
 /// runners for sessions pinned to a specific provider. Exposes the [pool] for
 /// [TaskExecutor] to acquire task runners.
-class TurnManager {
+class TurnManager implements Reconfigurable {
+  static final _log = Logger('TurnManager');
+
   final HarnessPool _pool;
   final SessionService? _sessions;
   late final TurnRunner _primary = _pool.primary;
@@ -186,6 +189,14 @@ class TurnManager {
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
+
+  @override
+  Set<String> get watchKeys => const {'governance.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    _log.info('TurnManager: governance config changed — rate limits and budgets updated at next turn');
+  }
 
   /// The pool backing this manager. Used by [TaskExecutor] to acquire
   /// task runners.

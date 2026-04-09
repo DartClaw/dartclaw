@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 /// Access control mode for group messages across supported channels.
 enum GroupAccessMode {
   /// Only explicitly listed groups may interact with the runtime.
@@ -23,6 +25,17 @@ class RetryPolicy {
 
   /// Creates a retry policy for outbound channel delivery.
   const RetryPolicy({this.maxAttempts = 3, this.baseDelay = const Duration(seconds: 1), this.jitterFactor = 0.2});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RetryPolicy &&
+          maxAttempts == other.maxAttempts &&
+          baseDelay == other.baseDelay &&
+          jitterFactor == other.jitterFactor;
+
+  @override
+  int get hashCode => Object.hash(maxAttempts, baseDelay, jitterFactor);
 
   /// Parses a retry policy from YAML configuration, appending warnings to [warns].
   factory RetryPolicy.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
@@ -82,6 +95,23 @@ class ChannelConfig {
 
   /// Creates the default channel configuration used when no YAML overrides exist.
   const ChannelConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChannelConfig &&
+          debounceWindow == other.debounceWindow &&
+          maxQueueDepth == other.maxQueueDepth &&
+          defaultRetryPolicy == other.defaultRetryPolicy &&
+          const DeepCollectionEquality().equals(channelConfigs, other.channelConfigs);
+
+  @override
+  int get hashCode => Object.hash(
+    debounceWindow,
+    maxQueueDepth,
+    defaultRetryPolicy,
+    const DeepCollectionEquality().hash(channelConfigs),
+  );
 
   /// Parses channel configuration from YAML, appending warnings to [warns].
   factory ChannelConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {

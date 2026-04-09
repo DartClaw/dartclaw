@@ -100,6 +100,8 @@ class ConfigSerializer {
         'warningThreshold': config.context.warningThreshold,
         'explorationSummaryThreshold': config.context.explorationSummaryThreshold,
         'compactInstructions': config.context.compactInstructions,
+        'identifierPreservation': config.context.identifierPreservation,
+        'identifierInstructions': config.context.identifierInstructions,
       },
       'search': {'backend': config.search.backend},
       'guards': {
@@ -230,6 +232,15 @@ class ConfigSerializer {
           'maxConsecutiveIdenticalToolCalls': config.governance.loopDetection.maxConsecutiveIdenticalToolCalls,
           'action': config.governance.loopDetection.action.name,
         },
+      },
+      'alerts': {
+        'enabled': config.alerts.enabled,
+        'cooldownSeconds': config.alerts.cooldownSeconds,
+        'burstThreshold': config.alerts.burstThreshold,
+        'targets': [
+          for (final t in config.alerts.targets) {'channel': t.channel, 'recipient': t.recipient},
+        ],
+        'routes': config.alerts.routes,
       },
     };
   }

@@ -95,6 +95,8 @@ class InputSanitizerConfig {
 /// `messageReceived` hook. Ships with built-in patterns for 4 injection
 /// categories. Channels-only by default (web UI messages bypass).
 class InputSanitizer extends Guard {
+  static final _log = Logger('InputSanitizer');
+
   @override
   String get name => 'input-sanitizer';
 
@@ -102,10 +104,21 @@ class InputSanitizer extends Guard {
   String get category => 'input';
 
   /// Pattern configuration used for prompt-injection scanning.
-  final InputSanitizerConfig config;
+  InputSanitizerConfig config;
 
   /// Creates an input sanitizer with defaults unless overridden.
   InputSanitizer({InputSanitizerConfig? config}) : config = config ?? InputSanitizerConfig.defaults();
+
+  /// Rebuilds config from new YAML. Called by the reconfigurability adapter in wiring.
+  void reconfigureFromYaml(Map<String, dynamic>? guardsYaml) {
+    final yaml = guardsYaml?['input_sanitizer'];
+    if (yaml is Map) {
+      config = InputSanitizerConfig.fromYaml(Map<String, dynamic>.from(yaml));
+    } else {
+      config = InputSanitizerConfig.defaults();
+    }
+    _log.info('InputSanitizer reconfigured (${config.patterns.length} patterns, enabled: ${config.enabled})');
+  }
 
   /// Maximum content length scanned per message. Content beyond this limit is
   /// truncated before matching to bound worst-case regex backtracking time.

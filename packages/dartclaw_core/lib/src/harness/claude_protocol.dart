@@ -82,6 +82,23 @@ final class ControlRequest extends ClaudeMessage {
   String toString() => 'ControlRequest(requestId: $requestId, subtype: $subtype)';
 }
 
+/// Compact boundary signal — emitted after context compaction completes.
+///
+/// Wire format: `{"type": "system", "subtype": "compact_boundary",
+///               "trigger": "auto|manual", "pre_tokens": 142857}`.
+final class CompactBoundary extends ClaudeMessage {
+  /// Trigger source: `"auto"` or `"manual"`.
+  final String trigger;
+
+  /// Token count before compaction. May be null if omitted by the binary.
+  final int? preTokens;
+
+  CompactBoundary({required this.trigger, this.preTokens});
+
+  @override
+  String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
+}
+
 /// Turn result — signals turn completion.
 final class TurnResult extends ClaudeMessage {
   final String? stopReason;
@@ -145,12 +162,21 @@ ClaudeMessage? parseJsonlLine(String line) {
 
 ClaudeMessage? _parseSystem(Map<String, dynamic> json) {
   final subtype = json['subtype'] as String?;
-  if (subtype != 'init') return null;
 
-  final sessionId = json['session_id'] as String?;
-  final tools = json['tools'] as List?;
-  final contextWindow = json['context_window'] as int?;
-  return SystemInit(sessionId: sessionId, toolCount: tools?.length ?? 0, contextWindow: contextWindow);
+  if (subtype == 'init') {
+    final sessionId = json['session_id'] as String?;
+    final tools = json['tools'] as List?;
+    final contextWindow = json['context_window'] as int?;
+    return SystemInit(sessionId: sessionId, toolCount: tools?.length ?? 0, contextWindow: contextWindow);
+  }
+
+  if (subtype == 'compact_boundary') {
+    final trigger = json['trigger'] as String? ?? 'auto';
+    final preTokens = json['pre_tokens'] as int?;
+    return CompactBoundary(trigger: trigger, preTokens: preTokens);
+  }
+
+  return null;
 }
 
 ClaudeMessage? _parseStreamEvent(Map<String, dynamic> json) {

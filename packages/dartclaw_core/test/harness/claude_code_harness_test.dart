@@ -740,6 +740,172 @@ void main() {
       });
     });
 
+    // ----- PreCompact hook + CompactBoundary ----------------------------------
+
+    group('PreCompact hook callback', () {
+      test('PreCompact hook callback invokes onCompactionStarting with sessionId and trigger', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+        String? capturedSessionId;
+        String? capturedTrigger;
+        late FakeProcess fake;
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        h.onCompactionStarting = (sid, trigger) {
+          capturedSessionId = sid;
+          capturedTrigger = trigger;
+        };
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-compact',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {'hook_event_name': 'PreCompact', 'session_id': 'sess-abc', 'trigger': 'auto'},
+            },
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(capturedSessionId, 'sess-abc');
+        expect(capturedTrigger, 'auto');
+        // Response must be allow: true
+        expect(
+          stdinLines,
+          contains(
+            containsPair(
+              'response',
+              containsPair(
+                'response',
+                allOf(containsPair('continue', true)),
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('compact_boundary stdout message invokes onCompactionCompleted with trigger and preTokens', () async {
+        String? capturedTrigger;
+        int? capturedPreTokens;
+        late FakeProcess fake;
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        h.onCompactionCompleted = (trigger, preTokens) {
+          capturedTrigger = trigger;
+          capturedPreTokens = preTokens;
+        };
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual', 'pre_tokens': 99000}),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(capturedTrigger, 'manual');
+        expect(capturedPreTokens, 99000);
+      });
+
+      test('compact_boundary with null pre_tokens calls onCompactionCompleted with null', () async {
+        int? callCount = 0;
+        int? capturedPreTokens = -1; // sentinel
+        late FakeProcess fake;
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        h.onCompactionCompleted = (trigger, preTokens) {
+          callCount = (callCount ?? 0) + 1;
+          capturedPreTokens = preTokens;
+        };
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto'}),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(callCount, 1);
+        expect(capturedPreTokens, isNull);
+      });
+
+      test('supportsPreCompactHook returns true', () {
+        final h = ClaudeCodeHarness(cwd: '/tmp');
+        expect(h.supportsPreCompactHook, isTrue);
+      });
+
+      test('initialize request includes PreCompact hook', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+
+        final h = ClaudeCodeHarness(
+          cwd: '/tmp',
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            final fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final initReq = stdinLines.firstWhere(
+          (m) => m['type'] == 'control_request' && (m['request'] as Map?)?.containsKey('hooks') == true,
+          orElse: () => throw StateError('No initialize control_request found'),
+        );
+        final hooks = (initReq['request'] as Map<String, dynamic>)['hooks'] as Map<String, dynamic>;
+        expect(hooks.containsKey('PreCompact'), isTrue);
+        final preCompactEntry = (hooks['PreCompact'] as List).first as Map<String, dynamic>;
+        expect(preCompactEntry['hookCallbackIds'], contains('hook_pre_compact'));
+      });
+    });
+
     // ----- SIGKILL escalation during stop --------------------------------
 
     group('SIGKILL escalation', () {

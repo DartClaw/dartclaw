@@ -476,6 +476,93 @@ void main() {
     });
   });
 
+  group('GuardAuditLogger.logPermissionDenied', () {
+    late GuardAuditLogger logger;
+    late List<LogRecord> records;
+
+    setUp(() {
+      logger = GuardAuditLogger();
+      records = [];
+      Logger('GuardAudit').onRecord.listen(records.add);
+    });
+
+    test('logs at WARNING level', () {
+      logger.logPermissionDenied(toolName: 'Bash', timestamp: DateTime.now());
+      expect(records, hasLength(1));
+      expect(records.first.level, Level.WARNING);
+    });
+
+    test('log message includes tool name', () {
+      logger.logPermissionDenied(toolName: 'Write', timestamp: DateTime.now());
+      expect(records.first.message, contains('Write'));
+    });
+
+    test('log message includes reason when provided', () {
+      logger.logPermissionDenied(toolName: 'Bash', reason: 'not allowed', timestamp: DateTime.now());
+      expect(records.first.message, contains('not allowed'));
+    });
+
+    test('appends NDJSON entry with guard=PermissionDenied and verdict=denied', () async {
+      final tmpDir = Directory.systemTemp.createTempSync('perm_denied_audit_');
+      addTearDown(() {
+        if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+      });
+
+      final fileLogger = GuardAuditLogger(dataDir: tmpDir.path);
+      final timestamp = DateTime.utc(2026, 4, 9, 10, 0, 0);
+
+      fileLogger.logPermissionDenied(
+        toolName: 'Bash',
+        reason: 'Command not in allowlist',
+        sessionId: 'sess-99',
+        timestamp: timestamp,
+      );
+
+      await _flushAuditLogger(fileLogger);
+
+      final file = File(_auditFilePathForDate(tmpDir, timestamp));
+      expect(file.existsSync(), isTrue);
+
+      final entries = _readAuditEntries(file);
+      expect(entries, hasLength(1));
+
+      final entry = entries.first;
+      expect(entry['guard'], 'PermissionDenied');
+      expect(entry['hook'], 'PermissionDenied');
+      expect(entry['verdict'], 'denied');
+      expect(entry['rawProviderToolName'], 'Bash');
+      expect(entry['reason'], 'Command not in allowlist');
+      expect(entry['sessionId'], 'sess-99');
+    });
+
+    test('omits reason and sessionId from NDJSON when not provided', () async {
+      final tmpDir = Directory.systemTemp.createTempSync('perm_denied_audit_minimal_');
+      addTearDown(() {
+        if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+      });
+
+      final fileLogger = GuardAuditLogger(dataDir: tmpDir.path);
+      final timestamp = DateTime.utc(2026, 4, 9, 11, 0, 0);
+
+      fileLogger.logPermissionDenied(toolName: 'Read', timestamp: timestamp);
+
+      await _flushAuditLogger(fileLogger);
+
+      final file = File(_auditFilePathForDate(tmpDir, timestamp));
+      final entry = _readAuditEntries(file).first;
+
+      expect(entry.containsKey('reason'), isFalse);
+      expect(entry.containsKey('sessionId'), isFalse);
+    });
+
+    test('null dataDir skips file write', () async {
+      final auditLogger = GuardAuditLogger();
+      auditLogger.logPermissionDenied(toolName: 'Edit', timestamp: DateTime.now());
+      // No error, no file written — just verify it doesn't throw
+      expect(await auditLogger.cleanOldFiles(7), 0);
+    });
+  });
+
   group('AuditEntry', () {
     test('toJson includes all fields when set', () {
       final entry = AuditEntry(

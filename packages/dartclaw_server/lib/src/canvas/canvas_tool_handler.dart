@@ -49,6 +49,7 @@ class CanvasTool implements McpTool {
       'ttl': {'type': 'string', 'description': 'Share token TTL, e.g. "30m" or "8h"'},
     },
     'required': ['action'],
+    'additionalProperties': false,
   };
 
   @override

@@ -10,4 +10,14 @@ class WorkspaceConfig {
 
   /// Default configuration.
   const WorkspaceConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WorkspaceConfig &&
+          gitSyncEnabled == other.gitSyncEnabled &&
+          gitSyncPushEnabled == other.gitSyncPushEnabled;
+
+  @override
+  int get hashCode => Object.hash(gitSyncEnabled, gitSyncPushEnabled);
 }

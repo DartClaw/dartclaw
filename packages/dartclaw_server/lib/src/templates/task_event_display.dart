@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
 
 /// CSS icon class for a given [TaskEventKind].
 ///
@@ -11,6 +11,7 @@ String eventIconClass(TaskEventKind kind, {String? newStatus}) {
     PushBack() => 'icon-message-circle',
     TokenUpdate() => 'icon-gauge',
     TaskErrorEvent() => 'icon-triangle-alert',
+    Compaction() => 'icon-layers',
   };
 }
 
@@ -23,6 +24,7 @@ String eventKindClass(TaskEventKind kind, {bool? success}) {
     PushBack() => 'tl-event-pushback',
     TokenUpdate() => 'tl-event-token',
     TaskErrorEvent() => 'tl-event-error',
+    Compaction() => 'tl-event-compaction',
   };
 }
 
@@ -43,6 +45,7 @@ String compactEventIconClass(TaskEventKind kind) {
     PushBack() => 'task-event-icon-pushback',
     TokenUpdate() => 'task-event-icon-token',
     TaskErrorEvent() => 'task-event-icon-error',
+    Compaction() => 'task-event-icon-compaction',
   };
 }
 
@@ -57,6 +60,7 @@ String compactEventIconChar(TaskEventKind kind) {
     PushBack() => '\uD83D\uDCAC', // 💬 speech bubble
     TokenUpdate() => '\uD83D\uDCCA', // 📊 chart
     TaskErrorEvent() => '\u26A0', // ⚠ warning
+    Compaction() => '\u2293', // ⊓ compaction
   };
 }
 

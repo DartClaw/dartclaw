@@ -113,6 +113,49 @@ void main() {
         expect(events.any((event) => event is SystemInitEvent), isTrue);
       });
 
+      test('emits SystemInitEvent from v0.118.0 ClientResponse-wrapped initialize response', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        await startHarnessV118(harness, fake);
+
+        final initEvent = events.whereType<SystemInitEvent>().firstOrNull;
+        expect(initEvent, isNotNull);
+        expect(initEvent!.contextWindow, 8192);
+      });
+
+      test('v0.118.0 ClientResponse thread/start response completes turn correctly', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+
+        await startHarnessV118(harness, fake);
+
+        final turnFuture = harness.turn(
+          sessionId: 'sess-1',
+          systemPrompt: '',
+          messages: [
+            {'role': 'user', 'content': 'test'},
+          ],
+        );
+
+        await respondToLatestThreadStartV118(fake, threadId: 'thread-v118');
+
+        final turnStartMessage = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
+        expect((turnStartMessage['params'] as Map<String, dynamic>)['threadId'], 'thread-v118');
+
+        fake.emitTurnStarted();
+        fake.emitTurnCompleted(inputTokens: 5, outputTokens: 10);
+
+        final result = await turnFuture;
+        expect(result['stop_reason'], 'completed');
+      });
+
       test('spawns with isolated CODEX_HOME env and cleans it up on stop', () async {
         final fake = FakeCodexProcess();
         String? capturedWorkingDirectory;
@@ -597,6 +640,82 @@ void main() {
 
         expect(harness.state, WorkerState.stopped);
         expect(fake.lastKillSignal, ProcessSignal.sigterm);
+      });
+    });
+
+    group('compaction events', () {
+      test('emits CompactionStartingBridgeEvent on contextCompaction item/started', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        await pumpEventLoop();
+        fake.emitItemStarted('contextCompaction', 'compact-1');
+        await pumpEventLoop();
+
+        expect(events.any((e) => e is CompactionStartingBridgeEvent), isTrue);
+        expect(events.any((e) => e is CompactionCompletedBridgeEvent), isFalse);
+      });
+
+      test('emits CompactionCompletedBridgeEvent on contextCompaction item/completed', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        await pumpEventLoop();
+        fake.emitItemCompleted('contextCompaction', 'compact-1');
+        await pumpEventLoop();
+
+        expect(events.any((e) => e is CompactionCompletedBridgeEvent), isTrue);
+        expect(events.any((e) => e is CompactionStartingBridgeEvent), isFalse);
+      });
+
+      test('emits both compaction events for a full compaction cycle', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        await pumpEventLoop();
+        fake.emitItemStarted('contextCompaction', 'compact-2');
+        fake.emitItemCompleted('contextCompaction', 'compact-2');
+        await pumpEventLoop();
+
+        final compactionEvents = events.where((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent).toList();
+        expect(compactionEvents, hasLength(2));
+        expect(compactionEvents[0], isA<CompactionStartingBridgeEvent>());
+        expect(compactionEvents[1], isA<CompactionCompletedBridgeEvent>());
+      });
+
+      test('thread/compactedNotification produces no bridge event', () async {
+        final fake = FakeCodexProcess();
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarness(harness, fake);
+
+        final events = <BridgeEvent>[];
+        final sub = harness.events.listen(events.add);
+        addTearDown(() async => sub.cancel());
+
+        await pumpEventLoop();
+        fake.emitLine({'method': 'thread/compactedNotification', 'params': {'thread_id': 'thread-1'}});
+        await pumpEventLoop();
+
+        expect(events.any((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent), isFalse);
       });
     });
   });

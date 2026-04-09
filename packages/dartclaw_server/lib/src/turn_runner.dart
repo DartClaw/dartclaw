@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -51,6 +52,7 @@ class TurnRunner {
   final TurnGovernanceEnforcer _governanceEnforcer;
   final TaskToolFilterGuard? _taskToolFilterGuard;
   final LoopAction? _loopAction;
+  final EventBus? _eventBus;
   final Duration _stallTimeout;
   final TurnProgressAction _stallAction;
   final Duration _outcomeTtl;
@@ -115,7 +117,7 @@ class TurnRunner {
        _lockManager = lockManager ?? SessionLockManager(),
        _resetService = resetService,
        _contextMonitor = contextMonitor ?? ContextMonitor(),
-       _explorationSummarizer = explorationSummarizer ?? const ExplorationSummarizer(),
+       _explorationSummarizer = explorationSummarizer ?? ExplorationSummarizer(),
        _redactor = redactor,
        _selfImprovement = selfImprovement,
        _usageTracker = usageTracker,
@@ -141,6 +143,7 @@ class TurnRunner {
            ),
        _taskToolFilterGuard = taskToolFilterGuard,
        _loopAction = loopAction,
+       _eventBus = eventBus,
        _stallTimeout = stallTimeout,
        _stallAction = stallAction,
        _outcomeTtl = outcomeTtl;
@@ -465,6 +468,10 @@ class TurnRunner {
         toolHooks.handleToolResult(event);
       } else if (event is SystemInitEvent) {
         _contextMonitor.update(contextWindow: event.contextWindow);
+      } else if (event is CompactionStartingBridgeEvent) {
+        _eventBus?.fire(CompactionStartingEvent(sessionId: sessionId, trigger: 'auto', timestamp: DateTime.now()));
+      } else if (event is CompactionCompletedBridgeEvent) {
+        _eventBus?.fire(CompactionCompletedEvent(sessionId: sessionId, trigger: 'auto', timestamp: DateTime.now()));
       }
     });
 
@@ -608,7 +615,7 @@ class TurnRunner {
           _log.warning('Failed to write daily log', e);
         }
 
-        if (_contextMonitor.shouldFlush) {
+        if (_contextMonitor.shouldFlushForCompactionSignal(compactionSignalAvailable: _worker.supportsPreCompactHook)) {
           try {
             await _runFlushTurn(sessionId);
           } catch (e) {
@@ -780,14 +787,36 @@ class TurnRunner {
       'Save concisely. Do not ask for confirmation — just save what\'s important.';
 
   Future<void> _runFlushTurn(String sessionId) async {
+    // SHA-256 dedup + cycle-aware skip: compute hash of last 3 messages.
+    final messageHash = await _computeFlushHash(sessionId);
+    if (_contextMonitor.shouldSkipFlush(messageHash)) {
+      _log.info('Pre-compaction flush skipped (dedup) for session $sessionId');
+      return;
+    }
+
     _contextMonitor.markFlushStarted();
     try {
       final systemPrompt = await _buildSystemPrompt(sessionId);
       final flushMessage = <String, dynamic>{'role': 'user', 'content': _flushPrompt};
       await _worker.turn(sessionId: sessionId, messages: [flushMessage], systemPrompt: systemPrompt);
+      _contextMonitor.markFlushed(messageHash);
       _log.info('Pre-compaction flush completed for session $sessionId');
     } finally {
       _contextMonitor.markFlushCompleted();
+    }
+  }
+
+  /// Computes a SHA-256 hash of the last 3 messages for flush dedup.
+  ///
+  /// On any error, returns an empty string (fail-open: flush proceeds).
+  Future<String> _computeFlushHash(String sessionId) async {
+    try {
+      final messages = await _messages.getMessagesTail(sessionId, count: 3);
+      final content = messages.map((m) => m.content).join('\n');
+      return sha256.convert(utf8.encode(content)).toString();
+    } catch (e) {
+      _log.warning('Failed to compute flush hash for $sessionId — proceeding with flush', e);
+      return '';
     }
   }
 

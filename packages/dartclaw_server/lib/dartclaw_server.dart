@@ -94,6 +94,12 @@ export 'src/memory_handlers.dart' show createMemoryHandlers;
 // Runtime config
 export 'src/runtime_config.dart' show RuntimeConfig;
 
+// Alerts
+export 'src/alerts/alert_classifier.dart' show AlertSeverity, classifyAlert, shouldAlertTaskFailure;
+export 'src/alerts/alert_delivery_adapter.dart' show AlertDeliveryAdapter;
+export 'src/alerts/alert_formatter.dart' show AlertFormatter;
+export 'src/alerts/alert_router.dart' show AlertRouter;
+
 // Scheduling
 export 'src/scheduling/cron_parser.dart' show CronExpression;
 export 'src/scheduling/delivery.dart' show DeliveryMode, DeliveryService;
@@ -157,6 +163,7 @@ export 'src/emergency/emergency_stop_handler.dart' show EmergencyStopHandler, Em
 // Task execution
 export 'src/task/agent_observer.dart' show AgentObserver, AgentMetrics, AgentState;
 export 'src/task/artifact_collector.dart' show ArtifactCollector;
+export 'src/task/compaction_task_event_subscriber.dart' show CompactionTaskEventSubscriber;
 export 'src/task/container_task_failure_subscriber.dart' show ContainerTaskFailureSubscriber;
 export 'src/task/diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
 export 'src/task/goal_service.dart' show GoalService;

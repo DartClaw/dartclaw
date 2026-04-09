@@ -12,4 +12,14 @@ class HistoryConfig {
   });
 
   const HistoryConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HistoryConfig &&
+          maxMessageChars == other.maxMessageChars &&
+          maxTotalChars == other.maxTotalChars;
+
+  @override
+  int get hashCode => Object.hash(maxMessageChars, maxTotalChars);
 }

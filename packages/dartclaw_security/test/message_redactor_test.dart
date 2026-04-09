@@ -127,4 +127,54 @@ void main() {
       expect(once, equals('[REDACTED]'));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // TI13: recompilePatterns()
+  // ---------------------------------------------------------------------------
+
+  group('MessageRedactor.recompilePatterns()', () {
+    test('new pattern takes effect after recompile', () {
+      final r = MessageRedactor();
+      const input = 'XYZWIDGET-abc123def456';
+      // Before recompile: not matched by any built-in
+      expect(r.redact(input), equals(input));
+
+      r.recompilePatterns([r'XYZWIDGET-\S+']);
+      expect(r.redact(input), contains('***'));
+      expect(r.redact(input), isNot(contains('abc123def456')));
+    });
+
+    test('old extra pattern removed after recompile with empty list', () {
+      final r = MessageRedactor(extraPatterns: [r'XYZWIDGET-\S+']);
+      const input = 'XYZWIDGET-abc123def456';
+      expect(r.redact(input), contains('***'));
+
+      r.recompilePatterns([]);
+      expect(r.redact(input), equals(input));
+    });
+
+    test('built-in patterns still apply after recompile', () {
+      final r = MessageRedactor(extraPatterns: [r'MYTOKEN=\S+']);
+      r.recompilePatterns([]);
+
+      // Built-in Anthropic key pattern still works
+      const input = 'Using sk-ant-abc123_XYZ-def456 for auth';
+      expect(r.redact(input), contains('***'));
+    });
+
+    test('recompile with invalid pattern skips it without throwing', () {
+      final r = MessageRedactor();
+      expect(() => r.recompilePatterns([r'(unclosed']), returnsNormally);
+      expect(r.redact('normal text'), equals('normal text'));
+    });
+
+    test('multiple recompiles: only latest patterns active', () {
+      final r = MessageRedactor();
+      r.recompilePatterns([r'FIRST=\S+']);
+      r.recompilePatterns([r'SECOND=\S+']);
+
+      expect(r.redact('FIRST=secret'), equals('FIRST=secret')); // old pattern gone
+      expect(r.redact('SECOND=secret'), contains('***')); // new pattern active
+    });
+  });
 }

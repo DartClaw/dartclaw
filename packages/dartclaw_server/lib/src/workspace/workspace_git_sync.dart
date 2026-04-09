@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 /// Callback for running shell commands (injectable for tests).
@@ -10,7 +11,7 @@ typedef CommandRunner =
 ///
 /// Auto-initializes the repo, commits changes on heartbeat, and optionally
 /// pushes to a configured remote.
-class WorkspaceGitSync {
+class WorkspaceGitSync implements Reconfigurable {
   static final _log = Logger('WorkspaceGitSync');
 
   static const defaultGitignore = '.env\n*.key\n*.pem\nsecrets*\n.DS_Store\nerrors.md\nlearnings.md\n';
@@ -24,6 +25,17 @@ class WorkspaceGitSync {
     : _run = commandRunner ?? _defaultRunner;
 
   bool get gitAvailable => _gitAvailable;
+
+  @override
+  Set<String> get watchKeys => const {'workspace.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newPush = delta.current.workspace.gitSyncPushEnabled;
+    if (newPush == pushEnabled) return;
+    pushEnabled = newPush;
+    _log.info('WorkspaceGitSync pushEnabled updated to $pushEnabled');
+  }
 
   /// Check if git is available on PATH.
   Future<bool> isGitAvailable() async {

@@ -623,6 +623,52 @@ governance:
       expect(authMode['mutable'], 'readonly');
     });
   });
+
+  group('ConfigSerializer.toJson — alerts section', () {
+    test('default alerts section has correct structure', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
+      final json = serializer.toJson(config, runtime: runtime);
+
+      final alerts = json['alerts'] as Map<String, dynamic>;
+      expect(alerts['enabled'], isFalse);
+      expect(alerts['cooldownSeconds'], 300);
+      expect(alerts['burstThreshold'], 5);
+      expect(alerts['targets'], isEmpty);
+      expect(alerts['routes'], isEmpty);
+    });
+
+    test('alerts section reflects configured values', () {
+      final config = DartclawConfig(
+        alerts: AlertsConfig(
+          enabled: true,
+          cooldownSeconds: 120,
+          burstThreshold: 3,
+          targets: const [
+            AlertTarget(channel: 'whatsapp', recipient: '+1234'),
+            AlertTarget(channel: 'signal', recipient: '+5678'),
+          ],
+          routes: const {'guard_block': ['0'], 'compaction': ['*']},
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);
+      final json = serializer.toJson(config, runtime: runtime);
+
+      final alerts = json['alerts'] as Map<String, dynamic>;
+      expect(alerts['enabled'], isTrue);
+      expect(alerts['cooldownSeconds'], 120);
+      expect(alerts['burstThreshold'], 3);
+
+      final targets = alerts['targets'] as List<dynamic>;
+      expect(targets, hasLength(2));
+      expect(targets[0], {'channel': 'whatsapp', 'recipient': '+1234'});
+      expect(targets[1], {'channel': 'signal', 'recipient': '+5678'});
+
+      final routes = alerts['routes'] as Map<String, dynamic>;
+      expect(routes['guard_block'], ['0']);
+      expect(routes['compaction'], ['*']);
+    });
+  });
 }
 
 Map<String, dynamic> _googleChatChannelConfig(GoogleChatConfig config) => {

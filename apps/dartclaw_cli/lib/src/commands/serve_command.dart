@@ -11,6 +11,7 @@ import 'package:shelf/shelf.dart' show Handler;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
 import 'config_loader.dart';
+import 'reload_trigger_service.dart';
 import 'service_wiring.dart';
 
 typedef ServerFactory = DartclawServer Function(DartclawServerBuilder builder);
@@ -189,6 +190,7 @@ class ServeCommand extends Command<void> {
 
     StreamSubscription<ProcessSignal>? sigintSub;
     StreamSubscription<ProcessSignal>? sigtermSub;
+    ReloadTriggerService? reloadTrigger;
     try {
       // Wire all services
       final wiring = ServiceWiring(
@@ -267,6 +269,7 @@ class ServeCommand extends Command<void> {
 
         try {
           await Future(() async {
+            reloadTrigger?.dispose();
             result.heartbeat?.stop();
             await Future.wait([httpServer.close(), result.server.shutdown()]);
             result.scheduleService?.stop();
@@ -296,9 +299,18 @@ class ServeCommand extends Command<void> {
         sigtermSub = ProcessSignal.sigterm.watch().listen((_) => unawaited(shutdown()));
       }
 
+      // Start reload triggers (SIGUSR1 and/or file-watch per gateway.reload config)
+      reloadTrigger = ReloadTriggerService(
+        configPath: resolvedConfigPath,
+        notifier: result.configNotifier,
+        reloadConfig: config.gateway.reload,
+      );
+      reloadTrigger.start();
+
       // Keep process alive until shutdown completes
       await shutdownCompleter.future;
     } finally {
+      reloadTrigger?.dispose();
       await sigintSub?.cancel();
       await sigtermSub?.cancel();
       await logService.dispose();

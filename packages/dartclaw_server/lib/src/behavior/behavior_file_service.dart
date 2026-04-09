@@ -20,6 +20,12 @@ class BehaviorFileService {
       '5. Tool output summaries (not raw output)\n'
       'Prioritize preserving WHY decisions were made over WHAT was done.';
 
+  /// Default identifier preservation text appended to compact instructions when
+  /// [identifierPreservation] is `'strict'`.
+  static const defaultIdentifierPreservationText =
+      'Preserve all opaque identifiers verbatim: UUIDs, session keys, task IDs, '
+      'file paths, hostnames, and URLs.';
+
   final String workspaceDir;
   final String? projectDir;
   final int? maxMemoryBytes;
@@ -29,10 +35,27 @@ class BehaviorFileService {
   /// When null, [defaultCompactInstructions] is used.
   final String? compactInstructions;
 
+  /// Controls identifier preservation text appended to compact instructions.
+  ///
+  /// - `'strict'` (default): appends [defaultIdentifierPreservationText].
+  /// - `'off'`: nothing appended.
+  /// - `'custom'`: appends [identifierInstructions] (or nothing if null).
+  final String identifierPreservation;
+
+  /// Custom identifier preservation text used when [identifierPreservation] is `'custom'`.
+  final String? identifierInstructions;
+
   /// Tracks whether the project SOUL.md deprecation warning has been logged.
   bool _projSoulDeprecationWarned = false;
 
-  BehaviorFileService({required this.workspaceDir, this.projectDir, this.maxMemoryBytes, this.compactInstructions});
+  BehaviorFileService({
+    required this.workspaceDir,
+    this.projectDir,
+    this.maxMemoryBytes,
+    this.compactInstructions,
+    this.identifierPreservation = 'strict',
+    this.identifierInstructions,
+  });
 
   /// Composes the full system prompt for the given [scope].
   ///
@@ -98,7 +121,13 @@ class BehaviorFileService {
 
       // Compact instructions — interactive sessions only (multi-turn, compaction may trigger)
       final instructions = compactInstructions ?? defaultCompactInstructions;
-      parts.add('# Compact instructions\n$instructions');
+      final identifierText = switch (identifierPreservation) {
+        'strict' => defaultIdentifierPreservationText,
+        'custom' => identifierInstructions,
+        _ => null,
+      };
+      final fullInstructions = identifierText != null ? '$instructions\n$identifierText' : instructions;
+      parts.add('# Compact instructions\n$fullInstructions');
     }
 
     return parts.join('\n\n');

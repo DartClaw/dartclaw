@@ -163,6 +163,38 @@ class GuardAuditLogger {
     }
   }
 
+  /// Logs a `PermissionDenied` event from Claude Code's own permission layer.
+  ///
+  /// Log level: WARNING. When [dataDir] is set, appends an NDJSON audit entry
+  /// with `guard: 'PermissionDenied'` and `verdict: 'denied'`.
+  void logPermissionDenied({
+    required String toolName,
+    String? reason,
+    String? sessionId,
+    required DateTime timestamp,
+  }) {
+    final msg =
+        '[PermissionDenied][permission][PreToolUse] '
+        'tool=$toolName'
+        '${reason != null ? ' reason=$reason' : ''} '
+        'at=${timestamp.toIso8601String()}';
+    _log.warning(msg);
+
+    if (dataDir != null) {
+      final entry = AuditEntry(
+        timestamp: timestamp,
+        guard: 'PermissionDenied',
+        hook: 'PermissionDenied',
+        verdict: 'denied',
+        reason: reason,
+        rawProviderToolName: toolName,
+        sessionId: sessionId,
+      );
+      _pendingWrite = _pendingWrite.then((_) => _appendEntry(entry));
+      unawaited(_pendingWrite);
+    }
+  }
+
   /// Logs a PostToolUse audit entry (stdout only — no file sink).
   void logPostToolUse({required String toolName, required bool success, required Map<String, dynamic> response}) {
     final msg =

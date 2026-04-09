@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, PrStrategy;
 
 /// Per-project definition from dartclaw.yaml.
@@ -32,6 +33,21 @@ class ProjectDefinition {
     this.pr = const PrConfig.defaults(),
     this.isDefault = false,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProjectDefinition &&
+          id == other.id &&
+          remote == other.remote &&
+          branch == other.branch &&
+          credentials == other.credentials &&
+          cloneStrategy == other.cloneStrategy &&
+          pr == other.pr &&
+          isDefault == other.isDefault;
+
+  @override
+  int get hashCode => Object.hash(id, remote, branch, credentials, cloneStrategy, pr, isDefault);
 }
 
 /// Configuration for the projects subsystem.
@@ -55,6 +71,19 @@ class ProjectConfig {
 
   /// Whether any projects are configured.
   bool get isEmpty => definitions.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProjectConfig &&
+          fetchCooldownMinutes == other.fetchCooldownMinutes &&
+          const MapEquality<String, ProjectDefinition>().equals(definitions, other.definitions);
+
+  @override
+  int get hashCode => Object.hash(
+    fetchCooldownMinutes,
+    const MapEquality<String, ProjectDefinition>().hash(definitions),
+  );
 
   @override
   String toString() => 'ProjectConfig(definitions: ${definitions.keys.toList()})';

@@ -83,6 +83,18 @@ class TaskEventRecorder {
     _record(taskId, const TaskErrorEvent(), {'message': message});
   }
 
+  /// Records a context compaction that occurred during agent execution.
+  void recordCompaction(
+    String taskId, {
+    required String trigger,
+    required String sessionId,
+    int? preTokens,
+  }) {
+    final details = <String, dynamic>{'trigger': trigger, 'sessionId': sessionId};
+    if (preTokens != null) details['preTokens'] = preTokens;
+    _record(taskId, const Compaction(), details);
+  }
+
   void _record(String taskId, TaskEventKind kind, Map<String, dynamic> details) {
     final event = TaskEvent(id: _uuid.v4(), taskId: taskId, timestamp: DateTime.now(), kind: kind, details: details);
     _eventService.insert(event);

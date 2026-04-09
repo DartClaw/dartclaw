@@ -39,8 +39,10 @@ export 'src/codex_harness_test_helpers.dart'
         noOpDelay,
         pumpEventLoop,
         respondToLatestThreadStart,
+        respondToLatestThreadStartV118,
         result,
         startHarness,
+        startHarnessV118,
         waitForSentMessage;
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
 export 'src/fake_channel.dart' show FakeChannel;

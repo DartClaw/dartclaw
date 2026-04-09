@@ -134,6 +134,11 @@ void main() {
         expect(ConfigMeta.fields, contains('advisor.max_window_turns'));
         expect(ConfigMeta.fields, contains('advisor.max_prior_reflections'));
 
+        // Alerts fields (live-mutable)
+        expect(ConfigMeta.fields, contains('alerts.enabled'));
+        expect(ConfigMeta.fields, contains('alerts.cooldown_seconds'));
+        expect(ConfigMeta.fields, contains('alerts.burst_threshold'));
+
         // Readonly fields
         expect(ConfigMeta.fields, contains('gateway.auth_mode'));
         expect(ConfigMeta.fields, contains('gateway.token'));
@@ -148,6 +153,12 @@ void main() {
         expect(ConfigMeta.fields['workspace.git_sync.push_enabled']!.mutability, ConfigMutability.live);
         expect(ConfigMeta.fields['sessions.dm_scope']!.mutability, ConfigMutability.live);
         expect(ConfigMeta.fields['sessions.group_scope']!.mutability, ConfigMutability.live);
+      });
+
+      test('classifies reloadable fields correctly', () {
+        expect(ConfigMeta.fields['alerts.enabled']!.mutability, ConfigMutability.reloadable);
+        expect(ConfigMeta.fields['alerts.cooldown_seconds']!.mutability, ConfigMutability.reloadable);
+        expect(ConfigMeta.fields['alerts.burst_threshold']!.mutability, ConfigMutability.reloadable);
       });
 
       test('classifies restart fields correctly', () {

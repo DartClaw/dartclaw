@@ -25,6 +25,7 @@ class HarnessWiring {
     required SecurityWiring security,
     required MessageRedactor messageRedactor,
     required EventBus eventBus,
+    ConfigNotifier? configNotifier,
   }) : _dataDir = dataDir,
        _port = port,
        _harnessFactory = harnessFactory,
@@ -32,7 +33,8 @@ class HarnessWiring {
        _storage = storage,
        _security = security,
        _messageRedactor = messageRedactor,
-       _eventBus = eventBus;
+       _eventBus = eventBus,
+       _configNotifier = configNotifier;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -43,6 +45,7 @@ class HarnessWiring {
   final SecurityWiring _security;
   final MessageRedactor _messageRedactor;
   final EventBus _eventBus;
+  final ConfigNotifier? _configNotifier;
 
   static final _log = Logger('HarnessWiring');
 
@@ -59,6 +62,7 @@ class HarnessWiring {
   late SseBroadcast _sseBroadcast;
   late ContextMonitor _contextMonitor;
   late ExplorationSummarizer _explorationSummarizer;
+  late ResultTrimmer _resultTrimmer;
   late SessionLockManager _lockManager;
   late SessionResetService _resetService;
   late ({
@@ -108,6 +112,8 @@ class HarnessWiring {
       projectDir: p.join(Directory.current.path, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
+      identifierPreservation: config.context.identifierPreservation,
+      identifierInstructions: config.context.identifierInstructions,
     );
     final staticPrompt = await _behavior.composeStaticPrompt();
 
@@ -190,6 +196,9 @@ class HarnessWiring {
           onMemorySave: _memoryHandlers.onSave,
           onMemorySearch: _memoryHandlers.onSearch,
           onMemoryRead: _memoryHandlers.onRead,
+          onPermissionDenied: (toolName, reason) {
+            _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
+          },
           harnessConfig: _harnessConfig,
           historyConfig: config.agent.history,
           providerOptions: _providerOptions(config, defaultProviderId),
@@ -197,6 +206,7 @@ class HarnessWiring {
           environment: _providerEnvironment(defaultProviderId, credentialRegistry),
         ),
       );
+      _wireCompactionCallbacks(_harness);
       await _harness.start();
     } catch (e, st) {
       _log.severe('Failed to start harness', e, st);
@@ -262,8 +272,13 @@ class HarnessWiring {
       reserveTokens: config.context.reserveTokens,
       warningThreshold: config.context.warningThreshold,
     );
+    // Compaction cycle state is shared across runners, but flush suppression is
+    // resolved per runner inside TurnRunner from that harness's capability.
+    // CompactionCompletedEvent advances the shared cycle counter for dedup.
+    _eventBus.on<CompactionCompletedEvent>().listen((_) => _contextMonitor.onCompactionCompleted());
+    _resultTrimmer = ResultTrimmer(maxBytes: config.context.maxResultBytes);
     _explorationSummarizer = ExplorationSummarizer(
-      trimmer: ResultTrimmer(maxBytes: config.context.maxResultBytes),
+      trimmer: _resultTrimmer,
       thresholdTokens: config.context.explorationSummaryThreshold,
     );
     _lockManager = SessionLockManager(maxParallel: config.server.maxParallelTurns);
@@ -273,6 +288,14 @@ class HarnessWiring {
       resetHour: config.sessions.resetHour,
       idleTimeoutMinutes: config.sessions.idleTimeoutMinutes,
     );
+
+    // Register harness-layer services with ConfigNotifier for hot-reload.
+    if (_configNotifier != null) {
+      _configNotifier.register(_contextMonitor);
+      _configNotifier.register(_resultTrimmer);
+      _configNotifier.register(_lockManager);
+      _configNotifier.register(_resetService);
+    }
 
     _usageTracker = UsageTracker(
       dataDir: _dataDir,
@@ -395,6 +418,11 @@ class HarnessWiring {
                   onMemorySave: _memoryHandlers.onSave,
                   onMemorySearch: _memoryHandlers.onSearch,
                   onMemoryRead: _memoryHandlers.onRead,
+                  onPermissionDenied: (toolName, reason) {
+                    _eventBus.fire(
+                      ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()),
+                    );
+                  },
                   harnessConfig: taskHarnessConfig,
                   historyConfig: config.agent.history,
                   providerOptions: plan.options,
@@ -406,6 +434,7 @@ class HarnessWiring {
                   },
                 ),
               );
+              _wireCompactionCallbacks(taskHarness);
               await taskHarness.start();
               final runner = TurnRunner(
                 harness: taskHarness,
@@ -439,6 +468,28 @@ class HarnessWiring {
               _log.warning('Failed to spawn task runner: $e');
             }
           };
+  }
+
+  /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.
+  ///
+  /// No-op for other harness types — only [ClaudeCodeHarness] exposes the
+  /// compaction callback fields.
+  void _wireCompactionCallbacks(AgentHarness harness) {
+    if (harness is! ClaudeCodeHarness) return;
+    harness.onCompactionStarting = (sessionId, trigger) {
+      _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
+    };
+    harness.onCompactionCompleted = (trigger, preTokens) {
+      final sessionId = harness.sessionId ?? '';
+      _eventBus.fire(
+        CompactionCompletedEvent(
+          sessionId: sessionId,
+          trigger: trigger,
+          preTokens: preTokens,
+          timestamp: DateTime.now(),
+        ),
+      );
+    };
   }
 }
 

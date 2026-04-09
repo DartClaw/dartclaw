@@ -14,6 +14,7 @@ sealed class TaskEventKind {
     'pushBack' => const PushBack(),
     'tokenUpdate' => const TokenUpdate(),
     'error' => const TaskErrorEvent(),
+    'compaction' => const Compaction(),
     _ => throw ArgumentError('Unknown TaskEventKind: $name'),
   };
 }
@@ -60,6 +61,15 @@ final class TaskErrorEvent extends TaskEventKind {
   const TaskErrorEvent();
 }
 
+/// Context compaction occurred during agent execution.
+///
+/// Details: `{trigger, sessionId, preTokens?}`.
+final class Compaction extends TaskEventKind {
+  @override
+  String get name => 'compaction';
+  const Compaction();
+}
+
 /// An append-only event recording something that happened during a task.
 ///
 /// Events form the user-visible timeline on the task detail page.
@@ -72,6 +82,7 @@ final class TaskErrorEvent extends TaskEventKind {
 /// - `pushBack`: `{comment}`
 /// - `tokenUpdate`: `{inputTokens, outputTokens, ?cacheReadTokens, ?cacheWriteTokens}`
 /// - `error`: `{message}`
+/// - `compaction`: `{trigger, sessionId, ?preTokens}`
 class TaskEvent {
   /// Unique identifier for this event.
   final String id;

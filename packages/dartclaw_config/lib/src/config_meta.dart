@@ -3,6 +3,9 @@ enum ConfigMutability {
   /// Takes effect immediately via Tier 1 service APIs.
   live,
 
+  /// Written to YAML, applied immediately via ConfigNotifier.reload().
+  reloadable,
+
   /// Written to YAML, applied on next startup.
   restart,
 
@@ -238,7 +241,7 @@ abstract final class ConfigMeta {
       yamlPath: 'concurrency.max_parallel_turns',
       jsonKey: 'concurrency.maxParallelTurns',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 1,
       max: 10,
     ),
@@ -256,7 +259,7 @@ abstract final class ConfigMeta {
       yamlPath: 'sessions.reset_hour',
       jsonKey: 'sessions.resetHour',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 0,
       max: 23,
     ),
@@ -264,7 +267,7 @@ abstract final class ConfigMeta {
       yamlPath: 'sessions.idle_timeout_minutes',
       jsonKey: 'sessions.idleTimeoutMinutes',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 0,
     ),
     'sessions.dm_scope': FieldMeta(
@@ -351,7 +354,7 @@ abstract final class ConfigMeta {
       yamlPath: 'logging.redact_patterns',
       jsonKey: 'logging.redactPatterns',
       type: ConfigFieldType.stringList,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       nullable: true,
     ),
 
@@ -360,7 +363,7 @@ abstract final class ConfigMeta {
       yamlPath: 'scheduling.heartbeat.interval_minutes',
       jsonKey: 'scheduling.heartbeat.intervalMinutes',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 1,
       max: 1440,
     ),
@@ -370,14 +373,14 @@ abstract final class ConfigMeta {
       yamlPath: 'context.reserve_tokens',
       jsonKey: 'context.reserveTokens',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 1,
     ),
     'context.max_result_bytes': FieldMeta(
       yamlPath: 'context.max_result_bytes',
       jsonKey: 'context.maxResultBytes',
       type: ConfigFieldType.int_,
-      mutability: ConfigMutability.restart,
+      mutability: ConfigMutability.reloadable,
       min: 1,
     ),
     'context.exploration_summary_threshold': FieldMeta(
@@ -401,6 +404,20 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.live,
       min: 50,
       max: 99,
+    ),
+    'context.identifier_preservation': FieldMeta(
+      yamlPath: 'context.identifier_preservation',
+      jsonKey: 'context.identifierPreservation',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['strict', 'off', 'custom'],
+    ),
+    'context.identifier_instructions': FieldMeta(
+      yamlPath: 'context.identifier_instructions',
+      jsonKey: 'context.identifierInstructions',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
     ),
 
     // Search
@@ -845,6 +862,20 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.bool_,
       mutability: ConfigMutability.restart,
     ),
+    'gateway.reload.mode': FieldMeta(
+      yamlPath: 'gateway.reload.mode',
+      jsonKey: 'gateway.reload.mode',
+      type: ConfigFieldType.enum_,
+      mutability: ConfigMutability.restart,
+      allowedValues: ['off', 'signal', 'auto'],
+    ),
+    'gateway.reload.debounce_ms': FieldMeta(
+      yamlPath: 'gateway.reload.debounce_ms',
+      jsonKey: 'gateway.reload.debounceMs',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.restart,
+      min: 100,
+    ),
 
     // Governance
     'governance.admin_senders': FieldMeta(
@@ -1116,6 +1147,28 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       min: 1,
       max: 1440,
+    ),
+
+    // Alerts
+    'alerts.enabled': FieldMeta(
+      yamlPath: 'alerts.enabled',
+      jsonKey: 'alerts.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.reloadable,
+    ),
+    'alerts.cooldown_seconds': FieldMeta(
+      yamlPath: 'alerts.cooldown_seconds',
+      jsonKey: 'alerts.cooldownSeconds',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.reloadable,
+      min: 1,
+    ),
+    'alerts.burst_threshold': FieldMeta(
+      yamlPath: 'alerts.burst_threshold',
+      jsonKey: 'alerts.burstThreshold',
+      type: ConfigFieldType.int_,
+      mutability: ConfigMutability.reloadable,
+      min: 1,
     ),
   };
 

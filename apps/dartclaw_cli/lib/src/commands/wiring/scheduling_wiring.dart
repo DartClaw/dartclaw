@@ -26,11 +26,13 @@ class SchedulingWiring {
     required ChannelWiring channel,
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
+    ConfigNotifier? configNotifier,
   })  : _eventBus = eventBus,
         _storage = storage,
         _channel = channel,
         _security = security,
-        _sseBroadcast = sseBroadcast;
+        _sseBroadcast = sseBroadcast,
+        _configNotifier = configNotifier;
 
   final DartclawConfig config;
   final EventBus _eventBus;
@@ -38,6 +40,7 @@ class SchedulingWiring {
   final ChannelWiring _channel;
   final SecurityWiring _security;
   final SseBroadcast _sseBroadcast;
+  final ConfigNotifier? _configNotifier;
 
   static final _log = Logger('SchedulingWiring');
 
@@ -254,6 +257,7 @@ class SchedulingWiring {
         jobs: _scheduledJobs,
         delivery: deliveryService,
         consolidator: _memoryConsolidator!,
+        eventBus: _eventBus,
       );
       _scheduleService!.start();
     }
@@ -296,6 +300,13 @@ class SchedulingWiring {
       },
       scheduleService: _scheduleService,
     );
+
+    // Register scheduling-layer services with ConfigNotifier for hot-reload.
+    if (_configNotifier != null) {
+      if (_heartbeat != null) _configNotifier.register(_heartbeat!);
+      if (_gitSync != null) _configNotifier.register(_gitSync!);
+      if (_scheduleService != null) _configNotifier.register(_scheduleService!);
+    }
 
     // Runtime config + config change subscriber.
     _runtimeConfig = RuntimeConfig(

@@ -1,23 +1,41 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
+
 /// Soft-trims oversized tool results by keeping head + tail with a
 /// truncation marker in the middle.
 ///
 /// Applied to tool results before storing in message history to prevent
 /// excessive context consumption. The full result remains in the NDJSON
 /// transcript.
-class ResultTrimmer {
-  final int maxBytes;
+class ResultTrimmer implements Reconfigurable {
+  static final _log = Logger('ResultTrimmer');
+
+  int _maxBytes;
   static const _headBytes = 2048;
   static const _tailBytes = 2048;
 
-  const ResultTrimmer({this.maxBytes = 50 * 1024});
+  ResultTrimmer({int maxBytes = 50 * 1024}) : _maxBytes = maxBytes;
+
+  int get maxBytes => _maxBytes;
+
+  @override
+  Set<String> get watchKeys => const {'context.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newMax = delta.current.context.maxResultBytes;
+    if (newMax == _maxBytes) return;
+    _maxBytes = newMax;
+    _log.info('ResultTrimmer maxBytes updated to $_maxBytes');
+  }
 
   /// Returns [result] unchanged if within [maxBytes], otherwise returns
   /// a head+tail summary with truncation marker.
   String trim(String result) {
     final encoded = utf8.encode(result);
-    if (encoded.length <= maxBytes) return result;
+    if (encoded.length <= _maxBytes) return result;
 
     final head = _safeUtf8Substring(result, encoded, 0, _headBytes);
     final tail = _safeUtf8Substring(result, encoded, encoded.length - _tailBytes, encoded.length);

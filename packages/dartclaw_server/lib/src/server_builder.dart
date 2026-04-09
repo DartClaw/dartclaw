@@ -89,6 +89,7 @@ class DartclawServerBuilder {
   MemoryPruner? memoryPruner;
   ConfigWriter? configWriter;
   DartclawConfig? config;
+  ConfigNotifier? configNotifier;
   RestartService? restartService;
   SseBroadcast? sseBroadcast;
   ProviderStatusService? providerStatus;
@@ -218,6 +219,7 @@ class DartclawServerBuilder {
       kvService: kv,
       configWriter: configWriter,
       config: config,
+      configNotifier: configNotifier,
       restartService: restartService,
       sseBroadcast: sseBroadcast,
       providerStatus: providerStatus,

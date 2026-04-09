@@ -38,6 +38,8 @@ void main() {
         ToolUseEvent() => 'tool',
         ToolResultEvent() => 'result',
         SystemInitEvent() => 'init',
+        CompactionStartingBridgeEvent() => 'compaction_starting',
+        CompactionCompletedBridgeEvent() => 'compaction_completed',
       };
       expect(matched, 'hello');
 

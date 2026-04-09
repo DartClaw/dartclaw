@@ -28,11 +28,13 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
       final params = mapValue(decoded['params']) ?? const <String, dynamic>{};
       return switch (method) {
         'item/agentMessage/delta' => _extractAgentMessageDelta(params),
-        'item/started' => _extractToolUse(mapValue(params['item'])),
+        'item/started' => _extractStartedItem(mapValue(params['item'])),
         'item/completed' => _extractCompletedItem(mapValue(params['item'])),
         'turn/completed' => _extractTurnComplete(params),
         'turn/failed' => const TurnComplete(stopReason: 'error'),
         'turn/started' => null,
+        // Deprecated by Codex — suppressed as explicit no-op (still emitted for backward compat)
+        'thread/compactedNotification' => null,
         _ => null,
       };
     }
@@ -159,16 +161,21 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     if (result == null) return null;
     if (result.containsKey('thread_id')) return null;
 
-    final capabilities = mapValue(result['capabilities']);
-    final tools = listValue(result['tools']);
-    final contextWindow = intValue(capabilities?['context_window']) ?? intValue(result['context_window']);
+    // Codex v0.118.0 may wrap the initialize response in a ClientResponse
+    // envelope: result.response.{session_id, capabilities, tools}.
+    // Try the nested shape first; fall back to the flat (pre-0.118.0) shape.
+    final payload = mapValue(result['response']) ?? result;
 
-    if (!result.containsKey('session_id') && capabilities == null && tools == null) {
+    final capabilities = mapValue(payload['capabilities']);
+    final tools = listValue(payload['tools']);
+    final contextWindow = intValue(capabilities?['context_window']) ?? intValue(payload['context_window']);
+
+    if (!payload.containsKey('session_id') && capabilities == null && tools == null) {
       return null;
     }
 
     return SystemInit(
-      sessionId: stringValue(result['session_id']),
+      sessionId: stringValue(payload['session_id']),
       toolCount: tools?.length ?? 0,
       contextWindow: contextWindow,
     );
@@ -178,6 +185,15 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     final text = stringValue(params['delta']) ?? stringValue(params['text']);
     if (text == null) return null;
     return TextDelta(text);
+  }
+
+  ProtocolMessage? _extractStartedItem(Map<String, dynamic>? item) {
+    if (item == null) return null;
+    final itemType = stringValue(item['type']);
+    if (itemType == 'contextCompaction') {
+      return CompactionStarted(id: stringValue(item['id']));
+    }
+    return _extractToolUse(item);
   }
 
   ToolUse? _extractToolUse(Map<String, dynamic>? item) {
@@ -222,6 +238,10 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
 
     if (itemType == 'agent_message') {
       return codexBuildAgentMessageDelta(item);
+    }
+
+    if (itemType == 'contextCompaction') {
+      return CompactionCompleted(id: stringValue(item['id']));
     }
 
     return _extractToolResult(item);

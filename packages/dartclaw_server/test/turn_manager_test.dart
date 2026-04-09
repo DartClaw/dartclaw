@@ -65,6 +65,9 @@ class FakeWorkerService implements AgentHarness {
   bool get supportsSessionContinuity => false;
 
   @override
+  bool get supportsPreCompactHook => false;
+
+  @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
 
   @override
@@ -149,6 +152,9 @@ class _AppendStrategyWorker implements AgentHarness {
 
   @override
   bool get supportsSessionContinuity => false;
+
+  @override
+  bool get supportsPreCompactHook => false;
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
@@ -935,6 +941,28 @@ void main() {
       await worker.turnInvoked;
       worker.completeSuccess();
       await turnsWithBadState.waitForOutcome('s1', turnId);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // TurnManager.reconfigure() — S05 service reconfigurability
+  // ---------------------------------------------------------------------------
+
+  group('TurnManager.reconfigure()', () {
+    test('watchKeys returns governance.*', () {
+      expect(turns.watchKeys, {'governance.*'});
+    });
+
+    test('reconfigure() completes without error (no-op — logs governance change only)', () {
+      final newConfig = DartclawConfig(
+        governance: const GovernanceConfig(),
+      );
+      final delta = ConfigDelta(
+        previous: const DartclawConfig.defaults(),
+        current: newConfig,
+        changedKeys: {'governance.*'},
+      );
+      expect(() => turns.reconfigure(delta), returnsNormally);
     });
   });
 }

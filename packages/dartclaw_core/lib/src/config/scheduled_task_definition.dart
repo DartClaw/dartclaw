@@ -129,6 +129,37 @@ class ScheduledTaskDefinition {
     );
   }
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScheduledTaskDefinition &&
+          id == other.id &&
+          cronExpression == other.cronExpression &&
+          enabled == other.enabled &&
+          title == other.title &&
+          description == other.description &&
+          type == other.type &&
+          acceptanceCriteria == other.acceptanceCriteria &&
+          autoStart == other.autoStart &&
+          model == other.model &&
+          effort == other.effort &&
+          tokenBudget == other.tokenBudget;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    cronExpression,
+    enabled,
+    title,
+    description,
+    type,
+    acceptanceCriteria,
+    autoStart,
+    model,
+    effort,
+    tokenBudget,
+  );
+
   /// Serializes to a map for config API responses and YAML persistence.
   Map<String, dynamic> toJson() => {
     'id': id,

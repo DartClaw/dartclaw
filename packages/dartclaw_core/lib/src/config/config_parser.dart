@@ -42,6 +42,7 @@ const _knownKeys = {
   'features',
   'projects',
   'advisor',
+  'alerts',
 };
 
 String? _defaultFileReader(String path) {
@@ -482,7 +483,50 @@ GatewayConfig _parseGateway(
     }
   }
 
-  return GatewayConfig(authMode: authMode, token: token, hsts: hsts);
+  final reload = _parseReloadConfig(gMap, defaults.reload, warns);
+  return GatewayConfig(authMode: authMode, token: token, hsts: hsts, reload: reload);
+}
+
+ReloadConfig _parseReloadConfig(
+  Map<dynamic, dynamic>? gMap,
+  ReloadConfig defaults,
+  List<String> warns,
+) {
+  if (gMap == null) return defaults;
+  final reloadRaw = gMap['reload'];
+  if (reloadRaw == null) return defaults;
+  if (reloadRaw is! Map) {
+    warns.add('Invalid type for gateway.reload: "${reloadRaw.runtimeType}" — using default');
+    return defaults;
+  }
+  final rMap = Map<String, dynamic>.from(reloadRaw);
+
+  var mode = defaults.mode;
+  var debounceMs = defaults.debounceMs;
+
+  final modeVal = rMap['mode'];
+  if (modeVal is String) {
+    if (modeVal == 'off' || modeVal == 'signal' || modeVal == 'auto') {
+      mode = modeVal;
+    } else {
+      warns.add('Invalid gateway.reload.mode: "$modeVal" — using default "${defaults.mode}"');
+    }
+  } else if (modeVal != null) {
+    warns.add('Invalid type for gateway.reload.mode: "${modeVal.runtimeType}" — using default');
+  }
+
+  final debounceVal = rMap['debounce_ms'];
+  if (debounceVal is int) {
+    if (debounceVal >= 100) {
+      debounceMs = debounceVal;
+    } else {
+      warns.add('gateway.reload.debounce_ms must be >= 100, got $debounceVal — using default ${defaults.debounceMs}');
+    }
+  } else if (debounceVal != null) {
+    warns.add('Invalid type for gateway.reload.debounce_ms: "${debounceVal.runtimeType}" — using default');
+  }
+
+  return ReloadConfig(mode: mode, debounceMs: debounceMs);
 }
 
 SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, List<String> warns) {
@@ -711,6 +755,8 @@ ContextConfig _parseContext(Map<String, dynamic> yaml, ContextConfig defaults, L
   var warningThreshold = defaults.warningThreshold;
   var explorationSummaryThreshold = defaults.explorationSummaryThreshold;
   String? compactInstructions = defaults.compactInstructions;
+  var identifierPreservation = defaults.identifierPreservation;
+  String? identifierInstructions = defaults.identifierInstructions;
 
   final contextMap = _sectionMap('context', yaml, warns);
   if (contextMap != null) {
@@ -751,6 +797,34 @@ ContextConfig _parseContext(Map<String, dynamic> yaml, ContextConfig defaults, L
         '"${ciRaw.runtimeType}" — using default',
       );
     }
+
+    final ipRaw = contextMap['identifier_preservation'];
+    if (ipRaw is String) {
+      const validValues = {'strict', 'off', 'custom'};
+      if (validValues.contains(ipRaw)) {
+        identifierPreservation = ipRaw;
+      } else {
+        warns.add(
+          'Invalid value for context.identifier_preservation: "$ipRaw" — '
+          'expected one of ${validValues.join(', ')}; using default "strict"',
+        );
+      }
+    } else if (ipRaw != null) {
+      warns.add(
+        'Invalid type for context.identifier_preservation: '
+        '"${ipRaw.runtimeType}" — using default "strict"',
+      );
+    }
+
+    final iiRaw = contextMap['identifier_instructions'];
+    if (iiRaw is String && iiRaw.trim().isNotEmpty) {
+      identifierInstructions = iiRaw;
+    } else if (iiRaw != null && iiRaw is! String) {
+      warns.add(
+        'Invalid type for context.identifier_instructions: '
+        '"${iiRaw.runtimeType}" — ignoring',
+      );
+    }
   }
 
   return ContextConfig(
@@ -759,6 +833,8 @@ ContextConfig _parseContext(Map<String, dynamic> yaml, ContextConfig defaults, L
     warningThreshold: warningThreshold,
     explorationSummaryThreshold: explorationSummaryThreshold,
     compactInstructions: compactInstructions,
+    identifierPreservation: identifierPreservation,
+    identifierInstructions: identifierInstructions,
   );
 }
 

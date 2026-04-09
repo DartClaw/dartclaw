@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.0]
+
+Always-On Foundation — compaction observability, live config Tier 3, alert-routing primitives, guard hot-reload, and harness hardening. 14 stories across 5 phases: compaction observability, hot-reload, harness hardening, alert routing, and guard-chain reconfiguration.
+
+### Added
+
+- **Compaction observability + context hardening** (S01-S03): `CompactionStartingEvent` / `CompactionCompletedEvent` added to the shared event model. Claude now emits deterministic compaction lifecycle signals via `PreCompact` + `compact_boundary`, Codex parses `contextCompaction` items into bridge events, running task sessions record `compaction` timeline entries, and pre-compaction flushes gain SHA-256 dedup plus identifier-preservation instructions
+- **Live Config Tier 3** (S04-S07): `ConfigNotifier`, `ConfigDelta`, and `Reconfigurable` provide section-scoped hot-reload for runtime-owned services. `gateway.reload` adds `off` / `signal` / `auto` modes, with `ReloadTriggerService` handling `SIGUSR1` and parent-directory file watching with debounce. The config API now distinguishes live, reloadable, and restart-required fields
+- **Alert-routing subsystem** (S08-S10): `AlertsConfig`, `AlertRouter`, `AlertDeliveryAdapter`, `AlertFormatter`, and `AlertThrottle` add explicit channel alert targets, severity-aware formatting (plain text for WhatsApp/Signal, Cards v2 for Google Chat), per-target cooldowns, and burst-summary aggregation
+- **Guard-chain hot-reload** (S11): `SecurityWiring` rebuilds guards on `guards.*` config changes and atomically swaps the active guard list. Duplicate rules are deduplicated, conflicting or invalid rules preserve the previous chain, `MessageRedactor` stays reloadable through an adapter, and `InputSanitizer` is refreshed as part of the rebuilt guard chain
+- **Harness hardening refresh** (S12-S14): Claude hook registration now includes `PermissionDenied` and `PreCompact`, `PreToolUse` uses `if:` filtering to reduce unnecessary callback traffic, Codex v0.118.0 response-shape compatibility was audited, and Anthropic MCP tool schemas were updated for SDK v1.4.2 compliance
+
+### Fixed
+
+- **Milestone integration gaps**: production wiring now instantiates the alert pipeline, Codex `contextCompaction` bridge events now reach the shared EventBus model, compaction-hook availability is resolved per runner, alert cooldown expiry and Google Chat burst-summary formatting now match the shipped contract, and invalid `guards.*` reloads no longer partially mutate the live sanitizer state
+
+### Changed
+
+- **Version display**: Updated from 0.15.0 to 0.16.0
+- **Architecture docs**: `system-architecture.md`, `data-model.md`, `control-protocol.md`, and `security-architecture.md` updated to "Current through 0.16"
+- **Public architecture guide**: Updated to "Current through 0.16" and clarified the mixed Claude/Codex provider trust model
+- **Feature comparison**: 0.16 additions marked in `docs/specs/feature-comparison.md`
+
 ## [0.15.1]
 
 Workflow Engine Refinements — output format parsing with schema presets, multi-prompt step sessions, loop finalizers, pattern-based step config defaults, skill discovery + skill-aware workflow steps, task-scoped prompt composition, map/fan-out step execution, built-in plan-and-execute workflow, and workflow authoring guide. 9 stories across 5 phases, all additive and backward-compatible.

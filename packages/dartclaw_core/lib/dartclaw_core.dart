@@ -21,7 +21,7 @@ export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart' show atomicWriteJson;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
-export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEvent, ToolResultEvent, SystemInitEvent;
+export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEvent, ToolResultEvent, SystemInitEvent, CompactionStartingBridgeEvent, CompactionCompletedBridgeEvent;
 
 // Channel interfaces
 export 'src/runtime/channel_type.dart' show ChannelType;
@@ -84,7 +84,7 @@ export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
 // Protocol message boundary. `ToolResult` remains owned by `tool_result.dart`
 // in this barrel because it is already part of the MCP public API.
 export 'src/harness/protocol_message.dart'
-    show ProtocolMessage, TextDelta, ToolUse, ControlRequest, TurnComplete, SystemInit;
+    show ProtocolMessage, TextDelta, ToolUse, ControlRequest, TurnComplete, SystemInit, CompactBoundary;
 export 'src/harness/tool_policy.dart' show ToolApprovalPolicy;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
 
@@ -109,7 +109,7 @@ export 'src/config/provider_identity.dart' show ProviderIdentity;
 export 'src/config/auth_config.dart' show AuthConfig;
 export 'src/config/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
 export 'src/config/context_config.dart' show ContextConfig;
-export 'src/config/gateway_config.dart' show GatewayConfig;
+export 'src/config/gateway_config.dart' show GatewayConfig, ReloadConfig;
 export 'src/config/logging_config.dart' show LoggingConfig;
 export 'src/config/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/config/providers_config.dart' show ProviderEntry, ProvidersConfig;
@@ -123,7 +123,11 @@ export 'src/config/task_config.dart' show TaskBudgetConfig, TaskConfig;
 export 'src/config/usage_config.dart' show UsageConfig;
 export 'src/config/workspace_config.dart' show WorkspaceConfig;
 // Config — top-level
+export 'src/config/alerts_config.dart' show AlertsConfig, AlertTarget;
 export 'src/config/dartclaw_config.dart' show DartclawConfig;
+export 'src/config/config_delta.dart' show ConfigDelta;
+export 'src/config/config_notifier.dart' show ConfigNotifier;
+export 'src/config/reconfigurable.dart' show Reconfigurable;
 export 'src/config/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/container/container_config.dart' show ContainerConfig;
 export 'src/container/container_dispatcher.dart' show resolveProfile;
@@ -185,6 +189,7 @@ export 'src/events/dartclaw_event.dart'
     show
         DartclawEvent,
         GuardBlockEvent,
+        ToolPermissionDeniedEvent,
         ConfigChangedEvent,
         FailedAuthEvent,
         SessionLifecycleEvent,
@@ -215,7 +220,11 @@ export 'src/events/dartclaw_event.dart'
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
         WorkflowRunStatusChangedEvent,
-        WorkflowStepCompletedEvent;
+        WorkflowStepCompletedEvent,
+        CompactionLifecycleEvent,
+        CompactionStartingEvent,
+        CompactionCompletedEvent,
+        ScheduledJobFailedEvent;
 
 // Governance
 export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;

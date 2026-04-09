@@ -17,6 +17,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  anthropic_sdk_dart: ^1.4.2
   crypto: ^3.0.7
   dartclaw_config:
     path: ../dartclaw_config

@@ -28,4 +28,35 @@ class ServerConfig {
 
   /// Default configuration.
   const ServerConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ServerConfig &&
+          port == other.port &&
+          host == other.host &&
+          name == other.name &&
+          dataDir == other.dataDir &&
+          baseUrl == other.baseUrl &&
+          workerTimeout == other.workerTimeout &&
+          claudeExecutable == other.claudeExecutable &&
+          staticDir == other.staticDir &&
+          templatesDir == other.templatesDir &&
+          devMode == other.devMode &&
+          maxParallelTurns == other.maxParallelTurns;
+
+  @override
+  int get hashCode => Object.hash(
+    port,
+    host,
+    name,
+    dataDir,
+    baseUrl,
+    workerTimeout,
+    claudeExecutable,
+    staticDir,
+    templatesDir,
+    devMode,
+    maxParallelTurns,
+  );
 }

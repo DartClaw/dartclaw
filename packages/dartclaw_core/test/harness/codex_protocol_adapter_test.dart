@@ -334,6 +334,83 @@ void main() {
       expect(init.contextWindow, 8192);
     });
 
+    // Codex v0.118.0 wraps initialize responses in a ClientResponse envelope:
+    // result.response.{session_id, capabilities, tools} (PR #15921).
+    test('parses v0.118.0 ClientResponse-wrapped initialize response into SystemInit', () {
+      final adapter = CodexProtocolAdapter();
+
+      final msg = adapter.parseLine(
+        jsonEncode({
+          'id': 1,
+          'result': {
+            'response': {
+              'session_id': 'sess-v118',
+              'capabilities': {'context_window': 16384},
+              'tools': [
+                {'name': 'shell'},
+                {'name': 'file_change'},
+              ],
+            },
+          },
+        }),
+      );
+
+      expect(msg, isA<SystemInit>());
+      final init = msg! as SystemInit;
+      expect(init.sessionId, 'sess-v118');
+      expect(init.toolCount, 2);
+      expect(init.contextWindow, 16384);
+    });
+
+    test('legacy flat-shape and v0.118.0 ClientResponse shape produce identical SystemInit fields', () {
+      final adapter = CodexProtocolAdapter();
+
+      final legacyMsg = adapter.parseLine(
+        jsonEncode({
+          'id': 1,
+          'result': {
+            'session_id': 'sess-same',
+            'capabilities': {'context_window': 8192},
+            'tools': [
+              {'name': 'shell'},
+            ],
+          },
+        }),
+      );
+
+      final v118Msg = adapter.parseLine(
+        jsonEncode({
+          'id': 1,
+          'result': {
+            'response': {
+              'session_id': 'sess-same',
+              'capabilities': {'context_window': 8192},
+              'tools': [
+                {'name': 'shell'},
+              ],
+            },
+          },
+        }),
+      );
+
+      expect(legacyMsg, isA<SystemInit>());
+      expect(v118Msg, isA<SystemInit>());
+      final legacy = legacyMsg! as SystemInit;
+      final v118 = v118Msg! as SystemInit;
+      expect(v118.sessionId, legacy.sessionId);
+      expect(v118.toolCount, legacy.toolCount);
+      expect(v118.contextWindow, legacy.contextWindow);
+    });
+
+    test('v0.118.0 ClientResponse with missing fields returns null gracefully', () {
+      final adapter = CodexProtocolAdapter();
+
+      expect(
+        adapter.parseLine(jsonEncode({'id': 1, 'result': {'response': {}}})),
+        isNull,
+      );
+    });
+
     test('returns null for result responses that only contain thread_id', () {
       final adapter = CodexProtocolAdapter();
 
@@ -403,6 +480,171 @@ void main() {
     test('returns null for malformed JSON', () {
       final adapter = CodexProtocolAdapter();
       expect(adapter.parseLine('{not json'), isNull);
+    });
+
+    group('contextCompaction', () {
+      test('parses item/started contextCompaction into CompactionStarted', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/started',
+            'params': {
+              'item': {'type': 'contextCompaction', 'id': 'compact-1'},
+            },
+          }),
+        );
+
+        expect(msg, isA<CompactionStarted>());
+        expect((msg! as CompactionStarted).id, 'compact-1');
+      });
+
+      test('parses item/started contextCompaction without id', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/started',
+            'params': {
+              'item': {'type': 'contextCompaction'},
+            },
+          }),
+        );
+
+        expect(msg, isA<CompactionStarted>());
+        expect((msg! as CompactionStarted).id, isNull);
+      });
+
+      test('parses item/completed contextCompaction into CompactionCompleted', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/completed',
+            'params': {
+              'item': {'type': 'contextCompaction', 'id': 'compact-1'},
+            },
+          }),
+        );
+
+        expect(msg, isA<CompactionCompleted>());
+        expect((msg! as CompactionCompleted).id, 'compact-1');
+      });
+
+      test('parses item/completed contextCompaction without id', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/completed',
+            'params': {
+              'item': {'type': 'contextCompaction'},
+            },
+          }),
+        );
+
+        expect(msg, isA<CompactionCompleted>());
+        expect((msg! as CompactionCompleted).id, isNull);
+      });
+
+      test('contextCompaction is not a ToolUse or ToolResult', () {
+        final adapter = CodexProtocolAdapter();
+
+        final started = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/started',
+            'params': {
+              'item': {'type': 'contextCompaction', 'id': 'c-1'},
+            },
+          }),
+        );
+        final completed = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/completed',
+            'params': {
+              'item': {'type': 'contextCompaction', 'id': 'c-1'},
+            },
+          }),
+        );
+
+        expect(started, isNot(isA<ToolUse>()));
+        expect(started, isNot(isA<ToolResult>()));
+        expect(completed, isNot(isA<ToolUse>()));
+        expect(completed, isNot(isA<ToolResult>()));
+      });
+
+      test('contextCompaction with extra unknown fields is still recognized (forward compat)', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/started',
+            'params': {
+              'item': {'type': 'contextCompaction', 'id': 'c-2', 'future_field': 'ignored'},
+            },
+          }),
+        );
+
+        expect(msg, isA<CompactionStarted>());
+      });
+
+      test('unknown item types still produce codex:-prefixed ToolUse (regression guard)', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/started',
+            'params': {
+              'item': {'type': 'future_unknown_type', 'id': 'x-1'},
+            },
+          }),
+        );
+
+        expect(msg, isA<ToolUse>());
+        expect((msg! as ToolUse).name, startsWith('codex:'));
+      });
+
+      test('unknown item/completed types still produce codex:-prefixed ToolResult (regression guard)', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'item/completed',
+            'params': {
+              'item': {'type': 'future_unknown_type', 'id': 'x-2'},
+            },
+          }),
+        );
+
+        expect(msg, isA<ToolResult>());
+        expect((msg! as ToolResult).output, contains('codex:future_unknown_type'));
+      });
+    });
+
+    group('thread/compactedNotification', () {
+      test('returns null for thread/compactedNotification (explicit no-op)', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({
+            'method': 'thread/compactedNotification',
+            'params': {'thread_id': 'thread-1'},
+          }),
+        );
+
+        expect(msg, isNull);
+      });
+
+      test('thread/compactedNotification does not produce ToolUse or ToolResult', () {
+        final adapter = CodexProtocolAdapter();
+
+        final msg = adapter.parseLine(
+          jsonEncode({'method': 'thread/compactedNotification', 'params': {}}),
+        );
+
+        expect(msg, isNot(isA<ToolUse>()));
+        expect(msg, isNot(isA<ToolResult>()));
+      });
     });
   });
 

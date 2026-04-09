@@ -4,19 +4,19 @@ import 'package:test/test.dart';
 void main() {
   group('ResultTrimmer', () {
     test('small results are unchanged', () {
-      const trimmer = ResultTrimmer(maxBytes: 1024);
+      final trimmer = ResultTrimmer(maxBytes: 1024);
       const small = 'Hello, world!';
       expect(trimmer.trim(small), small);
     });
 
     test('result at exact max is unchanged', () {
-      const trimmer = ResultTrimmer(maxBytes: 100);
+      final trimmer = ResultTrimmer(maxBytes: 100);
       final exact = 'a' * 100;
       expect(trimmer.trim(exact), exact);
     });
 
     test('oversized result is trimmed', () {
-      const trimmer = ResultTrimmer(maxBytes: 100);
+      final trimmer = ResultTrimmer(maxBytes: 100);
       final large = 'x' * 10000;
       final result = trimmer.trim(large);
 
@@ -26,7 +26,7 @@ void main() {
     });
 
     test('trimmed result preserves head and tail', () {
-      const trimmer = ResultTrimmer(maxBytes: 100);
+      final trimmer = ResultTrimmer(maxBytes: 100);
       // Create a string with distinct head and tail
       final large = 'HEAD${'m' * 10000}TAIL';
       final result = trimmer.trim(large);
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('trim message includes byte count', () {
-      const trimmer = ResultTrimmer(maxBytes: 100);
+      final trimmer = ResultTrimmer(maxBytes: 100);
       final large = 'a' * 10000;
       final result = trimmer.trim(large);
 
@@ -45,7 +45,7 @@ void main() {
     });
 
     test('handles UTF-8 multibyte characters safely', () {
-      const trimmer = ResultTrimmer(maxBytes: 100);
+      final trimmer = ResultTrimmer(maxBytes: 100);
       // Each emoji is 4 bytes in UTF-8
       final large = '\u{1F600}' * 5000;
       final result = trimmer.trim(large);
@@ -56,7 +56,7 @@ void main() {
     });
 
     test('default maxBytes is 50KB', () {
-      const trimmer = ResultTrimmer();
+      final trimmer = ResultTrimmer();
       final underLimit = 'a' * (50 * 1024);
       expect(trimmer.trim(underLimit), underLimit);
     });

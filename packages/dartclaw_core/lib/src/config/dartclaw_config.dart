@@ -14,6 +14,7 @@ import '../scoping/session_scope_config.dart';
 import '../utils/path_utils.dart';
 import 'agent_config.dart';
 import 'advisor_config.dart';
+import 'alerts_config.dart';
 import 'auth_config.dart';
 import 'canvas_config.dart';
 import 'context_config.dart';
@@ -69,6 +70,7 @@ class DartclawConfig {
   final GovernanceConfig governance;
   final FeaturesConfig features;
   final ProjectConfig projects;
+  final AlertsConfig alerts;
 
   /// Extension sections registered by private deployers via [registerExtensionParser].
   /// Unknown YAML keys with registered parsers produce typed entries here.
@@ -117,6 +119,7 @@ class DartclawConfig {
     this.governance = const GovernanceConfig.defaults(),
     this.features = const FeaturesConfig(),
     this.projects = const ProjectConfig.defaults(),
+    this.alerts = const AlertsConfig.defaults(),
     this.extensions = const {},
     List<String> warnings = const [],
   }) : _warnings = warnings;
@@ -222,6 +225,7 @@ class DartclawConfig {
     final governance = _parseGovernance(yaml, const GovernanceConfig.defaults(), warns);
     final features = _parseFeatures(yaml);
     final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns);
+    final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
     final extensions = _parseExtensions(yaml, warns);
 
     final config = DartclawConfig(
@@ -248,6 +252,7 @@ class DartclawConfig {
       governance: governance,
       features: features,
       projects: projects,
+      alerts: alerts,
       extensions: extensions,
       warnings: warns,
     );

@@ -135,6 +135,22 @@ function populateSettingsForm(config, meta) {
 
     input.disabled = false;
     input.placeholder = '';
+
+    // Mark restart-required fields with a visual indicator
+    if (metaField && metaField.mutable === 'restart') {
+      group.setAttribute('data-needs-restart', '1');
+      if (!group.querySelector('.restart-required-badge')) {
+        var badge = document.createElement('span');
+        badge.className = 'restart-required-badge';
+        badge.title = 'Requires restart';
+        badge.textContent = '↺';
+        group.appendChild(badge);
+      }
+    } else {
+      group.removeAttribute('data-needs-restart');
+      var existing = group.querySelector('.restart-required-badge');
+      if (existing) existing.remove();
+    }
   });
 }
 
@@ -304,7 +320,15 @@ function handleFormSave(form) {
         .then(function (config) { checkRestartBanner(config); })
         .catch(function () {});
 
-      showToast('success', 'Configuration saved');
+      var applied = (result.data && result.data.applied) || [];
+      var pendingRestart = (result.data && result.data.pendingRestart) || [];
+      if (pendingRestart.length === 0) {
+        showToast('success', 'Applied');
+      } else if (applied.length === 0) {
+        showToast('info', 'Configuration saved — restart required');
+      } else {
+        showToast('info', 'Applied (' + applied.length + ' field' + (applied.length !== 1 ? 's' : '') + ') — restart required for ' + pendingRestart.length + ' field' + (pendingRestart.length !== 1 ? 's' : ''));
+      }
     })
     .catch(function () {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }

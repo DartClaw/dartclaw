@@ -57,6 +57,27 @@ Future<void> respondToLatestThreadStart(
   await pumpEventLoop();
 }
 
+/// Performs the initialize handshake on [harness] using a v0.118.0 ClientResponse envelope.
+Future<void> startHarnessV118(CodexHarness harness, FakeCodexProcess process) async {
+  final startFuture = harness.start();
+  await waitForSentMessage(process, 'initialize');
+  process.emitInitializeResponseV118(id: latestRequestId(process, 'initialize'));
+  await startFuture;
+}
+
+/// Responds to the latest `thread/start` request using a v0.118.0 ClientResponse envelope.
+Future<void> respondToLatestThreadStartV118(
+  FakeCodexProcess process, {
+  String threadId = 'thread-123',
+}) async {
+  await waitForSentMessage(process, 'thread/start');
+  process.emitThreadStartResponseV118(
+    id: latestRequestId(process, 'thread/start'),
+    threadId: threadId,
+  );
+  await pumpEventLoop();
+}
+
 /// Yields to the event loop by awaiting a zero-duration delay.
 Future<void> pumpEventLoop() async {
   await Future<void>.delayed(Duration.zero);

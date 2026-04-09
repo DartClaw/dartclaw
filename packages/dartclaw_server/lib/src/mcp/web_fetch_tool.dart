@@ -49,6 +49,7 @@ class WebFetchTool implements McpTool {
       },
     },
     'required': ['url'],
+    'additionalProperties': false,
   };
 
   @override

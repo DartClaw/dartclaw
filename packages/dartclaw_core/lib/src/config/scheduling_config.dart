@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 import 'scheduled_task_definition.dart';
 
 /// Configuration for the scheduling subsystem.
@@ -16,4 +18,21 @@ class SchedulingConfig {
 
   /// Default configuration.
   const SchedulingConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SchedulingConfig &&
+          heartbeatEnabled == other.heartbeatEnabled &&
+          heartbeatIntervalMinutes == other.heartbeatIntervalMinutes &&
+          const DeepCollectionEquality().equals(jobs, other.jobs) &&
+          const ListEquality<ScheduledTaskDefinition>().equals(taskDefinitions, other.taskDefinitions);
+
+  @override
+  int get hashCode => Object.hash(
+    heartbeatEnabled,
+    heartbeatIntervalMinutes,
+    const DeepCollectionEquality().hash(jobs),
+    const ListEquality<ScheduledTaskDefinition>().hash(taskDefinitions),
+  );
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -12,10 +13,10 @@ import '../workspace/workspace_git_sync.dart';
 /// Each heartbeat run reads HEARTBEAT.md from the workspace, dispatches its
 /// content as a turn in a unique isolated session, then logs the result.
 /// Optionally commits workspace changes via [WorkspaceGitSync] after each cycle.
-class HeartbeatScheduler {
+class HeartbeatScheduler implements Reconfigurable {
   static final _log = Logger('HeartbeatScheduler');
 
-  final Duration interval;
+  Duration _interval;
   final String workspaceDir;
   final Future<void> Function(String sessionKey, String message) _dispatch;
   final WorkspaceGitSync? _gitSync;
@@ -25,21 +26,40 @@ class HeartbeatScheduler {
   Timer? _timer;
 
   HeartbeatScheduler({
-    required this.interval,
+    required Duration interval,
     required this.workspaceDir,
     required Future<void> Function(String sessionKey, String message) dispatch,
     WorkspaceGitSync? gitSync,
     MemoryConsolidator? consolidator,
     this.memoryConsolidationThreshold = 32 * 1024,
-  }) : _dispatch = dispatch,
+  }) : _interval = interval,
+       _dispatch = dispatch,
        _gitSync = gitSync,
        _consolidator = consolidator;
+
+  Duration get interval => _interval;
+
+  @override
+  Set<String> get watchKeys => const {'scheduling.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newMinutes = delta.current.scheduling.heartbeatIntervalMinutes;
+    final newInterval = Duration(minutes: newMinutes);
+    if (newInterval == _interval) return;
+    _interval = newInterval;
+    _log.info('HeartbeatScheduler interval updated to ${newMinutes}m');
+    if (_timer != null) {
+      stop();
+      start();
+    }
+  }
 
   /// Start the periodic heartbeat timer.
   void start() {
     _timer?.cancel();
-    _timer = Timer.periodic(interval, (_) => unawaited(_runHeartbeat()));
-    _log.info('Heartbeat scheduler started (interval: ${interval.inMinutes}m)');
+    _timer = Timer.periodic(_interval, (_) => unawaited(_runHeartbeat()));
+    _log.info('Heartbeat scheduler started (interval: ${_interval.inMinutes}m)');
   }
 
   /// Stop the heartbeat timer.

@@ -25,6 +25,7 @@ class SessionsSpawnTool implements McpTool {
       'message': {'type': 'string', 'description': 'The query or instruction to send'},
     },
     'required': ['agent', 'message'],
+    'additionalProperties': false,
   };
 
   @override

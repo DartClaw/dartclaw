@@ -387,3 +387,90 @@ int? _parseDurationMinutes(Object? value) {
 
   return (convertedJobs: convertedJobs, taskDefs: taskDefs);
 }
+
+AlertsConfig _parseAlerts(Map<String, dynamic> yaml, AlertsConfig defaults, List<String> warns) {
+  final alertsMap = _sectionMap('alerts', yaml, warns);
+  if (alertsMap == null) return defaults;
+
+  var enabled = defaults.enabled;
+  final enabledRaw = alertsMap['enabled'];
+  if (enabledRaw is bool) {
+    enabled = enabledRaw;
+  } else if (enabledRaw != null) {
+    warns.add('Invalid type for alerts.enabled: "${enabledRaw.runtimeType}" — using default');
+  }
+
+  var cooldownSeconds = defaults.cooldownSeconds;
+  final cooldownRaw = alertsMap['cooldown_seconds'];
+  if (cooldownRaw is int && cooldownRaw >= 1) {
+    cooldownSeconds = cooldownRaw;
+  } else if (cooldownRaw is int) {
+    warns.add('alerts.cooldown_seconds must be >= 1 — using default');
+  } else if (cooldownRaw != null) {
+    warns.add('Invalid type for alerts.cooldown_seconds: "${cooldownRaw.runtimeType}" — using default');
+  }
+
+  var burstThreshold = defaults.burstThreshold;
+  final burstRaw = alertsMap['burst_threshold'];
+  if (burstRaw is int && burstRaw >= 1) {
+    burstThreshold = burstRaw;
+  } else if (burstRaw is int) {
+    warns.add('alerts.burst_threshold must be >= 1 — using default');
+  } else if (burstRaw != null) {
+    warns.add('Invalid type for alerts.burst_threshold: "${burstRaw.runtimeType}" — using default');
+  }
+
+  // Parse targets: list of {channel, recipient} maps
+  final targets = <AlertTarget>[];
+  final targetsRaw = alertsMap['targets'];
+  if (targetsRaw is List) {
+    for (final (i, entry) in targetsRaw.indexed) {
+      if (entry is! Map) {
+        warns.add('alerts.targets[$i] must be a map — skipping');
+        continue;
+      }
+      final channel = entry['channel'];
+      final recipient = entry['recipient'];
+      if (channel is! String || channel.isEmpty) {
+        warns.add('alerts.targets[$i].channel must be a non-empty string — skipping');
+        continue;
+      }
+      if (recipient is! String || recipient.isEmpty) {
+        warns.add('alerts.targets[$i].recipient must be a non-empty string — skipping');
+        continue;
+      }
+      targets.add(AlertTarget(channel: channel, recipient: recipient));
+    }
+  } else if (targetsRaw != null) {
+    warns.add('Invalid type for alerts.targets: "${targetsRaw.runtimeType}" — using default');
+  }
+
+  // Parse routes: map of event-type-string -> list of target indices
+  final routes = <String, List<String>>{};
+  final routesRaw = alertsMap['routes'];
+  if (routesRaw is Map) {
+    for (final entry in routesRaw.entries) {
+      final key = entry.key;
+      if (key is! String) {
+        warns.add('alerts.routes key must be a string — skipping entry');
+        continue;
+      }
+      final value = entry.value;
+      if (value is List) {
+        routes[key] = value.whereType<String>().toList();
+      } else {
+        warns.add('alerts.routes[$key] must be a list — skipping entry');
+      }
+    }
+  } else if (routesRaw != null) {
+    warns.add('Invalid type for alerts.routes: "${routesRaw.runtimeType}" — using default');
+  }
+
+  return AlertsConfig(
+    enabled: enabled,
+    cooldownSeconds: cooldownSeconds,
+    burstThreshold: burstThreshold,
+    targets: targets,
+    routes: routes,
+  );
+}

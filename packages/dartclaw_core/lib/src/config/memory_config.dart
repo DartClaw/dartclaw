@@ -14,4 +14,16 @@ class MemoryConfig {
 
   /// Default configuration.
   const MemoryConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MemoryConfig &&
+          maxBytes == other.maxBytes &&
+          pruningEnabled == other.pruningEnabled &&
+          archiveAfterDays == other.archiveAfterDays &&
+          pruningSchedule == other.pruningSchedule;
+
+  @override
+  int get hashCode => Object.hash(maxBytes, pruningEnabled, archiveAfterDays, pruningSchedule);
 }

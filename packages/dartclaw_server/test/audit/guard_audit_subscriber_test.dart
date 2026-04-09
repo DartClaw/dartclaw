@@ -79,6 +79,71 @@ void main() {
       await eventBus.dispose();
     });
 
+    test('ToolPermissionDeniedEvent on EventBus triggers logPermissionDenied', () async {
+      final eventBus = EventBus();
+      final logger = GuardAuditLogger();
+      final subscriber = GuardAuditSubscriber(logger);
+      subscriber.subscribe(eventBus);
+
+      final records = <LogRecord>[];
+      Logger('GuardAudit').onRecord.listen(records.add);
+
+      eventBus.fire(
+        ToolPermissionDeniedEvent(
+          toolName: 'Bash',
+          reason: 'Command blocked',
+          sessionId: 'sess-42',
+          timestamp: DateTime.utc(2026, 4, 9),
+        ),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(records, hasLength(1));
+      expect(records.first.level, Level.WARNING);
+      expect(records.first.message, contains('Bash'));
+
+      await subscriber.cancel();
+      await eventBus.dispose();
+    });
+
+    test('ToolPermissionDeniedEvent writes NDJSON entry with correct fields', () async {
+      final tmpDir = Directory.systemTemp.createTempSync('perm_denied_subscriber_');
+      addTearDown(() {
+        if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+      });
+
+      final eventBus = EventBus();
+      final logger = GuardAuditLogger(dataDir: tmpDir.path);
+      final subscriber = GuardAuditSubscriber(logger);
+      subscriber.subscribe(eventBus);
+
+      final timestamp = DateTime.utc(2026, 4, 9, 8, 0, 0);
+      eventBus.fire(
+        ToolPermissionDeniedEvent(
+          toolName: 'Write',
+          reason: 'File write blocked',
+          sessionId: 'sess-10',
+          timestamp: timestamp,
+        ),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await logger.cleanOldFiles(0);
+
+      final auditFile = File('${tmpDir.path}/audit-${timestamp.toIso8601String().substring(0, 10)}.ndjson');
+      final entry = jsonDecode(auditFile.readAsLinesSync().single) as Map<String, dynamic>;
+
+      expect(entry['guard'], 'PermissionDenied');
+      expect(entry['verdict'], 'denied');
+      expect(entry['rawProviderToolName'], 'Write');
+      expect(entry['reason'], 'File write blocked');
+      expect(entry['sessionId'], 'sess-10');
+
+      await subscriber.cancel();
+      await eventBus.dispose();
+    });
+
     test('subscriber handles warn verdicts', () async {
       final eventBus = EventBus();
       final logger = GuardAuditLogger();

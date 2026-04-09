@@ -607,5 +607,60 @@ void main() {
         expect(process.killSignals, [ProcessSignal.sigterm]);
       });
     });
+
+    // --- codex exec stdin mechanism ---
+    //
+    // `codex exec` supports receiving context via stdin alongside the CLI
+    // prompt argument. This allows piping larger context without hitting CLI
+    // argument length limits. The current CodexExecHarness passes the prompt
+    // as a CLI argument only; stdin piping is a documented future enhancement.
+    //
+    // This test verifies the FakeCodexExecProcess stdin write mechanism works
+    // correctly — i.e., that bytes written to Process.stdin are captured. This
+    // documents the interface a future stdin-piping extension would use.
+    group('stdin write mechanism', () {
+      test('FakeCodexExecProcess captures bytes written to stdin', () async {
+        final process = FakeCodexExecProcess();
+        final capturedArgs = <String>[];
+
+        final harness = CodexExecHarness(
+          cwd: '/tmp/workspace',
+          processFactory:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+                return _processFactory(capturedArgs, process, executable, arguments);
+              },
+          environment: const {'OPENAI_API_KEY': 'sk-test'},
+        );
+        addTearDown(harness.dispose);
+
+        await harness.start();
+
+        unawaited(
+          Future<void>.microtask(() {
+            process.emitStdout(
+              jsonEncode({
+                'type': 'turn.completed',
+                'usage': {'input_tokens': 5, 'output_tokens': 3},
+              }),
+            );
+            process.exit(0);
+          }),
+        );
+
+        await harness.turn(
+          sessionId: 'stdin-test',
+          systemPrompt: '',
+          messages: [
+            {'role': 'user', 'content': 'Hello'},
+          ],
+        );
+
+        // Simulate what a future stdin-piping implementation would do.
+        // Writes to stdin are captured in writtenStdin.
+        process.stdin.add(utf8.encode('additional context\n'));
+
+        expect(process.writtenStdin, contains('additional context'));
+      });
+    });
   });
 }

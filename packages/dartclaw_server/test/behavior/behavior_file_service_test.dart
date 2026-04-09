@@ -234,6 +234,77 @@ void main() {
       final compactIdx = result.indexOf('# Compact instructions');
       expect(memIdx, lessThan(compactIdx));
     });
+
+    group('identifier preservation', () {
+      test('strict mode appends default identifier preservation text', () async {
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'strict',
+        );
+        final result = await service.composeSystemPrompt();
+        expect(result, contains(BehaviorFileService.defaultIdentifierPreservationText));
+      });
+
+      test('strict is the default — identifier text present when not specified', () async {
+        final service = BehaviorFileService(workspaceDir: globalDir.path);
+        final result = await service.composeSystemPrompt();
+        expect(result, contains(BehaviorFileService.defaultIdentifierPreservationText));
+      });
+
+      test('off mode omits identifier preservation text', () async {
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'off',
+        );
+        final result = await service.composeSystemPrompt();
+        expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
+      });
+
+      test('custom mode appends custom identifier instructions', () async {
+        const customText = 'Preserve all order IDs and SKUs verbatim.';
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'custom',
+          identifierInstructions: customText,
+        );
+        final result = await service.composeSystemPrompt();
+        expect(result, contains(customText));
+        expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
+      });
+
+      test('custom mode with null identifierInstructions omits identifier text', () async {
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'custom',
+          // identifierInstructions: null (default)
+        );
+        final result = await service.composeSystemPrompt();
+        expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
+      });
+
+      test('identifier text appended to compact instructions, not a standalone section', () async {
+        const customText = 'Keep IDs intact.';
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'custom',
+          identifierInstructions: customText,
+        );
+        final result = await service.composeSystemPrompt();
+        // Both appear, and custom text appears after compact instructions header
+        final compactIdx = result.indexOf('# Compact instructions');
+        final customIdx = result.indexOf(customText);
+        expect(compactIdx, lessThan(customIdx));
+      });
+
+      test('identifier text not included for task scope', () async {
+        final service = BehaviorFileService(
+          workspaceDir: globalDir.path,
+          identifierPreservation: 'strict',
+        );
+        final result = await service.composeSystemPrompt(scope: PromptScope.task);
+        expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
+      });
+    });
   });
 
   group('composeAppendPrompt', () {

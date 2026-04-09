@@ -107,6 +107,7 @@ class DartclawServer {
   final KvService? _kvService;
   final ConfigWriter? _configWriter;
   final DartclawConfig? _config;
+  final ConfigNotifier? _configNotifier;
   final RestartService? _restartService;
   final SseBroadcast? _sseBroadcast;
   final ProviderStatusService? _providerStatus;
@@ -180,6 +181,7 @@ class DartclawServer {
     required KvService? kvService,
     required ConfigWriter? configWriter,
     required DartclawConfig? config,
+    ConfigNotifier? configNotifier,
     required RestartService? restartService,
     required SseBroadcast? sseBroadcast,
     required ProviderStatusService? providerStatus,
@@ -238,6 +240,7 @@ class DartclawServer {
        _kvService = kvService,
        _configWriter = configWriter,
        _config = config,
+       _configNotifier = configNotifier,
        _restartService = restartService,
        _sseBroadcast = sseBroadcast,
        _providerStatus = providerStatus,
@@ -301,6 +304,7 @@ class DartclawServer {
     required KvService? kvService,
     required ConfigWriter? configWriter,
     required DartclawConfig? config,
+    ConfigNotifier? configNotifier,
     required RestartService? restartService,
     required SseBroadcast? sseBroadcast,
     required ProviderStatusService? providerStatus,
@@ -360,6 +364,7 @@ class DartclawServer {
       kvService: kvService,
       configWriter: configWriter,
       config: config,
+      configNotifier: configNotifier,
       restartService: restartService,
       sseBroadcast: sseBroadcast,
       providerStatus: providerStatus,
@@ -709,6 +714,7 @@ class DartclawServer {
         signalChannel: _signalChannel,
         googleChatChannel: _googleChatWebhookHandler?.channel,
         eventBus: _eventBus,
+        configNotifier: _configNotifier,
       );
       router.mount('/', cfgApiRouter.call);
     }

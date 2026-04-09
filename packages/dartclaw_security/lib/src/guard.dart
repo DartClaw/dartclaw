@@ -85,8 +85,12 @@ typedef GuardVerdictCallback =
 class GuardChain {
   static final _log = Logger('GuardChain');
 
+  List<Guard> _guards;
+
   /// Guards evaluated in declaration order for every check.
-  final List<Guard> guards;
+  ///
+  /// Returns an unmodifiable view; use [replaceGuards] to swap the list.
+  List<Guard> get guards => List.unmodifiable(_guards);
 
   /// Optional callback invoked for non-pass verdicts.
   final GuardVerdictCallback? onVerdict;
@@ -95,15 +99,24 @@ class GuardChain {
   final bool failOpen;
 
   /// Creates a guard chain with optional verdict reporting.
-  GuardChain({required this.guards, this.onVerdict, this.failOpen = false});
+  GuardChain({required List<Guard> guards, this.onVerdict, this.failOpen = false}) : _guards = List.of(guards);
 
-  /// Appends [guard] after all constructor-supplied guards.
+  /// Atomically replaces the guard list.
+  ///
+  /// In-progress evaluations that have already captured the old list reference
+  /// complete without interruption; subsequent evaluations use [newGuards].
+  void replaceGuards(List<Guard> newGuards) {
+    _guards = List.of(newGuards);
+    _log.info('GuardChain: replaced guard list (${_guards.length} guards)');
+  }
+
+  /// Appends [guard] after all existing guards.
   ///
   /// Added guards are evaluated in the order they are registered and always
-  /// run after the guards already present in [guards].
+  /// run after the guards already present.
   void addGuard(Guard guard) {
-    guards.add(guard);
-    _log.info('Added guard ${guard.name} (${guard.category}) at position ${guards.length}');
+    _guards = [..._guards, guard];
+    _log.info('Added guard ${guard.name} (${guard.category}) at position ${_guards.length}');
   }
 
   /// Evaluates all guards for a 'beforeToolCall' hook point.
@@ -151,8 +164,11 @@ class GuardChain {
   /// Evaluates all guards against a fully-populated [GuardContext].
   Future<GuardVerdict> _evaluate(GuardContext context) async {
     GuardVerdict result = GuardVerdict.pass();
+    // Capture the current list reference so a concurrent replaceGuards() call
+    // does not affect an in-progress evaluation.
+    final currentGuards = _guards;
 
-    for (final guard in guards) {
+    for (final guard in currentGuards) {
       GuardVerdict verdict;
       try {
         verdict = await guard.evaluate(context).timeout(const Duration(seconds: 5));

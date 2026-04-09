@@ -3,13 +3,14 @@ import 'package:test/test.dart';
 
 void main() {
   group('TaskEventKind.fromName', () {
-    test('resolves all 6 known kinds', () {
+    test('resolves all 7 known kinds', () {
       expect(TaskEventKind.fromName('statusChanged'), isA<StatusChanged>());
       expect(TaskEventKind.fromName('toolCalled'), isA<ToolCalled>());
       expect(TaskEventKind.fromName('artifactCreated'), isA<ArtifactCreated>());
       expect(TaskEventKind.fromName('pushBack'), isA<PushBack>());
       expect(TaskEventKind.fromName('tokenUpdate'), isA<TokenUpdate>());
       expect(TaskEventKind.fromName('error'), isA<TaskErrorEvent>());
+      expect(TaskEventKind.fromName('compaction'), isA<Compaction>());
     });
 
     test('throws ArgumentError for unknown name', () {
@@ -92,7 +93,7 @@ void main() {
       expect(restored.details['comment'], 'Needs more work');
     });
 
-    test('round-trip with all 6 event kinds', () {
+    test('round-trip with all 7 event kinds', () {
       final ts = DateTime.utc(2026, 3, 24);
       final kinds = [
         const StatusChanged(),
@@ -101,6 +102,7 @@ void main() {
         const PushBack(),
         const TokenUpdate(),
         const TaskErrorEvent(),
+        const Compaction(),
       ];
       for (final kind in kinds) {
         final event = TaskEvent(id: 'id', taskId: 'task', timestamp: ts, kind: kind);

@@ -89,6 +89,7 @@ class BraveSearchTool implements McpTool {
       },
     },
     'required': ['query'],
+    'additionalProperties': false,
   };
 
   @override

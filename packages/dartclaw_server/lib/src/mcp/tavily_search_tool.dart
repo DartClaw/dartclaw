@@ -95,6 +95,7 @@ class TavilySearchTool implements McpTool {
       },
     },
     'required': ['query'],
+    'additionalProperties': false,
   };
 
   @override

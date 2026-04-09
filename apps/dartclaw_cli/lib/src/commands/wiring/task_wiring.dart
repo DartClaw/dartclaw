@@ -92,6 +92,7 @@ class TaskWiring {
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
+  late CompactionTaskEventSubscriber _compactionTaskEventSubscriber;
 
   WorktreeManager get worktreeManager => _worktreeManager;
   MergeExecutor get mergeExecutor => _mergeExecutor;
@@ -167,6 +168,12 @@ class TaskWiring {
     _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: _storage.taskService);
     _containerTaskFailureSubscriber.subscribe(_eventBus);
 
+    _compactionTaskEventSubscriber = CompactionTaskEventSubscriber(
+      tasks: _storage.taskService,
+      eventRecorder: _storage.taskEventRecorder,
+    );
+    _compactionTaskEventSubscriber.subscribe(_eventBus);
+
     _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
 
     _taskExecutor = TaskExecutor(
@@ -189,6 +196,8 @@ class TaskWiring {
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
+      identifierPreservation: config.context.identifierPreservation,
+      identifierInstructions: config.context.identifierInstructions,
       kvService: _storage.kvService,
       budgetConfig: config.tasks.budget,
       eventBus: _eventBus,
@@ -226,5 +235,6 @@ class TaskWiring {
     await _taskExecutor.stop();
     _agentObserver.dispose();
     await _containerTaskFailureSubscriber.dispose();
+    await _compactionTaskEventSubscriber.dispose();
   }
 }

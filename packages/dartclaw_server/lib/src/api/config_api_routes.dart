@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:logging/logging.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:logging/logging.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
@@ -41,6 +41,7 @@ Router configApiRoutes({
   SignalChannel? signalChannel,
   GoogleChatChannel? googleChatChannel,
   EventBus? eventBus,
+  ConfigNotifier? configNotifier,
 }) {
   ensureDartclawGoogleChatRegistered();
   ensureDartclawWhatsappRegistered();
@@ -104,23 +105,28 @@ Router configApiRoutes({
       });
     }
 
-    // Partition into live + restart
+    // Partition into live + reloadable + restart
     final liveFields = <String, dynamic>{};
+    final reloadableFields = <String, dynamic>{};
     final restartFields = <String, dynamic>{};
 
     for (final entry in normalizedBody.entries) {
       final meta = ConfigMeta.fields[entry.key];
       if (meta == null) continue; // validated above — should not happen
-      if (meta.mutability == ConfigMutability.live) {
-        liveFields[entry.key] = entry.value;
-      } else {
-        restartFields[entry.key] = entry.value;
+      switch (meta.mutability) {
+        case ConfigMutability.live:
+          liveFields[entry.key] = entry.value;
+        case ConfigMutability.reloadable:
+          reloadableFields[entry.key] = entry.value;
+        case ConfigMutability.restart:
+        case ConfigMutability.readonly:
+          restartFields[entry.key] = entry.value;
       }
     }
 
-    // Write ALL validated fields to YAML (both live and restart-required).
-    // Live fields must also be persisted so they survive a restart.
-    final allFields = {...liveFields, ...restartFields};
+    // Write ALL validated fields to YAML (live, reloadable, and restart-required).
+    // All fields must be persisted so they survive a restart.
+    final allFields = {...liveFields, ...reloadableFields, ...restartFields};
     if (allFields.isNotEmpty) {
       try {
         await writer.updateFields(allFields);
@@ -131,27 +137,52 @@ Router configApiRoutes({
       }
     }
 
-    // Fire ConfigChangedEvent — subscribers handle live side-effects.
-    if (allFields.isNotEmpty) {
+    // Fire ConfigChangedEvent only for live fields — Tier 1 subscribers handle
+    // immediate side-effects. Reloadable fields are handled by ConfigNotifier.reload().
+    if (liveFields.isNotEmpty) {
       eventBus?.fire(
         ConfigChangedEvent(
-          changedKeys: allFields.keys.toList(),
+          changedKeys: liveFields.keys.toList(),
           oldValues: <String, dynamic>{},
-          newValues: allFields,
-          requiresRestart: restartFields.isNotEmpty,
+          newValues: liveFields,
+          requiresRestart: false,
           timestamp: DateTime.now(),
         ),
       );
     }
 
-    // Create/update restart.pending if needed
-    if (restartFields.isNotEmpty) {
-      writeRestartPending(dataDir, restartFields.keys.toList());
+    // Apply reloadable fields via ConfigNotifier.reload() — reads fresh config
+    // from disk after YAML write and notifies Reconfigurable services.
+    // On failure, fall back to treating reloadable fields as pendingRestart.
+    final reloadFallbackFields = <String, dynamic>{};
+    if (reloadableFields.isNotEmpty) {
+      final notifier = configNotifier;
+      if (notifier == null) {
+        // Not wired — treat as restart-required.
+        reloadFallbackFields.addAll(reloadableFields);
+      } else {
+        try {
+          final newConfig = DartclawConfig.load(configPath: writer.configPath);
+          notifier.reload(newConfig);
+        } catch (e, st) {
+          _log.severe('ConfigNotifier.reload() failed — falling back to pendingRestart for reloadable fields', e, st);
+          reloadFallbackFields.addAll(reloadableFields);
+        }
+      }
     }
 
+    // Create/update restart.pending for restart fields and any reloadable fallbacks.
+    final pendingRestartFields = {...restartFields, ...reloadFallbackFields};
+    if (pendingRestartFields.isNotEmpty) {
+      writeRestartPending(dataDir, pendingRestartFields.keys.toList());
+    }
+
+    // Applied = live fields + successfully reloaded reloadable fields
+    final appliedFields = {...liveFields, ...reloadableFields}..removeWhere((k, _) => reloadFallbackFields.containsKey(k));
+
     return jsonResponse(200, {
-      'applied': liveFields.keys.toList(),
-      'pendingRestart': restartFields.keys.toList(),
+      'applied': appliedFields.keys.toList(),
+      'pendingRestart': pendingRestartFields.keys.toList(),
       'errors': <Map<String, String>>[],
     });
   });

@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.15**
+> Current through: **0.16**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -21,7 +21,8 @@ DartClaw is a 2-layer agent runtime where each layer has a distinct role and tru
 │  claude CLI (Anthropic) or codex CLI (OpenAI)           │
 │  Owns: agent reasoning, tool execution,                 │
 │        bash commands, file operations                   │
-│  Trust: SANDBOXED — Docker container isolation          │
+│  Trust: PROVIDER-BOUND — Claude can run in Docker;      │
+│         Codex uses its configured approval/sandbox mode │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -52,7 +53,7 @@ In a mixed deployment, the `HarnessPool` can contain workers from different prov
 
 ## Communication: The JSONL Control Protocol
 
-Dart and the claude CLI binary communicate over stdin/stdout using a **bidirectional JSONL** (JSON Lines) control protocol. This is the same protocol used by the official Python, Go, and Elixir SDKs.
+DartClaw communicates with provider CLI binaries over stdin/stdout using bidirectional line-delimited JSON protocols. Claude uses an ad-hoc JSONL control protocol; Codex uses JSON-RPC JSONL. The Claude side of this protocol family is the same interface used by the official Python, Go, and Elixir SDKs.
 
 ```
 Dart Host                              Agent CLI Binary
@@ -76,7 +77,7 @@ Dart Host                              Agent CLI Binary
 The protocol supports:
 
 - **Streaming events** — text deltas, tool use, tool results, all parsed via a sealed class hierarchy
-- **Hook callbacks** — the binary asks the Dart host for permission before tool execution (PreToolUse/PostToolUse), enabling the guard system to block dangerous operations
+- **Hook callbacks** — the binary asks the Dart host for permission or lifecycle coordination before key operations (`PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`), enabling guard enforcement, audit logging, and compaction observability
 - **In-process MCP** — MCP tool calls (memory search, web fetch, etc.) are proxied through the control protocol as JSONRPC messages, handled by the Dart host
 - **Control messages** — interrupt, model switching, permission mode changes
 
@@ -218,6 +219,8 @@ TurnRunner (per-harness)
 
 Since 0.14.4, `TurnRunner` treats text deltas and tool events as forward progress. That keeps session idle timers fresh during long-running tool execution and lets governance stall timers warn or cancel only when the provider event stream actually goes silent, instead of after a fixed wall-clock timeout.
 
+Since 0.16, the turn stack also tracks provider compaction lifecycle signals. Claude emits `PreCompact` and `compact_boundary`; Codex parses `contextCompaction` items. `ContextMonitor` uses those signals to suppress heuristic flushes when a deterministic provider hook exists, deduplicate pre-compaction flush turns, and emit task timeline compaction markers for running task sessions.
+
 ## Channel System
 
 DartClaw receives messages from multiple sources through a unified channel abstraction. Each channel normalizes inbound messages into a `ChannelMessage` and formats outbound responses for its delivery requirements.
@@ -330,6 +333,8 @@ DartClaw runs background work on cron schedules:
 - **Session maintenance** — prunes idle sessions, enforces count caps and disk budgets, cleans up orphaned cron sessions
 - **Task automation** — scheduled jobs can create tasks that enter the review queue
 
+When a scheduled job exhausts its retry budget, the scheduler emits `ScheduledJobFailedEvent` on the internal event bus. That lets observability and alert-routing subscribers react without coupling job execution directly to channels or UI surfaces.
+
 Jobs are managed via the web UI (`/scheduling`) or the config API. See the [Scheduling guide](scheduling.md).
 
 ## Event Bus
@@ -340,8 +345,11 @@ Events use Dart 3 sealed classes, so the compiler catches missing handlers when 
 
 - **GuardBlockEvent** — a guard blocked or warned on input
 - **ConfigChangedEvent** — configuration values changed via the API
+- **CompactionStartingEvent / CompactionCompletedEvent** — provider compaction lifecycle markers
 - **SessionLifecycleEvent** — session created, ended, or errored
 - **TaskLifecycleEvent** — task status changed, review ready
+- **ScheduledJobFailedEvent** — a scheduled job exhausted retries
+- **ToolPermissionDeniedEvent** — Claude denied a tool at its own native permission layer
 - **ContainerLifecycleEvent** — container started, stopped, or crashed
 - **AgentStateChangedEvent** — a harness runner changed state (idle/busy)
 
@@ -400,12 +408,19 @@ The 0.14.2 canvas subsystem adds a standalone SSE-driven page at `/canvas/<token
 
 ## Configuration System
 
-DartClaw is configured via `dartclaw.yaml` with live editing support:
+DartClaw is configured via `dartclaw.yaml` with three runtime behaviors:
+
+- **Live fields** — handled immediately by existing Tier 1 side effects
+- **Reloadable fields** — written to YAML, then applied by `ConfigNotifier` to registered `Reconfigurable` services without restarting the process
+- **Restart-required fields** — written to YAML and staged for the next graceful restart
+
+That model is exposed through:
 
 - **Config API** — `GET/PATCH /api/config` reads from disk and writes with YAML round-trip preservation (comments survive edits)
 - **Config validation** — `ConfigMeta` registry with validators, ensuring invalid values are rejected before write
 - **Backup on write** — every config change creates a `.bak` file
-- **Graceful restart** — when a config change requires restart, the server drains active turns (30s timeout), restarts services, and sends an SSE banner to connected clients
+- **Hot-reload triggers** — `gateway.reload.mode` supports `off`, `signal`, and `auto`; `signal` uses `SIGUSR1`, while `auto` adds file watching with debounce for atomic-save workflows
+- **Graceful restart** — restart-required changes still drain active turns (30s timeout), restart services, and send an SSE banner to connected clients
 
 For the full config reference, see the [Configuration guide](configuration.md).
 

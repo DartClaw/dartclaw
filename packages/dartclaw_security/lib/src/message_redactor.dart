@@ -16,12 +16,17 @@ import 'package:logging/logging.dart';
 class MessageRedactor {
   static final _log = Logger('MessageRedactor');
 
-  final List<({RegExp pattern, bool isPem})> _compiled;
+  List<({RegExp pattern, bool isPem})> _compiled;
 
   /// Creates a redactor with built-in patterns plus optional [extraPatterns].
   ///
   /// Invalid regexes in [extraPatterns] are logged as warnings and skipped.
   MessageRedactor({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
+
+  void recompilePatterns(List<String> extraPatterns) {
+    _compiled = _compilePatterns(extraPatterns);
+    _log.info('MessageRedactor patterns recompiled (${extraPatterns.length} extra patterns)');
+  }
 
   static List<({RegExp pattern, bool isPem})> _compilePatterns(List<String> extra) {
     final result = <({RegExp pattern, bool isPem})>[];

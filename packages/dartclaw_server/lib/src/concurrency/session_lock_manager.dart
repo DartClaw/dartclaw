@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
+
 import '../turn_manager.dart';
 
 /// Per-session Completer-based locks with a global concurrency cap.
@@ -7,12 +10,27 @@ import '../turn_manager.dart';
 /// Prevents concurrent turns on the same session and limits overall parallel
 /// turn count across all sessions. Same-session requests queue behind the
 /// active turn instead of failing.
-class SessionLockManager {
-  final int maxParallel;
+class SessionLockManager implements Reconfigurable {
+  static final _log = Logger('SessionLockManager');
+
+  int _maxParallel;
   final Map<String, Completer<void>> _locks = {};
   int _activeCount = 0;
 
-  SessionLockManager({this.maxParallel = 3});
+  SessionLockManager({int maxParallel = 3}) : _maxParallel = maxParallel;
+
+  int get maxParallel => _maxParallel;
+
+  @override
+  Set<String> get watchKeys => const {'server.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newMax = delta.current.server.maxParallelTurns;
+    if (newMax == _maxParallel) return;
+    _maxParallel = newMax;
+    _log.info('SessionLockManager maxParallel updated to $_maxParallel');
+  }
 
   /// Acquires a lock for [sessionId].
   ///
@@ -24,8 +42,8 @@ class SessionLockManager {
       await _locks[sessionId]!.future;
     }
     // Check global cap after waiting
-    if (_activeCount >= maxParallel) {
-      throw BusyTurnException('Global concurrency limit reached ($maxParallel)', isSameSession: false);
+    if (_activeCount >= _maxParallel) {
+      throw BusyTurnException('Global concurrency limit reached ($_maxParallel)', isSameSession: false);
     }
     _locks[sessionId] = Completer<void>();
     _activeCount++;

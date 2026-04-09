@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 /// Configuration for Docker container isolation.
 class ContainerConfig {
   /// Whether Docker-based isolation is enabled.
@@ -57,4 +59,21 @@ class ContainerConfig {
       extraArgs: args,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ContainerConfig &&
+          enabled == other.enabled &&
+          image == other.image &&
+          const ListEquality<String>().equals(extraMounts, other.extraMounts) &&
+          const ListEquality<String>().equals(extraArgs, other.extraArgs);
+
+  @override
+  int get hashCode => Object.hash(
+    enabled,
+    image,
+    const ListEquality<String>().hash(extraMounts),
+    const ListEquality<String>().hash(extraArgs),
+  );
 }

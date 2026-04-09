@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 final _log = Logger('ContextMonitor');
@@ -12,8 +13,8 @@ final _log = Logger('ContextMonitor');
 ///
 /// This monitor is typically shared across all [TurnRunner] instances in the
 /// harness pool. Warning state is tracked per session via [_warnedSessions].
-class ContextMonitor {
-  final int reserveTokens;
+class ContextMonitor implements Reconfigurable {
+  int reserveTokens;
 
   /// Warning threshold as an integer percentage (50–99). When context usage
   /// exceeds this percentage, [checkThreshold] returns `true` once per session.
@@ -21,12 +22,35 @@ class ContextMonitor {
   /// Non-final to allow live config updates without restart.
   int warningThreshold;
 
+  /// When `true`, suppresses the [shouldFlush] heuristic entirely.
+  ///
+  /// This remains a useful default for single-harness deployments. Callers
+  /// managing heterogeneous runner pools should use
+  /// [shouldFlushForCompactionSignal] so the decision is resolved per runner
+  /// instead of via shared mutable state.
+  bool compactionSignalAvailable = false;
+
   int? _contextWindow;
   int? _lastContextTokens;
   bool _flushPending = false;
   final Set<String> _warnedSessions = {};
 
+  // Per-compaction-cycle flush dedup state.
+  int _compactionCycleId = 0;
+  int _lastFlushCycleId = -1;
+  String? _lastFlushHash;
+
   ContextMonitor({this.reserveTokens = 20000, this.warningThreshold = 80});
+
+  @override
+  Set<String> get watchKeys => const {'context.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    reserveTokens = delta.current.context.reserveTokens;
+    warningThreshold = delta.current.context.warningThreshold;
+    _log.info('ContextMonitor reconfigured (reserveTokens: $reserveTokens, warningThreshold: $warningThreshold%)');
+  }
 
   /// Update with latest token counts from bridge events.
   ///
@@ -39,14 +63,52 @@ class ContextMonitor {
 
   /// Whether a pre-compaction flush should be triggered.
   ///
-  /// True when context usage exceeds `contextWindow - reserveTokens` and
-  /// no flush is already pending.
-  bool get shouldFlush {
+  /// Returns `false` unconditionally when [compactionSignalAvailable] is `true`
+  /// (the harness delivers a deterministic signal; the heuristic is not needed).
+  ///
+  /// Otherwise: `true` when context usage exceeds `contextWindow - reserveTokens`
+  /// and no flush is already pending.
+  bool shouldFlushForCompactionSignal({required bool compactionSignalAvailable}) {
+    if (compactionSignalAvailable) return false;
     final window = _contextWindow;
     final tokens = _lastContextTokens;
     if (window == null || tokens == null) return false;
     return tokens > window - reserveTokens && !_flushPending;
   }
+
+  /// Backward-compatible getter for callers that use the shared default flag.
+  bool get shouldFlush => shouldFlushForCompactionSignal(compactionSignalAvailable: compactionSignalAvailable);
+
+  /// Increments the compaction cycle counter.
+  ///
+  /// Called when a compaction completes (via [CompactionCompletedEvent]).
+  /// Enables the next flush by advancing the cycle ID past [_lastFlushCycleId].
+  void onCompactionCompleted() {
+    _compactionCycleId++;
+    _log.fine('Compaction cycle advanced to $_compactionCycleId');
+  }
+
+  /// Returns `true` when the flush should be skipped.
+  ///
+  /// Skips if this compaction cycle has already been flushed, or if the
+  /// message content hash matches the previous flush (SHA-256 dedup).
+  bool shouldSkipFlush(String messageHash) {
+    if (_lastFlushCycleId == _compactionCycleId) return true;
+    if (_lastFlushHash == messageHash) return true;
+    return false;
+  }
+
+  /// Records that a flush was executed with the given [messageHash].
+  ///
+  /// Updates [_lastFlushCycleId] and [_lastFlushHash] to prevent redundant
+  /// flushes within the same compaction cycle or with identical content.
+  void markFlushed(String messageHash) {
+    _lastFlushCycleId = _compactionCycleId;
+    _lastFlushHash = messageHash;
+  }
+
+  /// Current compaction cycle counter (starts at 0, incremented by [onCompactionCompleted]).
+  int get compactionCycleId => _compactionCycleId;
 
   /// Mark that a flush turn has been initiated.
   void markFlushStarted() {

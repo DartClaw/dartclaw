@@ -76,6 +76,20 @@ final class TurnComplete extends ProtocolMessage {
       'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
 }
 
+/// Context compaction completed signal from the provider.
+final class CompactBoundary extends ProtocolMessage {
+  /// Trigger source: `"auto"` or `"manual"`.
+  final String trigger;
+
+  /// Token count before compaction. May be null if omitted by the provider.
+  final int? preTokens;
+
+  const CompactBoundary({required this.trigger, this.preTokens});
+
+  @override
+  String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
+}
+
 /// System/session initialization metadata.
 final class SystemInit extends ProtocolMessage {
   final String? sessionId;
@@ -86,4 +100,26 @@ final class SystemInit extends ProtocolMessage {
 
   @override
   String toString() => 'SystemInit(sessionId: $sessionId, toolCount: $toolCount, contextWindow: $contextWindow)';
+}
+
+/// Codex context compaction starting (item/started with contextCompaction type).
+final class CompactionStarted extends ProtocolMessage {
+  /// Optional item id from the Codex protocol item.
+  final String? id;
+
+  const CompactionStarted({this.id});
+
+  @override
+  String toString() => 'CompactionStarted(id: $id)';
+}
+
+/// Codex context compaction completed (item/completed with contextCompaction type).
+final class CompactionCompleted extends ProtocolMessage {
+  /// Optional item id from the Codex protocol item.
+  final String? id;
+
+  const CompactionCompleted({this.id});
+
+  @override
+  String toString() => 'CompactionCompleted(id: $id)';
 }

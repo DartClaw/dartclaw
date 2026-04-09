@@ -17,4 +17,16 @@ class SessionConfig {
 
   /// Default configuration.
   const SessionConfig.defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SessionConfig &&
+          resetHour == other.resetHour &&
+          idleTimeoutMinutes == other.idleTimeoutMinutes &&
+          scopeConfig == other.scopeConfig &&
+          maintenanceConfig == other.maintenanceConfig;
+
+  @override
+  int get hashCode => Object.hash(resetHour, idleTimeoutMinutes, scopeConfig, maintenanceConfig);
 }

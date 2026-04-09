@@ -17,8 +17,8 @@ class ExplorationSummarizer {
   /// Token threshold above which structural summarization is attempted.
   final int thresholdTokens;
 
-  const ExplorationSummarizer({ResultTrimmer trimmer = const ResultTrimmer(), this.thresholdTokens = 25000})
-    : _trimmer = trimmer;
+  ExplorationSummarizer({ResultTrimmer? trimmer, this.thresholdTokens = 25000})
+    : _trimmer = trimmer ?? ResultTrimmer();
 
   /// Summarize [content] if it exceeds the token threshold, otherwise
   /// apply the byte-cap trim from [ResultTrimmer].

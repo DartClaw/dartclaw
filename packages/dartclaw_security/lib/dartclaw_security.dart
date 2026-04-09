@@ -1,6 +1,7 @@
 library;
 
 export 'src/guard.dart' show Guard, GuardChain, GuardContext, GuardVerdictCallback;
+export 'src/guard_build_result.dart' show GuardBuildResult, GuardBuildSuccess, GuardBuildFailure;
 export 'src/guard_verdict.dart' show GuardVerdict, GuardPass, GuardWarn, GuardBlock;
 export 'src/guard_config.dart' show GuardConfig;
 export 'src/guard_audit.dart' show GuardAuditLogger, AuditEntry;

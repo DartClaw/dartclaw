@@ -20,7 +20,8 @@ export 'src/tool_call_record.dart' show ToolCallRecord;
 export 'src/turn_trace.dart' show TurnTrace;
 export 'src/turn_trace_summary.dart' show TurnTraceSummary;
 export 'src/task_event.dart'
-    show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent;
+    show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent,
+        Compaction;
 export 'src/workflow_definition.dart'
     show
         WorkflowDefinition,

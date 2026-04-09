@@ -23,6 +23,9 @@ class _StubHarness implements AgentHarness {
   bool get supportsSessionContinuity => false;
 
   @override
+  bool get supportsPreCompactHook => false;
+
+  @override
   WorkerState get state => WorkerState.idle;
   @override
   Stream<BridgeEvent> get events => const Stream.empty();

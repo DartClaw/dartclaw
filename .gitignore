@@ -15,6 +15,7 @@ pubspec.lock
 
 # Claude Code (local instructions symlinked from dartclaw-private)
 CLAUDE.local.md
+.claude/worktrees/
 
 # OS
 .DS_Store

@@ -96,3 +96,29 @@ final class SystemInitEvent extends BridgeEvent {
   @override
   String toString() => 'SystemInitEvent(contextWindow: $contextWindow)';
 }
+
+/// Codex context compaction has started (item/started with contextCompaction type).
+/// Note: Codex compaction items carry no token count or summary — unlike Claude Code's compact_boundary.
+final class CompactionStartingBridgeEvent extends BridgeEvent {
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is CompactionStartingBridgeEvent;
+
+  @override
+  int get hashCode => runtimeType.hashCode;
+
+  @override
+  String toString() => 'CompactionStartingBridgeEvent()';
+}
+
+/// Codex context compaction has completed (item/completed with contextCompaction type).
+/// Note: Codex compaction items carry no token count or summary — unlike Claude Code's compact_boundary.
+final class CompactionCompletedBridgeEvent extends BridgeEvent {
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is CompactionCompletedBridgeEvent;
+
+  @override
+  int get hashCode => runtimeType.hashCode;
+
+  @override
+  String toString() => 'CompactionCompletedBridgeEvent()';
+}

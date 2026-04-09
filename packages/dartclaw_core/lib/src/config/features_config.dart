@@ -23,6 +23,16 @@ class ThreadBindingFeatureConfig {
     this.idleTimeoutMinutes = 60,
   });
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThreadBindingFeatureConfig &&
+          enabled == other.enabled &&
+          idleTimeoutMinutes == other.idleTimeoutMinutes;
+
+  @override
+  int get hashCode => Object.hash(enabled, idleTimeoutMinutes);
+
   /// Parses from a YAML map. Returns defaults when [yaml] is `null` or empty.
   factory ThreadBindingFeatureConfig.fromYaml(Map<String, dynamic>? yaml) {
     if (yaml == null) return const ThreadBindingFeatureConfig();
@@ -52,6 +62,13 @@ class FeaturesConfig {
   const FeaturesConfig({
     this.threadBinding = const ThreadBindingFeatureConfig(),
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is FeaturesConfig && threadBinding == other.threadBinding;
+
+  @override
+  int get hashCode => threadBinding.hashCode;
 
   /// Parses from a YAML map. Returns defaults when [yaml] is `null` or empty.
   factory FeaturesConfig.fromYaml(Map<String, dynamic>? yaml) {

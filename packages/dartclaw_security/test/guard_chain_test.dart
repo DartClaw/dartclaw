@@ -301,5 +301,73 @@ void main() {
       expect(capturedContext!.toolName, 'shell');
       expect(capturedContext!.rawProviderToolName, 'Bash');
     });
+
+    group('replaceGuards', () {
+      test('subsequent evaluations use the new guard list', () async {
+        final chain = buildChain([FakeGuard(name: 'original', verdict: GuardVerdict.pass())]);
+
+        final verdict1 = await chain.evaluateBeforeToolCall('shell', {});
+        expect(verdict1.isPass, isTrue);
+
+        chain.replaceGuards([FakeGuard(name: 'replacement', verdict: GuardVerdict.block('blocked by replacement'))]);
+
+        final verdict2 = await chain.evaluateBeforeToolCall('shell', {});
+        expect(verdict2.isBlock, isTrue);
+        expect(verdict2.message, 'blocked by replacement');
+      });
+
+      test('guards getter returns unmodifiable list — throws on mutation', () {
+        final chain = buildChain([FakeGuard()]);
+        expect(() => chain.guards.add(FakeGuard(name: 'extra')), throwsUnsupportedError);
+      });
+
+      test('addGuard still works after replaceGuards', () async {
+        final chain = buildChain([FakeGuard(name: 'g1', verdict: GuardVerdict.pass())]);
+        chain.replaceGuards([FakeGuard(name: 'g2', verdict: GuardVerdict.pass())]);
+        chain.addGuard(FakeGuard(name: 'g3', verdict: GuardVerdict.block('g3 blocked')));
+
+        final verdict = await chain.evaluateBeforeToolCall('shell', {});
+        expect(verdict.isBlock, isTrue);
+        expect(verdict.message, 'g3 blocked');
+        expect(chain.guards, hasLength(2)); // g2 + g3
+      });
+
+      test('replace with empty list — subsequent evaluation passes', () async {
+        final chain = buildChain([FakeGuard(verdict: GuardVerdict.block('blocked'))]);
+        chain.replaceGuards([]);
+
+        final verdict = await chain.evaluateBeforeToolCall('shell', {});
+        expect(verdict.isPass, isTrue);
+      });
+    });
+
+    group('GuardBuildResult', () {
+      test('GuardBuildSuccess can be constructed and pattern-matched', () {
+        final guards = [FakeGuard()];
+        final GuardBuildResult result = GuardBuildSuccess(guards: guards, warnings: ['deduped 1 rule']);
+
+        expect(result, isA<GuardBuildSuccess>());
+        switch (result) {
+          case GuardBuildSuccess(:final guards, :final warnings):
+            expect(guards, hasLength(1));
+            expect(warnings, ['deduped 1 rule']);
+          case GuardBuildFailure():
+            fail('expected success');
+        }
+      });
+
+      test('GuardBuildFailure can be constructed and pattern-matched', () {
+        final GuardBuildResult result = GuardBuildFailure(errors: ['bad regex: [invalid']);
+
+        expect(result, isA<GuardBuildFailure>());
+        switch (result) {
+          case GuardBuildSuccess():
+            fail('expected failure');
+          case GuardBuildFailure(:final errors):
+            expect(errors, hasLength(1));
+            expect(errors.single, contains('bad regex'));
+        }
+      });
+    });
   });
 }

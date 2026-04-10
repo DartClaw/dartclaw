@@ -2,20 +2,118 @@
 
 DartClaw is configured via `dartclaw.yaml`, behavior files, environment variables, and CLI flags.
 
+## Setting Up an Instance
+
+Use `dartclaw init` to create an instance. It runs preflight checks, generates `dartclaw.yaml`, scaffolds the workspace, and seeds `ONBOARDING.md`.
+
+### Quick track (default)
+
+Collects the core options: instance name, instance directory, provider selection, per-provider auth, per-provider model, primary provider, port, and gateway auth. Completes in seconds.
+
+```bash
+# Interactive Quick-track wizard
+dartclaw init
+
+# Non-interactive (for scripts/CI)
+dartclaw init --non-interactive \
+  --provider claude \
+  --auth-claude oauth \
+  --model-claude sonnet \
+  --port 3333
+
+# Multiple providers
+dartclaw init --non-interactive \
+  --provider claude \
+  --provider codex \
+  --auth-claude oauth \
+  --auth-codex env \
+  --model-claude sonnet \
+  --model-codex gpt-5 \
+  --primary-provider codex
+```
+
+### Full track (channels + advanced options)
+
+Opt-in widening that additionally collects channel inputs and advanced runtime settings. Quick track remains unchanged — Full track is selected explicitly:
+
+```bash
+# Interactive Full-track wizard
+dartclaw init --track full
+
+# Non-interactive: enable WhatsApp channel
+dartclaw init --non-interactive --provider claude --auth-claude oauth --model-claude sonnet \
+  --whatsapp --gowa-executable whatsapp --gowa-port 3000
+
+# Non-interactive: enable Signal channel
+dartclaw init --non-interactive --provider claude --auth-claude oauth --model-claude sonnet \
+  --signal --signal-phone +12125550100
+
+# Non-interactive: enable Google Chat channel
+dartclaw init --non-interactive --provider claude --auth-claude oauth --model-claude sonnet \
+  --google-chat \
+  --google-chat-service-account /etc/sa.json \
+  --google-chat-audience-type app-url \
+  --google-chat-audience https://my-project.example.com
+
+# Non-interactive: enable Docker container isolation
+dartclaw init --non-interactive --provider claude --auth-claude oauth --model-claude sonnet \
+  --container --container-image dartclaw-agent:latest
+```
+
+#### Deferred steps after server start
+
+Some channel features require the server to be running before they can complete. The wizard notes these explicitly and does not simulate them:
+
+| Channel | Deferred step |
+|---------|---------------|
+| WhatsApp | QR-code pairing (scan shown in logs after `dartclaw serve`) |
+| Signal | Device link (`signal-cli link --name dartclaw`, then restart) |
+| Google Chat | Register webhook URL in Google Cloud Console using the configured audience type/value |
+
+#### Security defaults
+
+Full track does not change security defaults. Guards and the input sanitizer remain enabled unless you explicitly pass `--no-content-guard` or `--no-input-sanitizer`. These flags are available but not recommended for channel deployments.
+
+```bash
+# dartclaw setup is an alias for dartclaw init
+dartclaw setup
+```
+
+Re-running `dartclaw init` against an existing instance is safe and idempotent. The wizard uses current values as defaults, including instance name, provider/model choices, gateway auth, and port, and it does not overwrite curated behavior files.
+
+## Instance Directory
+
+DartClaw uses a single **instance directory** as the canonical home for configuration and runtime artifacts. The default is `~/.dartclaw/`.
+
+```
+~/.dartclaw/
+  dartclaw.yaml      ← configuration
+  workspace/         ← behavior files
+  sessions/
+  logs/
+  search.db
+  tasks.db
+```
+
+Set `DARTCLAW_HOME` to use a different instance directory (points to the directory, not the config file).
+
 ## dartclaw.yaml
 
 Searched in order (first found wins):
+
 1. `--config` CLI flag (explicit path)
 2. `DARTCLAW_CONFIG` env var (explicit path)
-3. `./dartclaw.yaml` (project-level)
-4. `~/.dartclaw/dartclaw.yaml` (global)
+3. `DARTCLAW_HOME` env var → `<DARTCLAW_HOME>/dartclaw.yaml`
+4. `~/.dartclaw/dartclaw.yaml` (default instance directory)
+
+> **Note on CWD discovery:** Prior to 0.16.2, `./dartclaw.yaml` in the current directory was also searched. That file is now ignored by default and only emits a deprecation warning. Use `--config ./dartclaw.yaml` for explicit project-level configs.
 
 Values support `${ENV_VAR}` substitution. CLI flags override config file values.
 
 ### Minimal Config
 
 ```yaml
-port: 3000
+port: 3333
 host: localhost
 data_dir: ~/.dartclaw
 ```
@@ -24,7 +122,7 @@ data_dir: ~/.dartclaw
 
 ```yaml
 # --- Server ---
-port: 3000
+port: 3333
 host: localhost
 data_dir: ~/.dartclaw
 worker_timeout: 600              # seconds per agent turn
@@ -334,7 +432,8 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | -- | API key for Claude provider |
 | `OPENAI_API_KEY` | -- | API key for Codex provider |
-| `DARTCLAW_CONFIG` | -- | Custom config file path |
+| `DARTCLAW_HOME` | `~/.dartclaw` | Instance directory (points to directory, not config file) |
+| `DARTCLAW_CONFIG` | -- | Explicit config file path (overrides `DARTCLAW_HOME`) |
 | `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |
 | `DARTCLAW_DB_PATH` | `~/.dartclaw/dartclaw.db` | SQLite database location |
 
@@ -350,7 +449,7 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--port` | `3000` | HTTP server port |
+| `--port` | `3333` | HTTP server port |
 | `--host` | `127.0.0.1` | Bind address |
 | `--data-dir` | `~/.dartclaw` | Data directory path |
 | `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (relative to cwd) |
@@ -391,7 +490,7 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 Highest priority wins:
 1. CLI flags (`--port 8080`)
-2. Config file (resolved via: `--config` flag > `DARTCLAW_CONFIG` env var > `./dartclaw.yaml` > `~/.dartclaw/dartclaw.yaml`)
+2. Config file (resolved via: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`)
 3. Defaults
 
 ## Behavior Files

@@ -72,9 +72,9 @@ void main() {
       expect(serveCommand.description, isNotEmpty);
     });
 
-    test('default port is 3000', () {
+    test('default port is 3333', () {
       final portOption = serveCommand.argParser.options['port']!;
-      expect(portOption.defaultsTo, '3000');
+      expect(portOption.defaultsTo, '3333');
     });
 
     test('default host is localhost', () {
@@ -356,7 +356,7 @@ channels:
       final localRunner = DartclawRunner()..addCommand(command);
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
-      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot bind to localhost:3000')), isTrue);
+      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot bind to localhost:3333')), isTrue);
       expect(
         logs.any((r) => r.level == Level.SEVERE && r.message.contains('is another process already using this port?')),
         isTrue,

@@ -8,6 +8,7 @@ void main() {
 
     test('defaults are applied when advisor section is absent', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) => path == 'dartclaw.yaml' ? '' : null,
         env: const {'HOME': '/home/user'},
       );
@@ -17,6 +18,7 @@ void main() {
 
     test('advisor section parses correctly', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path != 'dartclaw.yaml') return null;
           return '''
@@ -46,6 +48,7 @@ advisor:
 
     test('invalid trigger names are warned and skipped', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path != 'dartclaw.yaml') return null;
           return '''
@@ -64,6 +67,7 @@ advisor:
 
     test('unrecognized advisor model and effort produce warnings', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path != 'dartclaw.yaml') return null;
           return '''

@@ -55,7 +55,7 @@ class ServeCommand extends Command<void> {
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit {
     argParser
-      ..addOption('port', abbr: 'p', defaultsTo: '3000', help: 'Port to listen on')
+      ..addOption('port', abbr: 'p', defaultsTo: '3333', help: 'Port to listen on')
       ..addOption('host', abbr: 'H', defaultsTo: 'localhost', help: 'Host to bind to')
       ..addOption('data-dir', help: 'Data directory path')
       ..addOption(
@@ -125,14 +125,29 @@ class ServeCommand extends Command<void> {
     // Resolve config file path for ConfigWriter (same resolution as DartclawConfig.load).
     // If no config file exists, create a default empty one so ConfigWriter (and
     // the config API routes that depend on it) can operate.
-    var resolvedConfigPath = _resolveConfigPath(globalResults?['config'] as String?);
-    if (resolvedConfigPath == null) {
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-      final defaultPath = p.join(home, '.dartclaw', 'dartclaw.yaml');
-      final defaultDir = Directory(p.dirname(defaultPath));
+    final explicitConfigPath = globalResults?['config'] as String?;
+    final explicitEnvConfig = Platform.environment['DARTCLAW_CONFIG'];
+    final resolvedConfigPath = resolveCliConfigPath(configPath: explicitConfigPath);
+    final resolvedConfigFile = File(resolvedConfigPath);
+    if (!resolvedConfigFile.existsSync() && explicitConfigPath == null && explicitEnvConfig == null) {
+      final defaultDir = Directory(p.dirname(resolvedConfigPath));
       if (!defaultDir.existsSync()) defaultDir.createSync(recursive: true);
-      File(defaultPath).writeAsStringSync('# DartClaw configuration\n');
-      resolvedConfigPath = defaultPath;
+      resolvedConfigFile.writeAsStringSync('# DartClaw configuration\n');
+    }
+
+    // Detect older-layout installs: config and runtime artifacts in separate directories.
+    // Only applies to default-discovery or DARTCLAW_HOME paths; explicit --config or
+    // DARTCLAW_CONFIG installs may intentionally keep config separate from data.
+    if (explicitConfigPath == null && explicitEnvConfig == null) {
+      final expandedDataDir = expandHome(config.server.dataDir);
+      final configDir = p.dirname(resolvedConfigPath);
+      if (p.equals(expandedDataDir, configDir) == false) {
+        _stderrLine(
+          'WARNING: Your config is at $resolvedConfigPath but data_dir points to $expandedDataDir. '
+          'In the unified instance-directory model (0.16.2+), both should be in the same directory. '
+          'Run "dartclaw init" to set up a unified instance, or set data_dir explicitly to suppress this warning.',
+        );
+      }
     }
 
     // Ensure data directory exists
@@ -344,26 +359,6 @@ class ServeCommand extends Command<void> {
     // run() and is testable.
     _exitFn(0);
   }
-}
-
-/// Resolves the config file path using the same search order as
-/// [DartclawConfig.load]: `--config` > `DARTCLAW_CONFIG` env > CWD >
-/// `~/.dartclaw/dartclaw.yaml`.
-///
-/// Returns null if no config file is found (server runs with defaults only).
-String? _resolveConfigPath(String? cliConfigPath) {
-  if (cliConfigPath != null) {
-    return File(cliConfigPath).existsSync() ? cliConfigPath : null;
-  }
-  final envPath = Platform.environment['DARTCLAW_CONFIG'];
-  if (envPath != null) {
-    return File(envPath).existsSync() ? envPath : null;
-  }
-  if (File('dartclaw.yaml').existsSync()) return 'dartclaw.yaml';
-  final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-  final homePath = p.join(home, '.dartclaw', 'dartclaw.yaml');
-  if (File(homePath).existsSync()) return homePath;
-  return null;
 }
 
 /// Returns built-in tool names to suppress when the MCP server is active.

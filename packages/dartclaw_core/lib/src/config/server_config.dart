@@ -13,7 +13,7 @@ class ServerConfig {
   final int maxParallelTurns;
 
   const ServerConfig({
-    this.port = 3000,
+    this.port = 3333,
     this.host = 'localhost',
     this.name = 'DartClaw',
     this.dataDir = '~/.dartclaw',

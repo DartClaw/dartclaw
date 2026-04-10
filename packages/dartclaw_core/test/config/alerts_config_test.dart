@@ -2,7 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 DartclawConfig _load(String yaml) => DartclawConfig.load(
-  fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+  fileReader: (path) => path == '/tmp/.dartclaw/dartclaw.yaml' ? yaml : null,
   env: {'HOME': '/tmp'},
 );
 
@@ -25,14 +25,18 @@ void main() {
         cooldownSeconds: 60,
         burstThreshold: 3,
         targets: [AlertTarget(channel: 'whatsapp', recipient: '+1234')],
-        routes: {'guard_block': ['0']},
+        routes: {
+          'guard_block': ['0'],
+        },
       );
       const b = AlertsConfig(
         enabled: true,
         cooldownSeconds: 60,
         burstThreshold: 3,
         targets: [AlertTarget(channel: 'whatsapp', recipient: '+1234')],
-        routes: {'guard_block': ['0']},
+        routes: {
+          'guard_block': ['0'],
+        },
       );
       expect(a, equals(b));
       expect(a.hashCode, equals(b.hashCode));
@@ -45,8 +49,12 @@ void main() {
     });
 
     test('configs with different targets are !=', () {
-      const a = AlertsConfig(targets: [AlertTarget(channel: 'signal', recipient: '+1')]);
-      const b = AlertsConfig(targets: [AlertTarget(channel: 'signal', recipient: '+2')]);
+      const a = AlertsConfig(
+        targets: [AlertTarget(channel: 'signal', recipient: '+1')],
+      );
+      const b = AlertsConfig(
+        targets: [AlertTarget(channel: 'signal', recipient: '+2')],
+      );
       expect(a, isNot(equals(b)));
     });
 

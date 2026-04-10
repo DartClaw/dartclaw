@@ -26,38 +26,75 @@ Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROP
 
 ## Quick Start
 
+The fastest path to a running DartClaw instance:
+
 ```bash
-# Clone and install
-git clone <repo-url> && cd dartclaw
-dart pub get
+# 1. Set up the instance (config, workspace, onboarding sentinel)
+dartclaw init
 
-# Start server (must run from the repo root — templates are resolved relative to cwd)
-dart run dartclaw_cli:dartclaw serve
+# 2. Start the server
+dartclaw serve
 
-# Open http://127.0.0.1:3000
+# 3. Open http://127.0.0.1:3333
 ```
 
-**Important**: DartClaw must be started from the repository root. Templates and static assets are loaded from paths relative to `cwd`. Running from another directory causes a `Template validation failed` error at startup. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for workarounds when deploying elsewhere.
+`dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal (or accepts all inputs via flags with `--non-interactive`). All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running `dartclaw init` against an existing instance shows current values as defaults.
+
+```bash
+# Non-interactive setup (e.g. for scripts or CI)
+dartclaw init --non-interactive \
+  --provider claude \
+  --auth-claude oauth \
+  --model-claude sonnet \
+  --port 3333
+
+# Multi-provider setup
+dartclaw init --non-interactive \
+  --provider claude \
+  --provider codex \
+  --auth-claude oauth \
+  --auth-codex env \
+  --model-claude sonnet \
+  --model-codex gpt-5 \
+  --primary-provider claude
+
+# dartclaw setup is an alias for dartclaw init
+dartclaw setup
+```
+
+Setup reports one of two completion states:
+
+- `Status: verified` means local checks passed and the selected provider already has usable credentials or CLI login.
+- `Status: configured but unverified` means the instance is valid, but provider verification was skipped or still needs login/API-key setup.
+
+Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
+
+**Important**: When running from a clone rather than an installed binary, DartClaw needs access to the source-tree templates and static assets. `dartclaw service install` automatically carries `--source-dir` when run from the repo root. For manual runs outside the source tree, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
 
 ## First Session
 
-1. Open [http://127.0.0.1:3000](http://127.0.0.1:3000)
+1. Open [http://127.0.0.1:3333](http://127.0.0.1:3333)
 2. Click **New Chat**
 3. Type a message, then press **Ctrl+Enter** or **Cmd+Enter** on macOS
 4. The agent responds with streaming text via SSE
 
 See `examples/` for ready-made configs such as dev, production, and personal assistant setups.
 
-## Data Storage
+## Instance Directory
+
+DartClaw stores all configuration and runtime artifacts in a single **instance directory**. The default is `~/.dartclaw/`:
 
 ```
 ~/.dartclaw/
-  dartclaw.yaml
-  workspace/   Behavior files that shape the agent
+  dartclaw.yaml      ← configuration
+  workspace/         ← behavior files that shape the agent
   sessions/
   logs/
   search.db
+  tasks.db
 ```
+
+To use a different location, set `DARTCLAW_HOME` to point at your instance directory. Config is resolved in this order: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`.
 
 See [Workspace](workspace.md) for how the behavior files are assembled into prompts and kept in sync.
 

@@ -10,7 +10,7 @@
   <div tl:if="${hasArtifacts}" class="workflow-step-artifacts">
     <h4>Artifacts</h4>
     <div tl:each="artifact : ${artifacts}" class="artifact-item">
-      <span class="artifact-kind" tl:text="${artifact.kindLabel}">Document</span>
+      <span tl:classappend="${artifact.badgeClass}" class="workflow-artifact-badge" tl:text="${artifact.kindLabel}">Document</span>
       <span class="artifact-name" tl:text="${artifact.name}">output.md</span>
     </div>
   </div>
@@ -32,6 +32,7 @@
   </div>
 
   <div tl:if="${hasMetrics}" class="workflow-step-metrics">
-    <span class="task-meta-label">Tokens: </span><span tl:text="${tokenCount}">0</span>
+    <span class="workflow-step-metric">Tokens: <span class="workflow-step-metric-value" tl:text="${tokenCount}">0</span></span>
+    <span tl:if="${hasDuration}" class="workflow-step-metric">Duration: <span class="workflow-step-metric-value" tl:text="${durationDisplay}">--</span></span>
   </div>
 </div>

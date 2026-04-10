@@ -24,7 +24,7 @@ void main() {
     group('defaults', () {
       test('all fields have expected default values', () {
         final config = const DartclawConfig.defaults();
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.server.host, 'localhost');
         expect(config.server.dataDir, '~/.dartclaw');
         expect(config.server.workerTimeout, 600);
@@ -98,7 +98,7 @@ void main() {
 
       test('missing config file uses defaults', () {
         final config = DartclawConfig.load(fileReader: noFile, env: {'HOME': '/home/user'});
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.server.host, 'localhost');
         expect(config.server.dataDir, '/home/user/.dartclaw');
         expect(config.server.workerTimeout, 600);
@@ -108,7 +108,7 @@ void main() {
       test('YAML parsing: flat keys parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'port: 8080\nhost: 0.0.0.0\ndata_dir: /custom/data\nworker_timeout: 300\ngateway:\n  hsts: true\n';
             }
             return null;
@@ -165,7 +165,7 @@ void main() {
       test('auth.cookie_secure parses when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'auth:\n  cookie_secure: true\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'auth:\n  cookie_secure: true\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -176,7 +176,7 @@ void main() {
       test('auth.trusted_proxies parses when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'auth:\n  trusted_proxies:\n    - 192.168.1.100\n    - 192.168.1.101\n';
             }
             return null;
@@ -189,7 +189,7 @@ void main() {
       test('auth.cookie_secure invalid type collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'auth:\n  cookie_secure: yes\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'auth:\n  cookie_secure: yes\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -201,7 +201,7 @@ void main() {
       test('auth.trusted_proxies invalid type collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'auth:\n  trusted_proxies: 192.168.1.100\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'auth:\n  trusted_proxies: 192.168.1.100\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -213,7 +213,7 @@ void main() {
       test('gateway.hsts invalid type collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'gateway:\n  hsts: yes\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'gateway:\n  hsts: yes\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -230,7 +230,7 @@ void main() {
       test('guard_audit.max_entries is ignored with deprecation warning when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: 25000\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guard_audit:\n  max_entries: 25000\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -241,7 +241,7 @@ void main() {
       test('guard_audit.max_retention_days parses when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 7\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 7\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -252,14 +252,14 @@ void main() {
       test('guard_audit.max_retention_days is clamped to 0..365', () {
         final low = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: -5\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guard_audit:\n  max_retention_days: -5\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
         final high = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 999\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guard_audit:\n  max_retention_days: 999\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -272,7 +272,7 @@ void main() {
       test('guard_audit.max_entries invalid type is ignored with deprecation warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guard_audit:\n  max_entries: nope\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guard_audit:\n  max_entries: nope\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -288,7 +288,7 @@ void main() {
       test('tasks.artifact_retention_days parses when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 90\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 90\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -304,7 +304,7 @@ void main() {
       test('tasks.completion_action parses accept when configured', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: accept\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  completion_action: accept\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -316,7 +316,7 @@ void main() {
       test('tasks.completion_action trims surrounding whitespace', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: " accept "\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  completion_action: " accept "\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -328,7 +328,7 @@ void main() {
       test('tasks.completion_action wrong type warns and falls back to review', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  completion_action: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -340,7 +340,7 @@ void main() {
       test('tasks.completion_action invalid values warn and fall back to review', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  completion_action: ship_it\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  completion_action: ship_it\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -352,14 +352,14 @@ void main() {
       test('tasks.artifact_retention_days is clamped to 0..3650', () {
         final low = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: -30\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  artifact_retention_days: -30\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
         final high = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 5000\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'tasks:\n  artifact_retention_days: 5000\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -372,7 +372,7 @@ void main() {
       test('parses memory.max_bytes from nested config', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -384,7 +384,7 @@ void main() {
       test('falls back to top-level memory_max_bytes when memory.max_bytes is absent', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'memory_max_bytes: 65536\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'memory_max_bytes: 65536\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -397,7 +397,7 @@ void main() {
         final config = DartclawConfig.load(
           cliOverrides: {'memory_max_bytes': '262144'},
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'memory_max_bytes: 131072\nmemory:\n  max_bytes: 65536\n';
             }
             return null;
@@ -411,7 +411,7 @@ void main() {
       test('nested memory.max_bytes takes precedence over top-level memory_max_bytes', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'memory_max_bytes: 131072\nmemory:\n  max_bytes: 65536\n';
             }
             return null;
@@ -425,7 +425,7 @@ void main() {
       test('emits deprecation warning for top-level memory_max_bytes', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'memory_max_bytes: 65536\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'memory_max_bytes: 65536\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -440,13 +440,13 @@ void main() {
       test('no deprecation warning when using nested memory.max_bytes', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'memory:\n  max_bytes: 65536\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
 
-        expect(config.warnings, isNot(anyElement(contains('deprecated'))));
+        expect(config.warnings, isNot(anyElement(contains('memory_max_bytes'))));
       });
 
       test('memory.pruning CLI overrides take precedence over YAML', () {
@@ -457,7 +457,7 @@ void main() {
             'memory_pruning_schedule': '0 4 * * *',
           },
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'memory:\n  pruning:\n    enabled: true\n    archive_after_days: 90\n    schedule: "0 3 * * *"\n';
             }
             return null;
@@ -474,7 +474,7 @@ void main() {
         final config = DartclawConfig.load(
           cliOverrides: {'port': '9090'},
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: 8080\nhost: 0.0.0.0\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 8080\nhost: 0.0.0.0\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -490,7 +490,7 @@ void main() {
       test('\${ENV_VAR} substitution in YAML string values', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'host: \${MY_HOST}\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'host: \${MY_HOST}\n';
             return null;
           },
           env: {'HOME': '/home/user', 'MY_HOST': 'custom.host'},
@@ -501,7 +501,7 @@ void main() {
       test('unknown key collects warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: 3000\nbogus_key: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 3000\nbogus_key: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -525,7 +525,7 @@ projects:
       labels: [agent, automated]
 ''';
         final config = DartclawConfig.load(
-          fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+          fileReader: (path) => path == '/home/user/.dartclaw/dartclaw.yaml' ? yaml : null,
           env: {'HOME': '/home/user'},
         );
 
@@ -542,12 +542,12 @@ projects:
       test('type mismatch (port: "abc") collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: abc\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: abc\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('Invalid type for port')));
       });
 
@@ -565,19 +565,19 @@ projects:
       test('YAML parse error collects warning and uses defaults', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return '{\n  invalid: [unclosed';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return '{\n  invalid: [unclosed';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('YAML parse error')));
       });
 
       test('~ expansion in data_dir', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'data_dir: ~/my-data\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'data_dir: ~/my-data\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -588,7 +588,7 @@ projects:
       test('~ expansion in logging.file', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'logging:\n  file: ~/logs/dartclaw.log\n';
             }
             return null;
@@ -616,7 +616,7 @@ projects:
       test('~ expansion in provider executable', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'providers:\n  my_agent:\n    executable: ~/bin/my-agent\n';
             }
             return null;
@@ -654,24 +654,24 @@ projects:
       test('YAML null value collects warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: \n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: \n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('null')));
       });
 
       test('non-map YAML root collects warning and uses defaults', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return '- item1\n- item2\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return '- item1\n- item2\n';
             return null;
           },
           env: {'HOME': '/home/user'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('not a map')));
       });
 
@@ -680,8 +680,69 @@ projects:
           fileReader: noFile,
           env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '/no/such/file.yaml'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('non-existent file')));
+      });
+
+      // --- DARTCLAW_HOME discovery (0.16.2) ---
+
+      test('DARTCLAW_HOME resolves config from instance directory', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/opt/myinstance/dartclaw.yaml') return 'port: 5100\n';
+            return null;
+          },
+          env: {'HOME': '/home/user', 'DARTCLAW_HOME': '/opt/myinstance'},
+        );
+        expect(config.server.port, 5100);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('DARTCLAW_HOME with missing dartclaw.yaml collects warning and uses defaults', () {
+        final config = DartclawConfig.load(
+          fileReader: noFile,
+          env: {'HOME': '/home/user', 'DARTCLAW_HOME': '/opt/badinstance'},
+        );
+        expect(config.server.port, 3333);
+        expect(config.warnings, anyElement(contains('DARTCLAW_HOME')));
+        expect(config.warnings, anyElement(contains('/opt/badinstance')));
+      });
+
+      test('DARTCLAW_CONFIG takes precedence over DARTCLAW_HOME', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/explicit/config.yaml') return 'port: 6100\n';
+            if (path == '/opt/myinstance/dartclaw.yaml') return 'port: 6200\n';
+            return null;
+          },
+          env: {'HOME': '/home/user', 'DARTCLAW_CONFIG': '/explicit/config.yaml', 'DARTCLAW_HOME': '/opt/myinstance'},
+        );
+        expect(config.server.port, 6100);
+      });
+
+      test('DARTCLAW_HOME falls back to default ~/.dartclaw when absent', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 6300\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.port, 6300);
+        expect(config.warnings, isEmpty);
+      });
+
+      test('CWD dartclaw.yaml emits deprecation warning but is not loaded', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == 'dartclaw.yaml') return 'port: 6400\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 6300\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+        expect(config.server.port, 6300);
+        expect(config.warnings, anyElement(contains('CWD config discovery is deprecated')));
       });
 
       test('configPath takes precedence over DARTCLAW_CONFIG env var', () {
@@ -703,7 +764,7 @@ projects:
           fileReader: noFile,
           env: {'HOME': '/home/user'},
         );
-        expect(config.server.port, 3000);
+        expect(config.server.port, 3333);
         expect(config.warnings, anyElement(contains('--config points to non-existent file')));
       });
 
@@ -724,7 +785,7 @@ projects:
         final config = DartclawConfig.load(
           cliOverrides: {'claude_executable': '/usr/local/bin/claude'},
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: 5000\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 5000\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -737,7 +798,7 @@ projects:
       test('staticDir and templatesDir from YAML', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'static_dir: /opt/static\ntemplates_dir: /opt/templates\n';
             }
             return null;
@@ -761,7 +822,7 @@ projects:
       test('source_dir from YAML resolves default paths', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'source_dir: /opt/dartclaw\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'source_dir: /opt/dartclaw\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -788,7 +849,7 @@ projects:
       test('existing config without providers or credentials loads successfully', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'agent:\n  model: sonnet\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'agent:\n  model: sonnet\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -806,7 +867,7 @@ projects:
       test('parses agent.provider from YAML', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'agent:\n  provider: codex\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'agent:\n  provider: codex\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -818,7 +879,7 @@ projects:
       test('invalid type for agent.provider produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'agent:\n  provider: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'agent:\n  provider: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -842,7 +903,7 @@ projects:
       test('sessions.dm_scope: shared parses to DmScope.shared', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -853,7 +914,7 @@ projects:
       test('sessions.group_scope: per-member parses to GroupScope.perMember', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  group_scope: per-member\n';
             }
             return null;
@@ -866,7 +927,7 @@ projects:
       test('sessions.channels.signal.group_scope parses channel override', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  channels:\n    signal:\n      group_scope: per-member\n';
             }
             return null;
@@ -880,7 +941,7 @@ projects:
       test('sessions.model and sessions.effort parse correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  model: sonnet\n  effort: medium\n';
             }
             return null;
@@ -894,7 +955,7 @@ projects:
       test('sessions.channels.google_chat model and effort parse correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  model: sonnet\n  channels:\n    google_chat:\n      model: opus\n      effort: low\n';
             }
             return null;
@@ -909,7 +970,7 @@ projects:
       test('invalid sessions.dm_scope produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  dm_scope: invalid\n';
             }
             return null;
@@ -923,7 +984,7 @@ projects:
       test('invalid type for sessions.dm_scope produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -935,7 +996,7 @@ projects:
       test('unknown channel name in sessions.channels is parsed without error', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  channels:\n    unknown_channel:\n      dm_scope: shared\n';
             }
             return null;
@@ -948,7 +1009,7 @@ projects:
       test('invalid type for sessions.model produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  model: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  model: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -970,7 +1031,7 @@ projects:
       test('guards: {fail_open: true} parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guards:\n  fail_open: true\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guards:\n  fail_open: true\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -983,7 +1044,7 @@ projects:
       test('guards: {enabled: false} parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guards:\n  enabled: false\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guards:\n  enabled: false\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -994,7 +1055,7 @@ projects:
       test('guards: {unknown_key: x} produces warning, defaults used', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guards:\n  unknown_key: x\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guards:\n  unknown_key: x\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1006,7 +1067,7 @@ projects:
       test('guards: non-map type produces warning, defaults used', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'guards: true\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'guards: true\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1022,7 +1083,7 @@ projects:
       test('no providers section returns empty map', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'search:\n  backend: fts5\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'search:\n  backend: fts5\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1034,7 +1095,7 @@ projects:
       test('single provider enabled with API key parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: my-key\n';
             }
             return null;
@@ -1049,7 +1110,7 @@ projects:
       test('multiple providers parsed', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: brave-key\n    tavily:\n      enabled: false\n      api_key: tavily-key\n';
             }
             return null;
@@ -1065,7 +1126,7 @@ projects:
       test('provider with enabled: false parsed with enabled=false', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers:\n    brave:\n      enabled: false\n      api_key: key\n';
             }
             return null;
@@ -1078,7 +1139,7 @@ projects:
       test('provider missing api_key skipped with warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers:\n    brave:\n      enabled: true\n';
             }
             return null;
@@ -1092,7 +1153,7 @@ projects:
       test('provider with env var api_key substituted', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers:\n    brave:\n      enabled: true\n      api_key: \${BRAVE_API_KEY}\n';
             }
             return null;
@@ -1105,7 +1166,7 @@ projects:
       test('invalid providers type produces warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'search:\n  providers: not-a-map\n';
             }
             return null;
@@ -1135,7 +1196,7 @@ projects:
       test('sessions.dm_scope: shared parses to DmScope.shared', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  dm_scope: shared\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1147,7 +1208,7 @@ projects:
       test('sessions.group_scope: per-member parses to GroupScope.perMember', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  group_scope: per-member\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  group_scope: per-member\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1159,7 +1220,7 @@ projects:
       test('per-channel override parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  dm_scope: per-contact\n  channels:\n    signal:\n      group_scope: per-member\n';
             }
             return null;
@@ -1177,7 +1238,7 @@ projects:
       test('invalid dm_scope value produces warning, uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: invalid\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  dm_scope: invalid\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1189,7 +1250,7 @@ projects:
       test('invalid type for dm_scope produces warning, uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'sessions:\n  dm_scope: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1201,7 +1262,7 @@ projects:
       test('unknown channel name in overrides produces warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  channels:\n    unknown:\n      dm_scope: shared\n';
             }
             return null;
@@ -1216,7 +1277,7 @@ projects:
       test('invalid channel override value produces warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  channels:\n    signal:\n      dm_scope: bogus\n';
             }
             return null;
@@ -1233,7 +1294,7 @@ projects:
       test('entries from automation.scheduled_tasks appear in automationScheduledTasks', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return '''
 automation:
   scheduled_tasks:
@@ -1258,7 +1319,7 @@ automation:
       test('deprecation warning generated for automation.scheduled_tasks', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return '''
 automation:
   scheduled_tasks:
@@ -1280,7 +1341,7 @@ automation:
       test('coexistence: both scheduling.jobs[type:task] and automation.scheduled_tasks work', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return '''
 scheduling:
   jobs:
@@ -1314,7 +1375,7 @@ automation:
       test('legacy task.type field works (from automation.scheduled_tasks)', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return '''
 automation:
   scheduled_tasks:
@@ -1350,7 +1411,7 @@ automation:
       test('sessions.maintenance.mode: enforce parses correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    mode: enforce\n';
             }
             return null;
@@ -1363,7 +1424,7 @@ automation:
       test('sessions.maintenance.prune_after_days: 7 parses correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    prune_after_days: 7\n';
             }
             return null;
@@ -1376,7 +1437,7 @@ automation:
       test('all maintenance int fields parse correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    max_sessions: 100\n    max_disk_mb: 512\n    cron_retention_hours: 48\n';
             }
             return null;
@@ -1391,7 +1452,7 @@ automation:
       test('sessions.maintenance.schedule parses correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    schedule: "0 4 * * *"\n';
             }
             return null;
@@ -1404,7 +1465,7 @@ automation:
       test('invalid sessions.maintenance.mode warns and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    mode: invalid\n';
             }
             return null;
@@ -1418,7 +1479,7 @@ automation:
       test('invalid type for maintenance int field warns and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance:\n    prune_after_days: abc\n';
             }
             return null;
@@ -1432,7 +1493,7 @@ automation:
       test('invalid type for sessions.maintenance warns and uses defaults', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'sessions:\n  maintenance: true\n';
             }
             return null;
@@ -1460,7 +1521,7 @@ automation:
         );
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'slack:\n  webhook: https://hooks.example.com/abc\n';
             }
             return null;
@@ -1476,7 +1537,7 @@ automation:
       test('unknown key without parser produces warning and stores raw map', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'my_custom_section:\n  foo: bar\n';
             }
             return null;
@@ -1513,7 +1574,7 @@ automation:
         });
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'bad_ext:\n  x: 1\n';
             }
             return null;
@@ -1534,7 +1595,7 @@ automation:
         });
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'empty_ext:\n';
             }
             return null;
@@ -1558,7 +1619,7 @@ automation:
         );
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'ext_a:\n  url: http://a\next_b:\n  endpoint: http://b\n';
             }
             return null;
@@ -1573,7 +1634,7 @@ automation:
       test('scalar extension value is preserved losslessly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'feature_flag: true\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'feature_flag: true\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1586,7 +1647,7 @@ automation:
       test('list extension value is preserved losslessly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'custom_list:\n  - alpha\n  - beta\n';
             }
             return null;
@@ -1602,7 +1663,7 @@ automation:
       test('null extension value is preserved losslessly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'placeholder_section:\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'placeholder_section:\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1616,7 +1677,7 @@ automation:
         DartclawConfig.registerExtensionParser('flag_ext', (yaml, warns) => _SlackConfig(webhook: 'parsed'));
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'flag_ext: 42\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'flag_ext: 42\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1641,7 +1702,7 @@ automation:
         DartclawConfig.clearExtensionParsers();
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'gone:\n  x: 1\n';
             }
             return null;
@@ -1658,7 +1719,7 @@ automation:
       test('features.thread_binding.enabled parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'features:\n  thread_binding:\n    enabled: true\n';
             }
             return null;
@@ -1672,7 +1733,7 @@ automation:
       test('features.thread_binding.idle_timeout_minutes parsed correctly', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'features:\n  thread_binding:\n    enabled: true\n    idle_timeout_minutes: 30\n';
             }
             return null;
@@ -1685,7 +1746,7 @@ automation:
       test('missing features section defaults to disabled', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') return 'port: 3000\n';
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'port: 3000\n';
             return null;
           },
           env: {'HOME': '/home/user'},
@@ -1697,7 +1758,7 @@ automation:
       test('old crowd_coding key produces unknown-key warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'crowd_coding:\n  enabled: true\n';
             }
             return null;
@@ -1713,7 +1774,7 @@ automation:
       test('governance.crowd_coding parses model and effort', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'governance:\n  crowd_coding:\n    model: haiku\n    effort: low\n';
             }
             return null;
@@ -1727,7 +1788,7 @@ automation:
       test('invalid type for governance.crowd_coding.model produces warning', () {
         final config = DartclawConfig.load(
           fileReader: (path) {
-            if (path == 'dartclaw.yaml') {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
               return 'governance:\n  crowd_coding:\n    model: 42\n';
             }
             return null;

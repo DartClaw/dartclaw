@@ -230,7 +230,7 @@ void main() {
       expect(html, contains('workflow-loop-badge'));
     });
 
-    test('status badge CSS class matches step status', () {
+    test('step icon CSS class matches step status', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,
         navItems: const [],
@@ -249,7 +249,7 @@ void main() {
         contextEntries: const [],
         loopInfo: const [],
       );
-      expect(html, contains('status-badge-completed'));
+      expect(html, contains('workflow-step-icon--completed'));
     });
   });
 

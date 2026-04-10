@@ -73,8 +73,31 @@ Map<String, dynamic> _loadYaml(
         return {};
       }
     } else {
-      content = reader('dartclaw.yaml');
-      content ??= reader(p.join(env['HOME'] ?? env['USERPROFILE'] ?? '.', '.dartclaw', 'dartclaw.yaml'));
+      // Check for CWD-based config (deprecated in 0.16.2) and emit a warning.
+      // The new discovery order no longer includes CWD. Explicit external-config
+      // mode is still supported via --config or DARTCLAW_CONFIG.
+      final cwdContent = reader('dartclaw.yaml');
+      if (cwdContent != null) {
+        warns.add(
+          'Found dartclaw.yaml in the current directory, but CWD config discovery is deprecated. '
+          'Use --config ./dartclaw.yaml or move it to ~/.dartclaw/dartclaw.yaml. '
+          'See: https://dartclaw.dev/guide/configuration#instance-directory',
+        );
+      }
+
+      // DARTCLAW_HOME points at an instance directory, not a config file.
+      final homeEnv = env['DARTCLAW_HOME'];
+      if (homeEnv != null) {
+        final homeConfigPath = p.join(expandHome(homeEnv, env: env), 'dartclaw.yaml');
+        content = reader(homeConfigPath);
+        if (content == null) {
+          warns.add('DARTCLAW_HOME points to a directory with no dartclaw.yaml: $homeEnv — using defaults');
+          return {};
+        }
+      } else {
+        // Default: ~/.dartclaw/dartclaw.yaml
+        content = reader(p.join(env['HOME'] ?? env['USERPROFILE'] ?? '.', '.dartclaw', 'dartclaw.yaml'));
+      }
     }
   }
 
@@ -151,7 +174,8 @@ ServerConfig _parseTopLevel(
     warns,
   );
 
-  final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaults.dataDir, env, warns);
+  final defaultDataDir = env['DARTCLAW_HOME'] ?? defaults.dataDir;
+  final rawDataDir = cli['data_dir'] ?? _yamlString('data_dir', yaml['data_dir'], defaultDataDir, env, warns);
   final dataDir = expandHome(rawDataDir, env: env);
   final claudeExecutable = expandHome(cli['claude_executable'] ?? defaults.claudeExecutable, env: env);
   final rawSourceDir = cli['source_dir'] ?? _yamlStringOrNull('source_dir', yaml['source_dir'], env, warns);
@@ -487,11 +511,7 @@ GatewayConfig _parseGateway(
   return GatewayConfig(authMode: authMode, token: token, hsts: hsts, reload: reload);
 }
 
-ReloadConfig _parseReloadConfig(
-  Map<dynamic, dynamic>? gMap,
-  ReloadConfig defaults,
-  List<String> warns,
-) {
+ReloadConfig _parseReloadConfig(Map<dynamic, dynamic>? gMap, ReloadConfig defaults, List<String> warns) {
   if (gMap == null) return defaults;
   final reloadRaw = gMap['reload'];
   if (reloadRaw == null) return defaults;

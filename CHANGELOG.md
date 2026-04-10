@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.2]
+
+CLI Onboarding Wizard — guided first-run setup, unified instance directory, background service management, and verification/launch handoff. 6 stories across 4 phases: foundation → core setup → operations → advanced configuration.
+
+### Added
+
+- **Unified instance directory & config discovery** (S01): `~/.dartclaw/` is now the canonical home for config, workspace, sessions, logs, and databases. `DARTCLAW_HOME` env var supports multi-instance layouts. Config discovery follows `--config` > `DARTCLAW_CONFIG` > `DARTCLAW_HOME` > `~/.dartclaw/dartclaw.yaml`. CWD-level `./dartclaw.yaml` discovery deprecated with a warning
+- **`dartclaw init` command** (S02–S03): Primary setup entrypoint (`dartclaw setup` as alias) that creates a runnable instance through preflight checks, config generation, workspace scaffold, and `ONBOARDING.md` seeding. Non-interactive mode (`--non-interactive`) accepts all inputs via flags for scripts and CI. Interactive Quick-track wizard (mason_logger TUI) collects provider, auth, model, port, and gateway-auth in seconds. Re-running against an existing instance shows current values as defaults and never overwrites curated behavior files
+- **Service management** (S04): `dartclaw service install|uninstall|status|start|stop` manages DartClaw as a user-scoped background service — LaunchAgent on macOS, `systemd --user` on Linux — without requiring root. Service units are instance-scoped via directory hash, so multiple instances coexist cleanly. `--source-dir` is carried into generated units to resolve templates outside the source tree
+- **Verification & launch completion** (S05): Local verification (config parse, binary presence, writable paths, port availability) always runs before setup reports success. Optional network verification (provider credential probes), skippable with `--skip-verify`, yields an explicit "configured but unverified" state. Post-setup launch choices: `--launch foreground`, `--launch background`, `--launch service`, or `--launch skip` (default)
+- **Full-track advanced configuration** (S06): `dartclaw init --track full` widens the wizard to collect channel inputs (WhatsApp, Signal, Google Chat) and advanced runtime options (container isolation, guard toggles) without lengthening Quick-track. Every interactive prompt has a non-interactive flag equivalent. Deferred steps (QR pairing, Signal linking, webhook registration) are noted with explicit post-serve instructions rather than simulated in the wizard
+
+### Improved
+
+- **Workflow list page**: Run cards now display token count in the meta row alongside step progress and start time
+- **Workflow detail page**: Metadata section upgraded from flat label/value layout to a 4-column metric card grid (Status, Started, Tokens, Duration); progress bar now shows completion percentage; step pipeline uses colored circular icons (checkmark/dot/circle) instead of text status badges
+- **Workflow step detail**: Artifact labels replaced with typed colored badge pills (Diff, Document, Data, PR); step metrics footer now includes duration alongside token count
+- **Canvas standalone page**: Permission chip now uses distinct accent (interact) vs muted (view) styling; connection status indicator shows text labels (Connected/Reconnecting/Disconnected) alongside the dot; heading includes accent-colored logo mark
+- **Canvas admin page**: Live Canvas and Share Links cards now render in a side-by-side two-column grid on wide viewports (single column below 960px)
+
+### Fixed
+
+- **Gap review fixes**: Config-discovery edge cases for `DARTCLAW_HOME` with trailing slashes and symlinked instance directories; service-backend error handling for stale PID files and pre-existing units; preflight port-check race condition when multiple init processes target the same port
+
+### Changed
+
+- **Config discovery order**: `./dartclaw.yaml` CWD-level discovery removed from default resolution. Use `--config ./dartclaw.yaml` for explicit project-level configs
+- **Default port**: Changed from `3000` to `3333` in examples and defaults
+- **`dartclaw deploy setup` deprecated**: Now emits a deprecation notice and redirects to `dartclaw init`. The old root-scoped daemon workflow is replaced by user-scoped `dartclaw service`
+- **Public guides updated**: `getting-started.md`, `configuration.md`, and `deployment.md` rewritten for the instance-directory model, `dartclaw init`, and `dartclaw service`
+
+---
+
 ## [0.16.1]
 
 Workflow Engine: Hybrid Steps, Workflow Packs, and 0.16 Stabilization — hybrid workflow execution primitives, built-in workflow packs, summary-first workflow discovery, and follow-up hardening from dual gap-review passes.

@@ -70,10 +70,22 @@ String workflowDetailPageTemplate({
       'rejected' => 'Rejected',
       _ => titleCase(s['status']?.toString() ?? 'pending'),
     };
+    s['statusIcon'] = switch (s['status']?.toString()) {
+      'completed' => '&#x2713;',
+      'running' => '&#x2022;',
+      'failed' || 'rejected' => '&#x2717;',
+      'awaiting_approval' => '&#x25CF;',
+      'queued' => '&#x25CB;',
+      _ => '&#x25CB;',
+    };
     s['typeLabel'] = s['type']?.toString() ?? '';
     s['isParallel'] = s['parallel'] == true;
     return s;
   }).toList();
+
+  // Compute duration.
+  final startedAt = run['startedAt'];
+  final durationDisplay = _formatDuration(startedAt, run['completedAt']);
 
   final body = templateLoader.trellis.render(
     templateLoader.source('workflow_detail'),
@@ -91,6 +103,7 @@ String workflowDetailPageTemplate({
       'hasCompletedAt': run['completedAt'] != null,
       'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
       'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
+      'durationDisplay': durationDisplay,
       'hasError': run['errorMessage'] != null,
       'errorMessage': run['errorMessage'],
       'progressPercent': progressPercent,
@@ -123,7 +136,10 @@ String workflowStepDetailFragment({
   required List<Map<String, dynamic>> contextInputs,
   required List<Map<String, dynamic>> contextOutputs,
   int? tokenCount,
+  String? durationDisplay,
 }) {
+  final hasTokens = tokenCount != null && tokenCount > 0;
+  final hasDuration = durationDisplay != null && durationDisplay.isNotEmpty;
   return templateLoader.trellis.renderFragment(
     templateLoader.source('workflow_step_detail'),
     fragment: 'stepDetail',
@@ -137,8 +153,10 @@ String workflowStepDetailFragment({
       'contextInputs': contextInputs,
       'hasContextOutputs': contextOutputs.isNotEmpty,
       'contextOutputs': contextOutputs,
-      'hasMetrics': tokenCount != null && tokenCount > 0,
+      'hasMetrics': hasTokens || hasDuration,
       'tokenCount': tokenCount != null ? formatNumber(tokenCount) : '0',
+      'hasDuration': hasDuration,
+      'durationDisplay': durationDisplay ?? '--',
     },
   );
 }
@@ -150,5 +168,26 @@ String _formatTimeAgo(Object? value) {
     return formatRelativeTime(dt);
   } catch (_) {
     return value.toString();
+  }
+}
+
+String _formatDuration(Object? startedAt, Object? completedAt) {
+  if (startedAt == null) return '--';
+  try {
+    final start = startedAt is DateTime ? startedAt : DateTime.parse(startedAt.toString());
+    final end = completedAt != null
+        ? (completedAt is DateTime ? completedAt : DateTime.parse(completedAt.toString()))
+        : DateTime.now();
+    final diff = end.difference(start);
+    if (diff.inHours > 0) {
+      final mins = diff.inMinutes % 60;
+      return '${diff.inHours}h ${mins}m';
+    }
+    if (diff.inMinutes > 0) {
+      return '${diff.inMinutes}m';
+    }
+    return '${diff.inSeconds}s';
+  } catch (_) {
+    return '--';
   }
 }

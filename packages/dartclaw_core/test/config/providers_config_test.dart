@@ -2,7 +2,10 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null, env: {'HOME': '/tmp'});
+  return DartclawConfig.load(
+    fileReader: (path) => path == '/tmp/.dartclaw/dartclaw.yaml' ? yaml : null,
+    env: {'HOME': '/tmp'},
+  );
 }
 
 void main() {

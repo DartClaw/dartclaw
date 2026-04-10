@@ -6,43 +6,38 @@
 
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
-      <!-- Workflow metadata card -->
-      <div class="workflow-meta-card card">
-        <div class="task-meta-grid">
-          <div class="task-meta-item">
-            <span class="task-meta-label">Workflow</span>
-            <span tl:text="${definitionName}">spec-and-implement</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Status</span>
-            <span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">running</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Started</span>
-            <span tl:text="${startedAtDisplay}">2h ago</span>
-          </div>
-          <div tl:if="${hasCompletedAt}" class="task-meta-item">
-            <span class="task-meta-label">Completed</span>
-            <span tl:text="${completedAtDisplay}">30m ago</span>
-          </div>
-          <div class="task-meta-item">
-            <span class="task-meta-label">Tokens</span>
-            <span tl:text="${totalTokens}">15,000</span>
-          </div>
+      <!-- Workflow metadata card grid -->
+      <div class="workflow-metrics-grid">
+        <div class="metric-card">
+          <div class="metric-value"><span tl:classappend="${statusBadgeClass}" class="status-badge" tl:text="${statusLabel}">running</span></div>
+          <div class="metric-label">Status</div>
         </div>
-        <div tl:if="${hasError}" class="workflow-error-message">
-          <span class="icon icon-triangle-alert" aria-hidden="true"></span>
-          <span tl:text="${errorMessage}">Error message</span>
+        <div class="metric-card">
+          <div class="metric-value" tl:text="${startedAtDisplay}">2h ago</div>
+          <div class="metric-label">Started</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-value" tl:text="${totalTokens}">15,000</div>
+          <div class="metric-label">Tokens</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" tl:text="${durationDisplay}">1h 42m</div>
+          <div class="metric-label">Duration</div>
+        </div>
+      </div>
+      <div tl:if="${hasError}" class="workflow-error-message">
+        <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+        <span tl:text="${errorMessage}">Error message</span>
       </div>
 
       <!-- Progress bar -->
       <div class="workflow-progress-section">
-        <div class="workflow-progress-label">
-          <span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps
-        </div>
         <div class="workflow-progress-bar">
           <div class="workflow-progress-fill" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>
+        </div>
+        <div class="workflow-progress-text">
+          <span><span tl:text="${completedSteps}">3</span> / <span tl:text="${totalSteps}">6</span> steps complete</span>
+          <span class="workflow-progress-pct" tl:text="${progressPercent} + '%'">50%</span>
         </div>
       </div>
 
@@ -86,8 +81,8 @@
                class="workflow-step-card card"
                tl:attr="data-step-index=${step.index},data-step-status=${step.status},data-step-id=${step.id}">
             <div class="workflow-step-header" data-step-toggle="">
-              <span tl:classappend="'status-badge-' + ${step.status}" class="status-badge"
-                    tl:text="${step.statusLabel}">pending</span>
+              <span tl:classappend="'workflow-step-icon--' + ${step.status}" class="workflow-step-icon"
+                    tl:utext="${step.statusIcon}">&#x25CB;</span>
               <span class="workflow-step-name" tl:text="${step.name}">Research</span>
               <span tl:if="${step.isLoopStep}" class="workflow-loop-badge"
                     tl:attr="data-loop-id=${step.loopId}"

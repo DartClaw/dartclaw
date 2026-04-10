@@ -3,7 +3,11 @@ import 'package:test/test.dart';
 
 // Helpers for config-via-YAML tests
 DartclawConfig _loadYaml(String yaml) {
-  return DartclawConfig.load(fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null, env: {'HOME': '/tmp'});
+  return DartclawConfig.load(
+    configPath: 'dartclaw.yaml',
+    fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+    env: {'HOME': '/tmp'},
+  );
 }
 
 void main() {

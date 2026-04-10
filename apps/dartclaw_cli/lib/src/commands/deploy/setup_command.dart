@@ -5,7 +5,10 @@ import 'package:args/command_runner.dart';
 /// Signature matching [Process.run] for dependency injection in deploy commands.
 typedef RunProcess = Future<ProcessResult> Function(String executable, List<String> arguments);
 
-/// Validates deployment prerequisites.
+/// Deprecated: prerequisite check now integrated into `dartclaw init`.
+///
+/// Running `dartclaw deploy setup` redirects users to `dartclaw init` and
+/// performs a best-effort Docker/OS check for users who relied on the old flow.
 class SetupCommand extends Command<void> {
   final RunProcess _run;
 
@@ -13,12 +16,18 @@ class SetupCommand extends Command<void> {
   String get name => 'setup';
 
   @override
-  String get description => 'Validate deployment prerequisites';
+  String get description =>
+      '[Deprecated] Validate deployment prerequisites — use "dartclaw init" instead';
 
   SetupCommand({RunProcess? run}) : _run = run ?? Process.run;
 
   @override
   Future<void> run() async {
+    stderr.writeln(
+      'DEPRECATED: "dartclaw deploy setup" is deprecated. '
+      'Run "dartclaw init" to set up your instance — it includes all preflight checks.',
+    );
+
     stdout.writeln('DartClaw Deployment Setup Check');
     stdout.writeln('=' * 40);
 
@@ -68,14 +77,14 @@ class SetupCommand extends Command<void> {
     if (dir.existsSync()) {
       _pass('Data directory exists: $dataDir');
     } else {
-      _warn('Data directory does not exist: $dataDir (will be created)');
+      _warn('Data directory does not exist: $dataDir (will be created by dartclaw init)');
     }
 
-    stdout.writeln();
+    stdout.writeln('');
     if (allPassed) {
-      stdout.writeln('All checks passed. Run: dartclaw deploy config');
+      stdout.writeln('All checks passed. Run: dartclaw init to complete setup.');
     } else {
-      stdout.writeln('Some checks failed. Fix the issues above and re-run.');
+      stdout.writeln('Some checks failed. Fix the issues above, then run: dartclaw init');
     }
   }
 

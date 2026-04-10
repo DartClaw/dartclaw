@@ -3412,9 +3412,13 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   margin: 0 auto;
 }
 
-.workflow-meta-card {
+.workflow-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
   margin-bottom: var(--sp-4);
 }
+@media (max-width: 900px) { .workflow-metrics-grid { grid-template-columns: repeat(2, 1fr); } }
 
 .workflow-error-message {
   margin-top: var(--sp-3);
@@ -3432,10 +3436,18 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   margin-bottom: var(--sp-4);
 }
 
-.workflow-progress-label {
+.workflow-progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--sp-1);
   font-size: var(--text-sm);
   color: var(--fg-overlay);
-  margin-bottom: var(--sp-1);
+}
+
+.workflow-progress-pct {
+  color: var(--accent);
+  font-weight: var(--weight-bold);
 }
 
 .workflow-progress-bar {
@@ -3527,6 +3539,41 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   50% { opacity: 0.4; }
 }
 
+/* Step icons */
+.workflow-step-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  background: var(--bg-surface0);
+  color: var(--fg-overlay);
+}
+.workflow-step-icon--completed {
+  background: color-mix(in srgb, var(--success) 14%, var(--bg-surface0));
+  color: var(--success);
+}
+.workflow-step-icon--running {
+  background: color-mix(in srgb, var(--info) 14%, var(--bg-surface0));
+  color: var(--info);
+}
+.workflow-step-icon--failed,
+.workflow-step-icon--rejected {
+  background: color-mix(in srgb, var(--error) 14%, var(--bg-surface0));
+  color: var(--error);
+}
+.workflow-step-icon--awaiting_approval {
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface0));
+  color: var(--warning);
+}
+.workflow-step-icon--queued {
+  background: color-mix(in srgb, var(--info) 14%, var(--bg-surface0));
+  color: var(--info);
+}
+
 /* Step header */
 .workflow-step-header {
   display: flex;
@@ -3599,9 +3646,40 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 
 .workflow-step-artifacts .artifact-item {
   display: flex;
+  align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-1) 0;
   font-size: var(--text-sm);
+}
+
+.workflow-artifact-badge {
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.workflow-artifact-badge--diff {
+  background: color-mix(in srgb, var(--info) 12%, var(--bg-surface0));
+  color: var(--info);
+  border: 1px solid color-mix(in srgb, var(--info) 20%, transparent);
+}
+.workflow-artifact-badge--document {
+  background: color-mix(in srgb, var(--fg-overlay) 10%, var(--bg-surface0));
+  color: var(--fg-sub0);
+  border: 1px solid color-mix(in srgb, var(--fg-overlay) 15%, transparent);
+}
+.workflow-artifact-badge--data {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface0));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.workflow-artifact-badge--pr {
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-surface0));
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
 }
 
 .workflow-step-context-io {
@@ -3609,9 +3687,20 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 }
 
 .workflow-step-metrics {
-  margin-top: var(--sp-2);
-  font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  font-size: var(--text-xs);
   color: var(--fg-overlay);
+}
+
+.workflow-step-metric-value {
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
 }
 
 /* Shared context viewer */
@@ -3743,7 +3832,8 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   font-size: var(--text-sm);
 }
 
-.workflow-run-progress {
+.workflow-run-progress,
+.workflow-run-tokens {
   font-variant-numeric: tabular-nums;
 }
 

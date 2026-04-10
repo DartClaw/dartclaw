@@ -93,7 +93,20 @@
         gap: 0.5rem;
         padding: 0.4rem 0.8rem;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .canvas-chip-interact {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      }
+      .canvas-chip-view {
+        background: color-mix(in srgb, var(--muted) 12%, transparent);
+        color: var(--muted);
+        border: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
       }
 
       #canvas-content {
@@ -123,20 +136,34 @@
         font-size: clamp(1.25rem, 3vw, 2.6rem);
       }
 
-      .status-dot {
+      .connection-status {
         position: fixed;
         right: 1rem;
         bottom: 1rem;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.14);
-        transition: background 120ms ease, transform 120ms ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: var(--muted);
+        z-index: 50;
       }
 
-      .status-connected { background: var(--ok); }
-      .status-reconnecting { background: var(--warn); transform: scale(1.08); }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        transition: background 120ms ease;
+      }
+
+      .status-connected { background: var(--ok); box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 40%, transparent); }
+      .status-reconnecting { background: var(--warn); animation: pulse-dot 1.5s ease-in-out infinite; }
       .status-disconnected { background: var(--danger); }
+
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.3); }
+      }
 
       dialog {
         border: 0;
@@ -221,8 +248,8 @@
     <div class="canvas-shell">
       <section class="canvas-stage">
         <header class="canvas-heading">
-          <span>DartClaw Canvas</span>
-          <span class="canvas-chip" tl:text="${permission}">interact</span>
+          <span><span style="color:var(--accent);font-weight:700;">&#10095;</span> DartClaw Canvas</span>
+          <span tl:classappend="${isInteract} ? 'canvas-chip-interact' : 'canvas-chip-view'" class="canvas-chip" tl:text="${permission}">interact</span>
         </header>
         <main id="canvas-content">
           <div class="canvas-waiting">
@@ -232,7 +259,10 @@
         </main>
       </section>
     </div>
-    <div id="connection-status" class="status-dot status-disconnected" title="Canvas connection state"></div>
+    <div id="connection-status" class="connection-status" title="Canvas connection state">
+      <span class="status-dot status-disconnected"></span>
+      <span id="connection-label">Connecting</span>
+    </div>
     <dialog id="nickname-dialog" tl:if="${isInteract}">
       <form method="dialog" class="nickname-card" id="nickname-form">
         <h2>Join the session</h2>
@@ -246,7 +276,9 @@
       (() => {
         const body = document.body;
         const content = document.getElementById('canvas-content');
-        const status = document.getElementById('connection-status');
+        const statusEl = document.getElementById('connection-status');
+        const statusDot = statusEl.querySelector('.status-dot');
+        const statusLabel = document.getElementById('connection-label');
         const dialog = document.getElementById('nickname-dialog');
         const nicknameForm = document.getElementById('nickname-form');
         const nicknameInput = document.getElementById('nickname-input');
@@ -257,8 +289,10 @@
 
         const waitingHtml = content.innerHTML;
 
+        const statusLabels = {connected: 'Connected', reconnecting: 'Reconnecting\u2026', disconnected: 'Disconnected'};
         function setStatus(name) {
-          status.className = 'status-dot status-' + name;
+          statusDot.className = 'status-dot status-' + name;
+          statusLabel.textContent = statusLabels[name] || name;
         }
 
         function readCookie(name) {

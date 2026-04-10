@@ -19,7 +19,7 @@ class ConfigCommand extends Command<void> {
   ConfigCommand() {
     argParser
       ..addOption('host', defaultsTo: 'localhost', help: 'Host to bind to')
-      ..addOption('port', defaultsTo: '3000', help: 'Port to listen on')
+      ..addOption('port', defaultsTo: '3333', help: 'Port to listen on')
       ..addOption('data-dir', help: 'Data directory (default: ~/.dartclaw)')
       ..addOption('user', help: 'OS user to run as (default: current user)')
       ..addOption('bin-path', help: 'Full path to dartclaw binary')

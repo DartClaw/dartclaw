@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/deploy/deploy_command.dart';
 import 'package:dartclaw_cli/src/commands/google_auth_command.dart';
+import 'package:dartclaw_cli/src/commands/init/init_command.dart';
 import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
+import 'package:dartclaw_cli/src/commands/service/service_command.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/commands/sessions_command.dart';
 import 'package:dartclaw_cli/src/commands/status_command.dart';
@@ -16,6 +18,9 @@ Future<void> main(List<String> args) async {
       DartclawRunner()
         ..addCommand(DeployCommand())
         ..addCommand(GoogleAuthCommand())
+        ..addCommand(InitCommand())
+        ..addCommand(SetupAliasCommand())
+        ..addCommand(ServiceCommand())
         ..addCommand(ServeCommand())
         ..addCommand(SessionsCommand())
         ..addCommand(StatusCommand())

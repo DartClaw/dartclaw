@@ -21,7 +21,7 @@ class SecretsCommand extends Command<void> {
       ..addOption('api-key', help: 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
       ..addOption('data-dir', help: 'Data directory (default: ~/.dartclaw)')
       ..addOption('host', defaultsTo: 'localhost', help: 'Host for health check')
-      ..addOption('port', defaultsTo: '3000', help: 'Port for health check');
+      ..addOption('port', defaultsTo: '3333', help: 'Port for health check');
   }
 
   @override

@@ -314,7 +314,11 @@ class WorkflowsPage extends DashboardPage {
       try {
         final taskArtifacts = await taskService.listArtifacts(task.id);
         for (final a in taskArtifacts) {
-          artifacts.add({'name': a.name, 'kindLabel': _artifactKindLabel(a.kind)});
+          artifacts.add({
+            'name': a.name,
+            'kindLabel': _artifactKindLabel(a.kind),
+            'badgeClass': _artifactBadgeClass(a.kind),
+          });
         }
       } catch (e) {
         _log.fine('Failed to load artifacts for task ${task.id}: $e');
@@ -351,10 +355,22 @@ class WorkflowsPage extends DashboardPage {
       }
     }
 
-    // Get token count for this step.
+    // Get token count and duration for this step.
     int? tokenCount;
+    String? stepDuration;
     if (task != null) {
       tokenCount = (task.configJson['totalTokens'] as num?)?.toInt();
+      if (task.startedAt != null) {
+        final end = task.completedAt ?? DateTime.now();
+        final diff = end.difference(task.startedAt!);
+        if (diff.inHours > 0) {
+          stepDuration = '${diff.inHours}h ${diff.inMinutes % 60}m';
+        } else if (diff.inMinutes > 0) {
+          stepDuration = '${diff.inMinutes}m';
+        } else {
+          stepDuration = '${diff.inSeconds}s';
+        }
+      }
     }
 
     final html = workflowStepDetailFragment(
@@ -363,6 +379,7 @@ class WorkflowsPage extends DashboardPage {
       contextInputs: contextInputs,
       contextOutputs: contextOutputs,
       tokenCount: tokenCount,
+      durationDisplay: stepDuration,
     );
 
     return Response.ok(html, headers: htmlHeaders);
@@ -374,6 +391,15 @@ class WorkflowsPage extends DashboardPage {
       ArtifactKind.diff => 'Diff',
       ArtifactKind.data => 'Data',
       ArtifactKind.pr => 'Pull Request',
+    };
+  }
+
+  static String _artifactBadgeClass(ArtifactKind kind) {
+    return switch (kind) {
+      ArtifactKind.diff => 'workflow-artifact-badge--diff',
+      ArtifactKind.document => 'workflow-artifact-badge--document',
+      ArtifactKind.data => 'workflow-artifact-badge--data',
+      ArtifactKind.pr => 'workflow-artifact-badge--pr',
     };
   }
 

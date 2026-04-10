@@ -21,7 +21,7 @@ void main() {
 
       final json = serializer.toJson(config, runtime: runtime);
 
-      expect(json['port'], 3000);
+      expect(json['port'], 3333);
       expect(json['host'], 'localhost');
       expect(json['dataDir'], '~/.dartclaw');
       expect(json['baseUrl'], isNull);

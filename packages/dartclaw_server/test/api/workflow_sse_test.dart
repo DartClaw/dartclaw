@@ -413,5 +413,96 @@ void main() {
       expect(parallelFrames, isNotEmpty);
       expect(parallelFrames.first['stepIds'], ['step-a', 'step-b']);
     });
+
+    test('S03: forwards WorkflowApprovalRequestedEvent', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      );
+
+      final now = DateTime.now();
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(WorkflowApprovalRequestedEvent(
+            runId: 'run-001',
+            stepId: 'gate',
+            message: 'Please approve',
+            timeoutSeconds: 300,
+            timestamp: now,
+          ));
+        },
+      );
+      final approvalFrames = frames.where((f) => f['type'] == 'approval_requested').toList();
+      expect(approvalFrames, hasLength(1));
+      expect(approvalFrames.first['runId'], 'run-001');
+      expect(approvalFrames.first['stepId'], 'gate');
+      expect(approvalFrames.first['message'], 'Please approve');
+      expect(approvalFrames.first['timeoutSeconds'], 300);
+    });
+
+    test('S03: forwards WorkflowApprovalResolvedEvent with approved=true', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      );
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(WorkflowApprovalResolvedEvent(
+            runId: 'run-001',
+            stepId: 'gate',
+            approved: true,
+            timestamp: DateTime.now(),
+          ));
+        },
+      );
+      final resolvedFrames = frames.where((f) => f['type'] == 'approval_resolved').toList();
+      expect(resolvedFrames, hasLength(1));
+      expect(resolvedFrames.first['approved'], isTrue);
+      expect(resolvedFrames.first['feedback'], isNull);
+    });
+
+    test('S03: forwards WorkflowApprovalResolvedEvent with feedback', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      );
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(WorkflowApprovalResolvedEvent(
+            runId: 'run-001',
+            stepId: 'gate',
+            approved: false,
+            feedback: 'Not ready',
+            timestamp: DateTime.now(),
+          ));
+        },
+      );
+      final resolvedFrames = frames.where((f) => f['type'] == 'approval_resolved').toList();
+      expect(resolvedFrames, hasLength(1));
+      expect(resolvedFrames.first['approved'], isFalse);
+      expect(resolvedFrames.first['feedback'], 'Not ready');
+    });
+
+    test('S03: approval events for other runs are NOT forwarded', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      );
+
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          eventBus.fire(WorkflowApprovalRequestedEvent(
+            runId: 'other-run',
+            stepId: 'gate',
+            message: 'Approve?',
+            timestamp: DateTime.now(),
+          ));
+        },
+      );
+      final approvalFrames = frames.where((f) => f['type'] == 'approval_requested').toList();
+      expect(approvalFrames, isEmpty);
+    });
   });
 }

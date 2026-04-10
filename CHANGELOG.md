@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.1]
+
+Workflow Engine: Hybrid Steps, Workflow Packs, and 0.16 Stabilization — hybrid workflow execution primitives, built-in workflow packs, summary-first workflow discovery, and follow-up hardening from dual gap-review passes.
+
+### Added
+
+- **Hybrid workflow schema + validation CLI** (S01): Workflow definitions now support `bash`, `approval`, `continueSession`, `onError`, and `workdir` while remaining backward-compatible with 0.15/0.15.1 definitions. Validation warnings are now first-class alongside hard errors, and operators can validate definitions without execution via `dartclaw workflow validate <path>`
+- **Host-side bash steps + step-level failure policy** (S02): `type: bash` runs deterministically on the host with template substitution, shell-escaped context interpolation, `workdir` support, stdout/stderr capture, timeout handling, and existing `text`/`json`/`lines` output extraction. `onError: pause|continue` now applies to both bash and agent steps
+- **Approval gates + explicit approval pause flow** (S03): `type: approval` adds a zero-token human checkpoint to workflows using the existing paused lifecycle, with explicit approval metadata carried through the API, UI, SSE, and resume/cancel flows
+- **Session continuity + worktree context bridge** (S04): Agent steps can now opt into `continueSession` to reuse a prior step's conversation context through a validated linear chain, while coding steps automatically expose branch/worktree metadata into workflow context for downstream deterministic steps
+- **Built-in delivery workflow pack** (S05): Added `adversarial-dev` for evaluator-isolated adversarial iteration and `idea-to-pr` for hybrid delivery flows that combine planning, approval, coding, deterministic validation, review fan-out, and PR creation
+- **Built-in authoring/review workflow pack** (S06): Added `workflow-builder`, which goes from workflow description to YAML to validation summary, and `comprehensive-pr-review`, which performs deterministic diff extraction, parallel specialized review, and synthesis
+- **Progressive-disclosure workflow discovery** (S07): Workflow registry/API/browser contracts are now summary-first by default, with on-demand full-definition fetches so the picker and browser stay context-efficient while still supporting detailed inspection
+- **0.16 stabilization follow-through**: Server/CLI verification reliability, hot-reload end-to-end coverage, SSE continuity across reloadable config changes, and the guard-chain reconfigurability seam were tightened so package-wide verification and docs match the shipped architecture again
+
+### Fixed
+
+- **Parallel hybrid-step execution + result preservation**: Parallel groups now execute through the shared step runtime instead of a legacy task-only path, so hybrid steps keep the same behavior as sequential execution. Parallel result merging now preserves explicit step metadata including bash success state, status fields, and session identifiers
+- **Approval timeout lifecycle + UI/API state**: Approval timeouts now surface as `timed_out` in workflow run status views instead of appearing as a generic paused state. Approval payloads on workflow pages and API responses now retain timeout/cancel details needed to explain why execution stopped
+- **Workflow authoring validation hardening**: Validation now rejects `continueSession` on `parallel: true` steps, rejects multi-prompt `bash` and `approval` steps that cannot safely continue across turns, rejects empty `workdir` values instead of silently resolving to the process CWD, and continues continuity checks in CLI validation even when no configured providers support them
+- **Timeout field compatibility**: Workflow parsing now accepts `timeoutSeconds` as a compatibility alias while documentation remains canonical on `timeout`
+- **Built-in workflow prompt/file safety**: Built-in workflow definitions no longer rely on unsafe heredoc interpolation for branch names, PR bodies, or generated YAML content. The `idea-to-pr` approval step now includes an explicit approval prompt instead of an empty one
+- **Unsupported `onError` feedback**: Unsupported `onError` values now emit validation warnings instead of failing silently, aligning the validator with documented runtime behavior
+
+### Changed
+
+- **Workflow authoring guide**: `docs/guide/workflows.md` updated to document the canonical timeout field, clarify compatibility behavior, and stay aligned with the hardened validator/runtime contract
+
 ## [0.16.0]
 
 Always-On Foundation — compaction observability, live config Tier 3, alert-routing primitives, guard hot-reload, and harness hardening. 14 stories across 5 phases: compaction observability, hot-reload, harness hardening, alert routing, and guard-chain reconfiguration.

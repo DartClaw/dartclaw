@@ -47,14 +47,17 @@ Map<String, dynamic> _makeDefinition({
   String description = 'Full feature pipeline',
   int stepCount = 6,
   bool hasLoops = false,
-  List<String> variableNames = const ['FEATURE', 'PROJECT'],
+  List<Map<String, dynamic>> variableHints = const [
+    {'name': 'FEATURE', 'description': 'Feature to implement', 'required': true},
+    {'name': 'PROJECT', 'description': 'Target project', 'required': false},
+  ],
 }) {
   return {
     'name': name,
     'description': description,
     'stepCount': stepCount,
     'hasLoops': hasLoops,
-    'variableNames': variableNames,
+    'variableHints': variableHints,
   };
 }
 
@@ -188,11 +191,23 @@ void main() {
 
     test('variable chips rendered for definition variables', () {
       final html = _render(definitions: [
-        _makeDefinition(variableNames: ['FEATURE', 'PROJECT']),
+        _makeDefinition(variableHints: [
+          {'name': 'FEATURE', 'description': 'Feature to implement', 'required': true},
+          {'name': 'PROJECT', 'description': 'Target project', 'required': false},
+        ]),
       ]);
       expect(html, contains('workflow-var-chip'));
       expect(html, contains('FEATURE'));
       expect(html, contains('PROJECT'));
+    });
+
+    test('variable chip title shows description hint', () {
+      final html = _render(definitions: [
+        _makeDefinition(variableHints: [
+          {'name': 'FEATURE', 'description': 'Feature description to implement', 'required': true},
+        ]),
+      ]);
+      expect(html, contains('Feature description to implement'));
     });
 
     test('renders definition select dropdown', () {

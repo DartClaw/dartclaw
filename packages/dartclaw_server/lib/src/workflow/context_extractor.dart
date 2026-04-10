@@ -69,6 +69,31 @@ class ContextExtractor {
       // Determine output config for this key.
       final config = step.outputs?[outputKey];
 
+      // source: worktree.* — read directly from persisted task.worktreeJson.
+      if (config?.source != null) {
+        final worktreeJson = task.worktreeJson;
+        final value = switch (config!.source) {
+          'worktree.branch' => (worktreeJson?['branch'] as String?) ?? '',
+          'worktree.path' => (worktreeJson?['path'] as String?) ?? '',
+          _ => null,
+        };
+        if (value != null) {
+          outputs[outputKey] = value;
+          if (value.isEmpty) {
+            _log.warning(
+              'worktree source "${config.source}" for "$outputKey" in step "${step.id}" '
+              'returned empty: task ${task.id} has no worktree metadata',
+            );
+          }
+          continue;
+        }
+        // Unknown source — fall through to normal extraction with a warning.
+        _log.warning(
+          'Unknown output source "${config.source}" for "$outputKey" in step "${step.id}"; '
+          'falling back to normal extraction',
+        );
+      }
+
       if (config != null && config.format != OutputFormat.text) {
         // Format-aware extraction (json or lines).
         final rawContent = await _extractRawContent(step, task, outputKey);

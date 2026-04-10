@@ -1,8 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        WorkflowDefinitionParser,
-        WorkflowDefinitionValidator,
-        builtInWorkflowYaml;
+    show WorkflowDefinitionParser, WorkflowDefinitionValidator, builtInWorkflowYaml;
 import 'package:test/test.dart';
 
 void main() {
@@ -10,8 +7,8 @@ void main() {
   final validator = WorkflowDefinitionValidator();
 
   group('builtInWorkflowYaml map', () {
-    test('contains exactly 6 entries', () {
-      expect(builtInWorkflowYaml, hasLength(6));
+    test('contains exactly 10 entries', () {
+      expect(builtInWorkflowYaml, hasLength(10));
     });
 
     test('contains expected workflow names as keys', () {
@@ -24,6 +21,10 @@ void main() {
           'refactor',
           'review-and-remediate',
           'plan-and-execute',
+          'adversarial-dev',
+          'idea-to-pr',
+          'workflow-builder',
+          'comprehensive-pr-review',
         ]),
       );
     });
@@ -32,16 +33,13 @@ void main() {
   group('each built-in workflow parses and validates', () {
     for (final entry in builtInWorkflowYaml.entries) {
       test('${entry.key}: parses without error', () {
-        expect(
-          () => parser.parse(entry.value, sourcePath: 'built-in:${entry.key}'),
-          returnsNormally,
-        );
+        expect(() => parser.parse(entry.value, sourcePath: 'built-in:${entry.key}'), returnsNormally);
       });
 
       test('${entry.key}: validates without errors', () {
         final definition = parser.parse(entry.value, sourcePath: 'built-in:${entry.key}');
-        final errors = validator.validate(definition);
-        expect(errors, isEmpty, reason: errors.join('; '));
+        final report = validator.validate(definition);
+        expect(report.errors, isEmpty, reason: report.errors.join('; '));
       });
 
       test('${entry.key}: definition.name matches map key', () {
@@ -166,10 +164,7 @@ void main() {
   });
 
   group('fix-bug', () {
-    late final definition = parser.parse(
-      builtInWorkflowYaml['fix-bug']!,
-      sourcePath: 'built-in:fix-bug',
-    );
+    late final definition = parser.parse(builtInWorkflowYaml['fix-bug']!, sourcePath: 'built-in:fix-bug');
 
     test('has 5 steps', () {
       expect(definition.steps, hasLength(5));
@@ -198,10 +193,7 @@ void main() {
   });
 
   group('refactor', () {
-    late final definition = parser.parse(
-      builtInWorkflowYaml['refactor']!,
-      sourcePath: 'built-in:refactor',
-    );
+    late final definition = parser.parse(builtInWorkflowYaml['refactor']!, sourcePath: 'built-in:refactor');
 
     test('has 4 steps', () {
       expect(definition.steps, hasLength(4));
@@ -349,6 +341,298 @@ void main() {
 
     test('first stepDefaults entry matches "implement*" pattern', () {
       expect(definition.stepDefaults![0].match, equals('implement*'));
+    });
+  });
+
+  group('adversarial-dev', () {
+    late final definition = parser.parse(
+      builtInWorkflowYaml['adversarial-dev']!,
+      sourcePath: 'built-in:adversarial-dev',
+    );
+
+    test('has 5 steps', () {
+      expect(definition.steps, hasLength(5));
+    });
+
+    test('has expected step IDs', () {
+      final ids = definition.steps.map((s) => s.id).toList();
+      expect(ids, equals(['scope', 'generate', 'evaluate', 'remediate', 're-evaluate']));
+    });
+
+    test('declares TASK (required) and PROJECT (optional)', () {
+      expect(definition.variables['TASK']?.required, isTrue);
+      expect(definition.variables['PROJECT']?.required, isFalse);
+      expect(definition.variables.containsKey('MAX_ROUNDS'), isFalse);
+    });
+
+    test('evaluate step has evaluator: true (adversarial isolation)', () {
+      final evaluate = definition.steps.firstWhere((s) => s.id == 'evaluate');
+      expect(evaluate.evaluator, isTrue);
+    });
+
+    test('re-evaluate step has evaluator: true', () {
+      final reEvaluate = definition.steps.firstWhere((s) => s.id == 're-evaluate');
+      expect(reEvaluate.evaluator, isTrue);
+    });
+
+    test('generate step has review: always', () {
+      final generate = definition.steps.firstWhere((s) => s.id == 'generate');
+      expect(generate.review.name, equals('always'));
+    });
+
+    test('remediate step has review: always and gate on evaluate', () {
+      final remediate = definition.steps.firstWhere((s) => s.id == 'remediate');
+      expect(remediate.review.name, equals('always'));
+      expect(remediate.gate, contains('evaluate.evaluation_passed'));
+    });
+
+    test('has 1 loop: adversarial-loop over [remediate, re-evaluate]', () {
+      expect(definition.loops, hasLength(1));
+      expect(definition.loops.first.id, equals('adversarial-loop'));
+      expect(definition.loops.first.steps, equals(['remediate', 're-evaluate']));
+    });
+
+    test('adversarial-loop has maxIterations: 3', () {
+      expect(definition.loops.first.maxIterations, equals(3));
+    });
+
+    test('adversarial-loop exitGate references re-evaluate.evaluation_passed', () {
+      expect(definition.loops.first.exitGate, contains('re-evaluate.evaluation_passed'));
+    });
+
+    test('evaluate prompt includes evaluator anti-leniency text', () {
+      final evaluate = definition.steps.firstWhere((s) => s.id == 'evaluate');
+      expect(evaluate.prompt, contains('independent evaluator'));
+      expect(evaluate.prompt, contains('NOT to find reasons to approve'));
+    });
+
+    test('stepDefaults is non-null and has 3 entries', () {
+      expect(definition.stepDefaults, isNotNull);
+      expect(definition.stepDefaults!, hasLength(3));
+    });
+
+    test('first stepDefaults entry matches "generate*" pattern', () {
+      expect(definition.stepDefaults![0].match, equals('generate*'));
+    });
+
+    test('second stepDefaults entry matches "evaluate*" pattern', () {
+      expect(definition.stepDefaults![1].match, equals('evaluate*'));
+    });
+  });
+
+  group('idea-to-pr', () {
+    late final definition = parser.parse(builtInWorkflowYaml['idea-to-pr']!, sourcePath: 'built-in:idea-to-pr');
+
+    test('has 8 steps', () {
+      expect(definition.steps, hasLength(8));
+    });
+
+    test('has expected step IDs', () {
+      final ids = definition.steps.map((s) => s.id).toList();
+      expect(
+        ids,
+        equals([
+          'plan',
+          'approve-plan',
+          'implement',
+          'validate-build',
+          'review-correctness',
+          'review-security',
+          'review-synthesis',
+          'create-pr',
+        ]),
+      );
+    });
+
+    test('declares IDEA (required), PROJECT (optional), BASE_BRANCH (optional with default)', () {
+      expect(definition.variables['IDEA']?.required, isTrue);
+      expect(definition.variables['PROJECT']?.required, isFalse);
+      expect(definition.variables['BASE_BRANCH']?.required, isFalse);
+      expect(definition.variables['BASE_BRANCH']?.defaultValue, equals('main'));
+    });
+
+    test('approve-plan step is type: approval (approval gate)', () {
+      final approvePlan = definition.steps.firstWhere((s) => s.id == 'approve-plan');
+      expect(approvePlan.type, equals('approval'));
+    });
+
+    test('approve-plan step includes a non-empty approval message', () {
+      final approvePlan = definition.steps.firstWhere((s) => s.id == 'approve-plan');
+      expect(approvePlan.prompt, isNotNull);
+      expect(approvePlan.prompt!.trim(), isNotEmpty);
+    });
+
+    test('implement step has gate on approve-plan.status', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.gate, contains('approve-plan.status'));
+    });
+
+    test('implement step has review: always', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.review.name, equals('always'));
+    });
+
+    test('implement step declares branch_name output with source: worktree.branch', () {
+      final implement = definition.steps.firstWhere((s) => s.id == 'implement');
+      expect(implement.contextOutputs, contains('branch_name'));
+      expect(implement.outputs?['branch_name']?.source, equals('worktree.branch'));
+    });
+
+    test('validate-build step is type: bash (deterministic validation)', () {
+      final validateBuild = definition.steps.firstWhere((s) => s.id == 'validate-build');
+      expect(validateBuild.type, equals('bash'));
+    });
+
+    test('validate-build step has gate on implement.status', () {
+      final validateBuild = definition.steps.firstWhere((s) => s.id == 'validate-build');
+      expect(validateBuild.gate, contains('implement.status'));
+    });
+
+    test('validate-build step runs in the implement worktree', () {
+      final validateBuild = definition.steps.firstWhere((s) => s.id == 'validate-build');
+      expect(validateBuild.workdir, equals('{{context.implement.worktree_path}}'));
+    });
+
+    test('review-correctness and review-security are parallel evaluator steps', () {
+      final correctness = definition.steps.firstWhere((s) => s.id == 'review-correctness');
+      final security = definition.steps.firstWhere((s) => s.id == 'review-security');
+      expect(correctness.evaluator, isTrue);
+      expect(correctness.parallel, isTrue);
+      expect(security.evaluator, isTrue);
+      expect(security.parallel, isTrue);
+    });
+
+    test('create-pr step is type: bash and gates on review-synthesis.ready_to_merge', () {
+      final createPr = definition.steps.firstWhere((s) => s.id == 'create-pr');
+      expect(createPr.type, equals('bash'));
+      expect(createPr.gate, contains('review-synthesis.ready_to_merge'));
+    });
+
+    test('create-pr prompt documents gh assumptions', () {
+      final createPr = definition.steps.firstWhere((s) => s.id == 'create-pr');
+      expect(createPr.prompt, contains('gh'));
+      expect(createPr.prompt, contains('ASSUMPTION'));
+      expect(createPr.prompt, contains('CUSTOMIZATION'));
+    });
+
+    test('create-pr prompt uses shell-safe branch assignment and body file', () {
+      final createPr = definition.steps.firstWhere((s) => s.id == 'create-pr');
+      expect(createPr.prompt, contains('branch_name={{context.branch_name}}'));
+      expect(createPr.prompt, contains(r'--body-file "$pr_body_file"'));
+    });
+
+    test('create-pr step runs in the implement worktree', () {
+      final createPr = definition.steps.firstWhere((s) => s.id == 'create-pr');
+      expect(createPr.workdir, equals('{{context.implement.worktree_path}}'));
+    });
+
+    test('create-pr step consumes branch_name from context', () {
+      final createPr = definition.steps.firstWhere((s) => s.id == 'create-pr');
+      expect(createPr.contextInputs, contains('branch_name'));
+    });
+
+    test('stepDefaults is non-null and has 3 entries', () {
+      expect(definition.stepDefaults, isNotNull);
+      expect(definition.stepDefaults!, hasLength(3));
+    });
+  });
+
+  group('workflow-builder', () {
+    late final definition = parser.parse(
+      builtInWorkflowYaml['workflow-builder']!,
+      sourcePath: 'built-in:workflow-builder',
+    );
+
+    test('has 5 steps', () {
+      expect(definition.steps, hasLength(5));
+    });
+
+    test('has expected step IDs', () {
+      final ids = definition.steps.map((s) => s.id).toList();
+      expect(ids, equals(['design', 'author', 'save', 'validate', 'summarize']));
+    });
+
+    test('declares REQUEST (required), WORKFLOW_NAME (required), WORKSPACE_PATH (optional)', () {
+      expect(definition.variables['REQUEST']?.required, isTrue);
+      expect(definition.variables['WORKFLOW_NAME']?.required, isTrue);
+      expect(definition.variables['WORKSPACE_PATH']?.required, isFalse);
+    });
+
+    test('save step is type: bash and gates on author.status', () {
+      final save = definition.steps.firstWhere((s) => s.id == 'save');
+      expect(save.type, equals('bash'));
+      expect(save.gate, contains('author.status'));
+    });
+
+    test('save step writes workflow YAML via printf, not a heredoc', () {
+      final save = definition.steps.firstWhere((s) => s.id == 'save');
+      expect(save.prompt, contains('printf'));
+      expect(save.prompt, contains('{{context.workflow_yaml}}'));
+      expect(save.prompt, isNot(contains('WORKFLOW_EOF')));
+    });
+
+    test('validate step is type: bash and invokes dartclaw workflow validate', () {
+      final validate = definition.steps.firstWhere((s) => s.id == 'validate');
+      expect(validate.type, equals('bash'));
+      expect(validate.prompt, contains('workflow validate'));
+    });
+
+    test('validate step gates on save.status', () {
+      final validate = definition.steps.firstWhere((s) => s.id == 'validate');
+      expect(validate.gate, contains('save.status'));
+    });
+
+    test('validate step references WORKSPACE_PATH and WORKFLOW_NAME in prompt', () {
+      final validate = definition.steps.firstWhere((s) => s.id == 'validate');
+      expect(validate.prompt, contains('WORKSPACE_PATH'));
+      expect(validate.prompt, contains('WORKFLOW_NAME'));
+    });
+  });
+
+  group('comprehensive-pr-review', () {
+    late final definition = parser.parse(
+      builtInWorkflowYaml['comprehensive-pr-review']!,
+      sourcePath: 'built-in:comprehensive-pr-review',
+    );
+
+    test('declares BRANCH and PR_NUMBER variables (both optional)', () {
+      expect(definition.variables['BRANCH']?.required, isFalse);
+      expect(definition.variables['PR_NUMBER']?.required, isFalse);
+    });
+
+    test('extract-diff step is type: bash', () {
+      final extractDiff = definition.steps.firstWhere((s) => s.id == 'extract-diff');
+      expect(extractDiff.type, equals('bash'));
+    });
+
+    test('extract-diff prompt handles both BRANCH and PR_NUMBER inputs', () {
+      final extractDiff = definition.steps.firstWhere((s) => s.id == 'extract-diff');
+      expect(extractDiff.prompt, contains('BRANCH'));
+      expect(extractDiff.prompt, contains('PR_NUMBER'));
+    });
+
+    test('extract-diff prompt documents gh assumptions', () {
+      final extractDiff = definition.steps.firstWhere((s) => s.id == 'extract-diff');
+      expect(extractDiff.prompt, contains('ASSUMPTION'));
+    });
+
+    test('review-correctness and review-security are parallel evaluator steps', () {
+      final correctness = definition.steps.firstWhere((s) => s.id == 'review-correctness');
+      final security = definition.steps.firstWhere((s) => s.id == 'review-security');
+      expect(correctness.evaluator, isTrue);
+      expect(correctness.parallel, isTrue);
+      expect(security.evaluator, isTrue);
+      expect(security.parallel, isTrue);
+    });
+
+    test('synthesize step consolidates reviewer findings', () {
+      final synthesize = definition.steps.firstWhere((s) => s.id == 'synthesize');
+      expect(synthesize.contextInputs, containsAll(['correctness_findings', 'security_findings']));
+    });
+
+    test('stepDefaults is non-null', () {
+      expect(definition.stepDefaults, isNotNull);
+      expect(definition.stepDefaults!.isNotEmpty, isTrue);
     });
   });
 

@@ -350,4 +350,82 @@ void main() {
     expect(outputs['notes'], equals(''));
     expect(outputs['diff_changes'], contains('1 files changed'));
   });
+
+  group('S04 (0.16.1): worktree source outputs', () {
+    test('source: worktree.branch extracts branch from task.worktreeJson', () async {
+      final task = await taskService.create(
+        id: 'task-wt1',
+        title: 'Coding task',
+        description: 'Fix bug',
+        type: TaskType.coding,
+        autoStart: true,
+      );
+      await taskService.updateFields(
+        task.id,
+        worktreeJson: {'branch': 'feat/fix-bug-123', 'path': '/worktrees/fix-bug-123', 'createdAt': '2026-01-01T00:00:00.000Z'},
+      );
+      final updatedTask = await taskService.get(task.id);
+
+      final step = WorkflowStep(
+        id: 'coding-step',
+        name: 'Fix',
+        type: 'coding',
+        prompts: const ['Fix the bug'],
+        contextOutputs: const ['branch'],
+        outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
+      );
+
+      final outputs = await extractor.extract(step, updatedTask!);
+      expect(outputs['branch'], equals('feat/fix-bug-123'));
+    });
+
+    test('source: worktree.path extracts path from task.worktreeJson', () async {
+      final task = await taskService.create(
+        id: 'task-wt2',
+        title: 'Coding task',
+        description: 'Fix bug',
+        type: TaskType.coding,
+        autoStart: true,
+      );
+      await taskService.updateFields(
+        task.id,
+        worktreeJson: {'branch': 'feat/fix-bug', 'path': '/opt/worktrees/fix-bug', 'createdAt': '2026-01-01T00:00:00.000Z'},
+      );
+      final updatedTask = await taskService.get(task.id);
+
+      final step = WorkflowStep(
+        id: 'coding-step',
+        name: 'Fix',
+        type: 'coding',
+        prompts: const ['Fix the bug'],
+        contextOutputs: const ['worktree_path'],
+        outputs: const {'worktree_path': OutputConfig(source: 'worktree.path')},
+      );
+
+      final outputs = await extractor.extract(step, updatedTask!);
+      expect(outputs['worktree_path'], equals('/opt/worktrees/fix-bug'));
+    });
+
+    test('source: worktree.branch returns empty string when task has no worktreeJson', () async {
+      final task = await taskService.create(
+        id: 'task-wt3',
+        title: 'Coding task',
+        description: 'Fix bug',
+        type: TaskType.coding,
+        autoStart: true,
+      );
+
+      final step = WorkflowStep(
+        id: 'coding-step',
+        name: 'Fix',
+        type: 'coding',
+        prompts: const ['Fix the bug'],
+        contextOutputs: const ['branch'],
+        outputs: const {'branch': OutputConfig(source: 'worktree.branch')},
+      );
+
+      final outputs = await extractor.extract(step, task);
+      expect(outputs['branch'], equals(''));
+    });
+  });
 }

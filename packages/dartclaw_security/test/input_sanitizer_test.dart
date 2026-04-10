@@ -246,7 +246,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // TI13: reconfigureFromYaml()
+  // reconfigureFromYaml() — hot-reload participation via SecurityWiring guard rebuild
   // ---------------------------------------------------------------------------
 
   group('InputSanitizer.reconfigureFromYaml()', () {

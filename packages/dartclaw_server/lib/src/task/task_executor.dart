@@ -417,10 +417,28 @@ class TaskExecutor {
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
       }
 
-      final session = await _sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: runningTask.id),
-        type: SessionType.task,
-      );
+      // continueSession: reuse the root session from the preceding agent step.
+      final continueSessionId = task.configJson['_continueSessionId'] as String?;
+      final Session session;
+      if (continueSessionId != null) {
+        final existing = await _sessions.getSession(continueSessionId);
+        if (existing == null || existing.type == SessionType.archive) {
+          await _markFailedOrRetry(
+            task,
+            errorSummary:
+                'continueSession: session "$continueSessionId" not found or archived. '
+                'Ensure the preceding step completed successfully before this step runs.',
+            retryable: false,
+          );
+          return;
+        }
+        session = existing;
+      } else {
+        session = await _sessions.getOrCreateByKey(
+          SessionKey.taskSession(taskId: runningTask.id),
+          type: SessionType.task,
+        );
+      }
 
       if (task.sessionId != session.id) {
         task = await _tasks.updateFields(task.id, sessionId: session.id);

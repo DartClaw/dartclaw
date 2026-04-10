@@ -35,9 +35,7 @@ class WorkflowsPage extends DashboardPage {
     final pathSegments = request.url.pathSegments;
 
     // /workflows/<runId>/steps/<stepIndex> — step detail partial.
-    if (pathSegments.length == 4 &&
-        pathSegments[0] == 'workflows' &&
-        pathSegments[2] == 'steps') {
+    if (pathSegments.length == 4 && pathSegments[0] == 'workflows' && pathSegments[2] == 'steps') {
       final stepIndex = int.tryParse(pathSegments[3]);
       return _handleStepDetail(pathSegments[1], stepIndex, request, context);
     }
@@ -65,19 +63,14 @@ class WorkflowsPage extends DashboardPage {
     final params = request.url.queryParameters;
     final statusParam = params['status'];
     final definitionParam = params['definition'];
-    final filterStatus = statusParam != null
-        ? WorkflowRunStatus.values.asNameMap()[statusParam]
-        : null;
+    final filterStatus = statusParam != null ? WorkflowRunStatus.values.asNameMap()[statusParam] : null;
 
     // Query runs with optional filters, sorted newest first.
-    final allRuns = await workflowService.list(
-      status: filterStatus,
-      definitionName: definitionParam,
-    );
+    final allRuns = await workflowService.list(status: filterStatus, definitionName: definitionParam);
     allRuns.sort((a, b) => b.startedAt.compareTo(a.startedAt));
 
-    // Query definitions for the browser section.
-    final definitions = definitionSource?.listAll() ?? <WorkflowDefinition>[];
+    // Query definitions for the browser section (summary-only, no prompt bodies).
+    final definitionSummaries = definitionSource?.listSummaries() ?? [];
 
     // Build lightweight step progress for each run.
     final allTasks = taskService != null ? await taskService.list() : <Task>[];
@@ -113,21 +106,29 @@ class WorkflowsPage extends DashboardPage {
       });
     }
 
-    // Build definition summaries for the browser section.
-    final definitionSummaries = definitions.map((d) => {
-      'name': d.name,
-      'description': d.description,
-      'stepCount': d.steps.length,
-      'hasLoops': d.loops.isNotEmpty,
-      'variableNames': d.variables.keys.toList(),
-    }).toList();
+    // Project summary records into view-model maps for the template.
+    // variableHints: ordered list of {name, description, required} for the picker chips.
+    final definitionViewModels = definitionSummaries
+        .map(
+          (s) => {
+            'name': s.name,
+            'description': s.description,
+            'stepCount': s.stepCount,
+            'hasLoops': s.hasLoops,
+            'variableHints': [
+              for (final entry in s.variables.entries)
+                {'name': entry.key, 'description': entry.value.description, 'required': entry.value.required},
+            ],
+          },
+        )
+        .toList();
 
     // Build filter state.
     final filters = {
       'activeStatus': statusParam ?? 'all',
       'activeDefinition': definitionParam,
       'statusOptions': ['all', 'running', 'paused', 'completed', 'failed', 'cancelled'],
-      'definitionOptions': definitions.map((d) => d.name).toList(),
+      'definitionOptions': definitionSummaries.map((s) => s.name).toList(),
     };
 
     final sidebarData = await context.buildSidebarData();
@@ -138,7 +139,7 @@ class WorkflowsPage extends DashboardPage {
       sidebarData: sidebarData,
       navItems: navItems,
       runs: runSummaries,
-      definitions: definitionSummaries,
+      definitions: definitionViewModels,
       filters: filters,
       bannerHtml: bannerHtml,
       appName: context.appDisplay.name,
@@ -187,19 +188,49 @@ class WorkflowsPage extends DashboardPage {
         if (t.stepIndex != null) t.stepIndex!: t,
     };
 
-    // Build step data list.
-    final steps = <Map<String, dynamic>>[
-      for (var i = 0; i < definition.steps.length; i++)
-        {
-          'index': i,
-          'id': definition.steps[i].id,
-          'name': definition.steps[i].name,
-          'type': definition.steps[i].type,
-          'parallel': definition.steps[i].parallel,
-          'status': stepStatusFromTask(run, i, tasksByStepIndex[i]),
-          'taskId': tasksByStepIndex[i]?.id,
-        },
-    ];
+    // Build step data list (approval-aware status).
+    final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    final steps = <Map<String, dynamic>>[];
+    for (var i = 0; i < definition.steps.length; i++) {
+      final step = definition.steps[i];
+      final task = tasksByStepIndex[i];
+      final isApproval = step.type == 'approval';
+      final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
+      final stepStatus = isApproval
+          ? switch (approvalStatus) {
+              'pending' => 'awaiting_approval',
+              'approved' => 'completed',
+              'rejected' => 'rejected',
+              'timed_out' => 'timed_out',
+              _ => 'pending',
+            }
+          : stepStatusFromTask(run, i, task);
+      final stepEntry = <String, dynamic>{
+        'index': i,
+        'id': step.id,
+        'name': step.name,
+        'type': step.type,
+        'parallel': step.parallel,
+        'status': stepStatus,
+        'taskId': task?.id,
+      };
+      if (isApproval && approvalStatus != null) {
+        stepEntry['approval'] = <String, dynamic>{
+          'status': approvalStatus,
+          'message': run.contextJson['${step.id}.approval.message'],
+          'requestedAt': run.contextJson['${step.id}.approval.requested_at'],
+          if (run.contextJson['${step.id}.approval.resolved_at'] != null)
+            'resolvedAt': run.contextJson['${step.id}.approval.resolved_at'],
+          if (run.contextJson['${step.id}.approval.feedback'] != null)
+            'feedback': run.contextJson['${step.id}.approval.feedback'],
+          if (run.contextJson['${step.id}.approval.timeout_deadline'] != null)
+            'timeoutDeadline': run.contextJson['${step.id}.approval.timeout_deadline'],
+          if (run.contextJson['${step.id}.approval.cancel_reason'] != null)
+            'cancelReason': run.contextJson['${step.id}.approval.cancel_reason'],
+        };
+      }
+      steps.add(stepEntry);
+    }
 
     // Build loop info.
     final loopInfo = buildLoopInfo(definition, run.contextJson);
@@ -220,6 +251,8 @@ class WorkflowsPage extends DashboardPage {
         'completedAt': run.completedAt?.toIso8601String(),
         'totalTokens': run.totalTokens,
         'errorMessage': run.errorMessage,
+        'isApprovalPaused': pendingApprovalStepId != null,
+        'pendingApprovalStepId': pendingApprovalStepId,
       },
       steps: steps,
       contextEntries: contextEntries,
@@ -231,12 +264,7 @@ class WorkflowsPage extends DashboardPage {
     return Response.ok(html, headers: htmlHeaders);
   }
 
-  Future<Response> _handleStepDetail(
-    String runId,
-    int? stepIndex,
-    Request request,
-    PageContext context,
-  ) async {
+  Future<Response> _handleStepDetail(String runId, int? stepIndex, Request request, PageContext context) async {
     if (stepIndex == null) {
       return Response.badRequest(body: 'Invalid step index', headers: htmlHeaders);
     }
@@ -264,9 +292,7 @@ class WorkflowsPage extends DashboardPage {
 
     // Find the child task for this step.
     final allTasks = await taskService.list();
-    final task = allTasks
-        .where((t) => t.workflowRunId == runId && t.stepIndex == stepIndex)
-        .firstOrNull;
+    final task = allTasks.where((t) => t.workflowRunId == runId && t.stepIndex == stepIndex).firstOrNull;
 
     // Load session messages.
     String? messagesHtml;
@@ -274,14 +300,7 @@ class WorkflowsPage extends DashboardPage {
       try {
         final msgs = await context.messages!.getMessagesTail(task!.sessionId!);
         final messageList = msgs
-            .map(
-              (m) => classifyMessage(
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                senderName: null,
-              ),
-            )
+            .map((m) => classifyMessage(id: m.id, role: m.role, content: m.content, senderName: null))
             .toList();
         messagesHtml = messagesHtmlFragment(messageList);
       } catch (e) {
@@ -295,10 +314,7 @@ class WorkflowsPage extends DashboardPage {
       try {
         final taskArtifacts = await taskService.listArtifacts(task.id);
         for (final a in taskArtifacts) {
-          artifacts.add({
-            'name': a.name,
-            'kindLabel': _artifactKindLabel(a.kind),
-          });
+          artifacts.add({'name': a.name, 'kindLabel': _artifactKindLabel(a.kind)});
         }
       } catch (e) {
         _log.fine('Failed to load artifacts for task ${task.id}: $e');
@@ -320,10 +336,7 @@ class WorkflowsPage extends DashboardPage {
         final value = run.contextJson[key];
         if (value != null) {
           final str = value.toString();
-          contextInputs.add({
-            'key': key,
-            'value': str.length > 200 ? '${str.substring(0, 200)}...' : str,
-          });
+          contextInputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
         }
       }
       // Context outputs: keys written by this step (from step.contextOutputs if available).
@@ -332,9 +345,7 @@ class WorkflowsPage extends DashboardPage {
         contextOutputs.add({
           'key': key,
           'value': value != null
-              ? (value.toString().length > 200
-                    ? '${value.toString().substring(0, 200)}...'
-                    : value.toString())
+              ? (value.toString().length > 200 ? '${value.toString().substring(0, 200)}...' : value.toString())
               : '(not yet set)',
         });
       }

@@ -13,9 +13,17 @@ import '../serve_command.dart' show ExitFn;
 /// Owns container setup (credential proxy, container managers, health monitor),
 /// guard chain, content guard, audit subscriber, and session lifecycle subscriber.
 ///
-/// Implements [Reconfigurable] for `guards.*` config changes — on reconfigure,
-/// rebuilds all guards from the updated security config and atomically swaps
-/// the guard list in the existing [GuardChain].
+/// **Security reload seam** — two participants are registered with [ConfigNotifier]:
+///
+/// 1. This class implements [Reconfigurable] for `guards.*` — on reconfigure,
+///    rebuilds all guard instances from the updated [SecurityConfig] and atomically
+///    swaps the guard list in the existing [GuardChain] (fail-safe: invalid configs
+///    preserve the current live chain).
+/// 2. [MessageRedactor] participates via [_MessageRedactorAdapter], which bridges
+///    the `dartclaw_security` → `dartclaw_core` package boundary by implementing
+///    [Reconfigurable] on behalf of the redactor without adding a cross-package dep.
+///
+/// Both registrations happen in [wire], after [ConfigNotifier] is available.
 class SecurityWiring implements Reconfigurable {
   SecurityWiring({
     required this.config,
@@ -97,11 +105,11 @@ class SecurityWiring implements Reconfigurable {
   }
 
   // ---------------------------------------------------------------------------
-  // Reconfigurable — guards.* hot-reload
+  // Reconfigurable — security.* hot-reload (guards.* changes)
   // ---------------------------------------------------------------------------
 
   @override
-  Set<String> get watchKeys => const {'guards.*'};
+  Set<String> get watchKeys => const {'security.*'};
 
   @override
   void reconfigure(ConfigDelta delta) {

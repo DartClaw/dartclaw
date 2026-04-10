@@ -243,6 +243,68 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
       'iter: $iterationIndex/$totalIterations, task: $taskId, success: $success)';
 }
 
+/// Fired when a workflow approval step is reached and the run is paused awaiting human action.
+final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the approval step.
+  final String stepId;
+
+  /// Resolved approval message (the step's prompt).
+  final String message;
+
+  /// Optional timeout in seconds before the approval auto-cancels.
+  final int? timeoutSeconds;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowApprovalRequestedEvent({
+    required this.runId,
+    required this.stepId,
+    required this.message,
+    this.timeoutSeconds,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowApprovalRequestedEvent(run: $runId, step: $stepId'
+      '${timeoutSeconds != null ? ', timeout: ${timeoutSeconds}s' : ''})';
+}
+
+/// Fired when an approval step is resolved (approved or rejected).
+final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the approval step that was resolved.
+  final String stepId;
+
+  /// Whether the approval was accepted (true) or rejected (false).
+  final bool approved;
+
+  /// Optional rejection feedback from the operator.
+  final String? feedback;
+
+  @override
+  final DateTime timestamp;
+
+  WorkflowApprovalResolvedEvent({
+    required this.runId,
+    required this.stepId,
+    required this.approved,
+    this.feedback,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'WorkflowApprovalResolvedEvent(run: $runId, step: $stepId, '
+      'approved: $approved${feedback != null ? ', feedback: $feedback' : ''})';
+}
+
 /// Fired when all iterations of a map/fan-out step have settled.
 final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
   @override

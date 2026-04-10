@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -162,6 +164,12 @@ workspace:
     return jsonDecode(body) as Map<String, dynamic>;
   }
 
+  Future<String> nextSseFrame(StreamIterator<String> iterator) async {
+    final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
+    expect(hasFrame, isTrue);
+    return iterator.current;
+  }
+
   /// Writes jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
   /// returns them (tests that need pre-existing jobs must call this).
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
@@ -249,7 +257,9 @@ workspace:
     enabled: true
     push_enabled: true
 ''');
-      final router = createRouter(config: const DartclawConfig(gateway: GatewayConfig(token: 'secret-token')));
+      final router = createRouter(
+        config: const DartclawConfig(gateway: GatewayConfig(token: 'secret-token')),
+      );
       final response = await get(router, '/api/config');
       final json = await readJson(response);
 
@@ -1051,10 +1061,7 @@ workspace:
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final router = createRouterWithNotifier(notifier);
 
-      final response = await patch(router, '/api/config', {
-        'concurrency.max_parallel_turns': 4,
-        'port': 9090,
-      });
+      final response = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4, 'port': 9090});
 
       expect(response.statusCode, 200);
       final json = await readJson(response);
@@ -1082,11 +1089,7 @@ workspace:
     test('PATCH live field fires ConfigChangedEvent and returns in applied', () async {
       final notifier = ConfigNotifier(const DartclawConfig.defaults());
       final bus = EventBus();
-      final rc = RuntimeConfig(
-        heartbeatEnabled: true,
-        gitSyncEnabled: false,
-        gitSyncPushEnabled: false,
-      );
+      final rc = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false, gitSyncPushEnabled: false);
       ConfigChangeSubscriber(runtimeConfig: rc).subscribe(bus);
 
       ConfigChangedEvent? captured;
@@ -1124,6 +1127,104 @@ workspace:
       expect(json['applied'], isEmpty);
       expect(json['pendingRestart'], contains('concurrency.max_parallel_turns'));
     });
+  });
+
+  group('R02 hot-reload SSE continuity', () {
+    Router createRouterWithSse({
+      ConfigNotifier? configNotifier,
+      RestartService? restartService,
+      required SseBroadcast sseBroadcast,
+    }) {
+      final cfg = const DartclawConfig.defaults();
+      final rc = RuntimeConfig(
+        heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
+        gitSyncEnabled: cfg.workspace.gitSyncEnabled,
+        gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
+      );
+      final writer = ConfigWriter(configPath: configPath);
+      return configApiRoutes(
+        config: cfg,
+        writer: writer,
+        validator: const ConfigValidator(),
+        runtimeConfig: rc,
+        dataDir: dataDir,
+        configNotifier: configNotifier,
+        restartService: restartService,
+        sseBroadcast: sseBroadcast,
+      );
+    }
+
+    test('pre-existing /api/events subscriber survives reloadable PATCH and receives a later broadcast', () async {
+      final sseBroadcast = SseBroadcast();
+      addTearDown(sseBroadcast.dispose);
+
+      final router = createRouterWithSse(
+        configNotifier: ConfigNotifier(const DartclawConfig.defaults()),
+        sseBroadcast: sseBroadcast,
+      );
+
+      final sseResponse = await get(router, '/api/events');
+      expect(sseResponse.statusCode, 200);
+      expect(sseResponse.headers['content-type'], 'text/event-stream');
+
+      final iterator = StreamIterator(sseResponse.read().transform(utf8.decoder));
+      addTearDown(iterator.cancel);
+
+      final patchResponse = await patch(router, '/api/config', {'concurrency.max_parallel_turns': 4});
+      final patchJson = await readJson(patchResponse);
+      expect(patchResponse.statusCode, 200);
+      expect(patchJson['applied'], contains('concurrency.max_parallel_turns'));
+      expect(patchJson['pendingRestart'], isEmpty);
+
+      sseBroadcast.broadcast('context_warning', {'message': 'post-reload'});
+
+      final frame = await nextSseFrame(iterator);
+      expect(frame, contains('event: context_warning'));
+      expect(frame, contains('"message":"post-reload"'));
+    });
+
+    test(
+      'restart-required PATCH keeps pendingRestart and /api/events receives server_restart on restart trigger',
+      () async {
+        final sseBroadcast = SseBroadcast();
+        addTearDown(sseBroadcast.dispose);
+
+        final restartService = RestartService(
+          turns: FakeTurnManager(),
+          exit: (_) {},
+          broadcastSse: sseBroadcast.broadcast,
+          writeRestartPending: writeRestartPending,
+          dataDir: dataDir,
+        );
+
+        final router = createRouterWithSse(restartService: restartService, sseBroadcast: sseBroadcast);
+
+        final sseResponse = await get(router, '/api/events');
+        final iterator = StreamIterator(sseResponse.read().transform(utf8.decoder));
+        addTearDown(iterator.cancel);
+
+        final patchResponse = await patch(router, '/api/config', {'port': 3001});
+        final patchJson = await readJson(patchResponse);
+        expect(patchResponse.statusCode, 200);
+        expect(patchJson['applied'], isEmpty);
+        expect(patchJson['pendingRestart'], contains('port'));
+
+        final configResponse = await get(router, '/api/config');
+        final configJson = await readJson(configResponse);
+        final meta = configJson['_meta'] as Map<String, dynamic>;
+        expect(meta['restartPending'], true);
+        expect(meta['pendingFields'], contains('port'));
+
+        final restartResponse = await router.call(Request('POST', Uri.parse('http://localhost/api/system/restart')));
+        final restartJson = await readJson(restartResponse);
+        expect(restartResponse.statusCode, 200);
+        expect(restartJson['status'], 'restarting');
+
+        final frame = await nextSseFrame(iterator);
+        expect(frame, contains('event: server_restart'));
+        expect(frame, contains('"drainDeadlineSeconds":30'));
+      },
+    );
   });
 }
 

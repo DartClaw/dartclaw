@@ -16,6 +16,7 @@ enum ValidationErrorType {
   contextInconsistency,
   loopOverlap,
   unsupportedProviderCapability,
+  hybridStepConstraint,
 }
 
 /// A structured validation error with category and location.
@@ -25,12 +26,7 @@ class ValidationError {
   final String? stepId;
   final String? loopId;
 
-  const ValidationError({
-    required this.message,
-    required this.type,
-    this.stepId,
-    this.loopId,
-  });
+  const ValidationError({required this.message, required this.type, this.stepId, this.loopId});
 
   @override
   String toString() =>
@@ -39,16 +35,44 @@ class ValidationError {
       '${loopId != null ? ' loop=$loopId' : ''}] $message';
 }
 
+/// The result of validating a [WorkflowDefinition].
+///
+/// [errors] are hard failures that prevent the definition from loading.
+/// [warnings] are soft notices that do not prevent loading but may indicate
+/// forward-compatibility issues or non-standard configurations.
+///
+/// A definition is considered valid (loadable) when [errors] is empty,
+/// regardless of whether [warnings] is empty.
+class ValidationReport {
+  /// Hard validation failures that prevent loading.
+  final List<ValidationError> errors;
+
+  /// Soft notices that do not prevent loading.
+  final List<ValidationError> warnings;
+
+  const ValidationReport({required this.errors, required this.warnings});
+
+  /// Whether there are no errors and no warnings.
+  bool get isEmpty => errors.isEmpty && warnings.isEmpty;
+
+  /// Whether there are no errors (definition is loadable).
+  bool get hasErrors => errors.isNotEmpty;
+
+  /// Whether there are any warnings.
+  bool get hasWarnings => warnings.isNotEmpty;
+}
+
 /// Validates a [WorkflowDefinition] for semantic correctness.
 ///
-/// Returns a list of validation errors. An empty list means the
-/// definition is valid.
+/// Returns a [ValidationReport] with separate [errors] (hard failures) and
+/// [warnings] (soft notices). A definition is valid when [errors] is empty.
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
-  static final _gateConditionPattern = RegExp(
-    r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$',
-  );
+  static final _gateConditionPattern = RegExp(r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
   final _engine = WorkflowTemplateEngine();
+
+  /// Step types known by the engine. Any other type produces a warning.
+  static const _knownTypes = {'research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval'};
 
   /// Optional skill registry for skill-aware validation.
   ///
@@ -56,16 +80,15 @@ class WorkflowDefinitionValidator {
   /// parsing-only contexts where no registry is configured).
   SkillRegistry? skillRegistry;
 
-  /// Validates [definition] and returns all errors found.
+  /// Validates [definition] and returns a [ValidationReport].
   ///
   /// [continuityProviders]: optional set of provider names that support session
-  /// continuity (e.g. `{'claude'}`). When provided, multi-prompt steps targeting
-  /// other providers produce a validation error. When null, this check is skipped.
-  List<ValidationError> validate(
-    WorkflowDefinition definition, {
-    Set<String>? continuityProviders,
-  }) {
+  /// continuity (e.g. `{'claude'}`). When provided, steps with
+  /// [WorkflowStep.continueSession] targeting other providers produce an error.
+  /// When null, this check is skipped.
+  ValidationReport validate(WorkflowDefinition definition, {Set<String>? continuityProviders}) {
     final errors = <ValidationError>[];
+    final warnings = <ValidationError>[];
     _validateRequiredFields(definition, errors);
     _validateUniqueStepIds(definition, errors);
     _validateUniqueLoopIds(definition, errors);
@@ -84,13 +107,11 @@ class WorkflowDefinitionValidator {
       _validateMultiPromptProviders(definition, errors, continuityProviders);
     }
     _validateSkillReferences(definition, errors);
-    return errors;
+    _validateHybridStepRules(definition, errors, warnings, continuityProviders);
+    return ValidationReport(errors: errors, warnings: warnings);
   }
 
-  void _validateSkillReferences(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateSkillReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     if (skillRegistry == null) return;
 
     for (final step in definition.steps) {
@@ -117,7 +138,8 @@ class WorkflowDefinitionValidator {
           final available = skill?.nativeHarnesses.join(', ') ?? 'none';
           errors.add(
             ValidationError(
-              message: 'Step "${step.id}": skill "${step.skill}" not available '
+              message:
+                  'Step "${step.id}": skill "${step.skill}" not available '
                   'for provider "$stepProvider". '
                   'Skill is native for: $available. '
                   'Install it in the provider\'s skill directory or remove the '
@@ -141,16 +163,10 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateRequiredFields(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateRequiredFields(WorkflowDefinition definition, List<ValidationError> errors) {
     if (definition.name.isEmpty) {
       errors.add(
-        const ValidationError(
-          message: 'Workflow name must not be empty.',
-          type: ValidationErrorType.missingField,
-        ),
+        const ValidationError(message: 'Workflow name must not be empty.', type: ValidationErrorType.missingField),
       );
     }
     if (definition.description.isEmpty) {
@@ -163,10 +179,7 @@ class WorkflowDefinitionValidator {
     }
     if (definition.steps.isEmpty) {
       errors.add(
-        const ValidationError(
-          message: 'Workflow must have at least one step.',
-          type: ValidationErrorType.missingField,
-        ),
+        const ValidationError(message: 'Workflow must have at least one step.', type: ValidationErrorType.missingField),
       );
     }
     for (final step in definition.steps) {
@@ -188,8 +201,10 @@ class WorkflowDefinitionValidator {
           ),
         );
       }
-      // Prompt is optional when skill is present (S04).
-      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty)) {
+      // Prompt is optional when skill is present (S04) or when the step type is
+      // bash or approval (S02/S03 own execution semantics for those types).
+      final isBashOrApproval = step.type == 'bash' || step.type == 'approval';
+      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty) && !isBashOrApproval) {
         errors.add(
           ValidationError(
             message: 'Step "${step.id}" must have at least one prompt.',
@@ -214,10 +229,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateUniqueStepIds(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateUniqueStepIds(WorkflowDefinition definition, List<ValidationError> errors) {
     final seen = <String>{};
     for (final step in definition.steps) {
       if (!seen.add(step.id)) {
@@ -232,10 +244,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateUniqueLoopIds(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateUniqueLoopIds(WorkflowDefinition definition, List<ValidationError> errors) {
     final seen = <String>{};
     for (final loop in definition.loops) {
       if (!seen.add(loop.id)) {
@@ -250,23 +259,18 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateVariableReferences(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateVariableReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final declaredVars = definition.variables.keys.toSet();
     for (final step in definition.steps) {
       // Extract variable references from all prompts combined (prompts optional for skill steps).
       final allPromptRefs = <String>{
-        for (final p in step.prompts ?? const <String>[])
-          ..._engine.extractVariableReferences(p),
+        for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p),
       };
       for (final ref in allPromptRefs) {
         if (!declaredVars.contains(ref)) {
           errors.add(
             ValidationError(
-              message:
-                  'Step "${step.id}" prompt references undeclared variable "{{$ref}}".',
+              message: 'Step "${step.id}" prompt references undeclared variable "{{$ref}}".',
               type: ValidationErrorType.invalidReference,
               stepId: step.id,
             ),
@@ -279,8 +283,7 @@ class WorkflowDefinitionValidator {
           if (!declaredVars.contains(ref)) {
             errors.add(
               ValidationError(
-                message:
-                    'Step "${step.id}" project field references undeclared variable "{{$ref}}".',
+                message: 'Step "${step.id}" project field references undeclared variable "{{$ref}}".',
                 type: ValidationErrorType.invalidReference,
                 stepId: step.id,
               ),
@@ -291,10 +294,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateContextKeyConsistency(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateContextKeyConsistency(WorkflowDefinition definition, List<ValidationError> errors) {
     // Build set of step IDs that belong to each loop
     final stepToLoops = <String, Set<String>>{};
     for (final loop in definition.loops) {
@@ -330,8 +330,7 @@ class WorkflowDefinitionValidator {
         if (!producedSoFar.contains(input) && !loopProduced.contains(input)) {
           errors.add(
             ValidationError(
-              message:
-                  'Step "${step.id}" reads context key "$input" but no preceding step declares it as an output.',
+              message: 'Step "${step.id}" reads context key "$input" but no preceding step declares it as an output.',
               type: ValidationErrorType.contextInconsistency,
               stepId: step.id,
             ),
@@ -344,10 +343,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateGateExpressions(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateGateExpressions(WorkflowDefinition definition, List<ValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
 
     for (final step in definition.steps) {
@@ -371,8 +367,7 @@ class WorkflowDefinitionValidator {
         if (!stepIds.contains(referencedStepId)) {
           errors.add(
             ValidationError(
-              message:
-                  'Step "${step.id}" gate references non-existent step "$referencedStepId".',
+              message: 'Step "${step.id}" gate references non-existent step "$referencedStepId".',
               type: ValidationErrorType.invalidReference,
               stepId: step.id,
             ),
@@ -382,18 +377,14 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopReferences(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateLoopReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
     for (final loop in definition.loops) {
       for (final stepId in loop.steps) {
         if (!stepIds.contains(stepId)) {
           errors.add(
             ValidationError(
-              message:
-                  'Loop "${loop.id}" references non-existent step "$stepId".',
+              message: 'Loop "${loop.id}" references non-existent step "$stepId".',
               type: ValidationErrorType.invalidReference,
               loopId: loop.id,
             ),
@@ -403,16 +394,12 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopMaxIterations(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateLoopMaxIterations(WorkflowDefinition definition, List<ValidationError> errors) {
     for (final loop in definition.loops) {
       if (loop.maxIterations <= 0) {
         errors.add(
           ValidationError(
-            message:
-                'Loop "${loop.id}" must have maxIterations > 0 (got ${loop.maxIterations}).',
+            message: 'Loop "${loop.id}" must have maxIterations > 0 (got ${loop.maxIterations}).',
             type: ValidationErrorType.missingMaxIterations,
             loopId: loop.id,
           ),
@@ -421,18 +408,14 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopStepOverlap(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateLoopStepOverlap(WorkflowDefinition definition, List<ValidationError> errors) {
     final stepToLoop = <String, String>{};
     for (final loop in definition.loops) {
       for (final stepId in loop.steps) {
         if (stepToLoop.containsKey(stepId)) {
           errors.add(
             ValidationError(
-              message:
-                  'Step "$stepId" appears in multiple loops: "${stepToLoop[stepId]}" and "${loop.id}".',
+              message: 'Step "$stepId" appears in multiple loops: "${stepToLoop[stepId]}" and "${loop.id}".',
               type: ValidationErrorType.loopOverlap,
               loopId: loop.id,
             ),
@@ -444,10 +427,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopFinalizers(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateLoopFinalizers(WorkflowDefinition definition, List<ValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
     for (final loop in definition.loops) {
       final finallyStep = loop.finally_;
@@ -456,8 +436,7 @@ class WorkflowDefinitionValidator {
       if (!stepIds.contains(finallyStep)) {
         errors.add(
           ValidationError(
-            message:
-                'Loop "${loop.id}" finalizer "$finallyStep" references a non-existent step.',
+            message: 'Loop "${loop.id}" finalizer "$finallyStep" references a non-existent step.',
             type: ValidationErrorType.invalidReference,
             loopId: loop.id,
           ),
@@ -491,10 +470,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateOutputConfigs(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateOutputConfigs(WorkflowDefinition definition, List<ValidationError> errors) {
     for (final step in definition.steps) {
       if (step.outputs == null) continue;
 
@@ -506,8 +482,7 @@ class WorkflowDefinitionValidator {
         if (!step.contextOutputs.contains(key)) {
           errors.add(
             ValidationError(
-              message:
-                  'Step "${step.id}" output "$key" is not declared in contextOutputs.',
+              message: 'Step "${step.id}" output "$key" is not declared in contextOutputs.',
               type: ValidationErrorType.contextInconsistency,
               stepId: step.id,
             ),
@@ -519,8 +494,7 @@ class WorkflowDefinitionValidator {
           if (!schemaPresets.containsKey(config.presetName)) {
             errors.add(
               ValidationError(
-                message:
-                    'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
+                message: 'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
                 type: ValidationErrorType.invalidReference,
                 stepId: step.id,
               ),
@@ -533,8 +507,7 @@ class WorkflowDefinitionValidator {
           if (!config.inlineSchema!.containsKey('type')) {
             errors.add(
               ValidationError(
-                message:
-                    'Step "${step.id}" output "$key" inline schema missing "type" field.',
+                message: 'Step "${step.id}" output "$key" inline schema missing "type" field.',
                 type: ValidationErrorType.missingField,
                 stepId: step.id,
               ),
@@ -545,10 +518,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateMapOverReferences(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateMapOverReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     // Build the set of context keys produced by steps in order.
     // For each step with mapOver, verify the referenced key was produced by a prior step.
     final producedSoFar = <String>{};
@@ -571,10 +541,7 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateMapStepConstraints(
-    WorkflowDefinition definition,
-    List<ValidationError> errors,
-  ) {
+  void _validateMapStepConstraints(WorkflowDefinition definition, List<ValidationError> errors) {
     for (final step in definition.steps) {
       if (step.mapOver == null) continue;
 
@@ -591,9 +558,7 @@ class WorkflowDefinitionValidator {
 
       // Warn when a map step has no contextOutputs — results will be discarded.
       if (step.contextOutputs.isEmpty) {
-        _log.warning(
-          'Map step "${step.id}" has no contextOutputs; results will not be stored in context.',
-        );
+        _log.warning('Map step "${step.id}" has no contextOutputs; results will not be stored in context.');
       }
     }
   }
@@ -619,5 +584,247 @@ class WorkflowDefinitionValidator {
         );
       }
     }
+  }
+
+  void _validateHybridStepRules(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+    List<ValidationError> warnings,
+    Set<String>? continuityProviders,
+  ) {
+    // Build loop membership maps.
+    final stepToLoop = <String, String>{}; // stepId -> loopId
+    for (final loop in definition.loops) {
+      for (final stepId in loop.steps) {
+        stepToLoop[stepId] = loop.id;
+      }
+    }
+
+    for (final step in definition.steps) {
+      // Unknown step type — warning (forward-compatible authoring).
+      if (!_knownTypes.contains(step.type)) {
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" uses unknown type "${step.type}". '
+                'This may be a typo or a future step type. '
+                'The step will be loaded but may not execute as expected.',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      // Approval step in a loop — warning (runs fine today, requires loop exit gate to avoid infinite wait).
+      if (step.type == 'approval' && stepToLoop.containsKey(step.id)) {
+        warnings.add(
+          ValidationError(
+            message:
+                'Approval step "${step.id}" is inside loop "${stepToLoop[step.id]}". '
+                'Approval steps in loops will pause the loop on every iteration — '
+                'ensure the loop exit gate accounts for approval outcomes.',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      // Approval step as parallel — hard error (approval requires sequential gate behavior).
+      if (step.type == 'approval' && step.parallel) {
+        errors.add(
+          ValidationError(
+            message:
+                'Approval step "${step.id}" cannot be a parallel step. '
+                'Approval gates require sequential execution.',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      if ((step.type == 'bash' || step.type == 'approval') && step.isMultiPrompt) {
+        errors.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" is a "${step.type}" step and cannot use a prompt list. '
+                'Use a single prompt string${step.type == 'approval' ? ' (or omit the prompt)' : ''}.',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      if (step.parallel && step.continueSession != null) {
+        errors.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" cannot combine parallel execution with continueSession. '
+                'Session continuity requires deterministic step ordering.',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      if (step.onError case final onError? when onError != 'pause' && onError != 'continue' && onError != 'fail') {
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" uses unsupported onError value "$onError". '
+                'Supported values are "pause", "continue", and legacy "fail". '
+                'Unknown values currently behave like "pause".',
+            type: ValidationErrorType.hybridStepConstraint,
+            stepId: step.id,
+          ),
+        );
+      }
+
+      // continueSession validation.
+      if (step.continueSession != null) {
+        final stepIndex = definition.steps.indexWhere((s) => s.id == step.id);
+        final targetStepId = _resolveContinueTargetStepId(definition, stepIndex, step);
+        final targetStep = targetStepId != null ? _findStep(definition, targetStepId) : null;
+
+        // continueSession with unsupported provider — hard error.
+        if (continuityProviders != null) {
+          final provider = step.provider ?? targetStep?.provider;
+          if (provider != null && !continuityProviders.contains(provider)) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" uses continueSession but targets provider "$provider" '
+                    'which does not support session continuity.',
+                type: ValidationErrorType.unsupportedProviderCapability,
+                stepId: step.id,
+              ),
+            );
+          }
+        }
+
+        if (targetStepId == null) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" uses continueSession but has no resolvable target step. '
+                  'The first step cannot continue a prior session.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+          continue;
+        }
+
+        if (targetStep == null) {
+          errors.add(
+            ValidationError(
+              message: 'Step "${step.id}" uses continueSession but references unknown step "$targetStepId".',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+          continue;
+        }
+
+        // continueSession on a non-agent step — hard error (bash/approval steps have no session).
+        if (step.type == 'bash' || step.type == 'approval') {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" uses continueSession but is a "${step.type}" step. '
+                  'Only agent steps support session continuity.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+        }
+
+        final targetIndex = definition.steps.indexWhere((s) => s.id == targetStepId);
+        if (targetIndex >= stepIndex) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" uses continueSession but references "$targetStepId" '
+                  'which does not precede it in the workflow.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+          continue;
+        }
+
+        if (targetStep.type == 'bash' || targetStep.type == 'approval') {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" uses continueSession but the referenced step "$targetStepId" '
+                  'is a "${targetStep.type}" step which has no session to continue.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+        }
+
+        // continueSession crossing a loop boundary — hard error.
+        final stepLoopId = stepToLoop[step.id];
+        final targetLoopId = stepToLoop[targetStep.id];
+        if (stepLoopId != targetLoopId) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" uses continueSession but crosses a loop boundary '
+                  '(step is ${stepLoopId != null ? 'in loop "$stepLoopId"' : 'outside a loop'}, '
+                  'target step "$targetStepId" is ${targetLoopId != null ? 'in loop "$targetLoopId"' : 'outside a loop'}). '
+                  'continueSession cannot span loop boundaries.',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+        }
+      }
+    }
+
+    for (var i = 0; i < definition.steps.length; i++) {
+      final step = definition.steps[i];
+      if (step.continueSession == null) continue;
+
+      final visited = <String>{step.id};
+      var currentIndex = i;
+      var currentStep = step;
+
+      while (currentStep.continueSession != null) {
+        final targetStepId = _resolveContinueTargetStepId(definition, currentIndex, currentStep);
+        if (targetStepId == null) break;
+        if (!visited.add(targetStepId)) {
+          errors.add(
+            ValidationError(
+              message: 'Step "${step.id}" is part of a continueSession chain that forms a cycle via "$targetStepId".',
+              type: ValidationErrorType.hybridStepConstraint,
+              stepId: step.id,
+            ),
+          );
+          break;
+        }
+        final targetIndex = definition.steps.indexWhere((candidate) => candidate.id == targetStepId);
+        if (targetIndex < 0) break;
+        currentIndex = targetIndex;
+        currentStep = definition.steps[targetIndex];
+      }
+    }
+  }
+
+  WorkflowStep? _findStep(WorkflowDefinition definition, String stepId) {
+    for (final step in definition.steps) {
+      if (step.id == stepId) return step;
+    }
+    return null;
+  }
+
+  String? _resolveContinueTargetStepId(WorkflowDefinition definition, int stepIndex, WorkflowStep step) {
+    final ref = step.continueSession;
+    if (ref == null) return null;
+    if (ref == '@previous') {
+      return stepIndex > 0 ? definition.steps[stepIndex - 1].id : null;
+    }
+    return ref;
   }
 }

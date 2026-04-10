@@ -14,6 +14,10 @@ const builtInWorkflowYaml = <String, String>{
   'refactor': _refactorYaml,
   'review-and-remediate': _reviewAndRemediateYaml,
   'plan-and-execute': _planAndExecuteYaml,
+  'adversarial-dev': _adversarialDevYaml,
+  'idea-to-pr': _ideaToPrYaml,
+  'workflow-builder': _workflowBuilderYaml,
+  'comprehensive-pr-review': _comprehensivePrReviewYaml,
 };
 
 const _specAndImplementYaml = r'''
@@ -539,6 +543,418 @@ loops:
     exitGate: "re-review.findings_count == 0"
 ''';
 
+const _adversarialDevYaml = r'''
+name: adversarial-dev
+description: >-
+  Bounded adversarial iteration — a generator agent produces or refines an
+  artifact while an isolated evaluator agent scores it; the loop exits when
+  the evaluator passes the artifact or the iteration limit is reached.
+variables:
+  TASK:
+    required: true
+    description: What to build or improve — feature, fix, or refactoring target
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+# Generator steps run with higher token budgets; evaluator runs isolated
+# (evaluator: true) to prevent it inheriting the generator's optimism bias.
+stepDefaults:
+  - match: "generate*"
+    provider: claude
+    maxTokens: 80000
+  - match: "evaluate*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 40000
+
+steps:
+  - id: scope
+    name: Scope & Design
+    type: analysis
+    prompt: |
+      Analyse the task and produce a concrete scope document for: {{TASK}}
+
+      Identify:
+      - What success looks like (binary-testable acceptance criteria)
+      - Affected files and modules
+      - Key constraints and risks
+      - What a "bad" output looks like (failure modes the evaluator should catch)
+
+      Stay at the architecture level — identify WHAT to change, not HOW.
+    contextOutputs: [scope_document, acceptance_criteria]
+
+  - id: generate
+    name: Generate
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Implement the following task:
+      {{TASK}}
+
+      Scope and acceptance criteria:
+      {{context.scope_document}}
+
+      Produce the implementation. Run tests if available.
+      Report what you changed and why.
+    contextInputs: [scope_document]
+    contextOutputs: [diff_summary]
+
+  - id: evaluate
+    name: Evaluate (Isolated)
+    type: analysis
+    # evaluator: true runs this step in an isolated session — the evaluator
+    # cannot see the generator's internal reasoning, only the diff and criteria.
+    # This is the core adversarial isolation mechanism.
+    evaluator: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent evaluator. You did NOT write this code.
+      Your job is to catch problems — NOT to find reasons to approve.
+      If you identify an issue, it IS an issue. Do not rationalize it away.
+
+      ## Task
+      {{TASK}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      ## What Was Changed
+      {{context.diff_summary}}
+
+      ## Evaluation Criteria (score each 1–5; threshold: 3 minimum)
+      1. **Correctness** — Does the implementation satisfy every acceptance criterion?
+      2. **Security** — No injection, credential leak, or OWASP top-10 exposure?
+      3. **Test coverage** — Are the acceptance criteria verifiably exercised by tests?
+      4. **Completeness** — Are there missing cases, unhandled errors, or spec deviations?
+
+      ## Output
+      Score each criterion. Provide a structured list of findings (severity:
+      critical/high/medium/low, description, suggested fix). End with PASS or FAIL.
+
+      Set `evaluation_passed` to `true` only when ALL criteria score >= 3 AND
+      there are no critical or high findings.
+    contextInputs: [acceptance_criteria, diff_summary]
+    contextOutputs: [evaluation_report, evaluation_passed]
+    outputs:
+      evaluation_passed:
+        format: json
+        schema:
+          type: boolean
+
+  - id: remediate
+    name: Remediate Findings
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Fix the issues identified by the evaluator:
+      {{context.evaluation_report}}
+
+      Original task: {{TASK}}
+      Acceptance criteria: {{context.acceptance_criteria}}
+
+      Address each finding in severity order (critical first).
+      Only fix identified issues — do not refactor or change unrelated code.
+      Run tests after each fix.
+    contextInputs: [evaluation_report, acceptance_criteria]
+    contextOutputs: [diff_summary]
+    # Only enter the remediation loop if the evaluator found problems.
+    gate: "evaluate.evaluation_passed == false"
+
+  - id: re-evaluate
+    name: Re-evaluate (Isolated)
+    type: analysis
+    evaluator: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent evaluator re-checking after remediation.
+      Apply the same rigour as the first evaluation — do NOT lower the bar
+      because "it''s better than before".
+
+      ## Task
+      {{TASK}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      ## Remediation Changes
+      {{context.diff_summary}}
+
+      ## Original Findings
+      {{context.evaluation_report}}
+
+      Score each criterion (1–5, threshold 3). List any remaining findings.
+      Set `evaluation_passed` to `true` only when ALL criteria score >= 3 AND
+      no critical or high findings remain.
+    contextInputs: [acceptance_criteria, diff_summary, evaluation_report]
+    contextOutputs: [evaluation_report, evaluation_passed]
+    outputs:
+      evaluation_passed:
+        format: json
+        schema:
+          type: boolean
+    gate: "remediate.status == accepted"
+
+loops:
+  - id: adversarial-loop
+    # Bounded iteration: at most 3 rounds of generate→evaluate→remediate.
+    # Exit early when the evaluator passes the artifact.
+    steps: [remediate, re-evaluate]
+    maxIterations: 3
+    exitGate: "re-evaluate.evaluation_passed == true"
+''';
+
+const _ideaToPrYaml = r'''
+name: idea-to-pr
+description: >-
+  Full delivery pipeline from idea to pull request — plan, get approval,
+  implement with deterministic validation, review fan-out, and create a PR.
+  GitHub-specific steps document all assumptions and customization points
+  so this workflow is copy-customizable for other forges.
+variables:
+  IDEA:
+    required: true
+    description: Feature idea, bug report, or improvement description
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+  BASE_BRANCH:
+    required: false
+    description: Base branch for the pull request
+    default: "main"
+
+stepDefaults:
+  - match: "implement*"
+    provider: claude
+    maxTokens: 100000
+    maxCostUsd: 5.00
+  - match: "review*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 50000
+
+steps:
+  # ── Phase 1: Plan ──────────────────────────────────────────────────────────
+
+  - id: plan
+    name: Plan Implementation
+    type: analysis
+    prompt: |
+      Analyse this idea and produce an implementation plan:
+      {{IDEA}}
+
+      Deliver:
+      - Problem statement (what pain does this solve?)
+      - Proposed solution (high-level approach)
+      - Affected files and modules
+      - Implementation steps (ordered by dependency)
+      - Acceptance criteria (binary-testable, each verifiable independently)
+      - Risks and open questions
+
+      Stay at the architecture level. Do NOT prescribe exact code.
+    contextOutputs: [implementation_plan, acceptance_criteria]
+
+  # ── Phase 2: Approval gate ─────────────────────────────────────────────────
+  # The approval step pauses the workflow and surfaces the plan to a human
+  # reviewer. The workflow does not proceed until the reviewer accepts it.
+  # To skip approval (automated pipelines), remove this step and its gate.
+
+  - id: approve-plan
+    name: Approve Plan
+    type: approval
+    prompt: |
+      Review the implementation plan and acceptance criteria.
+      Approve to continue with implementation, or reject if the plan needs changes.
+    contextInputs: [implementation_plan, acceptance_criteria]
+
+  # ── Phase 3: Implement ─────────────────────────────────────────────────────
+
+  - id: implement
+    name: Implement
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Implement the approved plan:
+      {{context.implementation_plan}}
+
+      Original idea: {{IDEA}}
+
+      Follow the plan precisely. Run all available tests after implementation.
+      Fix any test failures before completing.
+    contextInputs: [implementation_plan]
+    contextOutputs: [diff_summary, branch_name]
+    # Capture the worktree branch from the coding step so downstream steps
+    # (validation, PR creation) can reference the correct branch.
+    outputs:
+      branch_name:
+        source: worktree.branch
+    gate: "approve-plan.status == accepted"
+
+  # ── Phase 4: Deterministic validation ─────────────────────────────────────
+  # Bash steps run deterministically — no LLM involved.
+  # These are the authoritative build/test gates; agent review is supplementary.
+  #
+  # CUSTOMIZATION: Replace these commands with your project''s actual
+  # build/test/lint commands. The step fails (onError: fail) if any
+  # command exits non-zero — adjust onError to "continue" if you want
+  # the workflow to report failures without hard-stopping.
+
+  - id: validate-build
+    name: Validate Build
+    type: bash
+    workdir: "{{context.implement.worktree_path}}"
+    prompt: |
+      # Run the project build. Fail loudly on any error.
+      # ASSUMPTION: dart/flutter toolchain is available in PATH.
+      # CUSTOMIZATION: Replace with your build command (e.g. make build, npm run build).
+      dart analyze --fatal-infos && dart test
+    onError: fail
+    gate: "implement.status == accepted"
+
+  # ── Phase 5: Code review fan-out ──────────────────────────────────────────
+
+  - id: review-correctness
+    name: Review Correctness
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent reviewer. You did NOT write this code.
+      Be specific: cite file paths, line numbers, and concrete reproduction steps.
+      Do NOT approve issues you have identified.
+
+      ## Change Under Review
+      {{context.diff_summary}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      Evaluate correctness and spec compliance:
+      - Does every acceptance criterion pass?
+      - Are there logic errors or edge cases?
+      - Are error paths handled correctly?
+
+      Score 1–5 (threshold 3). Output PASS or FAIL with findings.
+    contextInputs: [diff_summary, acceptance_criteria]
+    contextOutputs: [correctness_review]
+    gate: "implement.status == accepted"
+
+  - id: review-security
+    name: Review Security
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent security reviewer. You did NOT write this code.
+      Your job is to find vulnerabilities — NOT to approve.
+
+      ## Change Under Review
+      {{context.diff_summary}}
+
+      Evaluate for security issues:
+      - Injection vectors (SQL, command, path traversal)
+      - Credential or secret exposure
+      - Input validation gaps at system boundaries
+      - OWASP Top 10 vulnerabilities
+
+      Score 1–5 (threshold 3). List all findings with severity.
+      Output PASS or FAIL.
+    contextInputs: [diff_summary]
+    contextOutputs: [security_review]
+    gate: "implement.status == accepted"
+
+  # ── Phase 6: Synthesise reviews ───────────────────────────────────────────
+
+  - id: review-synthesis
+    name: Synthesise Reviews
+    type: analysis
+    prompt: |
+      Synthesise the parallel review results into a single actionable report.
+
+      Correctness review:
+      {{context.correctness_review}}
+
+      Security review:
+      {{context.security_review}}
+
+      Consolidate findings by severity (critical/high/medium/low).
+      Identify must-fix items (critical + high) vs. nice-to-have (medium/low).
+      Produce a summary verdict: READY TO MERGE or NEEDS WORK.
+    contextInputs: [correctness_review, security_review]
+    contextOutputs: [review_summary, ready_to_merge]
+    outputs:
+      ready_to_merge:
+        format: json
+        schema:
+          type: boolean
+
+  # ── Phase 7: Create pull request ──────────────────────────────────────────
+  # This bash step creates the PR using the gh CLI.
+  #
+  # ASSUMPTIONS (document and verify before use):
+  #   1. gh CLI is installed and authenticated (gh auth status passes).
+  #   2. The working directory is a git repository with a configured remote.
+  #   3. The implementing agent has already pushed the branch to origin
+  #      (the coding step does this when worktree isolation is active).
+  #
+  # CUSTOMIZATION POINTS:
+  #   - Replace gh pr create with your forge''s CLI (GitLab: glab mr create,
+  #     Bitbucket: bb pr create, etc.).
+  #   - Adjust --title and --body templates to your team''s PR conventions.
+  #   - Add --reviewer, --label, --milestone flags as needed.
+  #   - Replace --base {{BASE_BRANCH}} if your default branch differs.
+  #
+  # The branch name is sourced from the coding step''s worktree metadata
+  # (implement.branch_name), not hard-coded, so this step works correctly
+  # even when the engine allocates a dynamic worktree branch.
+
+  - id: create-pr
+    name: Create Pull Request
+    type: bash
+    workdir: "{{context.implement.worktree_path}}"
+    prompt: |
+      # ASSUMPTION: gh CLI is installed and authenticated.
+      # Run `gh auth status` to verify before using this workflow.
+      # CUSTOMIZATION: Replace with your forge''s PR creation command.
+      base_branch=$(cat <<''__DARTCLAW_BASE_BRANCH__''
+      {{BASE_BRANCH}}
+      __DARTCLAW_BASE_BRANCH__
+      )
+      branch_name={{context.branch_name}}
+      title=$(cat <<''__DARTCLAW_TITLE__''
+      {{IDEA}}
+      __DARTCLAW_TITLE__
+      )
+      pr_body_file=$(mktemp)
+      trap ''rm -f "$pr_body_file"'' EXIT
+      {
+        printf ''## Summary\n''
+        printf ''%s\n\n'' {{context.review_summary}}
+        printf ''## Implementation Plan\n''
+        printf ''%s\n\n'' {{context.implementation_plan}}
+        printf ''## Acceptance Criteria\n''
+        printf ''%s\n\n'' {{context.acceptance_criteria}}
+        printf ''%s\n'' ''---''
+        printf ''%s\n'' ''*Created by idea-to-pr workflow.*''
+      } > "$pr_body_file"
+      gh pr create \
+        --base "$base_branch" \
+        --head "$branch_name" \
+        --title "$title" \
+        --body-file "$pr_body_file"
+    contextInputs: [branch_name, review_summary, implementation_plan, acceptance_criteria]
+    onError: fail
+    gate: "review-synthesis.ready_to_merge == true"
+''';
+
 const _planAndExecuteYaml = r'''
 name: plan-and-execute
 description: >-
@@ -636,4 +1052,420 @@ steps:
       review_results:
         format: json
         schema: verdict
+''';
+
+const _workflowBuilderYaml = r'''
+name: workflow-builder
+description: >-
+  Meta-authoring workflow — gather a workflow request, generate a YAML definition,
+  save it to the workspace workflows/ directory, and validate it through the CLI
+  contract. Use this to scaffold new custom workflows.
+variables:
+  REQUEST:
+    required: true
+    description: Description of the workflow to build — what it should do and why
+  WORKFLOW_NAME:
+    required: true
+    description: Filename-safe name for the workflow (e.g. my-workflow) — saved as workflows/<name>.yaml
+  WORKSPACE_PATH:
+    required: false
+    description: Absolute path to the workspace root (default assumes current working directory)
+    default: "."
+
+steps:
+  - id: design
+    name: Design Workflow
+    type: analysis
+    prompt: |
+      Design a DartClaw workflow YAML for the following request:
+      {{REQUEST}}
+
+      Workflow name: {{WORKFLOW_NAME}}
+
+      Analyse the request and produce:
+      - A list of steps with their types (research, analysis, coding, writing, bash, approval)
+      - The variable contract (required and optional inputs)
+      - Context flow between steps (contextOutputs and contextInputs)
+      - Any gates, loops, or parallel steps needed
+      - stepDefaults if the workflow benefits from per-step cost/token controls
+
+      Stay at the design level — identify WHAT each step does, not HOW it prompts.
+      Reference the existing built-in workflows as patterns (spec-and-implement,
+      research-and-evaluate, idea-to-pr, adversarial-dev) but adapt for this request.
+    contextOutputs: [workflow_design, variable_contract]
+
+  - id: author
+    name: Author YAML
+    type: writing
+    prompt: |
+      Write the complete DartClaw workflow YAML for: {{REQUEST}}
+
+      Workflow name: {{WORKFLOW_NAME}}
+      Design: {{context.workflow_design}}
+      Variable contract: {{context.variable_contract}}
+
+      Produce a complete, valid workflow YAML following DartClaw conventions:
+      - name: must match {{WORKFLOW_NAME}}
+      - description: concise one-line summary (use YAML block scalar >-)
+      - variables: declare all inputs with required/description/default
+      - steps: each step needs id, name, type, prompt (or skill), and appropriate
+        contextInputs/contextOutputs
+      - Use evaluator: true for independent review steps
+      - Use parallel: true for steps that can run concurrently
+      - Use type: bash for deterministic shell commands (no LLM)
+      - Use type: approval for human-in-the-loop gates
+      - Use loops: only when iterative refinement is needed with an exit condition
+      - Do NOT use Handlebars conditionals (hash-if, hash-each block helpers) — use plain
+        variable syntax (double-braces around a name or context.key) only
+
+      Output ONLY the raw YAML — no markdown fences, no commentary.
+    contextInputs: [workflow_design, variable_contract]
+    contextOutputs: [workflow_yaml]
+
+  - id: save
+    name: Save to Workspace
+    type: bash
+    prompt: |
+      # Save the authored workflow YAML to the workspace workflows/ directory.
+      # ASSUMPTION: The workspace path is accessible from the current working directory.
+      # CUSTOMIZATION: Adjust the base path if your workspace root differs from WORKSPACE_PATH.
+      workspace_path=$(cat <<''__DARTCLAW_WORKSPACE_PATH__''
+      {{WORKSPACE_PATH}}
+      __DARTCLAW_WORKSPACE_PATH__
+      )
+      workflow_name=$(cat <<''__DARTCLAW_WORKFLOW_NAME__''
+      {{WORKFLOW_NAME}}
+      __DARTCLAW_WORKFLOW_NAME__
+      )
+      mkdir -p "$workspace_path/workflows"
+      printf ''%s'' {{context.workflow_yaml}} > "$workspace_path/workflows/$workflow_name.yaml"
+    contextInputs: [workflow_yaml]
+    onError: fail
+    gate: "author.status == accepted"
+
+  - id: validate
+    name: Validate via CLI
+    type: bash
+    prompt: |
+      # Validate the saved workflow through the DartClaw CLI contract.
+      # ASSUMPTION: dartclaw binary is available in PATH (or use `dart run dartclaw_cli`).
+      # Exit 0 = clean or warnings-only; exit 1 = parse/validation errors.
+      workspace_path=$(cat <<''__DARTCLAW_WORKSPACE_PATH__''
+      {{WORKSPACE_PATH}}
+      __DARTCLAW_WORKSPACE_PATH__
+      )
+      workflow_name=$(cat <<''__DARTCLAW_WORKFLOW_NAME__''
+      {{WORKFLOW_NAME}}
+      __DARTCLAW_WORKFLOW_NAME__
+      )
+      dartclaw workflow validate "$workspace_path/workflows/$workflow_name.yaml"
+    contextInputs: [workflow_yaml]
+    onError: fail
+    gate: "save.status == accepted"
+
+  - id: summarize
+    name: Summarize Results
+    type: writing
+    prompt: |
+      Summarize the workflow authoring session for: {{REQUEST}}
+
+      Workflow name: {{WORKFLOW_NAME}}
+      Design: {{context.workflow_design}}
+      Variable contract: {{context.variable_contract}}
+      Workflow YAML: {{context.workflow_yaml}}
+
+      Produce a brief summary covering:
+      - What the workflow does (one paragraph)
+      - Key variables the user must provide when running it
+      - Any customization points or assumptions documented in the YAML
+      - Next steps (e.g. run with `dartclaw workflow run {{WORKFLOW_NAME}}`)
+    contextInputs: [workflow_design, variable_contract, workflow_yaml]
+    gate: "validate.status == accepted"
+''';
+
+const _comprehensivePrReviewYaml = r'''
+name: comprehensive-pr-review
+description: >-
+  Multi-reviewer PR review — extract a deterministic diff from a branch or PR number,
+  fan out specialized reviewers in parallel, and synthesize findings explicitly in YAML.
+variables:
+  BRANCH:
+    required: false
+    description: Feature branch to review (compared against BASE_BRANCH). Provide either BRANCH or PR_NUMBER.
+    default: ""
+  PR_NUMBER:
+    required: false
+    description: Pull request number to review (GitHub). Provide either BRANCH or PR_NUMBER.
+    default: ""
+  BASE_BRANCH:
+    required: false
+    description: Base branch to diff against when using BRANCH input
+    default: "main"
+  REPO:
+    required: false
+    description: GitHub repository slug (owner/repo) — required when using PR_NUMBER input
+    default: ""
+  PROJECT:
+    required: false
+    description: Target project for remediation steps (omit for default project)
+
+stepDefaults:
+  - match: "review-*"
+    evaluator: true
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 50000
+
+steps:
+  # Phase 1: Deterministic diff extraction
+  # This bash step is the authoritative diff source. Both branch and PR inputs
+  # are normalized here — no LLM involved in extracting the diff.
+  #
+  # ASSUMPTIONS:
+  #   - git is available and the working directory is a git repository.
+  #   - For PR_NUMBER input: gh CLI is installed and authenticated (gh auth status).
+  #   - For BRANCH input: the branch exists locally or has been fetched.
+  #
+  # CUSTOMIZATION:
+  #   - Adjust the diff flags (--stat, -p) to match your team's review conventions.
+  #   - Replace gh pr diff with your forge's equivalent for non-GitHub remotes.
+  #   - Set REPO if the gh CLI needs an explicit --repo flag.
+
+  - id: extract-diff
+    name: Extract Diff
+    type: bash
+    prompt: |
+      # Normalize branch-vs-PR input to a deterministic diff.
+      # Exactly one of BRANCH or PR_NUMBER must be non-empty.
+      pr_number=$(cat <<''__DARTCLAW_PR_NUMBER__''
+      {{PR_NUMBER}}
+      __DARTCLAW_PR_NUMBER__
+      )
+      repo=$(cat <<''__DARTCLAW_REPO__''
+      {{REPO}}
+      __DARTCLAW_REPO__
+      )
+      base_branch=$(cat <<''__DARTCLAW_BASE_BRANCH__''
+      {{BASE_BRANCH}}
+      __DARTCLAW_BASE_BRANCH__
+      )
+      branch=$(cat <<''__DARTCLAW_BRANCH__''
+      {{BRANCH}}
+      __DARTCLAW_BRANCH__
+      )
+      if [ -n "$pr_number" ]; then
+        # PR-number path: fetch diff via gh CLI.
+        # ASSUMPTION: gh CLI is authenticated and REPO is set if needed.
+        REPO_FLAG=""
+        if [ -n "$repo" ]; then
+          REPO_FLAG="--repo $repo"
+        fi
+        gh pr diff "$pr_number" $REPO_FLAG --patch > /tmp/dartclaw_pr_diff.patch
+        gh pr view "$pr_number" $REPO_FLAG --json title,body,files,additions,deletions \
+          > /tmp/dartclaw_pr_meta.json
+        echo "Source: PR #$pr_number"
+        echo "Stat:"
+        git apply --stat /tmp/dartclaw_pr_diff.patch 2>/dev/null || wc -l /tmp/dartclaw_pr_diff.patch
+        cat /tmp/dartclaw_pr_diff.patch
+      else
+        # Branch path: diff against base branch.
+        git fetch origin "$base_branch" 2>/dev/null || true
+        git diff "origin/$base_branch...$branch" --stat
+        echo "---"
+        git diff "origin/$base_branch...$branch"
+      fi
+    contextOutputs: [diff_content]
+    onError: fail
+
+  # Phase 2: Context gathering
+
+  - id: gather-context
+    name: Gather Review Context
+    type: research
+    provider: claude
+    prompt: |
+      Gather context for reviewing this change.
+
+      Diff source:
+      - Branch: {{BRANCH}}
+      - PR number: {{PR_NUMBER}}
+      - Base branch: {{BASE_BRANCH}}
+
+      Explore the codebase to understand:
+      - What modules and files are affected
+      - The purpose of the change (from commit messages, PR description, or code comments)
+      - The testing approach used
+      - Key dependencies and integration points
+      - Any documented acceptance criteria or spec references
+
+      Produce a structured context document that the parallel reviewers can use
+      independently without re-exploring the codebase.
+    contextOutputs: [review_context, affected_files]
+    gate: "extract-diff.status == accepted"
+
+  # Phase 3: Parallel specialized reviewers
+  # Each reviewer is isolated (evaluator: true) and runs in parallel.
+  # They share the same diff and context but focus on distinct concerns.
+
+  - id: review-correctness
+    name: Review Correctness
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent correctness reviewer. You did NOT write this code.
+      Your job is to catch logic errors and spec deviations — NOT to find reasons to approve.
+      Be specific: cite file paths, line numbers, and concrete reproduction steps.
+      Do NOT rationalize away findings.
+
+      ## Change Under Review
+      Branch: {{BRANCH}}
+      PR: {{PR_NUMBER}}
+
+      ## Context
+      {{context.review_context}}
+
+      Affected files: {{context.affected_files}}
+
+      ## Focus Areas
+      - Logic correctness and algorithmic accuracy
+      - Edge cases and boundary conditions
+      - Error paths and exception handling
+      - Correctness of tests (do they actually verify what they claim?)
+      - Missing test coverage for critical paths
+
+      Score 1-5 (threshold 3 minimum). List findings with severity (critical/high/medium/low).
+      Output PASS or FAIL with a structured findings list.
+    contextInputs: [review_context, affected_files]
+    contextOutputs: [correctness_findings]
+    gate: "gather-context.status == accepted"
+
+  - id: review-security
+    name: Review Security
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent security reviewer. You did NOT write this code.
+      Your job is to find vulnerabilities — NOT to approve the change.
+      If you identify an issue, it IS an issue. Do not rationalize it away.
+
+      ## Change Under Review
+      Branch: {{BRANCH}}
+      PR: {{PR_NUMBER}}
+
+      ## Context
+      {{context.review_context}}
+
+      Affected files: {{context.affected_files}}
+
+      ## Focus Areas
+      - Injection vectors (SQL, command, path traversal, template injection)
+      - Credential or secret exposure
+      - Input validation gaps at system boundaries
+      - Authentication and authorization bypass
+      - OWASP Top 10 vulnerabilities
+      - Insecure defaults or unsafe configuration
+
+      Score 1-5 (threshold 3 minimum). List all findings with severity.
+      Output PASS or FAIL.
+    contextInputs: [review_context, affected_files]
+    contextOutputs: [security_findings]
+    gate: "gather-context.status == accepted"
+
+  - id: review-architecture
+    name: Review Architecture
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent architecture reviewer. You did NOT write this code.
+      Evaluate design quality and structural fit — do NOT approve pattern violations you identify.
+
+      ## Change Under Review
+      Branch: {{BRANCH}}
+      PR: {{PR_NUMBER}}
+
+      ## Context
+      {{context.review_context}}
+
+      Affected files: {{context.affected_files}}
+
+      ## Focus Areas
+      - Adherence to existing architectural patterns and conventions
+      - Separation of concerns and single-responsibility
+      - API design and interface contracts
+      - Code duplication and opportunities for reuse
+      - Coupling and cohesion
+      - Complexity and maintainability
+
+      Score 1-5 (threshold 3 minimum). List findings with severity.
+      Output PASS or FAIL.
+    contextInputs: [review_context, affected_files]
+    contextOutputs: [architecture_findings]
+    gate: "gather-context.status == accepted"
+
+  # Phase 4: Explicit synthesis
+
+  - id: synthesize
+    name: Synthesise Findings
+    type: analysis
+    prompt: |
+      Synthesise the parallel review results into a single actionable report.
+
+      ## Correctness Review
+      {{context.correctness_findings}}
+
+      ## Security Review
+      {{context.security_findings}}
+
+      ## Architecture Review
+      {{context.architecture_findings}}
+
+      Consolidate all findings:
+      1. Deduplicate findings that appear in multiple reviews
+      2. Group by severity (critical/high/medium/low)
+      3. Identify must-fix items (critical + high) vs. nice-to-have (medium/low)
+      4. Note any conflicting assessments between reviewers
+
+      Produce:
+      - A consolidated findings table (severity, reviewer, description, location)
+      - Must-fix list (critical + high items only)
+      - Summary verdict: READY TO MERGE, NEEDS WORK, or BLOCKED
+      - Recommended next steps
+    contextInputs: [correctness_findings, security_findings, architecture_findings]
+    contextOutputs: [synthesis_report, verdict]
+    outputs:
+      verdict:
+        format: json
+        schema:
+          type: string
+          enum: ["READY_TO_MERGE", "NEEDS_WORK", "BLOCKED"]
+
+  # Phase 5: Optional remediation
+
+  - id: remediate
+    name: Remediate Findings
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Fix the must-fix findings from the review synthesis:
+      {{context.synthesis_report}}
+
+      Address all critical and high severity findings in priority order.
+      For each fix:
+      - Reference the specific finding being addressed
+      - Explain the fix approach
+      - Run tests after the fix to confirm no regressions
+
+      Only address identified findings — do not refactor or change unrelated code.
+    contextInputs: [synthesis_report]
+    contextOutputs: [remediation_summary]
+    gate: "synthesize.verdict == NEEDS_WORK || synthesize.verdict == BLOCKED"
 ''';

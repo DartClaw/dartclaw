@@ -8,6 +8,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ParallelGroupCompletedEvent,
         Task,
         TaskStatusChangedEvent,
+        WorkflowApprovalRequestedEvent,
+        WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowRun,
         WorkflowRunStatus,
@@ -69,19 +71,14 @@ Router workflowRoutes(
       // Check for missing required variables (those without defaults).
       final missing = <String>[];
       for (final entry in definition.variables.entries) {
-        if (entry.value.required &&
-            entry.value.defaultValue == null &&
-            !variables.containsKey(entry.key)) {
+        if (entry.value.required && entry.value.defaultValue == null && !variables.containsKey(entry.key)) {
           missing.add(entry.key);
         }
       }
       if (missing.isNotEmpty) {
-        return errorResponse(
-          400,
-          'INVALID_INPUT',
-          'Missing required variable(s): ${missing.join(', ')}',
-          {'missingVariables': missing},
-        );
+        return errorResponse(400, 'INVALID_INPUT', 'Missing required variable(s): ${missing.join(', ')}', {
+          'missingVariables': missing,
+        });
       }
 
       final projectField = body.value!['project'];
@@ -170,9 +167,25 @@ Router workflowRoutes(
         return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
       }
       if (existing.status.terminal) {
-        return errorResponse(409, 'INVALID_TRANSITION', 'Workflow run is already in a terminal state: ${existing.status.name}');
+        return errorResponse(
+          409,
+          'INVALID_TRANSITION',
+          'Workflow run is already in a terminal state: ${existing.status.name}',
+        );
       }
-      await workflows.cancel(id);
+      // Optional body: { "feedback": "..." } for approval rejection feedback.
+      String? feedback;
+      final contentType = request.headers['content-type'] ?? '';
+      if (contentType.contains('application/json')) {
+        final body = await readJsonObject(request);
+        if (body.value != null) {
+          final feedbackField = body.value!['feedback'];
+          if (feedbackField is String && feedbackField.trim().isNotEmpty) {
+            feedback = feedbackField.trim();
+          }
+        }
+      }
+      await workflows.cancel(id, feedback: feedback);
       return Response(204);
     } catch (e, st) {
       _log.severe('Failed to cancel workflow run $id', e, st);
@@ -183,11 +196,25 @@ Router workflowRoutes(
   // GET /api/workflows/definitions
   router.get('/api/workflows/definitions', (Request request) async {
     try {
-      final defs = definitions.listAll();
-      return jsonResponse(200, defs.map(_definitionSummary).toList());
+      final summaries = definitions.listSummaries();
+      return jsonResponse(200, summaries.map(_summaryToJson).toList());
     } catch (e, st) {
       _log.severe('Failed to list workflow definitions', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list workflow definitions');
+    }
+  });
+
+  // GET /api/workflows/definitions/<name>
+  router.get('/api/workflows/definitions/<name>', (Request request, String name) async {
+    try {
+      final def = definitions.getByName(name);
+      if (def == null) {
+        return errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $name');
+      }
+      return jsonResponse(200, _definitionDetail(def));
+    } catch (e, st) {
+      _log.severe('Failed to get workflow definition $name', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow definition');
     }
   });
 
@@ -224,35 +251,80 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
   for (var i = 0; i < definition.steps.length; i++) {
     final step = definition.steps[i];
     final task = tasksByStepIndex[i];
-    steps.add({
+    final stepEntry = <String, dynamic>{
       'index': i,
       'id': step.id,
       'name': step.name,
-      'status': stepStatusFromTask(run, i, task),
+      'type': step.type,
+      'status': _stepStatusWithApproval(run, i, step.id, step.type, task),
       'taskId': task?.id,
-    });
+    };
+    // Attach approval metadata for approval-type steps.
+    if (step.type == 'approval') {
+      final approvalStatus = run.contextJson['${step.id}.approval.status'];
+      if (approvalStatus != null) {
+        stepEntry['approval'] = {
+          'status': approvalStatus,
+          'message': run.contextJson['${step.id}.approval.message'],
+          'requestedAt': run.contextJson['${step.id}.approval.requested_at'],
+          if (run.contextJson['${step.id}.approval.resolved_at'] != null)
+            'resolvedAt': run.contextJson['${step.id}.approval.resolved_at'],
+          if (run.contextJson['${step.id}.approval.feedback'] != null)
+            'feedback': run.contextJson['${step.id}.approval.feedback'],
+          if (run.contextJson['${step.id}.approval.timeout_deadline'] != null)
+            'timeoutDeadline': run.contextJson['${step.id}.approval.timeout_deadline'],
+          if (run.contextJson['${step.id}.approval.cancel_reason'] != null)
+            'cancelReason': run.contextJson['${step.id}.approval.cancel_reason'],
+        };
+      }
+    }
+    steps.add(stepEntry);
   }
 
   final childTaskIds = childTasks.map((t) => t.id).toList();
+  final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
   return run.toJson()
     ..['steps'] = steps
-    ..['childTaskIds'] = childTaskIds;
+    ..['childTaskIds'] = childTaskIds
+    ..['isApprovalPaused'] = pendingApprovalStepId != null
+    ..['pendingApprovalStepId'] = pendingApprovalStepId;
 }
 
-Map<String, dynamic> _definitionSummary(WorkflowDefinition def) => {
-  'name': def.name,
-  'description': def.description,
-  'stepCount': def.steps.length,
+/// Returns step status, handling approval-type steps which have no child task.
+String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, String stepType, Task? task) {
+  if (stepType == 'approval') {
+    final approvalStatus = run.contextJson['$stepId.approval.status'];
+    return switch (approvalStatus) {
+      'pending' => 'awaiting_approval',
+      'approved' => 'completed',
+      'rejected' => 'rejected',
+      'timed_out' => 'timed_out',
+      _ => index < run.currentStepIndex ? 'pending' : 'pending',
+    };
+  }
+  return stepStatusFromTask(run, index, task);
+}
+
+Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {
+  'name': s.name,
+  'description': s.description,
+  'stepCount': s.stepCount,
   'variables': {
-    for (final entry in def.variables.entries)
+    for (final entry in s.variables.entries)
       entry.key: {
         'required': entry.value.required,
         'description': entry.value.description,
         'default': entry.value.defaultValue,
       },
   },
+  'hasLoops': s.hasLoops,
+  'maxTokens': s.maxTokens,
+};
+
+Map<String, dynamic> _definitionDetail(WorkflowDefinition def) => {
+  ...def.toJson(),
+  'stepCount': def.steps.length,
   'hasLoops': def.loops.isNotEmpty,
-  'maxTokens': def.maxTokens,
 };
 
 /// Per-run SSE handler — streams workflow lifecycle and child task status events.
@@ -282,12 +354,7 @@ Future<Response> _workflowRunSseHandler(
     definition = WorkflowDefinition.fromJson(run.definitionJson);
   } catch (e) {
     _log.warning('Failed to deserialize definitionJson for run $runId: $e');
-    definition = WorkflowDefinition(
-      name: run.definitionName,
-      description: '',
-      steps: const [],
-      variables: const {},
-    );
+    definition = WorkflowDefinition(name: run.definitionName, description: '', steps: const [], variables: const {});
   }
   final tasksByStepIndex = <int, Task>{
     for (final t in allTasks.where((t) => t.workflowRunId == runId))
@@ -361,18 +428,44 @@ Future<Response> _workflowRunSseHandler(
     });
   });
 
-  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().where((e) => childTaskIds.contains(e.taskId)).listen(
-    (event) async {
-      final task = await tasks.get(event.taskId);
-      _sendSse(controller, {
-        'type': 'task_status_changed',
-        'taskId': event.taskId,
-        if (task?.stepIndex != null) 'stepIndex': task!.stepIndex,
-        'oldStatus': event.oldStatus.name,
-        'newStatus': event.newStatus.name,
-      });
-    },
-  );
+  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().where((e) => childTaskIds.contains(e.taskId)).listen((
+    event,
+  ) async {
+    final task = await tasks.get(event.taskId);
+    _sendSse(controller, {
+      'type': 'task_status_changed',
+      'taskId': event.taskId,
+      if (task?.stepIndex != null) 'stepIndex': task!.stepIndex,
+      'oldStatus': event.oldStatus.name,
+      'newStatus': event.newStatus.name,
+    });
+  });
+
+  final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    _sendSse(controller, {
+      'type': 'approval_requested',
+      'runId': event.runId,
+      'stepId': event.stepId,
+      'message': event.message,
+      if (event.timeoutSeconds != null) 'timeoutSeconds': event.timeoutSeconds,
+      'timestamp': event.timestamp.toIso8601String(),
+    });
+  });
+
+  final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    _sendSse(controller, {
+      'type': 'approval_resolved',
+      'runId': event.runId,
+      'stepId': event.stepId,
+      'approved': event.approved,
+      if (event.feedback != null) 'feedback': event.feedback,
+      'timestamp': event.timestamp.toIso8601String(),
+    });
+  });
 
   controller.onCancel = () {
     runStatusSub.cancel();
@@ -380,15 +473,13 @@ Future<Response> _workflowRunSseHandler(
     parallelSub.cancel();
     loopSub.cancel();
     taskStatusSub.cancel();
+    approvalRequestedSub.cancel();
+    approvalResolvedSub.cancel();
   };
 
   return Response.ok(
     controller.stream,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
+    headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
   );
 }
 

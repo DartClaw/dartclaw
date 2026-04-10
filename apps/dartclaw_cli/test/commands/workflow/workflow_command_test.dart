@@ -30,10 +30,14 @@ void main() {
       expect(command.subcommands.containsKey('status'), isTrue);
     });
 
-    test('workflow --help shows three subcommands', () {
+    test('has validate subcommand', () {
+      expect(command.subcommands.containsKey('validate'), isTrue);
+    });
+
+    test('workflow --help shows four subcommands', () {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
       expect(runner.commands.containsKey('workflow'), isTrue);
-      expect(command.subcommands.length, 3);
+      expect(command.subcommands.length, 4);
     });
   });
 }

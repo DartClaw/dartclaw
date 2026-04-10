@@ -31,9 +31,13 @@ String workflowDetailPageTemplate({
   final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
   // Determine which actions are available.
+  final isApprovalPaused = run['isApprovalPaused'] == true;
   final canPause = statusName == 'running';
   final canResume = statusName == 'paused';
   final canCancel = statusName == 'running' || statusName == 'paused';
+  // Approval-paused runs show Approve/Reject instead of generic Resume/Cancel.
+  final canApprove = isApprovalPaused;
+  final canReject = isApprovalPaused;
 
   // Annotate steps with loop/parallel info and display labels.
   final annotatedSteps = steps.map((step) {
@@ -51,7 +55,21 @@ String workflowDetailPageTemplate({
       s['loopMaxIterations'] = loopEntry['maxIterations'];
     }
     s['isActiveStep'] = s['status'] == 'running';
-    s['statusLabel'] = titleCase(s['status']?.toString() ?? 'pending');
+    s['isApprovalStep'] = s['type'] == 'approval';
+    s['isAwaitingApproval'] = s['status'] == 'awaiting_approval';
+    s['isApprovalCompleted'] = s['type'] == 'approval' && s['status'] == 'completed';
+    s['isApprovalRejected'] = s['status'] == 'rejected';
+    // Approval sub-object (may be null for non-approval or pre-request steps).
+    final approval = s['approval'] as Map<String, dynamic>?;
+    s['hasApproval'] = approval != null;
+    s['approvalMessage'] = approval?['message']?.toString() ?? '';
+    s['approvalFeedback'] = approval?['feedback']?.toString() ?? '';
+    s['hasApprovalFeedback'] = approval?['feedback'] != null;
+    s['statusLabel'] = switch (s['status']?.toString()) {
+      'awaiting_approval' => 'Awaiting Approval',
+      'rejected' => 'Rejected',
+      _ => titleCase(s['status']?.toString() ?? 'pending'),
+    };
     s['typeLabel'] = s['type']?.toString() ?? '';
     s['isParallel'] = s['parallel'] == true;
     return s;
@@ -83,8 +101,11 @@ String workflowDetailPageTemplate({
       'contextEntries': contextEntries,
       'hasContext': contextEntries.isNotEmpty,
       'canPause': canPause,
-      'canResume': canResume,
-      'canCancel': canCancel,
+      'canResume': canResume && !isApprovalPaused,
+      'canCancel': canCancel && !isApprovalPaused,
+      'isApprovalPaused': isApprovalPaused,
+      'canApprove': canApprove,
+      'canReject': canReject,
     },
   );
 

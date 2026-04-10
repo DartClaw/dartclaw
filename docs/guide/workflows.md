@@ -2,7 +2,7 @@
 
 DartClaw workflows are multi-step agent pipelines defined in YAML. Each step runs one or more agent turns, optionally passes structured data to the next step, and can be gated on human review or conditional expressions.
 
-This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-execute`, and others) are worked examples of the fully matured end state.
+This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-execute`, `idea-to-pr`, `adversarial-dev`, `workflow-builder`, `comprehensive-pr-review`, and others) are worked examples of the fully matured end state.
 
 ---
 
@@ -211,9 +211,53 @@ Notable patterns:
 
 **Dependency limitation for coding map steps**: The `dependencies` field in story-plan stories controls dispatch ordering but does NOT propagate code changes between stories. Each coding iteration starts from the same base branch. Design your stories as independent vertical slices — each story must be completable without assuming other stories' code changes are present. If stories have hard code dependencies, sequence them in separate workflows or use a different decomposition strategy.
 
+### `idea-to-pr` — Hybrid Delivery Pipeline
+
+A plan → approval → implement → deterministic validation → review → PR workflow.
+
+Notable patterns:
+- **Approval gates**: `approve-plan` uses `type: approval` to pause the run without creating a child task or consuming tokens.
+- **Deterministic validation**: `validate-build` uses `type: bash` so build/test gates run without an LLM in the loop.
+- **Worktree bridge**: the implementation step exports `branch_name` from `outputs.branch_name.source: worktree.branch`, so downstream steps can reference the coding-task branch directly.
+
+### `adversarial-dev` — Bounded Generator/Evaluator Loop
+
+A generator agent iterates with an isolated evaluator until the evaluator passes or the loop budget is exhausted.
+
+Notable patterns:
+- **Evaluator isolation**: `evaluator: true` keeps the reviewer from inheriting the generator's prompt context.
+- **Bounded iteration**: the loop has an explicit exit gate and a configurable `MAX_ROUNDS` cap.
+- **Summary-first discovery**: the workflow stays easy to browse because its listing metadata is just description plus variable hints, not the full prompt bodies.
+
+### `workflow-builder` — Authoring + Validation Loop
+
+A meta-workflow that designs a workflow, authors YAML, saves it into `workflows/`, validates it through the CLI, and summarizes the result.
+
+Notable patterns:
+- **Hybrid authoring surface**: agent steps generate and explain the YAML, while bash steps perform deterministic save/validate work.
+- **CLI contract**: `dartclaw workflow validate` is the authoritative validation surface for both built-in and custom workflows.
+
+### `comprehensive-pr-review` — Deterministic Diff + Parallel Reviewers
+
+A review workflow that normalizes a branch or PR number into a diff, gathers shared context once, fans out specialized reviewers in parallel, and synthesizes findings.
+
+Notable patterns:
+- **Deterministic extraction first**: a bash step produces the diff before any reviewer prompt runs.
+- **Parallel evaluator fan-out**: multiple reviewer steps run with `parallel: true` while remaining isolated reviewers.
+
+## Summary-First Discovery
+
+Workflow discovery surfaces are intentionally lightweight:
+
+- Listing surfaces such as the web workflow browser and `GET /api/workflows/definitions` use summary metadata only.
+- Summary payloads include `name`, `description`, `stepCount`, `hasLoops`, `maxTokens`, and variable hints.
+- Full definitions, including step prompt bodies, load on demand through `GET /api/workflows/definitions/<name>` or the execution path that resolves a workflow by name.
+
+This split keeps picker/browser UIs fast and stable as the built-in library grows. It also establishes a clean contract for future routing or recommendation features without pushing large prompt bodies through every listing surface.
+
 ---
 
-## YAML Field Reference (0.15.1)
+## YAML Field Reference (0.16.1)
 
 ### Top-Level Fields
 
@@ -243,29 +287,167 @@ variables:
 |-------|------|---------|-------------|
 | `id` | string | required | Unique step identifier |
 | `name` | string | required | Human-readable step name |
-| `type` | string | `research` | Step type: `research`, `analysis`, `coding`, `writing` |
-| `prompt` | string or list | required* | Step instruction(s). List = multi-prompt (F2) |
-| `provider` | string | default | AI provider: `claude`, `codex` |
-| `model` | string | default | Model override (provider-specific name) |
+| `type` | string | `research` | Step type: `research`, `analysis`, `coding`, `writing`, `bash`, `approval` |
+| `prompt` | string or list | required* | Step instruction(s). Agent steps may use a list for multi-prompt turns. `bash` and `approval` steps accept a single prompt string |
+| `provider` | string | default | AI provider: `claude`, `codex` (agent steps only) |
+| `model` | string | default | Model override (provider-specific name, agent steps only) |
 | `project` | string | none | Project ID for worktree isolation (coding steps) |
-| `review` | string | `codingOnly` | Review mode: `always`, `codingOnly`, `never` |
+| `review` | string | `codingOnly` | Review mode: `always`, `codingOnly`, `never` (agent steps only) |
 | `gate` | string | none | Condition expression — step skipped if false |
 | `contextInputs` | list | `[]` | Context keys this step reads |
 | `contextOutputs` | list | `[]` | Context keys this step writes |
+| `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
 | `maxRetries` | int | none | Retry count on transient failure |
 | `allowedTools` | list | none | Restrict available agent tools |
-| `timeoutSeconds` | int | none | Step timeout |
-| `parallel` | bool | `false` | Run concurrently with adjacent parallel steps |
+| `timeout` | int | 60 (bash), none | Step timeout in seconds. `timeoutSeconds` is accepted as a compatibility alias |
+| `parallel` | bool | `false` | Run concurrently with adjacent parallel steps (not valid for `approval`) |
 | `skill` | string | none | Skill name for skill-aware steps (requires installation) |
 | `evaluator` | bool | `false` | Minimal prompt scope — step receives only its own instructions |
 | `map_over` | string | none | Context key naming a JSON array — step runs once per element |
 | `max_parallel` | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
 | `max_items` | int | `20` | Max items processed from the mapped array |
 | `outputs` | map | none | Output format configs (see below) |
+| `onError` | string | `pause` | Failure policy: `pause` (default) or `continue`. Applies to bash and agent steps |
+| `workdir` | string | workspace root | Working directory for `bash` steps. Supports template references |
 
-*`prompt` is required unless `skill` is present.
+*`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps.
+
+### `approval` Steps
+
+`type: approval` inserts a human decision point into the workflow without creating a child task:
+
+```yaml
+- id: approve-plan
+  name: Approve Plan
+  type: approval
+  prompt: Review the generated plan and approve before implementation starts.
+  contextInputs: [implementation_plan, acceptance_criteria]
+```
+
+Key behaviors:
+- The run pauses with approval metadata stored in workflow context.
+- Resume records the decision as approved and continues with the next step.
+- Cancel records the decision as rejected and can include optional feedback.
+- `approval` is not valid in parallel groups. Inside loops it is allowed, but the validator warns because the workflow can pause once per iteration.
+
+### `bash` Steps
+
+`type: bash` steps run a host-side shell command without creating an agent task or consuming tokens:
+
+```yaml
+steps:
+  - id: validate
+    name: Run tests
+    type: bash
+    prompt: dart test packages/dartclaw_core
+    workdir: /path/to/project   # optional; defaults to workspace root
+    timeout: 120                 # optional; defaults to 60
+    onError: continue            # optional; defaults to pause
+    contextOutputs: [test_result]
+    outputs:
+      test_result:
+        format: text
+```
+
+**Key behaviors:**
+- `{{context.*}}` substitutions in the command are shell-escaped to prevent injection
+- stdout is captured and fed to the normal `text`/`json`/`lines` extraction pipeline
+- stdout is truncated at 64 KB with a `[truncated]` marker if exceeded
+- stderr is captured separately without truncation
+- Step metadata (`<stepId>.status`, `<stepId>.exitCode`, `<stepId>.tokenCount: 0`) is always written to context
+
+**`workdir` resolution order:**
+1. explicit `workdir` field (template references resolved)
+2. workspace root (`<dataDir>/workspace`)
+
+Non-existent `workdir` fails the step before the command runs.
+
+### `continueSession`
+
+`continueSession: true` tells an agent step to reuse the session established by the immediately preceding agent step:
+
+```yaml
+- id: investigate
+  name: Investigate
+  type: coding
+  project: "{{PROJECT}}"
+  prompt: Investigate the bug and capture the root cause.
+
+- id: fix
+  name: Fix
+  type: coding
+  project: "{{PROJECT}}"
+  continueSession: true
+  prompt: Implement the fix in the same coding session.
+```
+
+Use this for investigate → fix or implement → verify sequences where the second step benefits from the same session context.
+
+You can also point at an explicit earlier step ID when the continued step is not immediately adjacent:
+
+```yaml
+- id: investigate
+  name: Investigate
+  type: coding
+  prompt: Investigate the bug and capture the root cause.
+
+- id: run-tests
+  name: Run tests
+  type: bash
+  prompt: dart test
+
+- id: fix
+  name: Fix
+  type: coding
+  continueSession: investigate
+  prompt: Implement the fix in the same coding session.
+```
+
+Constraints:
+- The preceding step must also be an agent step. You cannot continue after `bash` or `approval`.
+- `continueSession` is not valid on `parallel: true` steps. Continuation requires a deterministic execution order.
+- Loop-boundary crossings are invalid. `continueSession` chains must stay linear or remain within the same loop.
+- Provider support is validated up front. If the selected provider does not support continuity, the definition is rejected before execution.
+
+The most common downstream use is pairing `continueSession` with explicit worktree outputs:
+
+```yaml
+outputs:
+  branch_name:
+    source: worktree.branch
+  worktree_path:
+    source: worktree.path
+```
+
+This lets later bash or review steps consume the coding step's branch and worktree path without asking the agent to restate them in prompt text.
+
+### `onError` Policy
+
+The `onError` field controls what happens when a step fails:
+
+| Value | Behavior |
+|-------|----------|
+| `pause` (default) | Workflow pauses with error message. Operator must resume manually |
+| `continue` | Failure metadata is recorded (`<stepId>.status == 'failed'`) and execution continues to the next step |
+
+`onError: continue` works for both `bash` steps and agent steps, so non-critical steps (linting, changelog updates) can fail without blocking the pipeline. Downstream steps can check `context.<stepId>.status` to branch behavior:
+
+```yaml
+- id: lint
+  name: Lint check
+  type: bash
+  prompt: dart analyze
+  onError: continue
+
+- id: next-step
+  name: Next Step
+  # gate: lint.status == 'success'  # optional: skip if lint failed
+  prompt: "Lint status was {{context.lint.status}}. Continue regardless."
+```
+
+Some older built-in examples still use `onError: fail` as a hard-stop spelling. Treat that as the same hard-stop behavior as `pause`, and prefer `pause` in new workflows so your YAML matches the documented contract.
 
 ### `outputs` Fields
 
@@ -274,12 +456,14 @@ outputs:
   key_name:
     format: json        # text (default), json, or lines
     schema: story-plan  # preset name or inline JSON Schema object
+    source: worktree.branch
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `format` | string | `text` | Output format: `text`, `json`, `lines` |
 | `schema` | string or object | none | Preset name (string) or inline JSON Schema (object) |
+| `source` | string | none | Explicit output source override such as `worktree.branch` or `worktree.path` |
 
 When `schema` is set, the step's prompt is automatically augmented with instructions for the expected output format — you don't need to describe the JSON structure in the prompt yourself.
 

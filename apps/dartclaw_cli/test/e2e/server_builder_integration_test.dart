@@ -161,7 +161,7 @@ void main() {
       ),
       channels: const ChannelConfig(
         channelConfigs: {
-          'googlechat': {'enabled': true},
+          'google_chat': {'enabled': true},
         },
       ),
       server: ServerConfig(

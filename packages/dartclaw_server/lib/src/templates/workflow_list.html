@@ -77,7 +77,9 @@
             </div>
             <p class="workflow-definition-desc" tl:text="${def.description}">Description</p>
             <div class="workflow-definition-vars">
-              <span tl:each="v : ${def.variableNames}" class="workflow-var-chip" tl:text="${v}">FEATURE</span>
+              <span tl:each="v : ${def.variableHints}" class="workflow-var-chip"
+                    tl:attr="title=${v.description}"
+                    tl:text="${v.name}">FEATURE</span>
             </div>
           </div>
         </div>

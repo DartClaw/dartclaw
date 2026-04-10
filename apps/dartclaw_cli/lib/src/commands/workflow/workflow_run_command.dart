@@ -13,7 +13,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
-        WorkflowStepCompletedEvent;
+        WorkflowStepCompletedEvent,
+        WorkflowApprovalRequestedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowService, WorkspaceService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 
@@ -152,6 +153,9 @@ class WorkflowRunCommand extends Command<void> {
     // Track step start times for duration calculation.
     final stepStartTimes = <int, DateTime>{};
 
+    // Track the most recent approval-requested event so we can print approval context on pause.
+    WorkflowApprovalRequestedEvent? lastApprovalEvent;
+
     // Subscribe before calling start() to avoid missing the first events.
     final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
       final runId = activeRunId;
@@ -165,6 +169,11 @@ class WorkflowRunCommand extends Command<void> {
           });
         }
       }
+    });
+
+    final approvalSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen((event) {
+      if (activeRunId != null && event.runId != activeRunId) return;
+      lastApprovalEvent = event;
     });
 
     final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
@@ -229,7 +238,16 @@ class WorkflowRunCommand extends Command<void> {
           return 0;
         }(),
         WorkflowRunStatus.paused => () {
-          printer.workflowPaused(finalRun.currentStepIndex, finalRun.errorMessage);
+          final approval = lastApprovalEvent;
+          if (approval != null) {
+            printer.workflowApprovalPaused(
+              finalRun.currentStepIndex - 1,
+              approval.stepId,
+              approval.message,
+            );
+          } else {
+            printer.workflowPaused(finalRun.currentStepIndex, finalRun.errorMessage);
+          }
           return 2;
         }(),
         WorkflowRunStatus.failed || WorkflowRunStatus.cancelled => () {
@@ -243,6 +261,7 @@ class WorkflowRunCommand extends Command<void> {
       await stepSub.cancel();
       await taskSub.cancel();
       await sigintSub.cancel();
+      await approvalSub.cancel();
     }
   }
 

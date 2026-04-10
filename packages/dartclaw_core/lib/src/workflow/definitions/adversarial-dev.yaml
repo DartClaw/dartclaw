@@ -1,0 +1,161 @@
+name: adversarial-dev
+description: >-
+  Bounded adversarial iteration — a generator agent produces or refines an
+  artifact while an isolated evaluator agent scores it; the loop exits when
+  the evaluator passes the artifact or the iteration limit is reached.
+variables:
+  TASK:
+    required: true
+    description: What to build or improve — feature, fix, or refactoring target
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+# Generator steps run with higher token budgets; evaluator runs isolated
+# (evaluator: true) to prevent it inheriting the generator's optimism bias.
+stepDefaults:
+  - match: "generate*"
+    provider: claude
+    maxTokens: 80000
+  - match: "evaluate*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 40000
+
+steps:
+  - id: scope
+    name: Scope & Design
+    type: analysis
+    prompt: |
+      Analyse the task and produce a concrete scope document for: {{TASK}}
+
+      Identify:
+      - What success looks like (binary-testable acceptance criteria)
+      - Affected files and modules
+      - Key constraints and risks
+      - What a "bad" output looks like (failure modes the evaluator should catch)
+
+      Stay at the architecture level — identify WHAT to change, not HOW.
+    contextOutputs: [scope_document, acceptance_criteria]
+
+  - id: generate
+    name: Generate
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Implement the following task:
+      {{TASK}}
+
+      Scope and acceptance criteria:
+      {{context.scope_document}}
+
+      Produce the implementation. Run tests if available.
+      Report what you changed and why.
+    contextInputs: [scope_document]
+    contextOutputs: [diff_summary]
+
+  - id: evaluate
+    name: Evaluate (Isolated)
+    type: analysis
+    # evaluator: true runs this step in an isolated session — the evaluator
+    # cannot see the generator's internal reasoning, only the diff and criteria.
+    # This is the core adversarial isolation mechanism.
+    evaluator: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent evaluator. You did NOT write this code.
+      Your job is to catch problems — NOT to find reasons to approve.
+      If you identify an issue, it IS an issue. Do not rationalize it away.
+
+      ## Task
+      {{TASK}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      ## What Was Changed
+      {{context.diff_summary}}
+
+      ## Evaluation Criteria (score each 1–5; threshold: 3 minimum)
+      1. **Correctness** — Does the implementation satisfy every acceptance criterion?
+      2. **Security** — No injection, credential leak, or OWASP top-10 exposure?
+      3. **Test coverage** — Are the acceptance criteria verifiably exercised by tests?
+      4. **Completeness** — Are there missing cases, unhandled errors, or spec deviations?
+
+      ## Output
+      Score each criterion. Provide a structured list of findings (severity:
+      critical/high/medium/low, description, suggested fix). End with PASS or FAIL.
+
+      Set `evaluation_passed` to `true` only when ALL criteria score >= 3 AND
+      there are no critical or high findings.
+    contextInputs: [acceptance_criteria, diff_summary]
+    contextOutputs: [evaluation_report, evaluation_passed]
+    outputs:
+      evaluation_passed:
+        format: json
+        schema:
+          type: boolean
+
+  - id: remediate
+    name: Remediate Findings
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Fix the issues identified by the evaluator:
+      {{context.evaluation_report}}
+
+      Original task: {{TASK}}
+      Acceptance criteria: {{context.acceptance_criteria}}
+
+      Address each finding in severity order (critical first).
+      Only fix identified issues — do not refactor or change unrelated code.
+      Run tests after each fix.
+    contextInputs: [evaluation_report, acceptance_criteria]
+    contextOutputs: [diff_summary]
+    # Only enter the remediation loop if the evaluator found problems.
+    gate: "evaluate.evaluation_passed == false"
+
+  - id: re-evaluate
+    name: Re-evaluate (Isolated)
+    type: analysis
+    evaluator: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent evaluator re-checking after remediation.
+      Apply the same rigour as the first evaluation — do NOT lower the bar
+      because "it's better than before".
+
+      ## Task
+      {{TASK}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      ## Remediation Changes
+      {{context.diff_summary}}
+
+      ## Original Findings
+      {{context.evaluation_report}}
+
+      Score each criterion (1–5, threshold 3). List any remaining findings.
+      Set `evaluation_passed` to `true` only when ALL criteria score >= 3 AND
+      no critical or high findings remain.
+    contextInputs: [acceptance_criteria, diff_summary, evaluation_report]
+    contextOutputs: [evaluation_report, evaluation_passed]
+    outputs:
+      evaluation_passed:
+        format: json
+        schema:
+          type: boolean
+    gate: "remediate.status == accepted"
+
+loops:
+  - id: adversarial-loop
+    # Bounded iteration: at most 3 rounds of generate→evaluate→remediate.
+    # Exit early when the evaluator passes the artifact.
+    steps: [remediate, re-evaluate]
+    maxIterations: 3
+    exitGate: "re-evaluate.evaluation_passed == true"

@@ -30,10 +30,15 @@ class OutputConfig {
   /// - null (no schema constraint)
   final Object? schema;
 
-  const OutputConfig({
-    this.format = OutputFormat.text,
-    this.schema,
-  });
+  /// Explicit output source override.
+  ///
+  /// When set, extraction is driven by this source rather than by agent-authored
+  /// context text. Supported values:
+  /// - `"worktree.branch"` — reads the coding-task branch from persisted worktree metadata
+  /// - `"worktree.path"` — reads the worktree filesystem path from persisted worktree metadata
+  final String? source;
+
+  const OutputConfig({this.format = OutputFormat.text, this.schema, this.source});
 
   /// Whether this config has a schema (preset name or inline).
   bool get hasSchema => schema != null;
@@ -42,19 +47,18 @@ class OutputConfig {
   String? get presetName => schema is String ? schema as String : null;
 
   /// Returns the inline schema if [schema] is a Map, else null.
-  Map<String, dynamic>? get inlineSchema =>
-      schema is Map<String, dynamic> ? schema as Map<String, dynamic> : null;
+  Map<String, dynamic>? get inlineSchema => schema is Map<String, dynamic> ? schema as Map<String, dynamic> : null;
 
   Map<String, dynamic> toJson() => {
     'format': format.name,
     if (schema != null) 'schema': schema,
+    if (source != null) 'source': source,
   };
 
   factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
-    format: json['format'] != null
-        ? OutputFormat.values.byName(json['format'] as String)
-        : OutputFormat.text,
+    format: json['format'] != null ? OutputFormat.values.byName(json['format'] as String) : OutputFormat.text,
     schema: json['schema'],
+    source: json['source'] as String?,
   );
 }
 
@@ -97,16 +101,10 @@ class ExtractionConfig {
 
   const ExtractionConfig({required this.type, required this.pattern});
 
-  Map<String, dynamic> toJson() => {
-    'type': type.name,
-    'pattern': pattern,
-  };
+  Map<String, dynamic> toJson() => {'type': type.name, 'pattern': pattern};
 
   factory ExtractionConfig.fromJson(Map<String, dynamic> json) =>
-      ExtractionConfig(
-        type: ExtractionType.values.byName(json['type'] as String),
-        pattern: json['pattern'] as String,
-      );
+      ExtractionConfig(type: ExtractionType.values.byName(json['type'] as String), pattern: json['pattern'] as String);
 }
 
 /// A variable declaration in a workflow definition.
@@ -120,11 +118,7 @@ class WorkflowVariable {
   /// Optional default value used when not provided.
   final String? defaultValue;
 
-  const WorkflowVariable({
-    this.required = true,
-    this.description = '',
-    this.defaultValue,
-  });
+  const WorkflowVariable({this.required = true, this.description = '', this.defaultValue});
 
   Map<String, dynamic> toJson() => {
     'required': required,
@@ -132,12 +126,11 @@ class WorkflowVariable {
     if (defaultValue != null) 'defaultValue': defaultValue,
   };
 
-  factory WorkflowVariable.fromJson(Map<String, dynamic> json) =>
-      WorkflowVariable(
-        required: (json['required'] as bool?) ?? true,
-        description: (json['description'] as String?) ?? '',
-        defaultValue: json['defaultValue'] as String?,
-      );
+  factory WorkflowVariable.fromJson(Map<String, dynamic> json) => WorkflowVariable(
+    required: (json['required'] as bool?) ?? true,
+    description: (json['description'] as String?) ?? '',
+    defaultValue: json['defaultValue'] as String?,
+  );
 }
 
 /// Pattern-based step config default entry.
@@ -186,16 +179,15 @@ class StepConfigDefault {
     if (allowedTools != null) 'allowedTools': allowedTools!.toList(),
   };
 
-  factory StepConfigDefault.fromJson(Map<String, dynamic> json) =>
-      StepConfigDefault(
-        match: json['match'] as String,
-        provider: json['provider'] as String?,
-        model: json['model'] as String?,
-        maxTokens: json['maxTokens'] as int?,
-        maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
-        maxRetries: json['maxRetries'] as int?,
-        allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
-      );
+  factory StepConfigDefault.fromJson(Map<String, dynamic> json) => StepConfigDefault(
+    match: json['match'] as String,
+    provider: json['provider'] as String?,
+    model: json['model'] as String?,
+    maxTokens: json['maxTokens'] as int?,
+    maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
+    maxRetries: json['maxRetries'] as int?,
+    allowedTools: (json['allowedTools'] as List?)?.cast<String>(),
+  );
 }
 
 /// A loop construct over a set of workflow steps.
@@ -235,14 +227,13 @@ class WorkflowLoop {
     if (finally_ != null) 'finally': finally_,
   };
 
-  factory WorkflowLoop.fromJson(Map<String, dynamic> json) =>
-      WorkflowLoop(
-        id: json['id'] as String,
-        steps: (json['steps'] as List).cast<String>(),
-        maxIterations: json['maxIterations'] as int,
-        exitGate: json['exitGate'] as String,
-        finally_: json['finally'] as String?,
-      );
+  factory WorkflowLoop.fromJson(Map<String, dynamic> json) => WorkflowLoop(
+    id: json['id'] as String,
+    steps: (json['steps'] as List).cast<String>(),
+    maxIterations: json['maxIterations'] as int,
+    exitGate: json['exitGate'] as String,
+    finally_: json['finally'] as String?,
+  );
 }
 
 /// A single step within a workflow definition.
@@ -348,6 +339,30 @@ class WorkflowStep {
   /// Acts as a safety cap to prevent runaway fan-out.
   final int maxItems;
 
+  /// Optional step reference whose root agent session should be continued.
+  ///
+  /// The value is normally a step ID. The legacy boolean form
+  /// `continueSession: true` is still accepted and is normalized internally to
+  /// the immediately preceding step via the private sentinel `@previous`.
+  /// Only valid for provider/harness combinations that support session
+  /// continuity (e.g. Claude Code). S04 owns runtime execution semantics.
+  final String? continueSession;
+
+  /// Error handling policy for this step.
+  ///
+  /// Accepted values: `"pause"` (default — abort the workflow), `"continue"`
+  /// (log the error and continue to the next step), and legacy `"fail"`
+  /// (treated the same as `"pause"` for backward compatibility).
+  /// S02 owns runtime execution semantics for this field.
+  final String? onError;
+
+  /// Working directory override for bash steps.
+  ///
+  /// When set, the bash executor uses this path as the working directory.
+  /// Supports `{{variable}}` references. Ignored for non-bash steps.
+  /// S02 owns runtime execution semantics for this field.
+  final String? workdir;
+
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -385,6 +400,9 @@ class WorkflowStep {
     this.mapOver,
     this.maxParallel,
     this.maxItems = 20,
+    this.continueSession,
+    this.onError,
+    this.workdir,
   });
 
   Map<String, dynamic> toJson() => {
@@ -412,6 +430,9 @@ class WorkflowStep {
     if (mapOver != null) 'mapOver': mapOver,
     if (maxParallel != null) 'maxParallel': maxParallel,
     if (maxItems != 20) 'maxItems': maxItems,
+    if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
+    if (onError != null) 'onError': onError,
+    if (workdir != null) 'workdir': workdir,
   };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) {
@@ -435,7 +456,7 @@ class WorkflowStep {
       project: json['project'] as String?,
       provider: json['provider'] as String?,
       model: json['model'] as String?,
-      timeoutSeconds: json['timeout'] as int?,
+      timeoutSeconds: (json['timeout'] ?? json['timeoutSeconds']) as int?,
       review: json['review'] != null
           ? StepReviewMode.values.byName(json['review'] as String)
           : StepReviewMode.codingOnly,
@@ -457,6 +478,13 @@ class WorkflowStep {
       mapOver: json['mapOver'] as String?,
       maxParallel: json['maxParallel'],
       maxItems: (json['maxItems'] as int?) ?? 20,
+      continueSession: switch (json['continueSession']) {
+        true => '@previous',
+        String value when value.isNotEmpty => value,
+        _ => null,
+      },
+      onError: json['onError'] as String?,
+      workdir: json['workdir'] as String?,
     );
   }
 }
@@ -508,24 +536,23 @@ class WorkflowDefinition {
     if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
   };
 
-  factory WorkflowDefinition.fromJson(Map<String, dynamic> json) =>
-      WorkflowDefinition(
-        name: json['name'] as String,
-        description: json['description'] as String,
-        variables: (json['variables'] as Map<String, dynamic>?)?.map(
-              (k, v) => MapEntry(k, WorkflowVariable.fromJson(v as Map<String, dynamic>)),
-            ) ??
-            const {},
-        steps: (json['steps'] as List)
-            .map((s) => WorkflowStep.fromJson(s as Map<String, dynamic>))
-            .toList(growable: false),
-        loops: (json['loops'] as List?)
-                ?.map((l) => WorkflowLoop.fromJson(l as Map<String, dynamic>))
-                .toList(growable: false) ??
-            const [],
-        maxTokens: json['maxTokens'] as int?,
-        stepDefaults: (json['stepDefaults'] as List?)
-            ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
-            .toList(growable: false),
-      );
+  factory WorkflowDefinition.fromJson(Map<String, dynamic> json) => WorkflowDefinition(
+    name: json['name'] as String,
+    description: json['description'] as String,
+    variables:
+        (json['variables'] as Map<String, dynamic>?)?.map(
+          (k, v) => MapEntry(k, WorkflowVariable.fromJson(v as Map<String, dynamic>)),
+        ) ??
+        const {},
+    steps: (json['steps'] as List).map((s) => WorkflowStep.fromJson(s as Map<String, dynamic>)).toList(growable: false),
+    loops:
+        (json['loops'] as List?)
+            ?.map((l) => WorkflowLoop.fromJson(l as Map<String, dynamic>))
+            .toList(growable: false) ??
+        const [],
+    maxTokens: json['maxTokens'] as int?,
+    stepDefaults: (json['stepDefaults'] as List?)
+        ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
+        .toList(growable: false),
+  );
 }

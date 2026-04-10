@@ -200,7 +200,8 @@ steps:
 
     test('parses type field correctly', () {
       for (final type in ['research', 'analysis', 'writing', 'coding']) {
-        final yaml = '''
+        final yaml =
+            '''
 name: n
 description: d
 steps:
@@ -904,6 +905,226 @@ steps:
 ''';
       final def = parser.parse(yaml);
       expect(def.steps[0].isMapStep, isTrue);
+    });
+  });
+
+  group('S01 (0.16.1): hybrid step fields (bash, approval, continueSession, onError, workdir)', () {
+    test('bash step without prompt or skill parses successfully', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: run-tests
+    name: Run Tests
+    type: bash
+''';
+      final def = parser.parse(yaml);
+      final step = def.steps[0];
+      expect(step.id, 'run-tests');
+      expect(step.type, 'bash');
+      expect(step.prompts, isNull);
+      expect(step.skill, isNull);
+    });
+
+    test('approval step without prompt or skill parses successfully', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: await-approval
+    name: Await Approval
+    type: approval
+''';
+      final def = parser.parse(yaml);
+      final step = def.steps[0];
+      expect(step.type, 'approval');
+      expect(step.prompts, isNull);
+      expect(step.skill, isNull);
+    });
+
+    test('continueSession step reference parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s1
+    name: Step One
+    prompt: First prompt
+  - id: s2
+    name: Step Two
+    prompt: Follow up
+    continueSession: s1
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].continueSession, isNull);
+      expect(def.steps[1].continueSession, 's1');
+    });
+
+    test('legacy continue_session boolean alias parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s1
+    name: Step One
+    prompt: p
+    continue_session: true
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].continueSession, '@previous');
+    });
+
+    test('continueSession defaults to null when absent', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].continueSession, isNull);
+    });
+
+    test('onError field parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    onError: continue
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].onError, 'continue');
+    });
+
+    test('on_error (snake_case alias) parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    on_error: retry
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].onError, 'retry');
+    });
+
+    test('onError defaults to null when absent', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].onError, isNull);
+    });
+
+    test('workdir field parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: bash
+    workdir: /tmp/workspace
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].workdir, '/tmp/workspace');
+    });
+
+    test('timeoutSeconds alias parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    timeoutSeconds: 45
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].timeoutSeconds, 45);
+    });
+
+    test('workdir defaults to null when absent', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].workdir, isNull);
+    });
+
+    test('hybrid bash step with all new fields', () {
+      const yaml = r'''
+name: n
+description: d
+variables:
+  WORKSPACE:
+    required: true
+steps:
+  - id: build
+    name: Build Project
+    type: bash
+    workdir: '{{WORKSPACE}}'
+    onError: retry
+    maxRetries: 2
+''';
+      final def = parser.parse(yaml);
+      final step = def.steps[0];
+      expect(step.type, 'bash');
+      expect(step.workdir, '{{WORKSPACE}}');
+      expect(step.onError, 'retry');
+      expect(step.maxRetries, 2);
+      expect(step.prompts, isNull);
+    });
+
+    test('legacy research/coding steps still parse unchanged (backward compat)', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s1
+    name: Research
+    prompt: Do research
+    type: research
+  - id: s2
+    name: Coding
+    prompt: Write code
+    type: coding
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].type, 'research');
+      expect(def.steps[0].continueSession, isNull);
+      expect(def.steps[0].onError, isNull);
+      expect(def.steps[0].workdir, isNull);
+      expect(def.steps[1].type, 'coding');
+    });
+
+    test('step without skill or prompt still throws for non-hybrid types', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    type: research
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
     });
   });
 }

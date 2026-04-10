@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         Task,
         TaskStatus,
+        WorkflowApprovalResolvedEvent,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowRun,
@@ -47,6 +48,9 @@ class WorkflowService {
 
   // Active executor futures per run ID.
   final _activeExecutors = <String, Future<void>>{};
+
+  // Approval timeout timers keyed by "<runId>:<stepId>".
+  final _approvalTimeoutTimers = <String, Timer>{};
 
   WorkflowService({
     required SqliteWorkflowRunRepository repository,
@@ -136,17 +140,12 @@ class WorkflowService {
   Future<WorkflowRun> pause(String runId) async {
     final run = await _requireRun(runId);
     if (run.status != WorkflowRunStatus.running) {
-      throw StateError(
-        'Cannot pause workflow in ${run.status.name} state (only running workflows can be paused)',
-      );
+      throw StateError('Cannot pause workflow in ${run.status.name} state (only running workflows can be paused)');
     }
 
     _cancelFlags[runId] = true;
 
-    final paused = run.copyWith(
-      status: WorkflowRunStatus.paused,
-      updatedAt: DateTime.now(),
-    );
+    final paused = run.copyWith(status: WorkflowRunStatus.paused, updatedAt: DateTime.now());
     await _repository.update(paused);
     _fireStatusChanged(
       runId: runId,
@@ -159,13 +158,46 @@ class WorkflowService {
 
   /// Resumes a paused workflow.
   ///
-  /// Detects loop and parallel-failure state from [run.contextJson] and resumes
-  /// accordingly. Otherwise re-runs from [run.currentStepIndex].
+  /// Detects loop, parallel-failure, and approval-pause state from [run.contextJson]
+  /// and resumes accordingly. Otherwise re-runs from [run.currentStepIndex].
+  ///
+  /// When resuming an approval-paused run, records the approval as accepted and fires
+  /// [WorkflowApprovalResolvedEvent].
   Future<WorkflowRun> resume(String runId) async {
-    final run = await _requireRun(runId);
+    var run = await _requireRun(runId);
     if (run.status != WorkflowRunStatus.paused) {
-      throw StateError(
-        'Cannot resume workflow in ${run.status.name} state (only paused workflows can be resumed)',
+      throw StateError('Cannot resume workflow in ${run.status.name} state (only paused workflows can be resumed)');
+    }
+
+    // Record approval outcome if this was an approval-paused run.
+    final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    if (pendingApprovalStepId != null) {
+      _clearApprovalTimeoutTimer(runId, pendingApprovalStepId);
+      final resolvedAt = DateTime.now().toIso8601String();
+      final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+      context['$pendingApprovalStepId.status'] = 'accepted';
+      context['$pendingApprovalStepId.approval.status'] = 'approved';
+      context['$pendingApprovalStepId.approval.resolved_at'] = resolvedAt;
+      await _persistContext(runId, context);
+      final updatedContext = _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
+        extraFlat: {
+          '$pendingApprovalStepId.status': 'accepted',
+          '$pendingApprovalStepId.approval.status': 'approved',
+          '$pendingApprovalStepId.approval.resolved_at': resolvedAt,
+        },
+      );
+      run = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
+      await _repository.update(run);
+      _eventBus.fire(
+        WorkflowApprovalResolvedEvent(
+          runId: runId,
+          stepId: pendingApprovalStepId,
+          approved: true,
+          timestamp: DateTime.now(),
+        ),
       );
     }
 
@@ -177,8 +209,7 @@ class WorkflowService {
 
     // Determine resume point.
     final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    final currentLoopIteration =
-        (run.contextJson['_loop.current.iteration'] as num?)?.toInt();
+    final currentLoopIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt();
     final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
 
     int? startLoopIndex;
@@ -204,11 +235,7 @@ class WorkflowService {
     }
 
     // Transition to running.
-    final running = run.copyWith(
-      status: WorkflowRunStatus.running,
-      errorMessage: null,
-      updatedAt: DateTime.now(),
-    );
+    final running = run.copyWith(status: WorkflowRunStatus.running, errorMessage: null, updatedAt: DateTime.now());
     await _repository.update(running);
     _cancelFlags.remove(runId);
 
@@ -233,9 +260,49 @@ class WorkflowService {
   }
 
   /// Cancels a workflow. Force-cancels running child tasks via task transition.
-  Future<void> cancel(String runId) async {
-    final run = await _repository.getById(runId);
+  ///
+  /// When cancelling an approval-paused run, [feedback] is stored as rejection
+  /// feedback and [WorkflowApprovalResolvedEvent] is fired with `approved: false`.
+  Future<void> cancel(String runId, {String? feedback}) async {
+    var run = await _repository.getById(runId);
     if (run == null || run.status.terminal) return;
+
+    // Record approval rejection if this was an approval-paused run.
+    final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    if (pendingApprovalStepId != null) {
+      _clearApprovalTimeoutTimer(runId, pendingApprovalStepId);
+      final resolvedAt = DateTime.now().toIso8601String();
+      final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+      context['$pendingApprovalStepId.status'] = 'rejected';
+      context['$pendingApprovalStepId.approval.status'] = 'rejected';
+      context['$pendingApprovalStepId.approval.resolved_at'] = resolvedAt;
+      if (feedback != null) {
+        context['$pendingApprovalStepId.approval.feedback'] = feedback;
+      }
+      await _persistContext(runId, context);
+      final updatedContext = _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
+        extraFlat: {
+          '$pendingApprovalStepId.status': 'rejected',
+          '$pendingApprovalStepId.approval.status': 'rejected',
+          '$pendingApprovalStepId.approval.resolved_at': resolvedAt,
+          if (feedback != null) '$pendingApprovalStepId.approval.feedback': feedback,
+        },
+      );
+      run = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
+      await _repository.update(run);
+      _eventBus.fire(
+        WorkflowApprovalResolvedEvent(
+          runId: runId,
+          stepId: pendingApprovalStepId,
+          approved: false,
+          feedback: feedback,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
 
     // Signal executor to stop.
     _cancelFlags[runId] = true;
@@ -274,25 +341,32 @@ class WorkflowService {
   Future<WorkflowRun?> get(String runId) => _repository.getById(runId);
 
   /// Lists workflow runs with optional filters.
-  Future<List<WorkflowRun>> list({
-    WorkflowRunStatus? status,
-    String? definitionName,
-  }) => _repository.list(status: status, definitionName: definitionName);
+  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) =>
+      _repository.list(status: status, definitionName: definitionName);
 
   /// Detects and resumes incomplete workflow runs after server restart.
   ///
   /// Only resumes runs with status `running`. Paused runs require explicit user action.
   Future<void> recoverIncompleteRuns() async {
     final incompleteRuns = await _repository.list(status: WorkflowRunStatus.running);
-    if (incompleteRuns.isEmpty) return;
+    if (incompleteRuns.isNotEmpty) {
+      _log.info('Found ${incompleteRuns.length} incomplete workflow run(s) — recovering...');
 
-    _log.info('Found ${incompleteRuns.length} incomplete workflow run(s) — recovering...');
+      for (final run in incompleteRuns) {
+        try {
+          await _recoverRun(run);
+        } catch (e, st) {
+          _log.severe('Failed to recover workflow run ${run.id}', e, st);
+        }
+      }
+    }
 
-    for (final run in incompleteRuns) {
+    final pausedRuns = await _repository.list(status: WorkflowRunStatus.paused);
+    for (final run in pausedRuns) {
       try {
-        await _recoverRun(run);
+        await _rehydrateApprovalTimeout(run);
       } catch (e, st) {
-        _log.severe('Failed to recover workflow run ${run.id}', e, st);
+        _log.severe('Failed to rehydrate approval timeout for workflow run ${run.id}', e, st);
       }
     }
   }
@@ -314,8 +388,7 @@ class WorkflowService {
     // Check if run was mid-loop.
     final currentLoopId = run.contextJson['_loop.current.id'] as String?;
     if (currentLoopId != null) {
-      final currentIteration =
-          (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
+      final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
       final loopIndex = definition.loops.indexWhere((l) => l.id == currentLoopId);
       if (loopIndex >= 0) {
         _log.info(
@@ -369,9 +442,7 @@ class WorkflowService {
       resumeStepIndex = interruptedTask.stepIndex!;
     }
 
-    _log.info(
-      "Recovering workflow '${definition.name}' (${run.id}) from step $resumeStepIndex",
-    );
+    _log.info("Recovering workflow '${definition.name}' (${run.id}) from step $resumeStepIndex");
 
     _cancelFlags.remove(run.id);
     _spawnExecutor(run, definition, context, startFromStepIndex: resumeStepIndex);
@@ -387,9 +458,7 @@ class WorkflowService {
     // Cancel in-flight child tasks to unblock executors waiting on task completion.
     final allTasks = await _taskService.list();
     for (final task in allTasks) {
-      if (task.workflowRunId != null &&
-          _activeExecutors.containsKey(task.workflowRunId) &&
-          !task.status.terminal) {
+      if (task.workflowRunId != null && _activeExecutors.containsKey(task.workflowRunId) && !task.status.terminal) {
         try {
           if (task.status == TaskStatus.queued) {
             await _taskService.transition(task.id, TaskStatus.running, trigger: 'dispose');
@@ -407,6 +476,10 @@ class WorkflowService {
     await Future.wait(_activeExecutors.values);
     _activeExecutors.clear();
     _cancelFlags.clear();
+    for (final timer in _approvalTimeoutTimers.values) {
+      timer.cancel();
+    }
+    _approvalTimeoutTimers.clear();
   }
 
   void _spawnExecutor(
@@ -424,11 +497,7 @@ class WorkflowService {
       kvService: _kvService,
       repository: _repository,
       gateEvaluator: GateEvaluator(),
-      contextExtractor: ContextExtractor(
-        taskService: _taskService,
-        messageService: _messageService,
-        dataDir: _dataDir,
-      ),
+      contextExtractor: ContextExtractor(taskService: _taskService, messageService: _messageService, dataDir: _dataDir),
       messageService: _messageService,
       turnManager: _turnManager,
       dataDir: _dataDir,
@@ -446,6 +515,10 @@ class WorkflowService {
           startFromLoopStepId: startFromLoopStepId,
           isCancelled: () => _cancelFlags[run.id] ?? false,
         );
+        final current = await _repository.getById(run.id);
+        if (current != null && current.status == WorkflowRunStatus.paused) {
+          await _rehydrateApprovalTimeout(current);
+        }
       } catch (e, st) {
         _log.severe("Workflow '${run.id}' executor failed unexpectedly", e, st);
         // Transition to failed so the run doesn't remain stuck in 'running'.
@@ -471,6 +544,7 @@ class WorkflowService {
           _log.severe("Failed to persist failed status for '${run.id}'", persistError);
         }
       } finally {
+        executor.dispose();
         _activeExecutors.remove(run.id); // ignore: unawaited_futures
       }
     }
@@ -534,5 +608,89 @@ class WorkflowService {
     }).toList();
     json['steps'] = steps;
     return WorkflowDefinition.fromJson(json);
+  }
+
+  Future<void> _rehydrateApprovalTimeout(WorkflowRun run) async {
+    final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    if (pendingApprovalStepId == null) return;
+
+    final deadlineRaw = run.contextJson['$pendingApprovalStepId.approval.timeout_deadline'] as String?;
+    if (deadlineRaw == null) return;
+    final deadline = DateTime.tryParse(deadlineRaw);
+    if (deadline == null) return;
+
+    if (!deadline.isAfter(DateTime.now())) {
+      await _expireApprovalTimeout(run, pendingApprovalStepId);
+      return;
+    }
+
+    _scheduleApprovalTimeout(run.id, pendingApprovalStepId, deadline);
+  }
+
+  void _scheduleApprovalTimeout(String runId, String stepId, DateTime deadline) {
+    final key = '$runId:$stepId';
+    _approvalTimeoutTimers[key]?.cancel();
+    _approvalTimeoutTimers[key] = Timer(deadline.difference(DateTime.now()), () async {
+      _approvalTimeoutTimers.remove(key);
+      final run = await _repository.getById(runId);
+      if (run == null) return;
+      await _expireApprovalTimeout(run, stepId);
+    });
+  }
+
+  void _clearApprovalTimeoutTimer(String runId, String stepId) {
+    final key = '$runId:$stepId';
+    _approvalTimeoutTimers.remove(key)?.cancel();
+  }
+
+  Future<void> _expireApprovalTimeout(WorkflowRun run, String stepId) async {
+    if (run.status != WorkflowRunStatus.paused) return;
+    if (run.contextJson['_approval.pending.stepId'] != stepId) return;
+
+    _clearApprovalTimeoutTimer(run.id, stepId);
+    final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
+    context['$stepId.status'] = 'cancelled';
+    context['$stepId.approval.status'] = 'timed_out';
+    context['$stepId.approval.cancel_reason'] = 'timeout';
+    await _persistContext(run.id, context);
+
+    final cancelled = run.copyWith(
+      status: WorkflowRunStatus.cancelled,
+      completedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      contextJson: _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
+        extraFlat: {
+          '$stepId.status': 'cancelled',
+          '$stepId.approval.status': 'timed_out',
+          '$stepId.approval.cancel_reason': 'timeout',
+        },
+      ),
+    );
+    await _repository.update(cancelled);
+    _fireStatusChanged(
+      runId: run.id,
+      definitionName: run.definitionName,
+      oldStatus: run.status,
+      newStatus: WorkflowRunStatus.cancelled,
+      errorMessage: 'approval timeout: $stepId',
+    );
+  }
+
+  Map<String, dynamic> _snapshotContextJson(
+    Map<String, dynamic> existing,
+    WorkflowContext context, {
+    Set<String> removeFlatKeys = const {},
+    Map<String, dynamic> extraFlat = const {},
+  }) {
+    return {
+      for (final entry in existing.entries)
+        if (entry.key != 'data' && entry.key != 'variables' && !removeFlatKeys.contains(entry.key))
+          entry.key: entry.value,
+      ...context.toJson(),
+      ...extraFlat,
+    };
   }
 }

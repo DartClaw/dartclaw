@@ -200,6 +200,27 @@ void main() {
         svc.dispose();
       });
 
+      test('atomic-save rename to config filename triggers reload after debounce', () async {
+        configFile.writeAsStringSync('# initial\n');
+
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'auto', debounceMs: 100),
+          configLoader: loader,
+        );
+        svc.start();
+
+        final tempFile = File('${tempDir.path}/dartclaw.yaml.tmp');
+        tempFile.writeAsStringSync('# renamed update\n');
+        tempFile.renameSync(configFile.path);
+
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+
+        expect(loaderCallCount, 1);
+        svc.dispose();
+      });
+
       test('dispose() during pending debounce cancels timer — no reload fires', () async {
         final svc = ReloadTriggerService(
           configPath: configFile.path,
@@ -235,10 +256,7 @@ void main() {
     group('debounce coalescing via fake_async', () {
       test('5 events within debounce window produce exactly 1 reload', () {
         fakeAsync((clock) {
-          final svc = _DebounceTestService(
-            debounceMs: 500,
-            configLoader: loader,
-          );
+          final svc = _DebounceTestService(debounceMs: 500, configLoader: loader);
 
           for (var i = 0; i < 5; i++) {
             svc.simulateFileEvent();
@@ -256,10 +274,7 @@ void main() {
 
       test('dispose during pending debounce cancels reload', () {
         fakeAsync((clock) {
-          final svc = _DebounceTestService(
-            debounceMs: 500,
-            configLoader: loader,
-          );
+          final svc = _DebounceTestService(debounceMs: 500, configLoader: loader);
 
           svc.simulateFileEvent();
           clock.elapse(const Duration(milliseconds: 100));
@@ -274,10 +289,7 @@ void main() {
 
       test('two separate event bursts produce 2 reloads', () {
         fakeAsync((clock) {
-          final svc = _DebounceTestService(
-            debounceMs: 200,
-            configLoader: loader,
-          );
+          final svc = _DebounceTestService(debounceMs: 200, configLoader: loader);
 
           // First burst.
           svc.simulateFileEvent();

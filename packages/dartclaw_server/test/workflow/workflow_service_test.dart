@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
@@ -7,6 +8,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         TaskStatus,
         TaskStatusChangedEvent,
+        WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowRun,
         WorkflowRunStatus,
@@ -60,34 +62,31 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  WorkflowDefinition makeDefinition({
-    List<WorkflowStep>? steps,
-    Map<String, WorkflowVariable> variables = const {},
-  }) {
+  WorkflowDefinition makeDefinition({List<WorkflowStep>? steps, Map<String, WorkflowVariable> variables = const {}}) {
     return WorkflowDefinition(
       name: 'test-workflow',
       description: 'Test workflow',
       variables: variables,
-      steps: steps ?? [
-        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
-      ],
+      steps:
+          steps ??
+          [
+            const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+          ],
     );
   }
 
   void autoCompleteNewTasks() {
-    eventBus.on<TaskStatusChangedEvent>()
-        .where((e) => e.newStatus == TaskStatus.queued)
-        .listen((e) async {
-          await Future<void>.delayed(Duration.zero);
-          // Use real transitions so DB state matches what executor reads.
-          try {
-            await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
-            await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
-            await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
-          } on StateError {
-            // Ignore invalid transition errors if task already moved.
-          }
-        });
+    eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      // Use real transitions so DB state matches what executor reads.
+      try {
+        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+        await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+        await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+      } on StateError {
+        // Ignore invalid transition errors if task already moved.
+      }
+    });
   }
 
   test('start() creates run in pending→running, fires status events', () async {
@@ -137,10 +136,12 @@ void main() {
   });
 
   test('pause() transitions running to paused', () async {
-    final definition = makeDefinition(steps: [
-      // Long running step — we pause before it completes.
-      const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Long step']),
-    ]);
+    final definition = makeDefinition(
+      steps: [
+        // Long running step — we pause before it completes.
+        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Long step']),
+      ],
+    );
 
     final run = await workflowService.start(definition, {});
     final paused = await workflowService.pause(run.id);
@@ -157,10 +158,7 @@ void main() {
     // Wait for run to complete.
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    expect(
-      () => workflowService.pause(run.id),
-      throwsA(isA<StateError>()),
-    );
+    expect(() => workflowService.pause(run.id), throwsA(isA<StateError>()));
   });
 
   test('resume() transitions paused to running', () async {
@@ -179,10 +177,7 @@ void main() {
     autoCompleteNewTasks();
     final run = await workflowService.start(definition, {});
 
-    expect(
-      () => workflowService.resume(run.id),
-      throwsA(isA<StateError>()),
-    );
+    expect(() => workflowService.resume(run.id), throwsA(isA<StateError>()));
   });
 
   test('cancel() transitions running to cancelled', () async {
@@ -271,11 +266,7 @@ void main() {
     // Should have been recovered and completed (or transitioned out of initial state).
     expect(
       recovered?.status,
-      anyOf(
-        equals(WorkflowRunStatus.completed),
-        equals(WorkflowRunStatus.paused),
-        equals(WorkflowRunStatus.running),
-      ),
+      anyOf(equals(WorkflowRunStatus.completed), equals(WorkflowRunStatus.paused), equals(WorkflowRunStatus.running)),
     );
   });
 
@@ -310,10 +301,169 @@ void main() {
     await workflowService.cancel(run.id);
 
     final statuses = events.map((e) => e.newStatus).toList();
-    expect(statuses, containsAll([
-      WorkflowRunStatus.running,
-      WorkflowRunStatus.paused,
-      WorkflowRunStatus.cancelled,
-    ]));
+    expect(statuses, containsAll([WorkflowRunStatus.running, WorkflowRunStatus.paused, WorkflowRunStatus.cancelled]));
+  });
+
+  group('S03 (0.16.1): approval resume/cancel semantics', () {
+    /// Inserts a paused run with approval metadata as if the executor had paused it.
+    Future<WorkflowRun> insertApprovalPausedRun({
+      String runId = 'run-approval',
+      String stepId = 'gate',
+      int nextStepIndex = 1,
+      DateTime? timeoutDeadline,
+    }) async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+      final now = DateTime.now();
+      final run = WorkflowRun(
+        id: runId,
+        definitionName: definition.name,
+        status: WorkflowRunStatus.paused,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: nextStepIndex,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          'data': <String, dynamic>{
+            '$stepId.status': 'pending',
+            '$stepId.approval.status': 'pending',
+            '$stepId.approval.message': 'Approve?',
+            '$stepId.approval.requested_at': now.toIso8601String(),
+            '$stepId.tokenCount': 0,
+            if (timeoutDeadline != null) '$stepId.approval.timeout_deadline': timeoutDeadline.toIso8601String(),
+          },
+          'variables': <String, dynamic>{},
+          '$stepId.status': 'pending',
+          '$stepId.approval.status': 'pending',
+          '$stepId.approval.message': 'Approve?',
+          '$stepId.approval.requested_at': now.toIso8601String(),
+          '$stepId.tokenCount': 0,
+          if (timeoutDeadline != null) '$stepId.approval.timeout_deadline': timeoutDeadline.toIso8601String(),
+          '_approval.pending.stepId': stepId,
+          '_approval.pending.stepIndex': nextStepIndex - 1,
+        },
+      );
+      await repository.insert(run);
+      final contextDir = Directory(p.join(tempDir.path, 'workflows', runId));
+      contextDir.createSync(recursive: true);
+      File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      return run;
+    }
+
+    test('resume() on approval-paused run records approved status and fires WorkflowApprovalResolvedEvent', () async {
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      await insertApprovalPausedRun();
+      autoCompleteNewTasks();
+
+      await workflowService.resume('run-approval');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(resolvedEvents, hasLength(1));
+      expect(resolvedEvents.first.runId, equals('run-approval'));
+      expect(resolvedEvents.first.stepId, equals('gate'));
+      expect(resolvedEvents.first.approved, isTrue);
+      expect(resolvedEvents.first.feedback, isNull);
+
+      final updated = await workflowService.get('run-approval');
+      final data = updated?.contextJson['data'] as Map<String, dynamic>?;
+      expect(data?['gate.status'], equals('accepted'));
+      expect(data?['gate.approval.status'], equals('approved'));
+    });
+
+    test('resume() clears _approval.pending.* tracking keys from contextJson', () async {
+      await insertApprovalPausedRun();
+      autoCompleteNewTasks();
+
+      await workflowService.resume('run-approval');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      // Re-read from DB — pending keys should be gone.
+      final updated = await workflowService.get('run-approval');
+      expect(updated?.contextJson.containsKey('_approval.pending.stepId'), isFalse);
+      expect(updated?.contextJson.containsKey('_approval.pending.stepIndex'), isFalse);
+    });
+
+    test('cancel() on approval-paused run records rejected status and fires WorkflowApprovalResolvedEvent', () async {
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      await insertApprovalPausedRun();
+
+      await workflowService.cancel('run-approval');
+
+      expect(resolvedEvents, hasLength(1));
+      expect(resolvedEvents.first.approved, isFalse);
+      expect(resolvedEvents.first.feedback, isNull);
+
+      final updated = await workflowService.get('run-approval');
+      expect(updated?.contextJson['gate.approval.status'], equals('rejected'));
+      expect(updated?.contextJson['gate.status'], equals('rejected'));
+    });
+
+    test('cancel() with feedback stores feedback in contextJson and event', () async {
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      await insertApprovalPausedRun();
+
+      await workflowService.cancel('run-approval', feedback: 'Not ready yet');
+
+      expect(resolvedEvents.first.feedback, equals('Not ready yet'));
+
+      final updated = await workflowService.get('run-approval');
+      expect(updated?.contextJson['gate.approval.feedback'], equals('Not ready yet'));
+      expect(updated?.contextJson['gate.approval.status'], equals('rejected'));
+      expect(updated?.contextJson['gate.status'], equals('rejected'));
+    });
+
+    test('resume() persists resolved approval status to context.json', () async {
+      await insertApprovalPausedRun();
+      autoCompleteNewTasks();
+
+      await workflowService.resume('run-approval');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      final file = File(p.join(tempDir.path, 'workflows', 'run-approval', 'context.json'));
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final data = json['data'] as Map<String, dynamic>;
+      expect(data['gate.status'], equals('accepted'));
+      expect(data['gate.approval.status'], equals('approved'));
+    });
+
+    test('recoverIncompleteRuns() auto-cancels expired approval deadlines after restart', () async {
+      await insertApprovalPausedRun(
+        runId: 'run-expired-approval',
+        timeoutDeadline: DateTime.now().subtract(const Duration(seconds: 1)),
+      );
+
+      await workflowService.recoverIncompleteRuns();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final updated = await workflowService.get('run-expired-approval');
+      expect(updated?.status, equals(WorkflowRunStatus.cancelled));
+      expect(updated?.contextJson['gate.approval.status'], equals('timed_out'));
+      expect(updated?.contextJson['gate.approval.cancel_reason'], equals('timeout'));
+    });
+
+    test('cancel() on non-approval run ignores feedback and does not fire WorkflowApprovalResolvedEvent', () async {
+      final resolvedEvents = <WorkflowApprovalResolvedEvent>[];
+      eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
+
+      final definition = makeDefinition();
+      final run = await workflowService.start(definition, {});
+      await workflowService.pause(run.id);
+
+      await workflowService.cancel(run.id, feedback: 'irrelevant');
+
+      expect(resolvedEvents, isEmpty);
+      final updated = await workflowService.get(run.id);
+      expect(updated?.status, equals(WorkflowRunStatus.cancelled));
+    });
   });
 }

@@ -238,7 +238,7 @@ export 'src/workflow/context_extractor.dart' show ContextExtractor;
 export 'src/workflow/gate_evaluator.dart' show GateEvaluator;
 export 'src/workflow/skill_registry_impl.dart' show SkillRegistryImpl;
 export 'src/workflow/workflow_definition_source.dart'
-    show WorkflowDefinitionSource, InMemoryDefinitionSource;
+    show WorkflowDefinitionSource, WorkflowSummary, InMemoryDefinitionSource;
 export 'src/workflow/workflow_executor.dart' show WorkflowExecutor;
 export 'src/workflow/workflow_registry.dart' show WorkflowRegistry, WorkflowSource;
 export 'src/workflow/workflow_service.dart' show WorkflowService;

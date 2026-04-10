@@ -8,7 +8,7 @@ const _enabledSecurity = SecurityConfig(guards: GuardConfig(enabled: true, failO
 const _baseConfig = DartclawConfig(security: _enabledSecurity);
 
 ConfigDelta _delta(DartclawConfig previous, DartclawConfig current) {
-  return ConfigDelta(previous: previous, current: current, changedKeys: const {'guards.*'});
+  return ConfigDelta(previous: previous, current: current, changedKeys: const {'security.*'});
 }
 
 void main() {

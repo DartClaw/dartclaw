@@ -76,7 +76,9 @@ WorkflowDefinition _buildDef({
     description: description,
     variables: variables,
     steps: steps.isEmpty
-        ? [const WorkflowStep(id: 's1', name: 'S1', prompts: ['Do it'])]
+        ? [
+            const WorkflowStep(id: 's1', name: 'S1', prompts: ['Do it']),
+          ]
         : steps,
     loops: loops,
   );
@@ -89,15 +91,14 @@ WorkflowStep _step({
   List<String> contextInputs = const [],
   List<String> contextOutputs = const [],
   String? gate,
-}) =>
-    WorkflowStep(
-      id: id,
-      name: name,
-      prompts: [prompt],
-      contextInputs: contextInputs,
-      contextOutputs: contextOutputs,
-      gate: gate,
-    );
+}) => WorkflowStep(
+  id: id,
+  name: name,
+  prompts: [prompt],
+  contextInputs: contextInputs,
+  contextOutputs: contextOutputs,
+  gate: gate,
+);
 
 void main() {
   late WorkflowDefinitionValidator validator;
@@ -107,31 +108,29 @@ void main() {
   });
 
   group('WorkflowDefinitionValidator', () {
-    test('valid definition returns empty error list', () {
+    test('valid definition returns report with no errors and no warnings', () {
       final def = _buildDef();
-      expect(validator.validate(def), isEmpty);
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
     });
 
     group('required fields', () {
       test('missing name produces missingField error', () {
         final def = _buildDef(name: '');
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingField), true);
       });
 
       test('missing description produces missingField error', () {
         final def = _buildDef(description: '');
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingField), true);
       });
 
       test('empty steps list produces missingField error', () {
-        final def = WorkflowDefinition(
-          name: 'n',
-          description: 'd',
-          steps: const [],
-        );
-        final errors = validator.validate(def);
+        final def = WorkflowDefinition(name: 'n', description: 'd', steps: const []);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingField), true);
       });
     });
@@ -144,7 +143,7 @@ void main() {
             _step(id: 'same', name: 'S2', prompt: 'p'),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.duplicateId && e.stepId == 'same'), true);
       });
 
@@ -159,17 +158,15 @@ void main() {
             const WorkflowLoop(id: 'loop-x', steps: ['s2'], maxIterations: 2, exitGate: ''),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.duplicateId && e.loopId == 'loop-x'), true);
       });
     });
 
     group('variable references', () {
       test('undeclared variable reference in prompt produces invalidReference error', () {
-        final def = _buildDef(
-          steps: [_step(prompt: 'Do {{UNDECLARED}}')],
-        );
-        final errors = validator.validate(def);
+        final def = _buildDef(steps: [_step(prompt: 'Do {{UNDECLARED}}')]);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
 
@@ -178,29 +175,22 @@ void main() {
           variables: {'VAR': const WorkflowVariable(description: 'v')},
           steps: [_step(prompt: 'Do {{VAR}}')],
         );
-        expect(validator.validate(def), isEmpty);
+        expect(validator.validate(def).errors, isEmpty);
       });
 
       test('context reference in prompt does not trigger variable reference error', () {
-        final def = _buildDef(
-          steps: [_step(prompt: 'Use {{context.key}}')],
-        );
-        final errors = validator.validate(def);
+        final def = _buildDef(steps: [_step(prompt: 'Use {{context.key}}')]);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), false);
       });
 
       test('undeclared variable in project field produces invalidReference error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: ['p'],
-              project: '{{UNDECLARED}}',
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: ['p'], project: '{{UNDECLARED}}'),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
     });
@@ -212,7 +202,7 @@ void main() {
             _step(id: 's1', contextInputs: ['key_a'], contextOutputs: []),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.contextInconsistency), true);
       });
 
@@ -223,7 +213,7 @@ void main() {
             _step(id: 's2', name: 'S2', prompt: 'p', contextInputs: ['result']),
           ],
         );
-        expect(validator.validate(def), isEmpty);
+        expect(validator.validate(def).errors, isEmpty);
       });
 
       test('context input valid within same loop', () {
@@ -236,7 +226,7 @@ void main() {
             const WorkflowLoop(id: 'lp', steps: ['s1'], maxIterations: 3, exitGate: ''),
           ],
         );
-        expect(validator.validate(def), isEmpty);
+        expect(validator.validate(def).errors, isEmpty);
       });
     });
 
@@ -248,16 +238,14 @@ void main() {
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done'),
           ],
         );
-        expect(validator.validate(def), isEmpty);
+        expect(validator.validate(def).errors, isEmpty);
       });
 
       test('gate referencing non-existent step produces invalidReference error', () {
         final def = _buildDef(
-          steps: [
-            _step(id: 's1', gate: 'nonexistent.status == done'),
-          ],
+          steps: [_step(id: 's1', gate: 'nonexistent.status == done')],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
 
@@ -268,7 +256,7 @@ void main() {
             _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status INVALID done'),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidGate), true);
       });
 
@@ -276,15 +264,10 @@ void main() {
         final def = _buildDef(
           steps: [
             _step(id: 's1', contextOutputs: ['status', 'score']),
-            _step(
-              id: 's2',
-              name: 'S2',
-              prompt: 'p',
-              gate: 's1.status == done && s1.score >= 90',
-            ),
+            _step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done && s1.score >= 90'),
           ],
         );
-        expect(validator.validate(def), isEmpty);
+        expect(validator.validate(def).errors, isEmpty);
       });
     });
 
@@ -293,15 +276,10 @@ void main() {
         final def = _buildDef(
           steps: [_step(id: 's1')],
           loops: [
-            const WorkflowLoop(
-              id: 'lp',
-              steps: ['nonexistent'],
-              maxIterations: 3,
-              exitGate: '',
-            ),
+            const WorkflowLoop(id: 'lp', steps: ['nonexistent'], maxIterations: 3, exitGate: ''),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
 
@@ -312,7 +290,7 @@ void main() {
             const WorkflowLoop(id: 'lp', steps: ['s1'], maxIterations: 0, exitGate: ''),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingMaxIterations), true);
       });
 
@@ -323,7 +301,7 @@ void main() {
             const WorkflowLoop(id: 'lp', steps: ['s1'], maxIterations: -1, exitGate: ''),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingMaxIterations), true);
       });
 
@@ -338,7 +316,7 @@ void main() {
             const WorkflowLoop(id: 'lp2', steps: ['s1', 's2'], maxIterations: 3, exitGate: ''),
           ],
         );
-        final errors = validator.validate(def);
+        final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.loopOverlap), true);
       });
     });
@@ -347,15 +325,10 @@ void main() {
       test('multi-prompt step with non-continuity provider produces unsupportedProviderCapability error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: const ['First', 'Second'],
-              provider: 'codex',
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
           ],
         );
-        final errors = validator.validate(def, continuityProviders: {'claude'});
+        final errors = validator.validate(def, continuityProviders: {'claude'}).errors;
         expect(
           errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's1'),
           true,
@@ -365,70 +338,47 @@ void main() {
       test('multi-prompt step with continuity-supporting provider produces no error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: const ['First', 'Second'],
-              provider: 'claude',
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'claude'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}), isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
       });
 
       test('single-prompt step with non-continuity provider produces no error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: const ['Only one prompt'],
-              provider: 'codex',
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: 'codex'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}), isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
       });
 
       test('multi-prompt step with no explicit provider produces no error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: const ['First', 'Second'],
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second']),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}), isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
       });
 
       test('multi-prompt validation skipped when continuityProviders not provided', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(
-              id: 's1',
-              name: 'S',
-              prompts: const ['First', 'Second'],
-              provider: 'codex',
-            ),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
           ],
         );
         // No continuityProviders arg — validation skipped entirely.
         expect(
-          validator.validate(def).any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
+          validator.validate(def).errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability),
           false,
         );
       });
     });
 
     test('multiple errors are all collected (not fail-fast)', () {
-      final def = WorkflowDefinition(
-        name: '',
-        description: '',
-        steps: const [],
-      );
-      final errors = validator.validate(def);
+      final def = WorkflowDefinition(name: '', description: '', steps: const []);
+      final errors = validator.validate(def).errors;
       expect(errors.length, greaterThan(1));
     });
   });
@@ -452,7 +402,7 @@ void main() {
           ),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors.where((e) => e.loopId == 'loop1'), isEmpty);
     });
 
@@ -473,7 +423,7 @@ void main() {
           ),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(
         errors.where(
           (e) =>
@@ -502,15 +452,8 @@ void main() {
           ),
         ],
       );
-      final errors = validator.validate(def);
-      expect(
-        errors.where(
-          (e) =>
-              e.type == ValidationErrorType.loopOverlap &&
-              e.loopId == 'loop1',
-        ),
-        isNotEmpty,
-      );
+      final errors = validator.validate(def).errors;
+      expect(errors.where((e) => e.type == ValidationErrorType.loopOverlap && e.loopId == 'loop1'), isNotEmpty);
     });
 
     test('loop without finalizer still valid -> no finalizer errors', () {
@@ -521,15 +464,10 @@ void main() {
           WorkflowStep(id: 'ls', name: 'LS', prompts: ['p']),
         ],
         loops: const [
-          WorkflowLoop(
-            id: 'loop1',
-            steps: ['ls'],
-            maxIterations: 3,
-            exitGate: 'ls.done == true',
-          ),
+          WorkflowLoop(id: 'loop1', steps: ['ls'], maxIterations: 3, exitGate: 'ls.done == true'),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
   });
@@ -543,11 +481,9 @@ void main() {
         steps: const [
           WorkflowStep(id: 'review-code', name: 'Review', prompts: ['p']),
         ],
-        stepDefaults: const [
-          StepConfigDefault(match: 'review*', model: 'claude-opus-4'),
-        ],
+        stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
@@ -559,11 +495,9 @@ void main() {
         steps: const [
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p']),
         ],
-        stepDefaults: const [
-          StepConfigDefault(match: 'review*', model: 'claude-opus-4'),
-        ],
+        stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       // No ValidationError should be added — only a logger warning.
       expect(errors, isEmpty);
     });
@@ -572,10 +506,12 @@ void main() {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
         stepDefaults: const [],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
@@ -583,68 +519,39 @@ void main() {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
-        steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
   });
 
   group('skill validation (S04)', () {
-    WorkflowDefinition makeSkillDef(
-      WorkflowStep step, {
-      String name = 'wf',
-      String description = 'd',
-    }) {
-      return WorkflowDefinition(
-        name: name,
-        description: description,
-        steps: [step],
-      );
+    WorkflowDefinition makeSkillDef(WorkflowStep step, {String name = 'wf', String description = 'd'}) {
+      return WorkflowDefinition(name: name, description: description, steps: [step]);
     }
 
     test('no skill registry -> skill validation skipped (no errors)', () {
       final validator = WorkflowDefinitionValidator();
       // No skillRegistry set.
-      final def = makeSkillDef(
-        const WorkflowStep(
-          id: 's',
-          name: 'S',
-          skill: 'some-skill',
-          prompts: ['p'],
-        ),
-      );
-      final errors = validator.validate(def);
+      final def = makeSkillDef(const WorkflowStep(id: 's', name: 'S', skill: 'some-skill', prompts: ['p']));
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
     test('valid skill reference -> no error', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
-      final def = makeSkillDef(
-        const WorkflowStep(
-          id: 's',
-          name: 'S',
-          skill: 'review-code',
-          prompts: ['p'],
-        ),
-      );
-      final errors = validator.validate(def);
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(const WorkflowStep(id: 's', name: 'S', skill: 'review-code', prompts: ['p']));
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
     test('missing skill reference -> validation error with suggestions', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
-      final def = makeSkillDef(
-        const WorkflowStep(
-          id: 's',
-          name: 'S',
-          skill: 'nonexistent-skill',
-          prompts: ['p'],
-        ),
-      );
-      final errors = validator.validate(def);
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(const WorkflowStep(id: 's', name: 'S', skill: 'nonexistent-skill', prompts: ['p']));
+      final errors = validator.validate(def).errors;
       expect(errors, hasLength(1));
       expect(errors.first.type, ValidationErrorType.invalidReference);
       expect(errors.first.stepId, 's');
@@ -652,24 +559,16 @@ void main() {
     });
 
     test('skill with explicit provider that is native -> no error', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
-        const WorkflowStep(
-          id: 's',
-          name: 'S',
-          skill: 'review-code',
-          provider: 'claude',
-          prompts: ['p'],
-        ),
+        const WorkflowStep(id: 's', name: 'S', skill: 'review-code', provider: 'claude', prompts: ['p']),
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
     test('skill with explicit provider that is NOT native -> validation error', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
         const WorkflowStep(
           id: 's',
@@ -679,7 +578,7 @@ void main() {
           prompts: ['p'],
         ),
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, hasLength(1));
       expect(errors.first.type, ValidationErrorType.invalidReference);
       expect(errors.first.message, contains('codex'));
@@ -687,24 +586,16 @@ void main() {
     });
 
     test('skill with both harnesses + explicit provider -> no error', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(bothSkills: {'shared-skill'});
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(bothSkills: {'shared-skill'});
       final def = makeSkillDef(
-        const WorkflowStep(
-          id: 's',
-          name: 'S',
-          skill: 'shared-skill',
-          provider: 'codex',
-          prompts: ['p'],
-        ),
+        const WorkflowStep(id: 's', name: 'S', skill: 'shared-skill', provider: 'codex', prompts: ['p']),
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
     test('skill + no provider + single-harness skill -> warning only (no error)', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
         const WorkflowStep(
           id: 's',
@@ -714,14 +605,13 @@ void main() {
           prompts: ['p'],
         ),
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       // No validation error — only a log warning.
       expect(errors, isEmpty);
     });
 
     test('skill-only step (no prompts) with valid skill -> no error', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
       final def = makeSkillDef(
         const WorkflowStep(
           id: 's',
@@ -730,17 +620,14 @@ void main() {
           // No prompts — skill-only step.
         ),
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
     test('steps without skill field are unaffected by skill validation', () {
-      final validator = WorkflowDefinitionValidator()
-        ..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
-      final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-      );
-      final errors = validator.validate(def);
+      final validator = WorkflowDefinitionValidator()..skillRegistry = _makeRegistry(claudeSkills: {'review-code'});
+      final def = makeSkillDef(const WorkflowStep(id: 's', name: 'S', prompts: ['p']));
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
   });
@@ -751,21 +638,11 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'collect',
-            name: 'Collect',
-            prompts: ['p'],
-            contextOutputs: ['items'],
-          ),
-          WorkflowStep(
-            id: 'process',
-            name: 'Process',
-            prompts: ['p'],
-            mapOver: 'items',
-          ),
+          WorkflowStep(id: 'collect', name: 'Collect', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'process', name: 'Process', prompts: ['p'], mapOver: 'items'),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
@@ -774,15 +651,10 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'process',
-            name: 'Process',
-            prompts: ['p'],
-            mapOver: 'items',
-          ),
+          WorkflowStep(id: 'process', name: 'Process', prompts: ['p'], mapOver: 'items'),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, hasLength(1));
       expect(errors[0].type, ValidationErrorType.contextInconsistency);
       expect(errors[0].stepId, 'process');
@@ -794,20 +666,11 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 's',
-            name: 'S',
-            prompts: ['p'],
-            mapOver: 'self_output',
-            contextOutputs: ['self_output'],
-          ),
+          WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'self_output', contextOutputs: ['self_output']),
         ],
       );
-      final errors = validator.validate(def);
-      expect(
-        errors.any((e) => e.type == ValidationErrorType.contextInconsistency),
-        isTrue,
-      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.type == ValidationErrorType.contextInconsistency), isTrue);
     });
 
     test('no mapOver on any step -> no errors from mapOver check', () {
@@ -818,7 +681,7 @@ void main() {
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
 
@@ -827,28 +690,12 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'produce',
-            name: 'Produce',
-            prompts: ['p'],
-            contextOutputs: ['list1', 'list2'],
-          ),
-          WorkflowStep(
-            id: 'map1',
-            name: 'Map1',
-            prompts: ['p'],
-            mapOver: 'list1',
-            contextOutputs: ['mapped1'],
-          ),
-          WorkflowStep(
-            id: 'map2',
-            name: 'Map2',
-            prompts: ['p'],
-            mapOver: 'list2',
-          ),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['list1', 'list2']),
+          WorkflowStep(id: 'map1', name: 'Map1', prompts: ['p'], mapOver: 'list1', contextOutputs: ['mapped1']),
+          WorkflowStep(id: 'map2', name: 'Map2', prompts: ['p'], mapOver: 'list2'),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(errors, isEmpty);
     });
   });
@@ -859,12 +706,7 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'produce',
-            name: 'Produce',
-            prompts: ['p'],
-            contextOutputs: ['items'],
-          ),
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
           WorkflowStep(
             id: 'mapstep',
             name: 'Map',
@@ -875,7 +717,7 @@ void main() {
           ),
         ],
       );
-      final errors = validator.validate(def);
+      final errors = validator.validate(def).errors;
       expect(
         errors,
         contains(
@@ -892,26 +734,425 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'produce',
-            name: 'Produce',
-            prompts: ['p'],
-            contextOutputs: ['items'],
-          ),
-          WorkflowStep(
-            id: 'mapstep',
-            name: 'Map',
-            prompts: ['p'],
-            mapOver: 'items',
-            contextOutputs: ['results'],
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'mapstep', name: 'Map', prompts: ['p'], mapOver: 'items', contextOutputs: ['results']),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.where((e) => e.stepId == 'mapstep'), isEmpty);
+    });
+  });
+
+  group('S01 (0.16.1): hybrid step validation rules', () {
+    test('unknown step type produces a warning, not an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', type: 'unknown-future-type', prompts: ['p']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(
+        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 's'),
+        isTrue,
+        reason: 'Unknown type should produce a warning',
+      );
+    });
+
+    test('known types produce no hybrid warning', () {
+      for (final type in ['research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval']) {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: [
+            WorkflowStep(id: 's', name: 'S', type: type, prompts: type == 'bash' || type == 'approval' ? null : ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint),
+          isFalse,
+          reason: 'Known type "$type" should not produce a hybrid type warning',
+        );
+      }
+    });
+
+    test('approval step in a loop produces a warning, not an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'loop-step', name: 'Loop', prompts: ['p']),
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval'),
+        ],
+        loops: [
+          const WorkflowLoop(
+            id: 'approval-loop',
+            steps: ['loop-step', 'gate'],
+            maxIterations: 3,
+            exitGate: 'loop-step.done == true',
           ),
         ],
       );
-      final errors = validator.validate(def);
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
       expect(
-        errors.where((e) => e.stepId == 'mapstep'),
-        isEmpty,
+        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 'gate'),
+        isTrue,
+        reason: 'Approval step in loop should produce a warning',
       );
+    });
+
+    test('approval step NOT in a loop produces no warning', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval'),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(
+        report.warnings.any((w) => w.stepId == 'gate'),
+        isFalse,
+        reason: 'Approval step outside loop should produce no warning',
+      );
+    });
+
+    test('approval step with parallel:true is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', parallel: true)],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 'gate'),
+        isTrue,
+        reason: 'Parallel approval step should produce an error',
+      );
+    });
+
+    test('bash step with multi-prompt list is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'build', name: 'Build', type: 'bash', prompts: ['dart analyze', 'dart test']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 'build'),
+        isTrue,
+      );
+    });
+
+    test('approval step with multi-prompt list is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?', 'Still approve?']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 'gate'),
+        isTrue,
+      );
+    });
+
+    test('approval step without parallel:true produces no error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [WorkflowStep(id: 'gate', name: 'Gate', type: 'approval')],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.stepId == 'gate'), isFalse);
+    });
+
+    test('bash step produces no hybrid constraint errors', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [WorkflowStep(id: 's', name: 'Build', type: 'bash', workdir: '/workspace')],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint), isFalse);
+    });
+
+    test('continueSession on first step is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p'], continueSession: '@previous'),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 's1'),
+        isTrue,
+        reason: 'continueSession on first step should be an error',
+      );
+    });
+
+    test('continueSession on non-first step with no continuityProviders produces no error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous'),
+        ],
+      );
+      // No continuityProviders supplied — provider check skipped.
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
+    });
+
+    test('continueSession with unsupported provider is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: 'codex'),
+        ],
+      );
+      // claude supports continuity, codex does not.
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(
+        report.errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's2'),
+        isTrue,
+        reason: 'continueSession with non-continuity provider should be an error',
+      );
+    });
+
+    test('continueSession with supported provider produces no error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', provider: 'claude'),
+        ],
+      );
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(report.errors.any((e) => e.stepId == 's2'), isFalse);
+    });
+
+    test('parallel continueSession step is a hard error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+          WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], continueSession: '@previous', parallel: true),
+        ],
+      );
+      final report = validator.validate(def, continuityProviders: {'claude'});
+      expect(report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 's2'), isTrue);
+    });
+
+    test('unsupported onError value produces a warning', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p'], onError: 'retry'),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 's'), isTrue);
+    });
+
+    test('ValidationReport.isEmpty is true when both errors and warnings are empty', () {
+      final def = _buildDef();
+      final report = validator.validate(def);
+      expect(report.isEmpty, isTrue);
+      expect(report.hasErrors, isFalse);
+      expect(report.hasWarnings, isFalse);
+    });
+
+    test('ValidationReport.hasErrors is true when errors exist', () {
+      final def = _buildDef(name: ''); // missing name
+      final report = validator.validate(def);
+      expect(report.hasErrors, isTrue);
+      expect(report.isEmpty, isFalse);
+    });
+
+    test('ValidationReport.hasWarnings is true when only warnings exist', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', type: 'future-type', prompts: ['p']),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.hasErrors, isFalse);
+      expect(report.hasWarnings, isTrue);
+      expect(report.isEmpty, isFalse);
+    });
+
+    group('S04 (0.16.1): continueSession illegal-target validation', () {
+      test('continueSession on bash step is a hard error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+            WorkflowStep(id: 's2', name: 'S2', type: 'bash', prompts: ['echo hi']),
+            WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
+          ],
+        );
+        // s3 precedes a bash step — hard error.
+        final report = validator.validate(def);
+        expect(
+          report.errors.any(
+            (e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 's3' && e.message.contains('bash'),
+          ),
+          isTrue,
+          reason: 'continueSession after bash step should be a hard error',
+        );
+      });
+
+      test('continueSession on approval step is a hard error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+            WorkflowStep(id: 's2', name: 'S2', type: 'approval', prompts: ['Approve?']),
+            WorkflowStep(id: 's3', name: 'S3', prompts: ['p'], continueSession: '@previous'),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any(
+            (e) =>
+                e.type == ValidationErrorType.hybridStepConstraint &&
+                e.stepId == 's3' &&
+                e.message.contains('approval'),
+          ),
+          isTrue,
+          reason: 'continueSession after approval step should be a hard error',
+        );
+      });
+
+      test('continueSession step that itself is bash is a hard error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+            WorkflowStep(id: 's2', name: 'S2', type: 'bash', prompts: ['echo hi'], continueSession: '@previous'),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 's2'),
+          isTrue,
+          reason: 'bash step with continueSession is itself illegal',
+        );
+      });
+
+      test('continueSession crossing a loop boundary is a hard error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'inside', name: 'Inside', prompts: ['p']),
+            WorkflowStep(id: 'outside', name: 'Outside', prompts: ['p'], continueSession: 'inside'),
+          ],
+          loops: [
+            WorkflowLoop(id: 'loop1', steps: ['inside'], exitGate: '{{context.done}}', maxIterations: 3),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any(
+            (e) =>
+                e.type == ValidationErrorType.hybridStepConstraint &&
+                e.stepId == 'outside' &&
+                e.message.contains('loop boundary'),
+          ),
+          isTrue,
+          reason: 'continueSession crossing a loop boundary should be a hard error',
+        );
+      });
+
+      test('continueSession crossing into a loop is a hard error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'outside', name: 'Outside', prompts: ['p']),
+            WorkflowStep(id: 'inside', name: 'Inside', prompts: ['p'], continueSession: 'outside'),
+          ],
+          loops: [
+            WorkflowLoop(id: 'loop1', steps: ['inside'], exitGate: '{{context.done}}', maxIterations: 3),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any(
+            (e) =>
+                e.type == ValidationErrorType.hybridStepConstraint &&
+                e.stepId == 'inside' &&
+                e.message.contains('loop boundary'),
+          ),
+          isTrue,
+          reason: 'continueSession entering a loop from outside should be a hard error',
+        );
+      });
+
+      test('continueSession within the same loop is valid', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'step1', name: 'Step1', prompts: ['p']),
+            WorkflowStep(id: 'step2', name: 'Step2', prompts: ['p'], continueSession: 'step1'),
+          ],
+          loops: [
+            WorkflowLoop(id: 'loop1', steps: ['step1', 'step2'], exitGate: '{{context.done}}', maxIterations: 3),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint && e.stepId == 'step2'),
+          isFalse,
+          reason: 'continueSession within the same loop should not be an error',
+        );
+      });
+
+      test('valid linear continueSession chain (all agent steps, outside loops) produces no error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['Investigate']),
+            WorkflowStep(id: 's2', name: 'S2', prompts: ['Fix it'], continueSession: 's1'),
+            WorkflowStep(id: 's3', name: 'S3', prompts: ['Verify'], continueSession: 's2'),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.type == ValidationErrorType.hybridStepConstraint),
+          isFalse,
+          reason: 'valid linear continueSession chain should produce no errors',
+        );
+      });
     });
   });
 }

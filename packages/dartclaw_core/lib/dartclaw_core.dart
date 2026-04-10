@@ -217,6 +217,8 @@ export 'src/events/dartclaw_event.dart'
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         ParallelGroupCompletedEvent,
+        WorkflowApprovalRequestedEvent,
+        WorkflowApprovalResolvedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
         WorkflowRunStatusChangedEvent,
@@ -258,7 +260,7 @@ export 'src/workflow/schema_validator.dart' show SchemaValidator;
 export 'src/workflow/workflow_context.dart' show WorkflowContext;
 export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
 export 'src/workflow/workflow_definition_validator.dart'
-    show WorkflowDefinitionValidator, ValidationError, ValidationErrorType;
+    show WorkflowDefinitionValidator, ValidationError, ValidationErrorType, ValidationReport;
 export 'src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 // Note: parseDuration (workflow/duration_parser.dart) is NOT re-exported here
 // because dartclaw_server has a local parseDuration in canvas_utils.dart.

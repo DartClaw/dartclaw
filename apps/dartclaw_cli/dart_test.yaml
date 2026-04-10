@@ -1,4 +1,4 @@
 tags:
   contract:
   integration:
-    skip: "Requires live integration setup — run explicitly with: dart test -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart"
+    skip: "Requires live integration setup — run explicitly with: dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart"

@@ -64,6 +64,18 @@
                 hx-confirm="Cancel this workflow? Running tasks will be stopped.">
           Cancel
         </button>
+        <!-- Approval controls: shown instead of generic resume/cancel when paused on an approval gate -->
+        <button tl:if="${canApprove}" type="button" class="btn btn-primary"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                hx-swap="none">
+          Approve
+        </button>
+        <button tl:if="${canReject}" type="button" class="btn btn-danger"
+                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/cancel'"
+                hx-swap="none"
+                hx-confirm="Reject this approval? The workflow will be cancelled.">
+          Reject
+        </button>
       </div>
 
       <!-- Vertical pipeline -->
@@ -89,7 +101,19 @@
             </div>
             <div class="workflow-step-detail" tl:attr="id='step-detail-' + ${step.index}"
                  style="display: none;">
-              <div class="workflow-step-detail-loading"
+              <!-- Approval step: show message and no task link -->
+              <div tl:if="${step.isApprovalStep}" class="workflow-approval-detail">
+                <div tl:if="${step.hasApproval}" class="workflow-approval-message">
+                  <span class="workflow-approval-message-label">Approval request:</span>
+                  <span tl:text="${step.approvalMessage}">Approve?</span>
+                </div>
+                <div tl:if="${step.hasApprovalFeedback}" class="workflow-approval-feedback">
+                  <span class="workflow-approval-feedback-label">Feedback:</span>
+                  <span tl:text="${step.approvalFeedback}">Not ready</span>
+                </div>
+              </div>
+              <!-- Standard task-backed step -->
+              <div tl:unless="${step.isApprovalStep}" class="workflow-step-detail-loading"
                    tl:attr="hx-get='/workflows/' + ${runId} + '/steps/' + ${step.index},hx-trigger='intersect once',hx-swap='innerHTML'">
                 Loading step details...
               </div>

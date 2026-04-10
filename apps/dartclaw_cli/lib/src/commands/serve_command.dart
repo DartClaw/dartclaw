@@ -58,7 +58,10 @@ class ServeCommand extends Command<void> {
       ..addOption('port', abbr: 'p', defaultsTo: '3000', help: 'Port to listen on')
       ..addOption('host', abbr: 'H', defaultsTo: 'localhost', help: 'Host to bind to')
       ..addOption('data-dir', help: 'Data directory path')
-      ..addOption('source-dir', help: 'Base directory for resolving default static/templates paths (e.g. dartclaw-public repo root)')
+      ..addOption(
+        'source-dir',
+        help: 'Base directory for resolving default static/templates paths (e.g. dartclaw-public repo root)',
+      )
       ..addOption('static-dir', help: 'Static assets directory path')
       ..addOption('templates-dir', help: 'HTML templates directory path')
       ..addOption('worker-timeout', help: 'Worker timeout in seconds')
@@ -191,6 +194,25 @@ class ServeCommand extends Command<void> {
     StreamSubscription<ProcessSignal>? sigintSub;
     StreamSubscription<ProcessSignal>? sigtermSub;
     ReloadTriggerService? reloadTrigger;
+
+    Future<void> disposeExtrasBestEffort(WiringResult result, {String? context}) async {
+      Future<void> attempt(String label, Future<void> Function() action) async {
+        try {
+          await action();
+        } catch (error, stackTrace) {
+          final suffix = context == null ? '' : ' ($context)';
+          _log.warning('Cleanup error during $label$suffix', error, stackTrace);
+        }
+      }
+
+      await attempt('shutdownExtras', result.shutdownExtras);
+      await attempt('kvService.dispose', result.kvService.dispose);
+      await attempt('selfImprovement.dispose', result.selfImprovement.dispose);
+      await attempt('taskService.dispose', result.taskService.dispose);
+      await attempt('eventBus.dispose', result.eventBus.dispose);
+      await attempt('qmdManager.stop', () async => await result.qmdManager?.stop());
+    }
+
     try {
       // Wire all services
       final wiring = ServiceWiring(
@@ -218,8 +240,11 @@ class ServeCommand extends Command<void> {
           'Cannot bind to $host:$port — is another process already '
           'using this port? Try: lsof -ti :$port | xargs kill ($e)',
         );
-        await ServiceWiring.teardown(result.server, result.searchDb, result.harness, result.taskService);
-        await result.shutdownExtras();
+        try {
+          await disposeExtrasBestEffort(result, context: 'bind failure');
+        } finally {
+          await ServiceWiring.teardown(result.server, result.searchDb, result.harness, null);
+        }
         _exitFn(1);
       }
 
@@ -274,14 +299,12 @@ class ServeCommand extends Command<void> {
             await Future.wait([httpServer.close(), result.server.shutdown()]);
             result.scheduleService?.stop();
             result.resetService.dispose();
-            await result.kvService.dispose();
-            await result.selfImprovement.dispose();
-            await result.taskService.dispose();
-            await result.eventBus.dispose();
-            await result.qmdManager?.stop();
-            await result.shutdownExtras();
-            result.searchDb.close();
-            _stderrLine('Shutdown complete');
+            try {
+              await disposeExtrasBestEffort(result, context: 'shutdown');
+              _stderrLine('Shutdown complete');
+            } finally {
+              result.searchDb.close();
+            }
           }).timeout(const Duration(seconds: 10));
         } on TimeoutException {
           _stderrLine('Shutdown timed out, forcing exit');

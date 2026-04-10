@@ -129,7 +129,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // TI13: recompilePatterns()
+  // recompilePatterns() — hot-reload participation via _MessageRedactorAdapter
   // ---------------------------------------------------------------------------
 
   group('MessageRedactor.recompilePatterns()', () {

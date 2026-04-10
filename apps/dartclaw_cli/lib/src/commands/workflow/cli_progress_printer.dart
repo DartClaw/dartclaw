@@ -62,6 +62,12 @@ class CliProgressPrinter {
         '${reason != null ? ': $reason' : ''}');
   }
 
+  void workflowApprovalPaused(int completedSteps, String stepId, String message) {
+    _writeLine('[workflow] Awaiting approval at step ${completedSteps + 1}/$totalSteps ($stepId)');
+    _writeLine('[workflow] Approval request: $message');
+    _writeLine('[workflow] Use `dartclaw workflow resume <runId>` to approve or `dartclaw workflow cancel <runId>` to reject.');
+  }
+
   void workflowCancelling() {
     _writeLine('[workflow] Cancelling...');
   }

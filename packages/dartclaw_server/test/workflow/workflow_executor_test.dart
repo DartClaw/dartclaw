@@ -11,8 +11,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         OutputConfig,
         OutputFormat,
         StepConfigDefault,
+        Task,
         TaskStatus,
         TaskStatusChangedEvent,
+        WorkflowApprovalRequestedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowContext,
         WorkflowDefinition,
@@ -759,6 +761,30 @@ void main() {
       final failedIds = finalRun?.contextJson['_parallel.failed.stepIds'] as List?;
       expect(failedIds, equals(['pB']));
     });
+
+    test('parallel bash steps execute through shared hybrid dispatcher without creating tasks', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash-a', name: 'Bash A', type: 'bash', prompts: ['printf A'], parallel: true),
+          const WorkflowStep(id: 'bash-b', name: 'Bash B', type: 'bash', prompts: ['printf B'], parallel: true),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      final allTasks = await taskService.list();
+      expect(allTasks, isEmpty, reason: 'parallel bash steps should remain zero-task');
+
+      final contextData = finalRun?.contextJson['data'] as Map?;
+      expect(contextData?['bash-a.status'], equals('success'));
+      expect(contextData?['bash-b.status'], equals('success'));
+    });
   });
 
   group('loop step resume', () {
@@ -1222,6 +1248,855 @@ void main() {
       expect(taskCount, equals(1));
       final finalRun = await repository.getById('run-s03');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // S02 (0.16.1): Bash step execution + onError policy
+  // ---------------------------------------------------------------------------
+  group('S02 (0.16.1): bash step execution', () {
+    test('bash step runs command and completes with zero tokens and no task', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['echo hello']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final taskIds = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) {
+        taskIds.add(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      // No task created for bash step.
+      expect(taskIds, isEmpty);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      // Zero tokens accumulated.
+      expect(finalRun?.totalTokens, equals(0));
+    });
+
+    test('bash step sets status=success and exitCode=0 in context', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['echo ok']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      expect(context['bash1.status'], equals('success'));
+      expect(context['bash1.exitCode'], equals(0));
+      expect(context['bash1.tokenCount'], equals(0));
+    });
+
+    test('bash step extracts text output to context key', () async {
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const ['printf "captured output"'],
+            contextOutputs: const ['bash1.out'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      expect(context['bash1.out'], equals('captured output'));
+    });
+
+    test('bash step extracts json output from stdout', () async {
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const ['printf \'{"key":"value"}\''],
+            contextOutputs: const ['result'],
+            outputs: const {'result': OutputConfig(format: OutputFormat.json)},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final result = context['result'];
+      expect(result, isA<Map<String, dynamic>>());
+      expect((result as Map<String, dynamic>)['key'], equals('value'));
+    });
+
+    test('bash step extracts lines output from stdout', () async {
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const ['printf "a\\nb\\nc"'],
+            contextOutputs: const ['lines'],
+            outputs: const {'lines': OutputConfig(format: OutputFormat.lines)},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final lines = context['lines'];
+      expect(lines, isA<List<String>>());
+      expect(lines as List<String>, containsAll(['a', 'b', 'c']));
+    });
+
+    test('bash step with non-zero exit pauses workflow by default', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['exit 1']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    });
+
+    test('bash step with onError: continue records failure and proceeds', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['exit 42'], onError: 'continue'),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['bash1.status'], equals('failed'));
+    });
+
+    test('bash step uses workdir from context when template-referenced', () async {
+      // Use tempDir.path as workdir.
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const ['pwd'],
+            workdir: tempDir.path,
+            contextOutputs: const ['cwd'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      expect(context['bash1.status'], equals('success'));
+      // pwd output is in context; resolve symlinks for macOS /private/var consistency.
+      final expected = tempDir.resolveSymbolicLinksSync();
+      expect((context['cwd'] as String?)?.trim(), equals(expected));
+    });
+
+    test('bash step with non-existent workdir pauses workflow', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: ['echo x'],
+            workdir: '/non/existent/dir/12345',
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    });
+
+    test('bash step timeout pauses workflow', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'bash1', name: 'Bash 1', type: 'bash', prompts: ['sleep 10'], timeoutSeconds: 1),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('bash step timeout terminates the spawned process', () async {
+      final outputFile = p.join(tempDir.path, 'timed-out.txt');
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: ['sleep 2; echo late > "$outputFile"'],
+            timeoutSeconds: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      await executor.execute(run, definition, WorkflowContext());
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+      expect(File(outputFile).existsSync(), isFalse);
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('bash step with json output fails on empty stdout', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: ['printf ""'],
+            contextOutputs: ['result'],
+            outputs: {'result': OutputConfig(format: OutputFormat.json)},
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      await executor.execute(run, definition, WorkflowContext());
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    });
+
+    test('bash step shell-escapes context values', () async {
+      // Without escaping, the value "; echo INJECTED" would split the command
+      // and produce two separate outputs: the first echo result and then "INJECTED".
+      // With proper escaping, the entire value is treated as a literal argument.
+      //
+      // We test this by checking that a marker word only appears as part of the
+      // literal value (i.e. the shell did NOT execute it as a second command).
+      // Command: echo SAFE <escaped-value>
+      // With injection: outputs "SAFE" then "INJECTED" on a new line.
+      // With escaping: outputs "SAFE ; echo INJECTED" on a single line.
+      const maliciousValue = '; echo INJECTED';
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const ['echo SAFE {{context.val}}'],
+            contextOutputs: const ['out'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['val'] = maliciousValue;
+
+      await executor.execute(run, definition, context);
+
+      expect(context['bash1.status'], equals('success'));
+      final out = (context['out'] as String?) ?? '';
+      // Injection would produce a line containing just "INJECTED" (as separate command output).
+      // Escaping produces "SAFE ; echo INJECTED" — the marker appears only on the SAFE line.
+      final lines = out.trim().split('\n');
+      expect(lines, isNot(contains('INJECTED')), reason: 'injection should not execute as separate command');
+      // The first (and only) line contains SAFE and the literal value.
+      expect(lines.first, contains('SAFE'));
+      expect(lines.first, contains('INJECTED'));
+    });
+  });
+
+  group('S02 (0.16.1): onError: continue for agent steps', () {
+    test('agent step with onError: continue proceeds past failure', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1'], onError: 'continue'),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      int taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        if (taskCount == 1) {
+          // Fail first step.
+          await completeTask(e.taskId, status: TaskStatus.failed);
+        } else {
+          await completeTask(e.taskId);
+        }
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      expect(taskCount, equals(2));
+      expect(context['step1.status'], equals('failed'));
+    });
+
+    test('agent step without onError pauses on failure (backward compat)', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      int taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        await completeTask(e.taskId, status: TaskStatus.failed);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      // Only one task created — second step not reached.
+      expect(taskCount, equals(1));
+    });
+  });
+
+  group('S03 (0.16.1): approval step execution', () {
+    test('approval step pauses with zero task creation and zero token increment', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Review Gate', type: 'approval', prompts: ['Please review']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final approvalEvents = <WorkflowApprovalRequestedEvent>[];
+      final eventSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalEvents.add);
+
+      await executor.execute(run, definition, context);
+      await eventSub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.totalTokens, equals(0));
+      // No child tasks created.
+      final allTasks = await taskService.list();
+      expect(allTasks.where((t) => t.workflowRunId == 'run-1'), isEmpty);
+
+      // Approval metadata in in-memory context (mirrors what's persisted to disk).
+      expect(context['gate.approval.status'], equals('pending'));
+      expect(context['gate.approval.message'], equals('Please review'));
+      expect(context['gate.approval.requested_at'], isNotNull);
+      expect(context['gate.tokenCount'], equals(0));
+
+      // SSE event fired.
+      expect(approvalEvents, hasLength(1));
+      expect(approvalEvents.first.stepId, equals('gate'));
+      expect(approvalEvents.first.message, equals('Please review'));
+    });
+
+    test('approval step without timeoutSeconds waits indefinitely (no auto-cancel)', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      // Wait briefly — no timeout should fire.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      // No timeout deadline persisted.
+      expect(context['gate.approval.timeout_deadline'], isNull);
+    });
+
+    test('approval step with timeoutSeconds auto-cancels after timeout', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?'], timeoutSeconds: 1),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await executor.execute(run, definition, context);
+
+      // Run should be paused first; timeout_deadline persisted as flat contextJson key.
+      final pausedRun = await repository.getById('run-1');
+      expect(pausedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(pausedRun?.contextJson['gate.approval.timeout_deadline'], isNotNull);
+
+      // Wait for the timer to fire (1s + buffer).
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      final cancelledRun = await repository.getById('run-1');
+      expect(cancelledRun?.status, equals(WorkflowRunStatus.cancelled));
+      expect(cancelledRun?.contextJson['gate.approval.cancel_reason'], equals('timeout'));
+    }, timeout: const Timeout(Duration(seconds: 5)));
+
+    test('approval step resolves prompt template from context', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'gate',
+            name: 'Gate',
+            type: 'approval',
+            prompts: ['Review result: {{context.prior_output}}'],
+          ),
+        ],
+      );
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+      context['prior_output'] = 'all tests pass';
+
+      await executor.execute(run, definition, context);
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.contextJson['gate.approval.message'], equals('Review result: all tests pass'));
+    });
+  });
+
+  // ── S04 (0.16.1): continueSession runtime + delta accounting ─────────────────
+
+  group('S04 (0.16.1): continueSession runtime', () {
+    const sessionStep1 = '550e8400-e29b-41d4-a716-446655440101';
+
+    void createSessionDir(String sessionId) {
+      Directory(p.join(sessionsDir, sessionId)).createSync(recursive: true);
+    }
+
+    Future<void> seedSessionCost(String sessionId, int totalTokens) async {
+      await kvService.set('session_cost:$sessionId', jsonEncode({'total_tokens': totalTokens}));
+    }
+
+    test('continued step receives _continueSessionId from preceding step', () async {
+      createSessionDir(sessionStep1);
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Investigate', prompts: ['Investigate the bug']),
+          const WorkflowStep(id: 'step2', name: 'Fix', prompts: ['Fix the bug'], continueSession: 'step1'),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      var step1TaskId = '';
+      var step2TaskId = '';
+      final createdTasks = <Task>[];
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final allTasks = await taskService.list();
+        final task = allTasks.firstWhere((t) => t.id == e.taskId);
+        createdTasks.add(task);
+
+        if (step1TaskId.isEmpty) {
+          step1TaskId = e.taskId;
+          // Assign session to step 1 (simulates TaskExecutor).
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+          await seedSessionCost(sessionStep1, 100);
+        } else {
+          step2TaskId = e.taskId;
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(step2TaskId, isNotEmpty, reason: 'step 2 task should have been created');
+
+      final step2Task = await taskService.get(step2TaskId);
+      expect(
+        step2Task?.configJson['_continueSessionId'],
+        equals(sessionStep1),
+        reason: 'step 2 should inherit step 1 session ID',
+      );
+    });
+
+    test('continued step resolves root session from an explicit earlier step reference', () async {
+      createSessionDir(sessionStep1);
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Investigate', prompts: ['Investigate the bug']),
+          const WorkflowStep(id: 'step2', name: 'Summarize', prompts: ['Summarize findings'], continueSession: 'step1'),
+          const WorkflowStep(id: 'step3', name: 'Fix', prompts: ['Fix the bug'], continueSession: 'step1'),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+
+      var createdCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        createdCount++;
+        if (createdCount == 1) {
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+          await seedSessionCost(sessionStep1, 100);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final allTasks = await taskService.list();
+      final step3Task = allTasks.firstWhere((t) => t.stepIndex == 2);
+      expect(step3Task.configJson['_continueSessionId'], equals(sessionStep1));
+    });
+
+    test('continued step stores baseline tokens in _sessionBaselineTokens', () async {
+      createSessionDir(sessionStep1);
+      await seedSessionCost(sessionStep1, 250);
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Research', prompts: ['Research the problem']),
+          const WorkflowStep(id: 'step2', name: 'Implement', prompts: ['Implement fix'], continueSession: 'step1'),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      var step1Done = false;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        if (!step1Done) {
+          step1Done = true;
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final allTasks = await taskService.list();
+      final step2Task = allTasks.firstWhere(
+        (t) => t.workflowRunId == 'run-1' && t.configJson['_continueSessionId'] != null,
+      );
+      expect(
+        step2Task.configJson['_sessionBaselineTokens'],
+        equals(250),
+        reason: 'baseline should be the token count at step 1 completion',
+      );
+    });
+
+    test('workflow totals reflect delta not cumulative shared-session tokens', () async {
+      createSessionDir(sessionStep1);
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['First']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Second'], continueSession: 'step1'),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      var step1Done = false;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        if (!step1Done) {
+          step1Done = true;
+          // Step 1 uses 150 tokens.
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+          await seedSessionCost(sessionStep1, 150);
+        } else {
+          // After step 2, shared session has 300 total — delta should be 300 - 150 = 150.
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+          await seedSessionCost(sessionStep1, 300);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      // Workflow total = 150 (step1 fresh) + 150 (step2 delta) = 300.
+      // NOT 150 + 300 (full cumulative) = 450.
+      expect(finalRun?.totalTokens, equals(300));
+    });
+
+    test('continueSession step pauses when previous step has no session ID', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['First']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Second'], continueSession: 'step1'),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      // Complete step 1 without assigning a session ID.
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      // step 1 completes; step 2 cannot resolve session → workflow pauses.
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.errorMessage, contains('continueSession'));
+    });
+
+    test('fresh-session step after continueSession step is unaffected', () async {
+      createSessionDir(sessionStep1);
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['First']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Second'], continueSession: 'step1'),
+          const WorkflowStep(id: 'step3', name: 'Step 3', prompts: ['Third']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      var stepCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        stepCount++;
+        if (stepCount == 1) {
+          await taskService.updateFields(e.taskId, sessionId: sessionStep1);
+          await seedSessionCost(sessionStep1, 100);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      // All 3 steps complete.
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+
+      // Step 3 has no _continueSessionId.
+      final allTasks = await taskService.list();
+      final step3Task = allTasks.where((t) => t.workflowRunId == 'run-1' && t.stepIndex == 2).firstOrNull;
+      expect(step3Task?.configJson['_continueSessionId'], isNull);
+    });
+  });
+
+  // ── S04 G3 (0.16.1): worktree context bridge ─────────────────────────────────
+
+  group('S04 (0.16.1): worktree context bridge', () {
+    test('coding step with worktreeJson exposes branch and worktree_path to context', () async {
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'fix', name: 'Fix Bug', type: 'coding', prompts: ['Fix the bug']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        // Simulate TaskExecutor persisting worktreeJson on the coding task.
+        await taskService.updateFields(
+          e.taskId,
+          worktreeJson: {
+            'branch': 'feat/fix-issue-42',
+            'path': '/worktrees/fix-issue-42',
+            'createdAt': '2026-01-01T00:00:00.000Z',
+          },
+        );
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+
+      // Auto-exposed keys in contextJson.data (context.toJson() wraps data under 'data').
+      final contextData = finalRun?.contextJson['data'] as Map?;
+      expect(contextData?['fix.branch'], equals('feat/fix-issue-42'));
+      expect(contextData?['fix.worktree_path'], equals('/worktrees/fix-issue-42'));
+    });
+
+    test('coding step without worktreeJson exposes empty values and does not fail workflow', () async {
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'fix', name: 'Fix Bug', type: 'coding', prompts: ['Fix the bug']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        // No worktreeJson set — simulates a coding task without worktree (e.g. no project).
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+      final contextData2 = finalRun?.contextJson['data'] as Map?;
+      expect(contextData2?['fix.branch'], equals(''));
+      expect(contextData2?['fix.worktree_path'], equals(''));
+    });
+
+    test('non-coding step does not inject branch/worktree_path keys', () async {
+      final definition = WorkflowDefinition(
+        name: 'test-wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'research', name: 'Research', prompts: ['Research the issue']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      final contextData3 = finalRun?.contextJson['data'] as Map?;
+      expect(contextData3?.containsKey('research.branch'), isFalse);
+      expect(contextData3?.containsKey('research.worktree_path'), isFalse);
     });
   });
 }

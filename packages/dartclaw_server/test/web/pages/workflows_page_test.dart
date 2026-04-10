@@ -29,7 +29,6 @@ WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
   );
 }
 
-
 const _emptySidebarData = (
   main: null,
   dmChannels: <SidebarSession>[],
@@ -73,6 +72,7 @@ void main() {
   late WorkflowsPage page;
   late Database taskDb;
   late Database workflowDb;
+  late SqliteWorkflowRunRepository workflowRepo;
   late TaskService tasks;
   late WorkflowService workflows;
   late Directory tempDir;
@@ -90,7 +90,7 @@ void main() {
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
 
-    final workflowRepo = SqliteWorkflowRunRepository(workflowDb);
+    workflowRepo = SqliteWorkflowRunRepository(workflowDb);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService(
@@ -184,25 +184,39 @@ void main() {
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       // Filter for a different definition — should return no runs.
-      final response = await page.handler(
-        _get('/workflows?definition=spec-and-implement'),
-        context,
-      );
+      final response = await page.handler(_get('/workflows?definition=spec-and-implement'), context);
       final body = await response.readAsString();
       expect(body, contains('No workflow runs found'));
     });
 
     test('definition browser shows available definitions', () async {
       final source = InMemoryDefinitionSource([_makeDefinition()]);
-      final context = _makeContext(
-        workflowService: workflows,
-        taskService: tasks,
-        definitionSource: source,
-      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks, definitionSource: source);
       final response = await page.handler(_get('/workflows'), context);
       final body = await response.readAsString();
       expect(body, contains('workflow-definitions-section'));
       expect(body, contains('spec-and-implement'));
+    });
+
+    test('definition browser renders variable hints without loading prompt bodies', () async {
+      final source = InMemoryDefinitionSource([
+        WorkflowDefinition(
+          name: 'my-workflow',
+          description: 'A workflow',
+          variables: const {'FEATURE': WorkflowVariable(required: true, description: 'Feature to implement')},
+          steps: const [
+            WorkflowStep(id: 's1', name: 'Step 1', prompts: ['long prompt body']),
+          ],
+        ),
+      ]);
+      final context = _makeContext(workflowService: workflows, taskService: tasks, definitionSource: source);
+      final response = await page.handler(_get('/workflows'), context);
+      final body = await response.readAsString();
+      expect(body, contains('my-workflow'));
+      expect(body, contains('FEATURE'));
+      expect(body, contains('Feature to implement'));
+      // Prompt body must NOT appear in the browser listing.
+      expect(body, isNot(contains('long prompt body')));
     });
 
     test('status filter buttons rendered in page', () async {
@@ -259,33 +273,64 @@ void main() {
       final body = await response.readAsString();
       expect(RegExp(r'workflow-step-card').allMatches(body).length, 2);
     });
+
+    test('renders timed-out approval state without flattening it to pending', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      final def = WorkflowDefinition(
+        name: 'approval-wf',
+        description: 'With approval gate.',
+        steps: const [
+          WorkflowStep(id: 'gate', name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          WorkflowStep(id: 'next', name: 'Next', prompts: ['Continue']),
+        ],
+      );
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-timeout',
+          definitionName: 'approval-wf',
+          status: WorkflowRunStatus.cancelled,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 1,
+          definitionJson: def.toJson(),
+          contextJson: {
+            'data': <String, dynamic>{},
+            'variables': <String, dynamic>{},
+            'gate.status': 'cancelled',
+            'gate.approval.status': 'timed_out',
+            'gate.approval.message': 'Approve?',
+            'gate.approval.cancel_reason': 'timeout',
+            'gate.tokenCount': 0,
+          },
+        ),
+      );
+
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final response = await page.handler(_get('/workflows/run-timeout'), context);
+      final body = await response.readAsString();
+
+      expect(response.statusCode, 200);
+      expect(body, contains('timed_out'));
+      expect(body, contains('timeout'));
+    });
   });
 
   group('WorkflowsPage /workflows/<runId>/steps/<stepIndex>', () {
     test('returns 400 for invalid step index', () async {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
-      final response = await page.handler(
-        _get('/workflows/run-001/steps/notanumber'),
-        context,
-      );
+      final response = await page.handler(_get('/workflows/run-001/steps/notanumber'), context);
       expect(response.statusCode, 400);
     });
 
     test('returns 503 when services not configured', () async {
       final context = _makeContext();
-      final response = await page.handler(
-        _get('/workflows/run-001/steps/0'),
-        context,
-      );
+      final response = await page.handler(_get('/workflows/run-001/steps/0'), context);
       expect(response.statusCode, 503);
     });
 
     test('returns 404 when run not found', () async {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
-      final response = await page.handler(
-        _get('/workflows/nonexistent/steps/0'),
-        context,
-      );
+      final response = await page.handler(_get('/workflows/nonexistent/steps/0'), context);
       expect(response.statusCode, 404);
     });
 
@@ -296,10 +341,7 @@ void main() {
       final runId = runs.first.id;
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
-      final response = await page.handler(
-        _get('/workflows/$runId/steps/0'),
-        context,
-      );
+      final response = await page.handler(_get('/workflows/$runId/steps/0'), context);
       expect(response.statusCode, 200);
       final body = await response.readAsString();
       expect(body, contains('workflow-step-detail-content'));

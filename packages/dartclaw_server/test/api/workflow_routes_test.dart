@@ -75,10 +75,7 @@ class FakeWorkflowService extends WorkflowService {
   }
 
   @override
-  Future<List<WorkflowRun>> list({
-    WorkflowRunStatus? status,
-    String? definitionName,
-  }) async {
+  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
     calls.add('list:$status:$definitionName');
     return listResult;
   }
@@ -97,9 +94,12 @@ class FakeWorkflowService extends WorkflowService {
     return resumeResult!;
   }
 
+  String? lastCancelFeedback;
+
   @override
-  Future<void> cancel(String runId) async {
+  Future<void> cancel(String runId, {String? feedback}) async {
     calls.add('cancel:$runId');
+    lastCancelFeedback = feedback;
     if (throwOnCancel) throw StateError('Cannot cancel: invalid state');
   }
 }
@@ -116,19 +116,14 @@ WorkflowDefinition _makeDefinition({
   return WorkflowDefinition(
     name: name,
     description: 'Research, specify, implement, review.',
-    variables: variables ??
+    variables:
+        variables ??
         {
-          'FEATURE': const WorkflowVariable(
-            required: true,
-            description: 'Feature to implement',
-          ),
-          'PROJECT': const WorkflowVariable(
-            required: false,
-            description: 'Target project',
-            defaultValue: null,
-          ),
+          'FEATURE': const WorkflowVariable(required: true, description: 'Feature to implement'),
+          'PROJECT': const WorkflowVariable(required: false, description: 'Target project', defaultValue: null),
         },
-    steps: steps ??
+    steps:
+        steps ??
         [
           const WorkflowStep(id: 'research', name: 'Research', prompts: ['Research {{FEATURE}}']),
           const WorkflowStep(id: 'spec', name: 'Write Spec', prompts: ['Write spec for {{FEATURE}}']),
@@ -197,12 +192,7 @@ void main() {
     final def = _makeDefinition();
     definitions = InMemoryDefinitionSource([def]);
 
-    workflows = FakeWorkflowService(
-      db: workflowDb,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.startResult = _makeRun();
     workflows.getResult = _makeRun();
     workflows.listResult = [_makeRun()];
@@ -242,18 +232,14 @@ void main() {
     });
 
     test('returns 400 for missing definition field', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {'variables': {}}),
-      );
+      final response = await handler(jsonRequest('POST', '/api/workflows/run', {'variables': {}}));
 
       expect(response.statusCode, 400);
       expect(await errorCode(response), 'INVALID_INPUT');
     });
 
     test('returns 400 when definition field is not a string', () async {
-      final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {'definition': 42}),
-      );
+      final response = await handler(jsonRequest('POST', '/api/workflows/run', {'definition': 42}));
 
       expect(response.statusCode, 400);
       expect(await errorCode(response), 'INVALID_INPUT');
@@ -261,10 +247,7 @@ void main() {
 
     test('returns 404 for unknown definition name', () async {
       final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
-          'definition': 'does-not-exist',
-          'variables': {},
-        }),
+        jsonRequest('POST', '/api/workflows/run', {'definition': 'does-not-exist', 'variables': {}}),
       );
 
       expect(response.statusCode, 404);
@@ -274,10 +257,7 @@ void main() {
     test('returns 400 for missing required variable', () async {
       // FEATURE is required and has no default.
       final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
-          'definition': 'spec-and-implement',
-          'variables': {},
-        }),
+        jsonRequest('POST', '/api/workflows/run', {'definition': 'spec-and-implement', 'variables': {}}),
       );
 
       expect(response.statusCode, 400);
@@ -303,10 +283,7 @@ void main() {
 
     test('returns 400 when variables field is not a map', () async {
       final response = await handler(
-        jsonRequest('POST', '/api/workflows/run', {
-          'definition': 'spec-and-implement',
-          'variables': 'not-a-map',
-        }),
+        jsonRequest('POST', '/api/workflows/run', {'definition': 'spec-and-implement', 'variables': 'not-a-map'}),
       );
 
       expect(response.statusCode, 400);
@@ -348,11 +325,7 @@ void main() {
         description: 'Has optional var with default.',
         variables: {
           'FEATURE': const WorkflowVariable(required: true, description: 'Feature'),
-          'MODE': const WorkflowVariable(
-            required: true,
-            description: 'Mode',
-            defaultValue: 'fast',
-          ),
+          'MODE': const WorkflowVariable(required: true, description: 'Mode', defaultValue: 'fast'),
         },
         steps: [
           const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Run {{FEATURE}}']),
@@ -380,9 +353,7 @@ void main() {
     test('returns all runs', () async {
       workflows.listResult = [_makeRun(), _makeRun(id: 'run-002')];
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
@@ -393,9 +364,7 @@ void main() {
     test('filters by status query param', () async {
       workflows.listResult = [];
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs?status=running')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs?status=running')));
 
       expect(response.statusCode, 200);
       expect(workflows.calls, contains('list:${WorkflowRunStatus.running}:null'));
@@ -405,10 +374,7 @@ void main() {
       workflows.listResult = [];
 
       final response = await handler(
-        Request(
-          'GET',
-          Uri.parse('http://localhost/api/workflows/runs?definition=spec-and-implement'),
-        ),
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs?definition=spec-and-implement')),
       );
 
       expect(response.statusCode, 200);
@@ -418,9 +384,7 @@ void main() {
     test('returns empty array when no runs', () async {
       workflows.listResult = [];
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
@@ -430,9 +394,7 @@ void main() {
     test('ignores unknown status query param', () async {
       workflows.listResult = [];
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs?status=unknown')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs?status=unknown')));
 
       // Unknown status → treated as null filter (no error).
       expect(response.statusCode, 200);
@@ -448,9 +410,7 @@ void main() {
     test('returns enriched run detail with steps', () async {
       workflows.getResult = _makeRun(currentStepIndex: 2);
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -465,9 +425,7 @@ void main() {
     test('returns 404 for non-existent run', () async {
       workflows.getResult = null;
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/no-such-run')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/no-such-run')));
 
       expect(response.statusCode, 404);
       expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
@@ -477,16 +435,10 @@ void main() {
       workflows.getResult = _makeRun(currentStepIndex: 1);
 
       // Insert tasks for step 0 (completed) and step 1 (running).
-      await taskRepo.insert(
-        _makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0, status: TaskStatus.accepted),
-      );
-      await taskRepo.insert(
-        _makeTask(id: 't-1', workflowRunId: 'run-001', stepIndex: 1, status: TaskStatus.running),
-      );
+      await taskRepo.insert(_makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0, status: TaskStatus.accepted));
+      await taskRepo.insert(_makeTask(id: 't-1', workflowRunId: 'run-001', stepIndex: 1, status: TaskStatus.running));
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -503,9 +455,7 @@ void main() {
     test('pending steps have no taskId', () async {
       workflows.getResult = _makeRun(currentStepIndex: 0, status: WorkflowRunStatus.paused);
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -517,13 +467,9 @@ void main() {
       workflows.getResult = _makeRun(currentStepIndex: 1, status: WorkflowRunStatus.running);
 
       // Only step 0 has a task; step 1 hasn't spawned one yet.
-      await taskRepo.insert(
-        _makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0, status: TaskStatus.accepted),
-      );
+      await taskRepo.insert(_makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0, status: TaskStatus.accepted));
 
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -541,9 +487,7 @@ void main() {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
       workflows.pauseResult = _makeRun(status: WorkflowRunStatus.paused);
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/pause')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/pause')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -553,9 +497,7 @@ void main() {
     test('returns 404 for non-existent run', () async {
       workflows.getResult = null;
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/pause')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/pause')));
 
       expect(response.statusCode, 404);
       expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
@@ -565,9 +507,7 @@ void main() {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
       workflows.throwOnPause = true;
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/pause')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/pause')));
 
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'INVALID_TRANSITION');
@@ -583,9 +523,7 @@ void main() {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.paused);
       workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')));
 
       expect(response.statusCode, 200);
       final body = decodeObject(await response.readAsString());
@@ -595,9 +533,7 @@ void main() {
     test('returns 404 for non-existent run', () async {
       workflows.getResult = null;
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/resume')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/resume')));
 
       expect(response.statusCode, 404);
       expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
@@ -607,9 +543,7 @@ void main() {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
       workflows.throwOnResume = true;
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')));
 
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'INVALID_TRANSITION');
@@ -624,9 +558,7 @@ void main() {
     test('cancels active workflow', () async {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')));
 
       expect(response.statusCode, 204);
       expect(workflows.calls, contains('cancel:run-001'));
@@ -635,9 +567,7 @@ void main() {
     test('returns 404 for non-existent run', () async {
       workflows.getResult = null;
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/cancel')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/no-such/cancel')));
 
       expect(response.statusCode, 404);
       expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
@@ -646,9 +576,7 @@ void main() {
     test('returns 409 for already terminal run', () async {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.completed);
 
-      final response = await handler(
-        Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')),
-      );
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')));
 
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'INVALID_TRANSITION');
@@ -661,9 +589,7 @@ void main() {
 
   group('GET /api/workflows/definitions', () {
     test('returns all definitions as summaries', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
@@ -676,9 +602,7 @@ void main() {
     });
 
     test('summary includes variables with required flag', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
@@ -690,9 +614,7 @@ void main() {
     test('returns empty array when no definitions', () async {
       final h = workflowRoutes(workflows, tasks, InMemoryDefinitionSource([])).call;
 
-      final response = await h(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions')),
-      );
+      final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
@@ -707,24 +629,240 @@ void main() {
           const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Do it']),
         ],
         loops: [
-          const WorkflowLoop(
-            id: 'loop1',
-            steps: ['s1'],
-            maxIterations: 3,
-            exitGate: 'done == "yes"',
-          ),
+          const WorkflowLoop(id: 'loop1', steps: ['s1'], maxIterations: 3, exitGate: 'done == "yes"'),
         ],
       );
       final src = InMemoryDefinitionSource([defWithLoop]);
       final h = workflowRoutes(workflows, tasks, src).call;
 
-      final response = await h(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions')),
-      );
+      final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
       expect(response.statusCode, 200);
       final body = decodeList(await response.readAsString());
       expect((body.first as Map<String, dynamic>)['hasLoops'], true);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /api/workflows/definitions/<name>
+  // ──────────────────────────────────────────────────────────────────────────
+
+  group('GET /api/workflows/definitions/<name>', () {
+    test('returns full definition for known name', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect(body['name'], 'spec-and-implement');
+      expect(body['description'], isNotEmpty);
+      expect(body['stepCount'], 3);
+      expect(body['hasLoops'], false);
+    });
+
+    test('detail includes steps array with id, name, type', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List<dynamic>;
+      expect(steps, hasLength(3));
+      final first = steps.first as Map<String, dynamic>;
+      expect(first['id'], 'research');
+      expect(first['name'], isNotEmpty);
+      expect(first['type'], isNotNull);
+    });
+
+    test('detail includes full step payload, including prompts', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List<dynamic>;
+      final first = steps.first as Map<String, dynamic>;
+      expect(first['prompts'], isA<List<dynamic>>());
+      expect((first['prompts'] as List<dynamic>).first, contains('Research'));
+    });
+
+    test('detail includes variables with required flag', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final variables = body['variables'] as Map<String, dynamic>;
+      expect(variables['FEATURE']['required'], true);
+      expect(variables['PROJECT']['required'], false);
+    });
+
+    test('detail includes loops array', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect(body['loops'], isA<List<dynamic>>());
+    });
+
+    test('returns 404 for unknown definition name', () async {
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/does-not-exist')),
+      );
+
+      expect(response.statusCode, 404);
+      expect(await errorCode(response), 'DEFINITION_NOT_FOUND');
+    });
+
+    test('summary listing omits steps array while detail includes it', () async {
+      final summaryResponse = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
+      final detailResponse = await handler(
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
+      );
+
+      expect(summaryResponse.statusCode, 200);
+      expect(detailResponse.statusCode, 200);
+
+      final summaryList = decodeList(await summaryResponse.readAsString());
+      final summaryEntry = summaryList.first as Map<String, dynamic>;
+      expect(summaryEntry.containsKey('steps'), isFalse);
+
+      final detail = decodeObject(await detailResponse.readAsString());
+      expect(detail.containsKey('steps'), isTrue);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // S03 (0.16.1): Approval gate — run detail enrichment and cancel with feedback
+  // ──────────────────────────────────────────────────────────────────────────
+
+  group('S03 (0.16.1): approval run detail and cancel feedback', () {
+    WorkflowRun makeApprovalPausedRun({String stepId = 'gate'}) {
+      final def = WorkflowDefinition(
+        name: 'approval-wf',
+        description: 'With approval gate.',
+        steps: [
+          WorkflowStep(id: stepId, name: 'Gate', type: 'approval', prompts: ['Approve?']),
+          const WorkflowStep(id: 'next', name: 'Next', prompts: ['Continue']),
+        ],
+        variables: const {},
+      );
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      return WorkflowRun(
+        id: 'run-approval',
+        definitionName: 'approval-wf',
+        status: WorkflowRunStatus.paused,
+        startedAt: now,
+        updatedAt: now,
+        currentStepIndex: 1,
+        definitionJson: def.toJson(),
+        contextJson: {
+          'data': <String, dynamic>{},
+          'variables': <String, dynamic>{},
+          '$stepId.approval.status': 'pending',
+          '$stepId.approval.message': 'Approve?',
+          '$stepId.approval.requested_at': '2026-03-24T10:00:00.000Z',
+          '$stepId.tokenCount': 0,
+          '_approval.pending.stepId': stepId,
+          '_approval.pending.stepIndex': 0,
+        },
+      );
+    }
+
+    test('GET run detail includes isApprovalPaused=true and pendingApprovalStepId', () async {
+      workflows.getResult = makeApprovalPausedRun();
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-approval')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect(body['isApprovalPaused'], isTrue);
+      expect(body['pendingApprovalStepId'], equals('gate'));
+    });
+
+    test('GET run detail includes approval sub-object for approval step', () async {
+      workflows.getResult = makeApprovalPausedRun();
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-approval')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List;
+      final gateStep = steps.first as Map<String, dynamic>;
+      expect(gateStep['type'], equals('approval'));
+      expect(gateStep['status'], equals('awaiting_approval'));
+      final approval = gateStep['approval'] as Map<String, dynamic>;
+      expect(approval['status'], equals('pending'));
+      expect(approval['message'], equals('Approve?'));
+    });
+
+    test('GET run detail preserves timed_out approval status', () async {
+      final timedOut = makeApprovalPausedRun().copyWith(
+        status: WorkflowRunStatus.cancelled,
+        contextJson: {
+          'data': <String, dynamic>{},
+          'variables': <String, dynamic>{},
+          'gate.status': 'cancelled',
+          'gate.approval.status': 'timed_out',
+          'gate.approval.message': 'Approve?',
+          'gate.approval.cancel_reason': 'timeout',
+          'gate.tokenCount': 0,
+        },
+      );
+      workflows.getResult = timedOut;
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-approval')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List;
+      final gateStep = steps.first as Map<String, dynamic>;
+      expect(gateStep['status'], equals('timed_out'));
+      final approval = gateStep['approval'] as Map<String, dynamic>;
+      expect(approval['status'], equals('timed_out'));
+      expect(approval['cancelReason'], equals('timeout'));
+    });
+
+    test('GET run detail — non-approval run has isApprovalPaused=false', () async {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect(body['isApprovalPaused'], isFalse);
+      expect(body['pendingApprovalStepId'], isNull);
+    });
+
+    test('POST cancel with JSON feedback body passes feedback to service', () async {
+      workflows.getResult = makeApprovalPausedRun();
+
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/workflows/runs/run-approval/cancel'),
+          body: '{"feedback": "Not ready"}',
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      expect(response.statusCode, 204);
+      expect(workflows.lastCancelFeedback, equals('Not ready'));
+    });
+
+    test('POST cancel without JSON body passes null feedback', () async {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
+
+      final response = await handler(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')));
+
+      expect(response.statusCode, 204);
+      expect(workflows.lastCancelFeedback, isNull);
     });
   });
 }

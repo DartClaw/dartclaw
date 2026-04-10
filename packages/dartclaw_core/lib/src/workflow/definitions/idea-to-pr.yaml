@@ -1,0 +1,245 @@
+name: idea-to-pr
+description: >-
+  Full delivery pipeline from idea to pull request — plan, get approval,
+  implement with deterministic validation, review fan-out, and create a PR.
+  GitHub-specific steps document all assumptions and customization points
+  so this workflow is copy-customizable for other forges.
+variables:
+  IDEA:
+    required: true
+    description: Feature idea, bug report, or improvement description
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+  BASE_BRANCH:
+    required: false
+    description: Base branch for the pull request
+    default: "main"
+
+stepDefaults:
+  - match: "implement*"
+    provider: claude
+    maxTokens: 100000
+    maxCostUsd: 5.00
+  - match: "review*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 50000
+
+steps:
+  # ── Phase 1: Plan ──────────────────────────────────────────────────────────
+
+  - id: plan
+    name: Plan Implementation
+    type: analysis
+    prompt: |
+      Analyse this idea and produce an implementation plan:
+      {{IDEA}}
+
+      Deliver:
+      - Problem statement (what pain does this solve?)
+      - Proposed solution (high-level approach)
+      - Affected files and modules
+      - Implementation steps (ordered by dependency)
+      - Acceptance criteria (binary-testable, each verifiable independently)
+      - Risks and open questions
+
+      Stay at the architecture level. Do NOT prescribe exact code.
+    contextOutputs: [implementation_plan, acceptance_criteria]
+
+  # ── Phase 2: Approval gate ─────────────────────────────────────────────────
+  # The approval step pauses the workflow and surfaces the plan to a human
+  # reviewer. The workflow does not proceed until the reviewer accepts it.
+  # To skip approval (automated pipelines), remove this step and its gate.
+
+  - id: approve-plan
+    name: Approve Plan
+    type: approval
+    prompt: |
+      Review the implementation plan and acceptance criteria.
+      Approve to continue with implementation, or reject if the plan needs changes.
+    contextInputs: [implementation_plan, acceptance_criteria]
+
+  # ── Phase 3: Implement ─────────────────────────────────────────────────────
+
+  - id: implement
+    name: Implement
+    type: coding
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Implement the approved plan:
+      {{context.implementation_plan}}
+
+      Original idea: {{IDEA}}
+
+      Follow the plan precisely. Run all available tests after implementation.
+      Fix any test failures before completing.
+    contextInputs: [implementation_plan]
+    contextOutputs: [diff_summary, branch_name]
+    # Capture the worktree branch from the coding step so downstream steps
+    # (validation, PR creation) can reference the correct branch.
+    outputs:
+      branch_name:
+        source: worktree.branch
+    gate: "approve-plan.status == accepted"
+
+  # ── Phase 4: Deterministic validation ─────────────────────────────────────
+  # Bash steps run deterministically — no LLM involved.
+  # These are the authoritative build/test gates; agent review is supplementary.
+  #
+  # CUSTOMIZATION: Replace these commands with your project's actual
+  # build/test/lint commands. The step fails (onError: fail) if any
+  # command exits non-zero — adjust onError to "continue" if you want
+  # the workflow to report failures without hard-stopping.
+
+  - id: validate-build
+    name: Validate Build
+    type: bash
+    workdir: "{{context.implement.worktree_path}}"
+    prompt: |
+      # Run the project build. Fail loudly on any error.
+      # ASSUMPTION: dart/flutter toolchain is available in PATH.
+      # CUSTOMIZATION: Replace with your build command (e.g. make build, npm run build).
+      dart analyze --fatal-infos && dart test
+    onError: fail
+    gate: "implement.status == accepted"
+
+  # ── Phase 5: Code review fan-out ──────────────────────────────────────────
+
+  - id: review-correctness
+    name: Review Correctness
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent reviewer. You did NOT write this code.
+      Be specific: cite file paths, line numbers, and concrete reproduction steps.
+      Do NOT approve issues you have identified.
+
+      ## Change Under Review
+      {{context.diff_summary}}
+
+      ## Acceptance Criteria
+      {{context.acceptance_criteria}}
+
+      Evaluate correctness and spec compliance:
+      - Does every acceptance criterion pass?
+      - Are there logic errors or edge cases?
+      - Are error paths handled correctly?
+
+      Score 1–5 (threshold 3). Output PASS or FAIL with findings.
+    contextInputs: [diff_summary, acceptance_criteria]
+    contextOutputs: [correctness_review]
+    gate: "implement.status == accepted"
+
+  - id: review-security
+    name: Review Security
+    type: analysis
+    evaluator: true
+    parallel: true
+    prompt: |
+      ## Evaluator Protocol
+      You are an independent security reviewer. You did NOT write this code.
+      Your job is to find vulnerabilities — NOT to approve.
+
+      ## Change Under Review
+      {{context.diff_summary}}
+
+      Evaluate for security issues:
+      - Injection vectors (SQL, command, path traversal)
+      - Credential or secret exposure
+      - Input validation gaps at system boundaries
+      - OWASP Top 10 vulnerabilities
+
+      Score 1–5 (threshold 3). List all findings with severity.
+      Output PASS or FAIL.
+    contextInputs: [diff_summary]
+    contextOutputs: [security_review]
+    gate: "implement.status == accepted"
+
+  # ── Phase 6: Synthesise reviews ───────────────────────────────────────────
+
+  - id: review-synthesis
+    name: Synthesise Reviews
+    type: analysis
+    prompt: |
+      Synthesise the parallel review results into a single actionable report.
+
+      Correctness review:
+      {{context.correctness_review}}
+
+      Security review:
+      {{context.security_review}}
+
+      Consolidate findings by severity (critical/high/medium/low).
+      Identify must-fix items (critical + high) vs. nice-to-have (medium/low).
+      Produce a summary verdict: READY TO MERGE or NEEDS WORK.
+    contextInputs: [correctness_review, security_review]
+    contextOutputs: [review_summary, ready_to_merge]
+    outputs:
+      ready_to_merge:
+        format: json
+        schema:
+          type: boolean
+
+  # ── Phase 7: Create pull request ──────────────────────────────────────────
+  # This bash step creates the PR using the `gh` CLI.
+  #
+  # ASSUMPTIONS (document and verify before use):
+  #   1. `gh` CLI is installed and authenticated (`gh auth status` passes).
+  #   2. The working directory is a git repository with a configured remote.
+  #   3. The implementing agent has already pushed the branch to origin
+  #      (the coding step does this when worktree isolation is active).
+  #
+  # CUSTOMIZATION POINTS:
+  #   - Replace `gh pr create` with your forge's CLI (GitLab: `glab mr create`,
+  #     Bitbucket: `bb pr create`, etc.).
+  #   - Adjust --title and --body templates to your team's PR conventions.
+  #   - Add --reviewer, --label, --milestone flags as needed.
+  #   - Replace --base {{BASE_BRANCH}} if your default branch differs.
+  #
+  # The branch name is sourced from the coding step's worktree metadata
+  # (implement.branch_name), not hard-coded, so this step works correctly
+  # even when the engine allocates a dynamic worktree branch.
+
+  - id: create-pr
+    name: Create Pull Request
+    type: bash
+    workdir: "{{context.implement.worktree_path}}"
+    prompt: |
+      # ASSUMPTION: gh CLI is installed and authenticated.
+      # Run `gh auth status` to verify before using this workflow.
+      # CUSTOMIZATION: Replace with your forge's PR creation command.
+      base_branch=$(cat <<'__DARTCLAW_BASE_BRANCH__'
+      {{BASE_BRANCH}}
+      __DARTCLAW_BASE_BRANCH__
+      )
+      branch_name={{context.branch_name}}
+      title=$(cat <<'__DARTCLAW_TITLE__'
+      {{IDEA}}
+      __DARTCLAW_TITLE__
+      )
+      pr_body_file=$(mktemp)
+      trap 'rm -f "$pr_body_file"' EXIT
+      {
+        printf '## Summary\n'
+        printf '%s\n\n' {{context.review_summary}}
+        printf '## Implementation Plan\n'
+        printf '%s\n\n' {{context.implementation_plan}}
+        printf '## Acceptance Criteria\n'
+        printf '%s\n\n' {{context.acceptance_criteria}}
+        printf '%s\n' '---'
+        printf '%s\n' '*Created by idea-to-pr workflow.*'
+      } > "$pr_body_file"
+      gh pr create \
+        --base "$base_branch" \
+        --head "$branch_name" \
+        --title "$title" \
+        --body-file "$pr_body_file"
+    contextInputs: [branch_name, review_summary, implementation_plan, acceptance_criteria]
+    onError: fail
+    gate: "review-synthesis.ready_to_merge == true"

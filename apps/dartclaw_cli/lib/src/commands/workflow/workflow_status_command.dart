@@ -102,13 +102,30 @@ class WorkflowStatusCommand extends Command<void> {
     if (run == null) return;
     _writeLine('Workflow Run: ${run.id}');
     _writeLine('  Definition:  ${run.definitionName}');
-    _writeLine('  Status:      ${run.status.name}');
+
+    // Surface approval context for approval-paused runs.
+    final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    final isApprovalPaused = run.status.name == 'paused' && pendingApprovalStepId != null;
+    final statusDisplay = isApprovalPaused ? 'paused (awaiting approval)' : run.status.name;
+    _writeLine('  Status:      $statusDisplay');
+
     _writeLine('  Started:     ${_formatDateTime(run.startedAt)}');
     if (run.completedAt != null) {
       _writeLine('  Completed:   ${_formatDateTime(run.completedAt!)}');
     }
     _writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
     _writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
+
+    if (isApprovalPaused) {
+      final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
+      _writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
+      if (approvalMessage != null) {
+        _writeLine('  Request:     $approvalMessage');
+      }
+      _writeLine('  Actions:     `dartclaw workflow resume ${run.id}` to approve');
+      _writeLine('               `dartclaw workflow cancel ${run.id}` to reject');
+    }
+
     if (run.errorMessage != null) {
       _writeLine('  Error:       ${run.errorMessage}');
     }

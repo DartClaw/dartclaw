@@ -152,6 +152,13 @@ Without Docker, guards serve as the primary boundary (pragmatic mode for develop
 
 ## Development
 
+Use the workspace root for package-wide server/CLI validation. On supported environments, `dart test packages/dartclaw_server`
+and `dart test apps/dartclaw_cli` should work without manual sqlite bootstrap tweaks. The integration-tagged
+`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart` is a secondary proof surface and should be run
+intentionally with `dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`
+when you want that additional signal. For this validation path, an unsupported host is specifically one that cannot
+load the bundled `sqlite3` native asset.
+
 ```bash
 dart test packages/dartclaw_core
 dart test packages/dartclaw_server

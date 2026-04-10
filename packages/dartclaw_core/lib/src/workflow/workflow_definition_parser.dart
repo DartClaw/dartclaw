@@ -17,9 +17,7 @@ class WorkflowDefinitionParser {
     try {
       final raw = loadYaml(source);
       if (raw is! YamlMap) {
-        throw FormatException(
-          'Workflow YAML must be a mapping${_at(sourcePath)}.',
-        );
+        throw FormatException('Workflow YAML must be a mapping${_at(sourcePath)}.');
       }
       yaml = raw;
     } on YamlException catch (e) {
@@ -46,29 +44,20 @@ class WorkflowDefinitionParser {
   String _requireString(YamlMap yaml, String key, String? sourcePath) {
     final value = yaml[key];
     if (value == null) {
-      throw FormatException(
-        'Missing required field "$key"${_at(sourcePath)}.',
-      );
+      throw FormatException('Missing required field "$key"${_at(sourcePath)}.');
     }
     if (value is! String) {
-      throw FormatException(
-        'Field "$key" must be a string${_at(sourcePath)}.',
-      );
+      throw FormatException('Field "$key" must be a string${_at(sourcePath)}.');
     }
     if (value.isEmpty) {
-      throw FormatException(
-        'Field "$key" must not be empty${_at(sourcePath)}.',
-      );
+      throw FormatException('Field "$key" must not be empty${_at(sourcePath)}.');
     }
     return value;
   }
 
   Map<String, WorkflowVariable> _parseVariables(Object? raw) {
     if (raw is! YamlMap) return const {};
-    return {
-      for (final entry in raw.entries)
-        entry.key as String: _parseVariable(entry.value),
-    };
+    return {for (final entry in raw.entries) entry.key as String: _parseVariable(entry.value)};
   }
 
   WorkflowVariable _parseVariable(Object? raw) {
@@ -82,19 +71,13 @@ class WorkflowDefinitionParser {
 
   List<WorkflowStep> _parseSteps(Object? raw, String? sourcePath) {
     if (raw == null) {
-      throw FormatException(
-        'Missing required field "steps"${_at(sourcePath)}.',
-      );
+      throw FormatException('Missing required field "steps"${_at(sourcePath)}.');
     }
     if (raw is! YamlList) {
-      throw FormatException(
-        'Field "steps" must be a list${_at(sourcePath)}.',
-      );
+      throw FormatException('Field "steps" must be a list${_at(sourcePath)}.');
     }
     if (raw.isEmpty) {
-      throw FormatException(
-        'Field "steps" must not be empty${_at(sourcePath)}.',
-      );
+      throw FormatException('Field "steps" must not be empty${_at(sourcePath)}.');
     }
     return raw.map((s) => _parseStep(s as YamlMap, sourcePath)).toList(growable: false);
   }
@@ -102,15 +85,11 @@ class WorkflowDefinitionParser {
   WorkflowStep _parseStep(YamlMap raw, String? sourcePath) {
     final id = raw['id'];
     if (id == null || id is! String || id.isEmpty) {
-      throw FormatException(
-        'Each step must have a non-empty "id" field${_at(sourcePath)}.',
-      );
+      throw FormatException('Each step must have a non-empty "id" field${_at(sourcePath)}.');
     }
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
-      throw FormatException(
-        'Step "$id" must have a non-empty "name" field${_at(sourcePath)}.',
-      );
+      throw FormatException('Step "$id" must have a non-empty "name" field${_at(sourcePath)}.');
     }
     // Parse skill field (optional — skill-aware steps may omit prompt).
     final skill = raw['skill'] as String?;
@@ -124,49 +103,43 @@ class WorkflowDefinitionParser {
       prompts = null;
     } else if (promptRaw is String) {
       if (promptRaw.isEmpty) {
-        throw FormatException(
-          'Step "$id" must have a non-empty "prompt" field${_at(sourcePath)}.',
-        );
+        throw FormatException('Step "$id" must have a non-empty "prompt" field${_at(sourcePath)}.');
       }
       prompts = [promptRaw];
     } else if (promptRaw is YamlList) {
       if (promptRaw.isEmpty) {
-        throw FormatException(
-          'Step "$id": "prompt" list must not be empty${_at(sourcePath)}.',
-        );
+        throw FormatException('Step "$id": "prompt" list must not be empty${_at(sourcePath)}.');
       }
       final castedPrompts = <String>[];
       for (final item in promptRaw) {
         if (item is! String || item.isEmpty) {
-          throw FormatException(
-            'Step "$id": each prompt in the list must be a non-empty string${_at(sourcePath)}.',
-          );
+          throw FormatException('Step "$id": each prompt in the list must be a non-empty string${_at(sourcePath)}.');
         }
         castedPrompts.add(item);
       }
       prompts = castedPrompts;
     } else {
-      throw FormatException(
-        'Step "$id": "prompt" must be a string or list of strings${_at(sourcePath)}.',
-      );
+      throw FormatException('Step "$id": "prompt" must be a string or list of strings${_at(sourcePath)}.');
     }
 
-    // Reject no-skill + no-prompt at parse time.
+    // Infer step type early so we can relax prompt requirements for hybrid types.
+    final stepType = (raw['type'] as String?) ?? 'research';
+
+    // Reject no-skill + no-prompt at parse time, except for bash/approval steps
+    // which do not need an agent prompt (S02/S03 own their execution semantics).
     if (skill == null && (prompts == null || prompts.isEmpty)) {
-      throw FormatException(
-        'Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.',
-      );
+      if (stepType != 'bash' && stepType != 'approval') {
+        throw FormatException('Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.');
+      }
     }
 
     final reviewRaw = raw['review'] as String?;
     final review = reviewRaw != null
         ? (StepReviewMode.fromYaml(reviewRaw) ??
-            (throw FormatException(
-              'Step "$id": unknown review mode "$reviewRaw"${_at(sourcePath)}.',
-            )))
+              (throw FormatException('Step "$id": unknown review mode "$reviewRaw"${_at(sourcePath)}.')))
         : StepReviewMode.codingOnly;
 
-    final timeoutRaw = raw['timeout'];
+    final timeoutRaw = raw['timeout'] ?? raw['timeoutSeconds'];
     int? timeoutSeconds;
     if (timeoutRaw != null) {
       if (timeoutRaw is String) {
@@ -200,12 +173,11 @@ class WorkflowDefinitionParser {
           final formatRaw = value['format'] as String?;
           final format = formatRaw != null
               ? (OutputFormat.fromYaml(formatRaw) ??
-                  (throw FormatException(
-                    'Step "$id" output "$key": unknown format "$formatRaw"${_at(sourcePath)}.',
-                  )))
+                    (throw FormatException('Step "$id" output "$key": unknown format "$formatRaw"${_at(sourcePath)}.')))
               : OutputFormat.text;
           final schema = _parseSchema(value['schema']);
-          outputs[key] = OutputConfig(format: format, schema: schema);
+          final outputSource = value['source'] as String?;
+          outputs[key] = OutputConfig(format: format, schema: schema, source: outputSource);
         } else {
           // Shorthand: `key: json` or `key: lines`
           final format = OutputFormat.fromYaml(value.toString());
@@ -224,7 +196,7 @@ class WorkflowDefinitionParser {
       name: name,
       skill: skill,
       prompts: prompts,
-      type: (raw['type'] as String?) ?? 'research',
+      type: stepType,
       project: raw['project'] as String?,
       provider: raw['provider'] as String?,
       model: raw['model'] as String?,
@@ -244,6 +216,18 @@ class WorkflowDefinitionParser {
       mapOver: mapOver,
       maxParallel: maxParallel,
       maxItems: maxItems,
+      continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
+      onError: (raw['onError'] ?? raw['on_error']) as String?,
+      workdir: raw['workdir'] as String?,
+    );
+  }
+
+  String? _parseContinueSession(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null || raw == false) return null;
+    if (raw == true) return '@previous';
+    if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    throw FormatException(
+      'Step "$stepId": "continueSession" must be true or a non-empty step ID string${_at(sourcePath)}.',
     );
   }
 
@@ -271,10 +255,7 @@ class WorkflowDefinitionParser {
 
   /// Deep-converts a [YamlMap] to a plain `Map<String, dynamic>`.
   Map<String, dynamic> _yamlToMap(YamlMap yaml) {
-    return {
-      for (final entry in yaml.entries)
-        entry.key.toString(): _yamlToValue(entry.value),
-    };
+    return {for (final entry in yaml.entries) entry.key.toString(): _yamlToValue(entry.value)};
   }
 
   dynamic _yamlToValue(Object? value) {
@@ -300,28 +281,26 @@ class WorkflowDefinitionParser {
 
   List<StepConfigDefault>? _parseStepDefaults(Object? raw, String? sourcePath) {
     if (raw is! YamlList) return null;
-    return raw.map((entry) {
-      if (entry is! YamlMap) {
-        throw FormatException(
-          'Each stepDefaults entry must be a mapping${_at(sourcePath)}.',
-        );
-      }
-      final match = entry['match'];
-      if (match == null || match is! String || match.isEmpty) {
-        throw FormatException(
-          'Each stepDefaults entry must have a non-empty "match" field${_at(sourcePath)}.',
-        );
-      }
-      return StepConfigDefault(
-        match: match,
-        provider: entry['provider'] as String?,
-        model: entry['model'] as String?,
-        maxTokens: entry['maxTokens'] as int?,
-        maxCostUsd: _parseDouble(entry['maxCostUsd']),
-        maxRetries: entry['maxRetries'] as int?,
-        allowedTools: _parseOptionalStringList(entry['allowedTools']),
-      );
-    }).toList(growable: false);
+    return raw
+        .map((entry) {
+          if (entry is! YamlMap) {
+            throw FormatException('Each stepDefaults entry must be a mapping${_at(sourcePath)}.');
+          }
+          final match = entry['match'];
+          if (match == null || match is! String || match.isEmpty) {
+            throw FormatException('Each stepDefaults entry must have a non-empty "match" field${_at(sourcePath)}.');
+          }
+          return StepConfigDefault(
+            match: match,
+            provider: entry['provider'] as String?,
+            model: entry['model'] as String?,
+            maxTokens: entry['maxTokens'] as int?,
+            maxCostUsd: _parseDouble(entry['maxCostUsd']),
+            maxRetries: entry['maxRetries'] as int?,
+            allowedTools: _parseOptionalStringList(entry['allowedTools']),
+          );
+        })
+        .toList(growable: false);
   }
 
   List<String> _parseStringList(Object? raw) {
@@ -344,6 +323,5 @@ class WorkflowDefinitionParser {
     return null;
   }
 
-  String _at(String? sourcePath) =>
-      sourcePath != null ? ' in "$sourcePath"' : '';
+  String _at(String? sourcePath) => sourcePath != null ? ' in "$sourcePath"' : '';
 }

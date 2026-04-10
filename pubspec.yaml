@@ -17,3 +17,6 @@ workspace:
   - packages/dartclaw_testing
   - packages/dartclaw_server
   - apps/dartclaw_cli
+
+dev_dependencies:
+  sqlite3: ^3.1.6

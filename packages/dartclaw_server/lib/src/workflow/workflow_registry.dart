@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SkillRegistry,
+        ValidationReport,
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
@@ -25,11 +26,7 @@ class _RegisteredWorkflow {
   final WorkflowSource source;
   final String? sourcePath;
 
-  const _RegisteredWorkflow({
-    required this.definition,
-    required this.source,
-    this.sourcePath,
-  });
+  const _RegisteredWorkflow({required this.definition, required this.source, this.sourcePath});
 }
 
 /// Production registry of workflow definitions — built-in and custom.
@@ -62,8 +59,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
        _log = log ?? Logger('WorkflowRegistry');
 
   /// Sets the skill registry on the validator for skill-aware validation (S04).
-  set skillRegistry(SkillRegistry? registry) =>
-      _validator.skillRegistry = registry;
+  set skillRegistry(SkillRegistry? registry) => _validator.skillRegistry = registry;
 
   /// Loads all built-in workflow definitions from embedded constants.
   ///
@@ -74,18 +70,21 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
     for (final entry in builtInWorkflowYaml.entries) {
       try {
         final definition = _parser.parse(entry.value, sourcePath: 'built-in:${entry.key}');
-        final errors = _validator.validate(definition, continuityProviders: _continuityProviders);
-        if (errors.isNotEmpty) {
+        final report = _validator.validate(definition, continuityProviders: _continuityProviders);
+        if (report.hasErrors) {
           _log.severe(
             'Built-in workflow "${entry.key}" failed validation: '
-            '${errors.join('; ')}. This is a bug — please report it.',
+            '${report.errors.join('; ')}. This is a bug — please report it.',
           );
           continue;
         }
-        _definitions[definition.name] = _RegisteredWorkflow(
-          definition: definition,
-          source: WorkflowSource.builtIn,
-        );
+        if (report.hasWarnings) {
+          _log.warning(
+            'Built-in workflow "${entry.key}" has validation warnings: '
+            '${report.warnings.join('; ')}',
+          );
+        }
+        _definitions[definition.name] = _RegisteredWorkflow(definition: definition, source: WorkflowSource.builtIn);
         _log.info('Loaded built-in workflow: ${definition.name}');
       } on FormatException catch (e) {
         _log.severe(
@@ -117,13 +116,19 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
       try {
         final content = await entity.readAsString();
         final definition = _parser.parse(content, sourcePath: entity.path);
-        final errors = _validator.validate(definition, continuityProviders: _continuityProviders);
-        if (errors.isNotEmpty) {
+        final ValidationReport report = _validator.validate(definition, continuityProviders: _continuityProviders);
+        if (report.hasErrors) {
           _log.warning(
             'Custom workflow excluded: ${entity.path} — '
-            'validation errors: ${errors.join('; ')}',
+            'validation errors: ${report.errors.join('; ')}',
           );
           continue;
+        }
+        if (report.hasWarnings) {
+          _log.warning(
+            'Custom workflow "${definition.name}" from ${entity.path} '
+            'loaded with warnings: ${report.warnings.join('; ')}',
+          );
         }
 
         // Name collision check — built-in names always win.
@@ -162,24 +167,31 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   WorkflowDefinition? getByName(String name) => _definitions[name]?.definition;
 
   @override
-  List<WorkflowDefinition> listAll() =>
-      _definitions.values.map((r) => r.definition).toList();
+  List<WorkflowSummary> listSummaries() =>
+      _definitions.values.map((registered) => _toSummary(registered.definition)).toList(growable: false);
+
+  List<WorkflowDefinition> listAll() => _definitions.values.map((r) => r.definition).toList(growable: false);
 
   /// Returns only built-in workflow definitions.
-  List<WorkflowDefinition> listBuiltIn() => _definitions.values
-      .where((r) => r.source == WorkflowSource.builtIn)
-      .map((r) => r.definition)
-      .toList();
+  List<WorkflowDefinition> listBuiltIn() =>
+      _definitions.values.where((r) => r.source == WorkflowSource.builtIn).map((r) => r.definition).toList();
 
   /// Returns only custom workflow definitions.
-  List<WorkflowDefinition> listCustom() => _definitions.values
-      .where((r) => r.source == WorkflowSource.custom)
-      .map((r) => r.definition)
-      .toList();
+  List<WorkflowDefinition> listCustom() =>
+      _definitions.values.where((r) => r.source == WorkflowSource.custom).map((r) => r.definition).toList();
 
   /// Returns the number of registered workflows.
   int get length => _definitions.length;
 
   /// Returns the source type for a workflow by name, or null if not found.
   WorkflowSource? sourceOf(String name) => _definitions[name]?.source;
+
+  static WorkflowSummary _toSummary(WorkflowDefinition definition) => (
+    name: definition.name,
+    description: definition.description,
+    stepCount: definition.steps.length,
+    hasLoops: definition.loops.isNotEmpty,
+    maxTokens: definition.maxTokens,
+    variables: definition.variables,
+  );
 }

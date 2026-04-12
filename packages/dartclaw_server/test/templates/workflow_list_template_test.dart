@@ -57,7 +57,20 @@ Map<String, dynamic> _makeDefinition({
     'description': description,
     'stepCount': stepCount,
     'hasLoops': hasLoops,
+    'errorId': 'workflow-error-$name',
+    'projectSelectId': 'workflow-project-$name',
     'variableHints': variableHints,
+    'variableInputs': [
+      for (final hint in variableHints)
+        {
+          'id': 'workflow-var-$name-${hint['name']}',
+          'inputName': 'var_${hint['name']}',
+          'label': hint['name'],
+          'placeholder': hint['description'],
+          'required': hint['required'],
+          'defaultValue': '',
+        },
+    ],
   };
 }
 
@@ -85,6 +98,7 @@ String _render({
     navItems: const [],
     runs: runs,
     definitions: definitions,
+    projectOptions: const [],
     filters: filters ?? _makeFilters(),
   );
 }
@@ -165,6 +179,13 @@ void main() {
       final html = _render(definitions: [_makeDefinition()]);
       expect(html, contains('workflow-definitions-section'));
       expect(html, contains('spec-and-implement'));
+    });
+
+    test('definition cards include launch forms', () {
+      final html = _render(definitions: [_makeDefinition()]);
+      expect(html, contains('workflow-launch-form'));
+      expect(html, contains('Run'));
+      expect(html, contains('var_FEATURE'));
     });
 
     test('renders definition description', () {

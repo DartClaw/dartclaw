@@ -7,6 +7,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/auth_utils.dart';
+import 'github_webhook.dart';
 import 'google_chat_webhook.dart';
 
 final _log = Logger('WebhookRoutes');
@@ -20,6 +21,7 @@ Router webhookRoutes({
   WhatsAppChannel? whatsApp,
   String? webhookSecret,
   GoogleChatWebhookHandler? googleChat,
+  GitHubWebhookHandler? github,
   EventBus? eventBus,
   List<String> trustedProxies = const [],
 }) {
@@ -62,6 +64,10 @@ Router webhookRoutes({
 
   if (googleChat != null) {
     router.post(googleChat.config.webhookPath, googleChat.handle);
+  }
+
+  if (github != null) {
+    router.post(github.config.webhookPath, github.handle);
   }
 
   return router;

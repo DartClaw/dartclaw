@@ -195,6 +195,26 @@ void main() {
     });
   });
 
+  group('GET /api/sessions/<id>', () {
+    test('returns 200 with the session payload', () async {
+      final session = await sessions.createSession();
+
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}')));
+
+      expect(res.statusCode, equals(200));
+      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
+      expect(body['id'], session.id);
+      expect(body['type'], session.type.name);
+    });
+
+    test('returns 404 when the session does not exist', () async {
+      final res = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/missing')));
+
+      expect(res.statusCode, equals(404));
+      expect(await _errorCode(res), equals('SESSION_NOT_FOUND'));
+    });
+  });
+
   // -------------------------------------------------------------------------
   group('POST /api/sessions', () {
     test('returns 201 with created session', () async {

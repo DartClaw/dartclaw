@@ -59,6 +59,7 @@ class WorkflowsPage extends DashboardPage {
 
     final taskService = context.taskService;
     final definitionSource = context.definitionSource;
+    final projects = context.projectService == null ? <Project>[] : await context.projectService!.getAll();
 
     // Parse filters from query parameters.
     final params = request.url.queryParameters;
@@ -116,9 +117,22 @@ class WorkflowsPage extends DashboardPage {
             'description': s.description,
             'stepCount': s.stepCount,
             'hasLoops': s.hasLoops,
+            'errorId': 'workflow-error-${s.name}',
+            'projectSelectId': 'workflow-project-${s.name}',
             'variableHints': [
               for (final entry in s.variables.entries)
                 {'name': entry.key, 'description': entry.value.description, 'required': entry.value.required},
+            ],
+            'variableInputs': [
+              for (final entry in s.variables.entries)
+                {
+                  'id': 'workflow-var-${s.name}-${entry.key}',
+                  'inputName': 'var_${entry.key}',
+                  'label': titleCase(entry.key),
+                  'placeholder': entry.value.description,
+                  'required': entry.value.required,
+                  'defaultValue': entry.value.defaultValue ?? '',
+                },
             ],
           },
         )
@@ -141,6 +155,9 @@ class WorkflowsPage extends DashboardPage {
       navItems: navItems,
       runs: runSummaries,
       definitions: definitionViewModels,
+      projectOptions: [
+        for (final project in projects) {'value': project.id, 'label': project.name},
+      ],
       filters: filters,
       bannerHtml: bannerHtml,
       appName: context.appDisplay.name,

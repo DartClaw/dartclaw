@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.4]
+
+CLI Operations & Connected Workflows — connected-by-default workflow execution, operational command groups for live instances, workflow trigger surfaces, and headless/server-side parity. 11 stories across 6 phases.
+
+### Added
+
+- **Connected CLI workflow client**: `DartclawApiClient` now powers server-backed workflow execution, lifecycle control, SSE progress streaming, and loopback server detection
+- **Operational CLI command groups**: new `agents`, `config`, `jobs`, `projects`, `tasks`, and `traces` families, plus expanded `sessions` commands for remote inspection and lifecycle operations
+- **Workflow lifecycle CLI controls**: `workflow runs`, `workflow pause`, `workflow resume`, and `workflow cancel`
+- **New server read endpoints**: `GET /api/sessions/:id`, `GET /api/traces/:id`, `GET /api/scheduling/jobs`, and `GET /api/scheduling/jobs/:name`
+- **Workflow trigger surfaces**: launch forms on `/workflows`, `/workflow` chat commands in the web UI, and GitHub PR webhooks that can start the `code-review` workflow
+- **CLI operations guide**: new public guide page covering connected mode, standalone mode, server detection, and authentication behavior
+
+### Changed
+
+- **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
+- **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
+- **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection
+
+### Fixed
+
+- **Task creation guardrails**: `POST /api/tasks` continues to reject client `configJson` keys prefixed with `_`, preserving the server-owned workflow/internal namespace
+
+---
+
 ## [0.16.3]
 
 Architecture Hygiene & Documentation — SDK Package Decomposition Phase 2. Completed the package-boundary cleanup, workflow workspace/skills library, standalone binary build system, and documentation closeout for the 0.16 workflow/runtime platform. 13 stories across 7 phases.

@@ -330,6 +330,45 @@ workspace:
     });
   });
 
+  group('GET /api/scheduling/jobs', () {
+    test('returns jobs from the current YAML config', () async {
+      writeJobsToYaml([
+        {'name': 'daily-summary', 'schedule': '0 8 * * *', 'prompt': 'Summarize', 'delivery': 'announce'},
+      ]);
+      final router = createRouter();
+
+      final response = await get(router, '/api/scheduling/jobs');
+
+      expect(response.statusCode, 200);
+      final body = jsonDecode(await response.readAsString()) as List<dynamic>;
+      expect(body, hasLength(1));
+      expect((body.single as Map<String, dynamic>)['name'], 'daily-summary');
+    });
+
+    test('returns a single job by name', () async {
+      writeJobsToYaml([
+        {'name': 'daily-summary', 'schedule': '0 8 * * *', 'prompt': 'Summarize', 'delivery': 'announce'},
+      ]);
+      final router = createRouter();
+
+      final response = await get(router, '/api/scheduling/jobs/daily-summary');
+
+      expect(response.statusCode, 200);
+      final body = await readJson(response);
+      expect(body['name'], 'daily-summary');
+    });
+
+    test('returns 404 when a job does not exist', () async {
+      final router = createRouter();
+
+      final response = await get(router, '/api/scheduling/jobs/missing');
+
+      expect(response.statusCode, 404);
+      final body = await readJson(response);
+      expect((body['error'] as Map<String, dynamic>)['code'], 'JOB_NOT_FOUND');
+    });
+  });
+
   group('PATCH /api/config — validation', () {
     test('empty body returns 400', () async {
       final router = createRouter();

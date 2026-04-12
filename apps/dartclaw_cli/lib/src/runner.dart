@@ -12,5 +12,10 @@ class DartclawRunner extends CommandRunner<void> {
       help: 'Path to dartclaw.yaml config file (overrides DARTCLAW_CONFIG env var and default search)',
       valueHelp: 'path',
     );
+    argParser.addOption(
+      'server',
+      help: 'Loopback server address override for connected commands (for example: 3333 or localhost:4000)',
+      valueHelp: 'host:port',
+    );
   }
 }

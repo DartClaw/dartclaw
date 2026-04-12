@@ -26,6 +26,22 @@ void main() {
       expect(command.subcommands.containsKey('run'), isTrue);
     });
 
+    test('has runs subcommand', () {
+      expect(command.subcommands.containsKey('runs'), isTrue);
+    });
+
+    test('has pause subcommand', () {
+      expect(command.subcommands.containsKey('pause'), isTrue);
+    });
+
+    test('has resume subcommand', () {
+      expect(command.subcommands.containsKey('resume'), isTrue);
+    });
+
+    test('has cancel subcommand', () {
+      expect(command.subcommands.containsKey('cancel'), isTrue);
+    });
+
     test('has status subcommand', () {
       expect(command.subcommands.containsKey('status'), isTrue);
     });
@@ -34,10 +50,10 @@ void main() {
       expect(command.subcommands.containsKey('validate'), isTrue);
     });
 
-    test('workflow --help shows four subcommands', () {
+    test('workflow --help shows all workflow subcommands', () {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
       expect(runner.commands.containsKey('workflow'), isTrue);
-      expect(command.subcommands.length, 4);
+      expect(command.subcommands.length, 8);
     });
   });
 }

@@ -41,56 +41,14 @@ Router workflowRoutes(
 
   // POST /api/workflows/run
   router.post('/api/workflows/run', (Request request) async {
-    try {
-      final body = await readJsonObject(request);
-      if (body.error != null) return body.error!;
+    final parsed = await _parseWorkflowRunJsonRequest(request, definitions);
+    return _startWorkflowResponse(parsed, workflows);
+  });
 
-      final definitionField = body.value!['definition'];
-      if (definitionField == null) {
-        return errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition');
-      }
-      if (definitionField is! String || definitionField.trim().isEmpty) {
-        return errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string');
-      }
-
-      final definition = definitions.getByName(definitionField.trim());
-      if (definition == null) {
-        return errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $definitionField');
-      }
-
-      final variablesField = body.value!['variables'];
-      if (variablesField != null && variablesField is! Map) {
-        return errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'});
-      }
-      final rawVariables = variablesField as Map? ?? const {};
-      final variables = <String, String>{
-        for (final entry in rawVariables.entries) entry.key.toString(): entry.value.toString(),
-      };
-
-      // Check for missing required variables (those without defaults).
-      final missing = <String>[];
-      for (final entry in definition.variables.entries) {
-        if (entry.value.required && entry.value.defaultValue == null && !variables.containsKey(entry.key)) {
-          missing.add(entry.key);
-        }
-      }
-      if (missing.isNotEmpty) {
-        return errorResponse(400, 'INVALID_INPUT', 'Missing required variable(s): ${missing.join(', ')}', {
-          'missingVariables': missing,
-        });
-      }
-
-      final projectField = body.value!['project'];
-      final projectId = projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null;
-
-      final run = await workflows.start(definition, variables, projectId: projectId);
-      return jsonResponse(201, run.toJson());
-    } on ArgumentError catch (e) {
-      return errorResponse(400, 'INVALID_INPUT', e.message.toString());
-    } catch (e, st) {
-      _log.severe('Failed to start workflow', e, st);
-      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
-    }
+  // POST /api/workflows/run-form
+  router.post('/api/workflows/run-form', (Request request) async {
+    final parsed = await _parseWorkflowRunFormRequest(request, definitions);
+    return _startWorkflowResponse(parsed, workflows, htmlResponse: true);
   });
 
   // GET /api/workflows/runs
@@ -227,6 +185,163 @@ Router workflowRoutes(
   });
 
   return router;
+}
+
+typedef _ParsedWorkflowRunRequest = ({
+  WorkflowDefinition? definition,
+  Map<String, String> variables,
+  String? projectId,
+  Response? error,
+});
+
+Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
+  Request request,
+  WorkflowDefinitionSource definitions,
+) async {
+  final body = await readJsonObject(request);
+  if (body.error != null) {
+    return (definition: null, variables: const <String, String>{}, projectId: null, error: body.error);
+  }
+  final definitionField = body.value!['definition'];
+  if (definitionField == null) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition'),
+    );
+  }
+  if (definitionField is! String || definitionField.trim().isEmpty) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string'),
+    );
+  }
+
+  final definition = definitions.getByName(definitionField.trim());
+  if (definition == null) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $definitionField'),
+    );
+  }
+
+  final variablesField = body.value!['variables'];
+  if (variablesField != null && variablesField is! Map) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'}),
+    );
+  }
+  final rawVariables = variablesField as Map? ?? const {};
+  final variables = <String, String>{
+    for (final entry in rawVariables.entries) entry.key.toString(): entry.value.toString(),
+  };
+  final projectField = body.value!['project'];
+  final projectId = projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null;
+  if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
+    variables['PROJECT'] = projectId;
+  }
+
+  final validationError = _validateWorkflowVariables(definition, variables);
+  return (definition: definition, variables: variables, projectId: projectId, error: validationError);
+}
+
+Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
+  Request request,
+  WorkflowDefinitionSource definitions,
+) async {
+  final body = Uri.splitQueryString(await request.readAsString());
+  final definitionName = body['definition']?.trim();
+  if (definitionName == null || definitionName.isEmpty) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: _workflowFormError('Workflow definition is required.'),
+    );
+  }
+  final definition = definitions.getByName(definitionName);
+  if (definition == null) {
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      error: _workflowFormError('Workflow definition not found: $definitionName'),
+    );
+  }
+  final variables = <String, String>{
+    for (final entry in body.entries)
+      if (entry.key.startsWith('var_') && entry.value.trim().isNotEmpty) entry.key.substring(4): entry.value.trim(),
+  };
+  final projectId = body['project']?.trim().isNotEmpty == true ? body['project']!.trim() : null;
+  if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
+    variables['PROJECT'] = projectId;
+  }
+  final validationError = _validateWorkflowVariables(definition, variables, htmlResponse: true);
+  return (definition: definition, variables: variables, projectId: projectId, error: validationError);
+}
+
+Response? _validateWorkflowVariables(
+  WorkflowDefinition definition,
+  Map<String, String> variables, {
+  bool htmlResponse = false,
+}) {
+  final missing = <String>[];
+  for (final entry in definition.variables.entries) {
+    if (entry.value.required && entry.value.defaultValue == null && !variables.containsKey(entry.key)) {
+      missing.add(entry.key);
+    }
+  }
+  if (missing.isEmpty) {
+    return null;
+  }
+  final message = 'Missing required variable(s): ${missing.join(', ')}';
+  return htmlResponse
+      ? _workflowFormError(message)
+      : errorResponse(400, 'INVALID_INPUT', message, {'missingVariables': missing});
+}
+
+Future<Response> _startWorkflowResponse(
+  _ParsedWorkflowRunRequest parsed,
+  WorkflowService workflows, {
+  bool htmlResponse = false,
+}) async {
+  if (parsed.error != null) {
+    return parsed.error!;
+  }
+  final definition = parsed.definition!;
+  try {
+    final run = await workflows.start(definition, parsed.variables, projectId: parsed.projectId);
+    if (htmlResponse) {
+      final location = '/workflows/${run.id}';
+      return Response(201, headers: {'HX-Location': location, 'content-type': 'text/html; charset=utf-8'});
+    }
+    return jsonResponse(201, run.toJson());
+  } on ArgumentError catch (e) {
+    return htmlResponse
+        ? _workflowFormError(e.message.toString())
+        : errorResponse(400, 'INVALID_INPUT', e.message.toString());
+  } catch (e, st) {
+    _log.severe('Failed to start workflow', e, st);
+    return htmlResponse
+        ? _workflowFormError('Failed to start workflow')
+        : errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
+  }
+}
+
+Response _workflowFormError(String message) {
+  return Response(
+    400,
+    body: '<span class="form-error-text">${htmlEscape.convert(message)}</span>',
+    headers: {'content-type': 'text/html; charset=utf-8'},
+  );
 }
 
 /// Enriches a [WorkflowRun] with per-step status and child task IDs.

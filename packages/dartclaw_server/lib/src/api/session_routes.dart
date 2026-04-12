@@ -10,6 +10,7 @@ import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../templates/loader.dart';
 import 'api_helpers.dart';
+import 'chat_command_handler.dart';
 import '../harness_pool.dart';
 import '../turn_manager.dart';
 import 'stream_handler.dart';
@@ -28,6 +29,7 @@ Router sessionRoutes(
   AgentHarness worker, {
   SessionResetService? resetService,
   MessageRedactor? redactor,
+  ChatCommandHandler? chatCommandHandler,
   Future<SidebarData> Function()? buildSidebarData,
   String Function({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems})?
   buildSidebarHtml,
@@ -44,6 +46,20 @@ Router sessionRoutes(
     } catch (e) {
       _log.warning('Failed to list sessions: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list sessions');
+    }
+  });
+
+  // GET /api/sessions/<id>
+  router.get('/api/sessions/<id>', (Request request, String id) async {
+    try {
+      final session = await sessions.getSession(id);
+      if (session == null) {
+        return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+      }
+      return jsonResponse(200, session.toJson());
+    } catch (e) {
+      _log.warning('Failed to get session $id: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get session');
     }
   });
 
@@ -162,6 +178,13 @@ Router sessionRoutes(
       if (messageValidation != null) return messageValidation;
 
       final trimmedMessage = rawMessage!.trim();
+      final commandHandler = chatCommandHandler;
+      if (commandHandler != null) {
+        final commandResponse = await commandHandler.handle(request, session, trimmedMessage);
+        if (commandResponse != null) {
+          return commandResponse;
+        }
+      }
 
       // 3. Reserve turn — same-session queues behind active turn, global cap → 409.
       final String turnId;

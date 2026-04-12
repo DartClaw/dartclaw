@@ -14,6 +14,7 @@ import 'package:shelf_static/shelf_static.dart';
 
 import 'embedded_assets.dart';
 import 'api/agent_routes.dart';
+import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
 import 'api/skill_routes.dart';
 import 'api/workflow_routes.dart';
@@ -21,6 +22,8 @@ import 'api/config_routes.dart';
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
+import 'api/github_webhook.dart';
+import 'api/github_webhook_config.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
 import 'api/project_routes.dart';
@@ -663,14 +666,41 @@ class DartclawServer {
   }
 
   void _mountWebhookRoutes(Router router) {
+    final githubWebhookHandler = _buildGitHubWebhookHandler();
     final webhookRouter = webhookRoutes(
       whatsApp: _whatsAppChannel,
       webhookSecret: _webhookSecret,
       googleChat: _googleChatWebhookHandler,
+      github: githubWebhookHandler,
       eventBus: _eventBus,
       trustedProxies: _config?.auth.trustedProxies ?? const [],
     );
     router.mount('/', webhookRouter.call);
+  }
+
+  GitHubWebhookHandler? _buildGitHubWebhookHandler() {
+    final config = _config;
+    final workflows = _workflowService;
+    final definitions = _workflowDefinitionSource;
+    if (config == null || workflows == null || definitions == null) {
+      return null;
+    }
+    GitHubWebhookConfig? githubConfig;
+    try {
+      githubConfig = config.extension<GitHubWebhookConfig>('github');
+    } catch (_) {
+      githubConfig = null;
+    }
+    if (githubConfig == null || !githubConfig.enabled) {
+      return null;
+    }
+    return GitHubWebhookHandler(
+      config: githubConfig,
+      workflows: workflows,
+      definitions: definitions,
+      eventBus: _eventBus,
+      trustedProxies: config.auth.trustedProxies,
+    );
   }
 
   void _mountWhatsAppPairingRoutes(Router router) {
@@ -880,6 +910,9 @@ class DartclawServer {
       _worker,
       resetService: _resetService,
       redactor: _redactor,
+      chatCommandHandler: _workflowService != null && _workflowDefinitionSource != null
+          ? ChatCommandHandler(workflows: _workflowService, definitions: _workflowDefinitionSource)
+          : null,
       buildSidebarData: () => buildSidebarData(
         _sessions,
         kvService: _kvService,
@@ -955,6 +988,15 @@ class DartclawServer {
         .addMiddleware(securityHeadersMiddleware(enableHsts: _config?.gateway.hsts ?? false))
         .addMiddleware(_corsMiddleware());
     if (_tokenService != null && _gatewayToken != null) {
+      String? githubPublicPath;
+      try {
+        final githubConfig = _config?.extension<GitHubWebhookConfig>('github');
+        if (githubConfig != null && githubConfig.enabled) {
+          githubPublicPath = githubConfig.webhookPath;
+        }
+      } catch (_) {
+        githubPublicPath = null;
+      }
       pipeline = pipeline.addMiddleware(
         authMiddleware(
           tokenService: _tokenService,
@@ -964,7 +1006,10 @@ class DartclawServer {
           trustedProxies: _config?.auth.trustedProxies ?? const [],
           eventBus: _eventBus,
           rateLimiter: _authRateLimiter,
-          publicPaths: [if (_googleChatWebhookHandler != null) _googleChatWebhookHandler.config.webhookPath],
+          publicPaths: [
+            ...?(_googleChatWebhookHandler == null ? null : [_googleChatWebhookHandler.config.webhookPath]),
+            ...?(githubPublicPath == null ? null : [githubPublicPath]),
+          ],
           publicPrefixes: [if (_canvasService != null) '/canvas/'],
         ),
       );

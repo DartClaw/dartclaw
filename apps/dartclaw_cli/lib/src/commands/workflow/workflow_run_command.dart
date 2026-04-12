@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_core/dartclaw_core.dart'
@@ -16,56 +18,59 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent,
         WorkflowApprovalRequestedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkspaceService;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 
+import '../../dartclaw_api_client.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'cli_progress_printer.dart';
 import 'cli_workflow_wiring.dart';
 
-/// Runs a workflow headlessly with progress streaming to stdout.
-///
-/// Starts a minimal in-process server (task execution infrastructure only —
-/// no HTTP routes, no web UI), runs the named workflow, streams step progress
-/// to stdout, and exits with a code reflecting the outcome:
-/// - 0: workflow completed
-/// - 1: workflow failed or cancelled
-/// - 2: workflow paused
+/// Runs a workflow either against a live server or in standalone mode.
 class WorkflowRunCommand extends Command<void> {
   final DartclawConfig? _config;
   final SearchDbFactory? _searchDbFactory;
   final TaskDbFactory? _taskDbFactory;
   final HarnessFactory? _harnessFactory;
+  final DartclawApiClient? _apiClient;
   final WriteLine _stdoutLine;
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
+  final Stream<void> Function() _interrupts;
 
   WorkflowRunCommand({
     DartclawConfig? config,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
     HarnessFactory? harnessFactory,
+    DartclawApiClient? apiClient,
     WriteLine? stdoutLine,
     WriteLine? stderrLine,
     ExitFn? exitFn,
+    Stream<void> Function()? interrupts,
   }) : _config = config,
        _searchDbFactory = searchDbFactory,
        _taskDbFactory = taskDbFactory,
        _harnessFactory = harnessFactory,
+       _apiClient = apiClient,
        _stdoutLine = stdoutLine ?? stdout.writeln,
        _stderrLine = stderrLine ?? stderr.writeln,
-       _exitFn = exitFn ?? exit {
+       _exitFn = exitFn ?? exit,
+       _interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})) {
     argParser
       ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE')
-      ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps');
+      ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps')
+      ..addFlag('standalone', negatable: false, help: 'Run the workflow in-process without using the server API')
+      ..addFlag('force', negatable: false, help: 'Bypass the standalone safety check')
+      ..addFlag('json', negatable: false, help: 'Output structured JSON events');
   }
 
   @override
   String get name => 'run';
 
   @override
-  String get description => 'Run a workflow headlessly';
+  String get description => 'Run a workflow';
 
   @override
   String get invocation => '${runner!.executableName} workflow run <name>';
@@ -77,16 +82,64 @@ class WorkflowRunCommand extends Command<void> {
       throw UsageException('Workflow name required', usage);
     }
     final workflowName = args.first;
-    final varArgs = argResults!['var'] as List<String>;
-    final variables = _parseVariables(varArgs);
+    final variables = _parseVariables(argResults!['var'] as List<String>);
     final projectId = argResults!['project'] as String?;
+    final standalone = argResults!['standalone'] as bool;
+    final force = argResults!['force'] as bool;
+    final jsonOutput = argResults!['json'] as bool;
 
-    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
+    if (force && !standalone) {
+      throw UsageException('--force can only be used together with --standalone', usage);
+    }
+
+    final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
+    if (standalone) {
+      await _runStandaloneWithSafety(
+        config: config,
+        workflowName: workflowName,
+        variables: variables,
+        projectId: projectId,
+        force: force,
+      );
+      return;
+    }
+
+    final apiClient =
+        _apiClient ?? DartclawApiClient.fromConfig(config: config, serverOverride: _serverOverride(globalResults));
+    try {
+      await _runConnected(
+        apiClient: apiClient,
+        workflowName: workflowName,
+        variables: variables,
+        projectId: projectId,
+        jsonOutput: jsonOutput,
+      );
+    } on DartclawApiException catch (error) {
+      _stderrLine(_connectedErrorMessage(error));
+      _exitFn(1);
+    }
+  }
+
+  Future<void> _runStandaloneWithSafety({
+    required DartclawConfig config,
+    required String workflowName,
+    required Map<String, String> variables,
+    required String? projectId,
+    required bool force,
+  }) async {
+    final apiClient =
+        _apiClient ?? DartclawApiClient.fromConfig(config: config, serverOverride: _serverOverride(globalResults));
+    final serverReachable = await apiClient.probeHealth();
+    if (serverReachable && !force) {
+      _stderrLine(
+        'A DartClaw server is running at ${apiClient.baseUri.origin}. Use connected mode or add --force to override.',
+      );
+      _exitFn(1);
+    }
+
     final dataDir = config.server.dataDir;
-
     Directory(dataDir).createSync(recursive: true);
 
-    // Run workspace migration (idempotent — no-op if already done).
     final workspace = WorkspaceService(dataDir: dataDir);
     await workspace.migrate();
 
@@ -103,13 +156,10 @@ class WorkflowRunCommand extends Command<void> {
       final definition = wiring.registry.getByName(workflowName);
       if (definition == null) {
         _stderrLine('Unknown workflow: $workflowName');
-        final available = wiring.registry.listAll().map((d) => d.name).join(', ');
+        final available = wiring.registry.listAll().map((item) => item.name).join(', ');
         if (available.isNotEmpty) {
           _stderrLine('Available: $available');
-        } else {
-          _stderrLine('No workflows are available.');
         }
-        await wiring.dispose();
         _exitFn(1);
       }
 
@@ -119,27 +169,198 @@ class WorkflowRunCommand extends Command<void> {
         writeLine: _stdoutLine,
       );
 
-      final exitCode = await _runAndStream(
+      final exitCode = await _runStandalone(
         service: wiring.workflowService,
         taskService: wiring.taskService,
+        definition: definition,
         variables: variables,
         eventBus: wiring.eventBus,
         printer: printer,
         projectId: projectId,
-        definition: definition,
       );
-
-      await wiring.dispose();
       _exitFn(exitCode);
-    } catch (e, st) {
-      _stderrLine('ERROR: $e');
-      _stderrLine('$st');
+    } finally {
       await wiring.dispose();
-      _exitFn(1);
     }
   }
 
-  Future<int> _runAndStream({
+  Future<void> _runConnected({
+    required DartclawApiClient apiClient,
+    required String workflowName,
+    required Map<String, String> variables,
+    required String? projectId,
+    required bool jsonOutput,
+  }) async {
+    final started = await apiClient.postObject(
+      '/api/workflows/run',
+      body: {
+        'definition': workflowName,
+        'variables': variables,
+        if (projectId != null && projectId.isNotEmpty) 'project': projectId,
+      },
+    );
+    final run = WorkflowRun.fromJson(started);
+    final definition = WorkflowDefinition.fromJson(Map<String, dynamic>.from(started['definitionJson'] as Map));
+    final printer = CliProgressPrinter(
+      totalSteps: definition.steps.length,
+      workflowName: definition.name,
+      writeLine: _stdoutLine,
+    );
+
+    if (jsonOutput) {
+      _stdoutLine(jsonEncode({'type': 'run_started', 'run': started}));
+    } else {
+      printer.workflowStarted();
+    }
+
+    final completer = Completer<int>();
+    final startedSteps = <int, DateTime>{};
+    var lastStatus = run.status;
+    var lastError = run.errorMessage;
+    var cancelRequested = false;
+
+    final interruptSub = _interrupts().listen((_) async {
+      if (cancelRequested) {
+        _exitFn(1);
+      }
+      cancelRequested = true;
+      if (jsonOutput) {
+        _stdoutLine(jsonEncode({'type': 'interrupt_received', 'runId': run.id}));
+      } else {
+        printer.workflowCancelling();
+      }
+      try {
+        await apiClient.post('/api/workflows/runs/${run.id}/cancel');
+      } on DartclawApiException catch (error) {
+        _stderrLine(error.message);
+      }
+    });
+
+    try {
+      eventLoop:
+      await for (final event in apiClient.streamEvents(
+        '/api/workflows/runs/${run.id}/events',
+        onDisconnect: (attempt) async {
+          final refreshed = await apiClient.getObject('/api/workflows/runs/${run.id}');
+          final refreshedRun = WorkflowRun.fromJson(refreshed);
+          lastStatus = refreshedRun.status;
+          lastError = refreshedRun.errorMessage;
+          if (lastStatus.terminal || lastStatus == WorkflowRunStatus.paused) {
+            if (!completer.isCompleted) {
+              completer.complete(_exitCodeForStatus(lastStatus));
+            }
+            return false;
+          }
+          if (jsonOutput) {
+            _stdoutLine(
+              jsonEncode({
+                'type': 'stream_reconnecting',
+                'runId': run.id,
+                'attempt': attempt,
+                'status': lastStatus.name,
+              }),
+            );
+          } else {
+            _stderrLine(
+              'Workflow event stream disconnected. Reconnecting (attempt $attempt/3) after re-fetching status...',
+            );
+          }
+          return true;
+        },
+      )) {
+        if (jsonOutput) {
+          _stdoutLine(jsonEncode(event));
+        }
+        switch (event['type']) {
+          case 'task_status_changed':
+            final stepIndex = event['stepIndex'] as int?;
+            if (stepIndex == null || stepIndex >= definition.steps.length) {
+              break;
+            }
+            final step = definition.steps[stepIndex];
+            final newStatus = event['newStatus']?.toString();
+            if (newStatus == TaskStatus.running.name) {
+              startedSteps[stepIndex] = DateTime.now();
+              if (!jsonOutput) {
+                printer.stepRunning(stepIndex, step.id, step.name, step.provider);
+              }
+            } else if (newStatus == TaskStatus.review.name && !jsonOutput) {
+              printer.stepReview(stepIndex, step.id);
+            }
+            break;
+          case 'workflow_step_completed':
+            final stepIndex = event['stepIndex'] as int? ?? 0;
+            final stepId = event['stepId']?.toString() ?? '';
+            final success = event['success'] == true;
+            final tokenCount = event['tokenCount'] as int? ?? 0;
+            final duration = startedSteps.remove(stepIndex)?.let(DateTime.now().difference) ?? Duration.zero;
+            if (!jsonOutput) {
+              if (success) {
+                printer.stepCompleted(stepIndex, stepId, duration, tokenCount);
+              } else {
+                printer.stepFailed(stepIndex, stepId, null);
+              }
+            }
+            break;
+          case 'workflow_status_changed':
+            final newStatusName = event['newStatus']?.toString();
+            if (newStatusName == null) {
+              break;
+            }
+            lastStatus = WorkflowRunStatus.values.byName(newStatusName);
+            lastError = event['errorMessage']?.toString();
+            if (!lastStatus.terminal && lastStatus != WorkflowRunStatus.paused) {
+              break;
+            }
+            if (!jsonOutput) {
+              switch (lastStatus) {
+                case WorkflowRunStatus.completed:
+                  printer.workflowCompleted(definition.steps.length, event['totalTokens'] as int? ?? run.totalTokens);
+                  break;
+                case WorkflowRunStatus.failed:
+                  printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError);
+                  break;
+                case WorkflowRunStatus.cancelled:
+                  printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError ?? 'Cancelled');
+                  break;
+                case WorkflowRunStatus.paused:
+                  printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
+                  break;
+                case WorkflowRunStatus.pending || WorkflowRunStatus.running:
+                  break;
+              }
+            }
+            if (!completer.isCompleted) {
+              completer.complete(_exitCodeForStatus(lastStatus));
+            }
+            break eventLoop;
+          default:
+            break;
+        }
+      }
+    } on DartclawApiException catch (error) {
+      final refreshed = await apiClient.getObject('/api/workflows/runs/${run.id}');
+      lastStatus = WorkflowRun.fromJson(refreshed).status;
+      lastError = WorkflowRun.fromJson(refreshed).errorMessage;
+      if (lastStatus.terminal || lastStatus == WorkflowRunStatus.paused) {
+        if (!completer.isCompleted) {
+          completer.complete(_exitCodeForStatus(lastStatus));
+        }
+      } else {
+        throw DartclawApiException('${error.message} Use `dartclaw workflow status ${run.id}` to inspect the run.');
+      }
+    } finally {
+      await interruptSub.cancel();
+    }
+
+    final exitCode = completer.isCompleted ? await completer.future : _exitCodeForStatus(lastStatus);
+    if (!jsonOutput && lastStatus == WorkflowRunStatus.cancelled && lastError == null && cancelRequested) {
+      _stdoutLine('[workflow] Cancelled: ${run.id}');
+    }
+    _exitFn(exitCode);
+  }
+
+  Future<int> _runStandalone({
     required WorkflowService service,
     required TaskService taskService,
     required WorkflowDefinition definition,
@@ -150,14 +371,9 @@ class WorkflowRunCommand extends Command<void> {
   }) async {
     final runCompleter = Completer<WorkflowRun>();
     String? activeRunId;
-
-    // Track step start times for duration calculation.
     final stepStartTimes = <int, DateTime>{};
-
-    // Track the most recent approval-requested event so we can print approval context on pause.
     WorkflowApprovalRequestedEvent? lastApprovalEvent;
 
-    // Subscribe before calling start() to avoid missing the first events.
     final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
       final runId = activeRunId;
       if (runId != null && event.runId != runId) return;
@@ -188,7 +404,6 @@ class WorkflowRunCommand extends Command<void> {
       }
     });
 
-    // Subscribe to task status changes to print real-time step running/review lines.
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) {
       final runId = activeRunId;
       if (runId == null) return;
@@ -208,14 +423,12 @@ class WorkflowRunCommand extends Command<void> {
       }
     });
 
-    // Signal handling — SIGINT cancels the workflow.
-    StreamSubscription<ProcessSignal>? sigintSub;
+    StreamSubscription<void>? sigintSub;
     DateTime? firstSigint;
-    sigintSub = ProcessSignal.sigint.watch().listen((_) {
+    sigintSub = _interrupts().listen((_) {
       final now = DateTime.now();
       final first = firstSigint;
       if (first != null && now.difference(first) < const Duration(seconds: 3)) {
-        // Double SIGINT — force exit.
         _exitFn(1);
       }
       firstSigint = now;
@@ -232,7 +445,6 @@ class WorkflowRunCommand extends Command<void> {
       printer.workflowStarted();
 
       final finalRun = await runCompleter.future;
-
       return switch (finalRun.status) {
         WorkflowRunStatus.completed => () {
           printer.workflowCompleted(finalRun.currentStepIndex, finalRun.totalTokens);
@@ -249,7 +461,7 @@ class WorkflowRunCommand extends Command<void> {
         }(),
         WorkflowRunStatus.failed || WorkflowRunStatus.cancelled => () {
           printer.workflowFailed(finalRun.currentStepIndex, finalRun.errorMessage ?? 'Cancelled');
-          return 1;
+          return finalRun.status == WorkflowRunStatus.cancelled ? 2 : 1;
         }(),
         _ => 1,
       };
@@ -260,6 +472,22 @@ class WorkflowRunCommand extends Command<void> {
       await sigintSub.cancel();
       await approvalSub.cancel();
     }
+  }
+
+  String _connectedErrorMessage(DartclawApiException error) {
+    if (error.code == 'CONNECTION_REFUSED') {
+      return '${error.message} Or use `dartclaw workflow run --standalone <name>` if you need in-process execution.';
+    }
+    return error.message;
+  }
+
+  int _exitCodeForStatus(WorkflowRunStatus status) {
+    return switch (status) {
+      WorkflowRunStatus.completed => 0,
+      WorkflowRunStatus.failed => 1,
+      WorkflowRunStatus.cancelled || WorkflowRunStatus.paused => 2,
+      WorkflowRunStatus.pending || WorkflowRunStatus.running => 1,
+    };
   }
 
   Map<String, String> _parseVariables(List<String> varArgs) {
@@ -274,5 +502,22 @@ class WorkflowRunCommand extends Command<void> {
       variables[key] = value;
     }
     return variables;
+  }
+}
+
+extension<T> on T {
+  R let<R>(R Function(T value) fn) => fn(this);
+}
+
+String? _serverOverride(ArgResults? results) {
+  return _globalOptionString(results, 'server');
+}
+
+String? _globalOptionString(ArgResults? results, String name) {
+  if (results == null) return null;
+  try {
+    return results[name] as String?;
+  } on ArgumentError {
+    return null;
   }
 }

@@ -72,6 +72,33 @@ Router configApiRoutes({
     }
   });
 
+  // GET /api/scheduling/jobs — list jobs from the current YAML config
+  router.get('/api/scheduling/jobs', (Request request) async {
+    try {
+      final jobs = await writer.readSchedulingJobs();
+      return jsonResponse(200, jobs);
+    } catch (e) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read scheduled jobs: $e');
+    }
+  });
+
+  // GET /api/scheduling/jobs/<name> — fetch a single job by name
+  router.get('/api/scheduling/jobs/<name>', (Request request, String name) async {
+    try {
+      final jobs = await writer.readSchedulingJobs();
+      final job = jobs.firstWhere(
+        (entry) => entry['name'] == name || entry['id'] == name,
+        orElse: () => const <String, dynamic>{},
+      );
+      if (job.isEmpty) {
+        return errorResponse(404, 'JOB_NOT_FOUND', 'Scheduled job not found: $name');
+      }
+      return jsonResponse(200, job);
+    } catch (e) {
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read scheduled job: $e');
+    }
+  });
+
   // PATCH /api/config — validate, write, apply
   router.patch('/api/config', (Request request) async {
     final body = await _parseJsonBody(request);

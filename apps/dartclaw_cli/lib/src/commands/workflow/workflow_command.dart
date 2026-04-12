@@ -1,7 +1,11 @@
 import 'package:args/command_runner.dart';
 
+import 'workflow_cancel_command.dart';
 import 'workflow_list_command.dart';
+import 'workflow_pause_command.dart';
 import 'workflow_run_command.dart';
+import 'workflow_runs_command.dart';
+import 'workflow_resume_command.dart';
 import 'workflow_status_command.dart';
 import 'workflow_validate_command.dart';
 
@@ -10,6 +14,10 @@ class WorkflowCommand extends Command<void> {
   WorkflowCommand() {
     addSubcommand(WorkflowListCommand());
     addSubcommand(WorkflowRunCommand());
+    addSubcommand(WorkflowRunsCommand());
+    addSubcommand(WorkflowPauseCommand());
+    addSubcommand(WorkflowResumeCommand());
+    addSubcommand(WorkflowCancelCommand());
     addSubcommand(WorkflowStatusCommand());
     addSubcommand(WorkflowValidateCommand());
   }

@@ -174,9 +174,7 @@ class TurnTraceService {
     }
 
     // Paginated trace query.
-    final dataStmt = _db.prepare(
-      'SELECT * FROM turns$whereClause ORDER BY started_at DESC LIMIT ? OFFSET ?',
-    );
+    final dataStmt = _db.prepare('SELECT * FROM turns$whereClause ORDER BY started_at DESC LIMIT ? OFFSET ?');
     final traces = <TurnTrace>[];
     try {
       final rows = dataStmt.select([...params, effectiveLimit, offset]);
@@ -194,6 +192,21 @@ class TurnTraceService {
   Future<TurnTraceSummary> summaryForTask(String taskId) async {
     final result = await query(taskId: taskId, limit: 0, offset: 0);
     return result.summary;
+  }
+
+  /// Returns a single trace by ID, or null when it does not exist.
+  Future<TurnTrace?> getById(String id) async {
+    final stmt = _db.prepare('SELECT * FROM turns WHERE id = ? LIMIT 1');
+    try {
+      final rows = stmt.select([id]);
+      final row = rows.firstOrNull;
+      if (row == null) {
+        return null;
+      }
+      return _traceFromRow(row);
+    } finally {
+      stmt.close();
+    }
   }
 
   Future<void> dispose() async {
@@ -238,8 +251,5 @@ class TraceQueryResult {
 
   const TraceQueryResult({required this.traces, required this.summary});
 
-  Map<String, dynamic> toJson() => {
-    'traces': traces.map((t) => t.toJson()).toList(),
-    'summary': summary.toJson(),
-  };
+  Map<String, dynamic> toJson() => {'traces': traces.map((t) => t.toJson()).toList(), 'summary': summary.toJson()};
 }

@@ -90,7 +90,7 @@ void main() {
   }
 
   test('executes queued tasks into review with task session and artifacts', () async {
-    worker.responseText = 'Done.';
+  worker.responseText = 'Done.';
     worker.onTurn = (sessionId) {
       File(p.join(workspaceDir, 'output.md')).writeAsStringSync('# Output');
     };
@@ -648,6 +648,7 @@ void main() {
   group('prompt scope selection', () {
     late _CapturingTurnManager capturing;
     late TaskExecutor scopeExecutor;
+    const workflowWorkspaceDir = '/tmp/workflow-workspace';
 
     setUp(() {
       capturing = _CapturingTurnManager(messages, worker);
@@ -679,35 +680,37 @@ void main() {
       expect(capturing.lastPromptScope, PromptScope.task);
     });
 
-    test('evaluator task (configJson evaluator=true) gets evaluator scope', () async {
+    test('workflow workspace override keeps task scope and behavior path', () async {
       worker.responseText = 'Done.';
       await tasks.create(
         id: 'task-scope-eval',
-        title: 'Evaluator task',
-        description: 'Evaluator step.',
+        title: 'Workflow workspace task',
+        description: 'Workflow-scoped behavior should override the default workspace.',
         type: TaskType.automation,
-        configJson: {'evaluator': true},
+        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
       await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(capturing.lastPromptScope, PromptScope.evaluator);
+      expect(capturing.lastPromptScope, PromptScope.task);
+      expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
     });
 
-    test('evaluator scope takes precedence over restricted profile', () async {
-      // Single-harness: even if task type would resolve to restricted, evaluator wins.
+    test('workflow workspace override is preserved for automation tasks', () async {
+      // Workflow-scoped behavior should be reused without changing the prompt scope.
       worker.responseText = 'Done.';
       await tasks.create(
         id: 'task-scope-eval-restricted',
-        title: 'Evaluator+restricted',
-        description: 'Both evaluator and research type.',
-        type: TaskType.research,
-        configJson: {'evaluator': true},
+        title: 'Workflow workspace automation task',
+        description: 'Workflow workspace override should survive task routing.',
+        type: TaskType.automation,
+        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
       await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(capturing.lastPromptScope, PromptScope.evaluator);
+      expect(capturing.lastPromptScope, PromptScope.task);
+      expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
     });
   });
 }
@@ -804,6 +807,8 @@ class _CapturingTurnManager extends TurnManager {
 
   PromptScope? lastPromptScope;
 
+  BehaviorFileService? lastBehaviorOverride;
+
   @override
   Iterable<String> get activeSessionIds => const <String>[];
 
@@ -819,7 +824,8 @@ class _CapturingTurnManager extends TurnManager {
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
   }) async {
-    lastPromptScope = promptScope;
+  lastPromptScope = promptScope;
+  lastBehaviorOverride = behaviorOverride;
     return 'scope-turn';
   }
 

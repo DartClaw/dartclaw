@@ -10,11 +10,7 @@ class FakeFts5Backend implements SearchBackend {
   List<MemorySearchResult> nextResults = [];
 
   @override
-  Future<List<MemorySearchResult>> search(
-    String query, {
-    int limit = 10,
-    String userId = 'owner',
-  }) async {
+  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async {
     searchCalls.add(query);
     return nextResults;
   }
@@ -30,19 +26,17 @@ class FakeQmdManager extends QmdManager {
   bool shouldThrow = false;
 
   FakeQmdManager({this.fakeRunning = true})
-      : super(commandRunner: (exe, args, {workingDirectory}) async {
+    : super(
+        commandRunner: (exe, args, {workingDirectory}) async {
           return ProcessResult(0, 0, '', '');
-        });
+        },
+      );
 
   @override
   bool get isRunning => fakeRunning;
 
   @override
-  Future<List<Map<String, dynamic>>> query(
-    String queryText, {
-    String depth = 'standard',
-    int limit = 10,
-  }) async {
+  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
     if (shouldThrow) throw Exception('QMD unreachable');
     return nextQueryResult ?? [];
   }
@@ -72,9 +66,7 @@ void main() {
 
     test('falls back to FTS5 when QMD not running', () async {
       final fts5 = FakeFts5Backend();
-      fts5.nextResults = [
-        const MemorySearchResult(text: 'FTS5 result', source: 'memory', score: -1.0),
-      ];
+      fts5.nextResults = [const MemorySearchResult(text: 'FTS5 result', source: 'memory', score: -1.0)];
       final qmd = FakeQmdManager(fakeRunning: false);
 
       final backend = QmdSearchBackend(manager: qmd, fallback: fts5);
@@ -87,9 +79,7 @@ void main() {
 
     test('falls back to FTS5 on QMD error', () async {
       final fts5 = FakeFts5Backend();
-      fts5.nextResults = [
-        const MemorySearchResult(text: 'Fallback', source: 'memory', score: -0.5),
-      ];
+      fts5.nextResults = [const MemorySearchResult(text: 'Fallback', source: 'memory', score: -0.5)];
       final qmd = FakeQmdManager();
       qmd.shouldThrow = true;
 

@@ -12,9 +12,7 @@ final _log = Logger('GoogleChatSubscriptionRoutes');
 /// API routes for managing Google Chat Space Events subscriptions.
 ///
 /// If space events are not configured (null manager), all routes return 503.
-Router googleChatSubscriptionRoutes({
-  required WorkspaceEventsManager? subscriptionManager,
-}) {
+Router googleChatSubscriptionRoutes({required WorkspaceEventsManager? subscriptionManager}) {
   final router = Router();
 
   // GET /api/google-chat/subscriptions — list active subscriptions
@@ -108,10 +106,7 @@ Router googleChatSubscriptionRoutes({
           'message': 'Removed from local tracking but remote API delete failed',
         });
       }
-      return jsonResponse(200, {
-        'deleted': true,
-        'spaceId': spaceId.trim(),
-      });
+      return jsonResponse(200, {'deleted': true, 'spaceId': spaceId.trim()});
     } catch (e) {
       _log.warning('Failed to unsubscribe from $spaceId', e);
       return errorResponse(500, 'UNSUBSCRIBE_FAILED', 'Failed to unsubscribe from $spaceId: $e');

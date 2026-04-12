@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.16.3]
+
+Architecture Hygiene & Documentation — SDK Package Decomposition Phase 2. Completed the package-boundary cleanup, workflow workspace/skills library, standalone binary build system, and documentation closeout for the 0.16 workflow/runtime platform. 13 stories across 7 phases.
+
+### Added
+
+- **`dartclaw_workflow` package**: unified workflow parsing, validation, registry, built-in definitions, and execution into a dedicated package consumable by both server and CLI surfaces
+- **Workflow workspace isolation**: workflow steps now execute with a dedicated behavior workspace (built-in `AGENTS.md` guardrails), separate from the main interactive workspace. Operators can override via `workflow.workspace_dir` config field
+- **Built-in skill library**: 10 `dartclaw-*` skills shipped as markdown assets in `packages/dartclaw_workflow/skills/` — `discover-project` (detects 6 SDD frameworks), `update-state`, `review-code`, `review-gap`, `spec`, `plan`, `exec-spec`, `remediate-findings`, `review-doc`, `refactor`. Each includes `SKILL.md` + `agents/openai.yaml` per [Agent Skills spec](https://agentskills.io/specification)
+- **Skill materialization**: built-in skills are materialized to user-scoped harness directories (`~/.claude/skills/`, `~/.agents/skills/`) at startup with FNV-1a fingerprinting and `.dartclaw-managed` provenance markers; user overrides are preserved
+- **Integration & scenario testing framework**: tagged integration tests for governance and thread-binding; governance testing profile at `docs/testing/workflows/`
+- **Workflow architecture deep-dive**: private architecture docs now include a full workflow architecture reference covering the definition model, parser/validator contract, context extraction chain, gates, loops, map/fan-out, crash recovery, and built-in workflow catalog
+- **Architecture fitness functions**: `tool/arch_check.dart` now enforces cycle freedom, `sqlite3` exclusion from `dartclaw_core`, no cross-package `src/` imports, core LOC/export ceilings, and workspace package-count limits
+- **Standalone binary build system**: `tool/embed_assets.dart` generates embedded maps of templates, static assets, and skills at build time; `tool/build.sh` and `Makefile` produce a self-contained `build/dartclaw` AOT binary that serves the full web UI and materializes skills without `--source-dir`, `--static-dir`, or `--templates-dir` flags. Auto-detection (empty maps = dev/filesystem mode, populated maps = embedded mode) means zero behavioral change during development. `.github/workflows/ci.yml` runs check + build jobs and uploads platform artifacts
+- **CLI reference**: new `cli-reference.md` in the public guide documenting all `dartclaw` subcommands (`serve`, `init`, `status`, `token`, `sessions`, `workflow`, `service`, `rebuild-index`)
+
+### Changed
+
+- **Workflow consolidation**: built-in workflows reduced from 10 to 4 (`spec-and-implement`, `plan-and-implement`, `code-review`, `research-and-evaluate`), all referencing `dartclaw-*` skills with `discover-project` as step 0
+- **Evaluator removal**: the `evaluator` step field has been removed from the workflow model, parser, validator, executor, and prompt augmenter
+- **Package decomposition**: moved shared model types into `dartclaw_models`, moved config parsing and config types into `dartclaw_config`, and kept `dartclaw_core` focused on runtime primitives
+- **Config dependency direction**: the workspace now uses the intended `models -> security -> config -> core` layering, with direct config imports instead of a `dartclaw_core` config facade
+- **Container ownership**: container orchestration lives in `dartclaw_server`; `dartclaw_core` retains only the abstract container executor boundary
+- **Public and private docs**: README, roadmap, architecture markers, ADR status formatting, and SDK/package reference material were synchronized with the shipped 0.16.3 structure
+
+### Fixed
+
+- **Architecture hygiene remediation**: removed stale workflow barrel exports, restored explicit config imports across the workspace, fixed residual analyzer findings from the extraction, and brought the public workspace back to `dart analyze` clean
+- **Documentation completion gaps**: `data-model.md` now reflects 0.16.3, README version reporting is current, and the workflow architecture doc now meets the original depth target
+
+---
+
 ## [0.16.2]
 
 CLI Onboarding Wizard — guided first-run setup, unified instance directory, background service management, and verification/launch handoff. 6 stories across 4 phases: foundation → core setup → operations → advanced configuration.

@@ -37,11 +37,7 @@ void main() {
     });
 
     test('share action creates token and returns share URL', () async {
-      final result = await tool.call({
-        'action': 'share',
-        'permission': 'interact',
-        'ttl': '30m',
-      });
+      final result = await tool.call({'action': 'share', 'permission': 'interact', 'ttl': '30m'});
 
       expect(result, isA<ToolResultText>());
       final text = _text(result);

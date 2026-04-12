@@ -41,10 +41,10 @@ class ThreadBindingLifecycleManager {
     required EventBus eventBus,
     Duration idleTimeout = const Duration(hours: 1),
     Duration cleanupInterval = const Duration(minutes: 5),
-  })  : _store = store,
-        _eventBus = eventBus,
-        _idleTimeout = idleTimeout,
-        _cleanupInterval = cleanupInterval;
+  }) : _store = store,
+       _eventBus = eventBus,
+       _idleTimeout = idleTimeout,
+       _cleanupInterval = cleanupInterval;
 
   /// Starts listening for task status events and schedules periodic cleanup.
   void start() {

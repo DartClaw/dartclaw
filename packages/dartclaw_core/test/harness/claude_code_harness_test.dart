@@ -788,15 +788,7 @@ void main() {
         // Response must be allow: true
         expect(
           stdinLines,
-          contains(
-            containsPair(
-              'response',
-              containsPair(
-                'response',
-                allOf(containsPair('continue', true)),
-              ),
-            ),
-          ),
+          contains(containsPair('response', containsPair('response', allOf(containsPair('continue', true))))),
         );
       });
 
@@ -860,9 +852,7 @@ void main() {
         addTeardownAsync(() => h.dispose());
 
         await h.start();
-        fake.emitStdout(
-          jsonEncode({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto'}),
-        );
+        fake.emitStdout(jsonEncode({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'auto'}));
 
         await Future<void>.delayed(const Duration(milliseconds: 10));
 

@@ -299,12 +299,6 @@ class WorkflowStep {
   /// When null, all outputs use default text extraction.
   final Map<String, OutputConfig>? outputs;
 
-  /// Whether this step acts as an evaluator.
-  ///
-  /// When true and format is json with no explicit schema,
-  /// defaults to the 'verdict' schema preset.
-  final bool evaluator;
-
   /// Optional per-step token budget.
   final int? maxTokens;
 
@@ -392,7 +386,6 @@ class WorkflowStep {
     this.contextOutputs = const [],
     this.extraction,
     this.outputs,
-    this.evaluator = false,
     this.maxTokens,
     this.maxCostUsd,
     this.maxRetries,
@@ -422,7 +415,6 @@ class WorkflowStep {
     'contextOutputs': contextOutputs.toList(),
     if (extraction != null) 'extraction': extraction!.toJson(),
     if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
-    if (evaluator) 'evaluator': true,
     if (maxTokens != null) 'maxTokens': maxTokens,
     if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
     if (maxRetries != null) 'maxRetries': maxRetries,
@@ -470,7 +462,6 @@ class WorkflowStep {
       outputs: (json['outputs'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
       ),
-      evaluator: (json['evaluator'] as bool?) ?? false,
       maxTokens: json['maxTokens'] as int?,
       maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
       maxRetries: json['maxRetries'] as int?,

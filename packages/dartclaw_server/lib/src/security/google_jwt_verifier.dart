@@ -139,9 +139,7 @@ class GoogleJwtVerifier {
 
     // JWK format (v3): { "keys": [{ "kid": "...", "n": "...", "e": "..." }] }
     // PEM format (v1): { "kid": "PEM cert string" }
-    final certs = decoded.containsKey('keys')
-        ? _parseJwkKeys(decoded)
-        : _parsePemCerts(decoded);
+    final certs = decoded.containsKey('keys') ? _parseJwkKeys(decoded) : _parsePemCerts(decoded);
     if (certs.isEmpty) {
       throw const FormatException('No certificates found in response');
     }

@@ -6,7 +6,7 @@ import 'package:dartclaw_cli/src/commands/init/setup_preflight.dart';
 import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
 import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
 import 'package:dartclaw_cli/src/commands/service/setup_verifier.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
 Future<SetupPreflight> _passingPreflight({

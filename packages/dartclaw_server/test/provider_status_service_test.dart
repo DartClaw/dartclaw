@@ -245,10 +245,7 @@ void main() {
         defaultProvider: 'claude',
       );
 
-      await service.probe(
-        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.0.0')}),
-        authProbe: _authFails,
-      );
+      await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 2.0.0')}), authProbe: _authFails);
 
       final status = service.getAll().single;
       expect(status.health, 'degraded');

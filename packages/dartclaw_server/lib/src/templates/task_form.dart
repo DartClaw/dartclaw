@@ -31,9 +31,7 @@ String newTaskFormDialogHtml({
 
   // Build project selector markup — only shown when external projects exist.
   final externalProjects = projectOptions.where((p) => p['value'] != '_local').toList();
-  final projectSelectorMarkup = externalProjects.isEmpty
-      ? ''
-      : _buildProjectSelectorMarkup(projectOptions, escape);
+  final projectSelectorMarkup = externalProjects.isEmpty ? '' : _buildProjectSelectorMarkup(projectOptions, escape);
 
   // Build workflow project selector options (no status indicator needed — user picks project for workflow).
   final workflowProjectOptionsHtml = externalProjects
@@ -185,23 +183,25 @@ $goalSelectMarkup
 }
 
 String _buildProjectSelectorMarkup(List<Map<String, String>> projectOptions, HtmlEscape escape) {
-  final optionsHtml = projectOptions.map((p) {
-    final value = escape.convert(p['value'] ?? '');
-    final status = p['status'] ?? 'ready';
-    final label = escape.convert(p['label'] ?? '');
-    final isDefault = p['isDefault'] == 'true';
-    final isReady = status == 'ready';
-    final statusIndicator = switch (status) {
-      'ready' => ' ✓',
-      'cloning' => ' (cloning)',
-      'error' => ' (error)',
-      'stale' => ' ⚠',
-      _ => '',
-    };
-    final selectedAttr = isDefault ? ' selected' : '';
-    final disabledAttr = isReady ? '' : ' disabled';
-    return '<option value="$value"$selectedAttr$disabledAttr>$label$statusIndicator</option>';
-  }).join('\n      ');
+  final optionsHtml = projectOptions
+      .map((p) {
+        final value = escape.convert(p['value'] ?? '');
+        final status = p['status'] ?? 'ready';
+        final label = escape.convert(p['label'] ?? '');
+        final isDefault = p['isDefault'] == 'true';
+        final isReady = status == 'ready';
+        final statusIndicator = switch (status) {
+          'ready' => ' ✓',
+          'cloning' => ' (cloning)',
+          'error' => ' (error)',
+          'stale' => ' ⚠',
+          _ => '',
+        };
+        final selectedAttr = isDefault ? ' selected' : '';
+        final disabledAttr = isReady ? '' : ' disabled';
+        return '<option value="$value"$selectedAttr$disabledAttr>$label$statusIndicator</option>';
+      })
+      .join('\n      ');
 
   return '''
       <div class="form-group">

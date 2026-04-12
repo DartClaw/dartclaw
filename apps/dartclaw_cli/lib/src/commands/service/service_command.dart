@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show expandHome;
+import 'package:dartclaw_config/dartclaw_config.dart' show expandHome;
 import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';

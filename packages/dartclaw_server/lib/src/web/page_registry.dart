@@ -28,7 +28,13 @@ class PageRegistry {
   List<NavItem> navItems({required String activePage}) {
     return [
       for (final page in _pages.values)
-        (label: page.title, href: page.route, active: page.title == activePage, navGroup: page.navGroup, icon: page.icon),
+        (
+          label: page.title,
+          href: page.route,
+          active: page.title == activePage,
+          navGroup: page.navGroup,
+          icon: page.icon,
+        ),
     ];
   }
 }

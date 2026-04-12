@@ -38,38 +38,26 @@ String workflowListPageTemplate({
           ? '/workflows?status=$value&definition=${Uri.encodeQueryComponent(activeDefinition)}'
           : '/workflows?status=$value';
     }
-    return {
-      'value': value,
-      'label': titleCase(value),
-      'active': value == activeStatus,
-      'href': href,
-    };
+    return {'value': value, 'label': titleCase(value), 'active': value == activeStatus, 'href': href};
   }).toList();
 
   final definitionOptions = (filters['definitionOptions'] as List? ?? []).map((d) {
     final value = d.toString();
-    return {
-      'value': value,
-      'label': value,
-      'selected': value == activeDefinition,
-    };
+    return {'value': value, 'label': value, 'selected': value == activeDefinition};
   }).toList();
 
-  final body = templateLoader.trellis.render(
-    templateLoader.source('workflow_list'),
-    {
-      'sidebar': sidebar,
-      'topbar': topbar,
-      'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
-      'runs': runs,
-      'hasRuns': runs.isNotEmpty,
-      'definitions': definitions,
-      'hasDefinitions': definitions.isNotEmpty,
-      'filters': filters,
-      'statusOptions': statusOptions,
-      'definitionOptions': definitionOptions,
-    },
-  );
+  final body = templateLoader.trellis.render(templateLoader.source('workflow_list'), {
+    'sidebar': sidebar,
+    'topbar': topbar,
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+    'runs': runs,
+    'hasRuns': runs.isNotEmpty,
+    'definitions': definitions,
+    'hasDefinitions': definitions.isNotEmpty,
+    'filters': filters,
+    'statusOptions': statusOptions,
+    'definitionOptions': definitionOptions,
+  });
 
   return layoutTemplate(title: 'Workflows', body: body);
 }

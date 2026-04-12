@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
@@ -23,8 +24,7 @@ class ScheduledTaskRunner {
     required TaskService taskService,
     required List<ScheduledTaskDefinition> definitions,
     // eventBus is accepted for API compatibility but events are now fired by TaskService.
-    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.')
-    EventBus? eventBus,
+    @Deprecated('Events are now centralized in TaskService. Pass eventBus to TaskService instead.') EventBus? eventBus,
   }) : _taskService = taskService,
        _definitions = definitions;
 

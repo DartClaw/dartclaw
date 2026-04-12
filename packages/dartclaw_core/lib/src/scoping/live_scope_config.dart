@@ -1,4 +1,4 @@
-import 'session_scope_config.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionScopeConfig;
 
 /// Mutable wrapper for the current session scope configuration.
 class LiveScopeConfig {

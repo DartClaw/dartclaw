@@ -480,7 +480,10 @@ void main() {
     test('returns display name from flat response', () async {
       final client = GoogleChatRestClient(
         authClient: MockClient((request) async {
-          return http.Response(jsonEncode({'displayName': 'Tobias Löfstrand', 'name': 'spaces/AAA/members/users/111'}), 200);
+          return http.Response(
+            jsonEncode({'displayName': 'Tobias Löfstrand', 'name': 'spaces/AAA/members/users/111'}),
+            200,
+          );
         }),
       );
 

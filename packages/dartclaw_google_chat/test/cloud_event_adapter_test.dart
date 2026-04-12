@@ -220,10 +220,7 @@ void main() {
         );
 
         expect(result, isA<MessageResult>());
-        expect(
-          (result as MessageResult).messages.first.metadata['messageCreateTime'],
-          '2024-03-15T10:30:00.260127Z',
-        );
+        expect((result as MessageResult).messages.first.metadata['messageCreateTime'], '2024-03-15T10:30:00.260127Z');
       });
 
       test('uses message name as id', () {

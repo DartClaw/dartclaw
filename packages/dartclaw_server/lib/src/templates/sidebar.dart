@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 
 import 'helpers.dart';
 import 'loader.dart';
@@ -124,8 +124,8 @@ String sidebarTemplate({
         final labelHtml = item.label == 'Tasks'
             ? '${escapeHtml(item.label)}<span id="tasks-badge" class="nav-badge" style="display:none"></span>'
             : item.label == 'Workflows'
-                ? '${escapeHtml(item.label)}<span id="workflows-badge" class="nav-badge" style="display:none"></span>'
-                : escapeHtml(item.label);
+            ? '${escapeHtml(item.label)}<span id="workflows-badge" class="nav-badge" style="display:none"></span>'
+            : escapeHtml(item.label);
         return {
           'label': labelHtml,
           'href': item.href,

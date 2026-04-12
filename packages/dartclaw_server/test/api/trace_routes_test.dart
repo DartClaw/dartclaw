@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:shelf/shelf.dart';
@@ -100,18 +99,9 @@ void main() {
     });
 
     test('filters by since/until date range', () async {
-      await traceService.insert(_makeTrace(
-        id: 'trace-early',
-        startedAt: DateTime.utc(2026, 3, 1),
-      ));
-      await traceService.insert(_makeTrace(
-        id: 'trace-mid',
-        startedAt: DateTime.utc(2026, 3, 15),
-      ));
-      await traceService.insert(_makeTrace(
-        id: 'trace-late',
-        startedAt: DateTime.utc(2026, 3, 24),
-      ));
+      await traceService.insert(_makeTrace(id: 'trace-early', startedAt: DateTime.utc(2026, 3, 1)));
+      await traceService.insert(_makeTrace(id: 'trace-mid', startedAt: DateTime.utc(2026, 3, 15)));
+      await traceService.insert(_makeTrace(id: 'trace-late', startedAt: DateTime.utc(2026, 3, 24)));
 
       final body = await _getTraces(handler, '?since=2026-03-10T00:00:00Z&until=2026-03-20T00:00:00Z');
       final traces = body['traces'] as List;
@@ -121,11 +111,9 @@ void main() {
 
     test('paginates with limit and offset', () async {
       for (var i = 0; i < 5; i++) {
-        await traceService.insert(_makeTrace(
-          id: 'trace-$i',
-          taskId: 'task-P',
-          startedAt: DateTime.utc(2026, 3, 24, i, 0, 0),
-        ));
+        await traceService.insert(
+          _makeTrace(id: 'trace-$i', taskId: 'task-P', startedAt: DateTime.utc(2026, 3, 24, i, 0, 0)),
+        );
       }
 
       final page1 = await _getTraces(handler, '?taskId=task-P&limit=2&offset=0');
@@ -142,11 +130,7 @@ void main() {
 
     test('summary reflects full filtered result, not just current page', () async {
       for (var i = 0; i < 4; i++) {
-        await traceService.insert(_makeTrace(
-          id: 'trace-$i',
-          taskId: 'task-S',
-          inputTokens: 100,
-        ));
+        await traceService.insert(_makeTrace(id: 'trace-$i', taskId: 'task-S', inputTokens: 100));
       }
 
       final body = await _getTraces(handler, '?taskId=task-S&limit=1&offset=0');

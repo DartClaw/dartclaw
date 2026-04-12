@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -15,10 +16,7 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('memory_pruner_test');
     db = sqlite3.openInMemory();
     memoryService = MemoryService(db);
-    pruner = MemoryPruner(
-      workspaceDir: tempDir.path,
-      memoryService: memoryService,
-    );
+    pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService);
   });
 
   tearDown(() {
@@ -162,11 +160,7 @@ void main() {
           rawText: 'User likes Dart',
           rawBlock: '- [2026-03-20 00:00] User likes Dart',
         ),
-        MemoryEntry.undated(
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- User likes Dart',
-        ),
+        MemoryEntry.undated(category: 'general', rawText: 'User likes Dart', rawBlock: '- User likes Dart'),
       ];
 
       final result = pruner.removeDuplicates(entries);
@@ -219,11 +213,7 @@ void main() {
     });
 
     test('undated entries always stay in keep list', () {
-      final undated = MemoryEntry.undated(
-        category: 'general',
-        rawText: 'Undated entry',
-        rawBlock: '- Undated entry',
-      );
+      final undated = MemoryEntry.undated(category: 'general', rawText: 'Undated entry', rawBlock: '- Undated entry');
 
       final (:keep, :archive) = pruner.partitionByAge([undated], 90);
       expect(keep, hasLength(1));

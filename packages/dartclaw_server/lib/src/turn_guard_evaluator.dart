@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 

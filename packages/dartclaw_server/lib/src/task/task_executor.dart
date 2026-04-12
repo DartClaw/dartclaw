@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:logging/logging.dart';
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../behavior/behavior_file_service.dart';
+import '../container/container_dispatcher.dart';
 import '../harness_pool.dart';
 import '../turn_manager.dart';
 import '../turn_runner.dart';
@@ -294,16 +296,15 @@ class TaskExecutor {
             String? effort,
             BehaviorFileService? behaviorOverride,
             PromptScope? promptScope,
-          }) =>
-              runner.reserveTurn(
-                sessionId,
-                agentName: 'task',
-                directory: directory,
-                model: model,
-                effort: effort,
-                behaviorOverride: behaviorOverride,
-                promptScope: promptScope,
-              ),
+          }) => runner.reserveTurn(
+            sessionId,
+            agentName: 'task',
+            directory: directory,
+            model: model,
+            effort: effort,
+            behaviorOverride: behaviorOverride,
+            promptScope: promptScope,
+          ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
       setTaskToolFilter: runner.setTaskToolFilter,
@@ -324,15 +325,14 @@ class TaskExecutor {
             String? effort,
             BehaviorFileService? behaviorOverride,
             PromptScope? promptScope,
-          }) =>
-              _reserveSharedTurn(
-                sessionId,
-                directory: directory,
-                model: model,
-                effort: effort,
-                behaviorOverride: behaviorOverride,
-                promptScope: promptScope,
-              ),
+          }) => _reserveSharedTurn(
+            sessionId,
+            directory: directory,
+            model: model,
+            effort: effort,
+            behaviorOverride: behaviorOverride,
+            promptScope: promptScope,
+          ),
       executeTurn: _turns.executeTurn,
       waitForOutcome: _turns.waitForOutcome,
       setTaskToolFilter: _turns.setTaskToolFilter,
@@ -376,11 +376,7 @@ class TaskExecutor {
         if (projectId != null) {
           project = await projectService.get(projectId);
           if (project == null) {
-            await _markFailedOrRetry(
-              task,
-              errorSummary: 'Project "$projectId" not found',
-              retryable: false,
-            );
+            await _markFailedOrRetry(task, errorSummary: 'Project "$projectId" not found', retryable: false);
             return;
           }
           if (project.status == ProjectStatus.error) {
@@ -484,10 +480,19 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
-      // Create task-scoped BehaviorFileService for project-backed tasks.
+      // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
+      final workflowWorkspaceDir = task.configJson['_workflowWorkspaceDir'] as String?;
       final workspaceDir = _workspaceDir;
-      if (project != null && project.id != '_local' && workspaceDir != null) {
+      if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
+        taskBehavior = BehaviorFileService(
+          workspaceDir: workflowWorkspaceDir,
+          maxMemoryBytes: _maxMemoryBytes,
+          compactInstructions: _compactInstructions,
+          identifierPreservation: _identifierPreservation,
+          identifierInstructions: _identifierInstructions,
+        );
+      } else if (project != null && project.id != '_local' && workspaceDir != null) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workspaceDir,
           projectDir: project.localPath,
@@ -501,11 +506,11 @@ class TaskExecutor {
       setTaskToolFilter?.call(_allowedTools(task));
 
       // Determine prompt scope for this task turn.
-      // Evaluator steps get minimal identity; restricted profile gets tools-only;
-      // all other tasks get the lean task scope (no user/memory noise).
+      // Restricted profile gets tools-only; all other tasks get the lean task
+      // scope (no user/memory noise).
       final PromptScope promptScope;
-      if (task.configJson['evaluator'] == true) {
-        promptScope = PromptScope.evaluator;
+      if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
+        promptScope = PromptScope.task;
       } else if (runnerProfileId == 'restricted') {
         promptScope = PromptScope.restricted;
       } else {
@@ -613,10 +618,7 @@ class TaskExecutor {
         return;
       }
 
-      await _markFailedOrRetry(
-        task,
-        errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status),
-      );
+      await _markFailedOrRetry(task, errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status));
       return;
     } on LoopDetectedException catch (e) {
       // Pre-turn loop detection (turn chain depth or token velocity).
@@ -857,11 +859,7 @@ class TaskExecutor {
   /// Pre-turn budget check. Returns verdict and optional warning message to inject.
   ///
   /// Fail-safe: any exception returns [_BudgetVerdict.proceed] (open policy).
-  Future<(_BudgetVerdict, String?)> _checkBudget(
-    Task task,
-    String sessionId, {
-    Goal? goal,
-  }) async {
+  Future<(_BudgetVerdict, String?)> _checkBudget(Task task, String sessionId, {Goal? goal}) async {
     try {
       final effectiveBudget = _resolveTokenBudget(task, goal: goal);
       if (effectiveBudget == null) return (_BudgetVerdict.proceed, null);
@@ -944,12 +942,7 @@ class TaskExecutor {
         'Wrap up your current work and provide a summary of progress.';
   }
 
-  Future<void> _failBudgetExceeded(
-    Task task,
-    int consumed,
-    int limit,
-    _SessionCostSnapshot costData,
-  ) async {
+  Future<void> _failBudgetExceeded(Task task, int consumed, int limit, _SessionCostSnapshot costData) async {
     final artifactContent = jsonEncode({
       'consumed': consumed,
       'limit': limit,
@@ -1022,11 +1015,7 @@ class TaskExecutor {
   /// On retry: stores lastError, increments retryCount, clears sessionId,
   /// transitions running → failed → queued.
   /// On no retry: delegates to [_markFailed].
-  Future<void> _markFailedOrRetry(
-    Task task, {
-    required String errorSummary,
-    bool retryable = true,
-  }) async {
+  Future<void> _markFailedOrRetry(Task task, {required String errorSummary, bool retryable = true}) async {
     if (errorSummary.isNotEmpty) {
       _eventRecorder?.recordError(task.id, message: errorSummary);
     }
@@ -1114,8 +1103,7 @@ class TaskExecutor {
     return normalized;
   }
 
-  String _truncate(String s, int maxLength) =>
-      s.length <= maxLength ? s : '${s.substring(0, maxLength - 3)}...';
+  String _truncate(String s, int maxLength) => s.length <= maxLength ? s : '${s.substring(0, maxLength - 3)}...';
 
   Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String errorSummary) =>
       Map<String, dynamic>.from(configJson)..['errorSummary'] = _sanitizeErrorSummary(errorSummary);

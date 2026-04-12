@@ -32,10 +32,7 @@ Future<void> killWithEscalation(
         if (!Platform.isWindows) {
           process.kill(ProcessSignal.sigkill);
         }
-        return process.exitCode.timeout(
-          const Duration(seconds: 1),
-          onTimeout: () => -1,
-        );
+        return process.exitCode.timeout(const Duration(seconds: 1), onTimeout: () => -1);
       },
     );
   } catch (e) {

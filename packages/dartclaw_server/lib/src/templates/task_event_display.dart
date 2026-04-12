@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
 
 /// CSS icon class for a given [TaskEventKind].
 ///

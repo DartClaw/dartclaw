@@ -393,6 +393,34 @@ Share-link management endpoints (behind auth middleware). See the [Canvas guide]
 | `POST` | `/api/canvas/share` | Create share token |
 | `DELETE` | `/api/canvas/share/:token` | Revoke share token |
 
+#### Workflow and Skill API
+
+Workflow discovery and execution endpoints:
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/workflows/run` | Start a workflow run from a named definition |
+| `GET` | `/api/workflows/runs` | List workflow runs (filterable by `status` and `definition`) |
+| `GET` | `/api/workflows/runs/<id>` | Get a single run with step/task detail |
+| `GET` | `/api/workflows/runs/<id>/events` | SSE stream for a specific run |
+| `GET` | `/api/workflows/definitions` | List workflow summaries |
+| `GET` | `/api/workflows/definitions/<name>` | Fetch a full workflow definition |
+| `GET` | `/api/skills` | List discovered skills and metadata |
+
+Common request shape for `POST /api/workflows/run`:
+
+```json
+{
+  "definition": "spec-and-implement",
+  "variables": {
+    "FEATURE": "Add pagination"
+  },
+  "project": "main"
+}
+```
+
+The route returns the created run as JSON. Missing required variables produce a `400` error with a machine-readable payload; unknown definitions return `404`.
+
 ## Memory MCP Tools
 
 These tools are available to the agent during conversations. They're exposed via an MCP server in the Deno worker and bridge back to the Dart host for storage.

@@ -134,10 +134,15 @@ void main() {
 
     test('does not mutate original cardPayload', () async {
       final client = GoogleChatRestClient(
-        authClient: MockClient((req) async => http.Response(
-              jsonEncode({'name': 'n', 'thread': {'name': 'tn'}}),
-              200,
-            )),
+        authClient: MockClient(
+          (req) async => http.Response(
+            jsonEncode({
+              'name': 'n',
+              'thread': {'name': 'tn'},
+            }),
+            200,
+          ),
+        ),
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
@@ -182,18 +187,16 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final messageName = await client.sendCardToThread(
-        'spaces/AAA',
-        {
-          'cardsV2': [
-            {
-              'cardId': 'advisor',
-              'card': {'header': {'title': 'Advisor Insight'}},
+      final messageName = await client.sendCardToThread('spaces/AAA', {
+        'cardsV2': [
+          {
+            'cardId': 'advisor',
+            'card': {
+              'header': {'title': 'Advisor Insight'},
             },
-          ],
-        },
-        threadName: 'spaces/AAA/threads/CCC',
-      );
+          },
+        ],
+      }, threadName: 'spaces/AAA/threads/CCC');
 
       expect(messageName, 'spaces/AAA/messages/GGG');
       final body = jsonDecode(captured.body) as Map<String, dynamic>;

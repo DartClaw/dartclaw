@@ -2,7 +2,7 @@
 
 DartClaw workflows are multi-step agent pipelines defined in YAML. Each step runs one or more agent turns, optionally passes structured data to the next step, and can be gated on human review or conditional expressions.
 
-This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-execute`, `idea-to-pr`, `adversarial-dev`, `workflow-builder`, `comprehensive-pr-review`, and others) are worked examples of the fully matured end state.
+This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-implement`, `code-review`, and `research-and-evaluate`) are worked examples of the fully matured end state.
 
 ---
 
@@ -156,15 +156,14 @@ steps:
 
 `stepDefaults` entries use glob patterns (`*` matches any sequence). The first matching entry wins. Per-step fields override defaults.
 
-Mark review/evaluation steps with `evaluator: true` to give them a minimal prompt scope — they only receive the step's own instructions, not workspace files:
+For workflow execution, use a dedicated workflow workspace instead of relying on the main interactive workspace behavior files. Built-in workflows automatically use a workflow-scoped `AGENTS.md`, and operators can override that behavior with `workflow.workspace_dir`:
 
 ```yaml
-  - id: review
-    type: analysis
-    evaluator: true      # minimal context — fewer distractions for the evaluator
-    prompt: |
-      Review this implementation against the acceptance criteria...
+workflow:
+  workspace_dir: /path/to/custom-workflow-workspace
 ```
+
+When `workflow.workspace_dir` is unset, DartClaw materializes a built-in workflow workspace under `<dataDir>/workflow-workspace/`. Workflow steps use that dedicated workspace, not the main interactive `workspace/` behavior files.
 
 ### Step 7: Iterate with Multi-Prompt
 
@@ -185,65 +184,121 @@ Use multi-prompt steps to refine output format within a single step boundary —
 
 Each prompt in the list is a separate turn in the same agent session. Use this when you need the agent to produce a specific format but don't want a dedicated formatting step.
 
+### Parallel Steps
+
+Use `parallel: true` on contiguous steps when they are independent and can run concurrently.
+
+- Keep the group contiguous.
+- Keep the inputs independent.
+- Expect the engine to merge results back into context only after all parallel steps finish.
+
+This pattern is ideal for review fan-out, independent research, and summary generation.
+
+### Map / Fan-Out
+
+Use `mapOver` when one workflow step should iterate over a JSON array in context.
+
+Key fields:
+
+- `mapOver`: context key with the source array
+- `maxParallel`: upper bound on concurrent iterations
+- `maxItems`: safety cap for large arrays
+
+Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+
+### Skill-Aware Steps
+
+Add `skill:` when a step should lean on a native Claude Code skill or another installed skill registry entry.
+
+- If the step also has a prompt, the skill instruction is prefixed before the prompt.
+- If the step has no prompt, the workflow engine can still build a valid instruction from the resolved context.
+- Skill references are validated before execution.
+
+### Exit Gates and Finalizers
+
+Loops use `exitGate` to decide when to stop and `finally` to run a closing step after the loop ends.
+
+- `exitGate` uses the same simple comparison syntax as other gate expressions.
+- `maxIterations` is always a hard circuit breaker.
+- `finally` is useful for cleanup, summary, or handoff steps that must run once regardless of loop outcome.
+
+### Step Defaults
+
+Use `stepDefaults` to apply pattern-based defaults without repeating configuration on every step.
+
+```yaml
+stepDefaults:
+  - match: "review*"
+    maxCostUsd: 2.0
+  - match: "*"
+    maxTokens: 40000
+```
+
+The first match wins. Explicit per-step values still override defaults.
+
 ---
 
 ## Built-In Workflows as Worked Examples
 
-### `spec-and-implement` — Sequential Pipeline (Mature)
+### `spec-and-implement` — Feature Pipeline
 
-A 6-step sequential pipeline: research → spec → implement → code-review → gap-analysis → remediate.
-
-Notable patterns:
-- **Context flow**: `spec` step outputs `spec_document` and `acceptance_criteria`; both `code-review` and `gap-analysis` consume them. Structured handoffs via `contextInputs`/`contextOutputs` make each step's input explicit.
-- **Evaluator anti-leniency**: The `code-review` and `gap-analysis` prompts include "You are an independent evaluator, NOT the agent that wrote this code" to prevent self-rationalization.
-- **Gates**: `code-review` only runs if `implement` was accepted; `remediate` only runs if `gap-analysis` was accepted.
-- **No `evaluator: true`**: The built-in uses prompt-level instructions rather than the evaluator flag. Newer workflows (like `plan-and-execute`) use `evaluator: true` instead.
-
-### `plan-and-execute` — Map/Fan-Out (Dynamic)
-
-A 3-step dynamic pipeline: plan → implement (per story) → review (per story).
+An 11-step pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, fans out correctness/security review, performs gap analysis, remediates findings, and finishes with `dartclaw-update-state`.
 
 Notable patterns:
-- **Map steps**: `implement` and `review` use `map_over: stories` — they execute once per element in the `stories` context array. The planner produces a JSON array; the map steps iterate over it.
-- **Cross-map binding**: The `review` step accesses `implement` results via `{{context.implement_results[map.index]}}` — an indexed lookup that binds the Nth review to the Nth implementation result.
-- **No `skill:` dependency**: Built-in workflows use inline prompts. Skills are for workflows that can assume user-installed extensions.
-- **`stepDefaults`**: Provider, model, token, and cost limits are configured once per pattern rather than per step.
+- **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
+- **Workflow-skill composition**: built-in steps reference `dartclaw-*` skills but still carry fallback prompts so the workflow definition remains self-describing.
+- **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 
-**Dependency limitation for coding map steps**: The `dependencies` field in story-plan stories controls dispatch ordering but does NOT propagate code changes between stories. Each coding iteration starts from the same base branch. Design your stories as independent vertical slices — each story must be completable without assuming other stories' code changes are present. If stories have hard code dependencies, sequence them in separate workflows or use a different decomposition strategy.
+### `plan-and-implement` — Story Fan-Out
 
-### `idea-to-pr` — Hybrid Delivery Pipeline
-
-A plan → approval → implement → deterministic validation → review → PR workflow.
+An 8-step multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, remediates findings, and updates state.
 
 Notable patterns:
-- **Approval gates**: `approve-plan` uses `type: approval` to pause the run without creating a child task or consuming tokens.
-- **Deterministic validation**: `validate-build` uses `type: bash` so build/test gates run without an LLM in the loop.
-- **Worktree bridge**: the implementation step exports `branch_name` from `outputs.branch_name.source: worktree.branch`, so downstream steps can reference the coding-task branch directly.
+- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, and review uses `{{context.story_result[map.index]}}`.
+- **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
+- **Step defaults**: provider/model/token/cost defaults are set once for the whole workflow.
 
-### `adversarial-dev` — Bounded Generator/Evaluator Loop
+### `code-review` — Deterministic Review Loop
 
-A generator agent iterates with an isolated evaluator until the evaluator passes or the loop budget is exhausted.
-
-Notable patterns:
-- **Evaluator isolation**: `evaluator: true` keeps the reviewer from inheriting the generator's prompt context.
-- **Bounded iteration**: the loop has an explicit exit gate and a configurable `MAX_ROUNDS` cap.
-- **Summary-first discovery**: the workflow stays easy to browse because its listing metadata is just description plus variable hints, not the full prompt bodies.
-
-### `workflow-builder` — Authoring + Validation Loop
-
-A meta-workflow that designs a workflow, authors YAML, saves it into `workflows/`, validates it through the CLI, and summarizes the result.
+A review workflow that discovers the project, extracts a diff deterministically via bash, gathers context once, fans out correctness/security/architecture reviewers in parallel, synthesizes the verdict, and loops through remediation/re-review up to 3 iterations.
 
 Notable patterns:
-- **Hybrid authoring surface**: agent steps generate and explain the YAML, while bash steps perform deterministic save/validate work.
-- **CLI contract**: `dartclaw workflow validate` is the authoritative validation surface for both built-in and custom workflows.
+- **Deterministic extraction first**: diff generation happens before any reviewer prompt runs.
+- **Parallel review fan-out**: multiple specialized reviewers run concurrently with shared context.
+- **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
 
-### `comprehensive-pr-review` — Deterministic Diff + Parallel Reviewers
+### `research-and-evaluate` — Trade-Off Analysis
 
-A review workflow that normalizes a branch or PR number into a diff, gathers shared context once, fans out specialized reviewers in parallel, and synthesizes findings.
+A lighter workflow that now still begins with `discover-project`, then researches options, evaluates them, synthesizes trade-offs, and recommends an approach with project-aware context.
 
-Notable patterns:
-- **Deterministic extraction first**: a bash step produces the diff before any reviewer prompt runs.
-- **Parallel evaluator fan-out**: multiple reviewer steps run with `parallel: true` while remaining isolated reviewers.
+### Built-In Skill Library
+
+The workflow engine now ships 10 built-in `dartclaw-*` skills:
+
+- `dartclaw-discover-project`
+- `dartclaw-update-state`
+- `dartclaw-review-code`
+- `dartclaw-review-gap`
+- `dartclaw-spec`
+- `dartclaw-plan`
+- `dartclaw-exec-spec`
+- `dartclaw-remediate-findings`
+- `dartclaw-review-doc`
+- `dartclaw-refactor`
+
+These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading.
+
+### Supported SDD Frameworks
+
+`dartclaw-discover-project` normalizes project structure for these frameworks:
+
+- AndThen
+- GitHub Spec Kit
+- OpenSpec
+- GSD v1
+- GSD v2
+- BMAD
+- No-framework fallback
 
 ## Summary-First Discovery
 
@@ -257,7 +312,7 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 
 ---
 
-## YAML Field Reference (0.16.1)
+## YAML Field Reference (0.16.3)
 
 ### Top-Level Fields
 
@@ -305,12 +360,13 @@ variables:
 | `parallel` | bool | `false` | Run concurrently with adjacent parallel steps (not valid for `approval`) |
 | `skill` | string | none | Skill name for skill-aware steps (requires installation) |
 | `evaluator` | bool | `false` | Minimal prompt scope — step receives only its own instructions |
-| `map_over` | string | none | Context key naming a JSON array — step runs once per element |
-| `max_parallel` | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
-| `max_items` | int | `20` | Max items processed from the mapped array |
+| `mapOver` (`map_over`) | string | none | Context key naming a JSON array — step runs once per element |
+| `maxParallel` (`max_parallel`) | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
+| `maxItems` (`max_items`) | int | `20` | Max items processed from the mapped array |
 | `outputs` | map | none | Output format configs (see below) |
 | `onError` | string | `pause` | Failure policy: `pause` (default) or `continue`. Applies to bash and agent steps |
 | `workdir` | string | workspace root | Working directory for `bash` steps. Supports template references |
+| `finally` | string | none | Finalizer step ID for loop cleanup/handoff |
 
 *`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps.
 
@@ -527,6 +583,6 @@ loops:
 
 - **Keep prompts focused** — a step that does too much produces inconsistent output. Split at responsibility boundaries.
 - **Use `contextInputs` to document dependencies** — even when the validator doesn't enforce all references, explicit inputs make the data flow clear.
-- **`evaluator: true` for reviewers** — prevents review steps from being influenced by workspace context files.
+- **Use a workflow workspace for execution behavior** — prefer `workflow.workspace_dir` when review/implementation steps need a stable, minimal behavior surface that is separate from the main interactive workspace.
 - **Start without `stepDefaults`** — add them once you know the per-step patterns. Premature defaults add configuration debt.
 - **Test with small examples** — run the workflow on a minimal input before using it on a large codebase. The plan step output shape determines what map steps can access.

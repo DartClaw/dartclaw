@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 
 /// Callback invoked when a burst summary should be delivered.

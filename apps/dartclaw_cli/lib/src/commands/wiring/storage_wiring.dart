@@ -21,10 +21,10 @@ class StorageWiring {
     required SearchDbFactory searchDbFactory,
     required TaskDbFactory taskDbFactory,
     required ExitFn exitFn,
-  })  : _eventBus = eventBus,
-        _searchDbFactory = searchDbFactory,
-        _taskDbFactory = taskDbFactory,
-        _exitFn = exitFn;
+  }) : _eventBus = eventBus,
+       _searchDbFactory = searchDbFactory,
+       _taskDbFactory = taskDbFactory,
+       _exitFn = exitFn;
 
   final DartclawConfig config;
   final EventBus _eventBus;

@@ -136,6 +136,16 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    // Workflow workspace override.
+    // Example: `workflow.workspace_dir: ~/workflow-workspace`
+    // Paths expand a leading `~` at load time.
+    'workflow.workspace_dir': FieldMeta(
+      yamlPath: 'workflow.workspace_dir',
+      jsonKey: 'workflow.workspaceDir',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
     'worker_timeout': FieldMeta(
       yamlPath: 'worker_timeout',
       jsonKey: 'workerTimeout',

@@ -1,4 +1,5 @@
 import 'package:dartclaw_cli/src/commands/wiring/model_resolver.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -118,10 +119,9 @@ void main() {
   });
 
   group('resolveChannelTurnOverrides with GroupConfigResolver', () {
-    GroupConfigResolver resolverWith(ChannelType type, GroupEntry entry) =>
-        GroupConfigResolver.fromChannelEntries({
-          type: [entry],
-        });
+    GroupConfigResolver resolverWith(ChannelType type, GroupEntry entry) => GroupConfigResolver.fromChannelEntries({
+      type: [entry],
+    });
 
     test('per-group model+effort override wins over per-channel and crowd-coding', () {
       final config = DartclawConfig(
@@ -136,10 +136,7 @@ void main() {
           crowdCoding: CrowdCodingConfig(model: 'sonnet', effort: 'medium'),
         ),
       );
-      final resolver = resolverWith(
-        ChannelType.whatsapp,
-        GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low'),
-      );
+      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low'));
 
       final overrides = resolveChannelTurnOverrides(
         sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
@@ -161,10 +158,7 @@ void main() {
           ),
         ),
       );
-      final resolver = resolverWith(
-        ChannelType.whatsapp,
-        GroupEntry(id: 'group@g.us', effort: 'high'),
-      );
+      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', effort: 'high'));
 
       final overrides = resolveChannelTurnOverrides(
         sessionKey: SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us'),
@@ -222,10 +216,7 @@ void main() {
           crowdCoding: CrowdCodingConfig(model: 'haiku', effort: 'low'),
         ),
       );
-      final resolver = resolverWith(
-        ChannelType.whatsapp,
-        GroupEntry(id: '+123', model: 'opus', effort: 'high'),
-      );
+      final resolver = resolverWith(ChannelType.whatsapp, GroupEntry(id: '+123', model: 'opus', effort: 'high'));
 
       final overrides = resolveChannelTurnOverrides(
         sessionKey: SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '+123'),

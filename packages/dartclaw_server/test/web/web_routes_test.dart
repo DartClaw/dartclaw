@@ -161,12 +161,7 @@ void main() {
     });
 
     test('crash banner uses icon system dismiss button', () async {
-      handler = webRoutes(
-        sessions,
-        messages,
-        kvService: kvService,
-        workerStateGetter: () => WorkerState.crashed,
-      ).call;
+      handler = webRoutes(sessions, messages, kvService: kvService, workerStateGetter: () => WorkerState.crashed).call;
       final session = await sessions.createSession();
 
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
@@ -179,12 +174,7 @@ void main() {
 
     test('recovery banner uses icon system dismiss button', () async {
       final session = await sessions.createSession();
-      handler = webRoutes(
-        sessions,
-        messages,
-        kvService: kvService,
-        turns: _RecoveryNoticeTurns({session.id}),
-      ).call;
+      handler = webRoutes(sessions, messages, kvService: kvService, turns: _RecoveryNoticeTurns({session.id})).call;
 
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
@@ -400,7 +390,9 @@ void main() {
         _sessionCostPayload(inputTokens: 4, outputTokens: 6, totalTokens: 10, estimatedCostUsd: 0.10, turnCount: 1),
       );
 
-      final res = await handlerWithCodexDefault(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')));
+      final res = await handlerWithCodexDefault(
+        Request('GET', Uri.parse('http://localhost/sessions/${session.id}/info')),
+      );
       final body = await res.readAsString();
 
       expect(res.statusCode, equals(200));

@@ -9,7 +9,14 @@ final _turnFailedPattern = RegExp(r'^\[Turn failed(?::\s*(.+))?\]$', dotAll: tru
 enum MessageType { user, assistant, guardBlock, turnFailed }
 
 /// Classified message with type and extracted detail (for guard-block / turn-failed).
-typedef ClassifiedMessage = ({String id, String role, String content, MessageType messageType, String? detail, String? senderName});
+typedef ClassifiedMessage = ({
+  String id,
+  String role,
+  String content,
+  MessageType messageType,
+  String? detail,
+  String? senderName,
+});
 
 /// Classifies a raw message into one of the four message types.
 ///
@@ -71,11 +78,15 @@ String messagesHtmlFragment(List<ClassifiedMessage> messages) {
     switch (m.messageType) {
       case MessageType.user:
         buffer.write(
-          trellis.renderFragment(src, fragment: 'userMessage', context: {
-            'content': m.content,
-            'senderName': m.senderName,
-            'hasSenderName': m.senderName != null && m.senderName!.isNotEmpty,
-          }),
+          trellis.renderFragment(
+            src,
+            fragment: 'userMessage',
+            context: {
+              'content': m.content,
+              'senderName': m.senderName,
+              'hasSenderName': m.senderName != null && m.senderName!.isNotEmpty,
+            },
+          ),
         );
       case MessageType.assistant:
         buffer.write(trellis.renderFragment(src, fragment: 'assistantMessage', context: {'content': m.content}));

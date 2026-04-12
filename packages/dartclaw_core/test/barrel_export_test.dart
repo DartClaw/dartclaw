@@ -7,6 +7,7 @@ library;
 
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -121,20 +122,9 @@ void main() {
       expect(key.agentId, 'main');
     });
 
-    test('container symbols importable', () {
-      const config = ContainerConfig(enabled: true);
-      final manager = ContainerManager(
-        config: config,
-        containerName: 'dartclaw-test-workspace',
-        profileId: 'workspace',
-        workspaceMounts: const [],
-        proxySocketDir: '/tmp',
-      );
-      const profile = SecurityProfile.restricted;
-      expect(config.enabled, isTrue);
-      expect(manager.containerName, 'dartclaw-test-workspace');
-      expect(CredentialProxy, isNotNull);
-      expect(profile.id, 'restricted');
+    test('container executor symbols importable', () {
+      expect(ContainerExecutor, isNotNull);
+      expect(containerClaudeExecutable, contains('/claude'));
     });
 
     test('channel provider and shared channel symbols importable', () {

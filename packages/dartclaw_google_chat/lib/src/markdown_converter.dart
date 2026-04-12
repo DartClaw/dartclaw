@@ -41,29 +41,20 @@ String markdownToGoogleChat(String markdown) {
   text = text.replaceAll(_bulletListPattern, '- ');
 
   // 3. Headers -> bold (all levels). Uses bold placeholders.
-  text = text.replaceAllMapped(
-    _headerPattern,
-    (m) => '$boldOpen${m.group(1)!.trim()}$boldClose',
-  );
+  text = text.replaceAllMapped(_headerPattern, (m) => '$boldOpen${m.group(1)!.trim()}$boldClose');
 
   // 4. Horizontal rules -> empty line.
   text = text.replaceAll(_horizontalRulePattern, '');
 
   // 5. Images -> plain text (before link conversion).
-  text = text.replaceAllMapped(
-    _imagePattern,
-    (m) {
-      final alt = m.group(1)!;
-      final url = m.group(2)!;
-      return alt.isNotEmpty ? '$alt ($url)' : url;
-    },
-  );
+  text = text.replaceAllMapped(_imagePattern, (m) {
+    final alt = m.group(1)!;
+    final url = m.group(2)!;
+    return alt.isNotEmpty ? '$alt ($url)' : url;
+  });
 
   // 6. Links -> Google Chat syntax.
-  text = text.replaceAllMapped(
-    _linkPattern,
-    (m) => '<${m.group(2)}|${m.group(1)}>',
-  );
+  text = text.replaceAllMapped(_linkPattern, (m) => '<${m.group(2)}|${m.group(1)}>');
 
   // 7-10. Bold and italic conversion.
   //
@@ -71,40 +62,22 @@ String markdownToGoogleChat(String markdown) {
   // Google Chat:       *_bold italic_*,   *bold*,   _italic_
 
   // 7. Bold + italic (***text*** / ___text___) -> *_text_*
-  text = text.replaceAllMapped(
-    _boldItalicStarPattern,
-    (m) => '${boldOpen}_${m.group(1)}_$boldClose',
-  );
-  text = text.replaceAllMapped(
-    _boldItalicUnderPattern,
-    (m) => '${boldOpen}_${m.group(1)}_$boldClose',
-  );
+  text = text.replaceAllMapped(_boldItalicStarPattern, (m) => '${boldOpen}_${m.group(1)}_$boldClose');
+  text = text.replaceAllMapped(_boldItalicUnderPattern, (m) => '${boldOpen}_${m.group(1)}_$boldClose');
 
   // 8. Bold (**text** / __text__) -> placeholder
-  text = text.replaceAllMapped(
-    _boldStarPattern,
-    (m) => '$boldOpen${m.group(1)}$boldClose',
-  );
-  text = text.replaceAllMapped(
-    _boldUnderPattern,
-    (m) => '$boldOpen${m.group(1)}$boldClose',
-  );
+  text = text.replaceAllMapped(_boldStarPattern, (m) => '$boldOpen${m.group(1)}$boldClose');
+  text = text.replaceAllMapped(_boldUnderPattern, (m) => '$boldOpen${m.group(1)}$boldClose');
 
   // 9. Italic (*text*) -> _text_
   //    Requires non-word boundary to avoid matching math like 2*3.
-  text = text.replaceAllMapped(
-    _italicPattern,
-    (m) => '_${m.group(1)}_',
-  );
+  text = text.replaceAllMapped(_italicPattern, (m) => '_${m.group(1)}_');
 
   // 10. Resolve bold placeholders -> *text*
   text = text.replaceAll(boldOpen, '*').replaceAll(boldClose, '*');
 
   // 11. Strikethrough (~~text~~) -> ~text~
-  text = text.replaceAllMapped(
-    _strikethroughPattern,
-    (m) => '~${m.group(1)}~',
-  );
+  text = text.replaceAllMapped(_strikethroughPattern, (m) => '~${m.group(1)}~');
 
   // 12. Restore protected code regions.
   text = _restoreCodeRegions(text, protectedRegions);
@@ -114,34 +87,25 @@ String markdownToGoogleChat(String markdown) {
 
 /// Replaces backslash-escaped markdown markers with placeholders.
 String _protectEscapedMarkers(String text, List<String> store) {
-  return text.replaceAllMapped(
-    _escapedMarkerPattern,
-    (m) {
-      store.add(m.group(0)!);
-      return '\x00P${store.length - 1}\x00';
-    },
-  );
+  return text.replaceAllMapped(_escapedMarkerPattern, (m) {
+    store.add(m.group(0)!);
+    return '\x00P${store.length - 1}\x00';
+  });
 }
 
 /// Replaces fenced code blocks and inline code with placeholders.
 String _protectCodeRegions(String text, List<String> store) {
   // Fenced code blocks (``` ... ```) — must handle multiline.
-  text = text.replaceAllMapped(
-    _fencedCodePattern,
-    (m) {
-      store.add(m.group(0)!);
-      return '\x00P${store.length - 1}\x00';
-    },
-  );
+  text = text.replaceAllMapped(_fencedCodePattern, (m) {
+    store.add(m.group(0)!);
+    return '\x00P${store.length - 1}\x00';
+  });
 
   // Inline code (`text`).
-  text = text.replaceAllMapped(
-    _inlineCodePattern,
-    (m) {
-      store.add(m.group(0)!);
-      return '\x00P${store.length - 1}\x00';
-    },
-  );
+  text = text.replaceAllMapped(_inlineCodePattern, (m) {
+    store.add(m.group(0)!);
+    return '\x00P${store.length - 1}\x00';
+  });
 
   return text;
 }

@@ -384,12 +384,14 @@ class CodexHarness extends BaseHarness {
         break;
 
       case proto.CompactionStarted():
+        // TurnRunner translates bridge-level compaction signals into the
+        // shared DartclawEvents stream for observers and alerts.
         emitEvent(CompactionStartingBridgeEvent());
-        // TODO(S01+S02): Wire Codex compaction bridge events to DartclawEvents in TurnRunner
 
       case proto.CompactionCompleted():
+        // TurnRunner translates bridge-level compaction signals into the
+        // shared DartclawEvents stream for observers and alerts.
         emitEvent(CompactionCompletedBridgeEvent());
-        // TODO(S01+S02): Wire Codex compaction bridge events to DartclawEvents in TurnRunner
     }
   }
 

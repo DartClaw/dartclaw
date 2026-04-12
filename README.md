@@ -5,7 +5,7 @@ _Agentic powers. No dependency black holes. Secure by design._
 > [!NOTE]
 > Welcome to DartClaw – An **experimental**, security-conscious AI agent runtime built with Dart.
 >
-> _Status_: `v0.14.2` – Shareable canvas, multi-project support, task observability, multi-provider harnesses. See [CHANGELOG](CHANGELOG.md).
+> _Status_: `v0.16.3` – architecture hygiene, package boundary cleanup, unified workflow package, and fitness-function verification. See [CHANGELOG](CHANGELOG.md).
 
 <p align="center">
   <img src="assets/dartclaw-webui.jpg" alt="DartClaw Web UI — Task Dashboard" width="720">
@@ -133,6 +133,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 
 ### Architecture & Specs
 - **[Architecture](docs/guide/architecture.md)** -- 2-layer model, multi-provider, design decisions
+- **[Architecture Governance](docs/development/architecture-governance.md)** -- contributor-facing executable boundary checks via `tool/arch_check.dart`
 - **[Web UI & API](docs/guide/web-ui-and-api.md)** -- interface features, REST endpoints, provider status API
 - **[ADRs](docs/adrs/)** -- architecture decision records
 

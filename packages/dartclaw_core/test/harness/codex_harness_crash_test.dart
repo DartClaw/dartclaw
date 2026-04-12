@@ -228,9 +228,7 @@ void main() {
       final secondProcess = FakeCodexProcess();
       final processes = <FakeCodexProcess>[firstProcess, secondProcess];
       var spawnIndex = 0;
-      final harness = _buildHarness(
-        processFactory: () => processes[spawnIndex++],
-      );
+      final harness = _buildHarness(processFactory: () => processes[spawnIndex++]);
       addTearDown(() async => harness.dispose());
 
       await startHarness(harness, firstProcess);

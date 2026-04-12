@@ -167,7 +167,9 @@ void main() {
 
     group('string list fields', () {
       test('advisor.triggers rejects unknown trigger names', () {
-        final errors = validator.validate({'advisor.triggers': ['explicit', 'bad_trigger']});
+        final errors = validator.validate({
+          'advisor.triggers': ['explicit', 'bad_trigger'],
+        });
         expect(errors, hasLength(1));
         expect(errors.first.field, 'advisor.triggers');
         expect(errors.first.message, contains('bad_trigger'));
@@ -236,10 +238,7 @@ void main() {
 
     group('space events cross-field validation', () {
       test('no error when space_events.enabled is false', () {
-        expect(
-          validator.validate({'channels.google_chat.space_events.enabled': false}),
-          isEmpty,
-        );
+        expect(validator.validate({'channels.google_chat.space_events.enabled': false}), isEmpty);
       });
 
       test('errors when space_events enabled without pubsub.project_id', () {
@@ -308,9 +307,7 @@ void main() {
       });
 
       test('error message references space_events.enabled as trigger', () {
-        final errors = validator.validate(
-          {'channels.google_chat.space_events.enabled': true},
-        );
+        final errors = validator.validate({'channels.google_chat.space_events.enabled': true});
         expect(errors.any((e) => e.message.contains('space_events.enabled')), isTrue);
       });
     });

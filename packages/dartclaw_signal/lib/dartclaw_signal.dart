@@ -1,7 +1,7 @@
 /// Signal channel integration for DartClaw via signal-cli subprocess.
 library;
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 
 import 'src/signal_config.dart';
 

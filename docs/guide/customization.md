@@ -48,9 +48,9 @@ scheduling:
 
 ## L3: Skills (No Code)
 
-Create reusable prompt templates in `.claude/skills/`. Skills are prompt fragments the agent can invoke.
+Create reusable prompt templates in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents. Skills are prompt fragments the agent can invoke.
 
-**Example**: `.claude/skills/code-review.md`
+**Example**: `~/.claude/skills/code-review.md`
 ```markdown
 Review this code for:
 1. Security vulnerabilities (OWASP top 10)

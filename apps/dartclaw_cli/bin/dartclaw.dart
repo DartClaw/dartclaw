@@ -14,19 +14,18 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 
 Future<void> main(List<String> args) async {
-  final runner =
-      DartclawRunner()
-        ..addCommand(DeployCommand())
-        ..addCommand(GoogleAuthCommand())
-        ..addCommand(InitCommand())
-        ..addCommand(SetupAliasCommand())
-        ..addCommand(ServiceCommand())
-        ..addCommand(ServeCommand())
-        ..addCommand(SessionsCommand())
-        ..addCommand(StatusCommand())
-        ..addCommand(RebuildIndexCommand())
-        ..addCommand(TokenCommand())
-        ..addCommand(WorkflowCommand());
+  final runner = DartclawRunner()
+    ..addCommand(DeployCommand())
+    ..addCommand(GoogleAuthCommand())
+    ..addCommand(InitCommand())
+    ..addCommand(SetupAliasCommand())
+    ..addCommand(ServiceCommand())
+    ..addCommand(ServeCommand())
+    ..addCommand(SessionsCommand())
+    ..addCommand(StatusCommand())
+    ..addCommand(RebuildIndexCommand())
+    ..addCommand(TokenCommand())
+    ..addCommand(WorkflowCommand());
 
   try {
     await runner.run(args);

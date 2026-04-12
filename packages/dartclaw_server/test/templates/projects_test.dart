@@ -1,5 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart'
-    show Project, ProjectStatus, PrConfig, PrStrategy;
+import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, PrConfig, PrStrategy;
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/project_form.dart';
 import 'package:dartclaw_server/src/templates/projects.dart';
@@ -23,15 +22,13 @@ void main() {
     showChannels: false,
     tasksEnabled: false,
   );
-  const navItems = <NavItem>[(label: 'Projects', href: '/projects', active: true, navGroup: 'system', icon: 'folder-git')];
+  const navItems = <NavItem>[
+    (label: 'Projects', href: '/projects', active: true, navGroup: 'system', icon: 'folder-git'),
+  ];
 
   group('projectsPageTemplate', () {
     test('empty state shown when no projects', () {
-      final html = projectsPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        projects: [],
-      );
+      final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: []);
       expect(html, contains('No projects registered'));
       expect(html, contains('Add a project to run tasks against external repositories'));
     });
@@ -41,11 +38,7 @@ void main() {
         makeProject(id: 'my-project', name: 'My Project'),
         makeProject(id: 'other-project', name: 'Other Project'),
       ];
-      final html = projectsPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        projects: projects,
-      );
+      final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: projects);
       expect(html, contains('My Project'));
       expect(html, contains('Other Project'));
     });
@@ -63,9 +56,7 @@ void main() {
     });
 
     test('error status badge class applied', () {
-      final projects = [
-        makeProject(id: 'p1', name: 'P1', status: ProjectStatus.error, errorMessage: 'auth denied'),
-      ];
+      final projects = [makeProject(id: 'p1', name: 'P1', status: ProjectStatus.error, errorMessage: 'auth denied')];
       final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: projects);
       expect(html, contains('status-badge-error'));
       expect(html, contains('auth denied'));
@@ -116,11 +107,7 @@ void main() {
         configDefined: false,
         createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
       );
-      final html = projectsPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        projects: [localProject],
-      );
+      final html = projectsPageTemplate(sidebarData: emptySidebar, navItems: navItems, projects: [localProject]);
       expect(html, contains('Local'));
       expect(html, isNot(contains('data-project-edit=')));
       expect(html, isNot(contains('data-project-remove=')));

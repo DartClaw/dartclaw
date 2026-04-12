@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show InMemoryDefinitionSource, WorkflowService;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -55,20 +56,17 @@ Future<List<Map<String, dynamic>>> collectSseFrames(
 }) async {
   final frames = <Map<String, dynamic>>[];
   final deadline = DateTime.now().add(timeout);
-  final sub = response.read().transform(utf8.decoder).listen(
-    (chunk) {
-      for (final line in chunk.split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          try {
-            final json = jsonDecode(trimmed.substring(6)) as Map<String, dynamic>;
-            frames.add(json);
-          } catch (_) {}
-        }
+  final sub = response.read().transform(utf8.decoder).listen((chunk) {
+    for (final line in chunk.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('data: ')) {
+        try {
+          final json = jsonDecode(trimmed.substring(6)) as Map<String, dynamic>;
+          frames.add(json);
+        } catch (_) {}
       }
-    },
-    cancelOnError: true,
-  );
+    }
+  }, cancelOnError: true);
   while (DateTime.now().isBefore(deadline)) {
     await Future.delayed(const Duration(milliseconds: 10));
   }
@@ -86,20 +84,17 @@ Future<List<Map<String, dynamic>>> collectSseFramesWithAction(
   required Future<void> Function() action,
 }) async {
   final frames = <Map<String, dynamic>>[];
-  final sub = response.read().transform(utf8.decoder).listen(
-    (chunk) {
-      for (final line in chunk.split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          try {
-            final json = jsonDecode(trimmed.substring(6)) as Map<String, dynamic>;
-            frames.add(json);
-          } catch (_) {}
-        }
+  final sub = response.read().transform(utf8.decoder).listen((chunk) {
+    for (final line in chunk.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('data: ')) {
+        try {
+          final json = jsonDecode(trimmed.substring(6)) as Map<String, dynamic>;
+          frames.add(json);
+        } catch (_) {}
       }
-    },
-    cancelOnError: true,
-  );
+    }
+  }, cancelOnError: true);
   await Future.delayed(delayBeforeAction);
   await action();
   await Future.delayed(delayAfterAction);
@@ -165,12 +160,7 @@ void main() {
     tasks = TaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
-    workflows = _FakeWorkflowService(
-      db: workflowDb,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    workflows = _FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);
@@ -188,9 +178,7 @@ void main() {
   group('GET /api/workflows/runs/<id>/events', () {
     test('returns 404 for unknown run', () async {
       workflows.getResult = null;
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/unknown/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/unknown/events')));
       expect(response.statusCode, 404);
     });
 
@@ -204,20 +192,20 @@ void main() {
 
     test('sends connected payload with run state and steps', () async {
       // Insert a completed task for step 0 directly into the repo.
-      await taskRepo.insert(Task(
-        id: 'task-001',
-        title: 'Step 0',
-        description: 'desc',
-        type: TaskType.research,
-        status: TaskStatus.accepted,
-        createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
-        workflowRunId: 'run-001',
-        stepIndex: 0,
-      ));
-
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      await taskRepo.insert(
+        Task(
+          id: 'task-001',
+          title: 'Step 0',
+          description: 'desc',
+          type: TaskType.research,
+          status: TaskStatus.accepted,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+          workflowRunId: 'run-001',
+          stepIndex: 0,
+        ),
       );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
       expect(response.statusCode, 200);
       expect(response.headers['content-type'], contains('text/event-stream'));
 
@@ -230,30 +218,28 @@ void main() {
     });
 
     test('connected payload has correct number of steps', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
       final frames = await collectSseFrames(response);
       final connected = frames.firstWhere((f) => f['type'] == 'connected');
       expect((connected['steps'] as List), hasLength(2));
     });
 
     test('forwards WorkflowRunStatusChangedEvent', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowRunStatusChangedEvent(
-            runId: 'run-001',
-            definitionName: 'spec-and-implement',
-            oldStatus: WorkflowRunStatus.running,
-            newStatus: WorkflowRunStatus.paused,
-            errorMessage: 'Step failed',
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowRunStatusChangedEvent(
+              runId: 'run-001',
+              definitionName: 'spec-and-implement',
+              oldStatus: WorkflowRunStatus.running,
+              newStatus: WorkflowRunStatus.paused,
+              errorMessage: 'Step failed',
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final statusChanged = frames.where((f) => f['type'] == 'workflow_status_changed').toList();
@@ -263,20 +249,20 @@ void main() {
     });
 
     test('does not forward WorkflowRunStatusChangedEvent for different run', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowRunStatusChangedEvent(
-            runId: 'run-OTHER',
-            definitionName: 'other',
-            oldStatus: WorkflowRunStatus.running,
-            newStatus: WorkflowRunStatus.paused,
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowRunStatusChangedEvent(
+              runId: 'run-OTHER',
+              definitionName: 'other',
+              oldStatus: WorkflowRunStatus.running,
+              newStatus: WorkflowRunStatus.paused,
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final statusChanged = frames.where((f) => f['type'] == 'workflow_status_changed').toList();
@@ -284,24 +270,24 @@ void main() {
     });
 
     test('forwards WorkflowStepCompletedEvent', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowStepCompletedEvent(
-            runId: 'run-001',
-            stepId: 'research',
-            stepName: 'Research',
-            stepIndex: 0,
-            totalSteps: 2,
-            taskId: 'task-001',
-            success: true,
-            tokenCount: 1000,
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: 'run-001',
+              stepId: 'research',
+              stepName: 'Research',
+              stepIndex: 0,
+              totalSteps: 2,
+              taskId: 'task-001',
+              success: true,
+              tokenCount: 1000,
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final stepCompleted = frames.where((f) => f['type'] == 'workflow_step_completed').toList();
@@ -313,31 +299,33 @@ void main() {
 
     test('forwards TaskStatusChangedEvent for known child tasks', () async {
       // Insert the task into the task repo directly so it's a known child.
-      await taskRepo.insert(Task(
-        id: 'task-001',
-        title: 'Step 0',
-        description: 'desc',
-        type: TaskType.research,
-        status: TaskStatus.queued,
-        createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
-        workflowRunId: 'run-001',
-        stepIndex: 0,
-      ));
-
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
+      await taskRepo.insert(
+        Task(
+          id: 'task-001',
+          title: 'Step 0',
+          description: 'desc',
+          type: TaskType.research,
+          status: TaskStatus.queued,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+          workflowRunId: 'run-001',
+          stepIndex: 0,
+        ),
       );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(TaskStatusChangedEvent(
-            taskId: 'task-001',
-            oldStatus: TaskStatus.queued,
-            newStatus: TaskStatus.running,
-            trigger: 'executor',
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            TaskStatusChangedEvent(
+              taskId: 'task-001',
+              oldStatus: TaskStatus.queued,
+              newStatus: TaskStatus.running,
+              trigger: 'executor',
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final taskStatus = frames.where((f) => f['type'] == 'task_status_changed').toList();
@@ -347,20 +335,20 @@ void main() {
     });
 
     test('does NOT forward TaskStatusChangedEvent for unrelated tasks', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(TaskStatusChangedEvent(
-            taskId: 'unrelated-task',
-            oldStatus: TaskStatus.queued,
-            newStatus: TaskStatus.running,
-            trigger: 'executor',
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            TaskStatusChangedEvent(
+              taskId: 'unrelated-task',
+              oldStatus: TaskStatus.queued,
+              newStatus: TaskStatus.running,
+              trigger: 'executor',
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final taskStatus = frames.where((f) => f['type'] == 'task_status_changed').toList();
@@ -368,21 +356,21 @@ void main() {
     });
 
     test('forwards LoopIterationCompletedEvent', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(LoopIterationCompletedEvent(
-            runId: 'run-001',
-            loopId: 'review-loop',
-            iteration: 2,
-            maxIterations: 3,
-            gateResult: false,
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            LoopIterationCompletedEvent(
+              runId: 'run-001',
+              loopId: 'review-loop',
+              iteration: 2,
+              maxIterations: 3,
+              gateResult: false,
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final loopFrames = frames.where((f) => f['type'] == 'loop_iteration_completed').toList();
@@ -392,21 +380,21 @@ void main() {
     });
 
     test('forwards ParallelGroupCompletedEvent', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(ParallelGroupCompletedEvent(
-            runId: 'run-001',
-            stepIds: ['step-a', 'step-b'],
-            successCount: 2,
-            failureCount: 0,
-            totalTokens: 5000,
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            ParallelGroupCompletedEvent(
+              runId: 'run-001',
+              stepIds: ['step-a', 'step-b'],
+              successCount: 2,
+              failureCount: 0,
+              totalTokens: 5000,
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final parallelFrames = frames.where((f) => f['type'] == 'parallel_group_completed').toList();
@@ -415,21 +403,21 @@ void main() {
     });
 
     test('S03: forwards WorkflowApprovalRequestedEvent', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final now = DateTime.now();
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowApprovalRequestedEvent(
-            runId: 'run-001',
-            stepId: 'gate',
-            message: 'Please approve',
-            timeoutSeconds: 300,
-            timestamp: now,
-          ));
+          eventBus.fire(
+            WorkflowApprovalRequestedEvent(
+              runId: 'run-001',
+              stepId: 'gate',
+              message: 'Please approve',
+              timeoutSeconds: 300,
+              timestamp: now,
+            ),
+          );
         },
       );
       final approvalFrames = frames.where((f) => f['type'] == 'approval_requested').toList();
@@ -441,19 +429,14 @@ void main() {
     });
 
     test('S03: forwards WorkflowApprovalResolvedEvent with approved=true', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowApprovalResolvedEvent(
-            runId: 'run-001',
-            stepId: 'gate',
-            approved: true,
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowApprovalResolvedEvent(runId: 'run-001', stepId: 'gate', approved: true, timestamp: DateTime.now()),
+          );
         },
       );
       final resolvedFrames = frames.where((f) => f['type'] == 'approval_resolved').toList();
@@ -463,20 +446,20 @@ void main() {
     });
 
     test('S03: forwards WorkflowApprovalResolvedEvent with feedback', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowApprovalResolvedEvent(
-            runId: 'run-001',
-            stepId: 'gate',
-            approved: false,
-            feedback: 'Not ready',
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowApprovalResolvedEvent(
+              runId: 'run-001',
+              stepId: 'gate',
+              approved: false,
+              feedback: 'Not ready',
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final resolvedFrames = frames.where((f) => f['type'] == 'approval_resolved').toList();
@@ -486,19 +469,19 @@ void main() {
     });
 
     test('S03: approval events for other runs are NOT forwarded', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
-      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 
       final frames = await collectSseFramesWithAction(
         response,
         action: () async {
-          eventBus.fire(WorkflowApprovalRequestedEvent(
-            runId: 'other-run',
-            stepId: 'gate',
-            message: 'Approve?',
-            timestamp: DateTime.now(),
-          ));
+          eventBus.fire(
+            WorkflowApprovalRequestedEvent(
+              runId: 'other-run',
+              stepId: 'gate',
+              message: 'Approve?',
+              timestamp: DateTime.now(),
+            ),
+          );
         },
       );
       final approvalFrames = frames.where((f) => f['type'] == 'approval_requested').toList();

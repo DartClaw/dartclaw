@@ -21,13 +21,7 @@ class ValidationError {
 class ConfigValidator {
   const ConfigValidator();
 
-  static const _validAdvisorTriggers = <String>{
-    'turn_depth',
-    'token_velocity',
-    'periodic',
-    'task_review',
-    'explicit',
-  };
+  static const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
 
   /// Validates proposed config updates.
   ///
@@ -106,11 +100,7 @@ class ConfigValidator {
     Map<String, dynamic> currentValues,
     List<ValidationError> errors,
   ) {
-    final enabled = _mergedValue<bool>(
-      'channels.google_chat.space_events.enabled',
-      updates,
-      currentValues,
-    );
+    final enabled = _mergedValue<bool>('channels.google_chat.space_events.enabled', updates, currentValues);
     if (enabled != true) return;
 
     _requireNonBlankString(
@@ -175,9 +165,7 @@ class ConfigValidator {
     if (errors.any((error) => error.field == field)) {
       return;
     }
-    errors.add(
-      ValidationError(field: field, message: "Field '$field' is required when $requiredByField is true"),
-    );
+    errors.add(ValidationError(field: field, message: "Field '$field' is required when $requiredByField is true"));
   }
 
   ValidationError? _validateValue(FieldMeta meta, Object? value) {

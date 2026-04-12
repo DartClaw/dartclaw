@@ -110,12 +110,7 @@ final class ToolPermissionDeniedEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a tool permission denied event.
-  ToolPermissionDeniedEvent({
-    required this.toolName,
-    this.sessionId,
-    this.reason,
-    required this.timestamp,
-  });
+  ToolPermissionDeniedEvent({required this.toolName, this.sessionId, this.reason, required this.timestamp});
 
   @override
   String toString() => 'ToolPermissionDeniedEvent(tool: $toolName, reason: $reason)';

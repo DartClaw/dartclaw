@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show DartclawConfig, ServerConfig, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition, WorkflowRunStatus, WorkflowStep;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
 import 'package:test/test.dart';
 
 class _FakeExit implements Exception {
@@ -31,16 +31,10 @@ void main() {
 
     test('missing run ID throws UsageException', () {
       final output = <String>[];
-      final command = WorkflowStatusCommand(
-        writeLine: output.add,
-        exitFn: _fakeExit,
-      );
+      final command = WorkflowStatusCommand(writeLine: output.add, exitFn: _fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
-      expect(
-        () => runner.run(['status']),
-        throwsA(isA<UsageException>()),
-      );
+      expect(() => runner.run(['status']), throwsA(isA<UsageException>()));
     });
 
     test('non-existent run ID prints error and exits 1', () async {
@@ -48,9 +42,7 @@ void main() {
       final tmpDb = openTaskDbInMemory();
       addTearDown(tmpDb.close);
 
-      final config = DartclawConfig(
-        server: ServerConfig(dataDir: '/tmp/dartclaw-status-test'),
-      );
+      final config = DartclawConfig(server: ServerConfig(dataDir: '/tmp/dartclaw-status-test'));
 
       final command = WorkflowStatusCommand(
         config: config,
@@ -72,9 +64,7 @@ void main() {
 
       setUp(() {
         tempDir = Directory.systemTemp.createTempSync('dartclaw_status_s03_test_');
-        config = DartclawConfig(
-          server: ServerConfig(dataDir: tempDir.path),
-        );
+        config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
       });
 
       tearDown(() {
@@ -154,7 +144,9 @@ void main() {
         final def = WorkflowDefinition(
           name: 'plain-wf',
           description: '',
-          steps: [const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Do it'])],
+          steps: [
+            const WorkflowStep(id: 's1', name: 'Step 1', prompts: ['Do it']),
+          ],
           variables: const {},
         );
         final now = DateTime.now();

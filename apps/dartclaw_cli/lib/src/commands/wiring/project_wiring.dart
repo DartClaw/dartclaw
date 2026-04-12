@@ -1,17 +1,15 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show DartclawConfig, EventBus, ProjectService;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, ProjectService;
 import 'package:dartclaw_server/dartclaw_server.dart' show ProjectServiceImpl;
 import 'package:logging/logging.dart';
 
 /// Constructs and exposes the project management service.
 class ProjectWiring {
-  ProjectWiring({
-    required this.config,
-    required String dataDir,
-    required EventBus eventBus,
-  })  : _dataDir = dataDir,
-        _eventBus = eventBus;
+  ProjectWiring({required this.config, required String dataDir, required EventBus eventBus})
+    : _dataDir = dataDir,
+      _eventBus = eventBus;
 
   final DartclawConfig config;
   final String _dataDir;

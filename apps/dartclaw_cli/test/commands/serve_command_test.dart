@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
@@ -182,6 +183,7 @@ void main() {
       });
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''

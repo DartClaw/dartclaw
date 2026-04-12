@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/reload_trigger_service.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 

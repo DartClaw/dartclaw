@@ -28,10 +28,7 @@ void main() {
         type: TaskType.research,
         createdAt: DateTime.utc(2026, 3, 21),
       );
-      final review = task
-          .transition(TaskStatus.queued)
-          .transition(TaskStatus.running)
-          .transition(TaskStatus.review);
+      final review = task.transition(TaskStatus.queued).transition(TaskStatus.running).transition(TaskStatus.review);
 
       expect(() => review.transition(TaskStatus.accepted), returnsNormally);
     });
@@ -44,10 +41,7 @@ void main() {
         type: TaskType.research,
         createdAt: DateTime.utc(2026, 3, 21),
       );
-      final review = task
-          .transition(TaskStatus.queued)
-          .transition(TaskStatus.running)
-          .transition(TaskStatus.review);
+      final review = task.transition(TaskStatus.queued).transition(TaskStatus.running).transition(TaskStatus.review);
 
       expect(() => review.transition(TaskStatus.rejected), returnsNormally);
     });

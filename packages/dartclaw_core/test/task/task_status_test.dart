@@ -54,11 +54,7 @@ void main() {
       });
 
       test('has no outbound transitions from accepted, rejected, cancelled', () {
-        for (final terminal in const [
-          TaskStatus.accepted,
-          TaskStatus.rejected,
-          TaskStatus.cancelled,
-        ]) {
+        for (final terminal in const [TaskStatus.accepted, TaskStatus.rejected, TaskStatus.cancelled]) {
           for (final target in TaskStatus.values) {
             expect(terminal.canTransitionTo(target), isFalse, reason: '$terminal should not transition to $target');
           }
@@ -68,8 +64,7 @@ void main() {
       test('failed can only transition to queued (retry path)', () {
         expect(TaskStatus.failed.canTransitionTo(TaskStatus.queued), isTrue);
         for (final target in TaskStatus.values.where((s) => s != TaskStatus.queued)) {
-          expect(TaskStatus.failed.canTransitionTo(target), isFalse,
-              reason: 'failed should not transition to $target');
+          expect(TaskStatus.failed.canTransitionTo(target), isFalse, reason: 'failed should not transition to $target');
         }
       });
 

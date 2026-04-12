@@ -154,7 +154,9 @@ class ChatCardBuilder {
       sections.add({
         'widgets': [
           for (final entry in details.entries)
-            {'decoratedText': {'topLabel': _escapeText(entry.key), 'text': _escapeText(entry.value)}},
+            {
+              'decoratedText': {'topLabel': _escapeText(entry.key), 'text': _escapeText(entry.value)},
+            },
         ],
       });
     }
@@ -196,7 +198,8 @@ class ChatCardBuilder {
           {
             'decoratedText': {
               'topLabel': 'Status',
-              'text': '<font color="${_advisorStatusColor(status)}"><b>${_escapeText(_advisorStatusLabel(status))}</b></font>',
+              'text':
+                  '<font color="${_advisorStatusColor(status)}"><b>${_escapeText(_advisorStatusLabel(status))}</b></font>',
               'wrapText': true,
             },
           },

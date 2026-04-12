@@ -104,6 +104,18 @@ Router taskRoutes(
         return errorResponse(400, 'INVALID_INPUT', 'configJson must be a JSON object', {'field': 'configJson'});
       }
       final configJson = _jsonMapOrEmpty(body.value!['configJson']);
+      final internalConfigKey = configJson.keys.cast<String?>().firstWhere(
+        (key) => key != null && key.startsWith('_'),
+        orElse: () => null,
+      );
+      if (internalConfigKey != null) {
+        return errorResponse(
+          400,
+          'INVALID_INPUT',
+          'configJson keys starting with "_" are reserved for internal system use',
+          {'field': 'configJson', 'key': internalConfigKey},
+        );
+      }
 
       final createdByRaw = _stringOrNull(body.value!['createdBy']);
       final createdBy = (createdByRaw != null && createdByRaw.trim().isNotEmpty) ? createdByRaw.trim() : 'operator';

@@ -36,10 +36,7 @@ Router canvasRoutes({
       );
       return Response.ok(
         html,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Content-Security-Policy': canvasCspHeader(nonce),
-        },
+        headers: {'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': canvasCspHeader(nonce)},
       );
     });
   });

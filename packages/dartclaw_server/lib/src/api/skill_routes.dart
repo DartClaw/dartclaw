@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show SkillRegistry;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -12,10 +12,7 @@ Router skillRoutes(SkillRegistry skills) {
   router.get('/api/skills', (Request request) {
     final allSkills = skills.listAll();
     return Response.ok(
-      jsonEncode({
-        'skills': allSkills.map((s) => s.toJson()).toList(),
-        'count': allSkills.length,
-      }),
+      jsonEncode({'skills': allSkills.map((s) => s.toJson()).toList(), 'count': allSkills.length}),
       headers: {'Content-Type': 'application/json'},
     );
   });

@@ -51,10 +51,9 @@ Map<String, dynamic> _columnData({
   bool isRunningColumn = false,
 }) {
   final cards = tasks
-      .map(
-        (task) {
-          final bindingCount = bindingCounts[task.id] ?? 0;
-          return {
+      .map((task) {
+        final bindingCount = bindingCounts[task.id] ?? 0;
+        return {
           'title': truncate(task.title, 40),
           'createdBy': _creatorName(task.createdBy),
           'timeInState': formatRelativeTime(_stateTimestamp(task)),
@@ -63,8 +62,7 @@ Map<String, dynamic> _columnData({
           'hasBindings': bindingCount > 0,
           'bindingLabel': '$bindingCount ch',
         };
-        },
-      )
+      })
       .toList(growable: false);
 
   return {'id': id, 'title': title, 'count': cards.length, 'hasTasks': cards.isNotEmpty, 'tasks': cards};

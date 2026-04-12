@@ -82,36 +82,28 @@ class TaskNotificationSubscriber {
 
       if (_isInitialNotification(event)) {
         // First notification: send in a new thread and capture the thread name.
-        final threadName = await channel.sendMessageWithThread(
-          origin.recipientId,
-          response,
-          threadKey: threadKey,
-        );
+        final threadName = await channel.sendMessageWithThread(origin.recipientId, response, threadKey: threadKey);
         if (threadName != null) {
           final threadBindings = _threadBindings;
           if (threadBindings != null) {
             final now = DateTime.now();
             try {
-              await threadBindings.create(ThreadBinding(
-                channelType: origin.channelType,
-                threadId: threadName,
-                taskId: task.id,
-                sessionKey: origin.sessionKey,
-                createdAt: now,
-                lastActivity: now,
-              ));
-            } catch (error, stackTrace) {
-              _log.warning(
-                'Failed to create thread binding for task ${task.id} thread $threadName',
-                error,
-                stackTrace,
+              await threadBindings.create(
+                ThreadBinding(
+                  channelType: origin.channelType,
+                  threadId: threadName,
+                  taskId: task.id,
+                  sessionKey: origin.sessionKey,
+                  createdAt: now,
+                  lastActivity: now,
+                ),
               );
+            } catch (error, stackTrace) {
+              _log.warning('Failed to create thread binding for task ${task.id} thread $threadName', error, stackTrace);
             }
           }
         } else {
-          _log.warning(
-            'Thread send returned null thread name for task ${task.id} — binding not created',
-          );
+          _log.warning('Thread send returned null thread name for task ${task.id} — binding not created');
         }
         return;
       }

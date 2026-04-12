@@ -452,13 +452,18 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 | `--port` | `3333` | HTTP server port |
 | `--host` | `127.0.0.1` | Bind address |
 | `--data-dir` | `~/.dartclaw` | Data directory path |
-| `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (relative to cwd) |
+| `--source-dir` | -- | Source tree root for clone-based / development runs |
+| `--templates-dir` | `packages/dartclaw_server/lib/src/templates` | HTML templates directory (source-tree / dev override) |
+| `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (source-tree / dev override) |
 | `--log-format` | `text` | Log format (`text` or `json`) |
 | `--log-file` | -- | Log file path |
 | `--log-level` | `INFO` | Log level (`FINE`, `INFO`, `WARNING`, `SEVERE`) |
 | `--dev` | -- | Enable development mode (verbose logging, relaxed guards) |
 
-**Note on template resolution**: Templates are loaded from `packages/dartclaw_server/lib/src/templates` relative to cwd. There is no `--templates-dir` CLI flag. When running DartClaw from a directory other than the source root, or when running an AOT-compiled binary outside the source tree, template loading will fail. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for workarounds.
+**Note on template resolution**: Standalone binaries embed templates, static assets, and built-in skills, so the
+`--templates-dir` and `--static-dir` overrides are only needed for clone-based or development runs. When running
+`dart run ...` or `dartclaw serve --dev`, templates are loaded from `packages/dartclaw_server/lib/src/templates`
+relative to cwd unless you override them explicitly. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for clone-based workarounds.
 
 ### `dartclaw deploy`
 

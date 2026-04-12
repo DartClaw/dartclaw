@@ -1,0 +1,4 @@
+interface:
+  display_name: "DartClaw Remediate Findings"
+  short_description: "Revalidate review findings and apply minimal fixes"
+  default_prompt: "Use $dartclaw-remediate-findings to classify review findings with evidence, fix only what is still valid, and revalidate the result."

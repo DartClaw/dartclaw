@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show ScheduledTaskDefinition;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskType;
 import 'package:logging/logging.dart';
 
 import '../scheduling/cron_parser.dart';

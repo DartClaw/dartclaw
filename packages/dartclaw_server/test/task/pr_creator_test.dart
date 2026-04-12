@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskType;
-import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:test/test.dart';
 
@@ -20,11 +19,8 @@ Task _makeTask({
   acceptanceCriteria: acceptanceCriteria,
 );
 
-typedef _ProcessRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-});
+typedef _ProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
 
 _ProcessRunner _recordingRunner(
   List<({String executable, List<String> arguments, String? workingDirectory})> calls, {
@@ -101,7 +97,12 @@ void main() {
       final creator = PrCreator(
         processRunner: (executable, arguments, {workingDirectory}) async {
           if (arguments.contains('--version')) return ProcessResult(0, 0, 'gh version 2', '');
-          return ProcessResult(0, 1, '', 'error: A pull request for branch "dartclaw/task-1" into "main" already exists.');
+          return ProcessResult(
+            0,
+            1,
+            '',
+            'error: A pull request for branch "dartclaw/task-1" into "main" already exists.',
+          );
         },
       );
       final result = await creator.create(
@@ -148,7 +149,10 @@ void main() {
       final creator = PrCreator(processRunner: _recordingRunner(calls, stdout: 'https://github.com/u/r/pull/1'));
 
       await creator.create(
-        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', pr: const PrConfig(labels: ['agent', 'automated'])),
+        project: makeProject(
+          remoteUrl: 'git@github.com:u/my-app.git',
+          pr: const PrConfig(labels: ['agent', 'automated']),
+        ),
         task: _makeTask(),
         branch: 'dartclaw/task-1',
       );

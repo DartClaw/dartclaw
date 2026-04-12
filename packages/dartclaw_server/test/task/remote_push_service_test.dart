@@ -3,12 +3,13 @@ import 'package:test/test.dart';
 
 import '../helpers/factories.dart';
 
-typedef _PushRunner = Future<({int exitCode, String stdout, String stderr})> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-  Map<String, String>? environment,
-});
+typedef _PushRunner =
+    Future<({int exitCode, String stdout, String stderr})> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+    });
 
 _PushRunner _fakeRunner({int exitCode = 0, String stdout = '', String stderr = ''}) {
   return (executable, arguments, {workingDirectory, environment}) async =>
@@ -16,12 +17,18 @@ _PushRunner _fakeRunner({int exitCode = 0, String stdout = '', String stderr = '
 }
 
 _PushRunner _recordingRunner(
-  List<({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})> calls, {
+  List<({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})>
+  calls, {
   int exitCode = 0,
   String stderr = '',
 }) {
   return (executable, arguments, {workingDirectory, environment}) async {
-    calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory, environment: environment));
+    calls.add((
+      executable: executable,
+      arguments: arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+    ));
     return (exitCode: exitCode, stdout: '', stderr: stderr);
   };
 }
@@ -62,7 +69,10 @@ void main() {
 
     test('returns PushRejected when stderr contains "rejected"', () async {
       final service = RemotePushService(
-        processRunner: _fakeRunner(exitCode: 1, stderr: '! [rejected] dartclaw/task-1 -> dartclaw/task-1 (non-fast-forward)'),
+        processRunner: _fakeRunner(
+          exitCode: 1,
+          stderr: '! [rejected] dartclaw/task-1 -> dartclaw/task-1 (non-fast-forward)',
+        ),
       );
       final result = await service.push(project: makeProject(), branch: 'dartclaw/task-1');
       expect(result, isA<PushRejected>());
@@ -70,7 +80,10 @@ void main() {
 
     test('returns PushRejected when stderr contains "non-fast-forward"', () async {
       final service = RemotePushService(
-        processRunner: _fakeRunner(exitCode: 1, stderr: 'Updates were rejected because the remote contains work (non-fast-forward).'),
+        processRunner: _fakeRunner(
+          exitCode: 1,
+          stderr: 'Updates were rejected because the remote contains work (non-fast-forward).',
+        ),
       );
       final result = await service.push(project: makeProject(), branch: 'dartclaw/task-1');
       expect(result, isA<PushRejected>());
@@ -87,10 +100,14 @@ void main() {
     });
 
     test('calls git push with correct args', () async {
-      final calls = <({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})>[];
+      final calls =
+          <({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})>[];
       final service = RemotePushService(processRunner: _recordingRunner(calls));
 
-      await service.push(project: makeProject(localPath: '/data/my-app'), branch: 'dartclaw/task-1');
+      await service.push(
+        project: makeProject(localPath: '/data/my-app'),
+        branch: 'dartclaw/task-1',
+      );
 
       expect(calls, hasLength(1));
       expect(calls.single.executable, 'git');

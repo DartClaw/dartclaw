@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show DartclawConfig, Task, WorkflowRun;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDb, TaskDbFactory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
 
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
@@ -19,15 +21,11 @@ class WorkflowStatusCommand extends Command<void> {
   final WriteLine _writeLine;
   final ExitFn _exitFn;
 
-  WorkflowStatusCommand({
-    DartclawConfig? config,
-    TaskDbFactory? taskDbFactory,
-    WriteLine? writeLine,
-    ExitFn? exitFn,
-  }) : _config = config,
-       _taskDbFactory = taskDbFactory ?? openTaskDb,
-       _writeLine = writeLine ?? stdout.writeln,
-       _exitFn = exitFn ?? exit {
+  WorkflowStatusCommand({DartclawConfig? config, TaskDbFactory? taskDbFactory, WriteLine? writeLine, ExitFn? exitFn})
+    : _config = config,
+      _taskDbFactory = taskDbFactory ?? openTaskDb,
+      _writeLine = writeLine ?? stdout.writeln,
+      _exitFn = exitFn ?? exit {
     argParser.addFlag('json', negatable: false, help: 'Output as JSON');
   }
 
@@ -91,10 +89,7 @@ class WorkflowStatusCommand extends Command<void> {
 
   void _printJson(WorkflowRun? run, List<Task> childTasks) {
     if (run == null) return;
-    final json = {
-      ...run.toJson(),
-      'steps': childTasks.map((t) => t.toJson()).toList(),
-    };
+    final json = {...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()};
     _writeLine(const JsonEncoder.withIndent('  ').convert(json));
   }
 
@@ -132,7 +127,9 @@ class WorkflowStatusCommand extends Command<void> {
 
     if (childTasks.isNotEmpty) {
       _writeLine('');
-      _writeLine('  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(10)}  ${'TOKENS'.padRight(8)}  DURATION');
+      _writeLine(
+        '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(10)}  ${'TOKENS'.padRight(8)}  DURATION',
+      );
       for (final task in childTasks) {
         final stepNum = task.stepIndex != null ? '${task.stepIndex! + 1}' : '?';
         final totalStr = _totalSteps(run).toString();

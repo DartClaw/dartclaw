@@ -20,6 +20,8 @@ dependencies:
     path: ../../packages/dartclaw_config
   dartclaw_core:
     path: ../../packages/dartclaw_core
+  dartclaw_workflow:
+    path: ../../packages/dartclaw_workflow
   dartclaw_security:
     path: ../../packages/dartclaw_security
   dartclaw_storage:

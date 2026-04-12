@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -52,11 +53,7 @@ void main() {
   group('security reload seam — valid reload', () {
     test('ConfigNotifier.reload with changed security config triggers SecurityWiring via watchKeys', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
-      final wiring = _buildRegisteredWiring(
-        dataDir: dataDir,
-        eventBus: eventBus,
-        configNotifier: configNotifier,
-      );
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
       await wiring.wire(agentDefs: []);
 
       final originalChain = wiring.guardChain!;
@@ -87,11 +84,7 @@ void main() {
 
     test('ConfigNotifier.reload with changed security config activates new InputSanitizer extra_patterns', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
-      final wiring = _buildRegisteredWiring(
-        dataDir: dataDir,
-        eventBus: eventBus,
-        configNotifier: configNotifier,
-      );
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
       await wiring.wire(agentDefs: []);
 
       // Baseline: custom pattern not blocked
@@ -162,22 +155,16 @@ void main() {
   group('security reload seam — invalid reload preserves live chain', () {
     test('invalid regex in guards config via ConfigNotifier does not weaken active guard chain', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
-      final wiring = _buildRegisteredWiring(
-        dataDir: dataDir,
-        eventBus: eventBus,
-        configNotifier: configNotifier,
-      );
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
       await wiring.wire(agentDefs: []);
 
       final originalChain = wiring.guardChain!;
       final originalCount = originalChain.guards.length;
 
       // Destructive command blocked before reload.
-      final before = await originalChain.evaluateBeforeToolCall(
-        'shell',
-        {'command': 'rm -rf /tmp/dartclaw-test'},
-        sessionId: 'test-session',
-      );
+      final before = await originalChain.evaluateBeforeToolCall('shell', {
+        'command': 'rm -rf /tmp/dartclaw-test',
+      }, sessionId: 'test-session');
       expect(before, isA<GuardBlock>(), reason: 'Destructive command must be blocked before invalid reload');
 
       // Push an invalid security config through the notifier.
@@ -197,41 +184,35 @@ void main() {
       expect(wiring.guardChain!.guards.length, equals(originalCount));
 
       // Same destructive command is still blocked — live protections preserved.
-      final after = await wiring.guardChain!.evaluateBeforeToolCall(
-        'shell',
-        {'command': 'rm -rf /tmp/dartclaw-test'},
-        sessionId: 'test-session',
-      );
+      final after = await wiring.guardChain!.evaluateBeforeToolCall('shell', {
+        'command': 'rm -rf /tmp/dartclaw-test',
+      }, sessionId: 'test-session');
       expect(after, isA<GuardBlock>(), reason: 'Destructive command must still be blocked after invalid reload');
     });
 
     test('reload with guards.enabled=false via ConfigNotifier does not clear live chain', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
-      final wiring = _buildRegisteredWiring(
-        dataDir: dataDir,
-        eventBus: eventBus,
-        configNotifier: configNotifier,
-      );
+      final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);
       await wiring.wire(agentDefs: []);
 
       expect(wiring.guardChain, isNotNull);
       final originalChain = wiring.guardChain!;
 
       // Attempt to disable guards via ConfigNotifier — requires restart, must be ignored.
-      const disabledConfig = DartclawConfig(
-        security: SecurityConfig(guards: GuardConfig(enabled: false)),
-      );
+      const disabledConfig = DartclawConfig(security: SecurityConfig(guards: GuardConfig(enabled: false)));
       configNotifier.reload(disabledConfig);
 
       // Chain preserved — disabling guards mid-flight requires a server restart.
-      expect(wiring.guardChain, same(originalChain), reason: 'Disabling guards requires restart, chain must be preserved');
+      expect(
+        wiring.guardChain,
+        same(originalChain),
+        reason: 'Disabling guards requires restart, chain must be preserved',
+      );
 
       // Active protections still block destructive commands.
-      final verdict = await wiring.guardChain!.evaluateBeforeToolCall(
-        'shell',
-        {'command': 'rm -rf /important/data'},
-        sessionId: 'test-session',
-      );
+      final verdict = await wiring.guardChain!.evaluateBeforeToolCall('shell', {
+        'command': 'rm -rf /important/data',
+      }, sessionId: 'test-session');
       expect(verdict, isA<GuardBlock>());
     });
   });

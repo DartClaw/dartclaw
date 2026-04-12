@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show DartclawConfig, ValidationError, ValidationReport, WorkflowDefinitionParser, WorkflowDefinitionValidator;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show ValidationError, ValidationReport, WorkflowDefinitionParser, WorkflowDefinitionValidator;
 
 import '../config_loader.dart';
 import '../serve_command.dart' show WriteLine;

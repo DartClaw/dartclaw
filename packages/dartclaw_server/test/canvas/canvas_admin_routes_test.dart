@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -33,11 +32,7 @@ void main() {
           'POST',
           Uri.parse('https://workshop.example.com/api/canvas/share'),
           headers: {'content-type': 'application/json'},
-          body: jsonEncode({
-            'sessionKey': SessionKey.webSession(),
-            'permission': 'interact',
-            'label': 'Workshop',
-          }),
+          body: jsonEncode({'sessionKey': SessionKey.webSession(), 'permission': 'interact', 'label': 'Workshop'}),
         ),
       );
 
@@ -52,7 +47,12 @@ void main() {
       canvasService.createShareToken(SessionKey.webSession(), label: 'One');
 
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/canvas/share?sessionKey=${Uri.encodeQueryComponent(SessionKey.webSession())}')),
+        Request(
+          'GET',
+          Uri.parse(
+            'http://localhost/api/canvas/share?sessionKey=${Uri.encodeQueryComponent(SessionKey.webSession())}',
+          ),
+        ),
       );
 
       final body = jsonDecode(await response.readAsString()) as List<dynamic>;

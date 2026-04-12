@@ -5,9 +5,7 @@ void main() {
   group('GroupConfigResolver.resolve', () {
     test('returns structured GroupEntry by (ChannelType, groupId)', () {
       final resolver = GroupConfigResolver.fromChannelEntries({
-        ChannelType.whatsapp: [
-          const GroupEntry(id: 'grp-1', name: 'Dev Team'),
-        ],
+        ChannelType.whatsapp: [const GroupEntry(id: 'grp-1', name: 'Dev Team')],
       });
       final result = resolver.resolve(ChannelType.whatsapp, 'grp-1');
       expect(result, isNotNull);
@@ -17,9 +15,7 @@ void main() {
 
     test('returns null for plain-string entry (no overrides)', () {
       final resolver = GroupConfigResolver.fromChannelEntries({
-        ChannelType.whatsapp: [
-          const GroupEntry(id: 'grp-plain'),
-        ],
+        ChannelType.whatsapp: [const GroupEntry(id: 'grp-plain')],
       });
       expect(resolver.resolve(ChannelType.whatsapp, 'grp-plain'), isNull);
     });
@@ -45,9 +41,7 @@ void main() {
 
     test('structured entry with name only is stored and resolvable', () {
       final resolver = GroupConfigResolver.fromChannelEntries({
-        ChannelType.googlechat: [
-          const GroupEntry(id: 'spaces/AAA', name: 'Main Space'),
-        ],
+        ChannelType.googlechat: [const GroupEntry(id: 'spaces/AAA', name: 'Main Space')],
       });
       final result = resolver.resolve(ChannelType.googlechat, 'spaces/AAA');
       expect(result, isNotNull);
@@ -57,9 +51,7 @@ void main() {
 
     test('entry with only id (no overrides) is not stored', () {
       final resolver = GroupConfigResolver.fromChannelEntries({
-        ChannelType.signal: [
-          const GroupEntry(id: 'grp-1'),
-        ],
+        ChannelType.signal: [const GroupEntry(id: 'grp-1')],
       });
       expect(resolver.resolve(ChannelType.signal, 'grp-1'), isNull);
     });

@@ -1,8 +1,8 @@
 import 'dart:async';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
-
 
 import '../api/sse_broadcast.dart';
 import '../behavior/memory_consolidator.dart';
@@ -12,7 +12,12 @@ import 'scheduled_job.dart';
 
 final _log = Logger('ScheduleService');
 
-Future<String> _noopChannelDispatch(String sessionKey, String message, {String? senderJid, String? senderDisplayName}) async => '';
+Future<String> _noopChannelDispatch(
+  String sessionKey,
+  String message, {
+  String? senderJid,
+  String? senderDisplayName,
+}) async => '';
 
 DeliveryService _defaultDeliveryService(SessionService sessions) {
   return DeliveryService(

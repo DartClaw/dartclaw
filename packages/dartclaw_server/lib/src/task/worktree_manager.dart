@@ -186,11 +186,11 @@ class WorktreeManager {
     final effectiveProjectDir = project?.localPath ?? _projectDir;
 
     // Remove worktree
-    final removeResult = await _runProcess(
-      'git',
-      ['worktree', 'remove', worktreePath],
-      workingDirectory: effectiveProjectDir,
-    );
+    final removeResult = await _runProcess('git', [
+      'worktree',
+      'remove',
+      worktreePath,
+    ], workingDirectory: effectiveProjectDir);
     if (removeResult.exitCode != 0) {
       _log.warning(
         'Failed to remove worktree for task $taskId: '
@@ -199,11 +199,11 @@ class WorktreeManager {
     }
 
     // Delete branch
-    final branchResult = await _runProcess(
-      'git',
-      ['branch', '--delete', branch],
-      workingDirectory: effectiveProjectDir,
-    );
+    final branchResult = await _runProcess('git', [
+      'branch',
+      '--delete',
+      branch,
+    ], workingDirectory: effectiveProjectDir);
     if (branchResult.exitCode != 0) {
       _log.warning(
         'Failed to delete branch $branch for task $taskId: '
@@ -266,11 +266,11 @@ class WorktreeManager {
   }
 
   Future<bool> _branchExists(String branchName, {String? projectDir}) async {
-    final result = await _runProcess(
-      'git',
-      ['branch', '--list', branchName],
-      workingDirectory: projectDir ?? _projectDir,
-    );
+    final result = await _runProcess('git', [
+      'branch',
+      '--list',
+      branchName,
+    ], workingDirectory: projectDir ?? _projectDir);
     return (result.stdout as String).trim().isNotEmpty;
   }
 }

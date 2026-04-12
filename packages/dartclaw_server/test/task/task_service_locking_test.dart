@@ -171,12 +171,7 @@ void _runLockingTests(TaskRepository Function() repoFactory) {
   });
 
   test('newly created task has version 1', () async {
-    final created = await service.create(
-      id: 'task-1',
-      title: 'New task',
-      description: 'desc',
-      type: TaskType.research,
-    );
+    final created = await service.create(id: 'task-1', title: 'New task', description: 'desc', type: TaskType.research);
 
     expect(created.version, 1);
     final stored = (await repo.getById('task-1'))!;

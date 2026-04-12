@@ -1,0 +1,4 @@
+interface:
+  display_name: "DartClaw Exec Spec"
+  short_description: "Orchestrate spec-driven implementation by execution groups"
+  default_prompt: "Use $dartclaw-exec-spec to execute a FIS by orchestrating execution groups, test scaffolding, verification gates, and state updates."

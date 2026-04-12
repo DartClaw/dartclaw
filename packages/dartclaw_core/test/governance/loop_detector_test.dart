@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -203,9 +204,13 @@ void main() {
 
     test('nested args maps produce stable fingerprints', () {
       final d = LoopDetector(config: _config(maxConsecutiveIdenticalToolCalls: 2));
-      final nested = {'outer': {'inner': 'value', 'num': 42}};
+      final nested = {
+        'outer': {'inner': 'value', 'num': 42},
+      };
       d.recordToolCall('t1', 's1', 'complex', nested);
-      final result = d.recordToolCall('t1', 's1', 'complex', {'outer': {'num': 42, 'inner': 'value'}});
+      final result = d.recordToolCall('t1', 's1', 'complex', {
+        'outer': {'num': 42, 'inner': 'value'},
+      });
       expect(result, isNotNull); // nested keys also sorted → same fingerprint
     });
   });
@@ -214,12 +219,14 @@ void main() {
 
   group('LoopDetector — integration', () {
     test('all three mechanisms can fire independently', () {
-      final d = LoopDetector(config: _config(
-        maxConsecutiveTurns: 1,
-        maxTokensPerMinute: 10,
-        velocityWindowMinutes: 1,
-        maxConsecutiveIdenticalToolCalls: 1,
-      ));
+      final d = LoopDetector(
+        config: _config(
+          maxConsecutiveTurns: 1,
+          maxTokensPerMinute: 10,
+          velocityWindowMinutes: 1,
+          maxConsecutiveIdenticalToolCalls: 1,
+        ),
+      );
       final t = DateTime(2026, 3, 15, 12, 0);
 
       // Mechanism 1: turn chain
@@ -239,11 +246,13 @@ void main() {
     });
 
     test('disabled mechanisms do not interfere with enabled ones', () {
-      final d = LoopDetector(config: _config(
-        maxConsecutiveTurns: 2,
-        maxTokensPerMinute: 0, // velocity disabled
-        maxConsecutiveIdenticalToolCalls: 0, // fingerprint disabled
-      ));
+      final d = LoopDetector(
+        config: _config(
+          maxConsecutiveTurns: 2,
+          maxTokensPerMinute: 0, // velocity disabled
+          maxConsecutiveIdenticalToolCalls: 0, // fingerprint disabled
+        ),
+      );
       // Only turn chain is active
       d.recordTurnStart('s1');
       d.recordTurnStart('s1');

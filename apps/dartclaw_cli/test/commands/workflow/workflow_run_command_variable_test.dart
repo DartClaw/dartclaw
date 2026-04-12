@@ -34,17 +34,10 @@ void main() {
 
     test('missing workflow name throws UsageException', () async {
       final output = <String>[];
-      final command = WorkflowRunCommand(
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: _fakeExit,
-      );
+      final command = WorkflowRunCommand(stdoutLine: output.add, stderrLine: output.add, exitFn: _fakeExit);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
-      expect(
-        () async => runner.run(['run']),
-        throwsA(isA<UsageException>()),
-      );
+      expect(() async => runner.run(['run']), throwsA(isA<UsageException>()));
     });
   });
 
@@ -55,10 +48,10 @@ void main() {
     });
 
     test('multiple --var flags produce correct map', () {
-      _testParseVariables(
-        ['FEATURE=Add pagination', 'PROJECT=dartclaw-public'],
-        equals({'FEATURE': 'Add pagination', 'PROJECT': 'dartclaw-public'}),
-      );
+      _testParseVariables([
+        'FEATURE=Add pagination',
+        'PROJECT=dartclaw-public',
+      ], equals({'FEATURE': 'Add pagination', 'PROJECT': 'dartclaw-public'}));
     });
 
     test('KEY=A=B splits on first = only', () {
@@ -78,10 +71,7 @@ void main() {
     });
 
     test('duplicate keys: last wins', () {
-      _testParseVariables(
-        ['KEY=first', 'KEY=second'],
-        equals({'KEY': 'second'}),
-      );
+      _testParseVariables(['KEY=first', 'KEY=second'], equals({'KEY': 'second'}));
     });
   });
 }
@@ -102,10 +92,7 @@ Map<String, String> _parseVariablesPublic(List<String> varArgs) {
   for (final arg in varArgs) {
     final eqIndex = arg.indexOf('=');
     if (eqIndex < 1) {
-      throw UsageException(
-        'Invalid variable format: "$arg" (expected KEY=VALUE)',
-        'usage',
-      );
+      throw UsageException('Invalid variable format: "$arg" (expected KEY=VALUE)', 'usage');
     }
     final key = arg.substring(0, eqIndex);
     final value = arg.substring(eqIndex + 1);

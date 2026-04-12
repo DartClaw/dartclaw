@@ -55,11 +55,10 @@ void main() {
   });
 
   test('creates turns table and indexes', () {
-    final names =
-        db
-            .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
-            .map((row) => row['name'])
-            .toList();
+    final names = db
+        .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
+        .map((row) => row['name'])
+        .toList();
     expect(names, contains('turns'));
     expect(names, contains('idx_turns_session'));
     expect(names, contains('idx_turns_task'));
@@ -121,33 +120,18 @@ void main() {
   });
 
   test('query with since/until date range', () async {
-    await service.insert(
-      _makeTrace(id: 'trace-early', startedAt: DateTime.utc(2026, 3, 1, 10, 0, 0)),
-    );
-    await service.insert(
-      _makeTrace(id: 'trace-mid', startedAt: DateTime.utc(2026, 3, 15, 10, 0, 0)),
-    );
-    await service.insert(
-      _makeTrace(id: 'trace-late', startedAt: DateTime.utc(2026, 3, 24, 10, 0, 0)),
-    );
+    await service.insert(_makeTrace(id: 'trace-early', startedAt: DateTime.utc(2026, 3, 1, 10, 0, 0)));
+    await service.insert(_makeTrace(id: 'trace-mid', startedAt: DateTime.utc(2026, 3, 15, 10, 0, 0)));
+    await service.insert(_makeTrace(id: 'trace-late', startedAt: DateTime.utc(2026, 3, 24, 10, 0, 0)));
 
-    final result = await service.query(
-      since: DateTime.utc(2026, 3, 10),
-      until: DateTime.utc(2026, 3, 20),
-    );
+    final result = await service.query(since: DateTime.utc(2026, 3, 10), until: DateTime.utc(2026, 3, 20));
     expect(result.traces, hasLength(1));
     expect(result.traces[0].id, 'trace-mid');
   });
 
   test('query with limit/offset paginates correctly', () async {
     for (var i = 0; i < 5; i++) {
-      await service.insert(
-        _makeTrace(
-          id: 'trace-$i',
-          taskId: 'task-P',
-          startedAt: DateTime.utc(2026, 3, 24, i, 0, 0),
-        ),
-      );
+      await service.insert(_makeTrace(id: 'trace-$i', taskId: 'task-P', startedAt: DateTime.utc(2026, 3, 24, i, 0, 0)));
     }
 
     final page1 = await service.query(taskId: 'task-P', limit: 2, offset: 0);

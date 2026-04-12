@@ -60,19 +60,11 @@ class PrConfig {
   /// Labels to auto-apply to created PRs.
   final List<String> labels;
 
-  const PrConfig({
-    this.strategy = PrStrategy.branchOnly,
-    this.draft = false,
-    this.labels = const [],
-  });
+  const PrConfig({this.strategy = PrStrategy.branchOnly, this.draft = false, this.labels = const []});
 
   const PrConfig.defaults() : this();
 
-  Map<String, dynamic> toJson() => {
-    'strategy': strategy.name,
-    'draft': draft,
-    if (labels.isNotEmpty) 'labels': labels,
-  };
+  Map<String, dynamic> toJson() => {'strategy': strategy.name, 'draft': draft, if (labels.isNotEmpty) 'labels': labels};
 
   factory PrConfig.fromJson(Map<String, dynamic> json) => PrConfig(
     strategy: PrStrategy.fromYaml(json['strategy']),
@@ -189,19 +181,13 @@ class Project {
     remoteUrl: remoteUrl ?? this.remoteUrl,
     localPath: localPath ?? this.localPath,
     defaultBranch: defaultBranch ?? this.defaultBranch,
-    credentialsRef: identical(credentialsRef, _projectFieldUnset)
-        ? this.credentialsRef
-        : credentialsRef as String?,
+    credentialsRef: identical(credentialsRef, _projectFieldUnset) ? this.credentialsRef : credentialsRef as String?,
     cloneStrategy: cloneStrategy ?? this.cloneStrategy,
     pr: pr ?? this.pr,
     status: status ?? this.status,
-    lastFetchAt: identical(lastFetchAt, _projectFieldUnset)
-        ? this.lastFetchAt
-        : lastFetchAt as DateTime?,
+    lastFetchAt: identical(lastFetchAt, _projectFieldUnset) ? this.lastFetchAt : lastFetchAt as DateTime?,
     configDefined: configDefined ?? this.configDefined,
-    errorMessage: identical(errorMessage, _projectFieldUnset)
-        ? this.errorMessage
-        : errorMessage as String?,
+    errorMessage: identical(errorMessage, _projectFieldUnset) ? this.errorMessage : errorMessage as String?,
     createdAt: createdAt ?? this.createdAt,
   );
 

@@ -6,11 +6,13 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
+import 'embedded_assets.dart';
 import 'api/agent_routes.dart';
 import 'api/config_api_routes.dart';
 import 'api/skill_routes.dart';
@@ -69,8 +71,6 @@ import 'web/system_pages.dart';
 import 'web/web_routes.dart';
 import 'web/web_utils.dart';
 import 'web/whatsapp_pairing_routes.dart';
-import 'workflow/workflow_definition_source.dart';
-import 'workflow/workflow_service.dart';
 import 'workspace/workspace_git_sync.dart';
 
 /// Shelf-based HTTP server composing all DartClaw routes and middleware.
@@ -637,8 +637,29 @@ class DartclawServer {
   }
 
   void _mountStaticRoutes(Router router) {
+    if (embeddedStaticAssets.isNotEmpty) {
+      router.mount('/static/', _embeddedStaticHandler());
+      return;
+    }
+
     final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
     router.mount('/static/', staticHandler);
+  }
+
+  Handler _embeddedStaticHandler() {
+    final assets = Map<String, List<int>>.from(embeddedStaticAssets);
+    final mimeTypes = Map<String, String>.from(embeddedStaticMimeTypes);
+
+    return (Request request) {
+      final path = request.url.path;
+      final bytes = assets[path];
+      final mimeType = mimeTypes[path];
+      if (bytes == null || mimeType == null) {
+        return Response.notFound('Not Found');
+      }
+
+      return Response.ok(bytes, headers: {'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400'});
+    };
   }
 
   void _mountWebhookRoutes(Router router) {

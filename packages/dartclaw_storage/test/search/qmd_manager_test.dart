@@ -13,11 +13,7 @@ void main() {
     calls = [];
   });
 
-  Future<ProcessResult> fakeRunner(
-    String exe,
-    List<String> args, {
-    String? workingDirectory,
-  }) async {
+  Future<ProcessResult> fakeRunner(String exe, List<String> args, {String? workingDirectory}) async {
     calls.add((exe, args, workingDirectory));
     if (args.contains('--version')) return _ok('qmd 1.0.0');
     if (args.contains('update')) return _ok();
@@ -34,9 +30,7 @@ void main() {
     });
 
     test('isAvailable returns false when binary missing', () async {
-      final mgr = QmdManager(
-        commandRunner: (exe, args, {workingDirectory}) async => _fail(),
-      );
+      final mgr = QmdManager(commandRunner: (exe, args, {workingDirectory}) async => _fail());
       expect(await mgr.isAvailable(), isFalse);
     });
 

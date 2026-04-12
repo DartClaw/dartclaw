@@ -13,10 +13,7 @@ class BudgetExhaustedException implements Exception, BudgetExhaustedError {
   @override
   final int budget;
 
-  const BudgetExhaustedException({
-    required this.tokensUsed,
-    required this.budget,
-  });
+  const BudgetExhaustedException({required this.tokensUsed, required this.budget});
 
   @override
   String toString() =>

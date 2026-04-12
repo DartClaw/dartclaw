@@ -178,7 +178,8 @@ Router configApiRoutes({
     }
 
     // Applied = live fields + successfully reloaded reloadable fields
-    final appliedFields = {...liveFields, ...reloadableFields}..removeWhere((k, _) => reloadFallbackFields.containsKey(k));
+    final appliedFields = {...liveFields, ...reloadableFields}
+      ..removeWhere((k, _) => reloadFallbackFields.containsKey(k));
 
     return jsonResponse(200, {
       'applied': appliedFields.keys.toList(),

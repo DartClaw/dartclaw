@@ -203,10 +203,7 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(
-          dataDir: '/tmp/test-data',
-          processRunner: recordingRunner(),
-        );
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
 
         await manager.create('task-1', project: project);
 
@@ -228,10 +225,7 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(
-          dataDir: '/tmp/test-data',
-          processRunner: recordingRunner(),
-        );
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
 
         await manager.create('task-1', project: project);
 
@@ -251,10 +245,7 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(
-          dataDir: '/tmp/test-data',
-          processRunner: recordingRunner(),
-        );
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
 
         await manager.create('task-1', project: project);
 
@@ -262,9 +253,7 @@ void main() {
         final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
         expect(worktreeCall.arguments, contains('-b'));
         // No separate 'git branch' create command (only --list for collision check)
-        final branchCreateCalls = calls.where(
-          (c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'),
-        );
+        final branchCreateCalls = calls.where((c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'));
         expect(branchCreateCalls, isEmpty);
       });
 
@@ -278,9 +267,7 @@ void main() {
         await manager.create('task-1');
 
         // Should include git branch create (non-list) and git worktree add (without -b)
-        final branchCreateCalls = calls.where(
-          (c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'),
-        );
+        final branchCreateCalls = calls.where((c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'));
         expect(branchCreateCalls, isNotEmpty);
       });
 

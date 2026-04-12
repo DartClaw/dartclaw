@@ -21,10 +21,17 @@ export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart' show atomicWriteJson;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
-export 'src/bridge/bridge_events.dart' show BridgeEvent, DeltaEvent, ToolUseEvent, ToolResultEvent, SystemInitEvent, CompactionStartingBridgeEvent, CompactionCompletedBridgeEvent;
+export 'src/bridge/bridge_events.dart'
+    show
+        BridgeEvent,
+        DeltaEvent,
+        ToolUseEvent,
+        ToolResultEvent,
+        SystemInitEvent,
+        CompactionStartingBridgeEvent,
+        CompactionCompletedBridgeEvent;
 
 // Channel interfaces
-export 'src/runtime/channel_type.dart' show ChannelType;
 export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
 export 'src/channel/channel_feedback.dart'
     show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
@@ -99,70 +106,14 @@ export 'src/memory/memory_file_service.dart' show MemoryFileService;
 export 'src/memory/memory_entry.dart' show MemoryEntry;
 export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries, memoryTimestampRe;
 
-// Config — section types
-export 'src/config/agent_config.dart' show AgentConfig;
-export 'src/config/history_config.dart' show HistoryConfig;
-export 'src/config/advisor_config.dart' show AdvisorConfig;
-export 'src/config/credential_registry.dart' show CredentialRegistry;
-export 'src/config/credentials_config.dart' show CredentialsConfig, CredentialEntry;
-export 'src/config/provider_identity.dart' show ProviderIdentity;
-export 'src/config/auth_config.dart' show AuthConfig;
-export 'src/config/canvas_config.dart' show CanvasConfig, CanvasShareConfig, CanvasWorkshopConfig;
-export 'src/config/context_config.dart' show ContextConfig;
-export 'src/config/gateway_config.dart' show GatewayConfig, ReloadConfig;
-export 'src/config/logging_config.dart' show LoggingConfig;
-export 'src/config/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
-export 'src/config/providers_config.dart' show ProviderEntry, ProvidersConfig;
-export 'src/config/memory_config.dart' show MemoryConfig;
-export 'src/config/scheduling_config.dart' show SchedulingConfig;
-export 'src/config/search_config.dart' show SearchConfig, SearchProviderEntry;
-export 'src/config/security_config.dart' show SecurityConfig;
-export 'src/config/server_config.dart' show ServerConfig;
-export 'src/config/session_config.dart' show SessionConfig;
-export 'src/config/task_config.dart' show TaskBudgetConfig, TaskConfig;
-export 'src/config/usage_config.dart' show UsageConfig;
-export 'src/config/workspace_config.dart' show WorkspaceConfig;
-// Config — top-level
-export 'src/config/alerts_config.dart' show AlertsConfig, AlertTarget;
-export 'src/config/dartclaw_config.dart' show DartclawConfig;
-export 'src/config/config_delta.dart' show ConfigDelta;
-export 'src/config/config_notifier.dart' show ConfigNotifier;
-export 'src/config/reconfigurable.dart' show Reconfigurable;
-export 'src/config/scheduled_task_definition.dart' show ScheduledTaskDefinition;
-export 'src/container/container_config.dart' show ContainerConfig;
-export 'src/container/container_dispatcher.dart' show resolveProfile;
-export 'src/container/container_manager.dart' show ContainerManager, RunCommand, StartCommand;
-export 'src/container/credential_proxy.dart' show CredentialProxy;
-export 'src/container/docker_validator.dart' show DockerValidator;
-export 'src/container/security_profile.dart' show SecurityProfile;
-export 'src/scoping/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
+export 'src/container/container_executor.dart' show ContainerExecutor, containerClaudeExecutable;
 export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
-export 'src/scoping/channel_config_provider.dart' show ChannelConfigProvider;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
-export 'src/scoping/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
-export 'src/config/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;
-export 'src/config/governance_config.dart'
-    show
-        CrowdCodingConfig,
-        GovernanceConfig,
-        RateLimitsConfig,
-        PerSenderRateLimitConfig,
-        GlobalRateLimitConfig,
-        BudgetConfig,
-        BudgetAction,
-        QueueStrategy,
-        TurnProgressConfig,
-        TurnProgressAction,
-        LoopDetectionConfig,
-        LoopAction;
-export 'src/config/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
-export 'src/config/project_config.dart' show ProjectConfig, ProjectDefinition;
 export 'src/governance/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 
 // Agents
-export 'src/agents/agent_definition.dart' show AgentDefinition;
 export 'src/agents/session_delegate.dart' show SessionDelegate;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 export 'src/agents/subagent_limits.dart' show SubagentLimits;
@@ -174,7 +125,7 @@ export 'src/task/task.dart' show Task;
 export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
 export 'src/task/task_repository.dart' show TaskRepository;
 export 'src/task/task_status.dart' show TaskStatus;
-export 'src/task/task_type.dart' show TaskType;
+export 'src/task/workflow_task_service.dart' show WorkflowTaskService;
 
 // Search (abstract interface — sqlite3-free)
 export 'src/search/search_backend.dart' show SearchBackend;
@@ -232,36 +183,7 @@ export 'src/events/dartclaw_event.dart'
 export 'src/governance/loop_detection.dart' show LoopDetection, LoopMechanism, LoopDetectedException;
 export 'src/governance/loop_detector.dart' show LoopDetector;
 
-// Utilities
-export 'src/config/duration_parser.dart' show tryParseDuration;
-export 'src/utils/path_utils.dart' show expandHome;
 export 'src/worker/worker_state.dart' show WorkerState;
 
 // Behavior
 export 'src/behavior/prompt_scope.dart' show PromptScope;
-
-// Workflow
-export 'src/workflow/map_context.dart' show MapContext;
-export 'src/workflow/skill_registry.dart' show SkillRegistry;
-export 'src/workflow/skill_prompt_builder.dart' show SkillPromptBuilder;
-export 'src/workflow/step_config_resolver.dart' show ResolvedStepConfig, globMatchStepId, resolveStepConfig;
-export 'src/workflow/built_in_workflows.dart' show builtInWorkflowYaml;
-export 'src/workflow/json_extraction.dart' show extractJson, extractLines;
-export 'src/workflow/prompt_augmenter.dart' show PromptAugmenter;
-export 'src/workflow/schema_presets.dart'
-    show
-        SchemaPreset,
-        schemaPresets,
-        verdictPreset,
-        storyPlanPreset,
-        fileListPreset,
-        checklistPreset;
-export 'src/workflow/schema_validator.dart' show SchemaValidator;
-export 'src/workflow/workflow_context.dart' show WorkflowContext;
-export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
-export 'src/workflow/workflow_definition_validator.dart'
-    show WorkflowDefinitionValidator, ValidationError, ValidationErrorType, ValidationReport;
-export 'src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
-// Note: parseDuration (workflow/duration_parser.dart) is NOT re-exported here
-// because dartclaw_server has a local parseDuration in canvas_utils.dart.
-// The WorkflowDefinitionParser imports it directly from the src path.

@@ -33,11 +33,10 @@ void main() {
   });
 
   test('creates task_events table and indexes', () {
-    final names =
-        db
-            .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
-            .map((row) => row['name'])
-            .toList();
+    final names = db
+        .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
+        .map((row) => row['name'])
+        .toList();
     expect(names, contains('task_events'));
     expect(names, contains('idx_task_events_task'));
     expect(names, contains('idx_task_events_task_kind'));
@@ -86,9 +85,7 @@ void main() {
 
   test('listForTask with limit returns at most N events', () {
     for (var i = 0; i < 5; i++) {
-      service.insert(
-        _makeEvent(id: 'evt-$i', taskId: 'task-D', timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)),
-      );
+      service.insert(_makeEvent(id: 'evt-$i', taskId: 'task-D', timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)));
     }
     final result = service.listForTask('task-D', limit: 3);
     expect(result, hasLength(3));
@@ -97,7 +94,12 @@ void main() {
   test('listForTask with kind + limit combined', () {
     for (var i = 0; i < 4; i++) {
       service.insert(
-        _makeEvent(id: 'tool-$i', taskId: 'task-E', kind: const ToolCalled(), timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)),
+        _makeEvent(
+          id: 'tool-$i',
+          taskId: 'task-E',
+          kind: const ToolCalled(),
+          timestamp: DateTime.utc(2026, 3, 24, i, 0, 0),
+        ),
       );
     }
     service.insert(_makeEvent(id: 'status-1', taskId: 'task-E', kind: const StatusChanged()));
@@ -157,12 +159,7 @@ void main() {
     ];
     for (var i = 0; i < kinds.length; i++) {
       service.insert(
-        _makeEvent(
-          id: 'kind-$i',
-          taskId: 'task-M',
-          kind: kinds[i],
-          timestamp: DateTime.utc(2026, 3, 24, i, 0, 0),
-        ),
+        _makeEvent(id: 'kind-$i', taskId: 'task-M', kind: kinds[i], timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)),
       );
     }
     final result = service.listForTask('task-M');
@@ -173,12 +170,7 @@ void main() {
   });
 
   test('details with complex values round-trips correctly', () {
-    final details = {
-      'name': 'bash',
-      'success': true,
-      'durationMs': 250,
-      'errorType': 'tool_error',
-    };
+    final details = {'name': 'bash', 'success': true, 'durationMs': 250, 'errorType': 'tool_error'};
     service.insert(_makeEvent(id: 'evt-complex', taskId: 'task-N', kind: const ToolCalled(), details: details));
 
     final result = service.listForTask('task-N');

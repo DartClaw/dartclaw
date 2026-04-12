@@ -1,32 +1,33 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
+    show EventBus, HarnessConfig, HarnessFactory, HarnessFactoryConfig, KvService, MessageService, SessionService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        DartclawConfig,
-        EventBus,
-        HarnessConfig,
-        HarnessFactory,
-        HarnessFactoryConfig,
-        KvService,
-        MessageService,
-        SessionService,
+        SkillRegistryImpl,
         WorkflowDefinitionParser,
-        WorkflowDefinitionValidator;
+        WorkflowDefinitionValidator,
+        WorkflowRegistry,
+        WorkflowService,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         ArtifactCollector,
         BehaviorFileService,
         HarnessPool,
+        PromptScope,
         TaskExecutor,
         TaskService,
         TurnManager,
-        TurnRunner,
-        WorkflowRegistry,
-        WorkflowService;
+        TurnRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SearchDbFactory, SqliteTaskRepository, SqliteWorkflowRunRepository, TaskDbFactory, openSearchDb, openTaskDb;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
+
+import '../workflow_skill_materializer.dart';
 
 /// Minimal service graph for headless workflow execution.
 ///
@@ -36,6 +37,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 class CliWorkflowWiring {
   final DartclawConfig config;
   final String dataDir;
+  final String? skillsHomeDir;
   final HarnessFactory _harnessFactory;
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
@@ -55,6 +57,7 @@ class CliWorkflowWiring {
   CliWorkflowWiring({
     required this.config,
     required this.dataDir,
+    this.skillsHomeDir,
     HarnessFactory? harnessFactory,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
@@ -68,6 +71,14 @@ class CliWorkflowWiring {
   /// or wire scheduling. Call [dispose] when done.
   Future<void> wire() async {
     eventBus = EventBus();
+    final projectDirs = _workflowSkillProjectDirs(config);
+    final builtInSkillsSourceDir = WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    await WorkflowSkillMaterializer.materialize(
+      activeHarnessTypes: _activeHarnessTypes(config),
+      homeDir: skillsHomeDir,
+      dataDir: dataDir,
+      sourceDir: builtInSkillsSourceDir,
+    );
 
     // Storage layer
     searchDb = _searchDbFactory(config.searchDbPath);
@@ -97,11 +108,7 @@ class CliWorkflowWiring {
 
     final harness = _harnessFactory.create(
       defaultProviderId,
-      HarnessFactoryConfig(
-        cwd: Directory.current.path,
-        executable: executable,
-        harnessConfig: harnessConfig,
-      ),
+      HarnessFactoryConfig(cwd: Directory.current.path, executable: executable, harnessConfig: harnessConfig),
     );
     await harness.start();
 
@@ -162,13 +169,41 @@ class CliWorkflowWiring {
       repository: workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
-      turnManager: turns,
+      turnAdapter: WorkflowTurnAdapter(
+        workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
+        reserveTurn: turns.reserveTurn,
+        reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
+          sessionId,
+          agentName: 'task',
+          behaviorOverride: BehaviorFileService(
+            workspaceDir: workflowWorkspaceDir,
+            maxMemoryBytes: config.memory.maxBytes,
+            compactInstructions: config.context.compactInstructions,
+            identifierPreservation: config.context.identifierPreservation,
+            identifierInstructions: config.context.identifierInstructions,
+          ),
+          promptScope: PromptScope.task,
+        ),
+        executeTurn: turns.executeTurn,
+        waitForOutcome: (sessionId, turnId) async {
+          final outcome = await turns.waitForOutcome(sessionId, turnId);
+          return WorkflowTurnOutcome(status: outcome.status.name);
+        },
+        availableRunnerCount: () => turns.availableRunnerCount,
+      ),
       eventBus: eventBus,
       kvService: kvService,
       dataDir: dataDir,
     );
 
     // Registry — load built-in workflows, then discover custom ones.
+    final skillRegistry = SkillRegistryImpl();
+    skillRegistry.discover(
+      projectDirs: projectDirs,
+      workspaceDir: config.workspaceDir,
+      dataDir: dataDir,
+      builtInSkillsDir: builtInSkillsSourceDir,
+    );
     final continuityProviders = pool.runners
         .where((r) => r.harness.supportsSessionContinuity)
         .map((r) => r.providerId)
@@ -178,6 +213,7 @@ class CliWorkflowWiring {
       validator: WorkflowDefinitionValidator(),
       continuityProviders: continuityProviders,
     );
+    registry.skillRegistry = skillRegistry;
     registry.loadBuiltIn();
     await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'));
     for (final projectDef in config.projects.definitions.values) {
@@ -196,4 +232,29 @@ class CliWorkflowWiring {
     searchDb.close();
     taskDb.close();
   }
+}
+
+Set<String> _activeHarnessTypes(DartclawConfig config) {
+  final harnessTypes = <String>{};
+
+  void addProvider(String providerId) {
+    final family = ProviderIdentity.family(providerId);
+    if (family == 'claude' || family == 'codex') {
+      harnessTypes.add(family);
+    }
+  }
+
+  addProvider(config.agent.provider);
+  for (final providerId in config.providers.entries.keys) {
+    addProvider(providerId);
+  }
+
+  return harnessTypes;
+}
+
+List<String> _workflowSkillProjectDirs(DartclawConfig config) {
+  if (config.projects.definitions.isEmpty) {
+    return [Directory.current.path];
+  }
+  return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
 }

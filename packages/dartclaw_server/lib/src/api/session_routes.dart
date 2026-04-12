@@ -29,7 +29,8 @@ Router sessionRoutes(
   SessionResetService? resetService,
   MessageRedactor? redactor,
   Future<SidebarData> Function()? buildSidebarData,
-  String Function({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems})? buildSidebarHtml,
+  String Function({required SidebarData sidebarData, String? activeSessionId, List<NavItem> navItems})?
+  buildSidebarHtml,
 }) {
   final router = Router();
 
@@ -275,7 +276,11 @@ Router sessionRoutes(
           activeSessionId: activeSessionId,
           navItems: const [],
         );
-        return Response(200, body: _withSidebarOobSwap(sidebarHtml), headers: {'content-type': 'text/html; charset=utf-8'});
+        return Response(
+          200,
+          body: _withSidebarOobSwap(sidebarHtml),
+          headers: {'content-type': 'text/html; charset=utf-8'},
+        );
       }
 
       return jsonResponse(200, updated.toJson());

@@ -50,13 +50,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-abc',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.accepted,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-abc',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.accepted,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
 
         // EventBus is async (broadcast stream), flush microtasks.
         await Future<void>.delayed(Duration.zero);
@@ -70,13 +72,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-xyz',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.rejected,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-xyz',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.rejected,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-xyz'), isEmpty);
@@ -88,13 +92,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-fail',
-          oldStatus: TaskStatus.running,
-          newStatus: TaskStatus.failed,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-fail',
+            oldStatus: TaskStatus.running,
+            newStatus: TaskStatus.failed,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-fail'), isEmpty);
@@ -106,13 +112,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-cancel',
-          oldStatus: TaskStatus.running,
-          newStatus: TaskStatus.cancelled,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-cancel',
+            oldStatus: TaskStatus.running,
+            newStatus: TaskStatus.cancelled,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-cancel'), isEmpty);
@@ -124,13 +132,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-abc',
-          oldStatus: TaskStatus.queued,
-          newStatus: TaskStatus.running,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-abc',
+            oldStatus: TaskStatus.queued,
+            newStatus: TaskStatus.running,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-abc'), isNotEmpty);
@@ -142,13 +152,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'unknown-task',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.accepted,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'unknown-task',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.accepted,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         // No assertion needed — test passes if no exception is thrown.
@@ -161,13 +173,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-abc',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.accepted,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-abc',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.accepted,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-abc'), isEmpty);
@@ -182,13 +196,15 @@ void main() {
         final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
         manager.start();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-abc',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.accepted,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-abc',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.accepted,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         expect(store.lookupByTask('task-abc'), isEmpty);
@@ -277,11 +293,7 @@ void main() {
 
           // First binding is stale at t=0.
           final staleTime1 = now.subtract(const Duration(hours: 2));
-          store.create(makeBinding(
-            taskId: 'task-A',
-            threadId: 'spaces/A/threads/1',
-            lastActivity: staleTime1,
-          ));
+          store.create(makeBinding(taskId: 'task-A', threadId: 'spaces/A/threads/1', lastActivity: staleTime1));
           async.flushMicrotasks();
 
           final manager = ThreadBindingLifecycleManager(
@@ -308,13 +320,15 @@ void main() {
         manager.start();
         manager.dispose();
 
-        eventBus.fire(TaskStatusChangedEvent(
-          taskId: 'task-abc',
-          oldStatus: TaskStatus.review,
-          newStatus: TaskStatus.accepted,
-          trigger: 'test',
-          timestamp: DateTime.now(),
-        ));
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'task-abc',
+            oldStatus: TaskStatus.review,
+            newStatus: TaskStatus.accepted,
+            trigger: 'test',
+            timestamp: DateTime.now(),
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
 
         // Binding still present — subscription was cancelled.

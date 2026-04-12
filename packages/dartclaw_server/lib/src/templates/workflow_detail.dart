@@ -18,11 +18,7 @@ String workflowDetailPageTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final definitionName = run['definitionName']?.toString() ?? 'Workflow';
-  final topbar = pageTopbarTemplate(
-    title: 'Workflow: $definitionName',
-    backHref: '/tasks',
-    backLabel: 'Back to Tasks',
-  );
+  final topbar = pageTopbarTemplate(title: 'Workflow: $definitionName', backHref: '/tasks', backLabel: 'Back to Tasks');
   final statusName = run['status']?.toString() ?? 'pending';
 
   // Compute progress.
@@ -87,46 +83,39 @@ String workflowDetailPageTemplate({
   final startedAt = run['startedAt'];
   final durationDisplay = _formatDuration(startedAt, run['completedAt']);
 
-  final body = templateLoader.trellis.render(
-    templateLoader.source('workflow_detail'),
-    {
-      'sidebar': sidebar,
-      'topbar': topbar,
-      'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
-      'runId': run['id'],
-      'definitionName': definitionName,
-      'status': statusName,
-      'statusLabel': titleCase(statusName),
-      'statusBadgeClass': 'status-badge-$statusName',
-      'startedAtDisplay': _formatTimeAgo(run['startedAt']),
-      'updatedAtDisplay': _formatTimeAgo(run['updatedAt']),
-      'hasCompletedAt': run['completedAt'] != null,
-      'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
-      'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
-      'durationDisplay': durationDisplay,
-      'hasError': run['errorMessage'] != null,
-      'errorMessage': run['errorMessage'],
-      'progressPercent': progressPercent,
-      'completedSteps': completedSteps,
-      'totalSteps': totalSteps,
-      'hasSteps': annotatedSteps.isNotEmpty,
-      'steps': annotatedSteps,
-      'contextEntries': contextEntries,
-      'hasContext': contextEntries.isNotEmpty,
-      'canPause': canPause,
-      'canResume': canResume && !isApprovalPaused,
-      'canCancel': canCancel && !isApprovalPaused,
-      'isApprovalPaused': isApprovalPaused,
-      'canApprove': canApprove,
-      'canReject': canReject,
-    },
-  );
+  final body = templateLoader.trellis.render(templateLoader.source('workflow_detail'), {
+    'sidebar': sidebar,
+    'topbar': topbar,
+    'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
+    'runId': run['id'],
+    'definitionName': definitionName,
+    'status': statusName,
+    'statusLabel': titleCase(statusName),
+    'statusBadgeClass': 'status-badge-$statusName',
+    'startedAtDisplay': _formatTimeAgo(run['startedAt']),
+    'updatedAtDisplay': _formatTimeAgo(run['updatedAt']),
+    'hasCompletedAt': run['completedAt'] != null,
+    'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
+    'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
+    'durationDisplay': durationDisplay,
+    'hasError': run['errorMessage'] != null,
+    'errorMessage': run['errorMessage'],
+    'progressPercent': progressPercent,
+    'completedSteps': completedSteps,
+    'totalSteps': totalSteps,
+    'hasSteps': annotatedSteps.isNotEmpty,
+    'steps': annotatedSteps,
+    'contextEntries': contextEntries,
+    'hasContext': contextEntries.isNotEmpty,
+    'canPause': canPause,
+    'canResume': canResume && !isApprovalPaused,
+    'canCancel': canCancel && !isApprovalPaused,
+    'isApprovalPaused': isApprovalPaused,
+    'canApprove': canApprove,
+    'canReject': canReject,
+  });
 
-  return layoutTemplate(
-    title: 'Workflow: $definitionName',
-    body: body,
-    appName: appName,
-  );
+  return layoutTemplate(title: 'Workflow: $definitionName', body: body, appName: appName);
 }
 
 /// Renders the step detail partial fragment for a workflow step.

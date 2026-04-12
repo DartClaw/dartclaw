@@ -48,9 +48,7 @@ void main() {
 
     group('schema', () {
       test('creates workflow_runs table and indexes', () {
-        final tables = db.select(
-          "SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name",
-        );
+        final tables = db.select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name");
         final names = tables.map((r) => r['name']).toList();
         expect(names, contains('workflow_runs'));
         expect(names, contains('idx_workflow_runs_status'));
@@ -147,10 +145,7 @@ void main() {
       });
 
       test('list filtered by both status and definitionName', () async {
-        final result = await repository.list(
-          status: WorkflowRunStatus.completed,
-          definitionName: 'wf-b',
-        );
+        final result = await repository.list(status: WorkflowRunStatus.completed, definitionName: 'wf-b');
         expect(result.length, 1);
         expect(result[0].id, 'r2');
       });
@@ -161,11 +156,7 @@ void main() {
         final run = _buildRun();
         await repository.insert(run);
 
-        final updated = run.copyWith(
-          status: WorkflowRunStatus.running,
-          totalTokens: 500,
-          currentStepIndex: 1,
-        );
+        final updated = run.copyWith(status: WorkflowRunStatus.running, totalTokens: 500, currentStepIndex: 1);
         await repository.update(updated);
 
         final loaded = await repository.getById(run.id);

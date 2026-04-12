@@ -15,10 +15,7 @@ void main() {
 
     final drainedSessions = <Map<String, String>>[];
 
-    SlashCommandHandler buildHandler({
-      PauseController? pauseController,
-      bool Function(String)? isAdmin,
-    }) {
+    SlashCommandHandler buildHandler({PauseController? pauseController, bool Function(String)? isAdmin}) {
       drainedSessions.clear();
       return SlashCommandHandler(
         pauseController: pauseController,
@@ -191,7 +188,10 @@ String _errorSummary(Map<String, dynamic> response) {
   for (final section in sections) {
     final widgets = (section as Map)['widgets'] as List<dynamic>;
     for (final w in widgets) {
-      final text = (w as Map<String, dynamic>).values.whereType<Map<String, dynamic>>().map((m) => m['text'] as String? ?? '').join();
+      final text = (w as Map<String, dynamic>).values
+          .whereType<Map<String, dynamic>>()
+          .map((m) => m['text'] as String? ?? '')
+          .join();
       if (text.isNotEmpty) return text;
     }
   }

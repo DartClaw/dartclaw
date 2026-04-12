@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/wiring/harness_wiring.dart';
 import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
 import 'package:dartclaw_cli/src/commands/wiring/storage_wiring.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;

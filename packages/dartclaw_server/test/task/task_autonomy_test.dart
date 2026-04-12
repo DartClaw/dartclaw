@@ -71,7 +71,6 @@ class _FakeHarness implements AgentHarness {
   }
 }
 
-
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -309,7 +308,9 @@ void main() {
         description: 'Has allowedTools.',
         type: TaskType.research,
         autoStart: true,
-        configJson: const {'allowedTools': ['file_read', 'shell']},
+        configJson: const {
+          'allowedTools': ['file_read', 'shell'],
+        },
       );
 
       await executor.pollOnce();

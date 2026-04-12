@@ -1,10 +1,11 @@
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
+
 import '../scoping/group_config_resolver.dart';
 import '../task/task.dart';
 import '../task/task_status.dart';
-import '../runtime/channel_type.dart';
 import 'channel.dart';
 import 'recipient_resolver.dart';
 import 'task_creator.dart';

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_server/src/web/sidebar_feature_visibility.dart';
 import 'package:dartclaw_server/src/web/system_pages.dart';

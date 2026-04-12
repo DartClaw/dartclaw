@@ -1,5 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, EmergencyStopEvent, TaskStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, EmergencyStopEvent, TaskStatus;
 import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
@@ -14,10 +13,7 @@ class EmergencyStopResult {
   /// Number of tasks that were transitioned to cancelled.
   final int tasksCancelled;
 
-  const EmergencyStopResult({
-    required this.turnsCancelled,
-    required this.tasksCancelled,
-  });
+  const EmergencyStopResult({required this.turnsCancelled, required this.tasksCancelled});
 
   /// True when at least one turn or task was cancelled.
   bool get hadActivity => turnsCancelled > 0 || tasksCancelled > 0;
@@ -45,10 +41,10 @@ class EmergencyStopHandler {
     required TaskService taskService,
     EventBus? eventBus,
     SseBroadcast? sseBroadcast,
-  })  : _turnManager = turnManager,
-        _taskService = taskService,
-        _eventBus = eventBus,
-        _sseBroadcast = sseBroadcast;
+  }) : _turnManager = turnManager,
+       _taskService = taskService,
+       _eventBus = eventBus,
+       _sseBroadcast = sseBroadcast;
 
   /// Execute the emergency stop sequence.
   ///
@@ -57,10 +53,7 @@ class EmergencyStopHandler {
   /// 3. Fire [EmergencyStopEvent] and an `emergency_stop` SSE broadcast.
   ///
   /// Returns counts of cancelled turns and tasks.
-  Future<EmergencyStopResult> execute({
-    required String stoppedBy,
-    DateTime? now,
-  }) async {
+  Future<EmergencyStopResult> execute({required String stoppedBy, DateTime? now}) async {
     final timestamp = now ?? DateTime.now();
 
     // Phase 1: Cancel all active turns.
@@ -84,12 +77,7 @@ class EmergencyStopHandler {
       final tasks = await _taskService.list(status: status);
       for (final task in tasks) {
         try {
-          await _taskService.transition(
-            task.id,
-            TaskStatus.cancelled,
-            now: timestamp,
-            trigger: 'emergency_stop',
-          );
+          await _taskService.transition(task.id, TaskStatus.cancelled, now: timestamp, trigger: 'emergency_stop');
           tasksCancelled++;
         } catch (e, st) {
           // VersionConflictException or StateError means the task was modified
@@ -99,18 +87,17 @@ class EmergencyStopHandler {
       }
     }
 
-    final result = EmergencyStopResult(
-      turnsCancelled: turnsCancelled,
-      tasksCancelled: tasksCancelled,
-    );
+    final result = EmergencyStopResult(turnsCancelled: turnsCancelled, tasksCancelled: tasksCancelled);
 
     // Fire EventBus event and SSE broadcast.
-    _eventBus?.fire(EmergencyStopEvent(
-      stoppedBy: stoppedBy,
-      turnsCancelled: turnsCancelled,
-      tasksCancelled: tasksCancelled,
-      timestamp: timestamp,
-    ));
+    _eventBus?.fire(
+      EmergencyStopEvent(
+        stoppedBy: stoppedBy,
+        turnsCancelled: turnsCancelled,
+        tasksCancelled: tasksCancelled,
+        timestamp: timestamp,
+      ),
+    );
 
     _sseBroadcast?.broadcast('emergency_stop', {
       'stopped_by': stoppedBy,

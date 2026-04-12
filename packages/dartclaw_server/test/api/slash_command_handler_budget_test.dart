@@ -39,18 +39,11 @@ void main() {
   SlashCommandHandler buildHandler({BudgetEnforcer? budgetEnforcer}) {
     final eventBus = EventBus();
     final tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
-    return SlashCommandHandler(
-      taskService: tasks,
-      budgetEnforcer: budgetEnforcer,
-    );
+    return SlashCommandHandler(taskService: tasks, budgetEnforcer: budgetEnforcer);
   }
 
   Future<void> seedTokens(String dateKey, {required int input, required int output}) async {
-    final aggregate = {
-      'total_input_tokens': input,
-      'total_output_tokens': output,
-      'by_agent': <String, dynamic>{},
-    };
+    final aggregate = {'total_input_tokens': input, 'total_output_tokens': output, 'by_agent': <String, dynamic>{}};
     await kvService.set(dateKey, jsonEncode(aggregate));
   }
 

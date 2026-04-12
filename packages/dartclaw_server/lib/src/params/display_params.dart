@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show ScheduledTaskDefinition;
 
 /// Top-level application identity displayed on the settings page.
 class AppDisplayParams {

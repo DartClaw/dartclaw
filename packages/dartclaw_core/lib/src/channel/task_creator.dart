@@ -1,6 +1,6 @@
 import '../task/task.dart';
 import '../task/task_status.dart';
-import '../task/task_type.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
 
 /// Callback for creating a task from a channel-originated trigger.
 ///

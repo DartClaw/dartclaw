@@ -51,8 +51,10 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         toolCount: toolCount,
         contextWindow: contextWindow,
       ),
-      claude_protocol.CompactBoundary(:final trigger, :final preTokens) =>
-        CompactBoundary(trigger: trigger, preTokens: preTokens),
+      claude_protocol.CompactBoundary(:final trigger, :final preTokens) => CompactBoundary(
+        trigger: trigger,
+        preTokens: preTokens,
+      ),
     };
   }
 

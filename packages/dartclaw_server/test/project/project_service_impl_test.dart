@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show CredentialsConfig, EventBus, ProjectConfig, ProjectDefinition, ProjectStatusChangedEvent;
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, ProjectStatusChangedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show GitRunner, ProjectServiceImpl;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

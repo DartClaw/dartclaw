@@ -17,6 +17,8 @@ environment:
 resolution: workspace
 
 dependencies:
+  dartclaw_config:
+    path: ../dartclaw_config
   dartclaw_core:
     path: ../dartclaw_core
   googleapis_auth: ^1.6.0

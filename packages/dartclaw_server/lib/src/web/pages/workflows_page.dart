@@ -1,4 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -6,7 +8,6 @@ import '../../templates/chat.dart';
 import '../../templates/helpers.dart';
 import '../../templates/workflow_detail.dart';
 import '../../templates/workflow_list.dart';
-import '../../workflow/workflow_view_helpers.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
 

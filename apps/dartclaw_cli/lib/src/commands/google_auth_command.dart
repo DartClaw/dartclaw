@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelType, DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 
 import 'config_loader.dart';

@@ -1,4 +1,4 @@
-import '../task/task_type.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
 import 'task_trigger_config.dart';
 
 /// Result of a successful task trigger match.

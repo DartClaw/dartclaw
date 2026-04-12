@@ -1,0 +1,8 @@
+interface:
+  display_name: "DartClaw - Discover Project"
+  short_description: "Detect SDD frameworks and normalize project paths"
+  default_prompt: "Detect the project's SDD framework, normalize the document index, and return the state protocol. Project root: "
+
+policy:
+  allow_implicit_invocation: true
+

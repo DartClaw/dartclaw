@@ -27,12 +27,12 @@ class SchedulingWiring {
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
     ConfigNotifier? configNotifier,
-  })  : _eventBus = eventBus,
-        _storage = storage,
-        _channel = channel,
-        _security = security,
-        _sseBroadcast = sseBroadcast,
-        _configNotifier = configNotifier;
+  }) : _eventBus = eventBus,
+       _storage = storage,
+       _channel = channel,
+       _security = security,
+       _sseBroadcast = sseBroadcast,
+       _configNotifier = configNotifier;
 
   final DartclawConfig config;
   final EventBus _eventBus;
@@ -184,8 +184,7 @@ class SchedulingWiring {
                 _log.warning('Maintenance warning: $w');
               }
               if (config.security.guardAuditMaxRetentionDays > 0) {
-                final deletedAuditFiles =
-                    await auditLogger.cleanOldFiles(config.security.guardAuditMaxRetentionDays);
+                final deletedAuditFiles = await auditLogger.cleanOldFiles(config.security.guardAuditMaxRetentionDays);
                 _log.info('Audit cleanup: $deletedAuditFiles old files deleted');
               }
               return 'archived=${report.sessionsArchived} deleted=${report.sessionsDeleted}';
@@ -207,10 +206,7 @@ class SchedulingWiring {
 
     // Register automation scheduled tasks (task-type jobs).
     if (config.scheduling.taskDefinitions.isNotEmpty) {
-      final taskRunner = ScheduledTaskRunner(
-        taskService: taskService,
-        definitions: config.scheduling.taskDefinitions,
-      );
+      final taskRunner = ScheduledTaskRunner(taskService: taskService, definitions: config.scheduling.taskDefinitions);
       final taskJobs = taskRunner.buildJobs();
       _scheduledJobs.addAll(taskJobs);
       if (taskJobs.isNotEmpty) {
@@ -264,10 +260,7 @@ class SchedulingWiring {
 
     // Workspace git sync.
     if (config.workspace.gitSyncEnabled) {
-      final gs = WorkspaceGitSync(
-        workspaceDir: config.workspaceDir,
-        pushEnabled: config.workspace.gitSyncPushEnabled,
-      );
+      final gs = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.workspace.gitSyncPushEnabled);
       if (await gs.isGitAvailable()) {
         await gs.initIfNeeded();
         _gitSync = gs;
@@ -294,8 +287,7 @@ class SchedulingWiring {
       config: config,
       kvService: kvService,
       searchIndexCounter: (source) {
-        final result =
-            _storage.searchDb.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE source = ?', [source]);
+        final result = _storage.searchDb.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE source = ?', [source]);
         return result.first['cnt'] as int;
       },
       scheduleService: _scheduleService,
@@ -343,8 +335,7 @@ class SchedulingWiring {
     final session = await sessions.getOrCreateByKey(sessionKey, type: type);
     final userMsg = <String, dynamic>{'role': 'user', 'content': message};
     final srv = serverRef();
-    final turnId =
-        await srv.turns.startTurn(session.id, [userMsg], source: source, agentName: agentName ?? 'main');
+    final turnId = await srv.turns.startTurn(session.id, [userMsg], source: source, agentName: agentName ?? 'main');
     return (sessionId: session.id, turnId: turnId);
   }
 

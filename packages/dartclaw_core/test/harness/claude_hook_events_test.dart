@@ -202,11 +202,7 @@ void main() {
           'request_id': 'req-perm-denied',
           'request': {
             'subtype': 'hook_callback',
-            'input': {
-              'hook_event_name': 'PermissionDenied',
-              'tool_name': 'Bash',
-              'reason': 'Command not in allowlist',
-            },
+            'input': {'hook_event_name': 'PermissionDenied', 'tool_name': 'Bash', 'reason': 'Command not in allowlist'},
           },
         }),
       );
@@ -256,9 +252,7 @@ void main() {
       // Shape: {type: control_response, response: {subtype: success, request_id: ..., response: {...}}}
       final newLines = stdinLines.sublist(lineCountBeforeHook);
       final response = newLines.firstWhere(
-        (msg) =>
-            msg['type'] == 'control_response' &&
-            (msg['response'] as Map?)?['request_id'] == 'req-perm-ack',
+        (msg) => msg['type'] == 'control_response' && (msg['response'] as Map?)?['request_id'] == 'req-perm-ack',
         orElse: () => <String, dynamic>{},
       );
       expect(response, isNotEmpty, reason: 'Expected acknowledgment response for PermissionDenied');
@@ -287,22 +281,19 @@ void main() {
       await h.start();
 
       // Simulate PermissionDenied — must not throw
-      expect(
-        () async {
-          fake.emitStdout(
-            jsonEncode({
-              'type': 'control_request',
-              'request_id': 'req-no-callback',
-              'request': {
-                'subtype': 'hook_callback',
-                'input': {'hook_event_name': 'PermissionDenied', 'tool_name': 'Bash'},
-              },
-            }),
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        },
-        returnsNormally,
-      );
+      expect(() async {
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-no-callback',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {'hook_event_name': 'PermissionDenied', 'tool_name': 'Bash'},
+            },
+          }),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }, returnsNormally);
     });
 
     test('PermissionDenied callback with missing tool_name defaults to empty string', () async {

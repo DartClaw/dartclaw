@@ -84,12 +84,7 @@ class TaskEventRecorder {
   }
 
   /// Records a context compaction that occurred during agent execution.
-  void recordCompaction(
-    String taskId, {
-    required String trigger,
-    required String sessionId,
-    int? preTokens,
-  }) {
+  void recordCompaction(String taskId, {required String trigger, required String sessionId, int? preTokens}) {
     final details = <String, dynamic>{'trigger': trigger, 'sessionId': sessionId};
     if (preTokens != null) details['preTokens'] = preTokens;
     _record(taskId, const Compaction(), details);

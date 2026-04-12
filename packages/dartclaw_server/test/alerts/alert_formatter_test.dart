@@ -111,11 +111,7 @@ void main() {
     });
 
     test('CompactionCompletedEvent produces plain text with session ID', () {
-      final event = CompactionCompletedEvent(
-        sessionId: 'sess-7',
-        trigger: 'auto',
-        timestamp: _now,
-      );
+      final event = CompactionCompletedEvent(sessionId: 'sess-7', trigger: 'auto', timestamp: _now);
       final response = _formatter.format(
         event: event,
         alertType: 'compaction',
@@ -192,11 +188,7 @@ void main() {
     });
 
     test('info severity card uses blue color #1a73e8', () {
-      final event = CompactionCompletedEvent(
-        sessionId: 'sess-1',
-        trigger: 'auto',
-        timestamp: _now,
-      );
+      final event = CompactionCompletedEvent(sessionId: 'sess-1', trigger: 'auto', timestamp: _now);
       final response = _formatter.format(
         event: event,
         alertType: 'compaction',

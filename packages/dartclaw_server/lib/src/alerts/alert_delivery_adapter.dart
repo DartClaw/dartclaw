@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
@@ -20,7 +21,9 @@ class AlertDeliveryAdapter {
   Future<void> deliver(AlertTarget target, ChannelResponse response) async {
     final channel = _channelLookup(target.channel);
     if (channel == null) {
-      _log.warning('AlertDeliveryAdapter: unknown channel type "${target.channel}" for recipient "${target.recipient}"');
+      _log.warning(
+        'AlertDeliveryAdapter: unknown channel type "${target.channel}" for recipient "${target.recipient}"',
+      );
       return;
     }
     try {

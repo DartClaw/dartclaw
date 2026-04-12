@@ -1,0 +1,281 @@
+name: plan-and-implement
+description: >-
+  Multi-story pipeline — discover the project, plan stories, spec each story,
+  implement each story, review each story, synthesize results, remediate gaps,
+  and update state.
+variables:
+  REQUIREMENTS:
+    required: true
+    description: Requirements, PRD, or feature description to implement
+  PROJECT:
+    required: false
+    description: Project ID for worktree isolation
+  MAX_PARALLEL:
+    required: false
+    description: Max parallel story executions
+    default: "2"
+
+stepDefaults:
+  - match: "implement*"
+    provider: claude
+    maxTokens: 100000
+    maxCostUsd: 5.00
+  - match: "review*"
+    model: claude-opus-4
+    maxCostUsd: 2.00
+  - match: "*"
+    provider: claude
+    maxTokens: 50000
+
+steps:
+  - id: discover-project
+    name: Discover Project
+    type: research
+    skill: dartclaw-discover-project
+    prompt: |
+      Discover the project structure before planning the work.
+
+      Requirements:
+      {{REQUIREMENTS}}
+
+      Identify the SDD framework, project root, document locations, and state
+      update protocol. Return a normalized project index for downstream steps.
+      Output the project index JSON directly.
+    contextOutputs: [project_index]
+    outputs:
+      project_index:
+        format: json
+        schema:
+          type: object
+          required: [framework, project_root, document_locations, state_protocol]
+          properties:
+            framework:
+              type: string
+            project_root:
+              type: string
+            document_locations:
+              type: object
+            state_protocol:
+              type: object
+
+  - id: plan
+    name: Plan Stories
+    type: analysis
+    skill: dartclaw-plan
+    contextInputs: [project_index]
+    prompt: |
+      Use the `dartclaw-plan` skill to decompose the requirements into
+      implementation stories.
+
+      Requirements:
+      {{REQUIREMENTS}}
+
+      Project index:
+      {{context.project_index}}
+
+      Produce 3-7 stories that are independently implementable. Surface any
+      uncertainties as ASSUMPTION: or OPEN_QUESTION: annotations rather than
+      blocking the workflow. Output the story-plan JSON array directly.
+    contextOutputs: [stories]
+    outputs:
+      stories:
+        format: json
+        schema: story-plan
+
+  - id: spec
+    name: Spec Stories
+    type: analysis
+    skill: dartclaw-spec
+    map_over: stories
+    max_parallel: "{{MAX_PARALLEL}}"
+    max_items: 20
+    prompt: |
+      Use the `dartclaw-spec` skill to write a lightweight spec for this story.
+
+      Story {{map.index + 1}} of {{map.length}}:
+      {{map.item.title}} ({{map.item.id}})
+
+      Story description:
+      {{map.item.description}}
+
+      Acceptance criteria:
+      {{map.item.acceptance_criteria}}
+
+      Key files:
+      {{map.item.key_files}}
+
+      Project index:
+      {{context.project_index}}
+
+      Include story scope, key scenarios, acceptance criteria, and any
+      implementation notes that the implement step must honor. End with
+      `## Context Output` and a JSON object containing `story_spec`.
+    contextInputs: [project_index, stories]
+    contextOutputs: [story_spec]
+    outputs:
+      story_spec:
+        format: text
+
+  - id: implement
+    name: Implement Stories
+    type: coding
+    skill: dartclaw-exec-spec
+    map_over: stories
+    max_parallel: "{{MAX_PARALLEL}}"
+    max_items: 20
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Use the `dartclaw-exec-spec` skill to implement this story.
+
+      Story {{map.index + 1}} of {{map.length}}:
+      {{map.item.title}} ({{map.item.id}})
+
+      Story spec:
+      {{context.story_spec[map.index]}}
+
+      Acceptance criteria:
+      {{map.item.acceptance_criteria}}
+
+      Project index:
+      {{context.project_index}}
+
+      Follow the specification precisely. Break the work into execution groups,
+      scaffold failing tests from the scenarios first, verify between groups,
+      and keep each fix scoped. If tests fail, fix them before completing.
+      End with `## Context Output` and a JSON object containing `story_result`.
+    contextInputs: [project_index, stories, story_spec]
+    contextOutputs: [story_result]
+    outputs:
+      story_result:
+        format: text
+
+  - id: review
+    name: Review Stories
+    type: analysis
+    skill: dartclaw-review-code
+    map_over: stories
+    max_parallel: "{{MAX_PARALLEL}}"
+    max_items: 20
+    prompt: |
+      Use the `dartclaw-review-code` skill to review this story implementation.
+
+      Story {{map.index + 1}} of {{map.length}}:
+      {{map.item.title}} ({{map.item.id}})
+
+      Story spec:
+      {{context.story_spec[map.index]}}
+
+      Implementation result:
+      {{context.story_result[map.index]}}
+
+      Acceptance criteria:
+      {{map.item.acceptance_criteria}}
+
+      Project index:
+      {{context.project_index}}
+
+      Evaluate correctness, security, performance, and spec compliance. Provide
+      a PASS/FAIL verdict with findings and severity. Output the verdict JSON
+      directly.
+    contextInputs: [project_index, stories, story_spec, story_result]
+    contextOutputs: [review_result]
+    outputs:
+      review_result:
+        format: json
+        schema: verdict
+
+  - id: synthesize
+    name: Synthesize Stories
+    type: analysis
+    prompt: |
+      Synthesize the mapped story results into a single delivery summary.
+
+      Requirements:
+      {{REQUIREMENTS}}
+
+      Project index:
+      {{context.project_index}}
+
+      Story plans:
+      {{context.stories}}
+
+      Story specs:
+      {{context.story_spec}}
+
+      Story implementations:
+      {{context.story_result}}
+
+      Story reviews:
+      {{context.review_result}}
+
+      Summarize:
+      - Which stories are complete
+      - Which stories still need work
+      - Cross-story risks or integration gaps
+      - Whether remediation is needed before state update
+
+      Set needs_remediation to true if any story still has unresolved findings.
+      End with `## Context Output` and a JSON object containing:
+      - implementation_summary
+      - remediation_plan
+      - needs_remediation
+    contextInputs: [project_index, stories, story_spec, story_result, review_result]
+    contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
+
+  - id: remediate
+    name: Remediate Findings
+    type: coding
+    skill: dartclaw-remediate-findings
+    project: "{{PROJECT}}"
+    review: always
+    prompt: |
+      Use the `dartclaw-remediate-findings` skill to apply minimal fixes for the
+      issues found during story synthesis.
+
+      Project index:
+      {{context.project_index}}
+
+      Remediation plan:
+      {{context.remediation_plan}}
+
+      Story implementations:
+      {{context.story_result}}
+
+      Story reviews:
+      {{context.review_result}}
+
+      If the synthesis indicates no remediation is needed, confirm that no code
+      changes are necessary and explain why the batch is already acceptable.
+      Otherwise, address only the identified gaps and re-validate after each fix.
+      End with `## Context Output` and a JSON object containing:
+      - remediation_summary
+      - diff_summary
+    contextInputs: [project_index, remediation_plan, story_result, review_result]
+    contextOutputs: [remediation_summary, diff_summary]
+
+  - id: update-state
+    name: Update State
+    type: coding
+    skill: dartclaw-update-state
+    project: "{{PROJECT}}"
+    prompt: |
+      Use the `dartclaw-update-state` skill to record the completed batch.
+
+      Project index:
+      {{context.project_index}}
+
+      Requirements:
+      {{REQUIREMENTS}}
+
+      Implementation summary:
+      {{context.implementation_summary}}
+
+      Remediation summary:
+      {{context.remediation_summary}}
+
+      Update the detected framework's state format appropriately and record
+      completion, blockers, and learnings. End with `## Context Output` and a
+      JSON object containing `state_update_summary`.
+    contextInputs: [project_index, implementation_summary, remediation_summary]
+    contextOutputs: [state_update_summary]

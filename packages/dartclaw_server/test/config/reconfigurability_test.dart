@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/behavior/heartbeat_scheduler.dart';
 import 'package:dartclaw_server/src/concurrency/session_lock_manager.dart';
@@ -17,11 +18,8 @@ import 'package:test/test.dart';
 
 /// Builds a [ConfigDelta] with [current] config and [changedKeys].
 /// [previous] defaults to the defaults config.
-ConfigDelta _delta(DartclawConfig current, Set<String> changedKeys) => ConfigDelta(
-  previous: const DartclawConfig.defaults(),
-  current: current,
-  changedKeys: changedKeys,
-);
+ConfigDelta _delta(DartclawConfig current, Set<String> changedKeys) =>
+    ConfigDelta(previous: const DartclawConfig.defaults(), current: current, changedKeys: changedKeys);
 
 void main() {
   // ---------------------------------------------------------------------------
@@ -37,9 +35,7 @@ void main() {
       );
       expect(scheduler.interval, const Duration(minutes: 30));
 
-      final newConfig = DartclawConfig(
-        scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 60),
-      );
+      final newConfig = DartclawConfig(scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 60));
       scheduler.reconfigure(_delta(newConfig, {'scheduling.*'}));
 
       expect(scheduler.interval, const Duration(minutes: 60));
@@ -51,9 +47,7 @@ void main() {
         workspaceDir: '/tmp',
         dispatch: (sessionKey, message) async {},
       );
-      final newConfig = DartclawConfig(
-        scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 30),
-      );
+      final newConfig = DartclawConfig(scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 30));
       // Should not throw or restart timer
       scheduler.reconfigure(_delta(newConfig, {'scheduling.*'}));
       expect(scheduler.interval, const Duration(minutes: 30));
@@ -66,9 +60,7 @@ void main() {
         dispatch: (sessionKey, message) async {},
       );
       // Timer not started — reconfigure should not crash
-      final newConfig = DartclawConfig(
-        scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 15),
-      );
+      final newConfig = DartclawConfig(scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 15));
       scheduler.reconfigure(_delta(newConfig, {'scheduling.*'}));
       expect(scheduler.interval, const Duration(minutes: 15));
     });
@@ -129,24 +121,14 @@ void main() {
 
   group('ScheduleService.reconfigure()', () {
     test('completes without error and does not alter job list', () {
-      final service = ScheduleService(
-        turns: _NoopTurnManager(),
-        sessions: _NoopSessionService(),
-        jobs: const [],
-      );
-      final newConfig = DartclawConfig(
-        scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 60),
-      );
+      final service = ScheduleService(turns: _NoopTurnManager(), sessions: _NoopSessionService(), jobs: const []);
+      final newConfig = DartclawConfig(scheduling: const SchedulingConfig(heartbeatIntervalMinutes: 60));
       // Should not throw
       service.reconfigure(_delta(newConfig, {'scheduling.*'}));
     });
 
     test('watchKeys is scheduling.*', () {
-      final service = ScheduleService(
-        turns: _NoopTurnManager(),
-        sessions: _NoopSessionService(),
-        jobs: const [],
-      );
+      final service = ScheduleService(turns: _NoopTurnManager(), sessions: _NoopSessionService(), jobs: const []);
       expect(service.watchKeys, {'scheduling.*'});
     });
   });
@@ -160,9 +142,7 @@ void main() {
       final manager = SessionLockManager(maxParallel: 3);
       expect(manager.maxParallel, 3);
 
-      final newConfig = DartclawConfig(
-        server: const ServerConfig(maxParallelTurns: 5),
-      );
+      final newConfig = DartclawConfig(server: const ServerConfig(maxParallelTurns: 5));
       manager.reconfigure(_delta(newConfig, {'server.*'}));
 
       expect(manager.maxParallel, 5);
@@ -176,9 +156,7 @@ void main() {
       await manager.acquire('s2');
 
       // Reconfigure to cap of 2
-      final newConfig = DartclawConfig(
-        server: const ServerConfig(maxParallelTurns: 2),
-      );
+      final newConfig = DartclawConfig(server: const ServerConfig(maxParallelTurns: 2));
       manager.reconfigure(_delta(newConfig, {'server.*'}));
 
       // s3 should be rejected (cap now 2, 2 active)
@@ -193,9 +171,7 @@ void main() {
 
     test('no-op when maxParallel is unchanged', () {
       final manager = SessionLockManager(maxParallel: 3);
-      final newConfig = DartclawConfig(
-        server: const ServerConfig(maxParallelTurns: 3),
-      );
+      final newConfig = DartclawConfig(server: const ServerConfig(maxParallelTurns: 3));
       manager.reconfigure(_delta(newConfig, {'server.*'}));
       expect(manager.maxParallel, 3);
     });
@@ -218,9 +194,7 @@ void main() {
         idleTimeoutMinutes: 0,
       );
 
-      final newConfig = DartclawConfig(
-        sessions: const SessionConfig(resetHour: 6, idleTimeoutMinutes: 30),
-      );
+      final newConfig = DartclawConfig(sessions: const SessionConfig(resetHour: 6, idleTimeoutMinutes: 30));
       svc.reconfigure(_delta(newConfig, {'sessions.*'}));
 
       // Internal state is not exposed, but reconfigure() must not throw.
@@ -229,10 +203,7 @@ void main() {
     });
 
     test('watchKeys is sessions.*', () {
-      final svc = SessionResetService(
-        sessions: _NoopSessionService(),
-        messages: _NoopMessageService(),
-      );
+      final svc = SessionResetService(sessions: _NoopSessionService(), messages: _NoopMessageService());
       expect(svc.watchKeys, {'sessions.*'});
     });
   });
@@ -245,9 +216,7 @@ void main() {
     test('updates reserveTokens and warningThreshold', () {
       final monitor = ContextMonitor(reserveTokens: 20000, warningThreshold: 80);
 
-      final newConfig = DartclawConfig(
-        context: const ContextConfig(reserveTokens: 30000, warningThreshold: 90),
-      );
+      final newConfig = DartclawConfig(context: const ContextConfig(reserveTokens: 30000, warningThreshold: 90));
       monitor.reconfigure(_delta(newConfig, {'context.*'}));
 
       expect(monitor.reserveTokens, 30000);
@@ -260,9 +229,7 @@ void main() {
       expect(monitor.shouldFlush, isTrue); // 185000 > 200000 - 20000
 
       // Increase reserve so same token count no longer triggers flush
-      final newConfig = DartclawConfig(
-        context: const ContextConfig(reserveTokens: 10000),
-      );
+      final newConfig = DartclawConfig(context: const ContextConfig(reserveTokens: 10000));
       monitor.reconfigure(_delta(newConfig, {'context.*'}));
       monitor.markFlushCompleted(); // reset pending flag
       expect(monitor.shouldFlush, isFalse); // 185000 < 200000 - 10000 = 190000
@@ -282,9 +249,7 @@ void main() {
       final trimmer = ResultTrimmer(maxBytes: 50 * 1024);
       expect(trimmer.maxBytes, 50 * 1024);
 
-      final newConfig = DartclawConfig(
-        context: const ContextConfig(maxResultBytes: 100 * 1024),
-      );
+      final newConfig = DartclawConfig(context: const ContextConfig(maxResultBytes: 100 * 1024));
       trimmer.reconfigure(_delta(newConfig, {'context.*'}));
 
       expect(trimmer.maxBytes, 100 * 1024);
@@ -296,18 +261,14 @@ void main() {
       expect(trimmer.trim(large), contains('trimmed'));
 
       // Increase limit — same content should now pass through
-      final newConfig = DartclawConfig(
-        context: const ContextConfig(maxResultBytes: 100000),
-      );
+      final newConfig = DartclawConfig(context: const ContextConfig(maxResultBytes: 100000));
       trimmer.reconfigure(_delta(newConfig, {'context.*'}));
       expect(trimmer.trim(large), large); // not trimmed
     });
 
     test('no-op when maxBytes is unchanged', () {
       final trimmer = ResultTrimmer(maxBytes: 50 * 1024);
-      final newConfig = DartclawConfig(
-        context: const ContextConfig(maxResultBytes: 50 * 1024),
-      );
+      final newConfig = DartclawConfig(context: const ContextConfig(maxResultBytes: 50 * 1024));
       trimmer.reconfigure(_delta(newConfig, {'context.*'}));
       expect(trimmer.maxBytes, 50 * 1024);
     });
@@ -357,9 +318,7 @@ void main() {
       );
       notifier.register(scheduler);
 
-      const newConfig = DartclawConfig(
-        scheduling: SchedulingConfig(heartbeatIntervalMinutes: 60),
-      );
+      const newConfig = DartclawConfig(scheduling: SchedulingConfig(heartbeatIntervalMinutes: 60));
       notifier.reload(newConfig);
 
       expect(scheduler.interval, const Duration(minutes: 60));
@@ -390,9 +349,7 @@ void main() {
       notifier.register(scheduler);
 
       // Only change context config — scheduler should NOT be reconfigured
-      const newConfig = DartclawConfig(
-        context: ContextConfig(reserveTokens: 99999),
-      );
+      const newConfig = DartclawConfig(context: ContextConfig(reserveTokens: 99999));
       notifier.reload(newConfig);
 
       // Scheduler interval unchanged — it was not reconfigured

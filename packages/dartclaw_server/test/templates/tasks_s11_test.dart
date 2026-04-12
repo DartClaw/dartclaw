@@ -5,8 +5,7 @@ import 'package:dartclaw_server/src/task/task_service.dart';
 import 'package:dartclaw_server/src/templates/loader.dart';
 import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/templates/tasks.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, TaskEventService, openTaskDbInMemory;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, TaskEventService, openTaskDbInMemory;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -48,11 +47,7 @@ void main() {
 
   group('S11 running card enhancements', () {
     test('renders indeterminate progress bar when no token budget', () {
-      final html = tasksPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        tasks: const [runningTask],
-      );
+      final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [runningTask]);
 
       expect(html, contains('task-progress-indeterminate'));
       expect(html, contains('task-progress'));
@@ -84,11 +79,7 @@ void main() {
     });
 
     test('renders fallback token display when no tracker snapshot', () {
-      final html = tasksPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        tasks: const [runningTask],
-      );
+      final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [runningTask]);
 
       expect(html, contains('0 tokens'));
     });
@@ -167,13 +158,15 @@ void main() {
     test('renders compact events section when task has recent events', () {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
-      eventService.insert(TaskEvent(
-        id: 'evt-1',
-        taskId: 'task-run',
-        timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
-        kind: const ToolCalled(),
-        details: {'name': 'Bash', 'success': true},
-      ));
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-1',
+          taskId: 'task-run',
+          timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
+          kind: const ToolCalled(),
+          details: {'name': 'Bash', 'success': true},
+        ),
+      );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -188,11 +181,7 @@ void main() {
     });
 
     test('omits events section when task has no recent events', () {
-      final html = tasksPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        tasks: const [runningTask],
-      );
+      final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [runningTask]);
 
       expect(html, isNot(contains('task-events')));
     });
@@ -201,13 +190,15 @@ void main() {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
       for (var i = 1; i <= 5; i++) {
-        eventService.insert(TaskEvent(
-          id: 'evt-$i',
-          taskId: 'task-run',
-          timestamp: DateTime.parse('2026-03-24T10:0$i:00Z'),
-          kind: const ToolCalled(),
-          details: {'name': 'Tool$i', 'success': true},
-        ));
+        eventService.insert(
+          TaskEvent(
+            id: 'evt-$i',
+            taskId: 'task-run',
+            timestamp: DateTime.parse('2026-03-24T10:0$i:00Z'),
+            kind: const ToolCalled(),
+            details: {'name': 'Tool$i', 'success': true},
+          ),
+        );
       }
 
       final html = tasksPageTemplate(
@@ -228,20 +219,24 @@ void main() {
     test('event icon classes are set per kind', () {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
-      eventService.insert(TaskEvent(
-        id: 'evt-tool',
-        taskId: 'task-run',
-        timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
-        kind: const ToolCalled(),
-        details: {'name': 'Read', 'success': true},
-      ));
-      eventService.insert(TaskEvent(
-        id: 'evt-artifact',
-        taskId: 'task-run',
-        timestamp: DateTime.parse('2026-03-24T10:03:00Z'),
-        kind: const ArtifactCreated(),
-        details: {'name': 'output.md', 'kind': 'document'},
-      ));
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-tool',
+          taskId: 'task-run',
+          timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
+          kind: const ToolCalled(),
+          details: {'name': 'Read', 'success': true},
+        ),
+      );
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-artifact',
+          taskId: 'task-run',
+          timestamp: DateTime.parse('2026-03-24T10:03:00Z'),
+          kind: const ArtifactCreated(),
+          details: {'name': 'output.md', 'kind': 'document'},
+        ),
+      );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -257,21 +252,13 @@ void main() {
 
   group('S11 non-running task token column', () {
     test('Tokens column header present in non-running table', () {
-      final html = tasksPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        tasks: const [reviewTask],
-      );
+      final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [reviewTask]);
 
       expect(html, contains('<th>Tokens</th>'));
     });
 
     test('shows dash when task has no token events', () {
-      final html = tasksPageTemplate(
-        sidebarData: emptySidebar,
-        navItems: navItems,
-        tasks: const [reviewTask],
-      );
+      final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [reviewTask]);
 
       expect(html, contains('task-tokens-static'));
       expect(html, contains('—'));
@@ -280,13 +267,15 @@ void main() {
     test('shows formatted token total from token events', () {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
-      eventService.insert(TaskEvent(
-        id: 'evt-tok',
-        taskId: 'task-rev',
-        timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
-        kind: const TokenUpdate(),
-        details: {'inputTokens': 8000, 'outputTokens': 2000},
-      ));
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-tok',
+          taskId: 'task-rev',
+          timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
+          kind: const TokenUpdate(),
+          details: {'inputTokens': 8000, 'outputTokens': 2000},
+        ),
+      );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -302,20 +291,24 @@ void main() {
     test('sums multiple token events for total', () {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
-      eventService.insert(TaskEvent(
-        id: 'evt-tok-1',
-        taskId: 'task-rev',
-        timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
-        kind: const TokenUpdate(),
-        details: {'inputTokens': 1000, 'outputTokens': 500},
-      ));
-      eventService.insert(TaskEvent(
-        id: 'evt-tok-2',
-        taskId: 'task-rev',
-        timestamp: DateTime.parse('2026-03-24T10:06:00Z'),
-        kind: const TokenUpdate(),
-        details: {'inputTokens': 500, 'outputTokens': 250},
-      ));
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-tok-1',
+          taskId: 'task-rev',
+          timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
+          kind: const TokenUpdate(),
+          details: {'inputTokens': 1000, 'outputTokens': 500},
+        ),
+      );
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-tok-2',
+          taskId: 'task-rev',
+          timestamp: DateTime.parse('2026-03-24T10:06:00Z'),
+          kind: const TokenUpdate(),
+          details: {'inputTokens': 500, 'outputTokens': 250},
+        ),
+      );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -332,13 +325,15 @@ void main() {
       final db = openTaskDbInMemory();
       final eventService = TaskEventService(db);
       // Insert a pushback event — should not count as tokens
-      eventService.insert(TaskEvent(
-        id: 'evt-push',
-        taskId: 'task-rev',
-        timestamp: DateTime.parse('2026-03-24T10:07:00Z'),
-        kind: const PushBack(),
-        details: {'comment': 'Fix this'},
-      ));
+      eventService.insert(
+        TaskEvent(
+          id: 'evt-push',
+          taskId: 'task-rev',
+          timestamp: DateTime.parse('2026-03-24T10:07:00Z'),
+          kind: const PushBack(),
+          details: {'comment': 'Fix this'},
+        ),
+      );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
@@ -355,23 +350,15 @@ void main() {
 
 /// Creates a [TaskProgressTracker] seeded with [tokensUsed] (and optionally
 /// [tokenBudget]) for [taskId].
-TaskProgressTracker _stubTrackerWithTokens(
-  String taskId, {
-  required int tokensUsed,
-  int? tokenBudget,
-}) {
+TaskProgressTracker _stubTrackerWithTokens(String taskId, {required int tokensUsed, int? tokenBudget}) {
   final eventBus = EventBus();
   final tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
   final tracker = TaskProgressTracker(eventBus: eventBus, tasks: tasks);
-  tracker.seedFromEvents(
-    taskId,
-    [
-      {
-        'kind': 'tokenUpdate',
-        'details': {'inputTokens': tokensUsed, 'outputTokens': 0},
-      },
-    ],
-    tokenBudget: tokenBudget,
-  );
+  tracker.seedFromEvents(taskId, [
+    {
+      'kind': 'tokenUpdate',
+      'details': {'inputTokens': tokensUsed, 'outputTokens': 0},
+    },
+  ], tokenBudget: tokenBudget);
   return tracker;
 }

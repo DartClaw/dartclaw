@@ -15,9 +15,11 @@ class MockQmdManager extends QmdManager {
   bool fakeRunning = true;
 
   MockQmdManager()
-      : super(commandRunner: (exe, args, {workingDirectory}) async {
+    : super(
+        commandRunner: (exe, args, {workingDirectory}) async {
           return ProcessResult(0, 0, '', '');
-        });
+        },
+      );
 
   void addContent(String text, String source) {
     _content.add({'text': text, 'source': source, 'score': 1.0});
@@ -27,17 +29,10 @@ class MockQmdManager extends QmdManager {
   bool get isRunning => fakeRunning;
 
   @override
-  Future<List<Map<String, dynamic>>> query(
-    String queryText, {
-    String depth = 'standard',
-    int limit = 10,
-  }) async {
+  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
     if (queryText.isEmpty) return [];
     final lower = queryText.toLowerCase();
-    return _content
-        .where((c) => (c['text'] as String).toLowerCase().contains(lower))
-        .take(limit)
-        .toList();
+    return _content.where((c) => (c['text'] as String).toLowerCase().contains(lower)).take(limit).toList();
   }
 
   @override

@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-import '../runtime/channel_type.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
 
 /// Normalized inbound message from any channel.
 class ChannelMessage {

@@ -54,20 +54,11 @@ String settingsTemplate({
   // Pre-render status badges.
   final healthBadgeHtml = statusBadgeTemplate(variant: healthVariant, text: healthLabel);
   final whatsAppBadgeVariant = _badgeVariantFromClass(whatsAppStatusClass);
-  final whatsAppStatusBadgeHtml = statusBadgeTemplate(
-    variant: whatsAppBadgeVariant,
-    text: whatsAppStatusLabel,
-  );
+  final whatsAppStatusBadgeHtml = statusBadgeTemplate(variant: whatsAppBadgeVariant, text: whatsAppStatusLabel);
   final signalBadgeVariant = _badgeVariantFromClass(signalStatusClass);
-  final signalStatusBadgeHtml = statusBadgeTemplate(
-    variant: signalBadgeVariant,
-    text: signalStatusLabel,
-  );
+  final signalStatusBadgeHtml = statusBadgeTemplate(variant: signalBadgeVariant, text: signalStatusLabel);
   final googleChatBadgeVariant = _badgeVariantFromClass(googleChatStatusClass);
-  final googleChatStatusBadgeHtml = statusBadgeTemplate(
-    variant: googleChatBadgeVariant,
-    text: googleChatStatusLabel,
-  );
+  final googleChatStatusBadgeHtml = statusBadgeTemplate(variant: googleChatBadgeVariant, text: googleChatStatusLabel);
 
   // Pre-render provider health badges.
   final providersWithBadges = providers.map((p) {
@@ -75,10 +66,7 @@ String settingsTemplate({
     final badgeLabel = p['healthLabel']?.toString() ?? '';
     return {
       ...p,
-      'statusBadgeHtml': statusBadgeTemplate(
-        variant: _badgeVariantFromClass(badgeClass),
-        text: badgeLabel,
-      ),
+      'statusBadgeHtml': statusBadgeTemplate(variant: _badgeVariantFromClass(badgeClass), text: badgeLabel),
     };
   }).toList();
 

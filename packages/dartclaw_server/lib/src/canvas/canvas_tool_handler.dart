@@ -18,12 +18,11 @@ class CanvasTool implements McpTool {
     String? baseUrl,
     CanvasPermission defaultPermission = CanvasPermission.interact,
     Duration defaultTtl = const Duration(hours: 8),
-  })
-    : _canvasService = canvasService,
-      _sessionKey = sessionKey,
-      _baseUrl = baseUrl,
-      _defaultPermission = defaultPermission,
-      _defaultTtl = defaultTtl;
+  }) : _canvasService = canvasService,
+       _sessionKey = sessionKey,
+       _baseUrl = baseUrl,
+       _defaultPermission = defaultPermission,
+       _defaultTtl = defaultTtl;
 
   @override
   String get name => 'canvas';

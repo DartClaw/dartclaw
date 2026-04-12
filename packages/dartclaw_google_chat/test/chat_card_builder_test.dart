@@ -179,7 +179,8 @@ void main() {
       final sections = (cardEntry['sections'] as List).cast<Map<String, dynamic>>();
       expect(sections, hasLength(3));
       final statusWidget =
-          (((sections.first['widgets'] as List).first as Map<String, dynamic>)['decoratedText'] as Map<String, dynamic>);
+          (((sections.first['widgets'] as List).first as Map<String, dynamic>)['decoratedText']
+              as Map<String, dynamic>);
       expect(statusWidget['topLabel'], 'Status');
       expect(statusWidget['text'], contains('Stuck'));
       expect(card.toString(), contains('Reduce scope and rerun the focused test.'));

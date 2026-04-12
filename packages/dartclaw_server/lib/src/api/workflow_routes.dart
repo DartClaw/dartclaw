@@ -18,11 +18,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowSummary, WorkflowDefinitionSource, WorkflowService, stepStatusFromTask;
 
 import '../task/task_service.dart';
-import '../workflow/workflow_definition_source.dart';
-import '../workflow/workflow_service.dart';
-import '../workflow/workflow_view_helpers.dart';
 import 'api_helpers.dart';
 
 final _log = Logger('WorkflowRoutes');

@@ -59,10 +59,7 @@ void main() {
     if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
   });
 
-  TaskExecutor buildExecutor({
-    TaskBudgetConfig? budgetConfig,
-    EventBus? eventBus,
-  }) {
+  TaskExecutor buildExecutor({TaskBudgetConfig? budgetConfig, EventBus? eventBus}) {
     return TaskExecutor(
       tasks: tasks,
       goals: goals,
@@ -111,9 +108,7 @@ void main() {
     });
 
     test('task with budget stops when cumulative tokens exceed limit', () async {
-      final executor = buildExecutor(
-        budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000),
-      );
+      final executor = buildExecutor(budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000));
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
@@ -127,10 +122,7 @@ void main() {
       );
 
       // Seed session cost data exceeding the budget.
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
@@ -154,10 +146,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 1000, turnCount: 3);
 
       await executor.pollOnce();
@@ -194,10 +183,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       // 85% — above default 80% threshold.
       await seedSessionCost(session.id, totalTokens: 850);
 
@@ -231,10 +217,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 850);
 
       // Poll twice — warning should only fire once.
@@ -280,9 +263,7 @@ void main() {
     });
 
     test('task maxTokens overrides global config default', () async {
-      final executor = buildExecutor(
-        budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 5000),
-      );
+      final executor = buildExecutor(budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 5000));
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
@@ -295,10 +276,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       // 700 tokens: exceeds task budget (500) but not config default (5000).
       await seedSessionCost(session.id, totalTokens: 700);
 
@@ -329,10 +307,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       // 640 tokens = ~85% of 750 — above 80% threshold.
       await seedSessionCost(session.id, totalTokens: 640);
 
@@ -343,9 +318,7 @@ void main() {
     });
 
     test('global config default used when no task or goal budget', () async {
-      final executor = buildExecutor(
-        budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000),
-      );
+      final executor = buildExecutor(budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000));
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
@@ -357,10 +330,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
@@ -382,10 +352,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 1500);
 
       await executor.pollOnce();
@@ -394,9 +361,7 @@ void main() {
     });
 
     test('task with no session cost data proceeds (first turn)', () async {
-      final executor = buildExecutor(
-        budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000),
-      );
+      final executor = buildExecutor(budgetConfig: const TaskBudgetConfig(defaultMaxTokens: 1000));
       addTearDown(executor.stop);
       worker.responseText = 'Done.';
 
@@ -429,10 +394,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 1000);
 
       await executor.pollOnce();
@@ -454,10 +416,7 @@ void main() {
         autoStart: true,
       );
 
-      final session = await sessions.getOrCreateByKey(
-        SessionKey.taskSession(taskId: task.id),
-        type: SessionType.task,
-      );
+      final session = await sessions.getOrCreateByKey(SessionKey.taskSession(taskId: task.id), type: SessionType.task);
       await seedSessionCost(session.id, totalTokens: 999999);
 
       await executor.pollOnce();

@@ -23,13 +23,10 @@ class PubSubHealthReporter {
   /// [client] — the running PubSubClient (null if not started).
   /// [subscriptionCount] — callback returning active subscription count.
   /// [enabled] — whether Pub/Sub is configured in the YAML config.
-  PubSubHealthReporter({
-    PubSubClient? client,
-    SubscriptionCountGetter? subscriptionCount,
-    bool enabled = false,
-  }) : _client = client,
-       _subscriptionCount = subscriptionCount,
-       _enabled = enabled;
+  PubSubHealthReporter({PubSubClient? client, SubscriptionCountGetter? subscriptionCount, bool enabled = false})
+    : _client = client,
+      _subscriptionCount = subscriptionCount,
+      _enabled = enabled;
 
   /// Returns a JSON-serializable health status map for the Pub/Sub subsystem.
   ///
@@ -38,20 +35,13 @@ class PubSubHealthReporter {
   /// "Not configured" state.
   Map<String, dynamic> getStatus() {
     if (!_enabled) {
-      return {
-        'status': 'disabled',
-        'enabled': false,
-      };
+      return {'status': 'disabled', 'enabled': false};
     }
 
     final client = _client;
     if (client == null) {
       _log.fine('Pub/Sub configured but client not started');
-      return {
-        'status': 'unavailable',
-        'enabled': true,
-        'active_subscriptions': _safeSubscriptionCount(),
-      };
+      return {'status': 'unavailable', 'enabled': true, 'active_subscriptions': _safeSubscriptionCount()};
     }
 
     final health = client.healthStatus;

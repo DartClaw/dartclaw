@@ -1,5 +1,14 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show TaskEvent, TaskEventKind, StatusChanged, ToolCalled, ArtifactCreated, PushBack, TokenUpdate, TaskErrorEvent, Compaction;
+    show
+        TaskEvent,
+        TaskEventKind,
+        StatusChanged,
+        ToolCalled,
+        ArtifactCreated,
+        PushBack,
+        TokenUpdate,
+        TaskErrorEvent,
+        Compaction;
 
 import '../task/tool_call_summary.dart';
 import 'helpers.dart';

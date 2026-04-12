@@ -1,7 +1,8 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
+
 import 'task.dart';
 import 'task_artifact.dart';
 import 'task_status.dart';
-import 'task_type.dart';
 
 /// Storage-agnostic contract for task persistence.
 abstract class TaskRepository {

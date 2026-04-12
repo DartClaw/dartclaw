@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
-        DartclawConfig,
         EventBus,
         HarnessFactory,
         TaskStatus,
@@ -15,7 +15,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         WorkflowApprovalRequestedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowService, WorkspaceService;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkspaceService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 
 import '../config_loader.dart';
@@ -240,11 +241,7 @@ class WorkflowRunCommand extends Command<void> {
         WorkflowRunStatus.paused => () {
           final approval = lastApprovalEvent;
           if (approval != null) {
-            printer.workflowApprovalPaused(
-              finalRun.currentStepIndex - 1,
-              approval.stepId,
-              approval.message,
-            );
+            printer.workflowApprovalPaused(finalRun.currentStepIndex - 1, approval.stepId, approval.message);
           } else {
             printer.workflowPaused(finalRun.currentStepIndex, finalRun.errorMessage);
           }
@@ -270,10 +267,7 @@ class WorkflowRunCommand extends Command<void> {
     for (final arg in varArgs) {
       final eqIndex = arg.indexOf('=');
       if (eqIndex < 1) {
-        throw UsageException(
-          'Invalid variable format: "$arg" (expected KEY=VALUE)',
-          usage,
-        );
+        throw UsageException('Invalid variable format: "$arg" (expected KEY=VALUE)', usage);
       }
       final key = arg.substring(0, eqIndex);
       final value = arg.substring(eqIndex + 1);

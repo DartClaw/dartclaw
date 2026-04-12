@@ -192,6 +192,20 @@ void main() {
       expect(await errorCode(response), 'INVALID_INPUT');
     });
 
+    test('returns 400 when configJson includes internal underscore-prefixed keys', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'configJson': {'_workflowWorkspaceDir': '/tmp/override'},
+        }),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'INVALID_INPUT');
+    });
+
     // Note: draft-only creation (autoStart:false) does not fire a TaskStatusChangedEvent.
     // Events are fired by TaskService.transition() on status changes only.
     // See task_service_events_test.dart for event centralization tests.

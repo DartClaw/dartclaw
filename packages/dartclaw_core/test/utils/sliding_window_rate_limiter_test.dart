@@ -6,10 +6,7 @@ void main() {
   final t0 = DateTime(2024, 1, 1, 12, 0, 0);
 
   setUp(() {
-    limiter = SlidingWindowRateLimiter(
-      limit: 3,
-      window: const Duration(minutes: 1),
-    );
+    limiter = SlidingWindowRateLimiter(limit: 3, window: const Duration(minutes: 1));
   });
 
   group('SlidingWindowRateLimiter', () {
@@ -35,20 +32,14 @@ void main() {
     });
 
     test('zero limit — always allowed', () {
-      final unlimitedLimiter = SlidingWindowRateLimiter(
-        limit: 0,
-        window: const Duration(minutes: 1),
-      );
+      final unlimitedLimiter = SlidingWindowRateLimiter(limit: 0, window: const Duration(minutes: 1));
       for (var i = 0; i < 100; i++) {
         expect(unlimitedLimiter.check('a'), isTrue);
       }
     });
 
     test('negative limit — always allowed', () {
-      final unlimitedLimiter = SlidingWindowRateLimiter(
-        limit: -1,
-        window: const Duration(minutes: 1),
-      );
+      final unlimitedLimiter = SlidingWindowRateLimiter(limit: -1, window: const Duration(minutes: 1));
       expect(unlimitedLimiter.check('a'), isTrue);
     });
 
@@ -81,10 +72,7 @@ void main() {
     });
 
     test('usage returns 0.0 for zero limit', () {
-      final unlimitedLimiter = SlidingWindowRateLimiter(
-        limit: 0,
-        window: const Duration(minutes: 1),
-      );
+      final unlimitedLimiter = SlidingWindowRateLimiter(limit: 0, window: const Duration(minutes: 1));
       expect(unlimitedLimiter.usage('a'), 0.0);
     });
 

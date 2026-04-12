@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CredentialsConfig;
-import 'package:dartclaw_models/dartclaw_models.dart' show Project;
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 
 import 'git_credential_env.dart';
@@ -55,7 +54,8 @@ class RemotePushService {
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String>? environment,
-  })? _processRunner;
+  })?
+  _processRunner;
 
   RemotePushService({
     CredentialsConfig? credentials,
@@ -65,19 +65,17 @@ class RemotePushService {
       List<String> arguments, {
       String? workingDirectory,
       Map<String, String>? environment,
-    })? processRunner,
-  })  : _credentials = credentials,
-        _dataDir = dataDir,
-        _processRunner = processRunner;
+    })?
+    processRunner,
+  }) : _credentials = credentials,
+       _dataDir = dataDir,
+       _processRunner = processRunner;
 
   /// Pushes [branch] to the remote for [project].
   ///
   /// Runs git push via [Isolate.run] to avoid blocking the event loop.
   /// Resolves credentials from [project.credentialsRef].
-  Future<PushResult> push({
-    required Project project,
-    required String branch,
-  }) async {
+  Future<PushResult> push({required Project project, required String branch}) async {
     final env = _credentials != null
         ? resolveGitCredentialEnv(
             project.remoteUrl,
@@ -111,17 +109,8 @@ class RemotePushService {
       final wdCopy = localPath;
 
       final result = await Isolate.run(() async {
-        final r = await Process.run(
-          'git',
-          argsCopy,
-          workingDirectory: wdCopy,
-          environment: envCopy,
-        );
-        return (
-          exitCode: r.exitCode,
-          stdout: r.stdout as String,
-          stderr: r.stderr as String,
-        );
+        final r = await Process.run('git', argsCopy, workingDirectory: wdCopy, environment: envCopy);
+        return (exitCode: r.exitCode, stdout: r.stdout as String, stderr: r.stderr as String);
       });
       exitCode = result.exitCode;
       stderr = result.stderr;

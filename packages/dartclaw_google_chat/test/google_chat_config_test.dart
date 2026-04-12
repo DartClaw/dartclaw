@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelType, DartclawConfig, DmAccessMode, GroupAccessMode;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:test/test.dart';
 

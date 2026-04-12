@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-import '../config/governance_config.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show LoopDetectionConfig;
 import 'loop_detection.dart';
 
 /// Detects agent loop patterns using three independent mechanisms.
@@ -39,7 +39,8 @@ class LoopDetector {
       return LoopDetection(
         mechanism: LoopMechanism.turnChainDepth,
         sessionId: sessionId,
-        message: 'Consecutive turn chain depth $depth exceeds '
+        message:
+            'Consecutive turn chain depth $depth exceeds '
             'threshold ${_config.maxConsecutiveTurns}',
         detail: {'depth': depth, 'threshold': _config.maxConsecutiveTurns},
       );
@@ -90,14 +91,11 @@ class LoopDetector {
       return LoopDetection(
         mechanism: LoopMechanism.tokenVelocity,
         sessionId: sessionId,
-        message: 'Token velocity $totalTokens tokens in '
+        message:
+            'Token velocity $totalTokens tokens in '
             '${windowMinutes}min window exceeds threshold '
             '$maxTokensInWindow',
-        detail: {
-          'tokensInWindow': totalTokens,
-          'maxTokensInWindow': maxTokensInWindow,
-          'windowMinutes': windowMinutes,
-        },
+        detail: {'tokensInWindow': totalTokens, 'maxTokensInWindow': maxTokensInWindow, 'windowMinutes': windowMinutes},
       );
     }
     return null;
@@ -110,12 +108,7 @@ class LoopDetector {
   /// Returns a [LoopDetection] if the same tool is called with identical
   /// arguments [LoopDetectionConfig.maxConsecutiveIdenticalToolCalls] or more times
   /// consecutively within [turnId].
-  LoopDetection? recordToolCall(
-    String turnId,
-    String sessionId,
-    String toolName,
-    Map<String, dynamic> args,
-  ) {
+  LoopDetection? recordToolCall(String turnId, String sessionId, String toolName, Map<String, dynamic> args) {
     if (!_config.enabled || _config.maxConsecutiveIdenticalToolCalls <= 0) {
       return null;
     }
@@ -130,7 +123,8 @@ class LoopDetector {
         return LoopDetection(
           mechanism: LoopMechanism.toolFingerprint,
           sessionId: sessionId,
-          message: 'Tool "$toolName" called $newCount consecutive times '
+          message:
+              'Tool "$toolName" called $newCount consecutive times '
               'with identical arguments '
               '(threshold: ${_config.maxConsecutiveIdenticalToolCalls})',
           detail: {
@@ -181,8 +175,7 @@ class LoopDetector {
   static String _canonicalJson(dynamic value) {
     if (value is Map<String, dynamic>) {
       final sorted = SplayTreeMap<String, dynamic>.from(value);
-      final entries = sorted.entries
-          .map((e) => '"${_escapeJson(e.key)}":${_canonicalJson(e.value)}');
+      final entries = sorted.entries.map((e) => '"${_escapeJson(e.key)}":${_canonicalJson(e.value)}');
       return '{${entries.join(',')}}';
     }
     if (value is List) {
@@ -195,6 +188,5 @@ class LoopDetector {
     return value.toString(); // int, double, bool
   }
 
-  static String _escapeJson(String s) =>
-      s.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+  static String _escapeJson(String s) => s.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
 }

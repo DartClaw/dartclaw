@@ -6,6 +6,15 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show ensureDartclawGoogleChatRegistered;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        SkillRegistryImpl,
+        WorkflowDefinitionParser,
+        WorkflowDefinitionValidator,
+        WorkflowRegistry,
+        WorkflowService,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -13,6 +22,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
+import 'workflow_skill_materializer.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
 import 'wiring/storage_wiring.dart';
@@ -80,6 +90,7 @@ class ServiceWiring {
   final DartclawConfig config;
   final String dataDir;
   final int port;
+  final String? skillsHomeDir;
   final HarnessFactory harnessFactory;
   final ServerFactory serverFactory;
   final SearchDbFactory searchDbFactory;
@@ -96,6 +107,7 @@ class ServiceWiring {
     required this.config,
     required this.dataDir,
     required this.port,
+    this.skillsHomeDir,
     required this.harnessFactory,
     required this.serverFactory,
     required this.searchDbFactory,
@@ -122,6 +134,15 @@ class ServiceWiring {
     // 0. Projects — initialize before other services to allow project-aware wiring.
     final project = ProjectWiring(config: config, dataDir: dataDir, eventBus: eventBus);
     await project.wire();
+
+    final projectDirs = _workflowSkillProjectDirs(config);
+    final builtInSkillsSourceDir = WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    await WorkflowSkillMaterializer.materialize(
+      activeHarnessTypes: _activeHarnessTypes(config),
+      homeDir: skillsHomeDir,
+      dataDir: dataDir,
+      sourceDir: builtInSkillsSourceDir,
+    );
 
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.
     final storage = StorageWiring(
@@ -314,20 +335,41 @@ class ServiceWiring {
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
       messageService: storage.messages,
-      turnManager: serverTurns,
+      turnAdapter: WorkflowTurnAdapter(
+        workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
+        reserveTurn: serverTurns.reserveTurn,
+        reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => serverTurns.reserveTurn(
+          sessionId,
+          agentName: 'task',
+          behaviorOverride: BehaviorFileService(
+            workspaceDir: workflowWorkspaceDir,
+            maxMemoryBytes: config.memory.maxBytes,
+            compactInstructions: config.context.compactInstructions,
+            identifierPreservation: config.context.identifierPreservation,
+            identifierInstructions: config.context.identifierInstructions,
+          ),
+          promptScope: PromptScope.task,
+        ),
+        executeTurn: serverTurns.executeTurn,
+        waitForOutcome: (sessionId, turnId) async {
+          final outcome = await serverTurns.waitForOutcome(sessionId, turnId);
+          return WorkflowTurnOutcome(status: outcome.status.name);
+        },
+        availableRunnerCount: () => serverTurns.availableRunnerCount,
+      ),
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,
     );
     await workflowService.recoverIncompleteRuns();
 
-    // Skill registry — discover Agent Skills from 6 prioritized sources.
+    // Skill registry — discover Agent Skills from 7 prioritized sources.
     final skillRegistry = SkillRegistryImpl();
-    final activeProject = config.projects.definitions.values.firstOrNull;
     skillRegistry.discover(
-      projectDir: activeProject != null ? p.join(config.projectsClonesDir, activeProject.id) : null,
+      projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
       dataDir: dataDir,
+      builtInSkillsDir: builtInSkillsSourceDir,
     );
 
     // Workflow registry — load built-in workflows, then discover custom ones
@@ -398,7 +440,7 @@ class ServiceWiring {
     await scheduling.wire(serverRefGetter: () => serverRef, turns: serverTurns, contextMonitor: harness.contextMonitor);
 
     // Scope reconciler — reacts to ConfigChangedEvent to update live scope.
-    final scopeReconciler = config_tools.ScopeReconciler(liveScopeConfig: LiveScopeConfig(config.sessions.scopeConfig));
+    final scopeReconciler = ScopeReconciler(liveScopeConfig: LiveScopeConfig(config.sessions.scopeConfig));
     scopeReconciler.subscribe(eventBus);
 
     // Pre-create group sessions for allowlisted groups.
@@ -827,4 +869,29 @@ class ServiceWiring {
       channelManager: channelManager,
     );
   }
+}
+
+Set<String> _activeHarnessTypes(config_tools.DartclawConfig config) {
+  final harnessTypes = <String>{};
+
+  void addProvider(String providerId) {
+    final family = config_tools.ProviderIdentity.family(providerId);
+    if (family == 'claude' || family == 'codex') {
+      harnessTypes.add(family);
+    }
+  }
+
+  addProvider(config.agent.provider);
+  for (final providerId in config.providers.entries.keys) {
+    addProvider(providerId);
+  }
+
+  return harnessTypes;
+}
+
+List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
+  if (config.projects.definitions.isEmpty) {
+    return [Directory.current.path];
+  }
+  return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
 }

@@ -18,18 +18,14 @@ void main() {
     });
 
     test('escapes embedded triple quotes in developer instructions', () {
-      final config = CodexConfigGenerator.generate(
-        developerInstructions: 'alpha """ beta',
-      );
+      final config = CodexConfigGenerator.generate(developerInstructions: 'alpha """ beta');
 
       expect(config, contains(r'\"""'));
       expect(config, isNot(contains('alpha """ beta')));
     });
 
     test('omits MCP section when URL is null', () {
-      final config = CodexConfigGenerator.generate(
-        developerInstructions: 'standalone',
-      );
+      final config = CodexConfigGenerator.generate(developerInstructions: 'standalone');
 
       expect(config, contains('developer_instructions = """'));
       expect(config, isNot(contains('[mcp_servers.dartclaw]')));
@@ -43,28 +39,18 @@ void main() {
       );
 
       expect(config, contains('[mcp_servers.dartclaw]'));
-      expect(
-        config,
-        contains(
-          'bearer_token_env_var = "${CodexConfigGenerator.defaultMcpBearerTokenEnvVar}"',
-        ),
-      );
+      expect(config, contains('bearer_token_env_var = "${CodexConfigGenerator.defaultMcpBearerTokenEnvVar}"'));
     });
 
     test('omits MCP section when URL is blank', () {
-      final config = CodexConfigGenerator.generate(
-        developerInstructions: 'standalone',
-        mcpServerUrl: '   ',
-      );
+      final config = CodexConfigGenerator.generate(developerInstructions: 'standalone', mcpServerUrl: '   ');
 
       expect(config, isNot(contains('[mcp_servers.dartclaw]')));
       expect(config, isNot(contains('bearer_token_env_var')));
     });
 
     test('handles empty developer instructions', () {
-      final config = CodexConfigGenerator.generate(
-        developerInstructions: '',
-      );
+      final config = CodexConfigGenerator.generate(developerInstructions: '');
 
       expect(config, contains('developer_instructions = """\n\n"""'));
       expect(config, isNot(contains('[mcp_servers.dartclaw]')));

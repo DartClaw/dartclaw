@@ -15,11 +15,8 @@ class CliProgressPrinter {
   final WriteLine _writeLine;
   final Stopwatch _stopwatch = Stopwatch();
 
-  CliProgressPrinter({
-    required this.totalSteps,
-    required this.workflowName,
-    required WriteLine writeLine,
-  }) : _writeLine = writeLine;
+  CliProgressPrinter({required this.totalSteps, required this.workflowName, required WriteLine writeLine})
+    : _writeLine = writeLine;
 
   void workflowStarted() {
     _stopwatch.start();
@@ -42,8 +39,10 @@ class CliProgressPrinter {
   }
 
   void stepFailed(int stepIndex, String stepId, String? error) {
-    _writeLine('[step ${stepIndex + 1}/$totalSteps] $stepId: '
-        'failed${error != null ? ' — $error' : ''}');
+    _writeLine(
+      '[step ${stepIndex + 1}/$totalSteps] $stepId: '
+      'failed${error != null ? ' — $error' : ''}',
+    );
   }
 
   void workflowCompleted(int completedSteps, int tokens) {
@@ -53,19 +52,25 @@ class CliProgressPrinter {
   }
 
   void workflowFailed(int completedSteps, String? error) {
-    _writeLine('[workflow] Failed at step ${completedSteps + 1}/$totalSteps'
-        '${error != null ? ': $error' : ''}');
+    _writeLine(
+      '[workflow] Failed at step ${completedSteps + 1}/$totalSteps'
+      '${error != null ? ': $error' : ''}',
+    );
   }
 
   void workflowPaused(int completedSteps, String? reason) {
-    _writeLine('[workflow] Paused at step ${completedSteps + 1}/$totalSteps'
-        '${reason != null ? ': $reason' : ''}');
+    _writeLine(
+      '[workflow] Paused at step ${completedSteps + 1}/$totalSteps'
+      '${reason != null ? ': $reason' : ''}',
+    );
   }
 
   void workflowApprovalPaused(int completedSteps, String stepId, String message) {
     _writeLine('[workflow] Awaiting approval at step ${completedSteps + 1}/$totalSteps ($stepId)');
     _writeLine('[workflow] Approval request: $message');
-    _writeLine('[workflow] Use `dartclaw workflow resume <runId>` to approve or `dartclaw workflow cancel <runId>` to reject.');
+    _writeLine(
+      '[workflow] Use `dartclaw workflow resume <runId>` to approve or `dartclaw workflow cancel <runId>` to reject.',
+    );
   }
 
   void workflowCancelling() {

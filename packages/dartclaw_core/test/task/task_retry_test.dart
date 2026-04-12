@@ -103,11 +103,7 @@ void main() {
 
     test('failed.canTransitionTo only allows queued', () {
       for (final target in TaskStatus.values.where((s) => s != TaskStatus.queued)) {
-        expect(
-          TaskStatus.failed.canTransitionTo(target),
-          isFalse,
-          reason: 'failed should not transition to $target',
-        );
+        expect(TaskStatus.failed.canTransitionTo(target), isFalse, reason: 'failed should not transition to $target');
       }
     });
 

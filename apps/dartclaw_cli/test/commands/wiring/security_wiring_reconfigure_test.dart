@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 

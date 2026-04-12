@@ -695,7 +695,9 @@ void main() {
         fake.emitItemCompleted('contextCompaction', 'compact-2');
         await pumpEventLoop();
 
-        final compactionEvents = events.where((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent).toList();
+        final compactionEvents = events
+            .where((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent)
+            .toList();
         expect(compactionEvents, hasLength(2));
         expect(compactionEvents[0], isA<CompactionStartingBridgeEvent>());
         expect(compactionEvents[1], isA<CompactionCompletedBridgeEvent>());
@@ -712,7 +714,10 @@ void main() {
         addTearDown(() async => sub.cancel());
 
         await pumpEventLoop();
-        fake.emitLine({'method': 'thread/compactedNotification', 'params': {'thread_id': 'thread-1'}});
+        fake.emitLine({
+          'method': 'thread/compactedNotification',
+          'params': {'thread_id': 'thread-1'},
+        });
         await pumpEventLoop();
 
         expect(events.any((e) => e is CompactionStartingBridgeEvent || e is CompactionCompletedBridgeEvent), isFalse);

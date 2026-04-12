@@ -267,14 +267,16 @@ void main() {
       final received = <ParallelGroupCompletedEvent>[];
       final sub = bus.on<ParallelGroupCompletedEvent>().listen(received.add);
 
-      bus.fire(ParallelGroupCompletedEvent(
-        runId: 'run-1',
-        stepIds: ['s1', 's2'],
-        successCount: 2,
-        failureCount: 0,
-        totalTokens: 1000,
-        timestamp: DateTime.now(),
-      ));
+      bus.fire(
+        ParallelGroupCompletedEvent(
+          runId: 'run-1',
+          stepIds: ['s1', 's2'],
+          successCount: 2,
+          failureCount: 0,
+          totalTokens: 1000,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
@@ -334,14 +336,16 @@ void main() {
       final received = <LoopIterationCompletedEvent>[];
       final sub = bus.on<LoopIterationCompletedEvent>().listen(received.add);
 
-      bus.fire(LoopIterationCompletedEvent(
-        runId: 'run-1',
-        loopId: 'loop1',
-        iteration: 1,
-        maxIterations: 3,
-        gateResult: false,
-        timestamp: DateTime.now(),
-      ));
+      bus.fire(
+        LoopIterationCompletedEvent(
+          runId: 'run-1',
+          loopId: 'loop1',
+          iteration: 1,
+          maxIterations: 3,
+          gateResult: false,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
@@ -355,14 +359,26 @@ void main() {
       final received = <WorkflowLifecycleEvent>[];
       final sub = bus.on<WorkflowLifecycleEvent>().listen(received.add);
 
-      bus.fire(ParallelGroupCompletedEvent(
-        runId: 'run-1', stepIds: ['s1'], successCount: 1,
-        failureCount: 0, totalTokens: 0, timestamp: DateTime.now(),
-      ));
-      bus.fire(LoopIterationCompletedEvent(
-        runId: 'run-1', loopId: 'l1', iteration: 1,
-        maxIterations: 2, gateResult: true, timestamp: DateTime.now(),
-      ));
+      bus.fire(
+        ParallelGroupCompletedEvent(
+          runId: 'run-1',
+          stepIds: ['s1'],
+          successCount: 1,
+          failureCount: 0,
+          totalTokens: 0,
+          timestamp: DateTime.now(),
+        ),
+      );
+      bus.fire(
+        LoopIterationCompletedEvent(
+          runId: 'run-1',
+          loopId: 'l1',
+          iteration: 1,
+          maxIterations: 2,
+          gateResult: true,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();

@@ -48,33 +48,44 @@ Launch handoff options are `--launch foreground`, `--launch background`, `--laun
 
 The old three-step `dartclaw deploy setup / config / secrets` workflow used root-scoped system daemons. Use `dartclaw init` + `dartclaw service` instead. `dartclaw deploy setup` now emits a deprecation notice and redirects to `dartclaw init`.
 
-## AOT Compilation
+## Standalone Binary
 
-Compile DartClaw to a native binary for production:
+Use the repo build entrypoint to produce the production binary:
 
 ```bash
-dart compile exe apps/dartclaw_cli/bin/dartclaw.dart -o dartclaw
+make build
+# or
+bash tool/build.sh
 ```
 
-The resulting binary has zero runtime dependencies (no Dart SDK needed).
+`tool/build.sh` runs asset embedding first, then compiles `apps/dartclaw_cli/bin/dartclaw.dart` to
+`build/dartclaw`, and restores the committed stub files afterward. The resulting binary embeds the web UI
+templates, static assets, and built-in skills, so it can run without `--source-dir`, `--templates-dir`, or
+`--static-dir`.
+
+```bash
+build/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw
+```
 
 ### Running Outside the Source Tree
 
-The compiled binary (and `dart run`) expects **templates** and **static assets** at paths relative to `cwd`:
+The notes below apply only to clone-based or development runs where DartClaw is intentionally reading files from
+the workspace. `dart run ...` and `dartclaw serve --dev` continue to use the filesystem so template hot-reload
+keeps working.
 
 | Asset | Default path (relative to cwd) | CLI flag |
 |-------|-------------------------------|----------|
 | Templates | `packages/dartclaw_server/lib/src/templates` | `--source-dir` or `--templates-dir` |
 | Static assets | `packages/dartclaw_server/lib/src/static` | `--source-dir` or `--static-dir` |
 
-If you run the binary from a directory other than the source root, template loading fails at startup with `Template validation failed: Missing templates: ...`.
+If you run from a checkout without a standalone build, template loading fails at startup with `Template validation failed: Missing templates: ...`.
 
 **Workarounds**:
 
 ```bash
 # Option 1: Run from the source root (simplest)
 cd /path/to/dartclaw-public
-./dartclaw serve --config /path/to/your/dartclaw.yaml
+build/dartclaw serve --config /path/to/your/dartclaw.yaml
 
 # Option 2: Symlink the template directory into your working directory
 mkdir -p packages/dartclaw_server/lib/src
@@ -88,7 +99,7 @@ cp -r /path/to/dartclaw-public/packages/dartclaw_server/lib/src/static \
       packages/dartclaw_server/lib/src/static
 ```
 
-When you install a service from the repository root, `dartclaw service install` automatically carries `--source-dir` into the generated unit so background services keep the right runtime context. For manual runs, pass `--source-dir /path/to/dartclaw-public` explicitly if needed.
+When you install a service from the repository root for a clone-based deployment, `dartclaw service install` automatically carries `--source-dir` into the generated unit so background services keep the right runtime context. Standalone binaries do not need that workaround because they embed the UI and skills.
 
 **Note**: This limitation also affects `dart run` when `cwd` is not the pub workspace root — for example, when you want DartClaw's `_local` project to point at a different repository. See [Projects & Git § Limitations](projects-and-git.md#limitations-and-future-considerations) for details.
 

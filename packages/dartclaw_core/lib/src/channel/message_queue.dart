@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:dartclaw_models/dartclaw_models.dart' show RetryPolicy;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
-import '../config/governance_config.dart';
-import '../scoping/channel_config.dart';
+
+import 'package:dartclaw_config/dartclaw_config.dart' show QueueStrategy;
 import 'channel.dart';
 import 'recipient_resolver.dart';
 

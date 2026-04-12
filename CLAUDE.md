@@ -98,7 +98,7 @@ Users customize DartClaw at five levels (see `docs/guide/customization.md`):
 
 1. **L1 — Behavior files** (no code): Edit `SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md` in `~/.dartclaw/workspace/`
 2. **L2 — Config YAML** (no code): Tune `dartclaw.yaml` — guards, channels, scheduling, session scoping
-3. **L3 — Skills** (no code): Prompt templates in `.claude/skills/`
+3. **L3 — Skills** (no code): Prompt templates in `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for other agents
 4. **L4 — MCP servers** (minimal code): Tool integrations via `.mcp.json`
 5. **L5 — Dart source**: Custom guards, channels, templates, MCP tools
 
@@ -114,6 +114,12 @@ Always suggest the lowest level that solves the user's need.
   logs/                  Structured logs
   dartclaw.db            SQLite search index
 ```
+
+## Testing Profiles
+
+- `bash ../dartclaw-private/docs/testing/plain/run.sh` — no channels, guards on, seeded sessions and jobs.
+- `bash ../dartclaw-private/docs/testing/channels/run.sh` — WhatsApp + Signal testing profile for channel E2E work.
+- `bash ../dartclaw-private/docs/testing/workflows/run.sh` — workflow profile with a custom `workflow.workspace_dir`, built-in skill discovery, and the 4 built-in workflows.
 
 ## Prerequisites
 

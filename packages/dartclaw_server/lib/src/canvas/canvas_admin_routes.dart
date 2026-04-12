@@ -64,10 +64,7 @@ Router canvasAdminRoutes({required CanvasService canvasService}) {
       streamUrl: '/api/sessions/${Uri.encodeComponent(sessionKey)}/canvas/embed/stream',
       nonce: nonce,
     );
-    return Response.ok(html, headers: {
-      ...htmlHeaders,
-      'Content-Security-Policy': canvasCspHeader(nonce),
-    });
+    return Response.ok(html, headers: {...htmlHeaders, 'Content-Security-Policy': canvasCspHeader(nonce)});
   });
 
   router.get('/api/sessions/<key>/canvas/embed/stream', (Request request, String key) {

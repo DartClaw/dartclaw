@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 
 /// Callback for running shell commands (injectable for tests).

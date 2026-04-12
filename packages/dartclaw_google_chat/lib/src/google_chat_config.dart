@@ -1,5 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show DmAccessMode, GroupAccessMode, GroupEntry, TaskTriggerConfig, tryParseDuration;
+import 'package:dartclaw_config/dartclaw_config.dart' show tryParseDuration;
+import 'package:dartclaw_core/dartclaw_core.dart' show DmAccessMode, GroupAccessMode, GroupEntry, TaskTriggerConfig;
 
 /// Configuration for the Cloud Pub/Sub pull client.
 class PubSubConfig {

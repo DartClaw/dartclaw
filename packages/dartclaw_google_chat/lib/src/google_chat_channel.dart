@@ -265,10 +265,7 @@ class GoogleChatChannel extends Channel {
     final chunks = chunkText(markdownToGoogleChat(text.trimLeft()), maxSize: 4000);
     return [
       for (final entry in chunks.asMap().entries)
-        ChannelResponse(
-          text: entry.value,
-          metadata: {_firstChunkMetadataKey: entry.key == 0},
-        ),
+        ChannelResponse(text: entry.value, metadata: {_firstChunkMetadataKey: entry.key == 0}),
     ];
   }
 

@@ -5,7 +5,7 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
-import 'agent_definition.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show AgentDefinition;
 import 'subagent_limits.dart';
 
 /// Callback to dispatch a turn to an agent and return the result text.

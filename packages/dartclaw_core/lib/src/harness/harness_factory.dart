@@ -1,11 +1,11 @@
 import 'package:dartclaw_security/dartclaw_security.dart';
 
-import '../config/history_config.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
 import 'agent_harness.dart';
 import 'claude_code_harness.dart';
 import 'codex_exec_harness.dart';
 import 'codex_harness.dart';
-import '../container/container_manager.dart';
+import '../container/container_executor.dart';
 import 'harness_config.dart';
 
 /// Configuration bundle used when constructing a harness through [HarnessFactory].
@@ -29,7 +29,7 @@ class HarnessFactoryConfig {
   final Map<String, String> environment;
 
   /// Optional container manager used to spawn the harness in isolation.
-  final ContainerManager? containerManager;
+  final ContainerExecutor? containerManager;
 
   /// Optional guard evaluation chain used by Claude harnesses.
   final GuardChain? guardChain;

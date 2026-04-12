@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_server/src/alerts/alert_delivery_adapter.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';

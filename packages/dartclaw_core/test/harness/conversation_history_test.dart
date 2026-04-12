@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/src/config/history_config.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/src/harness/conversation_history.dart';
 import 'package:test/test.dart';
 
@@ -18,10 +18,7 @@ void main() {
   group('buildReplaySafeHistory', () {
     group('T1: Excludes [Blocked by guard: ...] pairs', () {
       test('single blocked pair → empty output', () {
-        final messages = [
-          _msg('user', 'hello'),
-          _msg('assistant', '[Blocked by guard: profanity]'),
-        ];
+        final messages = [_msg('user', 'hello'), _msg('assistant', '[Blocked by guard: profanity]')];
         final result = buildReplaySafeHistory(messages, _defaultConfig);
         expect(result, isEmpty);
       });
@@ -45,34 +42,22 @@ void main() {
 
     group('T3: Excludes synthetic markers', () {
       test('[Turn failed] pair excluded', () {
-        final messages = [
-          _msg('user', 'a'),
-          _msg('assistant', '[Turn failed]'),
-        ];
+        final messages = [_msg('user', 'a'), _msg('assistant', '[Turn failed]')];
         expect(buildReplaySafeHistory(messages, _defaultConfig), isEmpty);
       });
 
       test('[Turn failed: reason] pair excluded', () {
-        final messages = [
-          _msg('user', 'a'),
-          _msg('assistant', '[Turn failed: timed out]'),
-        ];
+        final messages = [_msg('user', 'a'), _msg('assistant', '[Turn failed: timed out]')];
         expect(buildReplaySafeHistory(messages, _defaultConfig), isEmpty);
       });
 
       test('[Turn cancelled] pair excluded', () {
-        final messages = [
-          _msg('user', 'b'),
-          _msg('assistant', '[Turn cancelled]'),
-        ];
+        final messages = [_msg('user', 'b'), _msg('assistant', '[Turn cancelled]')];
         expect(buildReplaySafeHistory(messages, _defaultConfig), isEmpty);
       });
 
       test('[Loop detected: ...] pair excluded', () {
-        final messages = [
-          _msg('user', 'c'),
-          _msg('assistant', '[Loop detected: too many retries]'),
-        ];
+        final messages = [_msg('user', 'c'), _msg('assistant', '[Loop detected: too many retries]')];
         expect(buildReplaySafeHistory(messages, _defaultConfig), isEmpty);
       });
 
@@ -91,11 +76,7 @@ void main() {
 
     group('T4: Trailing orphaned user message excluded', () {
       test('one complete pair + trailing user → pair only', () {
-        final messages = [
-          _msg('user', 'first'),
-          _msg('assistant', 'response'),
-          _msg('user', 'orphan'),
-        ];
+        final messages = [_msg('user', 'first'), _msg('assistant', 'response'), _msg('user', 'orphan')];
         final result = buildReplaySafeHistory(messages, _defaultConfig);
         expect(result, contains('[user]: first'));
         expect(result, contains('[assistant]: response'));
@@ -139,10 +120,7 @@ void main() {
       });
 
       test('all messages have empty content → empty output', () {
-        final messages = [
-          _msg('user', '   '),
-          _msg('assistant', ''),
-        ];
+        final messages = [_msg('user', '   '), _msg('assistant', '')];
         expect(buildReplaySafeHistory(messages, _defaultConfig), isEmpty);
       });
     });
@@ -153,10 +131,7 @@ void main() {
 
     group('T7: History returned on cold process (non-empty valid history)', () {
       test('valid history → non-empty block returned', () {
-        final messages = [
-          _msg('user', 'previous question'),
-          _msg('assistant', 'previous answer'),
-        ];
+        final messages = [_msg('user', 'previous question'), _msg('assistant', 'previous answer')];
         final result = buildReplaySafeHistory(messages, _defaultConfig);
         expect(result, isNotEmpty);
         expect(result, contains('<conversation_history>'));
@@ -217,10 +192,7 @@ void main() {
         const maxChars = 100;
         const config = HistoryConfig(maxMessageChars: maxChars, maxTotalChars: 50000);
         final longContent = 'x' * 5000;
-        final messages = [
-          _msg('user', longContent),
-          _msg('assistant', 'short'),
-        ];
+        final messages = [_msg('user', longContent), _msg('assistant', 'short')];
         final result = buildReplaySafeHistory(messages, config);
         // Truncated to maxChars - 1 chars + '...'
         final truncated = '${'x' * (maxChars - 1)}...';
@@ -231,10 +203,7 @@ void main() {
         const maxChars = 50;
         const config = HistoryConfig(maxMessageChars: maxChars, maxTotalChars: 50000);
         final exactContent = 'y' * maxChars;
-        final messages = [
-          _msg('user', exactContent),
-          _msg('assistant', 'reply'),
-        ];
+        final messages = [_msg('user', exactContent), _msg('assistant', 'reply')];
         final result = buildReplaySafeHistory(messages, config);
         expect(result, contains(exactContent));
         expect(result, isNot(contains('...')));
@@ -257,10 +226,7 @@ void main() {
 
     group('Output format', () {
       test('output contains XML tags and role prefixes', () {
-        final messages = [
-          _msg('user', 'hello'),
-          _msg('assistant', 'world'),
-        ];
+        final messages = [_msg('user', 'hello'), _msg('assistant', 'world')];
         final result = buildReplaySafeHistory(messages, _defaultConfig);
         expect(result, startsWith('<conversation_history>'));
         expect(result, endsWith('</conversation_history>'));

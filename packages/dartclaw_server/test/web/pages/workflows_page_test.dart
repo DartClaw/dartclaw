@@ -6,6 +6,8 @@ import 'package:dartclaw_server/src/templates/sidebar.dart';
 import 'package:dartclaw_server/src/web/pages/workflows_page.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show InMemoryDefinitionSource, WorkflowDefinitionSource, WorkflowService;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';

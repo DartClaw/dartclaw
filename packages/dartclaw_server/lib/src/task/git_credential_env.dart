@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CredentialsConfig;
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -28,13 +28,7 @@ Map<String, String> resolveGitCredentialEnv(
     return const {};
   }
 
-  return _buildGitEnvForCredential(
-    remoteUrl,
-    credentialsRef,
-    entry.apiKey,
-    dataDir: dataDir,
-    tempFiles: tempFiles,
-  );
+  return _buildGitEnvForCredential(remoteUrl, credentialsRef, entry.apiKey, dataDir: dataDir, tempFiles: tempFiles);
 }
 
 Map<String, String> _buildGitEnvForCredential(
@@ -47,9 +41,7 @@ Map<String, String> _buildGitEnvForCredential(
   final isSsh = remoteUrl.startsWith('git@') || remoteUrl.startsWith('ssh://');
 
   if (isSsh) {
-    return {
-      'GIT_SSH_COMMAND': 'ssh -i $apiKey -o StrictHostKeyChecking=accept-new',
-    };
+    return {'GIT_SSH_COMMAND': 'ssh -i $apiKey -o StrictHostKeyChecking=accept-new'};
   } else {
     // HTTPS: write the token to a key file and generate an askpass script that
     // cats it. Avoids shell variable expansion — token is never interpolated

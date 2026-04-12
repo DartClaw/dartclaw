@@ -5,10 +5,12 @@ void main() {
   group('SkillSource', () {
     test('displayName returns correct label for each source', () {
       expect(SkillSource.projectClaude.displayName, 'project (.claude)');
-      expect(SkillSource.projectCodex.displayName, 'project (.agents)');
+      expect(SkillSource.projectAgents.displayName, 'project (.agents)');
       expect(SkillSource.workspace.displayName, 'workspace');
       expect(SkillSource.userClaude.displayName, 'user (.claude)');
+      expect(SkillSource.userAgents.displayName, 'user (.agents)');
       expect(SkillSource.userDartclaw.displayName, 'user (dartclaw)');
+      expect(SkillSource.dartclaw.displayName, 'DartClaw Built-in');
       expect(SkillSource.plugin.displayName, 'plugin');
     });
   });
@@ -88,12 +90,7 @@ void main() {
     });
 
     test('default nativeHarnesses is empty', () {
-      const bare = SkillInfo(
-        name: 'bare',
-        description: '',
-        source: SkillSource.workspace,
-        path: '/ws/skills/bare',
-      );
+      const bare = SkillInfo(name: 'bare', description: '', source: SkillSource.workspace, path: '/ws/skills/bare');
       expect(bare.nativeHarnesses, isEmpty);
     });
   });

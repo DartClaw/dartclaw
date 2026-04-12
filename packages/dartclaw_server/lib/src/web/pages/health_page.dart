@@ -11,12 +11,7 @@ import '../page_support.dart';
 import '../web_utils.dart';
 
 class HealthDashboardPage extends DashboardPage {
-  HealthDashboardPage({
-    this.healthService,
-    this.workerStateGetter,
-    this.auditReader,
-    this.pubsubHealthGetter,
-  });
+  HealthDashboardPage({this.healthService, this.workerStateGetter, this.auditReader, this.pubsubHealthGetter});
 
   final HealthService? healthService;
   final WorkerState? Function()? workerStateGetter;

@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/src/config/duration_parser.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -237,10 +237,7 @@ void main() {
 
     group('identifier preservation', () {
       test('strict mode appends default identifier preservation text', () async {
-        final service = BehaviorFileService(
-          workspaceDir: globalDir.path,
-          identifierPreservation: 'strict',
-        );
+        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'strict');
         final result = await service.composeSystemPrompt();
         expect(result, contains(BehaviorFileService.defaultIdentifierPreservationText));
       });
@@ -252,10 +249,7 @@ void main() {
       });
 
       test('off mode omits identifier preservation text', () async {
-        final service = BehaviorFileService(
-          workspaceDir: globalDir.path,
-          identifierPreservation: 'off',
-        );
+        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'off');
         final result = await service.composeSystemPrompt();
         expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
       });
@@ -297,10 +291,7 @@ void main() {
       });
 
       test('identifier text not included for task scope', () async {
-        final service = BehaviorFileService(
-          workspaceDir: globalDir.path,
-          identifierPreservation: 'strict',
-        );
+        final service = BehaviorFileService(workspaceDir: globalDir.path, identifierPreservation: 'strict');
         final result = await service.composeSystemPrompt(scope: PromptScope.task);
         expect(result, isNot(contains(BehaviorFileService.defaultIdentifierPreservationText)));
       });

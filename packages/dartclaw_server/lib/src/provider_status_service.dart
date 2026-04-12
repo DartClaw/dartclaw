@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
@@ -78,11 +79,7 @@ class ProviderStatusService {
     for (final entry in _configuredEntries.entries) {
       final providerId = entry.key;
       final executable = entry.value.executable;
-      final result = await _probeExecutable(
-        providerId: providerId,
-        executable: executable,
-        commandProbe: cmdProbe,
-      );
+      final result = await _probeExecutable(providerId: providerId, executable: executable, commandProbe: cmdProbe);
 
       // When the binary exists but no API key is configured, check whether
       // the binary itself is authenticated (OAuth / subscription login).

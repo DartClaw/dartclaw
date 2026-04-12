@@ -51,13 +51,14 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeAgentHarness();
-    server = (DartclawServerBuilder()
-          ..sessions = sessions
-          ..messages = messages
-          ..worker = worker
-          ..staticDir = _staticDir()
-          ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
-        .build();
+    server =
+        (DartclawServerBuilder()
+              ..sessions = sessions
+              ..messages = messages
+              ..worker = worker
+              ..staticDir = _staticDir()
+              ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'))
+            .build();
   });
 
   tearDown(() async {
@@ -193,15 +194,16 @@ void main() {
       final sessions2 = SessionService(baseDir: tempDir2.path);
       final messages2 = MessageService(baseDir: tempDir2.path);
       final worker2 = FakeAgentHarness();
-      final server2 = (DartclawServerBuilder()
-            ..sessions = sessions2
-            ..messages = messages2
-            ..worker = worker2
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..authEnabled = false
-            ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false))
-          .build();
+      final server2 =
+          (DartclawServerBuilder()
+                ..sessions = sessions2
+                ..messages = messages2
+                ..worker = worker2
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..authEnabled = false
+                ..runtimeConfig = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false))
+              .build();
       addTearDown(() => server2.shutdown());
 
       final handler = server2.handler;
@@ -224,14 +226,15 @@ void main() {
       final messages3 = MessageService(baseDir: tempDir3.path);
       final worker3 = FakeAgentHarness();
       // Deliberately do NOT set runtimeConfig — simulates the old bug.
-      final server3 = (DartclawServerBuilder()
-            ..sessions = sessions3
-            ..messages = messages3
-            ..worker = worker3
-            ..staticDir = _staticDir()
-            ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
-            ..authEnabled = false)
-          .build();
+      final server3 =
+          (DartclawServerBuilder()
+                ..sessions = sessions3
+                ..messages = messages3
+                ..worker = worker3
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..authEnabled = false)
+              .build();
       addTearDown(() => server3.shutdown());
 
       final handler = server3.handler;

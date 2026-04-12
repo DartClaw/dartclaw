@@ -26,18 +26,12 @@ void main() {
       );
     }
 
-    ChannelMessage makeGchatMessage({
-      String text = 'hello',
-      String? threadName,
-    }) {
+    ChannelMessage makeGchatMessage({String text = 'hello', String? threadName}) {
       return ChannelMessage(
         channelType: ChannelType.googlechat,
         senderJid: 'users/sender1',
         text: text,
-        metadata: {
-          'spaceName': 'spaces/AAAA',
-          'threadName': ?threadName,
-        },
+        metadata: {'spaceName': 'spaces/AAAA', 'threadName': ?threadName},
       );
     }
 
@@ -61,10 +55,7 @@ void main() {
       await store.load();
       await store.create(makeBinding());
 
-      final bridge = ChannelTaskBridge(
-        threadBindings: store,
-        threadBindingEnabled: threadBindingEnabled,
-      );
+      final bridge = ChannelTaskBridge(threadBindings: store, threadBindingEnabled: threadBindingEnabled);
       return (store: store, bridge: bridge);
     }
 
@@ -165,12 +156,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
 
       final msg = makeGchatMessage(threadName: 'spaces/AAAA/threads/CCCC');
-      await bridge.tryHandle(
-        msg,
-        channel,
-        sessionKey: 'default-session',
-        enqueue: (msg, ch, sk) {},
-      );
+      await bridge.tryHandle(msg, channel, sessionKey: 'default-session', enqueue: (msg, ch, sk) {});
 
       // Give the unawaited updateLastActivity time to complete.
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -184,16 +170,9 @@ void main() {
       final store = ThreadBindingStore(file);
       await store.load(); // empty store
 
-      final bridge = ChannelTaskBridge(
-        threadBindings: store,
-        threadBindingEnabled: true,
-      );
+      final bridge = ChannelTaskBridge(threadBindings: store, threadBindingEnabled: true);
 
-      final msg = ChannelMessage(
-        channelType: ChannelType.whatsapp,
-        senderJid: 'sender@s.whatsapp.net',
-        text: 'hello',
-      );
+      final msg = ChannelMessage(channelType: ChannelType.whatsapp, senderJid: 'sender@s.whatsapp.net', text: 'hello');
       final handled = await bridge.tryHandle(msg, channel, sessionKey: 'sk');
       expect(handled, isFalse);
     });

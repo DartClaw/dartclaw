@@ -58,13 +58,13 @@ class ThreadBinding {
 
   /// Serializes to a JSON map with ISO 8601 timestamps.
   Map<String, dynamic> toJson() => {
-        'channelType': channelType,
-        'threadId': threadId,
-        'taskId': taskId,
-        'sessionKey': sessionKey,
-        'createdAt': createdAt.toIso8601String(),
-        'lastActivity': lastActivity.toIso8601String(),
-      };
+    'channelType': channelType,
+    'threadId': threadId,
+    'taskId': taskId,
+    'sessionKey': sessionKey,
+    'createdAt': createdAt.toIso8601String(),
+    'lastActivity': lastActivity.toIso8601String(),
+  };
 
   /// Deserializes from a JSON map.
   factory ThreadBinding.fromJson(Map<String, dynamic> json) {
@@ -173,8 +173,9 @@ class ThreadBindingStore {
     if (removed.isNotEmpty) {
       // Best-effort persist — in-memory state is already updated.
       // ignore: unawaited_futures
-      _persist()
-          .catchError((Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st));
+      _persist().catchError(
+        (Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st),
+      );
     }
     return removed;
   }
@@ -194,7 +195,9 @@ class ThreadBindingStore {
     // Best-effort persist — in-memory state is already updated.
     if (expired.isNotEmpty) {
       // ignore: unawaited_futures
-      _persist().catchError((Object e, StackTrace st) => _log.warning('Failed to persist expired binding removal', e, st));
+      _persist().catchError(
+        (Object e, StackTrace st) => _log.warning('Failed to persist expired binding removal', e, st),
+      );
     }
     return expired;
   }

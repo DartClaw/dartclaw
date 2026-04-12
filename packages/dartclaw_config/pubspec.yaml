@@ -16,8 +16,14 @@ environment:
 resolution: workspace
 
 dependencies:
-  dartclaw_core:
-    path: ../dartclaw_core
+  collection: ^1.19.1
+  dartclaw_models:
+    path: ../dartclaw_models
+  dartclaw_security:
+    path: ../dartclaw_security
+  meta: ^1.18.0
+  path: ^1.9.1
+  yaml: ^3.1.3
   yaml_edit: ^2.2.4
   logging: ^1.3.0
 

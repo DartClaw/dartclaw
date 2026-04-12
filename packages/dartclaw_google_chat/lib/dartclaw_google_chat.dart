@@ -1,7 +1,8 @@
 /// Google Chat channel integration for DartClaw.
 library;
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelType, DartclawConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelType;
 
 import 'src/google_chat_config.dart';
 

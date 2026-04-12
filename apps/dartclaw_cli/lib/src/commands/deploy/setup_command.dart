@@ -16,8 +16,7 @@ class SetupCommand extends Command<void> {
   String get name => 'setup';
 
   @override
-  String get description =>
-      '[Deprecated] Validate deployment prerequisites — use "dartclaw init" instead';
+  String get description => '[Deprecated] Validate deployment prerequisites — use "dartclaw init" instead';
 
   SetupCommand({RunProcess? run}) : _run = run ?? Process.run;
 

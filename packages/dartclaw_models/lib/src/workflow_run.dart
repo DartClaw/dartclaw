@@ -22,10 +22,7 @@ enum WorkflowRunStatus {
 
   /// Whether this is a terminal state.
   bool get terminal => switch (this) {
-    WorkflowRunStatus.completed ||
-    WorkflowRunStatus.failed ||
-    WorkflowRunStatus.cancelled =>
-      true,
+    WorkflowRunStatus.completed || WorkflowRunStatus.failed || WorkflowRunStatus.cancelled => true,
     _ => false,
   };
 }
@@ -107,31 +104,24 @@ class WorkflowRun {
     Map<String, dynamic>? definitionJson,
     Object? currentLoopId = _sentinel,
     Object? currentLoopIteration = _sentinel,
-  }) =>
-      WorkflowRun(
-        id: id ?? this.id,
-        definitionName: definitionName ?? this.definitionName,
-        status: status ?? this.status,
-        contextJson: contextJson ?? this.contextJson,
-        variablesJson: variablesJson ?? this.variablesJson,
-        startedAt: startedAt ?? this.startedAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-        completedAt: identical(completedAt, _sentinel)
-            ? this.completedAt
-            : completedAt as DateTime?,
-        errorMessage: identical(errorMessage, _sentinel)
-            ? this.errorMessage
-            : errorMessage as String?,
-        totalTokens: totalTokens ?? this.totalTokens,
-        currentStepIndex: currentStepIndex ?? this.currentStepIndex,
-        definitionJson: definitionJson ?? this.definitionJson,
-        currentLoopId: identical(currentLoopId, _sentinel)
-            ? this.currentLoopId
-            : currentLoopId as String?,
-        currentLoopIteration: identical(currentLoopIteration, _sentinel)
-            ? this.currentLoopIteration
-            : currentLoopIteration as int?,
-      );
+  }) => WorkflowRun(
+    id: id ?? this.id,
+    definitionName: definitionName ?? this.definitionName,
+    status: status ?? this.status,
+    contextJson: contextJson ?? this.contextJson,
+    variablesJson: variablesJson ?? this.variablesJson,
+    startedAt: startedAt ?? this.startedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    completedAt: identical(completedAt, _sentinel) ? this.completedAt : completedAt as DateTime?,
+    errorMessage: identical(errorMessage, _sentinel) ? this.errorMessage : errorMessage as String?,
+    totalTokens: totalTokens ?? this.totalTokens,
+    currentStepIndex: currentStepIndex ?? this.currentStepIndex,
+    definitionJson: definitionJson ?? this.definitionJson,
+    currentLoopId: identical(currentLoopId, _sentinel) ? this.currentLoopId : currentLoopId as String?,
+    currentLoopIteration: identical(currentLoopIteration, _sentinel)
+        ? this.currentLoopIteration
+        : currentLoopIteration as int?,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -158,9 +148,7 @@ class WorkflowRun {
     variablesJson: _toStringStringMap(json['variablesJson']),
     startedAt: DateTime.parse(json['startedAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
-    completedAt: json['completedAt'] != null
-        ? DateTime.parse(json['completedAt'] as String)
-        : null,
+    completedAt: json['completedAt'] != null ? DateTime.parse(json['completedAt'] as String) : null,
     errorMessage: json['errorMessage'] as String?,
     totalTokens: (json['totalTokens'] as int?) ?? 0,
     currentStepIndex: (json['currentStepIndex'] as int?) ?? 0,

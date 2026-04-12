@@ -75,9 +75,7 @@ class TurnTrace {
     isError: json['isError'] as bool? ?? false,
     errorType: json['errorType'] as String?,
     toolCalls:
-        (json['toolCalls'] as List?)
-            ?.map((e) => ToolCallRecord.fromJson(e as Map<String, dynamic>))
-            .toList() ??
+        (json['toolCalls'] as List?)?.map((e) => ToolCallRecord.fromJson(e as Map<String, dynamic>)).toList() ??
         const [],
   );
 

@@ -84,13 +84,7 @@ void main() {
       String kind = 'statusChanged',
       Map<String, dynamic> details = const {},
     }) {
-      return TaskEventCreatedEvent(
-        taskId: taskId,
-        eventId: eventId,
-        kind: kind,
-        details: details,
-        timestamp: now,
-      );
+      return TaskEventCreatedEvent(taskId: taskId, eventId: eventId, kind: kind, details: details, timestamp: now);
     }
 
     test('construction and field access', () {

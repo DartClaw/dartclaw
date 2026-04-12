@@ -101,6 +101,7 @@ void main() {
   });
 
   test('ServiceWiring builds a server that serves / and /health', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -120,6 +121,7 @@ void main() {
       config: config,
       dataDir: tempDir.path,
       port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
       harnessFactory: _harnessFactoryFor(worker),
       serverFactory: (builder) => builder.build(),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -148,6 +150,7 @@ void main() {
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -176,6 +179,7 @@ void main() {
       config: config,
       dataDir: tempDir.path,
       port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
       harnessFactory: _harnessFactoryFor(worker),
       serverFactory: (builder) => builder.build(),
       searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -207,5 +211,61 @@ void main() {
     expect(channel.sent, hasLength(1));
     expect(channel.sent.single.$1, equals('spaces/abc'));
     expect(channel.sent.single.$2.text, contains('Guard Block'));
+  });
+
+  test('ServiceWiring materializes built-in skills for every configured project clone', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+    for (final projectId in ['alpha', 'beta']) {
+      Directory(p.join(tempDir.path, 'projects', projectId)).createSync(recursive: true);
+    }
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      projects: const ProjectConfig(
+        definitions: {
+          'alpha': ProjectDefinition(id: 'alpha', remote: 'file:///tmp/alpha.git'),
+          'beta': ProjectDefinition(id: 'beta', remote: 'file:///tmp/beta.git'),
+        },
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final skillDir = p.join(skillsHomeDir.path, '.claude', 'skills', 'dartclaw-review-code');
+    expect(File(p.join(skillDir, 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(skillDir, '.dartclaw-managed')).existsSync(), isTrue);
+
+    for (final projectId in ['alpha', 'beta']) {
+      final projectSkillDir = p.join(tempDir.path, 'projects', projectId, '.claude', 'skills', 'dartclaw-review-code');
+      expect(Directory(projectSkillDir).existsSync(), isFalse);
+    }
   });
 }

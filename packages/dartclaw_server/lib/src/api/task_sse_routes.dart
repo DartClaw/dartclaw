@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentStateChangedEvent,
@@ -9,7 +10,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         EventBus,
         ProjectService,
         ProjectStatusChangedEvent,
-        ProviderIdentity,
         PushBack,
         StatusChanged,
         Task,
@@ -25,6 +25,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -34,7 +35,6 @@ import '../task/task_service.dart';
 import '../task/tool_call_summary.dart';
 import '../templates/helpers.dart';
 import '../templates/task_event_display.dart';
-import '../workflow/workflow_service.dart';
 
 /// Creates a [Router] with the task SSE endpoint.
 ///
@@ -171,7 +171,8 @@ Router taskSseRoutes(
     if (workflows != null) {
       workflowStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) async {
         final activeWorkflows = await _buildActiveWorkflows(workflows, tasks);
-        final isTerminal = event.newStatus == WorkflowRunStatus.completed ||
+        final isTerminal =
+            event.newStatus == WorkflowRunStatus.completed ||
             event.newStatus == WorkflowRunStatus.failed ||
             event.newStatus == WorkflowRunStatus.cancelled;
         final data = jsonEncode({
@@ -233,10 +234,7 @@ Router taskSseRoutes(
 /// Returns running and paused runs with step progress counts. Each entry
 /// includes `completedSteps` / `totalSteps` derived from child tasks.
 /// Returns empty list when [workflows] is null (workflows not configured).
-Future<List<Map<String, dynamic>>> _buildActiveWorkflows(
-  WorkflowService workflows,
-  TaskService tasks,
-) async {
+Future<List<Map<String, dynamic>>> _buildActiveWorkflows(WorkflowService workflows, TaskService tasks) async {
   final running = await workflows.list(status: WorkflowRunStatus.running);
   final paused = await workflows.list(status: WorkflowRunStatus.paused);
   final activeRuns = [...running, ...paused];

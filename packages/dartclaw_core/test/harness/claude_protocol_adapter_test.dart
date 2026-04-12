@@ -140,9 +140,7 @@ void main() {
 
     test('parses result without cache fields — both default to null', () {
       final adapter = ClaudeProtocolAdapter();
-      final msg = adapter.parseLine(
-        _j({'type': 'result', 'stop_reason': 'end_turn'}),
-      );
+      final msg = adapter.parseLine(_j({'type': 'result', 'stop_reason': 'end_turn'}));
 
       expect(msg, isA<TurnComplete>());
       final result = msg! as TurnComplete;
@@ -280,9 +278,7 @@ void main() {
 
     test('parses compact_boundary without pre_tokens', () {
       final adapter = ClaudeProtocolAdapter();
-      final msg = adapter.parseLine(
-        _j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual'}),
-      );
+      final msg = adapter.parseLine(_j({'type': 'system', 'subtype': 'compact_boundary', 'trigger': 'manual'}));
 
       expect(msg, isA<CompactBoundary>());
       expect((msg! as CompactBoundary).preTokens, isNull);

@@ -37,7 +37,8 @@ String healthDashboardTemplate({
   };
 
   final statusIcon = switch (status) {
-    'healthy' => '<span class="icon icon-check" style="color:var(--success);width:28px;height:28px" aria-hidden="true"></span>',
+    'healthy' =>
+      '<span class="icon icon-check" style="color:var(--success);width:28px;height:28px" aria-hidden="true"></span>',
     'degraded' =>
       '<span class="icon icon-triangle-alert" style="color:var(--warning);width:28px;height:28px" aria-hidden="true"></span>',
     _ =>
@@ -127,8 +128,7 @@ String healthDashboardTemplate({
       },
       {'label': 'Last Pull', 'value': lastPullDisplay, 'valueClass': ''},
       {'label': 'Subscriptions', 'value': '$activeSubs active', 'valueClass': ''},
-      if (errors > 0)
-        {'label': 'Errors', 'value': '$errors consecutive', 'valueClass': 'text-warning'},
+      if (errors > 0) {'label': 'Errors', 'value': '$errors consecutive', 'valueClass': 'text-warning'},
     ];
 
     cardDefs.add({
@@ -139,12 +139,16 @@ String healthDashboardTemplate({
     });
   }
 
-  final cardsHtml = cardDefs.map((c) => infoCardTemplate(
-    title: c['title'] as String,
-    badgeText: c['badgeText'] as String,
-    badgeClass: c['badgeClass'] as String,
-    rows: (c['rows'] as List).cast<Map<String, dynamic>>(),
-  )).join('\n');
+  final cardsHtml = cardDefs
+      .map(
+        (c) => infoCardTemplate(
+          title: c['title'] as String,
+          badgeText: c['badgeText'] as String,
+          badgeClass: c['badgeClass'] as String,
+          rows: (c['rows'] as List).cast<Map<String, dynamic>>(),
+        ),
+      )
+      .join('\n');
 
   final metricsHtml = [
     metricCardTemplate(color: 'accent', value: uptimeStr, label: 'Uptime'),

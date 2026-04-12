@@ -7,8 +7,8 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import '../config/history_config.dart';
-import '../container/container_manager.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
+import '../container/container_executor.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
 import 'base_harness.dart';
@@ -67,7 +67,7 @@ class ClaudeCodeHarness extends BaseHarness {
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
   final HistoryConfig historyConfig;
-  final ContainerManager? containerManager;
+  final ContainerExecutor? containerManager;
   final ClaudeProtocolAdapter _adapter;
   final Duration _killGracePeriod;
 
@@ -438,9 +438,7 @@ class ClaudeCodeHarness extends BaseHarness {
     );
     final Process process;
     if (cm != null) {
-      final containerExecutable = claudeExecutable.contains('/')
-          ? claudeExecutable
-          : ContainerManager.containerClaudeExecutable;
+      final containerExecutable = claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;
       final containerEnv = <String, String>{
         ...claudeHardeningEnvVars,
         if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
@@ -592,7 +590,9 @@ class ClaudeCodeHarness extends BaseHarness {
               // JSONL round-trips for tools like Glob, Grep, WebSearch, etc.
               // (Claude Code v2.1.91+ if: filtering)
               'if': {
-                'toolName': {r'$in': ['Bash', 'Write', 'Edit', 'Read', 'MultiEdit']},
+                'toolName': {
+                  r'$in': ['Bash', 'Write', 'Edit', 'Read', 'MultiEdit'],
+                },
               },
             },
           ],

@@ -21,21 +21,14 @@ void main() {
     });
 
     test('optional fields default to null', () {
-      final event = ToolPermissionDeniedEvent(
-        toolName: 'Write',
-        timestamp: DateTime.now(),
-      );
+      final event = ToolPermissionDeniedEvent(toolName: 'Write', timestamp: DateTime.now());
 
       expect(event.sessionId, isNull);
       expect(event.reason, isNull);
     });
 
     test('toString includes toolName and reason', () {
-      final event = ToolPermissionDeniedEvent(
-        toolName: 'Edit',
-        reason: 'blocked',
-        timestamp: DateTime.now(),
-      );
+      final event = ToolPermissionDeniedEvent(toolName: 'Edit', reason: 'blocked', timestamp: DateTime.now());
 
       expect(event.toString(), contains('Edit'));
       expect(event.toString(), contains('blocked'));
@@ -68,9 +61,7 @@ void main() {
       final sub = bus.on<GuardBlockEvent>().listen(guardEvents.add);
       addTearDown(sub.cancel);
 
-      bus.fire(
-        ToolPermissionDeniedEvent(toolName: 'Read', timestamp: DateTime.now()),
-      );
+      bus.fire(ToolPermissionDeniedEvent(toolName: 'Read', timestamp: DateTime.now()));
 
       await Future<void>.delayed(Duration.zero);
 

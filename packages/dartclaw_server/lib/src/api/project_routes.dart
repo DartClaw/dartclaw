@@ -356,4 +356,3 @@ CloneStrategy _parseCloneStrategy(Object? value) {
     _ => CloneStrategy.shallow,
   };
 }
-

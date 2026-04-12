@@ -86,10 +86,7 @@ Router traceRoutes(TurnTraceService traceService) {
         limit: limit,
         offset: offset,
       );
-      return Response.ok(
-        jsonEncode(result.toJson()),
-        headers: {'content-type': 'application/json; charset=utf-8'},
-      );
+      return Response.ok(jsonEncode(result.toJson()), headers: {'content-type': 'application/json; charset=utf-8'});
     } catch (e, st) {
       _log.warning('Trace query failed', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to query traces');

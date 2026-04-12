@@ -52,12 +52,7 @@ void main() {
     });
 
     test('TaskStatusChangedEvent with non-failed status returns null', () {
-      for (final status in [
-        TaskStatus.running,
-        TaskStatus.review,
-        TaskStatus.accepted,
-        TaskStatus.rejected,
-      ]) {
+      for (final status in [TaskStatus.running, TaskStatus.review, TaskStatus.accepted, TaskStatus.rejected]) {
         final event = TaskStatusChangedEvent(
           taskId: 'task-1',
           oldStatus: TaskStatus.running,
@@ -70,12 +65,7 @@ void main() {
     });
 
     test('ScheduledJobFailedEvent → job_failure / critical', () {
-      final event = ScheduledJobFailedEvent(
-        jobId: 'my-job',
-        jobName: 'my-job',
-        error: 'timed out',
-        timestamp: _now,
-      );
+      final event = ScheduledJobFailedEvent(jobId: 'my-job', jobName: 'my-job', error: 'timed out', timestamp: _now);
       final result = classifyAlert(event);
       expect(result, isNotNull);
       expect(result!.alertType, 'job_failure');
@@ -112,11 +102,7 @@ void main() {
     });
 
     test('CompactionCompletedEvent → compaction / info', () {
-      final event = CompactionCompletedEvent(
-        sessionId: 'sess-1',
-        trigger: 'auto',
-        timestamp: _now,
-      );
+      final event = CompactionCompletedEvent(sessionId: 'sess-1', trigger: 'auto', timestamp: _now);
       final result = classifyAlert(event);
       expect(result, isNotNull);
       expect(result!.alertType, 'compaction');
@@ -125,11 +111,7 @@ void main() {
 
     test('unrecognized event types return null', () {
       // Use an event type that is not in the classifier mapping.
-      final event = CompactionStartingEvent(
-        sessionId: 'sess-1',
-        trigger: 'auto',
-        timestamp: _now,
-      );
+      final event = CompactionStartingEvent(sessionId: 'sess-1', trigger: 'auto', timestamp: _now);
       expect(classifyAlert(event), isNull);
     });
   });
@@ -140,11 +122,7 @@ void main() {
 
   group('shouldAlertTaskFailure', () {
     Map<String, dynamic> configWithOrigin(String sessionKey) => {
-      'origin': {
-        'channelType': 'whatsapp',
-        'sessionKey': sessionKey,
-        'recipientId': '+1000',
-      },
+      'origin': {'channelType': 'whatsapp', 'sessionKey': sessionKey, 'recipientId': '+1000'},
     };
 
     test('no TaskOrigin (empty configJson) → should alert', () {

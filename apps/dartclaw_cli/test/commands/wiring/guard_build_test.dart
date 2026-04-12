@@ -1,16 +1,14 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/wiring/security_wiring.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 const _cascade = ToolPolicyCascade();
 
 SecurityConfig _configFromYaml(Map<String, dynamic> guardsYaml) {
-  return SecurityConfig(
-    guards: const GuardConfig(enabled: true, failOpen: false),
-    guardsYaml: guardsYaml,
-  );
+  return SecurityConfig(guards: const GuardConfig(enabled: true, failOpen: false), guardsYaml: guardsYaml);
 }
 
 void main() {

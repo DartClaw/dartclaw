@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
 import 'package:dartclaw_server/src/task/task_service.dart';
-import 'package:dartclaw_server/src/workflow/workflow_service.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -17,10 +17,7 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
     name: name,
     description: 'test',
     variables: const {},
-    steps: List.generate(
-      steps,
-      (i) => WorkflowStep(id: 'step-$i', name: 'Step $i', prompts: ['do step $i']),
-    ),
+    steps: List.generate(steps, (i) => WorkflowStep(id: 'step-$i', name: 'Step $i', prompts: ['do step $i'])),
   );
 }
 
@@ -83,9 +80,7 @@ void main() {
 
   Future<StreamIterator<String>> connectSse({WorkflowService? wf}) async {
     final handler = taskSseRoutes(tasks, eventBus, workflows: wf).call;
-    final response = await handler(
-      Request('GET', Uri.parse('http://localhost/api/tasks/events')),
-    );
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
     expect(response.statusCode, 200);
     return StreamIterator(response.read().transform(utf8.decoder));
   }
@@ -148,13 +143,15 @@ void main() {
       await nextFrame(it); // consume connected
 
       // Fire a workflow status change event directly.
-      eventBus.fire(WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: WorkflowRunStatus.running,
-        newStatus: WorkflowRunStatus.paused,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: run.id,
+          definitionName: run.definitionName,
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.paused,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final payload = await nextFrameOfType(it, 'workflow_sidebar_update');
       expect(payload['activeWorkflows'], isA<List<dynamic>>());
@@ -169,13 +166,15 @@ void main() {
       addTearDown(it.cancel);
       await nextFrame(it); // consume connected
 
-      eventBus.fire(WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: WorkflowRunStatus.running,
-        newStatus: WorkflowRunStatus.completed,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: run.id,
+          definitionName: run.definitionName,
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.completed,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final payload = await nextFrameOfType(it, 'workflow_sidebar_update');
       expect(payload['notification'], isTrue);
@@ -189,13 +188,15 @@ void main() {
       addTearDown(it.cancel);
       await nextFrame(it); // consume connected
 
-      eventBus.fire(WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: WorkflowRunStatus.running,
-        newStatus: WorkflowRunStatus.failed,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: run.id,
+          definitionName: run.definitionName,
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.failed,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final payload = await nextFrameOfType(it, 'workflow_sidebar_update');
       expect(payload['notification'], isTrue);
@@ -209,13 +210,15 @@ void main() {
       addTearDown(it.cancel);
       await nextFrame(it); // consume connected
 
-      eventBus.fire(WorkflowRunStatusChangedEvent(
-        runId: run.id,
-        definitionName: run.definitionName,
-        oldStatus: WorkflowRunStatus.running,
-        newStatus: WorkflowRunStatus.paused,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: run.id,
+          definitionName: run.definitionName,
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.paused,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final payload = await nextFrameOfType(it, 'workflow_sidebar_update');
       expect(payload['notification'], isFalse);
@@ -231,17 +234,19 @@ void main() {
       addTearDown(it.cancel);
       await nextFrame(it); // consume connected
 
-      eventBus.fire(WorkflowStepCompletedEvent(
-        runId: run.id,
-        stepId: 'step-0',
-        stepName: 'Step 0',
-        stepIndex: 0,
-        totalSteps: 3,
-        taskId: 'task-001',
-        success: true,
-        tokenCount: 100,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowStepCompletedEvent(
+          runId: run.id,
+          stepId: 'step-0',
+          stepName: 'Step 0',
+          stepIndex: 0,
+          totalSteps: 3,
+          taskId: 'task-001',
+          success: true,
+          tokenCount: 100,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       final payload = await nextFrameOfType(it, 'workflow_sidebar_update');
       expect(payload['activeWorkflows'], isA<List<dynamic>>());
@@ -257,13 +262,15 @@ void main() {
       await nextFrame(it); // consume connected
 
       // Fire a workflow event — should not cause any output or error.
-      eventBus.fire(WorkflowRunStatusChangedEvent(
-        runId: 'run-001',
-        definitionName: 'test',
-        oldStatus: WorkflowRunStatus.running,
-        newStatus: WorkflowRunStatus.completed,
-        timestamp: DateTime.now(),
-      ));
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: 'run-001',
+          definitionName: 'test',
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.completed,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       // Verify no workflow_sidebar_update appears — fire a task event to confirm
       // the SSE stream is still alive and producing output.

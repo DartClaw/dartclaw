@@ -1,6 +1,6 @@
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_list_command.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show DartclawConfig, ServerConfig;
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
 import 'package:test/test.dart';
 
 void main() {

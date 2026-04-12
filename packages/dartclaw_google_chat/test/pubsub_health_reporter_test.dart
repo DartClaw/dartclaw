@@ -20,8 +20,7 @@ void main() {
       );
     }
 
-    http.Response errorResponse(int status) =>
-        http.Response('{"error":"transient"}', status);
+    http.Response errorResponse(int status) => http.Response('{"error":"transient"}', status);
 
     /// Yielding delay that prevents tight-loop spinning while staying fast.
     Future<void> yieldingDelay(Duration _) async {
@@ -69,10 +68,7 @@ void main() {
 
     group('enabled but client not started', () {
       test('returns unavailable when client is null', () {
-        final reporter = PubSubHealthReporter(
-          enabled: true,
-          subscriptionCount: () => 2,
-        );
+        final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 2);
         final status = reporter.getStatus();
         expect(status['status'], 'unavailable');
         expect(status['enabled'], true);
@@ -199,11 +195,7 @@ void main() {
         await firstPullDone.future;
         await Future<void>.delayed(Duration.zero);
 
-        final reporter = PubSubHealthReporter(
-          client: client,
-          subscriptionCount: () => 5,
-          enabled: true,
-        );
+        final reporter = PubSubHealthReporter(client: client, subscriptionCount: () => 5, enabled: true);
         final status = reporter.getStatus();
         expect(status['active_subscriptions'], 5);
       });
@@ -268,10 +260,7 @@ void main() {
       });
 
       test('all values are JSON-serializable', () {
-        final reporter = PubSubHealthReporter(
-          enabled: true,
-          subscriptionCount: () => 3,
-        );
+        final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 3);
         expect(() => jsonEncode(reporter.getStatus()), returnsNormally);
       });
 

@@ -40,11 +40,7 @@ final class ChannelReviewError extends ChannelReviewResult {
 }
 
 /// Callback used by [ChannelManager] to execute a review action.
-typedef ChannelReviewHandler = Future<ChannelReviewResult> Function(
-  String taskId,
-  String action, {
-  String? comment,
-});
+typedef ChannelReviewHandler = Future<ChannelReviewResult> Function(String taskId, String action, {String? comment});
 
 /// Stateless parser for review commands.
 ///

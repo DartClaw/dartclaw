@@ -74,9 +74,7 @@ class UserOAuthCredentialStore {
 
     final target = File(filePath);
     final temp = File('${target.path}.tmp');
-    temp.writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(credentials.toJson()),
-    );
+    temp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(credentials.toJson()));
     temp.renameSync(target.path);
 
     if (!Platform.isWindows) {

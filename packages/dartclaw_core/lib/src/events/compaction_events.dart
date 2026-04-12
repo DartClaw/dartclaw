@@ -27,15 +27,10 @@ final class CompactionStartingEvent extends CompactionLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  CompactionStartingEvent({
-    required this.sessionId,
-    required this.trigger,
-    required this.timestamp,
-  });
+  CompactionStartingEvent({required this.sessionId, required this.trigger, required this.timestamp});
 
   @override
-  String toString() =>
-      'CompactionStartingEvent(session: $sessionId, trigger: $trigger)';
+  String toString() => 'CompactionStartingEvent(session: $sessionId, trigger: $trigger)';
 }
 
 /// Fired when context compaction has completed.
@@ -70,6 +65,5 @@ final class CompactionCompletedEvent extends CompactionLifecycleEvent {
   });
 
   @override
-  String toString() =>
-      'CompactionCompletedEvent(session: $sessionId, trigger: $trigger, preTokens: $preTokens)';
+  String toString() => 'CompactionCompletedEvent(session: $sessionId, trigger: $trigger, preTokens: $preTokens)';
 }

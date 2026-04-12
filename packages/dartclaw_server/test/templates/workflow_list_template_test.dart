@@ -111,19 +111,17 @@ void main() {
     });
 
     test('renders status badge with correct class', () {
-      final html = _render(runs: [_makeRun(status: 'running', statusBadgeClass: 'status-badge-running')]);
+      final html = _render(
+        runs: [_makeRun(status: 'running', statusBadgeClass: 'status-badge-running')],
+      );
       expect(html, contains('status-badge-running'));
       expect(html, contains('Running'));
     });
 
     test('renders completed status badge', () {
-      final html = _render(runs: [
-        _makeRun(
-          status: 'completed',
-          statusLabel: 'Completed',
-          statusBadgeClass: 'status-badge-completed',
-        ),
-      ]);
+      final html = _render(
+        runs: [_makeRun(status: 'completed', statusLabel: 'Completed', statusBadgeClass: 'status-badge-completed')],
+      );
       expect(html, contains('status-badge-completed'));
       expect(html, contains('Completed'));
     });
@@ -190,40 +188,48 @@ void main() {
     });
 
     test('variable chips rendered for definition variables', () {
-      final html = _render(definitions: [
-        _makeDefinition(variableHints: [
-          {'name': 'FEATURE', 'description': 'Feature to implement', 'required': true},
-          {'name': 'PROJECT', 'description': 'Target project', 'required': false},
-        ]),
-      ]);
+      final html = _render(
+        definitions: [
+          _makeDefinition(
+            variableHints: [
+              {'name': 'FEATURE', 'description': 'Feature to implement', 'required': true},
+              {'name': 'PROJECT', 'description': 'Target project', 'required': false},
+            ],
+          ),
+        ],
+      );
       expect(html, contains('workflow-var-chip'));
       expect(html, contains('FEATURE'));
       expect(html, contains('PROJECT'));
     });
 
     test('variable chip title shows description hint', () {
-      final html = _render(definitions: [
-        _makeDefinition(variableHints: [
-          {'name': 'FEATURE', 'description': 'Feature description to implement', 'required': true},
-        ]),
-      ]);
+      final html = _render(
+        definitions: [
+          _makeDefinition(
+            variableHints: [
+              {'name': 'FEATURE', 'description': 'Feature description to implement', 'required': true},
+            ],
+          ),
+        ],
+      );
       expect(html, contains('Feature description to implement'));
     });
 
     test('renders definition select dropdown', () {
-      final html = _render(
-        filters: _makeFilters(definitionOptions: ['spec-and-implement', 'fix-bug']),
-      );
+      final html = _render(filters: _makeFilters(definitionOptions: ['spec-and-implement', 'fix-bug']));
       expect(html, contains('workflow-definition-filter'));
       expect(html, contains('spec-and-implement'));
       expect(html, contains('fix-bug'));
     });
 
     test('multiple runs rendered correctly', () {
-      final html = _render(runs: [
-        _makeRun(id: 'run-001', definitionName: 'spec-and-implement'),
-        _makeRun(id: 'run-002', definitionName: 'fix-bug'),
-      ]);
+      final html = _render(
+        runs: [
+          _makeRun(id: 'run-001', definitionName: 'spec-and-implement'),
+          _makeRun(id: 'run-002', definitionName: 'fix-bug'),
+        ],
+      );
       expect(html, contains('spec-and-implement'));
       expect(html, contains('fix-bug'));
       expect(html, contains('/workflows/run-001'));

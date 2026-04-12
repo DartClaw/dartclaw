@@ -112,10 +112,7 @@ void main() {
     });
 
     test('copyWith can clear completedAt to null', () {
-      final run = buildRun(
-        status: WorkflowRunStatus.completed,
-        completedAt: DateTime.parse('2026-01-01T12:00:00Z'),
-      );
+      final run = buildRun(status: WorkflowRunStatus.completed, completedAt: DateTime.parse('2026-01-01T12:00:00Z'));
       final copy = run.copyWith(completedAt: null);
       expect(copy.completedAt, isNull);
     });

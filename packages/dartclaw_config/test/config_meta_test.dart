@@ -34,6 +34,7 @@ void main() {
         expect(ConfigMeta.fields, contains('source_dir'));
         expect(ConfigMeta.fields, contains('static_dir'));
         expect(ConfigMeta.fields, contains('templates_dir'));
+        expect(ConfigMeta.fields, contains('workflow.workspace_dir'));
         expect(ConfigMeta.fields, contains('worker_timeout'));
         // memory_max_bytes was removed — top-level field no longer registered
         expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
@@ -172,6 +173,7 @@ void main() {
         expect(ConfigMeta.fields['guard_audit.max_retention_days']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['context.exploration_summary_threshold']!.mutability, ConfigMutability.restart);
         expect(ConfigMeta.fields['context.compact_instructions']!.mutability, ConfigMutability.restart);
+        expect(ConfigMeta.fields['workflow.workspace_dir']!.mutability, ConfigMutability.restart);
       });
 
       test('context.warning_threshold is live-mutable with range 50-99', () {
@@ -266,6 +268,7 @@ void main() {
         expect(ConfigMeta.fields['source_dir']!.jsonKey, equals('sourceDir'));
         expect(ConfigMeta.fields['static_dir']!.jsonKey, equals('staticDir'));
         expect(ConfigMeta.fields['templates_dir']!.jsonKey, equals('templatesDir'));
+        expect(ConfigMeta.fields['workflow.workspace_dir']!.jsonKey, equals('workflow.workspaceDir'));
         expect(
           ConfigMeta.fields['channels.google_chat.quote_reply']!.jsonKey,
           equals('channels.googleChat.quoteReplyMode'),
@@ -293,6 +296,7 @@ void main() {
         expect(ConfigMeta.isWritable('channels.whatsapp.task_trigger.enabled'), isTrue);
         expect(ConfigMeta.isWritable('channels.signal.task_trigger.prefix'), isTrue);
         expect(ConfigMeta.isWritable('channels.google_chat.task_trigger.default_type'), isTrue);
+        expect(ConfigMeta.isWritable('workflow.workspace_dir'), isTrue);
         expect(ConfigMeta.isWritable('gateway.auth_mode'), isFalse);
         expect(ConfigMeta.isWritable('nonexistent'), isFalse);
       });

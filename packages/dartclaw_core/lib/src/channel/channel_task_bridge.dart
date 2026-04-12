@@ -1,8 +1,8 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
 import 'package:logging/logging.dart';
 
 import '../events/event_bus.dart';
 import '../governance/sliding_window_rate_limiter.dart';
-import '../runtime/channel_type.dart';
 import '../scoping/group_config_resolver.dart';
 import 'channel.dart';
 import 'channel_task_bridge_support.dart';

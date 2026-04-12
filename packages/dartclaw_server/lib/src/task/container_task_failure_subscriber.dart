@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
+import '../container/container_dispatcher.dart';
 import 'task_service.dart';
 
 /// Fails running tasks whose execution profile crashed.

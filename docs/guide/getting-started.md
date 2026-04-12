@@ -69,7 +69,7 @@ Setup reports one of two completion states:
 
 Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
 
-**Important**: When running from a clone rather than an installed binary, DartClaw needs access to the source-tree templates and static assets. `dartclaw service install` automatically carries `--source-dir` when run from the repo root. For manual runs outside the source tree, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
+**Important**: Standalone binaries produced by `make build` or `bash tool/build.sh` embed the web UI, static assets, and built-in skills, so they do not need `--source-dir`, `--static-dir`, or `--templates-dir`. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates and static assets from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
 
 ## First Session
 

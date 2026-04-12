@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/src/scoping/channel_config.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show ChannelConfig, RetryPolicy;
 import 'package:test/test.dart';
 
 void main() {

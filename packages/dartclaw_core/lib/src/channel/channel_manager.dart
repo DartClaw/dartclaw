@@ -1,11 +1,10 @@
 import 'dart:async';
 
+import 'package:dartclaw_models/dartclaw_models.dart'
+    show ChannelConfig, DmScope, GroupScope, SessionKey, SessionScopeConfig;
 import 'package:logging/logging.dart';
 
-import '../scoping/channel_config.dart';
 import '../scoping/live_scope_config.dart';
-import '../scoping/session_scope_config.dart';
-import 'package:dartclaw_models/dartclaw_models.dart';
 import 'channel.dart';
 import 'channel_task_bridge.dart';
 import 'message_queue.dart';

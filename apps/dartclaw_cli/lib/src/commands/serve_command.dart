@@ -164,7 +164,7 @@ class ServeCommand extends Command<void> {
 
     // Load and validate HTML templates
     try {
-      initTemplates(config.server.templatesDir, devMode: config.server.devMode);
+      initTemplates(config.server.templatesDir, devMode: config.server.devMode, embeddedSources: embeddedTemplates);
     } on StateError catch (e) {
       _stderrLine('ERROR: ${e.message}');
       _exitFn(1);

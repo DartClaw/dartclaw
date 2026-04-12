@@ -30,7 +30,8 @@ void main() {
       expect(
         schema['additionalProperties'],
         false,
-        reason: '${tool.name}.inputSchema must include additionalProperties: false '
+        reason:
+            '${tool.name}.inputSchema must include additionalProperties: false '
             '(required by Anthropic API v1.4.2+ for object-type tool inputs)',
       );
     }

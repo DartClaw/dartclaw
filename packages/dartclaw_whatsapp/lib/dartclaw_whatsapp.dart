@@ -1,7 +1,7 @@
 /// WhatsApp channel integration for DartClaw via GOWA sidecar.
 library;
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 
 import 'src/whatsapp_config.dart';
 

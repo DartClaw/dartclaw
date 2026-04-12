@@ -3,6 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
 
 import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_webhook.dart';
@@ -36,8 +37,6 @@ import 'task/task_review_service.dart';
 import 'task/task_service.dart';
 import 'task/worktree_manager.dart';
 import 'turn_manager.dart';
-import 'workflow/workflow_definition_source.dart';
-import 'workflow/workflow_service.dart';
 import 'workspace/workspace_git_sync.dart';
 
 /// Builder for [DartclawServer].

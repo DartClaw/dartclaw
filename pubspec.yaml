@@ -9,6 +9,7 @@ workspace:
   - packages/dartclaw_models
   - packages/dartclaw_core
   - packages/dartclaw_config
+  - packages/dartclaw_workflow
   - packages/dartclaw_security
   - packages/dartclaw_google_chat
   - packages/dartclaw_whatsapp

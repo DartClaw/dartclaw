@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart' show TaskEventService, TurnTraceService;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -32,8 +34,6 @@ import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../turn_manager.dart';
-import '../workflow/workflow_definition_source.dart';
-import '../workflow/workflow_service.dart';
 import 'dashboard_page.dart';
 import 'page_registry.dart';
 import 'page_support.dart';
@@ -640,8 +640,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
     // fall back to legacy 'cached_input_tokens' for KV entries written
     // by older versions.
     final cacheReadTokens =
-        (decoded['cache_read_tokens'] as num?)?.toInt() ??
-        (decoded['cached_input_tokens'] as num?)?.toInt();
+        (decoded['cache_read_tokens'] as num?)?.toInt() ?? (decoded['cached_input_tokens'] as num?)?.toInt();
     return (
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),

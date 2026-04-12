@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

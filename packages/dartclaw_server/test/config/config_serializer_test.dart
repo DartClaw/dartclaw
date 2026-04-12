@@ -385,6 +385,7 @@ void main() {
 
     test('google chat reactionsAuth serializes from loaded config', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -431,6 +432,7 @@ channels:
 
     test('google chat feedback config serializes when enabled', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -524,6 +526,7 @@ channels:
 
     test('governance turn progress serializes nested stall settings', () {
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
@@ -648,7 +651,10 @@ governance:
             AlertTarget(channel: 'whatsapp', recipient: '+1234'),
             AlertTarget(channel: 'signal', recipient: '+5678'),
           ],
-          routes: const {'guard_block': ['0'], 'compaction': ['*']},
+          routes: const {
+            'guard_block': ['0'],
+            'compaction': ['*'],
+          },
         ),
       );
       final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false, gitSyncPushEnabled: false);

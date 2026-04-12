@@ -1,5 +1,6 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
+
 import 'task_status.dart';
-import 'task_type.dart';
 
 /// Immutable task value object for orchestrated work.
 ///

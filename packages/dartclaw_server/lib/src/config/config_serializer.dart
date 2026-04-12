@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';

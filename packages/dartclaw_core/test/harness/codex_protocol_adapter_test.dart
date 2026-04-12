@@ -406,7 +406,12 @@ void main() {
       final adapter = CodexProtocolAdapter();
 
       expect(
-        adapter.parseLine(jsonEncode({'id': 1, 'result': {'response': {}}})),
+        adapter.parseLine(
+          jsonEncode({
+            'id': 1,
+            'result': {'response': {}},
+          }),
+        ),
         isNull,
       );
     });
@@ -638,9 +643,7 @@ void main() {
       test('thread/compactedNotification does not produce ToolUse or ToolResult', () {
         final adapter = CodexProtocolAdapter();
 
-        final msg = adapter.parseLine(
-          jsonEncode({'method': 'thread/compactedNotification', 'params': {}}),
-        );
+        final msg = adapter.parseLine(jsonEncode({'method': 'thread/compactedNotification', 'params': {}}));
 
         expect(msg, isNot(isA<ToolUse>()));
         expect(msg, isNot(isA<ToolResult>()));

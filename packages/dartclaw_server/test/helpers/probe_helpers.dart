@@ -29,6 +29,5 @@ CommandProbe probeExitCode(int exitCode, {String stdout = '', String stderr = ''
 /// Creates a [CommandProbe] that throws a [ProcessException], simulating
 /// a missing binary.
 CommandProbe probeMissing(String executableName) {
-  return (executable, arguments) async =>
-      throw ProcessException(executableName, arguments, 'missing binary');
+  return (executable, arguments) async => throw ProcessException(executableName, arguments, 'missing binary');
 }

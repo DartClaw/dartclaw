@@ -73,4 +73,3 @@ String _prStrategyLabel(PrStrategy strategy) => switch (strategy) {
   PrStrategy.githubPr => 'GitHub PR',
   PrStrategy.branchOnly => 'Branch Only',
 };
-

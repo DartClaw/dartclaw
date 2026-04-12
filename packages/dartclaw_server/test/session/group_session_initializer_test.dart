@@ -29,9 +29,16 @@ void main() {
           const ChannelGroupConfig(
             channelType: 'whatsapp',
             groupAccessEnabled: true,
-            groupEntries: [GroupEntry(id: 'grp-wa-1'), GroupEntry(id: 'grp-wa-2')],
+            groupEntries: [
+              GroupEntry(id: 'grp-wa-1'),
+              GroupEntry(id: 'grp-wa-2'),
+            ],
           ),
-          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-sig-1')]),
+          const ChannelGroupConfig(
+            channelType: 'signal',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-sig-1')],
+          ),
         ],
       );
       await init.initialize();
@@ -46,8 +53,16 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: false, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
-          const ChannelGroupConfig(channelType: 'signal', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-sig-1')]),
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: false,
+            groupEntries: [GroupEntry(id: 'grp-wa-1')],
+          ),
+          const ChannelGroupConfig(
+            channelType: 'signal',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-sig-1')],
+          ),
         ],
       );
       await init.initialize();
@@ -62,7 +77,11 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-wa-1')],
+          ),
         ],
       );
       await init.initialize();
@@ -74,7 +93,11 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'grp-wa-1')]),
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-wa-1')],
+          ),
         ],
       );
       await init2.initialize();
@@ -89,9 +112,7 @@ void main() {
       final init = GroupSessionInitializer(
         sessions: sessions,
         eventBus: eventBus,
-        channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: []),
-        ],
+        channelConfigs: [const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [])],
       );
       await init.initialize();
       init.dispose();
@@ -106,9 +127,7 @@ void main() {
       final init = GroupSessionInitializer(
         sessions: sessions,
         eventBus: eventBus,
-        channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: []),
-        ],
+        channelConfigs: [const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [])],
       );
       await init.initialize();
 
@@ -192,7 +211,11 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'my-group')]),
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'my-group')],
+          ),
         ],
       );
       await init.initialize();
@@ -280,7 +303,11 @@ void main() {
         sessions: sessions,
         eventBus: eventBus,
         channelConfigs: [
-          const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [GroupEntry(id: 'my-group')]),
+          const ChannelGroupConfig(
+            channelType: 'whatsapp',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'my-group')],
+          ),
         ],
       );
       await init.initialize();

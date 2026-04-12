@@ -69,10 +69,7 @@ void main() {
       test('same error class on consecutive failures triggers permanent failure', () async {
         // Both attempts result in "Turn execution failed" (same class) because
         // TurnRunner normalizes all harness exceptions to that message.
-        worker.responses = [
-          _WorkerResponse.fail('any error'),
-          _WorkerResponse.fail('any error again'),
-        ];
+        worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.fail('any error again')];
 
         await tasks.create(
           id: 'task-1',
@@ -100,10 +97,7 @@ void main() {
       test('first failure retries when no lastError exists yet', () async {
         // First attempt: no lastError to compare → retry allowed
         // Second attempt: same error class as lastError → permanent failure
-        worker.responses = [
-          _WorkerResponse.fail('any error'),
-          _WorkerResponse.succeed('success output'),
-        ];
+        worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('success output')];
 
         await tasks.create(
           id: 'task-2',
@@ -147,10 +141,7 @@ void main() {
       });
 
       test('retried task gets a fresh session ID', () async {
-        worker.responses = [
-          _WorkerResponse.fail('turn execution failed'),
-          _WorkerResponse.succeed('done'),
-        ];
+        worker.responses = [_WorkerResponse.fail('turn execution failed'), _WorkerResponse.succeed('done')];
 
         await tasks.create(
           id: 'task-4',
@@ -177,10 +168,7 @@ void main() {
       });
 
       test('retried task prompt contains retry context section', () async {
-        worker.responses = [
-          _WorkerResponse.fail('any error'),
-          _WorkerResponse.succeed('done'),
-        ];
+        worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('done')];
 
         await tasks.create(
           id: 'task-5',
@@ -214,10 +202,7 @@ void main() {
         // All failures from TurnRunner result in "Turn execution failed" (same class).
         // First failure: no lastError → retry proceeds.
         // Second failure: lastError == new error class → permanent failure (loop detection).
-        worker.responses = [
-          _WorkerResponse.fail('error a'),
-          _WorkerResponse.fail('error b'),
-        ];
+        worker.responses = [_WorkerResponse.fail('error a'), _WorkerResponse.fail('error b')];
 
         await tasks.create(
           id: 'task-6',
@@ -241,10 +226,7 @@ void main() {
       });
 
       test('lastError stored in configJson on retry', () async {
-        worker.responses = [
-          _WorkerResponse.fail('any error'),
-          _WorkerResponse.succeed('done'),
-        ];
+        worker.responses = [_WorkerResponse.fail('any error'), _WorkerResponse.succeed('done')];
 
         await tasks.create(
           id: 'task-7',
@@ -275,10 +257,7 @@ void main() {
         // Practical test: maxRetries: 2, first failure uses retryable: true with no lastError
         // → retry 1 queued. Second failure uses same normalized class → permanent failure.
         // Verify the "first retry succeeds" path works for the success variant.
-        worker.responses = [
-          _WorkerResponse.fail('compile error: foo not found'),
-          _WorkerResponse.succeed('done'),
-        ];
+        worker.responses = [_WorkerResponse.fail('compile error: foo not found'), _WorkerResponse.succeed('done')];
 
         await tasks.create(
           id: 'task-diff-class',
@@ -345,22 +324,15 @@ class _WorkerResponse {
     this.outputTokens = 0,
   });
 
-  factory _WorkerResponse.succeed([String text = 'Done.']) =>
-      _WorkerResponse._(success: true, text: text);
+  factory _WorkerResponse.succeed([String text = 'Done.']) => _WorkerResponse._(success: true, text: text);
 
   factory _WorkerResponse.succeedWithTokens({
     required String response,
     required int inputTokens,
     required int outputTokens,
-  }) => _WorkerResponse._(
-        success: true,
-        text: response,
-        inputTokens: inputTokens,
-        outputTokens: outputTokens,
-      );
+  }) => _WorkerResponse._(success: true, text: response, inputTokens: inputTokens, outputTokens: outputTokens);
 
-  factory _WorkerResponse.fail(String message) =>
-      _WorkerResponse._(success: false, errorMessage: message);
+  factory _WorkerResponse.fail(String message) => _WorkerResponse._(success: false, errorMessage: message);
 }
 
 class _CountingWorker implements AgentHarness {
@@ -420,10 +392,7 @@ class _CountingWorker implements AgentHarness {
     if (resp.text.isNotEmpty) {
       _eventsCtrl.add(DeltaEvent(resp.text));
     }
-    return <String, dynamic>{
-      'input_tokens': resp.inputTokens,
-      'output_tokens': resp.outputTokens,
-    };
+    return <String, dynamic>{'input_tokens': resp.inputTokens, 'output_tokens': resp.outputTokens};
   }
 
   @override

@@ -954,9 +954,7 @@ void main() {
     });
 
     test('reconfigure() completes without error (no-op — logs governance change only)', () {
-      final newConfig = DartclawConfig(
-        governance: const GovernanceConfig(),
-      );
+      final newConfig = DartclawConfig(governance: const GovernanceConfig());
       final delta = ConfigDelta(
         previous: const DartclawConfig.defaults(),
         current: newConfig,

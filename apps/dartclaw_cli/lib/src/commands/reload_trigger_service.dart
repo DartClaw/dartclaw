@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show ConfigNotifier, DartclawConfig, ReloadConfig;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -34,10 +34,10 @@ class ReloadTriggerService {
     required ConfigNotifier notifier,
     required ReloadConfig reloadConfig,
     DartclawConfig Function()? configLoader,
-  })  : _configPath = configPath,
-        _notifier = notifier,
-        _reloadConfig = reloadConfig,
-        _configLoader = configLoader ?? (() => DartclawConfig.load(configPath: configPath));
+  }) : _configPath = configPath,
+       _notifier = notifier,
+       _reloadConfig = reloadConfig,
+       _configLoader = configLoader ?? (() => DartclawConfig.load(configPath: configPath));
 
   /// Registers SIGUSR1 handler (POSIX-only) and optionally sets up file-watch.
   ///
@@ -64,9 +64,7 @@ class ReloadTriggerService {
     final configFilename = p.basename(_configPath);
 
     try {
-      _watchSub = Directory(parentDir)
-          .watch(events: FileSystemEvent.create | FileSystemEvent.modify)
-          .listen((event) {
+      _watchSub = Directory(parentDir).watch(events: FileSystemEvent.create | FileSystemEvent.modify).listen((event) {
         if (p.basename(event.path) != configFilename) return;
         _log.info('ReloadTriggerService: config file change detected — debouncing');
         _debounceTimer?.cancel();

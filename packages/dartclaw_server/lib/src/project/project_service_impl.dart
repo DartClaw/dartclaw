@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show CredentialsConfig, EventBus, ProjectConfig, ProjectService, ProjectStatusChangedEvent, atomicWriteJson;
-import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
+    show EventBus, ProjectService, ProjectStatusChangedEvent, atomicWriteJson;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 

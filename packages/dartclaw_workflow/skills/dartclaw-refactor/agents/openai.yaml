@@ -1,0 +1,4 @@
+interface:
+  display_name: "DartClaw Refactor"
+  short_description: "Simplify code while preserving behavior"
+  default_prompt: "Use $dartclaw-refactor to simplify scoped code, preserve behavior, and verify there are no regressions."

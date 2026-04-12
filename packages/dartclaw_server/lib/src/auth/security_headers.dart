@@ -24,13 +24,14 @@ const _csp =
 Middleware securityHeadersMiddleware({bool enableHsts = false}) {
   return (Handler inner) => (Request request) async {
     final response = await inner(request);
+    final hasCacheControl = response.headers.keys.any((key) => key.toLowerCase() == 'cache-control');
     return response.change(
       headers: {
         'Content-Security-Policy': _csp,
         'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
-        'Cache-Control': 'no-store',
+        if (!hasCacheControl) 'Cache-Control': 'no-store',
         'Vary': 'HX-Request',
         if (enableHsts) 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
       },

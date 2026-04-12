@@ -8,11 +8,7 @@ void main() {
 
     setUp(() {
       output = <String>[];
-      printer = CliProgressPrinter(
-        totalSteps: 6,
-        workflowName: 'spec-and-implement',
-        writeLine: output.add,
-      );
+      printer = CliProgressPrinter(totalSteps: 6, workflowName: 'spec-and-implement', writeLine: output.add);
     });
 
     test('workflowStarted outputs correct format', () {

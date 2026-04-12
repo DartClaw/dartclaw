@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/api/task_sse_routes.dart';
 import 'package:dartclaw_server/src/task/task_progress_tracker.dart';

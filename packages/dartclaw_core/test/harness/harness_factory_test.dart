@@ -1,6 +1,39 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
+
+final class _FakeContainerExecutor implements ContainerExecutor {
+  @override
+  final String profileId = 'workspace';
+
+  @override
+  final String workingDir = '/project';
+
+  @override
+  final bool hasProjectMount = true;
+
+  const _FakeContainerExecutor();
+
+  @override
+  String? containerPathForHostPath(String hostPath) => hostPath;
+
+  @override
+  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
+
+  @override
+  Future<void> deleteFileInContainer(String containerPath) async {}
+
+  @override
+  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> start() async {}
+}
 
 void main() {
   group('HarnessFactory', () {
@@ -14,13 +47,7 @@ void main() {
     });
 
     test('creates a ClaudeCodeHarness from the built-in claude provider', () {
-      final containerManager = ContainerManager(
-        config: const ContainerConfig(enabled: true),
-        containerName: 'dartclaw-test-container',
-        profileId: 'workspace',
-        workspaceMounts: const [],
-        proxySocketDir: '/tmp',
-      );
+      final containerManager = const _FakeContainerExecutor();
       final guardChain = GuardChain(guards: const []);
       final auditLogger = GuardAuditLogger();
       final factory = HarnessFactory();

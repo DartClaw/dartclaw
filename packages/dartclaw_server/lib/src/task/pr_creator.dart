@@ -44,18 +44,12 @@ class PrCreator {
   bool? _ghAvailable;
 
   /// Injectable process runner for testing.
-  final Future<ProcessResult> Function(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  })? _processRunner;
+  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
+  _processRunner;
 
   PrCreator({
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-    })? processRunner,
+    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
+    processRunner,
   }) : _processRunner = processRunner;
 
   /// Creates a GitHub PR for the given [branch].
@@ -63,11 +57,7 @@ class PrCreator {
   /// Returns [PrGhNotFound] if the `gh` CLI is not on PATH.
   /// Returns [PrCreated] with the PR URL on success.
   /// Returns [PrCreationFailed] on any `gh` error.
-  Future<PrCreationResult> create({
-    required Project project,
-    required Task task,
-    required String branch,
-  }) async {
+  Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async {
     if (!await _ensureGhAvailable()) {
       return PrGhNotFound(_manualPrInstructions(project, branch));
     }
@@ -96,10 +86,7 @@ class PrCreator {
       final stderr = result.stderr as String;
 
       if (result.exitCode == 0) {
-        final url = stdout.trim().split('\n').firstWhere(
-          (line) => line.trim().isNotEmpty,
-          orElse: () => '',
-        );
+        final url = stdout.trim().split('\n').firstWhere((line) => line.trim().isNotEmpty, orElse: () => '');
         _log.info('PR created for branch $branch: $url');
         return PrCreated(url);
       }
@@ -145,11 +132,7 @@ To create a PR manually, run:
 Or visit: ${project.remoteUrl} and create a PR from the branch.''';
   }
 
-  Future<ProcessResult> _run(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) {
+  Future<ProcessResult> _run(String executable, List<String> arguments, {String? workingDirectory}) {
     final runner = _processRunner;
     if (runner != null) {
       return runner(executable, arguments, workingDirectory: workingDirectory);

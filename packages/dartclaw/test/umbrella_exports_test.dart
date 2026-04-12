@@ -1,14 +1,11 @@
 import 'package:dartclaw/dartclaw.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:test/test.dart';
 
 void main() {
   group('dartclaw umbrella exports', () {
     test('re-exports core, models, security, storage, and channel types', () async {
-      final session = Session(
-        id: 'session-1',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
+      final session = Session(id: 'session-1', createdAt: DateTime.now(), updatedAt: DateTime.now());
       final guardConfig = const GuardConfig.defaults();
       final eventBus = EventBus();
       final googleChatAudience = const GoogleChatAudienceConfig(
@@ -43,23 +40,11 @@ void main() {
       ensureDartclawSignalRegistered();
       ensureDartclawWhatsappRegistered();
 
-      final config = DartclawConfig.load(
-        fileReader: (_) => null,
-        env: const {'HOME': '/home/testuser'},
-      );
+      final config = DartclawConfig.load(fileReader: (_) => null, env: const {'HOME': '/home/testuser'});
 
-      expect(
-        config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat),
-        isA<GoogleChatConfig>(),
-      );
-      expect(
-        config.getChannelConfig<SignalConfig>(ChannelType.signal),
-        isA<SignalConfig>(),
-      );
-      expect(
-        config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp),
-        isA<WhatsAppConfig>(),
-      );
+      expect(config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat), isA<GoogleChatConfig>());
+      expect(config.getChannelConfig<SignalConfig>(ChannelType.signal), isA<SignalConfig>());
+      expect(config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp), isA<WhatsAppConfig>());
     });
   });
 }

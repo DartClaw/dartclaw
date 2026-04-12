@@ -3,8 +3,8 @@ enum SkillSource {
   /// `<projectDir>/.claude/skills/` -- project-scoped, Claude Code harness.
   projectClaude,
 
-  /// `<projectDir>/.agents/skills/` -- project-scoped, Codex harness.
-  projectCodex,
+  /// `<projectDir>/.agents/skills/` -- project-scoped, non-Claude harnesses.
+  projectAgents,
 
   /// `<workspace>/skills/` -- workspace-scoped, DartClaw-managed.
   workspace,
@@ -12,18 +12,26 @@ enum SkillSource {
   /// `~/.claude/skills/` -- user-scoped, Claude Code harness.
   userClaude,
 
+  /// `~/.agents/skills/` -- user-scoped, non-Claude harnesses.
+  userAgents,
+
   /// `<dataDir>/skills/` -- user-scoped, DartClaw-managed.
   userDartclaw,
+
+  /// `<repo>/packages/dartclaw_workflow/skills/` -- repo-managed built-ins.
+  dartclaw,
 
   /// Plugin skill directories -- plugin-namespaced.
   plugin;
 
   String get displayName => switch (this) {
     projectClaude => 'project (.claude)',
-    projectCodex => 'project (.agents)',
+    projectAgents => 'project (.agents)',
     workspace => 'workspace',
     userClaude => 'user (.claude)',
+    userAgents => 'user (.agents)',
     userDartclaw => 'user (dartclaw)',
+    dartclaw => 'DartClaw Built-in',
     plugin => 'plugin',
   };
 }

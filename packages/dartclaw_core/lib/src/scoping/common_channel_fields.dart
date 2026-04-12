@@ -1,6 +1,7 @@
+import 'package:dartclaw_models/dartclaw_models.dart' show RetryPolicy;
+
 import '../channel/dm_access.dart';
 import '../channel/task_trigger_config.dart';
-import 'channel_config.dart';
 import 'group_entry.dart';
 
 /// Shared channel configuration fields and YAML parsing.

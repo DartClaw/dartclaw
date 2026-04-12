@@ -423,7 +423,7 @@ void main() {
     });
   });
 
-  group('WorkflowStep outputs and evaluator fields (S01)', () {
+  group('WorkflowStep outputs (S01)', () {
     test('round-trips outputs map with preset schema', () {
       final step = WorkflowStep(
         id: 's',
@@ -438,16 +438,10 @@ void main() {
       expect(restored.outputs!['result']!.presetName, 'verdict');
     });
 
-    test('round-trips evaluator: true', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], evaluator: true);
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.evaluator, true);
-    });
-
-    test('evaluator defaults to false', () {
+    test('workflow step json omits evaluator field', () {
       const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.evaluator, false);
+      final json = step.toJson();
+      expect(json.containsKey('evaluator'), false);
     });
 
     test('outputs null when not set (backward compat)', () {
@@ -458,17 +452,10 @@ void main() {
       expect(restored.outputs, isNull);
     });
 
-    test('evaluator false not serialized to json (optimization)', () {
+    test('workflow step round-trip remains evaluator-free', () {
       const step = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
-      final json = step.toJson();
-      // evaluator: false is not serialized since it's the default.
-      expect(json.containsKey('evaluator'), false);
-    });
-
-    test('evaluator true is serialized to json', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], evaluator: true);
-      final json = step.toJson();
-      expect(json['evaluator'], true);
+      final restored = WorkflowStep.fromJson(step.toJson());
+      expect(restored.toJson().containsKey('evaluator'), false);
     });
   });
 

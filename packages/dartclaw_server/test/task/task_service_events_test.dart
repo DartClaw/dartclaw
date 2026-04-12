@@ -22,10 +22,7 @@ void main() {
     await service.dispose();
   });
 
-  Task makeTask({
-    String id = 'task-1',
-    TaskStatus status = TaskStatus.draft,
-  }) {
+  Task makeTask({String id = 'task-1', TaskStatus status = TaskStatus.draft}) {
     return Task(
       id: id,
       title: 'Test task',
@@ -130,22 +127,26 @@ void main() {
 
     test('TaskReviewReadyEvent includes artifact count and kinds', () async {
       await repo.insert(makeTask(status: TaskStatus.running));
-      await repo.insertArtifact(TaskArtifact(
-        id: 'art-1',
-        taskId: 'task-1',
-        name: 'patch.diff',
-        kind: ArtifactKind.diff,
-        path: '/tmp/patch.diff',
-        createdAt: DateTime.parse('2026-03-10T10:05:00Z'),
-      ));
-      await repo.insertArtifact(TaskArtifact(
-        id: 'art-2',
-        taskId: 'task-1',
-        name: 'notes.md',
-        kind: ArtifactKind.document,
-        path: '/tmp/notes.md',
-        createdAt: DateTime.parse('2026-03-10T10:05:00Z'),
-      ));
+      await repo.insertArtifact(
+        TaskArtifact(
+          id: 'art-1',
+          taskId: 'task-1',
+          name: 'patch.diff',
+          kind: ArtifactKind.diff,
+          path: '/tmp/patch.diff',
+          createdAt: DateTime.parse('2026-03-10T10:05:00Z'),
+        ),
+      );
+      await repo.insertArtifact(
+        TaskArtifact(
+          id: 'art-2',
+          taskId: 'task-1',
+          name: 'notes.md',
+          kind: ArtifactKind.document,
+          path: '/tmp/notes.md',
+          createdAt: DateTime.parse('2026-03-10T10:05:00Z'),
+        ),
+      );
 
       await service.transition('task-1', TaskStatus.review);
       await Future<void>.delayed(Duration.zero);
@@ -168,10 +169,7 @@ void main() {
       await repo.insert(makeTask(status: TaskStatus.draft));
 
       // draft -> running is invalid
-      await expectLater(
-        service.transition('task-1', TaskStatus.running),
-        throwsA(isA<StateError>()),
-      );
+      await expectLater(service.transition('task-1', TaskStatus.running), throwsA(isA<StateError>()));
 
       expect(eventBus.firedEvents, isEmpty);
     });

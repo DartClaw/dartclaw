@@ -8,7 +8,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskReviewReadyEvent,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType;
+        TaskType,
+        WorkflowTaskService;
 
 import 'task_event_recorder.dart';
 
@@ -28,7 +29,7 @@ class VersionConflictException implements Exception {
 }
 
 /// Business logic layer for task CRUD and lifecycle operations.
-class TaskService {
+class TaskService implements WorkflowTaskService {
   final TaskRepository _repo;
   final EventBus? _eventBus;
   final TaskEventRecorder? _eventRecorder;
@@ -41,6 +42,7 @@ class TaskService {
   ///
   /// When [autoStart] is true the task is queued immediately and a
   /// [TaskStatusChangedEvent] is fired for the draft→queued transition.
+  @override
   Future<Task> create({
     required String id,
     required String title,
@@ -108,9 +110,11 @@ class TaskService {
   }
 
   /// Returns the task with [id], or null when missing.
+  @override
   Future<Task?> get(String id) => _repo.getById(id);
 
   /// Lists tasks with optional status/type filters.
+  @override
   Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
 
   /// Applies a lifecycle transition.
@@ -121,6 +125,7 @@ class TaskService {
   /// Throws [VersionConflictException] when the row was modified concurrently
   /// (version mismatch). Throws [StateError] when the status changed
   /// concurrently. Throws [ArgumentError] when the task does not exist.
+  @override
   Future<Task> transition(
     String taskId,
     TaskStatus newStatus, {
@@ -252,6 +257,7 @@ class TaskService {
   Future<TaskArtifact?> getArtifact(String id) => _repo.getArtifactById(id);
 
   /// Lists artifacts for the task.
+  @override
   Future<List<TaskArtifact>> listArtifacts(String taskId) => _repo.listArtifactsByTask(taskId);
 
   /// Deletes an artifact row.

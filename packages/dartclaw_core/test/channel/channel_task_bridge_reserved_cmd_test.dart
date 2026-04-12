@@ -11,11 +11,7 @@ void main() {
     });
 
     ChannelMessage makeMessage({String text = 'hello', String senderJid = 'sender@s.whatsapp.net'}) {
-      return ChannelMessage(
-        channelType: ChannelType.whatsapp,
-        senderJid: senderJid,
-        text: text,
-      );
+      return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: senderJid, text: text);
     }
 
     test('/stop handled — returns true (consumed)', () async {

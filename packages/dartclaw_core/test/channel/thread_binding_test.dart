@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -16,8 +17,10 @@ void main() {
     );
 
     test('key() produces compound key', () {
-      expect(ThreadBinding.key('googlechat', 'spaces/AAAA/threads/BBBB'),
-          equals('googlechat::spaces/AAAA/threads/BBBB'));
+      expect(
+        ThreadBinding.key('googlechat', 'spaces/AAAA/threads/BBBB'),
+        equals('googlechat::spaces/AAAA/threads/BBBB'),
+      );
     });
 
     test('toJson() serializes all fields with ISO 8601 timestamps', () {
@@ -151,10 +154,7 @@ void main() {
 
     test('updateLastActivity() for unknown binding is a no-op', () async {
       // Should not throw.
-      await expectLater(
-        store.updateLastActivity('googlechat', 'no-such-thread', DateTime.now()),
-        completes,
-      );
+      await expectLater(store.updateLastActivity('googlechat', 'no-such-thread', DateTime.now()), completes);
     });
 
     test('reconcile() removes bindings for tasks not in active set', () async {
@@ -360,12 +360,7 @@ void main() {
     });
 
     test('toJson round-trips correctly', () {
-      final cfg = FeaturesConfig(
-        threadBinding: ThreadBindingFeatureConfig(
-          enabled: true,
-          idleTimeoutMinutes: 45,
-        ),
-      );
+      final cfg = FeaturesConfig(threadBinding: ThreadBindingFeatureConfig(enabled: true, idleTimeoutMinutes: 45));
       final json = cfg.toJson();
       expect(json['threadBinding']['enabled'], isTrue);
       expect(json['threadBinding']['idleTimeoutMinutes'], 45);

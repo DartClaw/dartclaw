@@ -1,3 +1,4 @@
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Resolves per-turn model/effort overrides for a channel-routed session.

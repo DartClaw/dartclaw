@@ -1,4 +1,4 @@
-import '../config/history_config.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
 
 // Regex patterns for synthetic assistant markers that indicate guard-blocked
 // or failed exchanges. All patterns use ^ and $ anchors for exact matching.
@@ -44,10 +44,7 @@ List<({String userContent, String assistantContent})> _enforceHistoryBudget(
 /// total budget by dropping oldest exchange pairs first.
 ///
 /// Returns empty string if no usable history remains after filtering.
-String buildReplaySafeHistory(
-  List<Map<String, dynamic>> messages,
-  HistoryConfig config,
-) {
+String buildReplaySafeHistory(List<Map<String, dynamic>> messages, HistoryConfig config) {
   // Step 1: Role filter — keep only user and assistant messages with content.
   final filtered = <Map<String, dynamic>>[];
   for (final msg in messages) {

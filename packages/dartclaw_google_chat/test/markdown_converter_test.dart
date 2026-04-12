@@ -32,17 +32,11 @@ void main() {
       });
 
       test('multiple bold on one line', () {
-        expect(
-          markdownToGoogleChat('**first** and **second**'),
-          equals('*first* and *second*'),
-        );
+        expect(markdownToGoogleChat('**first** and **second**'), equals('*first* and *second*'));
       });
 
       test('bold within sentence', () {
-        expect(
-          markdownToGoogleChat('This is **important** stuff'),
-          equals('This is *important* stuff'),
-        );
+        expect(markdownToGoogleChat('This is **important** stuff'), equals('This is *important* stuff'));
       });
     });
 
@@ -62,17 +56,11 @@ void main() {
 
     group('bold + italic', () {
       test('triple asterisk', () {
-        expect(
-          markdownToGoogleChat('***bold italic***'),
-          equals('*_bold italic_*'),
-        );
+        expect(markdownToGoogleChat('***bold italic***'), equals('*_bold italic_*'));
       });
 
       test('triple underscore', () {
-        expect(
-          markdownToGoogleChat('___bold italic___'),
-          equals('*_bold italic_*'),
-        );
+        expect(markdownToGoogleChat('___bold italic___'), equals('*_bold italic_*'));
       });
     });
 
@@ -82,19 +70,13 @@ void main() {
       });
 
       test('within sentence', () {
-        expect(
-          markdownToGoogleChat('see ~~old~~ new'),
-          equals('see ~old~ new'),
-        );
+        expect(markdownToGoogleChat('see ~~old~~ new'), equals('see ~old~ new'));
       });
     });
 
     group('links', () {
       test('markdown link', () {
-        expect(
-          markdownToGoogleChat('[Click here](https://example.com)'),
-          equals('<https://example.com|Click here>'),
-        );
+        expect(markdownToGoogleChat('[Click here](https://example.com)'), equals('<https://example.com|Click here>'));
       });
 
       test('link within text', () {
@@ -121,10 +103,7 @@ void main() {
       });
 
       test('image without alt text', () {
-        expect(
-          markdownToGoogleChat('![](https://img.com/shot.png)'),
-          equals('https://img.com/shot.png'),
-        );
+        expect(markdownToGoogleChat('![](https://img.com/shot.png)'), equals('https://img.com/shot.png'));
       });
 
       test('image not confused with link', () {
@@ -159,17 +138,11 @@ void main() {
       test('header with bold inside', () {
         // Inner **bold** is redundant since header is already bold.
         // Result: nested bold markers — acceptable for this edge case.
-        expect(
-          markdownToGoogleChat('## **Bold** Header'),
-          equals('**Bold* Header*'),
-        );
+        expect(markdownToGoogleChat('## **Bold** Header'), equals('**Bold* Header*'));
       });
 
       test('mid-text # not converted', () {
-        expect(
-          markdownToGoogleChat('Issue #123 is fixed'),
-          equals('Issue #123 is fixed'),
-        );
+        expect(markdownToGoogleChat('Issue #123 is fixed'), equals('Issue #123 is fixed'));
       });
     });
 
@@ -195,33 +168,21 @@ void main() {
       });
 
       test('surrounded by content', () {
-        expect(
-          markdownToGoogleChat('above\n---\nbelow'),
-          equals('above\n\nbelow'),
-        );
+        expect(markdownToGoogleChat('above\n---\nbelow'), equals('above\n\nbelow'));
       });
     });
 
     group('bullet lists', () {
       test('asterisk bullets normalized to dash', () {
-        expect(
-          markdownToGoogleChat('* first\n* second'),
-          equals('- first\n- second'),
-        );
+        expect(markdownToGoogleChat('* first\n* second'), equals('- first\n- second'));
       });
 
       test('dash bullets unchanged', () {
-        expect(
-          markdownToGoogleChat('- first\n- second'),
-          equals('- first\n- second'),
-        );
+        expect(markdownToGoogleChat('- first\n- second'), equals('- first\n- second'));
       });
 
       test('bold in list item', () {
-        expect(
-          markdownToGoogleChat('- **item one**\n- **item two**'),
-          equals('- *item one*\n- *item two*'),
-        );
+        expect(markdownToGoogleChat('- **item one**\n- **item two**'), equals('- *item one*\n- *item two*'));
       });
     });
 
@@ -232,17 +193,11 @@ void main() {
       });
 
       test('inline code untouched', () {
-        expect(
-          markdownToGoogleChat('Use `**bold**` for bold'),
-          equals('Use `**bold**` for bold'),
-        );
+        expect(markdownToGoogleChat('Use `**bold**` for bold'), equals('Use `**bold**` for bold'));
       });
 
       test('formatting outside code still converted', () {
-        expect(
-          markdownToGoogleChat('**bold** and `**not bold**`'),
-          equals('*bold* and `**not bold**`'),
-        );
+        expect(markdownToGoogleChat('**bold** and `**not bold**`'), equals('*bold* and `**not bold**`'));
       });
 
       test('code block with language hint', () {
@@ -271,26 +226,17 @@ void main() {
       });
 
       test('escaped markers mixed with real formatting', () {
-        expect(
-          markdownToGoogleChat(r'**bold** and \*literal\*'),
-          equals(r'*bold* and \*literal\*'),
-        );
+        expect(markdownToGoogleChat(r'**bold** and \*literal\*'), equals(r'*bold* and \*literal\*'));
       });
     });
 
     group('combined formatting', () {
       test('bold and italic in same text', () {
-        expect(
-          markdownToGoogleChat('**bold** and _italic_ text'),
-          equals('*bold* and _italic_ text'),
-        );
+        expect(markdownToGoogleChat('**bold** and _italic_ text'), equals('*bold* and _italic_ text'));
       });
 
       test('bold with italic inside', () {
-        expect(
-          markdownToGoogleChat('**bold _with italic_ inside**'),
-          equals('*bold _with italic_ inside*'),
-        );
+        expect(markdownToGoogleChat('**bold _with italic_ inside**'), equals('*bold _with italic_ inside*'));
       });
 
       test('realistic Claude output', () {

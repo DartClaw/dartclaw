@@ -47,11 +47,7 @@ void main() {
     });
 
     test('toJson / fromJson round-trip', () {
-      const config = PrConfig(
-        strategy: PrStrategy.githubPr,
-        draft: true,
-        labels: ['agent', 'automated'],
-      );
+      const config = PrConfig(strategy: PrStrategy.githubPr, draft: true, labels: ['agent', 'automated']);
       final json = config.toJson();
       final roundTripped = PrConfig.fromJson(json);
       expect(roundTripped.strategy, equals(config.strategy));
@@ -88,14 +84,7 @@ void main() {
       String remoteUrl = 'git@github.com:user/repo.git',
       String localPath = '/data/projects/my-project',
       ProjectStatus status = ProjectStatus.ready,
-    }) => Project(
-      id: id,
-      name: name,
-      remoteUrl: remoteUrl,
-      localPath: localPath,
-      status: status,
-      createdAt: now,
-    );
+    }) => Project(id: id, name: name, remoteUrl: remoteUrl, localPath: localPath, status: status, createdAt: now);
 
     test('all fields serialized in toJson', () {
       final project = Project(
@@ -217,11 +206,7 @@ void main() {
           createdAt: now,
           lastFetchAt: now,
         );
-        final cleared = project.copyWith(
-          credentialsRef: null,
-          errorMessage: null,
-          lastFetchAt: null,
-        );
+        final cleared = project.copyWith(credentialsRef: null, errorMessage: null, lastFetchAt: null);
         expect(cleared.credentialsRef, isNull);
         expect(cleared.errorMessage, isNull);
         expect(cleared.lastFetchAt, isNull);

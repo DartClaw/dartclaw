@@ -7,10 +7,7 @@ void main() {
   group('buildAutoAcceptCallback', () {
     test('returns null unless completion action is accept', () {
       expect(
-        buildAutoAcceptCallback(
-          completionAction: 'review',
-          reviewTask: (_) async => throw UnimplementedError(),
-        ),
+        buildAutoAcceptCallback(completionAction: 'review', reviewTask: (_) async => throw UnimplementedError()),
         isNull,
       );
     });

@@ -56,8 +56,12 @@ TemplateLoaderService get templateLoader {
 /// `ServeCommand.run`). When [devMode] is true, templates are re-read from
 /// disk on each render so changes take effect without a server restart.
 /// Throws [StateError] on missing or empty templates.
-void initTemplates(String basePath, {bool devMode = false}) {
-  _templateLoader = TemplateLoaderService(basePath, devMode: devMode);
+void initTemplates(String basePath, {bool devMode = false, Map<String, String>? embeddedSources}) {
+  if (!devMode && embeddedSources != null && embeddedSources.isNotEmpty) {
+    _templateLoader = TemplateLoaderService.embedded(embeddedSources);
+  } else {
+    _templateLoader = TemplateLoaderService(basePath, devMode: devMode);
+  }
   _templateLoader!.validate();
 }
 
@@ -81,21 +85,18 @@ void resetTemplates() {
 class TemplateLoaderService {
   final String _basePath;
   final bool devMode;
+  final bool _embedded;
   final Map<String, String> _sources = {};
   late final Trellis trellis;
 
-  TemplateLoaderService(this._basePath, {this.devMode = false}) {
-    for (final name in expectedTemplates) {
-      final file = File('$_basePath/$name.html');
-      if (file.existsSync()) {
-        _sources[name] = file.readAsStringSync();
-      }
-    }
-    if (devMode) {
-      trellis = Trellis(loader: FileSystemLoader(_basePath, devMode: true), devMode: true);
-    } else {
-      trellis = Trellis(loader: MapLoader(_sources));
-    }
+  TemplateLoaderService(this._basePath, {this.devMode = false}) : _embedded = false {
+    _sources.addAll(_loadFilesystemSources());
+    _initializeTrellis();
+  }
+
+  TemplateLoaderService.embedded(Map<String, String> templates) : _basePath = '', devMode = false, _embedded = true {
+    _sources.addAll(templates);
+    trellis = Trellis(loader: MapLoader(_sources));
   }
 
   /// Returns the raw source string for a named template.
@@ -129,13 +130,12 @@ class TemplateLoaderService {
     final errors = <String, String>{};
 
     for (final name in expectedTemplates) {
-      final file = File('$_basePath/$name.html');
-      if (!file.existsSync()) {
+      final content = _embedded ? _sources[name] : _readFilesystemTemplate(name);
+      if (content == null) {
         missing.add('$name.html');
         continue;
       }
-      final content = _sources[name];
-      if (content == null || content.trim().isEmpty) {
+      if (content.trim().isEmpty) {
         errors[name] = 'Template file is empty';
         continue;
       }
@@ -155,6 +155,33 @@ class TemplateLoaderService {
         buffer.writeln('  Error in ${entry.key}.html: ${entry.value}');
       }
       throw StateError(buffer.toString().trimRight());
+    }
+  }
+
+  Map<String, String> _loadFilesystemSources() {
+    final sources = <String, String>{};
+    for (final name in expectedTemplates) {
+      final file = File('$_basePath/$name.html');
+      if (file.existsSync()) {
+        sources[name] = file.readAsStringSync();
+      }
+    }
+    return sources;
+  }
+
+  String? _readFilesystemTemplate(String name) {
+    final file = File('$_basePath/$name.html');
+    if (!file.existsSync()) {
+      return null;
+    }
+    return _sources[name] ?? file.readAsStringSync();
+  }
+
+  void _initializeTrellis() {
+    if (devMode) {
+      trellis = Trellis(loader: FileSystemLoader(_basePath, devMode: true), devMode: true);
+    } else {
+      trellis = Trellis(loader: MapLoader(_sources));
     }
   }
 }

@@ -108,9 +108,7 @@ void main() {
 
     test('renders binding indicator when task has bound channels', () {
       final html = canvasTaskBoardFragment(
-        [
-          _task(id: 't-bound', title: 'Bound', status: TaskStatus.queued, createdAt: DateTime.now()),
-        ],
+        [_task(id: 't-bound', title: 'Bound', status: TaskStatus.queued, createdAt: DateTime.now())],
         bindingCounts: const {'t-bound': 2},
       );
 

@@ -24,11 +24,7 @@ class _FakeSessionService implements SessionService {
 // ---------------------------------------------------------------------------
 
 /// Creates a [ScheduledJob] that always throws from [onExecute].
-ScheduledJob makeFailJob({
-  required String jobId,
-  required Object Function() throwFn,
-  int retryAttempts = 0,
-}) {
+ScheduledJob makeFailJob({required String jobId, required Object Function() throwFn, int retryAttempts = 0}) {
   return ScheduledJob(
     id: jobId,
     prompt: '',
@@ -41,16 +37,8 @@ ScheduledJob makeFailJob({
   );
 }
 
-ScheduleService makeService({
-  required ScheduledJob job,
-  required EventBus? eventBus,
-}) {
-  return ScheduleService(
-    turns: FakeTurnManager(),
-    sessions: _FakeSessionService(),
-    jobs: [job],
-    eventBus: eventBus,
-  );
+ScheduleService makeService({required ScheduledJob job, required EventBus? eventBus}) {
+  return ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: [job], eventBus: eventBus);
 }
 
 // ---------------------------------------------------------------------------
@@ -75,10 +63,7 @@ void main() {
     });
 
     test('fires ScheduledJobFailedEvent after all retries exhausted', () async {
-      final job = makeFailJob(
-        jobId: 'immediate-fail',
-        throwFn: () => Exception('deliberate failure'),
-      );
+      final job = makeFailJob(jobId: 'immediate-fail', throwFn: () => Exception('deliberate failure'));
       final svc = makeService(job: job, eventBus: eventBus);
       svc.start();
       await svc.executeJobForTesting(job);
@@ -94,10 +79,7 @@ void main() {
       const expectedJobId = 'my-failing-job';
       const expectedError = 'planned failure message';
 
-      final job = makeFailJob(
-        jobId: expectedJobId,
-        throwFn: () => Exception(expectedError),
-      );
+      final job = makeFailJob(jobId: expectedJobId, throwFn: () => Exception(expectedError));
       final svc = makeService(job: job, eventBus: eventBus);
       svc.start();
       await svc.executeJobForTesting(job);
@@ -113,10 +95,7 @@ void main() {
       final otherEmitted = <ScheduledJobFailedEvent>[];
       final otherSub = other.on<ScheduledJobFailedEvent>().listen(otherEmitted.add);
 
-      final job = makeFailJob(
-        jobId: 'no-bus-job',
-        throwFn: () => Exception('no bus failure'),
-      );
+      final job = makeFailJob(jobId: 'no-bus-job', throwFn: () => Exception('no bus failure'));
       final svc = makeService(job: job, eventBus: null);
       svc.start();
       await svc.executeJobForTesting(job);

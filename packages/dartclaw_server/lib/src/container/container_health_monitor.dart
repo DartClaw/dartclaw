@@ -1,7 +1,9 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerCrashedEvent, ContainerStartedEvent, EventBus;
 import 'package:logging/logging.dart';
+
+import 'container_manager.dart';
 
 /// Periodically checks container health and fires lifecycle events on state transitions.
 ///

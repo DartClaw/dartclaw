@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 
 import 'components.dart';
 import 'helpers.dart';
@@ -90,9 +90,7 @@ String taskDetailPageTemplate({
   // Build progress section data.
   final effectiveBudget = (tokenBudget != null && tokenBudget > 0) ? tokenBudget : null;
   final hasTokenBudget = effectiveBudget != null;
-  final initialProgressPct = hasTokenBudget
-      ? (initialTokensUsed / effectiveBudget * 100).round().clamp(0, 100)
-      : 0;
+  final initialProgressPct = hasTokenBudget ? (initialTokensUsed / effectiveBudget * 100).round().clamp(0, 100) : 0;
   final initialProgressFillClass = hasTokenBudget ? '' : 'indeterminate';
   final initialProgressLabel = hasTokenBudget
       ? '${formatNumber(initialTokensUsed)} / ${formatNumber(effectiveBudget)} tokens ($initialProgressPct%)'

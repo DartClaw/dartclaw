@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/status_command.dart';
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -51,7 +52,9 @@ void main() {
         }
       });
 
-      final config = DartclawConfig(server: ServerConfig(dataDir: tmp.path, claudeExecutable: '/usr/local/bin/claude'));
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: tmp.path, claudeExecutable: '/usr/local/bin/claude'),
+      );
       final command = StatusCommand(config: config, writeLine: output.add);
 
       await command.run();

@@ -1,5 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show MemorySearchResult, SearchBackend;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemorySearchResult, SearchBackend;
 
 import '../storage/memory_service.dart';
 
@@ -10,15 +9,10 @@ import '../storage/memory_service.dart';
 class Fts5SearchBackend implements SearchBackend {
   final MemoryService _memoryService;
 
-  Fts5SearchBackend({required MemoryService memoryService})
-      : _memoryService = memoryService;
+  Fts5SearchBackend({required MemoryService memoryService}) : _memoryService = memoryService;
 
   @override
-  Future<List<MemorySearchResult>> search(
-    String query, {
-    int limit = 10,
-    String userId = 'owner',
-  }) async {
+  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async {
     return _memoryService.search(query, limit: limit, userId: userId);
   }
 

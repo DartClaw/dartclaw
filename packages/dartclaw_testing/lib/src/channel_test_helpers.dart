@@ -198,11 +198,8 @@ Future<Task> putTaskInReview(
     configJson: resolvedConfigJson,
   );
   await tasks.transition(id, TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
-  final Task reviewedTask = await tasks.transition(
-    id,
-    TaskStatus.review,
-    now: DateTime.parse('2026-03-13T10:10:00Z'),
-  ) as Task;
+  final Task reviewedTask =
+      await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z')) as Task;
   if (worktreeJson != null) {
     final updated = await tasks.updateFields(id, worktreeJson: worktreeJson);
     if (updated is Task) {

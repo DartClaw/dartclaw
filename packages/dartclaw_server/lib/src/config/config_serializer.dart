@@ -24,10 +24,17 @@ class ConfigSerializer {
     ensureDartclawGoogleChatRegistered();
     ensureDartclawSignalRegistered();
     ensureDartclawWhatsappRegistered();
+    ensureGitHubWebhookConfigRegistered();
 
     final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
     final signalConfig = config.getChannelConfig<SignalConfig>(ChannelType.signal);
     final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
+    GitHubWebhookConfig? githubConfig;
+    try {
+      githubConfig = config.extension<GitHubWebhookConfig>('github');
+    } catch (_) {
+      githubConfig = null;
+    }
     return {
       'port': config.server.port,
       'host': config.server.host,
@@ -198,6 +205,21 @@ class ConfigSerializer {
         'token': config.gateway.token != null ? '***' : null,
         'hsts': config.gateway.hsts,
       },
+      if (githubConfig != null)
+        'github': {
+          'enabled': githubConfig.enabled,
+          'webhookSecret': githubConfig.webhookSecret == null ? null : '***',
+          'webhookPath': githubConfig.webhookPath,
+          'triggers': [
+            for (final trigger in githubConfig.triggers)
+              {
+                'event': trigger.event,
+                'actions': trigger.actions,
+                'labels': trigger.labels,
+                'workflow': trigger.workflow,
+              },
+          ],
+        },
       'governance': {
         'adminSenders': config.governance.adminSenders,
         'queueStrategy': config.governance.queueStrategy.name,
@@ -268,6 +290,7 @@ class ConfigSerializer {
     ConfigFieldType.bool_ => 'bool',
     ConfigFieldType.enum_ => 'enum',
     ConfigFieldType.stringList => 'string[]',
+    ConfigFieldType.objectList => 'object[]',
   };
 
   static String _googleChatAudienceMode(GoogleChatAudienceMode mode) => switch (mode) {

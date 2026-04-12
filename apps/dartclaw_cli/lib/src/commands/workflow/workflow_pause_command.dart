@@ -62,7 +62,11 @@ class WorkflowPauseCommand extends Command<void> {
       return _apiClient;
     }
     final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
-    return DartclawApiClient.fromConfig(config: config, serverOverride: _serverOverride(globalResults));
+    return DartclawApiClient.fromConfig(
+      config: config,
+      serverOverride: _serverOverride(globalResults),
+      tokenOverride: _globalOptionString(globalResults, 'token'),
+    );
   }
 }
 

@@ -236,6 +236,64 @@ void main() {
       });
     });
 
+    group('github cross-field validation', () {
+      test('enabled requires webhook secret', () {
+        final errors = validator.validate({'github.enabled': true});
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'github.webhook_secret');
+        expect(errors.first.message, contains('required when github.enabled is true'));
+      });
+
+      test('enabled passes when webhook secret already exists in current values', () {
+        expect(
+          validator.validate({'github.enabled': true}, currentValues: {'github.webhook_secret': 'secret'}),
+          isEmpty,
+        );
+      });
+
+      test('triggers must be a list of objects with event and workflow', () {
+        final errors = validator.validate({
+          'github.triggers': [
+            {'event': 'pull_request', 'workflow': ''},
+          ],
+        });
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'github.triggers');
+        expect(errors.first.message, contains('workflow'));
+      });
+
+      test('triggers reject non-string actions or labels', () {
+        final errors = validator.validate({
+          'github.triggers': [
+            {
+              'event': 'pull_request',
+              'workflow': 'code-review',
+              'actions': ['opened', 7],
+            },
+          ],
+        });
+        expect(errors, hasLength(1));
+        expect(errors.first.field, 'github.triggers');
+        expect(errors.first.message, contains('actions'));
+      });
+
+      test('valid trigger objects pass validation', () {
+        expect(
+          validator.validate({
+            'github.triggers': [
+              {
+                'event': 'pull_request',
+                'workflow': 'code-review',
+                'actions': ['opened'],
+                'labels': ['needs-review'],
+              },
+            ],
+          }),
+          isEmpty,
+        );
+      });
+    });
+
     group('space events cross-field validation', () {
       test('no error when space_events.enabled is false', () {
         expect(validator.validate({'channels.google_chat.space_events.enabled': false}), isEmpty);

@@ -19,9 +19,7 @@ void main() {
 
     test('normal HTML and empty content are not detected', () {
       expect(
-        CloudflareDetector.isCloudflareChallenge(
-          '<html><body><h1>Hello World</h1><p>Normal content</p></body></html>',
-        ),
+        CloudflareDetector.isCloudflareChallenge('<html><body><h1>Hello World</h1><p>Normal content</p></body></html>'),
         isFalse,
       );
       expect(CloudflareDetector.isCloudflareChallenge(''), isFalse);

@@ -1,4 +1,5 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show OutputConfig, OutputFormat, PromptAugmenter, SkillPromptBuilder;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show OutputConfig, OutputFormat, PromptAugmenter, SkillPromptBuilder;
 import 'package:test/test.dart';
 
 void main() {
@@ -55,7 +56,6 @@ void main() {
       expect(result, startsWith('Analyze this.'));
       expect(result, contains('## Required Output Format'));
     });
-
   });
 
   group('SkillPromptBuilder.formatContextSummary', () {

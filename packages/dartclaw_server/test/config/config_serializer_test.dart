@@ -12,6 +12,7 @@ void main() {
     ensureDartclawGoogleChatRegistered();
     ensureDartclawSignalRegistered();
     ensureDartclawWhatsappRegistered();
+    ensureGitHubWebhookConfigRegistered();
   });
 
   group('ConfigSerializer.toJson', () {
@@ -103,6 +104,39 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['hsts'], true);
+    });
+
+    test('github extension config is serialized when present', () {
+      final config = DartclawConfig(
+        extensions: {
+          'github': const GitHubWebhookConfig(
+            enabled: true,
+            webhookSecret: 'secret',
+            webhookPath: '/hooks/github',
+            triggers: [
+              GitHubWorkflowTrigger(
+                event: 'pull_request',
+                actions: ['opened'],
+                labels: ['needs-review'],
+                workflow: 'code-review',
+              ),
+            ],
+          ),
+        },
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final github = json['github'] as Map<String, dynamic>;
+      expect(github['enabled'], isTrue);
+      expect(github['webhookSecret'], '***');
+      expect(github['webhookPath'], '/hooks/github');
+      expect((github['triggers'] as List).single, {
+        'event': 'pull_request',
+        'actions': ['opened'],
+        'labels': ['needs-review'],
+        'workflow': 'code-review',
+      });
     });
 
     test('auth cookie settings and retention config serialize custom values', () {
@@ -624,6 +658,14 @@ governance:
       final meta = serializer.metaJson();
       final authMode = meta['gateway.auth_mode'] as Map<String, dynamic>;
       expect(authMode['mutable'], 'readonly');
+    });
+
+    test('github metadata is exposed for typed config fields', () {
+      final meta = serializer.metaJson();
+      expect((meta['github.enabled'] as Map<String, dynamic>)['type'], 'bool');
+      expect((meta['github.webhook_secret'] as Map<String, dynamic>)['nullable'], true);
+      expect((meta['github.webhook_path'] as Map<String, dynamic>)['mutable'], 'restart');
+      expect((meta['github.triggers'] as Map<String, dynamic>)['type'], 'object[]');
     });
   });
 

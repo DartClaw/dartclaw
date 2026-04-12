@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -130,15 +131,7 @@ void main() {
       final registry = _makeRegistry();
       registry.loadBuiltIn();
       final names = registry.listAll().map((d) => d.name).toSet();
-      expect(
-        names,
-        containsAll([
-          'spec-and-implement',
-          'plan-and-implement',
-          'code-review',
-          'research-and-evaluate',
-        ]),
-      );
+      expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review', 'research-and-evaluate']));
     });
   });
 

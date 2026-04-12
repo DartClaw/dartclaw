@@ -105,7 +105,12 @@ class WorkflowRunCommand extends Command<void> {
     }
 
     final apiClient =
-        _apiClient ?? DartclawApiClient.fromConfig(config: config, serverOverride: _serverOverride(globalResults));
+        _apiClient ??
+        DartclawApiClient.fromConfig(
+          config: config,
+          serverOverride: _serverOverride(globalResults),
+          tokenOverride: _globalOptionString(globalResults, 'token'),
+        );
     try {
       await _runConnected(
         apiClient: apiClient,
@@ -128,7 +133,12 @@ class WorkflowRunCommand extends Command<void> {
     required bool force,
   }) async {
     final apiClient =
-        _apiClient ?? DartclawApiClient.fromConfig(config: config, serverOverride: _serverOverride(globalResults));
+        _apiClient ??
+        DartclawApiClient.fromConfig(
+          config: config,
+          serverOverride: _serverOverride(globalResults),
+          tokenOverride: _globalOptionString(globalResults, 'token'),
+        );
     final serverReachable = await apiClient.probeHealth();
     if (serverReachable && !force) {
       _stderrLine(

@@ -23,7 +23,6 @@ import 'api/google_chat_space_events_wiring.dart';
 import 'api/google_chat_subscription_routes.dart';
 import 'api/google_chat_webhook.dart';
 import 'api/github_webhook.dart';
-import 'api/github_webhook_config.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
 import 'api/project_routes.dart';

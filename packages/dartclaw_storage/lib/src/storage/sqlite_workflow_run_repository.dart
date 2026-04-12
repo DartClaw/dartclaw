@@ -33,12 +33,8 @@ class SqliteWorkflowRunRepository {
         current_loop_iteration INTEGER
       )
     ''');
-    _db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)',
-    );
-    _db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition ON workflow_runs(definition_name)',
-    );
+    _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
+    _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition ON workflow_runs(definition_name)');
   }
 
   Future<void> insert(WorkflowRun run) async {
@@ -82,10 +78,7 @@ class SqliteWorkflowRunRepository {
     }
   }
 
-  Future<List<WorkflowRun>> list({
-    WorkflowRunStatus? status,
-    String? definitionName,
-  }) async {
+  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
     final where = <String>[];
     final params = <Object?>[];
     if (status != null) {
@@ -175,14 +168,11 @@ class SqliteWorkflowRunRepository {
     );
   }
 
-  DateTime? _decodeDateTime(Object? value) =>
-      value == null ? null : DateTime.parse(value as String);
+  DateTime? _decodeDateTime(Object? value) => value == null ? null : DateTime.parse(value as String);
 
   String _encodeJson(Map<dynamic, dynamic> value) => jsonEncode(value);
 
-  Map<String, dynamic> _decodeJson(String value) =>
-      Map<String, dynamic>.from(jsonDecode(value) as Map);
+  Map<String, dynamic> _decodeJson(String value) => Map<String, dynamic>.from(jsonDecode(value) as Map);
 
-  Map<String, String> _decodeStringMap(String value) =>
-      Map<String, String>.from(jsonDecode(value) as Map);
+  Map<String, String> _decodeStringMap(String value) => Map<String, String>.from(jsonDecode(value) as Map);
 }

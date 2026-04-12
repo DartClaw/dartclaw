@@ -35,7 +35,7 @@ void main() {
       await runner.run(['list']);
 
       expect(output.join('\n'), contains('claude'));
-      expect(output.join('\n'), contains('Pool: size=3 active=1 available=2'));
+      expect(output.join('\n'), contains('Pool: 3 runners, 1 active, 2 available'));
     });
 
     test('show prints runner details', () async {

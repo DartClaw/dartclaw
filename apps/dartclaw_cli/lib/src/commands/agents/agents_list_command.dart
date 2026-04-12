@@ -51,9 +51,10 @@ class AgentsListCommand extends Command<void> {
       }
       final pool = Map<String, dynamic>.from(payload['pool'] as Map);
       _writeLine('');
-      _writeLine(
-        'Pool: size=${pool['size']} active=${pool['activeCount']} available=${pool['availableCount']} maxConcurrent=${pool['maxConcurrentTasks']}',
-      );
+      _writeLine('Pool: ${pool['size']} runners, ${pool['activeCount']} active, ${pool['availableCount']} available');
+      if (pool['maxConcurrentTasks'] != null) {
+        _writeLine('Max concurrent tasks: ${pool['maxConcurrentTasks']}');
+      }
     } on DartclawApiException catch (error) {
       _writeLine(error.message);
       _exitFn(1);

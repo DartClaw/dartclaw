@@ -67,7 +67,12 @@ class MemoryService {
     if (source.trim().isEmpty) {
       throw ArgumentError('source must not be empty or blank');
     }
-    _db.execute('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)', [text, source, category, userId]);
+    _db.execute('INSERT INTO memory_chunks (text, source, category, user_id) VALUES (?, ?, ?, ?)', [
+      text,
+      source,
+      category,
+      userId,
+    ]);
     return _db.lastInsertRowId;
   }
 

@@ -45,6 +45,7 @@ Router configApiRoutes({
 }) {
   ensureDartclawGoogleChatRegistered();
   ensureDartclawWhatsappRegistered();
+  ensureGitHubWebhookConfigRegistered();
 
   final router = Router();
   const serializer = ConfigSerializer();
@@ -930,6 +931,12 @@ Router configApiRoutes({
 Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
   final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
   final audience = googleChatConfig.audience;
+  GitHubWebhookConfig? githubConfig;
+  try {
+    githubConfig = config.extension<GitHubWebhookConfig>('github');
+  } catch (_) {
+    githubConfig = null;
+  }
   return {
     'channels.google_chat.enabled': googleChatConfig.enabled,
     'channels.google_chat.service_account': googleChatConfig.serviceAccount,
@@ -942,6 +949,9 @@ Map<String, dynamic> _currentConfigValues(DartclawConfig config) {
     'channels.google_chat.dm_access': googleChatConfig.dmAccess.name,
     'channels.google_chat.group_access': googleChatConfig.groupAccess.name,
     'channels.google_chat.require_mention': googleChatConfig.requireMention,
+    'github.enabled': githubConfig?.enabled,
+    'github.webhook_secret': githubConfig?.webhookSecret,
+    'github.webhook_path': githubConfig?.webhookPath,
   };
 }
 

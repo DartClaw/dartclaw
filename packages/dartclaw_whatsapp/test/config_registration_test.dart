@@ -22,6 +22,7 @@ void main() {
       ensureDartclawWhatsappRegistered();
 
       final config = DartclawConfig.load(
+        configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''

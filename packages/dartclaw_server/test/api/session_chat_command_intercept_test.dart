@@ -110,6 +110,11 @@ class _FakeWorkflowService extends WorkflowService {
     String? projectId,
     bool headless = false,
   }) async {
+    for (final entry in definition.variables.entries) {
+      if (entry.value.required && !variables.containsKey(entry.key)) {
+        throw ArgumentError('Required variable "${entry.key}" not provided');
+      }
+    }
     return startResult!;
   }
 }
@@ -190,6 +195,26 @@ void main() {
     expect(response.statusCode, 200);
     final body = await response.readAsString();
     expect(body, contains('Workflow started'));
+    expect(await messages.getMessages(session.id), isEmpty);
+    expect(turns.reserveCalled, isFalse);
+  });
+
+  test('invalid workflow chat commands still intercept without persisting messages', () async {
+    final session = await sessions.createSession();
+
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/sessions/${session.id}/send'),
+        body: 'message=%2Fworkflow+run+code-review+PR_NUMBER%3D42',
+        headers: {'content-type': 'application/x-www-form-urlencoded'},
+      ),
+    );
+
+    expect(response.statusCode, 200);
+    final body = await response.readAsString();
+    expect(body, contains('Required variable'));
+    expect(body, contains('REPO'));
     expect(await messages.getMessages(session.id), isEmpty);
     expect(turns.reserveCalled, isFalse);
   });

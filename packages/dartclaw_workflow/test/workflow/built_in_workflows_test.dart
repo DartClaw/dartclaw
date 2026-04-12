@@ -7,12 +7,7 @@ void main() {
     test('contains the four surviving workflows', () {
       expect(
         builtInWorkflowYaml.keys,
-        unorderedEquals(<String>[
-          'spec-and-implement',
-          'plan-and-implement',
-          'code-review',
-          'research-and-evaluate',
-        ]),
+        unorderedEquals(<String>['spec-and-implement', 'plan-and-implement', 'code-review', 'research-and-evaluate']),
       );
       expect(builtInWorkflowYaml, hasLength(4));
     });

@@ -53,8 +53,6 @@ The old three-step `dartclaw deploy setup / config / secrets` workflow used root
 Use the repo build entrypoint to produce the production binary:
 
 ```bash
-make build
-# or
 bash tool/build.sh
 ```
 

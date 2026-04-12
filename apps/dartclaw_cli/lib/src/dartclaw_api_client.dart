@@ -7,7 +7,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' show TokenService;
 
 typedef HttpClientFactory = HttpClient Function();
 
-/// Loopback-only HTTP client for CLI-to-server communication.
+/// HTTP client for CLI-to-server communication.
 class DartclawApiClient {
   final Uri baseUri;
   final String? token;
@@ -19,10 +19,14 @@ class DartclawApiClient {
   factory DartclawApiClient.fromConfig({
     required DartclawConfig config,
     String? serverOverride,
+    String? tokenOverride,
     HttpClientFactory? httpClientFactory,
     ApiTransport? transport,
   }) {
-    final token = config.gateway.authMode == 'none'
+    final trimmedTokenOverride = tokenOverride?.trim();
+    final token = trimmedTokenOverride != null && trimmedTokenOverride.isNotEmpty
+        ? trimmedTokenOverride
+        : config.gateway.authMode == 'none'
         ? null
         : config.gateway.token ?? TokenService.loadFromFile(config.server.dataDir);
     return DartclawApiClient(
@@ -45,16 +49,16 @@ class DartclawApiClient {
 
     final candidate = raw.contains('://') ? Uri.parse(raw) : Uri.parse('http://$raw');
     final host = candidate.host.isEmpty ? 'localhost' : candidate.host;
-    if (!_isLoopbackHost(host)) {
-      throw ArgumentError('The CLI only supports loopback servers. Received host: $host');
+    final useConfigPort = !raw.contains('://') && !candidate.hasPort;
+    final scheme = candidate.scheme.isEmpty ? 'http' : candidate.scheme;
+    final path = candidate.path.isEmpty ? '' : candidate.path;
+    if (candidate.hasPort) {
+      return Uri(scheme: scheme, host: host, port: candidate.port, path: path);
     }
-    final port = candidate.hasPort ? candidate.port : config.server.port;
-    return Uri(
-      scheme: candidate.scheme.isEmpty ? 'http' : candidate.scheme,
-      host: host,
-      port: port,
-      path: candidate.path.isEmpty ? '' : candidate.path,
-    );
+    if (useConfigPort) {
+      return Uri(scheme: scheme, host: host, port: config.server.port, path: path);
+    }
+    return Uri(scheme: scheme, host: host, path: path);
   }
 
   Future<Object?> get(String path, {Map<String, Object?>? queryParameters}) {
@@ -220,7 +224,7 @@ class DartclawApiClient {
 
     final friendlyMessage = switch (statusCode) {
       401 =>
-        'Authentication failed for ${baseUri.toString()}. Run `dartclaw token show` or `dartclaw token rotate`, or configure `gateway.token`.',
+        'Authentication failed for ${baseUri.toString()}. Run `dartclaw token show` or `dartclaw token rotate`, configure `gateway.token`, or pass `--token`.',
       404 =>
         'The server endpoint $path was not found at ${baseUri.toString()}. The CLI and server versions may be out of sync.',
       >= 500 => message ?? 'The DartClaw server returned an internal error while handling $path.',
@@ -351,10 +355,6 @@ class _IoApiTransport implements ApiTransport {
 String _joinPaths(String basePath, String nextPath) {
   final base = basePath.endsWith('/') ? basePath.substring(0, basePath.length - 1) : basePath;
   return '$base$nextPath';
-}
-
-bool _isLoopbackHost(String host) {
-  return host == 'localhost' || host == '127.0.0.1' || host == '::1';
 }
 
 Stream<Map<String, dynamic>> _parseSseFrames(Stream<List<int>> bytes) async* {

@@ -15,8 +15,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowStep;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, GateEvaluator, WorkflowExecutor;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor, GateEvaluator, WorkflowExecutor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;

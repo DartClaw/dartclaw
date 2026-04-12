@@ -14,7 +14,7 @@ enum ConfigMutability {
 }
 
 /// Type of a config field.
-enum ConfigFieldType { int_, string, bool_, enum_, stringList }
+enum ConfigFieldType { int_, string, bool_, enum_, stringList, objectList }
 
 /// Metadata describing a single config field.
 class FieldMeta {
@@ -197,6 +197,31 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.stringList,
       mutability: ConfigMutability.restart,
       nullable: true,
+    ),
+    'github.enabled': FieldMeta(
+      yamlPath: 'github.enabled',
+      jsonKey: 'github.enabled',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
+    'github.webhook_secret': FieldMeta(
+      yamlPath: 'github.webhook_secret',
+      jsonKey: 'github.webhookSecret',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+      nullable: true,
+    ),
+    'github.webhook_path': FieldMeta(
+      yamlPath: 'github.webhook_path',
+      jsonKey: 'github.webhookPath',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
+    'github.triggers': FieldMeta(
+      yamlPath: 'github.triggers',
+      jsonKey: 'github.triggers',
+      type: ConfigFieldType.objectList,
+      mutability: ConfigMutability.restart,
     ),
 
     // Tasks

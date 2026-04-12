@@ -67,9 +67,7 @@ class SqliteTaskRepository implements TaskRepository {
     if (!columns.contains('retry_count')) {
       _db.execute('ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0');
     }
-    _db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)',
-    );
+    _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)');
     _db.execute('''
       CREATE TABLE IF NOT EXISTS task_artifacts (
         id TEXT PRIMARY KEY,

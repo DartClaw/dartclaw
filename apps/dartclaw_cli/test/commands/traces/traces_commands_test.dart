@@ -25,6 +25,10 @@ void main() {
                 'provider': 'claude',
                 'model': 'sonnet',
                 'durationMs': 3000,
+                'inputTokens': 80,
+                'outputTokens': 40,
+                'cacheReadTokens': 20,
+                'cacheWriteTokens': 5,
                 'totalTokens': 120,
                 'toolCalls': const [],
               },
@@ -43,8 +47,32 @@ void main() {
       await runner.run(['list', '--since', '1h', '--provider', 'claude']);
 
       expect(output.join('\n'), contains('trace-1'));
+      expect(output.join('\n'), contains('IN_TOKENS'));
+      expect(output.join('\n'), contains('CACHE_R'));
       expect(transport.requests.single.uri.queryParameters['provider'], 'claude');
       expect(transport.requests.single.uri.queryParameters['since'], isNotEmpty);
+    });
+
+    test('list omits empty since/until filters when not provided', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(200, {
+            'traces': const [],
+            'summary': {'traceCount': 0},
+          }),
+        ],
+      );
+      final output = <String>[];
+      final command = TracesListCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['list']);
+
+      expect(transport.requests.single.uri.queryParameters.containsKey('since'), isFalse);
+      expect(transport.requests.single.uri.queryParameters.containsKey('until'), isFalse);
     });
 
     test('show prints trace detail', () async {

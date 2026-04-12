@@ -13,12 +13,17 @@ void main() {
       expect(uri.toString(), 'http://localhost:4123');
     });
 
-    test('resolveServerUri rejects non-loopback hosts', () {
+    test('resolveServerUri accepts explicit remote server overrides', () {
       final config = DartclawConfig(server: ServerConfig(port: 4123));
-      expect(
-        () => DartclawApiClient.resolveServerUri(config: config, serverOverride: 'https://example.com:4000'),
-        throwsArgumentError,
-      );
+      final uri = DartclawApiClient.resolveServerUri(config: config, serverOverride: 'https://example.com:4000');
+      expect(uri.toString(), 'https://example.com:4000');
+    });
+
+    test('resolveServerUri keeps the remote default port when an explicit scheme override omits one', () {
+      final config = DartclawConfig(server: ServerConfig(port: 4123));
+      final uri = DartclawApiClient.resolveServerUri(config: config, serverOverride: 'https://example.com');
+      expect(uri.toString(), 'https://example.com');
+      expect(uri.port, 443);
     });
 
     test('request includes bearer token when present', () async {
@@ -53,6 +58,23 @@ void main() {
       await client.get('/api/tasks');
 
       expect(transport.requests.single.headers.containsKey('authorization'), isFalse);
+    });
+
+    test('tokenOverride forces bearer auth even when local config auth_mode is none', () async {
+      final transport = _FakeTransport(
+        sendResponses: [
+          _jsonResponse(200, {'ok': true}),
+        ],
+      );
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: '/tmp/dartclaw-api-client-remote-token'),
+        gateway: const GatewayConfig(authMode: 'none'),
+      );
+      final client = DartclawApiClient.fromConfig(config: config, tokenOverride: 'remote-token', transport: transport);
+
+      await client.get('/api/tasks');
+
+      expect(transport.requests.single.headers['authorization'], 'Bearer remote-token');
     });
 
     test('401 responses produce token guidance without leaking the token', () async {

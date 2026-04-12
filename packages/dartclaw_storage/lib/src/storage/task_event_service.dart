@@ -36,9 +36,7 @@ class TaskEventService {
 
   /// Inserts a single event. Synchronous write for durability (NF04).
   void insert(TaskEvent event) {
-    final stmt = _db.prepare(
-      'INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES (?, ?, ?, ?, ?)',
-    );
+    final stmt = _db.prepare('INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES (?, ?, ?, ?, ?)');
     try {
       stmt.execute([
         event.id,

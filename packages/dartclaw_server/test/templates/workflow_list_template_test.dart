@@ -186,6 +186,7 @@ void main() {
       expect(html, contains('workflow-launch-form'));
       expect(html, contains('Run'));
       expect(html, contains('var_FEATURE'));
+      expect(html, contains('Cancel'));
     });
 
     test('renders definition description', () {

@@ -14,8 +14,13 @@ class DartclawRunner extends CommandRunner<void> {
     );
     argParser.addOption(
       'server',
-      help: 'Loopback server address override for connected commands (for example: 3333 or localhost:4000)',
+      help: 'Server address override for connected commands (for example: 3333, localhost:4000, or https://host)',
       valueHelp: 'host:port',
+    );
+    argParser.addOption(
+      'token',
+      help: 'Gateway bearer token override for connected commands, useful with remote --server targets',
+      valueHelp: 'token',
     );
   }
 }

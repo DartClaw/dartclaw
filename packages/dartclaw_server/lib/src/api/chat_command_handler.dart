@@ -67,9 +67,13 @@ class ChatCommandHandler {
         _workflowCardHtml('Workflow command', 'This workflow command was already handled recently.', error: true),
       );
     }
+    final WorkflowRun run;
+    try {
+      run = await workflows.start(definition, variables, projectId: variables['PROJECT']);
+    } on ArgumentError catch (error) {
+      return _htmlResponse(_workflowCardHtml('Workflow command', error.message.toString(), error: true));
+    }
     _recentCommands[dedupKey] = currentTime;
-
-    final run = await workflows.start(definition, variables, projectId: variables['PROJECT']);
     return _htmlResponse(
       _workflowCardHtml(
         'Workflow started',

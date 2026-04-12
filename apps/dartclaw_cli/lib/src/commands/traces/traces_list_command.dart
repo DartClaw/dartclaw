@@ -57,7 +57,7 @@ class TracesListCommand extends Command<void> {
           .map((trace) => Map<String, dynamic>.from(trace as Map))
           .toList(growable: false);
       _writeLine(
-        '  ${'TURN_ID'.padRight(12)}  ${'SESSION'.padRight(12)}  ${'PROVIDER'.padRight(8)}  ${'MODEL'.padRight(12)}  ${'DURATION'.padRight(10)}  ${'TOKENS'.padRight(8)}  TOOLS',
+        '  ${'TURN_ID'.padRight(12)}  ${'SESSION'.padRight(12)}  ${'PROVIDER'.padRight(8)}  ${'MODEL'.padRight(12)}  ${'DURATION'.padRight(10)}  ${'IN_TOKENS'.padRight(10)}  ${'OUT_TOKENS'.padRight(10)}  ${'CACHE_R'.padRight(8)}  ${'CACHE_W'.padRight(8)}  TOOLS',
       );
       for (final trace in traces) {
         _writeLine(
@@ -66,7 +66,10 @@ class TracesListCommand extends Command<void> {
           '${(trace['provider']?.toString() ?? '—').padRight(8)}  '
           '${truncate(trace['model']?.toString() ?? '—', 12).padRight(12)}  '
           '${_formatDuration(trace['durationMs']).padRight(10)}  '
-          '${formatNumber((trace['totalTokens'] as num?)?.toInt() ?? 0).padRight(8)}  '
+          '${formatNumber((trace['inputTokens'] as num?)?.toInt() ?? 0).padRight(10)}  '
+          '${formatNumber((trace['outputTokens'] as num?)?.toInt() ?? 0).padRight(10)}  '
+          '${formatNumber((trace['cacheReadTokens'] as num?)?.toInt() ?? 0).padRight(8)}  '
+          '${formatNumber((trace['cacheWriteTokens'] as num?)?.toInt() ?? 0).padRight(8)}  '
           '${((trace['toolCalls'] as List?) ?? const []).length}',
         );
       }
@@ -77,9 +80,9 @@ class TracesListCommand extends Command<void> {
   }
 }
 
-String _normalizeDateFilter(String? raw) {
+String? _normalizeDateFilter(String? raw) {
   if (raw == null || raw.trim().isEmpty) {
-    return '';
+    return null;
   }
   final trimmed = raw.trim();
   final absolute = DateTime.tryParse(trimmed);

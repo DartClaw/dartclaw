@@ -64,13 +64,20 @@ class GitHubWebhookHandler {
         .whereType<String>()
         .toSet();
 
-    final trigger = config.triggers.firstWhere(
-      (candidate) =>
+    GitHubWorkflowTrigger? trigger;
+    for (final candidate in config.triggers) {
+      final matches =
           candidate.event == eventName &&
           (candidate.actions.isEmpty || candidate.actions.contains(action)) &&
-          (candidate.labels.isEmpty || candidate.labels.every(labelNames.contains)),
-      orElse: () => const GitHubWebhookConfig.defaults().triggers.first,
-    );
+          (candidate.labels.isEmpty || candidate.labels.every(labelNames.contains));
+      if (matches) {
+        trigger = candidate;
+        break;
+      }
+    }
+    if (trigger == null) {
+      return jsonResponse(200, {'ignored': true});
+    }
 
     final definition = definitions.getByName(trigger.workflow);
     if (definition == null) {

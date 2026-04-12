@@ -116,6 +116,23 @@ void main() {
     expect(second, isNotNull);
     expect(await second!.readAsString(), contains('already handled recently'));
   });
+
+  test('/workflow run returns an error card when required variables are missing', () async {
+    final session = await sessions.createSession();
+    final handler = ChatCommandHandler(workflows: workflows, definitions: definitions);
+
+    final response = await handler.handle(
+      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/send')),
+      session,
+      '/workflow run code-review PR_NUMBER=42',
+    );
+
+    expect(response, isNotNull);
+    final body = await response!.readAsString();
+    expect(body, contains('Required variable'));
+    expect(body, contains('REPO'));
+    expect(workflows.calls, isEmpty);
+  });
 }
 
 class _FakeWorkflowService extends WorkflowService {
@@ -158,6 +175,11 @@ class _FakeWorkflowService extends WorkflowService {
     String? projectId,
     bool headless = false,
   }) async {
+    for (final entry in definition.variables.entries) {
+      if (entry.value.required && !variables.containsKey(entry.key)) {
+        throw ArgumentError('Required variable "${entry.key}" not provided');
+      }
+    }
     calls.add('start:${definition.name}');
     final run = startResult!;
     activeRuns.add(run.copyWith(definitionName: definition.name, variablesJson: variables));

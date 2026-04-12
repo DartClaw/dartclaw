@@ -140,6 +140,53 @@ void main() {
     expect(body['deduped'], isTrue);
     expect(workflows.activeRuns, hasLength(1));
   });
+
+  test('unmatched pull request actions are ignored', () async {
+    final handler = GitHubWebhookHandler(
+      config: const GitHubWebhookConfig(
+        enabled: true,
+        webhookSecret: 'secret',
+        triggers: [
+          GitHubWorkflowTrigger(event: 'pull_request', actions: ['opened'], labels: [], workflow: 'code-review'),
+        ],
+      ),
+      workflows: workflows,
+      definitions: definitions,
+    );
+
+    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'closed'), 'secret'));
+
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    expect(body['ignored'], isTrue);
+    expect(workflows.calls, isEmpty);
+  });
+
+  test('label-gated triggers are ignored when labels do not match', () async {
+    final handler = GitHubWebhookHandler(
+      config: const GitHubWebhookConfig(
+        enabled: true,
+        webhookSecret: 'secret',
+        triggers: [
+          GitHubWorkflowTrigger(
+            event: 'pull_request',
+            actions: ['opened'],
+            labels: ['needs-review'],
+            workflow: 'code-review',
+          ),
+        ],
+      ),
+      workflows: workflows,
+      definitions: definitions,
+    );
+
+    final response = await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret'));
+
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    expect(body['ignored'], isTrue);
+    expect(workflows.calls, isEmpty);
+  });
 }
 
 class _FakeWorkflowService extends WorkflowService {

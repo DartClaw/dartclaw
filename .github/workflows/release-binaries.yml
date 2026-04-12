@@ -1,0 +1,42 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: dartclaw-linux-x64
+          - os: macos-latest
+            artifact_name: dartclaw-macos-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Build standalone binary
+        run: bash tool/build.sh
+
+      - name: Package release asset
+        run: tar -C build -czf build/${{ matrix.artifact_name }}.tar.gz dartclaw
+
+      - name: Publish GitHub release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/${{ matrix.artifact_name }}.tar.gz

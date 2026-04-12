@@ -24,8 +24,6 @@ class TaskToolFilterGuard extends Guard {
     final toolName = context.toolName;
     if (toolName == null) return GuardVerdict.pass();
     if (tools.contains(toolName)) return GuardVerdict.pass();
-    return GuardVerdict.block(
-      'Tool "$toolName" is not in this task\'s allowed tools: ${tools.join(', ')}',
-    );
+    return GuardVerdict.block('Tool "$toolName" is not in this task\'s allowed tools: ${tools.join(', ')}');
   }
 }

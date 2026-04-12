@@ -2,11 +2,7 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:test/test.dart';
 
 GuardContext _ctx({required String hookPoint, String? toolName}) {
-  return GuardContext(
-    hookPoint: hookPoint,
-    toolName: toolName,
-    timestamp: DateTime.now(),
-  );
+  return GuardContext(hookPoint: hookPoint, toolName: toolName, timestamp: DateTime.now());
 }
 
 void main() {

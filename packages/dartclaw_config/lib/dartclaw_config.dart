@@ -20,6 +20,8 @@ export 'src/dartclaw_config.dart' show DartclawConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
 export 'src/gateway_config.dart' show GatewayConfig, ReloadConfig;
+export 'src/github_config.dart'
+    show GitHubWebhookConfig, GitHubWorkflowTrigger, ensureGitHubWebhookConfigRegistered, parseGitHubWebhookConfig;
 export 'src/governance_config.dart'
     show
         CrowdCodingConfig,

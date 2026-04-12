@@ -60,6 +60,7 @@ class ConfigValidator {
     }
 
     _validateGoogleChatRequirements(updates, currentValues, errors);
+    _validateGitHubRequirements(updates, currentValues, errors);
     _validateSpaceEventsRequirements(updates, currentValues, errors);
     _validateAdvisorTriggers(updates, errors);
     return errors;
@@ -93,6 +94,74 @@ class ConfigValidator {
       currentValues: currentValues,
       errors: errors,
     );
+  }
+
+  void _validateGitHubRequirements(
+    Map<String, dynamic> updates,
+    Map<String, dynamic> currentValues,
+    List<ValidationError> errors,
+  ) {
+    final enabled = _mergedValue<bool>('github.enabled', updates, currentValues);
+    if (enabled == true) {
+      _requireNonBlankString(
+        field: 'github.webhook_secret',
+        updates: updates,
+        currentValues: currentValues,
+        errors: errors,
+        requiredByField: 'github.enabled',
+      );
+    }
+
+    final triggers = updates['github.triggers'];
+    if (triggers is! List) {
+      return;
+    }
+    for (final entry in triggers) {
+      if (entry is! Map) {
+        continue;
+      }
+      final trigger = Map<String, dynamic>.from(entry);
+      final event = trigger['event'];
+      final workflow = trigger['workflow'];
+      if (event is! String || event.trim().isEmpty) {
+        errors.add(
+          const ValidationError(
+            field: 'github.triggers',
+            message: "Each github trigger must include a non-empty 'event'",
+          ),
+        );
+        return;
+      }
+      if (workflow is! String || workflow.trim().isEmpty) {
+        errors.add(
+          const ValidationError(
+            field: 'github.triggers',
+            message: "Each github trigger must include a non-empty 'workflow'",
+          ),
+        );
+        return;
+      }
+      final actions = trigger['actions'];
+      if (actions != null && (actions is! List || actions.any((item) => item is! String))) {
+        errors.add(
+          const ValidationError(
+            field: 'github.triggers',
+            message: "Each github trigger 'actions' value must be a list of strings",
+          ),
+        );
+        return;
+      }
+      final labels = trigger['labels'];
+      if (labels != null && (labels is! List || labels.any((item) => item is! String))) {
+        errors.add(
+          const ValidationError(
+            field: 'github.triggers',
+            message: "Each github trigger 'labels' value must be a list of strings",
+          ),
+        );
+        return;
+      }
+    }
   }
 
   void _validateSpaceEventsRequirements(
@@ -181,6 +250,7 @@ class ConfigValidator {
       ConfigFieldType.bool_ => _validateBool(meta, value),
       ConfigFieldType.enum_ => _validateEnum(meta, value),
       ConfigFieldType.stringList => _validateStringList(meta, value),
+      ConfigFieldType.objectList => _validateObjectList(meta, value),
     };
   }
 
@@ -277,6 +347,19 @@ class ConfigValidator {
     }
     if (value.any((item) => item is! String)) {
       return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must contain only strings");
+    }
+    return null;
+  }
+
+  ValidationError? _validateObjectList(FieldMeta meta, Object value) {
+    if (value is! List) {
+      return ValidationError(
+        field: meta.yamlPath,
+        message: "Field '${meta.yamlPath}' must be a list of objects, got ${value.runtimeType}",
+      );
+    }
+    if (value.any((item) => item is! Map)) {
+      return ValidationError(field: meta.yamlPath, message: "Field '${meta.yamlPath}' must contain only objects");
     }
     return null;
   }

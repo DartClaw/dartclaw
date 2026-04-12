@@ -104,7 +104,11 @@
                   </select>
                 </div>
                 <div class="form-error workflow-launch-error" tl:attr="id=${def.errorId}"></div>
-                <button type="submit" class="btn btn-primary btn-sm">Launch</button>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-sm">Launch</button>
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          onclick="this.closest('details').open = false">Cancel</button>
+                </div>
               </form>
             </details>
           </div>

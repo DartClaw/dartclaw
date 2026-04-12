@@ -5,11 +5,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 
 /// Callback for running commands (injectable for tests).
-typedef QmdCommandRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-});
+typedef QmdCommandRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
 
 /// Callback for creating HTTP clients (injectable for tests).
 typedef HttpClientFactory = HttpClient Function();
@@ -37,8 +34,8 @@ class QmdManager {
     this.workspaceDir,
     QmdCommandRunner? commandRunner,
     HttpClientFactory? httpFactory,
-  })  : _run = commandRunner ?? _defaultRunner,
-        _httpFactory = httpFactory ?? HttpClient.new;
+  }) : _run = commandRunner ?? _defaultRunner,
+       _httpFactory = httpFactory ?? HttpClient.new;
 
   bool get isRunning => _running;
 
@@ -60,11 +57,13 @@ class QmdManager {
     if (_running) return;
 
     _log.info('Starting QMD daemon on $host:$port');
-    final result = await _run(
-      qmdExecutable,
-      ['mcp', '--http', '--daemon', '--port', '$port'],
-      workingDirectory: workspaceDir,
-    );
+    final result = await _run(qmdExecutable, [
+      'mcp',
+      '--http',
+      '--daemon',
+      '--port',
+      '$port',
+    ], workingDirectory: workspaceDir);
 
     if (result.exitCode != 0) {
       throw StateError('QMD daemon failed to start: ${result.stderr}');
@@ -94,9 +93,7 @@ class QmdManager {
     try {
       final client = _httpFactory();
       try {
-        final request = await client
-            .postUrl(Uri.parse('$baseUrl/shutdown'))
-            .timeout(const Duration(seconds: 3));
+        final request = await client.postUrl(Uri.parse('$baseUrl/shutdown')).timeout(const Duration(seconds: 3));
         await request.close().timeout(const Duration(seconds: 3));
       } finally {
         client.close(force: true);
@@ -123,9 +120,7 @@ class QmdManager {
   Future<bool> healthCheck() async {
     final client = _httpFactory();
     try {
-      final request = await client
-          .getUrl(Uri.parse('$baseUrl/health'))
-          .timeout(const Duration(seconds: 3));
+      final request = await client.getUrl(Uri.parse('$baseUrl/health')).timeout(const Duration(seconds: 3));
       final response = await request.close().timeout(const Duration(seconds: 3));
       return response.statusCode == 200;
     } catch (e) {
@@ -152,10 +147,7 @@ class QmdManager {
 
   /// Setup collection for workspace directory.
   Future<void> setupCollection(String workspaceDir) async {
-    final result = await _run(
-      qmdExecutable,
-      ['collection', 'add', workspaceDir, '--name', 'memory', '--mask', '*.md'],
-    );
+    final result = await _run(qmdExecutable, ['collection', 'add', workspaceDir, '--name', 'memory', '--mask', '*.md']);
     if (result.exitCode != 0) {
       _log.warning('qmd collection setup failed: ${result.stderr}');
     }
@@ -163,23 +155,13 @@ class QmdManager {
 
   /// Execute a search query via QMD REST API.
   /// Returns parsed results or throws on failure.
-  Future<List<Map<String, dynamic>>> query(
-    String queryText, {
-    String depth = 'standard',
-    int limit = 10,
-  }) async {
+  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
     final client = _httpFactory();
     try {
-      final request = await client
-          .postUrl(Uri.parse('$baseUrl/query'))
-          .timeout(const Duration(seconds: 30));
+      final request = await client.postUrl(Uri.parse('$baseUrl/query')).timeout(const Duration(seconds: 30));
 
       request.headers.set('content-type', 'application/json');
-      request.write(jsonEncode({
-        'query': queryText,
-        'depth': depth,
-        'limit': limit,
-      }));
+      request.write(jsonEncode({'query': queryText, 'depth': depth, 'limit': limit}));
 
       final response = await request.close().timeout(const Duration(seconds: 30));
       final body = await response.transform(utf8.decoder).join();
@@ -201,11 +183,7 @@ class QmdManager {
     }
   }
 
-  static Future<ProcessResult> _defaultRunner(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) {
+  static Future<ProcessResult> _defaultRunner(String executable, List<String> arguments, {String? workingDirectory}) {
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 }

@@ -31,9 +31,7 @@ Future<void> waitForSentMessage(FakeCodexProcess process, String method) async {
 
 /// Returns the `id` field of the last sent message matching [method].
 Object latestRequestId(FakeCodexProcess process, String method) {
-  return process.sentMessages.lastWhere(
-    (message) => message['method'] == method,
-  )['id']! as Object;
+  return process.sentMessages.lastWhere((message) => message['method'] == method)['id']! as Object;
 }
 
 /// Performs the initialize handshake on [harness] using [process].
@@ -45,15 +43,9 @@ Future<void> startHarness(CodexHarness harness, FakeCodexProcess process) async 
 }
 
 /// Responds to the latest `thread/start` request on [process].
-Future<void> respondToLatestThreadStart(
-  FakeCodexProcess process, {
-  String threadId = 'thread-123',
-}) async {
+Future<void> respondToLatestThreadStart(FakeCodexProcess process, {String threadId = 'thread-123'}) async {
   await waitForSentMessage(process, 'thread/start');
-  process.emitThreadStartResponse(
-    id: latestRequestId(process, 'thread/start'),
-    threadId: threadId,
-  );
+  process.emitThreadStartResponse(id: latestRequestId(process, 'thread/start'), threadId: threadId);
   await pumpEventLoop();
 }
 
@@ -66,15 +58,9 @@ Future<void> startHarnessV118(CodexHarness harness, FakeCodexProcess process) as
 }
 
 /// Responds to the latest `thread/start` request using a v0.118.0 ClientResponse envelope.
-Future<void> respondToLatestThreadStartV118(
-  FakeCodexProcess process, {
-  String threadId = 'thread-123',
-}) async {
+Future<void> respondToLatestThreadStartV118(FakeCodexProcess process, {String threadId = 'thread-123'}) async {
   await waitForSentMessage(process, 'thread/start');
-  process.emitThreadStartResponseV118(
-    id: latestRequestId(process, 'thread/start'),
-    threadId: threadId,
-  );
+  process.emitThreadStartResponseV118(id: latestRequestId(process, 'thread/start'), threadId: threadId);
   await pumpEventLoop();
 }
 

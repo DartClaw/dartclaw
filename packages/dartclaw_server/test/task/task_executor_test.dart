@@ -90,7 +90,7 @@ void main() {
   }
 
   test('executes queued tasks into review with task session and artifacts', () async {
-  worker.responseText = 'Done.';
+    worker.responseText = 'Done.';
     worker.onTurn = (sessionId) {
       File(p.join(workspaceDir, 'output.md')).writeAsStringSync('# Output');
     };
@@ -824,8 +824,8 @@ class _CapturingTurnManager extends TurnManager {
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
   }) async {
-  lastPromptScope = promptScope;
-  lastBehaviorOverride = behaviorOverride;
+    lastPromptScope = promptScope;
+    lastBehaviorOverride = behaviorOverride;
     return 'scope-turn';
   }
 

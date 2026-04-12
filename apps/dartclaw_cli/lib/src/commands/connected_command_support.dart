@@ -30,6 +30,7 @@ DartclawApiClient resolveCliApiClient({
   return DartclawApiClient.fromConfig(
     config: effectiveConfig,
     serverOverride: globalOptionString(globalResults, 'server'),
+    tokenOverride: globalOptionString(globalResults, 'token'),
   );
 }
 

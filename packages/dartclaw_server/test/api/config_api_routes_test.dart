@@ -328,6 +328,36 @@ workspace:
       expect(whatsapp['groupAccess'], 'disabled');
       expect(whatsapp['requireMention'], isTrue);
     });
+
+    test('github config is loaded from disk via the typed extension parser', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+github:
+  enabled: true
+  webhook_secret: secret
+  webhook_path: /hooks/github
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await get(router, '/api/config');
+      final json = await readJson(response);
+
+      final github = json['github'] as Map<String, dynamic>;
+      expect(github['enabled'], isTrue);
+      expect(github['webhookSecret'], '***');
+      expect(github['webhookPath'], '/hooks/github');
+      final meta = json['_meta'] as Map<String, dynamic>;
+      expect((meta['fields'] as Map<String, dynamic>).containsKey('github.enabled'), isTrue);
+    });
   });
 
   group('GET /api/scheduling/jobs', () {
@@ -441,6 +471,78 @@ workspace:
           'channels.google_chat.audience.value',
         }),
       );
+    });
+
+    test('enabling github without a webhook secret returns 400', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {'github.enabled': true});
+      expect(response.statusCode, 400);
+
+      final json = await readJson(response);
+      final errors = json['errors'] as List;
+      expect(errors, hasLength(1));
+      expect((errors.single as Map<String, dynamic>)['field'], 'github.webhook_secret');
+    });
+
+    test('enabling github succeeds when webhook secret already exists in current config', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+github:
+  enabled: false
+  webhook_secret: secret
+scheduling:
+  heartbeat:
+    enabled: true
+    interval_minutes: 30
+  jobs: []
+workspace:
+  git_sync:
+    enabled: true
+    push_enabled: true
+''');
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {'github.enabled': true});
+      expect(response.statusCode, 200);
+    });
+
+    test('github triggers can be updated through the config API', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {
+        'github.triggers': [
+          {
+            'event': 'pull_request',
+            'workflow': 'code-review',
+            'actions': ['opened'],
+            'labels': ['needs-review'],
+          },
+        ],
+      });
+      expect(response.statusCode, 200);
+
+      final getResponse = await get(router, '/api/config');
+      final json = await readJson(getResponse);
+      final github = json['github'] as Map<String, dynamic>;
+      expect((github['triggers'] as List).single, {
+        'event': 'pull_request',
+        'actions': ['opened'],
+        'labels': ['needs-review'],
+        'workflow': 'code-review',
+      });
+    });
+
+    test('invalid github trigger payload returns 400', () async {
+      final router = createRouter();
+      final response = await patch(router, '/api/config', {
+        'github.triggers': [
+          {
+            'event': 'pull_request',
+            'workflow': '',
+            'actions': ['opened'],
+          },
+        ],
+      });
+      expect(response.statusCode, 400);
     });
 
     test('clearing google chat service account fails when channel is already enabled', () async {

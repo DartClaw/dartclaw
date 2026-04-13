@@ -321,6 +321,33 @@ definition=spec-and-implement&var_FEATURE=Add+trace+UI
 
 On success the response includes `HX-Location: /workflows/<runId>`.
 
+#### Pause workflow run
+
+```
+POST /api/workflows/runs/:id/pause
+```
+
+Pauses a running workflow and returns the updated run as JSON.
+
+#### Resume workflow run
+
+```
+POST /api/workflows/runs/:id/resume
+```
+
+Resumes a paused workflow, including approval-paused runs, and returns the updated run as JSON.
+
+#### Cancel workflow run
+
+```
+POST /api/workflows/runs/:id/cancel
+Content-Type: application/json
+
+{"feedback": "Not ready yet"}
+```
+
+Cancels a running or paused workflow. Approval rejections can include optional feedback. Successful cancellation returns `204 No Content`.
+
 #### GitHub workflow webhook
 
 ```
@@ -490,11 +517,16 @@ Workflow discovery and execution endpoints:
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/api/workflows/run` | Start a workflow run from a named definition |
+| `POST` | `/api/workflows/run-form` | Start a workflow run from the `/workflows` HTMX form |
 | `GET` | `/api/workflows/runs` | List workflow runs (filterable by `status` and `definition`) |
 | `GET` | `/api/workflows/runs/<id>` | Get a single run with step/task detail |
+| `POST` | `/api/workflows/runs/<id>/pause` | Pause a running workflow |
+| `POST` | `/api/workflows/runs/<id>/resume` | Resume a paused workflow |
+| `POST` | `/api/workflows/runs/<id>/cancel` | Cancel a running or paused workflow |
 | `GET` | `/api/workflows/runs/<id>/events` | SSE stream for a specific run |
 | `GET` | `/api/workflows/definitions` | List workflow summaries |
 | `GET` | `/api/workflows/definitions/<name>` | Fetch a full workflow definition |
+| `POST` | `/webhook/github` | Trigger webhook-driven workflow launches for matching GitHub PR events |
 | `GET` | `/api/skills` | List discovered skills and metadata |
 
 Common request shape for `POST /api/workflows/run`:

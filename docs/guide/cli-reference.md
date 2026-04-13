@@ -22,6 +22,7 @@ Top-level command families:
 - `service`
 - `sessions`
 - `serve`
+- `setup`
 - `status`
 - `tasks`
 - `token`
@@ -97,6 +98,7 @@ dart run dartclaw_cli:dartclaw jobs list --json
 ```bash
 dart run dartclaw_cli:dartclaw jobs create --name daily-summary --schedule "0 8 * * *" --prompt "Summarize yesterday"
 dart run dartclaw_cli:dartclaw jobs create --name nightly-review --schedule "0 22 * * *" --type task --title "Review backlog" --description "Inspect stale tasks" --task-type analysis
+dart run dartclaw_cli:dartclaw jobs create --name daily-summary --schedule "0 8 * * *" --prompt "Summarize yesterday" --json
 ```
 
 ### `jobs show`
@@ -127,6 +129,7 @@ dart run dartclaw_cli:dartclaw projects list --json
 ```bash
 dart run dartclaw_cli:dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git
 dart run dartclaw_cli:dartclaw projects add --name docs --remote-url https://github.com/org/docs.git --branch main --credentials-ref github-main
+dart run dartclaw_cli:dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git --json
 ```
 
 ### `projects show`
@@ -148,6 +151,7 @@ dart run dartclaw_cli:dartclaw projects fetch <project-id> --json
 ```bash
 dart run dartclaw_cli:dartclaw projects remove <project-id>
 dart run dartclaw_cli:dartclaw projects remove <project-id> --yes
+dart run dartclaw_cli:dartclaw projects remove <project-id> --yes --json
 ```
 
 ## Sessions
@@ -157,6 +161,7 @@ dart run dartclaw_cli:dartclaw projects remove <project-id> --yes
 ```bash
 dart run dartclaw_cli:dartclaw sessions list
 dart run dartclaw_cli:dartclaw sessions list --type task
+dart run dartclaw_cli:dartclaw sessions list --type task --json
 ```
 
 ### `sessions show`
@@ -171,6 +176,7 @@ dart run dartclaw_cli:dartclaw sessions show <session-id> --json
 ```bash
 dart run dartclaw_cli:dartclaw sessions messages <session-id>
 dart run dartclaw_cli:dartclaw sessions messages <session-id> --limit 20 --full
+dart run dartclaw_cli:dartclaw sessions messages <session-id> --limit 20 --json
 ```
 
 ### `sessions archive`
@@ -200,6 +206,7 @@ dart run dartclaw_cli:dartclaw sessions cleanup
 ```bash
 dart run dartclaw_cli:dartclaw tasks list
 dart run dartclaw_cli:dartclaw tasks list --status running --type coding --limit 10
+dart run dartclaw_cli:dartclaw tasks list --status running --json
 ```
 
 ### `tasks show`
@@ -214,6 +221,7 @@ dart run dartclaw_cli:dartclaw tasks show <task-id> --json
 ```bash
 dart run dartclaw_cli:dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing" --type analysis
 dart run dartclaw_cli:dartclaw tasks create --title "Review PR" --description "Inspect project state" --type coding --project <project-id> --provider codex --auto-start
+dart run dartclaw_cli:dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing" --type analysis --json
 ```
 
 ### `tasks start`
@@ -235,6 +243,7 @@ dart run dartclaw_cli:dartclaw tasks cancel <task-id> --json
 ```bash
 dart run dartclaw_cli:dartclaw tasks review <task-id> --action accept
 dart run dartclaw_cli:dartclaw tasks review <task-id> --action push_back --comment "Tighten the API error handling"
+dart run dartclaw_cli:dartclaw tasks review <task-id> --action accept --json
 ```
 
 ## Tokens and Index
@@ -264,6 +273,7 @@ dart run dartclaw_cli:dartclaw rebuild-index
 ```bash
 dart run dartclaw_cli:dartclaw traces list
 dart run dartclaw_cli:dartclaw traces list --provider claude --since 1h --limit 20
+dart run dartclaw_cli:dartclaw traces list --provider claude --since 1h --limit 20 --json
 ```
 
 ### `traces show`
@@ -316,12 +326,14 @@ dart run dartclaw_cli:dartclaw workflow resume <run-id> --json
 ```bash
 dart run dartclaw_cli:dartclaw workflow cancel <run-id>
 dart run dartclaw_cli:dartclaw workflow cancel <run-id> --feedback "Reject current review"
+dart run dartclaw_cli:dartclaw workflow cancel <run-id> --feedback "Reject current review" --json
 ```
 
 ### `workflow status`
 
 ```bash
 dart run dartclaw_cli:dartclaw workflow status <run-id>
+dart run dartclaw_cli:dartclaw workflow status <run-id> --json
 dart run dartclaw_cli:dartclaw workflow status <run-id> --standalone
 ```
 
@@ -356,6 +368,7 @@ dart run dartclaw_cli:dartclaw deploy secrets
 ```bash
 dart run dartclaw_cli:dartclaw init
 dart run dartclaw_cli:dartclaw init --non-interactive
+dart run dartclaw_cli:dartclaw setup
 ```
 
 ### `service`

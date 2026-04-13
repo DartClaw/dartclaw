@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ProviderIdentity;
+import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show EventBus, HarnessConfig, HarnessFactory, HarnessFactoryConfig, KvService, MessageService, SessionService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -53,6 +53,10 @@ class CliWorkflowWiring {
   late final TaskExecutor taskExecutor;
   late final WorkflowRegistry registry;
   late final WorkflowService workflowService;
+  late final BehaviorFileService behavior;
+
+  late final CredentialRegistry _credentialRegistry;
+  late final HarnessConfig _harnessConfig;
 
   CliWorkflowWiring({
     required this.config,
@@ -96,11 +100,8 @@ class CliWorkflowWiring {
 
     // Harness: minimal config — no MCP server, no container, no guards.
     final defaultProviderId = config.agent.provider;
-    final executable = switch (config.providers[defaultProviderId]) {
-      final entry? => entry.executable,
-      null => config.server.claudeExecutable,
-    };
-    final harnessConfig = HarnessConfig(
+    _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    _harnessConfig = HarnessConfig(
       maxTurns: config.agent.maxTurns,
       model: config.agent.model,
       effort: config.agent.effort,
@@ -108,12 +109,18 @@ class CliWorkflowWiring {
 
     final harness = _harnessFactory.create(
       defaultProviderId,
-      HarnessFactoryConfig(cwd: Directory.current.path, executable: executable, harnessConfig: harnessConfig),
+      HarnessFactoryConfig(
+        cwd: Directory.current.path,
+        executable: _resolveProviderExecutable(config, defaultProviderId),
+        harnessConfig: _harnessConfig,
+        providerOptions: _providerOptions(config, defaultProviderId),
+        environment: _providerEnvironment(defaultProviderId, _credentialRegistry),
+      ),
     );
     await harness.start();
 
     // Behavior service for TurnRunner
-    final behavior = BehaviorFileService(
+    behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
       compactInstructions: config.context.compactInstructions,
@@ -131,9 +138,9 @@ class CliWorkflowWiring {
       providerId: defaultProviderId,
     );
 
-    // maxConcurrentTasks: 0 means no extra task runners — the primary runner
-    // handles all turns. The workflow executor spawns steps sequentially.
-    pool = HarnessPool(runners: [primaryRunner], maxConcurrentTasks: config.tasks.maxConcurrent);
+    final taskRunners = <TurnRunner>[await _buildTaskRunner(defaultProviderId)];
+    final maxConcurrentTasks = _standaloneTaskRunnerCapacity(config);
+    pool = HarnessPool(runners: [primaryRunner, ...taskRunners], maxConcurrentTasks: maxConcurrentTasks);
 
     final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);
 
@@ -232,6 +239,42 @@ class CliWorkflowWiring {
     searchDb.close();
     taskDb.close();
   }
+
+  /// Ensures the pool contains task runners for every [providerIds] entry.
+  ///
+  /// Standalone workflow execution relies on task runners for agent-backed
+  /// steps; without them, queued tasks never start in pool mode.
+  Future<void> ensureTaskRunnersForProviders(Set<String> providerIds) async {
+    for (final providerId in providerIds) {
+      if (pool.hasTaskRunnerForProvider(providerId)) {
+        continue;
+      }
+      pool.addRunner(await _buildTaskRunner(providerId));
+    }
+  }
+
+  Future<TurnRunner> _buildTaskRunner(String providerId) async {
+    final harness = _harnessFactory.create(
+      providerId,
+      HarnessFactoryConfig(
+        cwd: Directory.current.path,
+        executable: _resolveProviderExecutable(config, providerId),
+        harnessConfig: _harnessConfig,
+        providerOptions: _providerOptions(config, providerId),
+        environment: _providerEnvironment(providerId, _credentialRegistry),
+      ),
+    );
+    await harness.start();
+    return TurnRunner(
+      harness: harness,
+      messages: messageService,
+      behavior: behavior,
+      sessions: sessionService,
+      kv: kvService,
+      eventBus: eventBus,
+      providerId: providerId,
+    );
+  }
 }
 
 Set<String> _activeHarnessTypes(DartclawConfig config) {
@@ -258,3 +301,49 @@ List<String> _workflowSkillProjectDirs(DartclawConfig config) {
   }
   return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
 }
+
+int _standaloneTaskRunnerCapacity(DartclawConfig config) {
+  final configuredProviders = <String>{config.agent.provider, ...config.providers.entries.keys};
+  // Standalone workflows may need to provision an explicit provider that is
+  // not the default (for example, built-in workflows target `claude` even
+  // when the default provider is Codex). Reserve enough task-runner slots to
+  // materialize the built-in provider families on demand.
+  const minimumStandaloneCapacity = 3;
+  final minimumCapacity = configuredProviders.length > minimumStandaloneCapacity
+      ? configuredProviders.length
+      : minimumStandaloneCapacity;
+  if (config.tasks.maxConcurrent > minimumCapacity) {
+    return config.tasks.maxConcurrent;
+  }
+  return minimumCapacity;
+}
+
+Map<String, String> _providerEnvironment(String providerId, CredentialRegistry registry) {
+  final environment = Map<String, String>.from(Platform.environment)
+    ..remove('ANTHROPIC_API_KEY')
+    ..remove('OPENAI_API_KEY')
+    ..remove('CODEX_API_KEY')
+    ..remove('CLAUDE_CODE_SUBAGENT_MODEL');
+  final apiKey = registry.getApiKey(providerId);
+  if (apiKey != null) {
+    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+      environment[envVar] = apiKey;
+    }
+  }
+  return environment;
+}
+
+String _resolveProviderExecutable(DartclawConfig config, String providerId) {
+  final entry = config.providers[providerId];
+  if (entry != null) {
+    return entry.executable;
+  }
+  return switch (ProviderIdentity.family(providerId)) {
+    'claude' => config.server.claudeExecutable,
+    'codex' => 'codex',
+    _ => providerId,
+  };
+}
+
+Map<String, dynamic> _providerOptions(DartclawConfig config, String providerId) =>
+    config.providers[providerId]?.options ?? const <String, dynamic>{};

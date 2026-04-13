@@ -74,6 +74,14 @@ void main() {
       expect(authed, isTrue);
     });
 
+    test('probeAuthStatus returns true for codex with stored CODEX_API_KEY', () async {
+      _writeCodexAuth(tmpDir, {'CODEX_API_KEY': 'sk-test-key'});
+
+      final authed = await ProviderValidator.probeAuthStatus('codex', providerId: 'codex-exec', homePath: tmpDir.path);
+
+      expect(authed, isTrue);
+    });
+
     test('probeAuthStatus returns false for codex with empty tokens map', () async {
       _writeCodexAuth(tmpDir, {'OPENAI_API_KEY': null, 'tokens': {}});
 
@@ -233,7 +241,7 @@ void main() {
       ]);
     });
 
-    test('validate points codex-exec users at OPENAI_API_KEY', () async {
+    test('validate points codex-exec users at CODEX_API_KEY', () async {
       final result = await ProviderValidator.validate(
         providers: ProvidersConfig(
           entries: {
@@ -250,7 +258,7 @@ void main() {
 
       expect(result.errors, isEmpty);
       expect(result.warnings, [
-        "Provider 'codex-exec': credentials not configured (set OPENAI_API_KEY or add to credentials section)",
+        "Provider 'codex-exec': credentials not configured (set CODEX_API_KEY or add to credentials section)",
       ]);
     });
 

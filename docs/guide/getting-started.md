@@ -6,7 +6,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
-| Dart SDK | ^3.11.0 | Host runtime |
+| Dart SDK | ^3.11.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Latest | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Latest | Agent binary — optional, for OpenAI models (see [Agents § Providers](agents.md#providers)) |
 | SQLite | System lib | Search index |
@@ -22,7 +22,26 @@ curl -fsSL https://claude.ai/install.sh | bash
 sudo apt-get install libsqlite3-dev
 ```
 
-Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex, export `OPENAI_API_KEY`.
+Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex app-server (`provider: codex`), use the Codex CLI's normal sign-in flow or `OPENAI_API_KEY`. For Codex exec (`provider: codex-exec`) in CI, prefer `CODEX_API_KEY`.
+
+## Install DartClaw
+
+This guide treats the standalone `dartclaw` binary as the primary runtime entrypoint.
+
+If you are working from a source checkout today, build that binary first:
+
+```bash
+git clone <repo-url> && cd dartclaw
+dart pub get
+bash tool/build.sh
+```
+
+Then either:
+
+- run `build/dartclaw` directly from the checkout, or
+- copy `build/dartclaw` onto your `PATH` as `dartclaw`
+
+All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/dartclaw`.
 
 ## Quick Start
 
@@ -70,6 +89,17 @@ Setup reports one of two completion states:
 Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
 
 **Important**: Standalone binaries produced by `bash tool/build.sh` embed the web UI, static assets, and built-in skills, so they do not need `--source-dir`, `--static-dir`, or `--templates-dir`. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates and static assets from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
+
+## Run from Source
+
+Use source-based execution when you are developing DartClaw itself, want template/static hot-reload, or need the plain Dart toolchain in CI:
+
+```bash
+dart run dartclaw_cli:dartclaw serve --dev
+dart run dartclaw_cli:dartclaw workflow run code-review --standalone --json
+```
+
+That path is intentionally secondary in the user guide. For normal operation, prefer the standalone binary.
 
 ## First Session
 

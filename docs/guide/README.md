@@ -14,7 +14,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 
 | Guide | What it covers |
 |-------|---------------|
-| [Getting Started](getting-started.md) | Prerequisites, installation, first session |
+| [Getting Started](getting-started.md) | Standalone binary install, source-based dev path, first session |
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
 | [Workspace](workspace.md) | Behavior files (SOUL.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md), prompt assembly, git sync |

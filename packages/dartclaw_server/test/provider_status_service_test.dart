@@ -126,7 +126,7 @@ void main() {
       expect(status.id, 'codex-exec');
       expect(status.executable, 'codex');
       expect(status.version, 'Codex CLI 1.2.3');
-      expect(status.credentialEnvVar, 'OPENAI_API_KEY');
+      expect(status.credentialEnvVar, 'CODEX_API_KEY');
       expect(status.activeWorkers, 1);
       expect(status.isDefault, isTrue);
     });

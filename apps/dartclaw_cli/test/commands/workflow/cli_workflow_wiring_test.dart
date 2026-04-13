@@ -9,9 +9,9 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-HarnessFactory _harnessFactoryFor(AgentHarness harness) {
+HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   final factory = HarnessFactory();
-  factory.register('claude', (_) => harness);
+  factory.register('claude', (_) => builder());
   return factory;
 }
 
@@ -62,7 +62,7 @@ void main() {
       config: config,
       dataDir: tempDir.path,
       skillsHomeDir: skillsHomeDir.path,
-      harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
     );
@@ -105,7 +105,7 @@ steps:
       config: config,
       dataDir: tempDir.path,
       skillsHomeDir: p.join(tempDir.path, 'home'),
-      harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
     );
@@ -133,7 +133,7 @@ steps:
       config: config,
       dataDir: tempDir.path,
       skillsHomeDir: p.join(tempDir.path, 'home'),
-      harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
     );
@@ -169,5 +169,54 @@ steps:
 
     expect(createdTask?.configJson['_workflowWorkspaceDir'], workflowWorkspaceDir.path);
     await wiring.workflowService.cancel(run.id);
+  });
+
+  test('injects provider credentials into standalone harness environments', () async {
+    final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
+    final factory = HarnessFactory()
+      ..register('codex-exec', (config) {
+        capturedByProvider.putIfAbsent('codex-exec', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      })
+      ..register('claude', (config) {
+        capturedByProvider.putIfAbsent('claude', () => <HarnessFactoryConfig>[]).add(config);
+        return FakeAgentHarness();
+      });
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'codex-exec'),
+      providers: const ProvidersConfig(entries: {'codex-exec': ProviderEntry(executable: 'codex', poolSize: 0)}),
+      credentials: const CredentialsConfig(
+        entries: {
+          'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
+          'openai': CredentialEntry(apiKey: 'openai-key'),
+        },
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'home'),
+      harnessFactory: factory,
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+    await wiring.ensureTaskRunnersForProviders({'claude'});
+
+    final codexConfigs = capturedByProvider['codex-exec']!;
+    expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone task runner');
+    for (final harnessConfig in codexConfigs) {
+      expect(harnessConfig.environment['CODEX_API_KEY'], 'openai-key');
+      expect(harnessConfig.environment['OPENAI_API_KEY'], 'openai-key');
+    }
+
+    final claudeConfigs = capturedByProvider['claude']!;
+    expect(claudeConfigs, hasLength(1));
+    expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
   });
 }

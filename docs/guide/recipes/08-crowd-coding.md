@@ -399,7 +399,7 @@ Steps 1--7 are common to all scenarios. Steps 8+ differ by scenario.
 6. **Start DartClaw** -- run the server:
 
    ```bash
-   dart run dartclaw_cli:dartclaw serve --port 3000
+   dartclaw serve --port 3000
    ```
 
 7. **Verify the bot responds** -- send a test message in the Space (e.g., "hello"). The bot should acknowledge. If not, check the server logs and confirm `space_events.enabled: true`.

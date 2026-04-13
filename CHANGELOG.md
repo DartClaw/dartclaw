@@ -25,10 +25,15 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
 - **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection
+- **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
+- **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
 
 ### Fixed
 
 - **Task creation guardrails**: `POST /api/tasks` continues to reject client `configJson` keys prefixed with `_`, preserving the server-owned workflow/internal namespace
+- **Standalone agent-backed workflows**: headless standalone runs now provision provider-aware task runners and inject provider credentials, so agent steps no longer queue indefinitely or lose API-key auth outside the server wiring path
+- **Codex CI auth compatibility**: `codex-exec` now treats `CODEX_API_KEY` as the primary CI env var, accepts compatible fallback key sources, updates provider-status/validation messaging accordingly, and redacts both Codex/OpenAI API-key env vars from approval payloads
+- **Standalone approval pause messaging**: CLI guidance for approval-paused standalone runs now points operators to start `dartclaw serve` before using `workflow resume` or `workflow cancel`
 
 ---
 

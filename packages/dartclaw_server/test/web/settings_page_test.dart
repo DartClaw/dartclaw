@@ -61,7 +61,7 @@ void main() {
       expect(html, contains('data-provider-id="ghost_ai"'));
       expect(html, contains('Default'));
       expect(html, contains('provider-error-banner'));
-      expect(html, contains('OPENAI_API_KEY'));
+      expect(html, contains('CODEX_API_KEY'));
       expect(html, contains('Unavailable'));
       expect(html, contains('credential-dot'));
       expect(html, contains('credential-dot-ok'));

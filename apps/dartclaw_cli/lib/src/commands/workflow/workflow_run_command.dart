@@ -100,6 +100,7 @@ class WorkflowRunCommand extends Command<void> {
         variables: variables,
         projectId: projectId,
         force: force,
+        jsonOutput: jsonOutput,
       );
       return;
     }
@@ -131,6 +132,7 @@ class WorkflowRunCommand extends Command<void> {
     required Map<String, String> variables,
     required String? projectId,
     required bool force,
+    required bool jsonOutput,
   }) async {
     final apiClient =
         _apiClient ??
@@ -172,6 +174,7 @@ class WorkflowRunCommand extends Command<void> {
         }
         _exitFn(1);
       }
+      await wiring.ensureTaskRunnersForProviders(_requiredWorkflowProviders(definition, config.agent.provider));
 
       final printer = CliProgressPrinter(
         totalSteps: definition.steps.length,
@@ -187,6 +190,7 @@ class WorkflowRunCommand extends Command<void> {
         eventBus: wiring.eventBus,
         printer: printer,
         projectId: projectId,
+        jsonOutput: jsonOutput,
       );
       _exitFn(exitCode);
     } finally {
@@ -378,6 +382,7 @@ class WorkflowRunCommand extends Command<void> {
     required EventBus eventBus,
     required CliProgressPrinter printer,
     String? projectId,
+    required bool jsonOutput,
   }) async {
     final runCompleter = Completer<WorkflowRun>();
     String? activeRunId;
@@ -387,6 +392,18 @@ class WorkflowRunCommand extends Command<void> {
     final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
       final runId = activeRunId;
       if (runId != null && event.runId != runId) return;
+      if (jsonOutput) {
+        _stdoutLine(
+          jsonEncode({
+            'type': 'workflow_status_changed',
+            'runId': event.runId,
+            'definitionName': event.definitionName,
+            'oldStatus': event.oldStatus.name,
+            'newStatus': event.newStatus.name,
+            'errorMessage': event.errorMessage,
+          }),
+        );
+      }
       if (event.newStatus.terminal || event.newStatus == WorkflowRunStatus.paused) {
         if (!runCompleter.isCompleted) {
           service.get(event.runId).then((run) {
@@ -401,12 +418,39 @@ class WorkflowRunCommand extends Command<void> {
     final approvalSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen((event) {
       if (activeRunId != null && event.runId != activeRunId) return;
       lastApprovalEvent = event;
+      if (jsonOutput) {
+        _stdoutLine(
+          jsonEncode({
+            'type': 'workflow_approval_requested',
+            'runId': event.runId,
+            'stepId': event.stepId,
+            'message': event.message,
+            'timeoutSeconds': event.timeoutSeconds,
+          }),
+        );
+      }
     });
 
     final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
       if (activeRunId != null && event.runId != activeRunId) return;
       final startTime = stepStartTimes.remove(event.stepIndex);
       final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
+      if (jsonOutput) {
+        _stdoutLine(
+          jsonEncode({
+            'type': 'workflow_step_completed',
+            'runId': event.runId,
+            'stepId': event.stepId,
+            'stepIndex': event.stepIndex,
+            'totalSteps': event.totalSteps,
+            'taskId': event.taskId,
+            'success': event.success,
+            'tokenCount': event.tokenCount,
+            'durationMs': duration.inMilliseconds,
+          }),
+        );
+        return;
+      }
       if (event.success) {
         printer.stepCompleted(event.stepIndex, event.stepId, duration, event.tokenCount);
       } else {
@@ -425,6 +469,22 @@ class WorkflowRunCommand extends Command<void> {
           final stepId = definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id;
           if (event.newStatus == TaskStatus.running) {
             stepStartTimes[stepIndex] = DateTime.now();
+          }
+          if (jsonOutput) {
+            _stdoutLine(
+              jsonEncode({
+                'type': 'task_status_changed',
+                'runId': runId,
+                'taskId': event.taskId,
+                'stepIndex': stepIndex,
+                'stepId': stepId,
+                'oldStatus': event.oldStatus.name,
+                'newStatus': event.newStatus.name,
+              }),
+            );
+            return;
+          }
+          if (event.newStatus == TaskStatus.running) {
             printer.stepRunning(stepIndex, stepId, task.title, task.provider ?? definition.steps[stepIndex].provider);
           } else {
             printer.stepReview(stepIndex, stepId);
@@ -442,7 +502,11 @@ class WorkflowRunCommand extends Command<void> {
         _exitFn(1);
       }
       firstSigint = now;
-      printer.workflowCancelling();
+      if (jsonOutput) {
+        _stdoutLine(jsonEncode({'type': 'interrupt_received', 'runId': activeRunId}));
+      } else {
+        printer.workflowCancelling();
+      }
       final runId = activeRunId;
       if (runId != null) {
         unawaited(service.cancel(runId));
@@ -452,25 +516,38 @@ class WorkflowRunCommand extends Command<void> {
     try {
       final run = await service.start(definition, variables, projectId: projectId, headless: true);
       activeRunId = run.id;
-      printer.workflowStarted();
+      if (jsonOutput) {
+        _stdoutLine(jsonEncode({'type': 'run_started', 'run': run.toJson()}));
+      } else {
+        printer.workflowStarted();
+      }
 
       final finalRun = await runCompleter.future;
       return switch (finalRun.status) {
         WorkflowRunStatus.completed => () {
-          printer.workflowCompleted(finalRun.currentStepIndex, finalRun.totalTokens);
+          if (!jsonOutput) {
+            printer.workflowCompleted(finalRun.currentStepIndex, finalRun.totalTokens);
+          }
           return 0;
         }(),
         WorkflowRunStatus.paused => () {
           final approval = lastApprovalEvent;
-          if (approval != null) {
-            printer.workflowApprovalPaused(finalRun.currentStepIndex - 1, approval.stepId, approval.message);
-          } else {
+          if (!jsonOutput && approval != null) {
+            printer.workflowApprovalPaused(
+              finalRun.id,
+              finalRun.currentStepIndex - 1,
+              approval.stepId,
+              approval.message,
+            );
+          } else if (!jsonOutput) {
             printer.workflowPaused(finalRun.currentStepIndex, finalRun.errorMessage);
           }
           return 2;
         }(),
         WorkflowRunStatus.failed || WorkflowRunStatus.cancelled => () {
-          printer.workflowFailed(finalRun.currentStepIndex, finalRun.errorMessage ?? 'Cancelled');
+          if (!jsonOutput) {
+            printer.workflowFailed(finalRun.currentStepIndex, finalRun.errorMessage ?? 'Cancelled');
+          }
           return finalRun.status == WorkflowRunStatus.cancelled ? 2 : 1;
         }(),
         _ => 1,
@@ -530,4 +607,12 @@ String? _globalOptionString(ArgResults? results, String name) {
   } on ArgumentError {
     return null;
   }
+}
+
+Set<String> _requiredWorkflowProviders(WorkflowDefinition definition, String defaultProvider) {
+  final providers = <String>{};
+  for (final step in definition.steps) {
+    providers.add(step.provider ?? defaultProvider);
+  }
+  return providers;
 }

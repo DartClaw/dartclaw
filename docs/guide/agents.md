@@ -212,16 +212,25 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 |-------------|--------|----------|--------|-------|
 | `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
 | `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
-| `codex-exec` | `codex` CLI (exec mode) | One-shot JSON | Same as `codex` | Lightweight one-shot execution per turn. No streaming, no approval chain. Relies on container isolation + Codex's built-in sandbox |
+| `codex-exec` | `codex` CLI (exec mode) | One-shot JSON | Same as `codex` | Lightweight one-shot execution per turn. No streaming, no approval chain. Best fit for CI/batch runs with explicit sandbox settings |
 
 ### Setting Up Codex
 
-1. **Install the Codex CLI**: See [OpenAI Codex CLI documentation](https://github.com/openai/codex) for installation. Verify with `codex --version`.
+1. **Install the Codex CLI**: See the [OpenAI Codex CLI docs](https://developers.openai.com/codex/cli). Verify with `codex --version`.
 
-2. **Set your OpenAI API key**:
+2. **Choose an auth path**:
+
+   **Persistent app-server mode (`provider: codex`)**
    ```bash
    export OPENAI_API_KEY="sk-..."
    ```
+
+   **Exec mode in CI (`provider: codex-exec`)**
+   ```bash
+   export CODEX_API_KEY="sk-..."
+   ```
+
+   `codex-exec` is the better fit for non-interactive automation. It maps directly to `codex exec`, and current Codex CI guidance prefers `CODEX_API_KEY` for that mode.
 
 3. **Configure DartClaw** to use Codex as the default provider, or alongside Claude:
 
@@ -299,8 +308,22 @@ The primary harness (Runner 0, for interactive chat) always uses the global defa
 **Exec mode** (`codex-exec`) runs `codex exec --json` as a one-shot per turn:
 - No persistent process — spawns and exits per turn
 - No streaming — result returned as a single JSON blob
-- No approval chain — uses `--yolo --ephemeral`, relying on container isolation
+- No approval chain — uses `--full-auto --ephemeral`, so pair it with explicit sandbox settings or an externally isolated runner
 - Simpler deployment, useful for batch operations
+
+For API-key automation, prefer `CODEX_API_KEY` with `codex-exec`. For the persistent `codex` app-server provider, use the Codex CLI's normal sign-in flow or a compatible API-key setup for that binary.
+
+Recommended `codex-exec` CI baseline:
+
+```yaml
+agent:
+  provider: codex-exec
+
+providers:
+  codex-exec:
+    executable: codex
+    sandbox: workspace-write
+```
 
 ### Codex Approval Policy & Sandbox Mode
 

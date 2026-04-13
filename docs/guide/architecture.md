@@ -300,7 +300,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 
 Multiple concurrent tasks sharing the same profile share one container (via `docker exec`). This keeps the container count small (2-4) regardless of task parallelism (up to 10 concurrent).
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. API credentials are injected via a credential proxy on a Unix socket — keys never exist inside the container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The current credential-proxy path covers Claude/Anthropic container traffic via a Unix socket, so Anthropic keys never exist inside that container environment.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 

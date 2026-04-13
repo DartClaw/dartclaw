@@ -339,6 +339,7 @@ credentials:
     api_key: ${ANTHROPIC_API_KEY}
   # openai:                      # uncomment when using Codex
   #   api_key: ${OPENAI_API_KEY}
+  #                              # For codex-exec in CI, ${CODEX_API_KEY} is also valid.
 
 # --- Context Management ---
 context:
@@ -431,7 +432,8 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | -- | API key for Claude provider |
-| `OPENAI_API_KEY` | -- | API key for Codex provider |
+| `OPENAI_API_KEY` | -- | Primary API key env var for the persistent Codex app-server provider |
+| `CODEX_API_KEY` | -- | Preferred API key env var for `codex-exec` in CI/non-interactive runs |
 | `DARTCLAW_HOME` | `~/.dartclaw` | Instance directory (points to directory, not config file) |
 | `DARTCLAW_CONFIG` | -- | Explicit config file path (overrides `DARTCLAW_HOME`) |
 | `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |

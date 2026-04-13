@@ -180,8 +180,8 @@ class WorkflowStatusCommand extends Command<void> {
       if (approvalMessage != null) {
         _writeLine('  Request:     $approvalMessage');
       }
-      _writeLine('  Actions:     `dartclaw workflow resume ${run.id}` to approve');
-      _writeLine('               `dartclaw workflow cancel ${run.id}` to reject');
+      _writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow resume ${run.id}` to approve');
+      _writeLine('               Start `dartclaw serve`, then run `dartclaw workflow cancel ${run.id}` to reject');
     }
     if (run.errorMessage != null) {
       _writeLine('  Error:       ${run.errorMessage}');

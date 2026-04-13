@@ -601,7 +601,7 @@ class CodexHarness extends BaseHarness {
 
   static Map<String, dynamic> _prepareGuardToolInput(String rawToolName, Map<String, dynamic> providerToolInput) {
     final guardToolInput = Map<String, dynamic>.from(providerToolInput);
-    _stripOpenAiApiKey(guardToolInput);
+    _stripCredentialEnvVars(guardToolInput);
 
     if (rawToolName != 'file_change') {
       return guardToolInput;
@@ -655,14 +655,21 @@ class CodexHarness extends BaseHarness {
     return null;
   }
 
-  static void _stripOpenAiApiKey(Map<String, dynamic> toolInput) {
+  static void _stripCredentialEnvVars(Map<String, dynamic> toolInput) {
     final envMap = mapValue(toolInput['env']);
-    if (envMap == null || !envMap.containsKey('OPENAI_API_KEY')) {
+    if (envMap == null) {
       return;
     }
 
-    toolInput['env'] = Map<String, dynamic>.from(envMap)..remove('OPENAI_API_KEY');
-    _log.info('Stripped OPENAI_API_KEY from Codex approval input env');
+    final sanitized = Map<String, dynamic>.from(envMap)
+      ..remove('OPENAI_API_KEY')
+      ..remove('CODEX_API_KEY');
+    if (sanitized.length == envMap.length) {
+      return;
+    }
+
+    toolInput['env'] = sanitized;
+    _log.info('Stripped Codex API key environment variables from approval input env');
   }
 
   static String? _extractTurnFailedError(String line) {

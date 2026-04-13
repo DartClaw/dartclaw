@@ -36,6 +36,24 @@ void main() {
       expect(registry.getApiKey('claude'), 'from-env');
     });
 
+    test('getApiKey accepts CODEX_API_KEY for codex-exec', () {
+      final registry = CredentialRegistry(
+        credentials: const CredentialsConfig.defaults(),
+        env: const {'CODEX_API_KEY': 'from-codex-env'},
+      );
+
+      expect(registry.getApiKey('codex-exec'), 'from-codex-env');
+    });
+
+    test('getApiKey falls back to CODEX_API_KEY for codex when OPENAI_API_KEY is absent', () {
+      final registry = CredentialRegistry(
+        credentials: const CredentialsConfig.defaults(),
+        env: const {'CODEX_API_KEY': 'from-codex-env'},
+      );
+
+      expect(registry.getApiKey('codex'), 'from-codex-env');
+    });
+
     test('getApiKey returns null when both config and env missing', () {
       final registry = CredentialRegistry(credentials: const CredentialsConfig.defaults());
 
@@ -77,8 +95,15 @@ void main() {
     test('envVarFor returns expected env var names', () {
       expect(CredentialRegistry.envVarFor('claude'), 'ANTHROPIC_API_KEY');
       expect(CredentialRegistry.envVarFor('codex'), 'OPENAI_API_KEY');
-      expect(CredentialRegistry.envVarFor('codex-exec'), 'OPENAI_API_KEY');
+      expect(CredentialRegistry.envVarFor('codex-exec'), 'CODEX_API_KEY');
       expect(CredentialRegistry.envVarFor('unknown'), isNull);
+    });
+
+    test('envVarsFor returns accepted env var names in preference order', () {
+      expect(CredentialRegistry.envVarsFor('claude'), ['ANTHROPIC_API_KEY']);
+      expect(CredentialRegistry.envVarsFor('codex'), ['OPENAI_API_KEY', 'CODEX_API_KEY']);
+      expect(CredentialRegistry.envVarsFor('codex-exec'), ['CODEX_API_KEY', 'OPENAI_API_KEY']);
+      expect(CredentialRegistry.envVarsFor('unknown'), isEmpty);
     });
   });
 }

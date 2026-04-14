@@ -2,11 +2,37 @@ import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-WorkflowRegistry _makeRegistry() =>
-    WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
+WorkflowRegistry _makeRegistry({Logger? log, Set<String>? continuityProviders}) => WorkflowRegistry(
+  parser: WorkflowDefinitionParser(),
+  validator: WorkflowDefinitionValidator(),
+  continuityProviders: continuityProviders,
+  log: log,
+);
+
+String _workflowDefinitionsDir() {
+  var current = Directory.current;
+  while (true) {
+    final candidates = [
+      p.join(current.path, 'lib', 'src', 'workflow', 'definitions'),
+      p.join(current.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions'),
+    ];
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate workflow definitions dir');
+    }
+    current = parent;
+  }
+}
 
 /// A minimal valid workflow YAML for testing custom loading.
 String _validCustomYaml(String name) =>
@@ -68,70 +94,70 @@ void main() {
   });
 
   // ------------------------------------------------------------------
-  // Built-in loading
+  // Materialized loading
   // ------------------------------------------------------------------
-  group('loadBuiltIn()', () {
-    test('populates registry with 4 built-in workflows', () {
+  group('materialized loading', () {
+    test('populates registry with 3 materialized workflows', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.length, equals(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.length, equals(3));
     });
 
-    test('listBuiltIn() returns only built-in definitions', () {
+    test('listMaterialized() returns only materialized definitions', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.listBuiltIn(), hasLength(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.listMaterialized(), hasLength(3));
     });
 
-    test('listCustom() is empty after loadBuiltIn() only', () {
+    test('listCustom() is empty after materialized loading only', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.listCustom(), isEmpty);
     });
 
-    test('getByName("spec-and-implement") returns the definition', () {
+    test('getByName("spec-and-implement") returns the definition', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final def = registry.getByName('spec-and-implement');
       expect(def, isNotNull);
       expect(def!.name, equals('spec-and-implement'));
     });
 
-    test('getByName("nonexistent") returns null', () {
+    test('getByName("nonexistent") returns null', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       expect(registry.getByName('nonexistent'), isNull);
     });
 
-    test('sourceOf("spec-and-implement") returns WorkflowSource.builtIn', () {
+    test('sourceOf("spec-and-implement") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
     });
 
-    test('listAll() returns all built-in definitions', () {
+    test('listAll() returns all materialized definitions', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
-      expect(registry.listAll(), hasLength(4));
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
+      expect(registry.listAll(), hasLength(3));
     });
 
-    test('listSummaries() returns summary records without full step payloads', () {
+    test('listSummaries() returns summary records without full step payloads', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
 
       final summaries = registry.listSummaries();
-      expect(summaries, hasLength(4));
+      expect(summaries, hasLength(3));
       final summary = summaries.firstWhere((entry) => entry.name == 'code-review');
       expect(summary.description, isNotEmpty);
       expect(summary.stepCount, greaterThan(0));
       expect(summary.variables.containsKey('TARGET'), isTrue);
     });
 
-    test('loads all expected built-in workflow names', () {
+    test('loads all expected materialized workflow names', () async {
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final names = registry.listAll().map((d) => d.name).toSet();
-      expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review', 'research-and-evaluate']));
+      expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review']));
     });
   });
 
@@ -241,17 +267,30 @@ void main() {
   // Name collision
   // ------------------------------------------------------------------
   group('name collision', () {
-    test('custom with built-in name: built-in kept, custom skipped', () async {
+    test('custom with materialized name: materialized kept, custom skipped', () async {
       File(p.join(tempDir.path, 'spec-and-implement.yaml')).writeAsStringSync(_validCustomYaml('spec-and-implement'));
 
-      final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      final previousHierarchicalLoggingEnabled = hierarchicalLoggingEnabled;
+      hierarchicalLoggingEnabled = true;
+      addTearDown(() => hierarchicalLoggingEnabled = previousHierarchicalLoggingEnabled);
+
+      final logger = Logger('workflow-registry-test-conflict')..level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      final registry = _makeRegistry(log: logger);
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      // Still built-in
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.builtIn));
-      // Total count unchanged — custom did not add a new entry
-      expect(registry.length, equals(4));
+      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.length, equals(3));
+      expect(
+        records.any(
+          (record) => record.level == Level.WARNING && record.message.toLowerCase().contains('materialized workflow'),
+        ),
+        isTrue,
+      );
     });
 
     test('two custom workflows with same name: last loaded wins', () async {
@@ -269,37 +308,37 @@ void main() {
       expect(registry.length, equals(1));
     });
 
-    test('custom with unique name alongside built-ins: both available', () async {
+    test('custom with unique name alongside materialized workflows: both available', () async {
       File(p.join(tempDir.path, 'unique-wf.yaml')).writeAsStringSync(_validCustomYaml('unique-wf'));
 
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.getByName('unique-wf'), isNotNull);
       expect(registry.getByName('spec-and-implement'), isNotNull);
-      expect(registry.length, equals(5));
+      expect(registry.length, equals(4));
     });
   });
 
   // ------------------------------------------------------------------
-  // Integration: built-in + custom combined
+  // Integration: materialized + custom combined
   // ------------------------------------------------------------------
-  group('integration: built-in + custom', () {
-    test('listAll() includes both built-in and custom definitions', () async {
+  group('integration: materialized + custom', () {
+    test('listAll() includes both materialized and custom definitions', () async {
       File(p.join(tempDir.path, 'custom-a.yaml')).writeAsStringSync(_validCustomYaml('custom-a'));
       File(p.join(tempDir.path, 'custom-b.yaml')).writeAsStringSync(_validCustomYaml('custom-b'));
       File(p.join(tempDir.path, 'broken.yaml')).writeAsStringSync(_invalidYaml);
 
       final registry = _makeRegistry();
-      registry.loadBuiltIn();
+      await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      // 4 built-in + 2 valid custom (broken excluded)
-      expect(registry.length, equals(6));
-      expect(registry.listBuiltIn(), hasLength(4));
+      // 3 materialized + 2 valid custom (broken excluded)
+      expect(registry.length, equals(5));
+      expect(registry.listMaterialized(), hasLength(3));
       expect(registry.listCustom(), hasLength(2));
-      expect(registry.listAll(), hasLength(6));
+      expect(registry.listAll(), hasLength(5));
     });
   });
 

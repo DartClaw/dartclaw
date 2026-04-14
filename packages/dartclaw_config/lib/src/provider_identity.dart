@@ -1,12 +1,11 @@
 /// Shared provider-family normalization rules.
 ///
-/// Provider IDs encode both vendor identity (`codex` needs OpenAI credentials)
-/// and harness mode identity (`codex-exec` vs `codex`). This helper keeps
-/// family-level decisions consistent without introducing a heavier abstraction.
+/// Provider IDs encode vendor identity (`codex` needs OpenAI credentials).
+/// This helper keeps family-level decisions consistent without introducing
+/// a heavier abstraction.
 class ProviderIdentity {
   static const String claude = 'claude';
   static const String codex = 'codex';
-  static const String codexExec = 'codex-exec';
 
   /// Returns the normalized provider ID, falling back to [fallback].
   static String normalize(String? providerId, {String fallback = claude}) {
@@ -20,10 +19,7 @@ class ProviderIdentity {
 
   /// Returns the credential/vendor family used by [providerId].
   static String family(String? providerId, {String fallback = claude}) {
-    return switch (normalize(providerId, fallback: fallback)) {
-      codexExec => codex,
-      final normalized => normalized,
-    };
+    return normalize(providerId, fallback: fallback);
   }
 
   /// Returns a human-readable label for [providerId].

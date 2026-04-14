@@ -3,7 +3,6 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
 import 'agent_harness.dart';
 import 'claude_code_harness.dart';
-import 'codex_exec_harness.dart';
 import 'codex_harness.dart';
 import '../container/container_executor.dart';
 import 'harness_config.dart';
@@ -81,7 +80,6 @@ class HarnessFactory {
   HarnessFactory() {
     register('claude', _createClaudeHarness);
     register('codex', _createCodexHarness);
-    register('codex-exec', _createCodexExecHarness);
   }
 
   /// Registers a provider-specific harness factory.
@@ -105,6 +103,22 @@ class HarnessFactory {
 
   /// Returns the registered provider identifiers.
   Iterable<String> get registeredProviders => _factories.keys;
+
+  /// Returns which registered providers support session continuity.
+  ///
+  /// Creates lightweight, unstarted harness instances to probe their capability
+  /// flags — no process is spawned. Useful for offline validation (e.g.,
+  /// `workflow validate`) where a live [HarnessPool] is not available.
+  Set<String> probeContinuityProviders() {
+    final result = <String>{};
+    for (final entry in _factories.entries) {
+      final harness = entry.value(const HarnessFactoryConfig(cwd: '/'));
+      if (harness.supportsSessionContinuity) {
+        result.add(entry.key);
+      }
+    }
+    return result;
+  }
 }
 
 AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
@@ -137,14 +151,3 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
   );
 }
 
-AgentHarness _createCodexExecHarness(HarnessFactoryConfig config) {
-  final sandboxMode = config.providerOptions['sandbox'];
-  return CodexExecHarness(
-    cwd: config.cwd,
-    codexExecutable: config.executable == 'claude' ? 'codex' : config.executable,
-    sandboxMode: sandboxMode is String && sandboxMode.trim().isNotEmpty ? sandboxMode : 'danger-full-access',
-    turnTimeout: config.turnTimeout,
-    harnessConfig: config.harnessConfig,
-    environment: config.environment,
-  );
-}

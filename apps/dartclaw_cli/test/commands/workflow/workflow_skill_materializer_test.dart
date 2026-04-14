@@ -2,19 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow_skill_materializer.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show embeddedSkills;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-
-Map<String, Map<String, String>> _snapshotEmbeddedSkills() => {
-  for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-};
-
-void _restoreEmbeddedSkills(Map<String, Map<String, String>> snapshot) {
-  embeddedSkills
-    ..clear()
-    ..addAll({for (final entry in snapshot.entries) entry.key: Map<String, String>.from(entry.value)});
-}
 
 Map<String, dynamic> _readManagedMarker(String skillDir) {
   final marker = File(p.join(skillDir, '.dartclaw-managed'));
@@ -22,6 +11,22 @@ Map<String, dynamic> _readManagedMarker(String skillDir) {
 }
 
 String _readManagedFingerprint(String skillDir) => _readManagedMarker(skillDir)['fingerprint'] as String;
+
+void _writeFilesystemSkillSource(Directory root, String name, {String description = 'Filesystem skill'}) {
+  final skillDir = Directory(p.join(root.path, name))..createSync(recursive: true);
+  File(
+    p.join(skillDir.path, 'SKILL.md'),
+  ).writeAsStringSync('---\nname: $name\ndescription: $description\n---\n\n# $name\n');
+  File(p.join(skillDir.path, 'agents', 'claude.yaml')).createSync(recursive: true);
+  File(p.join(skillDir.path, 'agents', 'claude.yaml')).writeAsStringSync('provider: claude\n');
+  File(p.join(skillDir.path, 'notes', 'spec.txt')).createSync(recursive: true);
+  File(p.join(skillDir.path, 'notes', 'spec.txt')).writeAsStringSync('filesystem notes\n');
+}
+
+void _writeSupportDir(Directory root, String name) {
+  final dir = Directory(p.join(root.path, name))..createSync(recursive: true);
+  File(p.join(dir.path, 'verification-patterns.md')).writeAsStringSync('# Verification patterns\n');
+}
 
 void main() {
   late Directory tempDir;
@@ -44,19 +49,10 @@ void main() {
     expect(resolved, '/tmp/dartclaw-data/.harness-home');
   });
 
-  test('materializes embedded skills and preserves user overrides', () async {
-    final snapshot = _snapshotEmbeddedSkills();
-    addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-    embeddedSkills
-      ..clear()
-      ..addAll({
-        'dartclaw-review-code': {
-          'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review',
-          'agents/claude.yaml': 'provider: claude\n',
-          'notes/spec.txt': 'embedded notes\n',
-        },
-      });
+  test('materializes filesystem skills and preserves user overrides', () async {
+    final sourceRoot = Directory(p.join(tempDir.path, 'source'))..createSync(recursive: true);
+    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review-code');
+    _writeSupportDir(sourceRoot, 'references');
 
     final homeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final preservedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review-code'))
@@ -66,30 +62,27 @@ void main() {
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: {'claude', 'codex'},
       homeDir: homeDir.path,
-      resolveSourceDir: () => null,
+      sourceDir: sourceRoot.path,
     );
 
     expect(File(p.join(preservedDir.path, 'SKILL.md')).readAsStringSync(), 'user override\n');
 
-    final managedDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'dartclaw-review-code'));
-    expect(File(p.join(managedDir.path, 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(managedDir.path, 'agents', 'claude.yaml')).existsSync(), isTrue);
-    expect(File(p.join(managedDir.path, '.dartclaw-managed')).existsSync(), isTrue);
-    expect(_readManagedFingerprint(managedDir.path), isNotEmpty);
-    expect(_readManagedMarker(managedDir.path)['source'], 'embedded');
+    final managedClaudeDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'references'));
+    final managedCodexDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'references'));
+    final managedCodexSkillDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'dartclaw-review-code'));
+
+    expect(File(p.join(managedClaudeDir.path, 'verification-patterns.md')).existsSync(), isTrue);
+    expect(File(p.join(managedCodexDir.path, 'verification-patterns.md')).existsSync(), isTrue);
+    expect(File(p.join(managedCodexSkillDir.path, 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(managedCodexSkillDir.path, 'agents', 'claude.yaml')).existsSync(), isTrue);
+    expect(File(p.join(managedCodexSkillDir.path, 'notes', 'spec.txt')).existsSync(), isTrue);
+    expect(File(p.join(managedCodexSkillDir.path, '.dartclaw-managed')).existsSync(), isTrue);
+    expect(_readManagedFingerprint(managedCodexSkillDir.path), isNotEmpty);
   });
 
   test('preserves managed copies owned by a different install', () async {
-    final snapshot = _snapshotEmbeddedSkills();
-    addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-    embeddedSkills
-      ..clear()
-      ..addAll({
-        'dartclaw-review-code': {
-          'SKILL.md': '---\nname: dartclaw-review-code\ndescription: New embedded review skill\n---\n\n# review',
-        },
-      });
+    final sourceRoot = Directory(p.join(tempDir.path, 'source'))..createSync(recursive: true);
+    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review-code', description: 'New filesystem review skill');
 
     final homeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final managedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review-code'))
@@ -97,85 +90,28 @@ void main() {
     File(p.join(managedDir.path, 'SKILL.md')).writeAsStringSync('existing managed copy\n');
     File(
       p.join(managedDir.path, '.dartclaw-managed'),
-    ).writeAsStringSync('{"source":"embedded","owner":"different-install","fingerprint":"old-fingerprint"}');
+    ).writeAsStringSync('{"source":"filesystem","owner":"different-install","fingerprint":"old-fingerprint"}');
 
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: {'claude'},
       homeDir: homeDir.path,
-      resolveSourceDir: () => null,
+      sourceDir: sourceRoot.path,
     );
 
     expect(File(p.join(managedDir.path, 'SKILL.md')).readAsStringSync(), 'existing managed copy\n');
     expect(_readManagedMarker(managedDir.path)['owner'], 'different-install');
   });
 
-  test('embedded and filesystem fingerprints match for equivalent content', () async {
-    final snapshot = _snapshotEmbeddedSkills();
-    addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-    embeddedSkills
-      ..clear()
-      ..addAll({
-        'dartclaw-review-code': {
-          'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review',
-          'agents/openai.yaml': 'provider: openai\n',
-          'notes/spec.txt': 'line one\nline two\n',
-        },
-      });
-
-    final embeddedHome = Directory(p.join(tempDir.path, 'embedded-home'))..createSync(recursive: true);
-    final filesystemHome = Directory(p.join(tempDir.path, 'filesystem-home'))..createSync(recursive: true);
-    final filesystemSource = Directory(p.join(tempDir.path, 'filesystem-source', 'dartclaw-review-code'))
-      ..createSync(recursive: true);
-    File(
-      p.join(filesystemSource.path, 'SKILL.md'),
-    ).writeAsStringSync('---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review');
-    File(p.join(filesystemSource.path, 'agents', 'openai.yaml')).createSync(recursive: true);
-    File(p.join(filesystemSource.path, 'agents', 'openai.yaml')).writeAsStringSync('provider: openai\n');
-    File(p.join(filesystemSource.path, 'notes', 'spec.txt')).createSync(recursive: true);
-    File(p.join(filesystemSource.path, 'notes', 'spec.txt')).writeAsStringSync('line one\nline two\n');
-
-    await WorkflowSkillMaterializer.materialize(
-      activeHarnessTypes: {'claude'},
-      homeDir: embeddedHome.path,
-      resolveSourceDir: () => null,
-    );
-    await WorkflowSkillMaterializer.materialize(
-      activeHarnessTypes: {'claude'},
-      homeDir: filesystemHome.path,
-      sourceDir: filesystemSource.parent.path,
-    );
-
-    final embeddedFingerprint = _readManagedFingerprint(
-      p.join(embeddedHome.path, '.claude', 'skills', 'dartclaw-review-code'),
-    );
-    final filesystemFingerprint = _readManagedFingerprint(
-      p.join(filesystemHome.path, '.claude', 'skills', 'dartclaw-review-code'),
-    );
-
-    expect(embeddedFingerprint, filesystemFingerprint);
-  });
-
-  test('records install owner in managed markers', () async {
-    final snapshot = _snapshotEmbeddedSkills();
-    addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-    embeddedSkills
-      ..clear()
-      ..addAll({
-        'dartclaw-review-code': {
-          'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review',
-        },
-      });
-
+  test('returns without materializing when no source directory can be resolved', () async {
     final homeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: {'claude'},
       homeDir: homeDir.path,
       resolveSourceDir: () => null,
     );
 
-    final marker = _readManagedMarker(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review-code'));
-    expect(marker['owner'], isNotEmpty);
+    expect(Directory(p.join(homeDir.path, '.claude', 'skills')).existsSync(), isFalse);
+    expect(Directory(p.join(homeDir.path, '.agents', 'skills')).existsSync(), isFalse);
   });
 }

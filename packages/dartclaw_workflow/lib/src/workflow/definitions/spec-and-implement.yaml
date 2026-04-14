@@ -1,8 +1,8 @@
 name: spec-and-implement
 description: >-
-  Full feature pipeline — discover the project, research the change, write a
-  specification, approve the spec, implement it with exec-spec, validate,
-  fan out reviews, analyze gaps, remediate findings, and update state.
+  Full feature pipeline — discover the project, write a specification,
+  approve it, implement it with exec-spec, validate it, fan out reviews,
+  analyze gaps, iterate remediation, and update state.
 variables:
   FEATURE:
     required: true
@@ -33,14 +33,8 @@ steps:
     type: research
     skill: dartclaw-discover-project
     prompt: |
-      Discover the project structure for this feature pipeline.
-
       Feature: {{FEATURE}}
       Base branch: {{BASE_BRANCH}}
-
-      Identify the SDD framework, document locations, project root, and state
-      update protocol. Return a normalized project index that downstream steps
-      can use without hardcoded paths. Output the project index JSON directly.
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -58,59 +52,19 @@ steps:
             state_protocol:
               type: object
 
-  - id: research
-    name: Research & Design
-    type: research
-    contextInputs: [project_index]
-    prompt: |
-      Research how to implement: {{FEATURE}}
-
-      Project index:
-      {{context.project_index}}
-
-      Explore the codebase, identify affected files, dependencies,
-      and potential approaches. Document your findings with:
-      - Affected files and modules
-      - Dependencies and constraints
-      - Recommended approach with rationale
-      - Alternative approaches considered
-      - Potential risks, edge cases, and migration notes
-
-      Stay at the architecture and deliverable level — identify WHAT needs to
-      change and WHERE, but do not prescribe exact implementation details
-      (function signatures, variable names, specific algorithms). Let the
-      implementing agent figure out the path.
-
-      End with `## Context Output` and a JSON object with:
-      - affected_files
-      - design_notes
-    contextOutputs: [affected_files, design_notes]
-
   - id: spec
     name: Generate Specification
     type: writing
     skill: dartclaw-spec
-    contextInputs: [project_index, affected_files, design_notes]
+    contextInputs: [project_index]
     prompt: |
-      Use the `dartclaw-spec` skill to write a feature specification for:
-      {{FEATURE}}
+      Feature: {{FEATURE}}
+      Base branch: {{BASE_BRANCH}}
 
       Project index:
       {{context.project_index}}
 
-      Research notes:
-      {{context.design_notes}}
-
-      Affected files: {{context.affected_files}}
-
-      Write a detailed implementation specification with:
-      - Approach and architecture decisions
-      - File-by-file change plan
-      - Test plan with specific test cases
-      - Edge cases and error handling
-      - A numbered acceptance criteria section with binary-testable checks
-      - Clear scope boundaries and explicit non-goals
-      End with `## Context Output` and a JSON object with:
+      For workflow handoff, end with `## Context Output` and a JSON object with:
       - spec_document
       - acceptance_criteria
     contextOutputs: [spec_document, acceptance_criteria]
@@ -132,8 +86,6 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      Use the `dartclaw-exec-spec` skill to implement the approved specification.
-
       Project index:
       {{context.project_index}}
 
@@ -143,9 +95,8 @@ steps:
       Acceptance criteria:
       {{context.acceptance_criteria}}
 
-      Follow the specification precisely. Break the work into execution groups,
-      scaffold failing tests from the scenarios first, verify between groups,
-      and keep each fix scoped. If tests fail, fix the issues before completing.
+      For workflow handoff, end with `## Context Output` and a JSON object with:
+      - diff_summary
     contextInputs: [project_index, spec_document, acceptance_criteria]
     contextOutputs: [diff_summary]
     outputs:
@@ -158,12 +109,12 @@ steps:
     skill: dartclaw-review-code
     parallel: true
     prompt: |
-      Use the `dartclaw-review-code` skill to review correctness and spec compliance.
+      Focus: correctness, edge cases, and acceptance-criteria coverage.
 
       Project index:
       {{context.project_index}}
 
-      Spec:
+      Specification:
       {{context.spec_document}}
 
       Acceptance criteria:
@@ -171,10 +122,6 @@ steps:
 
       Implementation diff:
       {{context.diff_summary}}
-
-      Be an independent evaluator. Focus on logic errors, missing cases, and
-      any acceptance criterion that is not fully satisfied. Output the verdict
-      JSON directly with findings and a clear PASS/FAIL decision.
     contextInputs: [project_index, spec_document, acceptance_criteria, diff_summary]
     contextOutputs: [review_findings]
     outputs:
@@ -188,17 +135,13 @@ steps:
     skill: dartclaw-review-code
     parallel: true
     prompt: |
-      Use the `dartclaw-review-code` skill to review security and data safety.
+      Focus: security, unsafe defaults, data handling, and input validation.
 
       Project index:
       {{context.project_index}}
 
       Implementation diff:
       {{context.diff_summary}}
-
-      Focus on injection vectors, credential exposure, unsafe defaults,
-      input validation gaps, and OWASP Top 10 risks. Output the verdict JSON
-      directly with findings and a clear PASS/FAIL decision.
     contextInputs: [project_index, diff_summary]
     contextOutputs: [security_findings]
     outputs:
@@ -236,26 +179,22 @@ steps:
     type: analysis
     skill: dartclaw-review-gap
     prompt: |
-      Use the `dartclaw-review-gap` skill to compare the implementation against
-      the approved specification.
-
       Project index:
       {{context.project_index}}
 
-      Spec: {{context.spec_document}}
-      Acceptance criteria: {{context.acceptance_criteria}}
-      Review synthesis: {{context.review_summary}}
-      Diff: {{context.diff_summary}}
+      Requirements baseline:
+      {{context.spec_document}}
 
-      Identify:
-      - Missing features from the specification
-      - Untested edge cases
-      - Deviations from the specification and acceptance criteria
-      - Unaddressed review findings
-      - Any gaps in error handling or validation
+      Acceptance criteria:
+      {{context.acceptance_criteria}}
 
-      Classify each gap by severity and explain how to verify the fix.
-      End with `## Context Output` and a JSON object with:
+      Review synthesis:
+      {{context.review_summary}}
+
+      Diff summary:
+      {{context.diff_summary}}
+
+      For workflow handoff, end with `## Context Output` and a JSON object with:
       - gap_report
       - needs_remediation
     contextInputs: [project_index, spec_document, acceptance_criteria, review_summary, diff_summary]
@@ -268,9 +207,6 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      Use the `dartclaw-remediate-findings` skill to apply the minimal fixes for
-      the gaps found.
-
       Project index:
       {{context.project_index}}
 
@@ -283,15 +219,40 @@ steps:
       Review synthesis:
       {{context.review_summary}}
 
-      If the gap report is empty or needs_remediation is false, confirm that no
-      code changes are necessary and explain why the implementation is already
-      acceptable. Otherwise, address only the identified gaps. Re-validate after
-      each fix and keep the change set minimal.
-      End with `## Context Output` and a JSON object with:
+      If no remediation is needed, say so plainly.
+      For workflow handoff, end with `## Context Output` and a JSON object with:
       - remediation_summary
       - diff_summary
     contextInputs: [project_index, gap_report, spec_document, review_summary]
     contextOutputs: [remediation_summary, diff_summary]
+
+  - id: re-review
+    name: Re-review Gaps
+    type: analysis
+    skill: dartclaw-review-gap
+    prompt: |
+      Project index:
+      {{context.project_index}}
+
+      Requirements baseline:
+      {{context.spec_document}}
+
+      Acceptance criteria:
+      {{context.acceptance_criteria}}
+
+      Original gap report:
+      {{context.gap_report}}
+
+      Remediation summary:
+      {{context.remediation_summary}}
+
+      Updated diff summary:
+      {{context.diff_summary}}
+
+      For workflow handoff, end with `## Context Output` and a JSON object with:
+      - findings_count
+    contextInputs: [project_index, spec_document, acceptance_criteria, gap_report, remediation_summary, diff_summary]
+    contextOutputs: [findings_count]
 
   - id: update-state
     name: Update State
@@ -299,8 +260,6 @@ steps:
     skill: dartclaw-update-state
     project: "{{PROJECT}}"
     prompt: |
-      Use the `dartclaw-update-state` skill to record the finished feature.
-
       Project index:
       {{context.project_index}}
 
@@ -313,10 +272,13 @@ steps:
       Remediation summary:
       {{context.remediation_summary}}
 
-      Update the detected framework's state format appropriately and record
-      completion, blockers, and learnings. If the framework uses structural
-      moves instead of STATE.md, perform those moves and document the result.
       End with `## Context Output` and a JSON object with:
       - state_update_summary
     contextInputs: [project_index, spec_document, diff_summary, remediation_summary]
     contextOutputs: [state_update_summary]
+
+loops:
+  - id: remediation-loop
+    steps: [remediate, re-review]
+    maxIterations: 3
+    exitGate: "re-review.findings_count == 0"

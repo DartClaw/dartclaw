@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_server/dartclaw_server.dart' show skillRoutes;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl, SkillSource, embeddedSkills;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl, SkillSource;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -23,21 +23,14 @@ void main() {
   late Directory tmpDir;
   late Directory workspaceDir;
   late Directory dataDir;
-  late Map<String, Map<String, String>> previousEmbeddedSkills;
 
   setUp(() {
     tmpDir = Directory.systemTemp.createTempSync('skill_routes_test_');
     workspaceDir = Directory('${tmpDir.path}/workspace')..createSync();
     dataDir = Directory('${tmpDir.path}/data')..createSync();
-    previousEmbeddedSkills = {
-      for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-    };
   });
 
   tearDown(() {
-    embeddedSkills
-      ..clear()
-      ..addAll({for (final entry in previousEmbeddedSkills.entries) entry.key: Map<String, String>.from(entry.value)});
     tmpDir.deleteSync(recursive: true);
   });
 
@@ -111,15 +104,21 @@ void main() {
       expect(body['count'], 3);
     });
 
-    test('returns embedded built-in skills when embedded registry data is present', () async {
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          for (final name in dartclawSkillNames)
-            name: {'SKILL.md': '---\nname: $name\ndescription: $name description\n---\n'},
-        });
+    test('returns filesystem built-in skills when a built-in directory is present', () async {
+      final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync(recursive: true);
+      for (final name in dartclawSkillNames) {
+        final skillDir = Directory('${builtInDir.path}/$name')..createSync(recursive: true);
+        File('${skillDir.path}/SKILL.md').writeAsStringSync('---\nname: $name\ndescription: $name description\n---\n');
+      }
 
       final registry = makeRegistry();
+      registry.discover(
+        workspaceDir: workspaceDir.path,
+        dataDir: dataDir.path,
+        userClaudeSkillsDir: '/nonexistent',
+        userAgentsSkillsDir: '/nonexistent',
+        builtInSkillsDir: builtInDir.path,
+      );
       final router = skillRoutes(registry);
 
       final response = await router.call(Request('GET', Uri.parse('http://localhost/api/skills')));

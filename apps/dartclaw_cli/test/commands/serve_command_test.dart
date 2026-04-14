@@ -3,17 +3,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_cli/src/asset_downloader.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
+import 'package:shelf/shelf.dart' show Handler, Request;
 import 'package:test/test.dart';
 
 String _templatesDir() {
@@ -22,6 +25,24 @@ String _templatesDir() {
   final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
   if (Directory(fromApp).existsSync()) return fromApp;
   return fromWorkspace;
+}
+
+String _staticDir() {
+  const fromWorkspace = 'packages/dartclaw_server/lib/src/static';
+  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
+  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'static');
+  if (Directory(fromApp).existsSync()) return fromApp;
+  return fromWorkspace;
+}
+
+AssetResolver _assetResolverFor(Directory tempDir) {
+  final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
+  final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
+  Link(p.join(assetRoot.path, 'templates')).createSync(p.absolute(_templatesDir()));
+  Link(p.join(assetRoot.path, 'static')).createSync(p.absolute(_staticDir()));
+  Directory(p.join(assetRoot.path, 'skills')).createSync(recursive: true);
+  Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
+  return AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw'));
 }
 
 class _ExitIntercept implements Exception {
@@ -45,6 +66,18 @@ class _FakeWorkerService extends FakeAgentHarness {
     String? effort,
     int? maxTurns,
   }) async => {'ok': true};
+}
+
+class _FailingAssetDownloader extends AssetDownloader {
+  bool called = false;
+
+  _FailingAssetDownloader() : super(homeDir: '/tmp', releaseBaseUri: Uri.parse('http://127.0.0.1/'));
+
+  @override
+  Future<String> download() async {
+    called = true;
+    throw StateError('download should not be called in offline mode');
+  }
 }
 
 const _missingBinary = 'dartclaw-definitely-missing-binary-12345';
@@ -100,6 +133,7 @@ void main() {
       expect(options.containsKey('static-dir'), isTrue);
       expect(options.containsKey('templates-dir'), isTrue);
       expect(options.containsKey('worker-timeout'), isTrue);
+      expect(options.containsKey('offline'), isTrue);
     });
 
     group('port validation', () {
@@ -160,6 +194,7 @@ void main() {
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -218,6 +253,7 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -255,12 +291,156 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
       expect(worker.started, isFalse);
       expect(worker.stopped, isFalse);
+    });
+
+    test('offline mode with missing assets exits before download with the actionable message', () async {
+      final stderrLines = <String>[];
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_offline_test_');
+      final downloader = _FailingAssetDownloader();
+      final configPath = p.join(tempDir.path, 'dartclaw.yaml');
+      File(configPath).writeAsStringSync('# test config\n');
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: p.join(tempDir.path, 'missing-static'),
+          templatesDir: p.join(tempDir.path, 'missing-templates'),
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      final command = ServeCommand(
+        config: config,
+        stderrLine: stderrLines.add,
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: AssetResolver(
+          resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
+          homeDir: p.join(tempDir.path, 'home'),
+        ),
+        assetDownloader: downloader,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(
+        localRunner.run(['serve', '--offline', '--config', configPath]),
+        throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(
+        stderrLines.single,
+        'Assets for ${downloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
+      );
+      expect(downloader.called, isFalse);
+    });
+
+    test('offline mode uses source-tree filesystem assets before download', () async {
+      final stderrLines = <String>[];
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_source_tree_test_');
+      final downloader = _FailingAssetDownloader();
+      final realTemplatesDir = p.absolute(_templatesDir());
+      final realStaticDir = p.absolute(_staticDir());
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: realStaticDir,
+          templatesDir: realTemplatesDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serverFactory: (builder) => builder.build(),
+        serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
+        stderrLine: stderrLines.add,
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: AssetResolver(
+          resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'),
+          homeDir: p.join(tempDir.path, 'home'),
+        ),
+        assetDownloader: downloader,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(
+        localRunner.run(['serve', '--offline']),
+        throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(stderrLines.join('\n'), isNot(contains('Assets for ${downloader.version} not found.')));
+      expect(downloader.called, isFalse);
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
+    });
+
+    test('uses a discovered asset root for filesystem templates and static assets', () async {
+      final worker = _FakeWorkerService();
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_asset_root_test_');
+      final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
+      final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
+      final realTemplatesDir = p.absolute(_templatesDir());
+      final realStaticDir = p.absolute(_staticDir());
+
+      Link(p.join(assetRoot.path, 'templates')).createSync(realTemplatesDir);
+      Link(p.join(assetRoot.path, 'static')).createSync(realStaticDir);
+      Directory(p.join(assetRoot.path, 'skills')).createSync(recursive: true);
+      Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
+
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final config = DartclawConfig(
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          staticDir: p.join(tempDir.path, 'missing-static'),
+          templatesDir: p.join(tempDir.path, 'missing-templates'),
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      late Handler capturedHandler;
+      final command = ServeCommand(
+        config: config,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        harnessFactory: _harnessFactoryFor(worker),
+        serverFactory: (builder) => builder.build(),
+        serveFn: (handler, address, port) async {
+          capturedHandler = handler;
+          throw SocketException('Address already in use');
+        },
+        stderrLine: (_) {},
+        exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
+
+      final response = await capturedHandler(Request('GET', Uri.parse('http://localhost/static/app.js')));
+      expect(response.statusCode, 200);
+      expect(response.headers['cache-control'], 'public, max-age=86400');
     });
 
     test('secondary-provider validation warnings do not block startup', () async {
@@ -304,6 +484,7 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -354,6 +535,7 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -399,6 +581,7 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -434,6 +617,7 @@ channels:
         searchDbFactory: (_) => throw FileSystemException('open failed'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -465,6 +649,7 @@ channels:
         taskDbFactory: (_) => throw FileSystemException('open failed'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
@@ -510,6 +695,7 @@ channels:
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
+        assetResolver: _assetResolverFor(tempDir),
       );
       final localRunner = DartclawRunner()..addCommand(command);
 

@@ -5,7 +5,6 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import '../embedded_skills.dart';
 import 'skill_registry.dart';
 
 /// Filesystem-backed implementation of [SkillRegistry].
@@ -86,10 +85,6 @@ class SkillRegistryImpl implements SkillRegistry {
 
     for (final (dirPath, source, harnesses) in sources) {
       _scanDirectory(dirPath, source, harnesses);
-    }
-
-    if (builtInSkillsDir == null && embeddedSkills.isNotEmpty) {
-      _scanEmbeddedSkills();
     }
 
     stopwatch.stop();
@@ -185,47 +180,6 @@ class SkillRegistryImpl implements SkillRegistry {
         _skills[info.name] = info;
       }
     }
-  }
-
-  void _scanEmbeddedSkills() {
-    final entries = embeddedSkills.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    for (final entry in entries) {
-      final skillMd = entry.value['SKILL.md'];
-      if (skillMd == null) {
-        _log.fine('No embedded SKILL.md for ${entry.key}, skipping');
-        continue;
-      }
-
-      final info = _parseFrontmatterContent(
-        skillMd,
-        'embedded',
-        entry.key,
-        SkillSource.dartclaw,
-        _embeddedNativeHarnesses(entry.value),
-      );
-      if (info == null) continue;
-
-      final existing = _skills[info.name];
-      if (existing != null) {
-        _skills[info.name] = existing.mergeHarnesses(info.nativeHarnesses);
-        _log.fine(
-          'Skill "${info.name}" already discovered from '
-          '${existing.source.displayName}, merging harnesses from embedded built-ins',
-        );
-      } else {
-        _skills[info.name] = info;
-      }
-    }
-  }
-
-  Set<String> _embeddedNativeHarnesses(Map<String, String> files) {
-    // Embedded built-ins are shipped with agent manifests under `agents/`.
-    // In the standalone build they are materialized for the first-class
-    // Claude and Codex harness roots, so discovery should preserve both IDs.
-    if (files.keys.any((path) => path.startsWith('agents/'))) {
-      return <String>{'claude', 'codex'};
-    }
-    return const <String>{};
   }
 
   bool _skipsManagedCopies(SkillSource source) => switch (source) {

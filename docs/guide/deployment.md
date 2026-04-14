@@ -56,10 +56,10 @@ Use the repo build entrypoint to produce the production binary:
 bash tool/build.sh
 ```
 
-`tool/build.sh` runs asset embedding first, then compiles `apps/dartclaw_cli/bin/dartclaw.dart` to
-`build/dartclaw`, and restores the committed stub files afterward. The resulting binary embeds the web UI
-templates, static assets, and built-in skills, so it can run without `--source-dir`, `--templates-dir`, or
-`--static-dir`.
+`tool/build.sh` compiles `apps/dartclaw_cli/bin/dartclaw.dart` to `build/dartclaw` and also produces the
+release artifacts that carry the asset tree separately from the binary: `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz`,
+`build/dartclaw-assets-v{VERSION}.tar.gz`, and `build/SHA256SUMS.txt`. The binary does not embed templates,
+static assets, skills, or workflows; packaged installs discover those files from the filesystem instead.
 
 ```bash
 build/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw
@@ -68,36 +68,37 @@ build/dartclaw serve --config /path/to/dartclaw.yaml --data-dir /tmp/dartclaw
 ### Running Outside the Source Tree
 
 The notes below apply only to clone-based or development runs where DartClaw is intentionally reading files from
-the workspace. `dart run ...` and `dartclaw serve --dev` continue to use the filesystem so template hot-reload
-keeps working.
+the workspace. `dart run ...` and `dartclaw serve --dev` continue to use the source tree so template hot-reload
+and local workflow editing keep working.
 
-| Asset | Default path (relative to cwd) | CLI flag |
-|-------|-------------------------------|----------|
-| Templates | `packages/dartclaw_server/lib/src/templates` | `--source-dir` or `--templates-dir` |
-| Static assets | `packages/dartclaw_server/lib/src/static` | `--source-dir` or `--static-dir` |
+| Asset | Source-checkout path | Packaged install path |
+|-------|----------------------|---------------------|
+| Templates | `packages/dartclaw_server/lib/src/templates` | `../share/dartclaw/templates` |
+| Static assets | `packages/dartclaw_server/lib/src/static` | `../share/dartclaw/static` |
+| Skills | `packages/dartclaw_workflow/skills` | `../share/dartclaw/skills` |
+| Workflows | `packages/dartclaw_workflow/lib/src/workflow/definitions` | `../share/dartclaw/workflows` |
 
-If you run from a checkout without a standalone build, template loading fails at startup with `Template validation failed: Missing templates: ...`.
+If you run from a checkout without a packaged asset tree, template and workflow loading use the source-tree files
+above. If you run a bare binary without local assets, `dartclaw serve` downloads the matching asset archive into
+`~/.dartclaw/assets/v{VERSION}/` unless `--offline` is set.
 
 **Workarounds**:
 
 ```bash
-# Option 1: Run from the source root (simplest)
+# Option 1: Run from the source root (simplest for dev)
 cd /path/to/dartclaw-public
 build/dartclaw serve --config /path/to/your/dartclaw.yaml
 
-# Option 2: Symlink the template directory into your working directory
+# Option 2: Override the source-tree directories explicitly
 mkdir -p packages/dartclaw_server/lib/src
 ln -s /path/to/dartclaw-public/packages/dartclaw_server/lib/src/templates \
       packages/dartclaw_server/lib/src/templates
-
-# Option 3: Copy templates alongside the binary
-cp -r /path/to/dartclaw-public/packages/dartclaw_server/lib/src/templates \
-      packages/dartclaw_server/lib/src/templates
-cp -r /path/to/dartclaw-public/packages/dartclaw_server/lib/src/static \
-      packages/dartclaw_server/lib/src/static
 ```
 
-When you install a service from the repository root for a clone-based deployment, `dartclaw service install` automatically carries `--source-dir` into the generated unit so background services keep the right runtime context. Standalone binaries do not need that workaround because they embed the UI and skills.
+When you install a service from the repository root for a clone-based deployment, `dartclaw service install`
+automatically carries `--source-dir` into the generated unit so background services keep the right runtime
+context. Packaged installs do not need that workaround because they resolve the companion assets from
+`../share/dartclaw/` or the downloaded asset cache.
 
 **Note**: This limitation also affects `dart run` when `cwd` is not the pub workspace root — for example, when you want DartClaw's `_local` project to point at a different repository. See [Projects & Git § Limitations](projects-and-git.md#limitations-and-future-considerations) for details.
 

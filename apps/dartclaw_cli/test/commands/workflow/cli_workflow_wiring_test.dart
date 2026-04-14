@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -174,8 +175,8 @@ steps:
   test('injects provider credentials into standalone harness environments', () async {
     final capturedByProvider = <String, List<HarnessFactoryConfig>>{};
     final factory = HarnessFactory()
-      ..register('codex-exec', (config) {
-        capturedByProvider.putIfAbsent('codex-exec', () => <HarnessFactoryConfig>[]).add(config);
+      ..register('codex', (config) {
+        capturedByProvider.putIfAbsent('codex', () => <HarnessFactoryConfig>[]).add(config);
         return FakeAgentHarness();
       })
       ..register('claude', (config) {
@@ -184,8 +185,8 @@ steps:
       });
 
     final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'codex-exec'),
-      providers: const ProvidersConfig(entries: {'codex-exec': ProviderEntry(executable: 'codex', poolSize: 0)}),
+      agent: const AgentConfig(provider: 'codex'),
+      providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
       credentials: const CredentialsConfig(
         entries: {
           'anthropic': CredentialEntry(apiKey: 'anthropic-key'),
@@ -208,7 +209,7 @@ steps:
     await wiring.wire();
     await wiring.ensureTaskRunnersForProviders({'claude'});
 
-    final codexConfigs = capturedByProvider['codex-exec']!;
+    final codexConfigs = capturedByProvider['codex']!;
     expect(codexConfigs, hasLength(2), reason: 'primary harness + default standalone task runner');
     for (final harnessConfig in codexConfigs) {
       expect(harnessConfig.environment['CODEX_API_KEY'], 'openai-key');
@@ -218,5 +219,39 @@ steps:
     final claudeConfigs = capturedByProvider['claude']!;
     expect(claudeConfigs, hasLength(1));
     expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
+  });
+
+  test('honors a local asset root for built-in skill discovery and materialization', () async {
+    final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
+    final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
+    Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
+    final skillDir = Directory(p.join(assetRoot.path, 'skills', 'dartclaw-asset-skill'))..createSync(recursive: true);
+    File(p.join(skillDir.path, 'SKILL.md')).writeAsStringSync('---\nname: dartclaw-asset-skill\n---\n\n# asset\n');
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'home'),
+      assetResolver: AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw')),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    final skill = wiring.skillRegistry.getByName('dartclaw-asset-skill');
+    expect(skill, isNotNull);
+    expect(skill!.source, SkillSource.dartclaw);
   });
 }

@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show embeddedSkills;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-/// Materializes built-in workflow skills into harness-visible user paths.
+/// Materializes built-in workflow skills and support directories into harness-visible user paths.
 class WorkflowSkillMaterializer {
   static final _log = Logger('WorkflowSkillMaterializer');
 
@@ -56,7 +55,7 @@ class WorkflowSkillMaterializer {
     return null;
   }
 
-  /// Copies built-in skills into the user-scoped harness skill directories.
+  /// Copies built-in skills and support directories into the user-scoped harness skill directories.
   ///
   /// The materializer is best-effort: unmanaged user overrides are preserved and
   /// managed copies are refreshed only when the source fingerprint changes.
@@ -78,30 +77,7 @@ class WorkflowSkillMaterializer {
     final resolvedSourceDir = sourceDir ?? (resolveSourceDir ?? resolveBuiltInSkillsSourceDir)();
     final installOwner = _resolveInstallOwner(resolvedSourceDir);
     if (resolvedSourceDir == null) {
-      if (embeddedSkills.isEmpty) {
-        _log.fine('Built-in skills source tree not found; skipping materialization');
-        return;
-      }
-
-      final embeddedSourceSkills = _discoverEmbeddedSourceSkills();
-      if (embeddedSourceSkills.isEmpty) {
-        _log.fine('No embedded built-in skills found; skipping materialization');
-        return;
-      }
-
-      for (final harnessType in activeHarnessTypes) {
-        final targetRoot = _targetRootForHarness(resolvedHomeDir, harnessType);
-        if (targetRoot == null) continue;
-        try {
-          _materializeEmbeddedHarnessRoot(
-            sourceSkills: embeddedSourceSkills,
-            targetRoot: Directory(targetRoot),
-            installOwner: installOwner,
-          );
-        } catch (e, st) {
-          _log.warning('Failed to materialize embedded built-in skills for harness $harnessType at $targetRoot', e, st);
-        }
-      }
+      _log.fine('Built-in skills source tree not found; skipping materialization');
       return;
     }
 
@@ -111,9 +87,12 @@ class WorkflowSkillMaterializer {
       return;
     }
 
-    final sourceSkills = _discoverSourceSkills(sourceRoot, installOwner);
-    if (sourceSkills.isEmpty) {
-      _log.fine('No built-in skills found under $resolvedSourceDir');
+    final sourceEntries = [
+      ..._discoverSourceSkills(sourceRoot, installOwner),
+      ..._discoverSupportDirectories(sourceRoot, installOwner),
+    ]..sort((a, b) => a.name.compareTo(b.name));
+    if (sourceEntries.isEmpty) {
+      _log.fine('No built-in entries found under $resolvedSourceDir');
     }
 
     for (final harnessType in activeHarnessTypes) {
@@ -121,7 +100,7 @@ class WorkflowSkillMaterializer {
       if (targetRoot == null) continue;
       try {
         _materializeHarnessRoot(
-          sourceSkills: sourceSkills,
+          sourceEntries: sourceEntries,
           targetRoot: Directory(targetRoot),
           installOwner: installOwner,
         );
@@ -149,8 +128,8 @@ class WorkflowSkillMaterializer {
     return null;
   }
 
-  static List<_BuiltInSkillSource> _discoverSourceSkills(Directory sourceRoot, String installOwner) {
-    final skills = <_BuiltInSkillSource>[];
+  static List<_BuiltInDirectorySource> _discoverSourceSkills(Directory sourceRoot, String installOwner) {
+    final skills = <_BuiltInDirectorySource>[];
     final entries = sourceRoot.listSync(followLinks: false);
     for (final entry in entries) {
       if (entry is! Directory) continue;
@@ -167,7 +146,7 @@ class WorkflowSkillMaterializer {
       }
 
       skills.add(
-        _BuiltInSkillSource(
+        _BuiltInDirectorySource(
           name: p.basename(entry.path),
           directory: entry,
           fingerprint: _fingerprintDirectory(entry),
@@ -180,46 +159,55 @@ class WorkflowSkillMaterializer {
     return skills;
   }
 
-  static List<_EmbeddedBuiltInSkillSource> _discoverEmbeddedSourceSkills() {
-    final skills = <_EmbeddedBuiltInSkillSource>[];
-    final entries = embeddedSkills.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+  static List<_BuiltInDirectorySource> _discoverSupportDirectories(Directory sourceRoot, String installOwner) {
+    final directories = <_BuiltInDirectorySource>[];
+    final entries = sourceRoot.listSync(followLinks: false);
     for (final entry in entries) {
-      final skillMd = entry.value['SKILL.md'];
-      if (skillMd == null) {
-        _log.warning('Skipping embedded built-in skill ${entry.key}: missing SKILL.md');
+      if (entry is! Directory) continue;
+      final name = p.basename(entry.path);
+      if (name.startsWith('.')) continue;
+      if (FileSystemEntity.isLinkSync(entry.path)) {
+        _log.warning('Skipping symlinked built-in support directory: ${entry.path}');
         continue;
       }
 
-      skills.add(
-        _EmbeddedBuiltInSkillSource(
-          name: entry.key,
-          files: entry.value,
-          fingerprint: _fingerprintEmbeddedFiles(entry.value),
+      final skillMd = File(p.join(entry.path, 'SKILL.md'));
+      if (skillMd.existsSync()) {
+        continue;
+      }
+
+      directories.add(
+        _BuiltInDirectorySource(
+          name: name,
+          directory: entry,
+          fingerprint: _fingerprintDirectory(entry),
+          installOwner: installOwner,
         ),
       );
     }
 
-    return skills;
+    directories.sort((a, b) => a.name.compareTo(b.name));
+    return directories;
   }
 
   static void _materializeHarnessRoot({
-    required List<_BuiltInSkillSource> sourceSkills,
+    required List<_BuiltInDirectorySource> sourceEntries,
     required Directory targetRoot,
     required String installOwner,
   }) {
     targetRoot.createSync(recursive: true);
     final sourceNames = <String>{};
 
-    for (final sourceSkill in sourceSkills) {
-      sourceNames.add(sourceSkill.name);
-      final targetDir = Directory(p.join(targetRoot.path, sourceSkill.name));
+    for (final sourceEntry in sourceEntries) {
+      sourceNames.add(sourceEntry.name);
+      final targetDir = Directory(p.join(targetRoot.path, sourceEntry.name));
       final managed = _readManagedMarker(targetDir);
       if (targetDir.existsSync()) {
         if (managed == null) {
           _log.fine('Preserving user override at ${targetDir.path}');
           continue;
         }
-        if (managed.fingerprint == sourceSkill.fingerprint) {
+        if (managed.fingerprint == sourceEntry.fingerprint) {
           continue;
         }
         if (managed.ownerId != null && managed.ownerId != installOwner) {
@@ -231,10 +219,10 @@ class WorkflowSkillMaterializer {
       }
 
       try {
-        _replaceDirectory(sourceDir: sourceSkill.directory, targetDir: targetDir, sourceSkill: sourceSkill);
-        _log.fine('Materialized built-in skill ${sourceSkill.name} -> ${targetDir.path}');
+        _replaceDirectory(sourceDir: sourceEntry.directory, targetDir: targetDir, sourceEntry: sourceEntry);
+        _log.fine('Materialized built-in entry ${sourceEntry.name} -> ${targetDir.path}');
       } catch (e, st) {
-        _log.warning('Failed to materialize built-in skill ${sourceSkill.name} into ${targetDir.path}', e, st);
+        _log.warning('Failed to materialize built-in entry ${sourceEntry.name} into ${targetDir.path}', e, st);
       }
     }
 
@@ -253,91 +241,10 @@ class WorkflowSkillMaterializer {
     }
   }
 
-  static void _materializeEmbeddedHarnessRoot({
-    required List<_EmbeddedBuiltInSkillSource> sourceSkills,
-    required Directory targetRoot,
-    required String installOwner,
-  }) {
-    targetRoot.createSync(recursive: true);
-    final sourceNames = <String>{};
-
-    for (final sourceSkill in sourceSkills) {
-      sourceNames.add(sourceSkill.name);
-      final targetDir = Directory(p.join(targetRoot.path, sourceSkill.name));
-      final managed = _readManagedMarker(targetDir);
-      if (targetDir.existsSync()) {
-        if (managed == null) {
-          _log.fine('Preserving user override at ${targetDir.path}');
-          continue;
-        }
-        if (managed.fingerprint == sourceSkill.fingerprint) {
-          continue;
-        }
-        if (managed.ownerId != null && managed.ownerId != installOwner) {
-          _log.warning(
-            'Preserving managed embedded skill at ${targetDir.path} from a different install owner (${managed.ownerId})',
-          );
-          continue;
-        }
-      }
-
-      final tempSourceDir = Directory(
-        p.join(
-          targetRoot.parent.path,
-          '.${p.basename(targetDir.path)}.dartclaw.source-${DateTime.now().microsecondsSinceEpoch}-$pid',
-        ),
-      );
-
-      try {
-        if (tempSourceDir.existsSync()) {
-          tempSourceDir.deleteSync(recursive: true);
-        }
-        tempSourceDir.createSync(recursive: true);
-        _writeEmbeddedFiles(tempSourceDir, sourceSkill.files);
-        _replaceDirectory(
-          sourceDir: tempSourceDir,
-          targetDir: targetDir,
-          sourceSkill: _BuiltInSkillSource(
-            name: sourceSkill.name,
-            directory: tempSourceDir,
-            fingerprint: sourceSkill.fingerprint,
-            markerSource: 'embedded',
-            installOwner: installOwner,
-          ),
-        );
-        _log.fine('Materialized embedded built-in skill ${sourceSkill.name} -> ${targetDir.path}');
-      } catch (e, st) {
-        _log.warning('Failed to materialize embedded built-in skill ${sourceSkill.name} into ${targetDir.path}', e, st);
-      } finally {
-        if (tempSourceDir.existsSync()) {
-          try {
-            tempSourceDir.deleteSync(recursive: true);
-          } catch (_) {
-            // Best-effort cleanup.
-          }
-        }
-      }
-    }
-
-    for (final entity in targetRoot.listSync(followLinks: false)) {
-      if (entity is! Directory) continue;
-      final skillName = p.basename(entity.path);
-      if (sourceNames.contains(skillName)) continue;
-      if (!_hasManagedMarker(entity)) continue;
-
-      try {
-        entity.deleteSync(recursive: true);
-        _log.fine('Removed stale managed embedded built-in skill copy: ${entity.path}');
-      } catch (e, st) {
-        _log.warning('Failed to remove stale managed embedded built-in skill copy ${entity.path}', e, st);
-      }
-    }
-  }
-
   static void _replaceDirectory({
     required Directory sourceDir,
     required Directory targetDir,
-    required _BuiltInSkillSource sourceSkill,
+    required _BuiltInDirectorySource sourceEntry,
   }) {
     final parent = targetDir.parent;
     parent.createSync(recursive: true);
@@ -353,7 +260,7 @@ class WorkflowSkillMaterializer {
     Directory? backupDir;
     try {
       _copyDirectorySync(sourceDir, tempDir);
-      _writeManagedMarker(tempDir, sourceSkill);
+      _writeManagedMarker(tempDir, sourceEntry);
 
       if (targetDir.existsSync()) {
         final backupPath = p.join(
@@ -410,22 +317,13 @@ class WorkflowSkillMaterializer {
     }
   }
 
-  static void _writeEmbeddedFiles(Directory root, Map<String, String> files) {
-    final paths = files.keys.toList()..sort();
-    for (final relativePath in paths) {
-      final file = File(p.join(root.path, relativePath));
-      file.parent.createSync(recursive: true);
-      file.writeAsStringSync(files[relativePath] ?? '');
-    }
-  }
-
-  static void _writeManagedMarker(Directory dir, _BuiltInSkillSource sourceSkill) {
+  static void _writeManagedMarker(Directory dir, _BuiltInDirectorySource sourceEntry) {
     final marker = File(p.join(dir.path, _managedMarkerName));
     marker.writeAsStringSync(
       jsonEncode({
-        'source': sourceSkill.markerSource,
-        'owner': sourceSkill.installOwner,
-        'fingerprint': sourceSkill.fingerprint,
+        'source': sourceEntry.markerSource,
+        'owner': sourceEntry.installOwner,
+        'fingerprint': sourceEntry.fingerprint,
         'generatedAt': DateTime.now().toUtc().toIso8601String(),
       }),
     );
@@ -474,17 +372,6 @@ class WorkflowSkillMaterializer {
     return _fingerprintFiles(entries);
   }
 
-  static String _fingerprintEmbeddedFiles(Map<String, String> files) {
-    final entries = <_FingerprintFile>[
-      for (final relativePath in (files.keys.toList()..sort()))
-        _FingerprintFile(
-          relativePath: relativePath.replaceAll('\\', '/'),
-          bytes: utf8.encode(files[relativePath] ?? ''),
-        ),
-    ];
-    return _fingerprintFiles(entries);
-  }
-
   static String _fingerprintFiles(List<_FingerprintFile> files) {
     var hash = _fnvOffsetBasis;
     void addByte(int byte) {
@@ -525,32 +412,24 @@ class WorkflowSkillMaterializer {
       return p.normalize(Platform.script.toFilePath());
     }
 
-    return 'embedded';
+    return 'filesystem';
   }
 }
 
-class _BuiltInSkillSource {
+class _BuiltInDirectorySource {
   final String name;
   final Directory directory;
   final String fingerprint;
   final String markerSource;
   final String installOwner;
 
-  _BuiltInSkillSource({
+  _BuiltInDirectorySource({
     required this.name,
     required this.directory,
     required this.fingerprint,
     required this.installOwner,
     String? markerSource,
   }) : markerSource = markerSource ?? directory.path;
-}
-
-class _EmbeddedBuiltInSkillSource {
-  final String name;
-  final Map<String, String> files;
-  final String fingerprint;
-
-  const _EmbeddedBuiltInSkillSource({required this.name, required this.files, required this.fingerprint});
 }
 
 class _FingerprintFile {

@@ -2875,8 +2875,7 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   background: color-mix(in srgb, var(--color-claude) 15%, var(--bg-surface0));
   color: var(--color-claude);
 }
-.provider-badge-codex,
-.provider-badge-codex-exec {
+.provider-badge-codex {
   background: color-mix(in srgb, var(--info) 15%, var(--bg-surface0));
   color: var(--info);
 }

@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
+        WorkflowSource,
         WorkflowService,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -22,6 +23,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
+import 'workflow_materializer.dart';
 import 'workflow_skill_materializer.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
@@ -100,6 +102,7 @@ class ServiceWiring {
   final String resolvedConfigPath;
   final LogService logService;
   final MessageRedactor messageRedactor;
+  final AssetResolver assetResolver;
 
   static final _log = Logger('ServiceWiring');
 
@@ -117,7 +120,8 @@ class ServiceWiring {
     required this.resolvedConfigPath,
     required this.logService,
     required this.messageRedactor,
-  });
+    AssetResolver? assetResolver,
+  }) : assetResolver = assetResolver ?? AssetResolver();
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
   /// and registers MCP tools on the built server.
@@ -136,7 +140,9 @@ class ServiceWiring {
     await project.wire();
 
     final projectDirs = _workflowSkillProjectDirs(config);
-    final builtInSkillsSourceDir = WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    final resolvedAssets = assetResolver.resolve();
+    final builtInSkillsSourceDir =
+        resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: _activeHarnessTypes(config),
       homeDir: skillsHomeDir,
@@ -279,7 +285,7 @@ class ServiceWiring {
       ..traceService = storage.traceService
       ..taskEventService = storage.taskEventService
       ..worker = harness.harness
-      ..staticDir = config.server.staticDir
+      ..staticDir = resolvedAssets?.staticDir ?? config.server.staticDir
       ..behavior = harness.behavior
       ..memoryFile = storage.memoryFile
       ..guardChain = security.guardChain
@@ -372,20 +378,23 @@ class ServiceWiring {
       builtInSkillsDir: builtInSkillsSourceDir,
     );
 
-    // Workflow registry — load built-in workflows, then discover custom ones
+    // Workflow registry — materialize built-in workflows, then discover custom ones
     // from workspace and per-project directories.
     final continuityProviders = harness.pool.runners
         .where((r) => r.harness.supportsSessionContinuity)
         .map((r) => r.providerId)
         .toSet();
+    await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(),
       continuityProviders: continuityProviders,
     );
     workflowRegistry.skillRegistry = skillRegistry;
-    workflowRegistry.loadBuiltIn();
-    await workflowRegistry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'));
+    await workflowRegistry.loadFromDirectory(
+      p.join(config.workspaceDir, 'workflows'),
+      source: WorkflowSource.materialized,
+    );
     for (final projectDef in config.projects.definitions.values) {
       final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
       await workflowRegistry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));

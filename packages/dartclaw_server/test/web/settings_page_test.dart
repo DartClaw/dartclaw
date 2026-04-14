@@ -57,7 +57,7 @@ void main() {
       expect(html, contains('href="#providers"'));
       expect(html, _hasMatchCount('data-provider-id="', 3));
       expect(html, contains('data-provider-id="claude"'));
-      expect(html, contains('data-provider-id="codex-exec"'));
+      expect(html, contains('data-provider-id="codex"'));
       expect(html, contains('data-provider-id="ghost_ai"'));
       expect(html, contains('Default'));
       expect(html, contains('provider-error-banner'));
@@ -66,7 +66,7 @@ void main() {
       expect(html, contains('credential-dot'));
       expect(html, contains('credential-dot-ok'));
       expect(html, contains('credential-dot-missing'));
-      expect(html, contains('Provider ID: codex-exec'));
+      expect(html, contains('Provider ID: codex'));
       expect(html, contains('Task Workers busy'));
     });
   });
@@ -92,7 +92,7 @@ Future<ProviderStatusService> _seededProviderStatus() async {
     providers: const ProvidersConfig(
       entries: {
         'claude': ProviderEntry(executable: 'claude', poolSize: 2),
-        'codex-exec': ProviderEntry(executable: 'codex', poolSize: 1),
+        'codex': ProviderEntry(executable: 'codex', poolSize: 1),
         'ghost_ai': ProviderEntry(executable: 'ghost-ai', poolSize: 1),
       },
     ),

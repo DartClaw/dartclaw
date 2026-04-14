@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_cli/src/asset_downloader.dart';
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 String _repoRoot() {
   var current = Directory.current.absolute.path;
   while (true) {
-    if (File(p.join(current, 'tool', 'embed_assets.dart')).existsSync() &&
-        Directory(p.join(current, 'apps')).existsSync()) {
+    if (File(p.join(current, 'tool', 'build.sh')).existsSync() && Directory(p.join(current, 'apps')).existsSync()) {
       return current;
     }
 
@@ -19,19 +21,6 @@ String _repoRoot() {
   }
 }
 
-Future<ProcessResult> _runDartScript({
-  required String scriptPath,
-  required String workingDirectory,
-  Map<String, String>? environment,
-}) {
-  return Process.run(
-    Platform.resolvedExecutable,
-    [scriptPath],
-    workingDirectory: workingDirectory,
-    environment: environment,
-  );
-}
-
 Future<ProcessResult> _runCommand(
   String executable,
   List<String> arguments, {
@@ -41,281 +30,183 @@ Future<ProcessResult> _runCommand(
   return Process.run(executable, arguments, workingDirectory: workingDirectory, environment: environment);
 }
 
-void _copyDirectory(Directory source, Directory target) {
-  if (!target.existsSync()) {
-    target.createSync(recursive: true);
-  }
-  for (final entity in source.listSync(followLinks: false)) {
-    final relative = p.relative(entity.path, from: source.path);
-    final destination = p.join(target.path, relative);
-    if (entity is File) {
-      File(destination).parent.createSync(recursive: true);
-      entity.copySync(destination);
-    } else if (entity is Directory) {
-      _copyDirectory(entity, Directory(destination));
-    }
-  }
-}
-
 String _readFile(String path) => File(path).readAsStringSync();
 
-void _writeFile(String path, String content) {
-  final file = File(path);
-  file.parent.createSync(recursive: true);
-  file.writeAsStringSync(content);
+String _hostOsName() {
+  final result = Process.runSync('uname', ['-s']);
+  if (result.exitCode != 0) {
+    throw StateError('uname -s failed: ${result.stderr}');
+  }
+  final raw = (result.stdout as String).trim();
+  return switch (raw) {
+    'Darwin' => 'macos',
+    'Linux' => 'linux',
+    _ => raw.toLowerCase(),
+  };
+}
+
+String _hostArchName() {
+  final result = Process.runSync('uname', ['-m']);
+  if (result.exitCode != 0) {
+    throw StateError('uname -m failed: ${result.stderr}');
+  }
+  final raw = (result.stdout as String).trim();
+  return switch (raw) {
+    'x86_64' || 'amd64' => 'x64',
+    'aarch64' || 'arm64' => 'arm64',
+    _ => raw.toLowerCase(),
+  };
+}
+
+String _hashFile(String path) {
+  final sha256sum = Process.runSync('sha256sum', [path]);
+  if (sha256sum.exitCode == 0) {
+    return (sha256sum.stdout as String).trim().split(RegExp(r'\s+')).first;
+  }
+
+  final shasum = Process.runSync('shasum', ['-a', '256', path]);
+  if (shasum.exitCode == 0) {
+    return (shasum.stdout as String).trim().split(RegExp(r'\s+')).first;
+  }
+
+  throw StateError('No SHA-256 checksum tool found.');
+}
+
+List<String> _tarEntries(String archivePath) {
+  final result = Process.runSync('tar', ['-tzf', archivePath]);
+  if (result.exitCode != 0) {
+    throw StateError('tar -tzf failed for $archivePath: ${result.stderr}');
+  }
+  return (result.stdout as String).trim().split('\n').where((line) => line.isNotEmpty).toList();
+}
+
+Future<HttpServer> _startReleaseServer(Future<void> Function(HttpRequest request) handler) {
+  return HttpServer.bind(InternetAddress.loopbackIPv4, 0).then((server) {
+    server.listen((request) => unawaited(handler(request)));
+    return server;
+  });
+}
+
+Uri _releaseBaseUri(HttpServer server) {
+  return Uri.parse('http://${server.address.host}:${server.port}/releases/download/v$dartclawVersion/');
 }
 
 void main() {
   final repoRoot = _repoRoot();
-  final scriptPath = p.join(repoRoot, 'tool', 'embed_assets.dart');
   final buildScriptPath = p.join(repoRoot, 'tool', 'build.sh');
-  final assetsStubPath = p.join(repoRoot, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart');
-  final skillsStubPath = p.join(repoRoot, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart');
-  final serverTemplatesDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_server', 'lib', 'src', 'templates'));
-  final serverStaticDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_server', 'lib', 'src', 'static'));
-  final workflowSkillsDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_workflow', 'skills'));
+  final buildDir = Directory(p.join(repoRoot, 'build'));
+  final version = dartclawVersion;
+  final osName = _hostOsName();
+  final archName = _hostArchName();
+  final platformArchive = p.join(buildDir.path, 'dartclaw-v$version-$osName-$archName.tar.gz');
+  final platformSha = '$platformArchive.sha256';
+  final assetArchive = p.join(buildDir.path, 'dartclaw-assets-v$version.tar.gz');
+  final assetSha = '$assetArchive.sha256';
+  final sumsFile = p.join(buildDir.path, 'SHA256SUMS.txt');
 
-  group('embed_assets.dart', () {
-    test('populates stubs deterministically and is idempotent', () async {
-      final tempRoot = Directory.systemTemp.createTempSync('dartclaw_embed_assets_fixture_');
-      addTearDown(() {
-        if (tempRoot.existsSync()) {
-          tempRoot.deleteSync(recursive: true);
-        }
-      });
-
-      _copyDirectory(
-        serverTemplatesDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates')),
-      );
-      _copyDirectory(
-        serverStaticDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'static')),
-      );
-      _copyDirectory(workflowSkillsDir, Directory(p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'skills')));
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart'),
-        _readFile(assetsStubPath),
-      );
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart'),
-        _readFile(skillsStubPath),
-      );
-
-      final first = await _runDartScript(scriptPath: scriptPath, workingDirectory: tempRoot.path);
-      expect(first.exitCode, 0, reason: first.stderr.toString());
-
-      final assetsAfterFirst = _readFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart'),
-      );
-      final skillsAfterFirst = _readFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart'),
-      );
-
-      expect(assetsAfterFirst, contains('const _encodedTemplates = <String, String>{'));
-      expect(assetsAfterFirst, contains('layout'));
-      expect(assetsAfterFirst, contains('app.js'));
-      expect(assetsAfterFirst, isNot(contains('VENDORS.md')));
-      expect(skillsAfterFirst, contains('const _encodedSkills = <String, Map<String, String>>{'));
-      expect(skillsAfterFirst, contains('dartclaw-review-code'));
-      expect(skillsAfterFirst, contains('agents/openai.yaml'));
-
-      final second = await _runDartScript(scriptPath: scriptPath, workingDirectory: tempRoot.path);
-      expect(second.exitCode, 0, reason: second.stderr.toString());
-
-      expect(
-        _readFile(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart')),
-        equals(assetsAfterFirst),
-      );
-      expect(
-        _readFile(p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart')),
-        equals(skillsAfterFirst),
-      );
-    });
-
-    test('fails when an expected template is missing', () async {
-      final tempRoot = Directory.systemTemp.createTempSync('dartclaw_embed_assets_missing_template_');
-      addTearDown(() {
-        if (tempRoot.existsSync()) {
-          tempRoot.deleteSync(recursive: true);
-        }
-      });
-
-      _copyDirectory(
-        serverTemplatesDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates')),
-      );
-      _copyDirectory(
-        serverStaticDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'static')),
-      );
-      _copyDirectory(workflowSkillsDir, Directory(p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'skills')));
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart'),
-        _readFile(assetsStubPath),
-      );
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart'),
-        _readFile(skillsStubPath),
-      );
-
-      File(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates', 'layout.html')).deleteSync();
-
-      final result = await _runDartScript(scriptPath: scriptPath, workingDirectory: tempRoot.path);
-      expect(result.exitCode, isNot(0));
-      expect(result.stderr.toString(), contains('Missing template'));
-    });
-
-    test('fails when an expected skill is missing', () async {
-      final tempRoot = Directory.systemTemp.createTempSync('dartclaw_embed_assets_missing_skill_');
-      addTearDown(() {
-        if (tempRoot.existsSync()) {
-          tempRoot.deleteSync(recursive: true);
-        }
-      });
-
-      _copyDirectory(
-        serverTemplatesDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates')),
-      );
-      _copyDirectory(
-        serverStaticDir,
-        Directory(p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'static')),
-      );
-      _copyDirectory(workflowSkillsDir, Directory(p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'skills')));
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_server', 'lib', 'src', 'embedded_assets.dart'),
-        _readFile(assetsStubPath),
-      );
-      _writeFile(
-        p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'lib', 'src', 'embedded_skills.dart'),
-        _readFile(skillsStubPath),
-      );
-
-      Directory(
-        p.join(tempRoot.path, 'packages', 'dartclaw_workflow', 'skills', 'dartclaw-plan'),
-      ).deleteSync(recursive: true);
-
-      final result = await _runDartScript(scriptPath: scriptPath, workingDirectory: tempRoot.path);
-      expect(result.exitCode, isNot(0));
-      expect(result.stderr.toString(), contains('Missing skill'));
-    });
+  tearDown(() {
+    if (buildDir.existsSync()) {
+      buildDir.deleteSync(recursive: true);
+    }
   });
 
-  group('build.sh', () {
-    test('produces build/dartclaw and restores stubs on success', () async {
-      final assetsBefore = _readFile(assetsStubPath);
-      final skillsBefore = _readFile(skillsStubPath);
-      addTearDown(() {
-        _writeFile(assetsStubPath, assetsBefore);
-        _writeFile(skillsStubPath, skillsBefore);
-      });
+  test('produces the expected binary and release archives', () async {
+    if (buildDir.existsSync()) {
+      buildDir.deleteSync(recursive: true);
+    }
 
-      final result = await _runCommand('bash', [buildScriptPath], workingDirectory: repoRoot);
-      expect(result.exitCode, 0, reason: result.stderr.toString());
-      expect(File(p.join(repoRoot, 'build', 'dartclaw')).existsSync(), isTrue);
-      expect(result.stdout.toString(), contains('==> Build complete: build/dartclaw ('));
-      expect(_readFile(assetsStubPath), equals(assetsBefore));
-      expect(_readFile(skillsStubPath), equals(skillsBefore));
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    final result = await _runCommand('bash', [buildScriptPath], workingDirectory: repoRoot);
+    expect(result.exitCode, 0, reason: result.stderr.toString());
 
-    test('restores canonical stubs from a dirty worktree when compilation fails', () async {
-      final assetsBefore = _readFile(assetsStubPath);
-      final skillsBefore = _readFile(skillsStubPath);
-      addTearDown(() {
-        _writeFile(assetsStubPath, assetsBefore);
-        _writeFile(skillsStubPath, skillsBefore);
-      });
+    final binaryPath = p.join(buildDir.path, 'dartclaw');
+    expect(File(binaryPath).existsSync(), isTrue);
+    expect(File(platformArchive).existsSync(), isTrue);
+    expect(File(platformSha).existsSync(), isTrue);
+    expect(File(assetArchive).existsSync(), isTrue);
+    expect(File(assetSha).existsSync(), isTrue);
+    expect(File(sumsFile).existsSync(), isTrue);
 
-      _writeFile(
-        assetsStubPath,
-        "import 'dart:convert';\n\nconst _encodedTemplates = <String, String>{'dirty': 'Zm9v'};\n",
-      );
-      _writeFile(
-        skillsStubPath,
-        "import 'dart:convert';\n\nconst _encodedSkills = <String, Map<String, String>>{'dirty': {'SKILL.md': 'YmFy'}};\n",
-      );
+    final platformEntries = _tarEntries(platformArchive);
+    final assetEntries = _tarEntries(assetArchive);
+    expect(platformEntries, contains('bin/dartclaw'));
+    expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
+    expect(platformEntries, contains('share/dartclaw/static/app.js'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-plan/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
+    expect(platformEntries, contains('VERSION'));
 
-      final tempBin = Directory.systemTemp.createTempSync('dartclaw_fake_dart_dirty_');
-      addTearDown(() {
-        if (tempBin.existsSync()) {
-          tempBin.deleteSync(recursive: true);
-        }
-      });
+    expect(assetEntries, isNot(contains('bin/dartclaw')));
+    expect(assetEntries, contains('templates/layout.html'));
+    expect(assetEntries, contains('static/app.js'));
+    expect(assetEntries, contains('skills/dartclaw-plan/SKILL.md'));
+    expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
+    expect(assetEntries, contains('VERSION'));
 
-      final wrapper = File(p.join(tempBin.path, 'dart'));
-      wrapper.writeAsStringSync(r'''#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "run" ]]; then
-  exec "$REAL_DART" "$@"
-fi
-if [[ "${1:-}" == "compile" && "${2:-}" == "exe" ]]; then
-  echo "simulated compile failure" >&2
-  exit 42
-fi
-exec "$REAL_DART" "$@"
-''');
-      await _runCommand('chmod', ['+x', wrapper.path], workingDirectory: repoRoot);
+    final platformHash = _hashFile(platformArchive);
+    final assetHash = _hashFile(assetArchive);
+    expect(
+      _readFile(sumsFile).trim(),
+      equals(
+        '$platformHash  ${p.basename(platformArchive)}\n'
+        '$assetHash  ${p.basename(assetArchive)}',
+      ),
+    );
+    expect(_readFile(platformSha).trim(), equals('$platformHash  ${p.basename(platformArchive)}'));
+    expect(_readFile(assetSha).trim(), equals('$assetHash  ${p.basename(assetArchive)}'));
 
-      final result = await _runCommand(
-        'bash',
-        [buildScriptPath],
-        workingDirectory: repoRoot,
-        environment: {
-          ...Platform.environment,
-          'PATH': '${tempBin.path}:${Platform.environment['PATH'] ?? ''}',
-          'REAL_DART': Platform.resolvedExecutable,
-        },
-      );
+    final tempHome = Directory.systemTemp.createTempSync('dartclaw_build_tool_test_');
+    addTearDown(() {
+      if (tempHome.existsSync()) {
+        tempHome.deleteSync(recursive: true);
+      }
+    });
 
-      expect(result.exitCode, 42, reason: result.stderr.toString());
-      expect(_readFile(assetsStubPath), equals(assetsBefore));
-      expect(_readFile(skillsStubPath), equals(skillsBefore));
-    }, timeout: const Timeout(Duration(minutes: 2)));
+    final archiveBytes = File(assetArchive).readAsBytesSync();
+    final checksumBody = _readFile(assetSha);
+    final server = await _startReleaseServer((request) async {
+      final response = request.response;
+      switch (request.uri.path) {
+        case '/releases/download/v$dartclawVersion/dartclaw-assets-v$dartclawVersion.tar.gz.sha256':
+          response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.text
+            ..write(checksumBody);
+          break;
+        case '/releases/download/v$dartclawVersion/dartclaw-assets-v$dartclawVersion.tar.gz':
+          response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.binary
+            ..contentLength = archiveBytes.length
+            ..add(archiveBytes);
+          break;
+        default:
+          response.statusCode = HttpStatus.notFound;
+      }
+      await response.close();
+    });
+    addTearDown(() => server.close(force: true));
 
-    test('restores stubs when compilation fails after embedding', () async {
-      final assetsBefore = _readFile(assetsStubPath);
-      final skillsBefore = _readFile(skillsStubPath);
-      addTearDown(() {
-        _writeFile(assetsStubPath, assetsBefore);
-        _writeFile(skillsStubPath, skillsBefore);
-      });
+    final stderrLines = <String>[];
+    final downloader = AssetDownloader(
+      homeDir: tempHome.path,
+      releaseBaseUri: _releaseBaseUri(server),
+      stderrLine: stderrLines.add,
+    );
 
-      final tempBin = Directory.systemTemp.createTempSync('dartclaw_fake_dart_');
-      addTearDown(() {
-        if (tempBin.existsSync()) {
-          tempBin.deleteSync(recursive: true);
-        }
-      });
+    final installPath = await downloader.download();
 
-      final wrapper = File(p.join(tempBin.path, 'dart'));
-      wrapper.writeAsStringSync(r'''#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "run" ]]; then
-  exec "$REAL_DART" "$@"
-fi
-if [[ "${1:-}" == "compile" && "${2:-}" == "exe" ]]; then
-  echo "simulated compile failure" >&2
-  exit 42
-fi
-exec "$REAL_DART" "$@"
-''');
-      await _runCommand('chmod', ['+x', wrapper.path], workingDirectory: repoRoot);
+    expect(installPath, p.join(tempHome.path, '.dartclaw', 'assets', 'v$dartclawVersion'));
+    expect(stderrLines.single, startsWith('Downloading assets for v$dartclawVersion ('));
+    expect(File(p.join(installPath, 'templates', 'layout.html')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'static', 'app.js')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'skills', 'dartclaw-plan', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(installPath, 'workflows', 'plan-and-implement.yaml')).existsSync(), isTrue);
 
-      final result = await _runCommand(
-        'bash',
-        [buildScriptPath],
-        workingDirectory: repoRoot,
-        environment: {
-          ...Platform.environment,
-          'PATH': '${tempBin.path}:${Platform.environment['PATH'] ?? ''}',
-          'REAL_DART': Platform.resolvedExecutable,
-        },
-      );
-
-      expect(result.exitCode, 42, reason: result.stderr.toString());
-      expect(_readFile(assetsStubPath), equals(assetsBefore));
-      expect(_readFile(skillsStubPath), equals(skillsBefore));
-    }, timeout: const Timeout(Duration(minutes: 2)));
-  });
+    final resolved = AssetResolver(
+      resolvedExecutable: p.join(tempHome.path, 'bin', 'dartclaw'),
+      homeDir: tempHome.path,
+    ).resolve();
+    expect(resolved, isNotNull);
+    expect(resolved!.root, installPath);
+  }, timeout: const Timeout(Duration(minutes: 15)));
 }

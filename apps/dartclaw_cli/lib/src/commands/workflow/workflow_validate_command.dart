@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show ValidationError, ValidationReport, WorkflowDefinitionParser, WorkflowDefinitionValidator;
 
@@ -47,10 +48,11 @@ class WorkflowValidateCommand extends Command<void> {
 
     final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
 
-    // Derive continuity providers from the configured provider IDs.
-    // Only providers whose IDs are known to support session continuity are included.
-    // Currently only 'claude' supports session continuity.
-    final continuityProviders = config.providers.entries.keys.contains('claude') ? const {'claude'} : <String>{};
+    // Derive continuity providers by probing harness capabilities.
+    final allContinuityProviders = HarnessFactory().probeContinuityProviders();
+    final continuityProviders = config.providers.entries.keys
+        .where(allContinuityProviders.contains)
+        .toSet();
 
     final parser = WorkflowDefinitionParser();
     final validator = WorkflowDefinitionValidator();

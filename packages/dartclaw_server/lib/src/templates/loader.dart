@@ -56,12 +56,8 @@ TemplateLoaderService get templateLoader {
 /// `ServeCommand.run`). When [devMode] is true, templates are re-read from
 /// disk on each render so changes take effect without a server restart.
 /// Throws [StateError] on missing or empty templates.
-void initTemplates(String basePath, {bool devMode = false, Map<String, String>? embeddedSources}) {
-  if (!devMode && embeddedSources != null && embeddedSources.isNotEmpty) {
-    _templateLoader = TemplateLoaderService.embedded(embeddedSources);
-  } else {
-    _templateLoader = TemplateLoaderService(basePath, devMode: devMode);
-  }
+void initTemplates(String basePath, {bool devMode = false}) {
+  _templateLoader = TemplateLoaderService(basePath, devMode: devMode);
   _templateLoader!.validate();
 }
 
@@ -85,18 +81,12 @@ void resetTemplates() {
 class TemplateLoaderService {
   final String _basePath;
   final bool devMode;
-  final bool _embedded;
   final Map<String, String> _sources = {};
   late final Trellis trellis;
 
-  TemplateLoaderService(this._basePath, {this.devMode = false}) : _embedded = false {
+  TemplateLoaderService(this._basePath, {this.devMode = false}) {
     _sources.addAll(_loadFilesystemSources());
     _initializeTrellis();
-  }
-
-  TemplateLoaderService.embedded(Map<String, String> templates) : _basePath = '', devMode = false, _embedded = true {
-    _sources.addAll(templates);
-    trellis = Trellis(loader: MapLoader(_sources));
   }
 
   /// Returns the raw source string for a named template.
@@ -130,7 +120,7 @@ class TemplateLoaderService {
     final errors = <String, String>{};
 
     for (final name in expectedTemplates) {
-      final content = _embedded ? _sources[name] : _readFilesystemTemplate(name);
+      final content = _readFilesystemTemplate(name);
       if (content == null) {
         missing.add('$name.html');
         continue;

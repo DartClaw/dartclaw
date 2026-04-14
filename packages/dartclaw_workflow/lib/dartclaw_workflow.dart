@@ -28,7 +28,6 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         atomicWriteJson;
 export 'package:dartclaw_models/dartclaw_models.dart';
 
-export 'src/workflow/built_in_workflows.dart';
 export 'src/workflow/context_extractor.dart';
 export 'src/workflow/dependency_graph.dart';
 export 'src/workflow/duration_parser.dart';
@@ -41,7 +40,6 @@ export 'src/workflow/schema_presets.dart';
 export 'src/workflow/schema_validator.dart';
 export 'src/workflow/shell_escape.dart';
 export 'src/workflow/skill_prompt_builder.dart';
-export 'src/embedded_skills.dart';
 export 'src/workflow/skill_registry.dart';
 export 'src/workflow/skill_registry_impl.dart';
 export 'src/workflow/step_config_resolver.dart';

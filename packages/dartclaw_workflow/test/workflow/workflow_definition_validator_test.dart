@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// Minimal fake SkillRegistry for validator tests.
@@ -28,16 +29,6 @@ class _FakeSkillRegistry implements SkillRegistry {
     if (skill == null) return false;
     return skill.nativeHarnesses.contains(harnessType);
   }
-}
-
-Map<String, Map<String, String>> _snapshotEmbeddedSkills() => {
-  for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-};
-
-void _restoreEmbeddedSkills(Map<String, Map<String, String>> snapshot) {
-  embeddedSkills
-    ..clear()
-    ..addAll({for (final entry in snapshot.entries) entry.key: Map<String, String>.from(entry.value)});
 }
 
 _FakeSkillRegistry _makeRegistry({
@@ -337,10 +328,10 @@ void main() {
       test('multi-prompt step with non-continuity provider produces unsupportedProviderCapability error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'gemini'),
           ],
         );
-        final errors = validator.validate(def, continuityProviders: {'claude'}).errors;
+        final errors = validator.validate(def, continuityProviders: {'claude', 'codex'}).errors;
         expect(
           errors.any((e) => e.type == ValidationErrorType.unsupportedProviderCapability && e.stepId == 's1'),
           true,
@@ -353,16 +344,25 @@ void main() {
             WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'claude'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
+      });
+
+      test('multi-prompt step with codex provider produces no error', () {
+        final def = _buildDef(
+          steps: [
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+          ],
+        );
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
       test('single-prompt step with non-continuity provider produces no error', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['Only one prompt'], provider: 'gemini'),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
       test('multi-prompt step with no explicit provider produces no error', () {
@@ -371,13 +371,13 @@ void main() {
             WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second']),
           ],
         );
-        expect(validator.validate(def, continuityProviders: {'claude'}).errors, isEmpty);
+        expect(validator.validate(def, continuityProviders: {'claude', 'codex'}).errors, isEmpty);
       });
 
       test('multi-prompt validation skipped when continuityProviders not provided', () {
         final def = _buildDef(
           steps: [
-            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'codex'),
+            WorkflowStep(id: 's1', name: 'S', prompts: const ['First', 'Second'], provider: 'gemini'),
           ],
         );
         // No continuityProviders arg — validation skipped entirely.
@@ -606,33 +606,28 @@ void main() {
       expect(errors, isEmpty);
     });
 
-    test('embedded built-in skills keep explicit provider validation working', () {
-      final snapshot = _snapshotEmbeddedSkills();
-      addTearDown(() => _restoreEmbeddedSkills(snapshot));
-
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          'dartclaw-review-code': {
-            'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded review skill\n---\n\n# review',
-            'agents/openai.yaml': 'provider: openai\n',
-          },
-        });
-
-      final workspaceDir = Directory.systemTemp.createTempSync('workflow_validator_embedded_ws_');
-      final dataDir = Directory.systemTemp.createTempSync('workflow_validator_embedded_data_');
+    test('filesystem skill copies keep explicit provider validation working', () {
+      final workspaceDir = Directory.systemTemp.createTempSync('workflow_validator_fs_ws_');
+      final dataDir = Directory.systemTemp.createTempSync('workflow_validator_fs_data_');
+      final userClaudeSkillsDir = Directory.systemTemp.createTempSync('workflow_validator_fs_user_claude_');
       addTearDown(() {
         if (workspaceDir.existsSync()) workspaceDir.deleteSync(recursive: true);
         if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+        if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
+
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review-code'))..createSync(recursive: true);
+      File(
+        p.join(skillDir.path, 'SKILL.md'),
+      ).writeAsStringSync('---\nname: dartclaw-review-code\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
         workspaceDir: workspaceDir.path,
         dataDir: dataDir.path,
-        userClaudeSkillsDir: '/nonexistent',
+        userClaudeSkillsDir: userClaudeSkillsDir.path,
         userAgentsSkillsDir: '/nonexistent',
-        builtInSkillsDir: null,
+        builtInSkillsDir: '/nonexistent',
       );
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;

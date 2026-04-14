@@ -77,14 +77,14 @@ Standalone mode auto-accepts normal step review gates, but explicit workflow `ap
 
 ### GitHub Actions example
 
-Configure `codex-exec` with an explicit sandbox before using it in CI:
+Configure the provider and sandbox before using Codex in CI:
 
 ```yaml
 agent:
-  provider: codex-exec
+  provider: codex
 
 providers:
-  codex-exec:
+  codex:
     executable: codex
     sandbox: workspace-write
 ```
@@ -93,7 +93,7 @@ providers:
 - name: Run DartClaw workflow
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
   run: |
     dartclaw workflow run code-review \
       --standalone \
@@ -102,7 +102,7 @@ providers:
       --var REPO="${{ github.repository }}"
 ```
 
-When using the `codex-exec` provider in CI, prefer `CODEX_API_KEY` and set the least-permissive sandbox that still fits the workflow. When using the persistent `codex` provider, use the Codex CLI's normal login/auth flow or a compatible API-key setup for that binary.
+When using Codex in CI, prefer `CODEX_API_KEY` and set the least-permissive sandbox that still fits the workflow.
 
 ## Authentication
 

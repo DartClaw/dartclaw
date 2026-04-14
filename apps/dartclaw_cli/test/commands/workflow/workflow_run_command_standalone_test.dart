@@ -90,8 +90,8 @@ steps:
 
     test('standalone run provisions explicit provider task runners before starting the workflow', () async {
       config = DartclawConfig(
-        agent: const AgentConfig(provider: 'codex-exec'),
-        providers: const ProvidersConfig(entries: {'codex-exec': ProviderEntry(executable: 'codex', poolSize: 0)}),
+        agent: const AgentConfig(provider: 'codex'),
+        providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
       final workflowsDir = Directory(p.join(config.workspaceDir, 'workflows'))..createSync(recursive: true);
@@ -114,9 +114,9 @@ steps:
           createdHarnesses.putIfAbsent('claude', () => <FakeAgentHarness>[]).add(harness);
           return harness;
         })
-        ..register('codex-exec', (_) {
+        ..register('codex', (_) {
           final harness = FakeAgentHarness();
-          createdHarnesses.putIfAbsent('codex-exec', () => <FakeAgentHarness>[]).add(harness);
+          createdHarnesses.putIfAbsent('codex', () => <FakeAgentHarness>[]).add(harness);
           return harness;
         });
       final output = <String>[];
@@ -140,7 +140,7 @@ steps:
 
       expect(output.any((line) => line.contains('"type":"task_status_changed"')), isTrue);
       expect(output.any((line) => line.contains('"type":"workflow_step_completed"')), isTrue);
-      expect(createdHarnesses['codex-exec']!.every((harness) => harness.turnCallCount == 0), isTrue);
+      expect(createdHarnesses['codex']!.every((harness) => harness.turnCallCount == 0), isTrue);
     });
   });
 }

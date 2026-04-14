@@ -91,6 +91,9 @@ class CodexHarness extends BaseHarness {
   bool get supportsCachedTokens => true;
 
   @override
+  bool get supportsSessionContinuity => true;
+
+  @override
   Future<void> start() => startLifecycle(
     busyMessage: 'Cannot start CodexHarness while busy',
     beforeStart: () async {

@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Handler;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 
+import '../asset_downloader.dart';
 import 'config_loader.dart';
 import 'reload_trigger_service.dart';
 import 'service_wiring.dart';
@@ -29,6 +30,8 @@ class ServeCommand extends Command<void> {
   final ServeFn _serveFn;
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
+  final AssetResolver _assetResolver;
+  late final AssetDownloader _assetDownloader;
   static final _log = Logger('ServeCommand');
 
   @override
@@ -46,6 +49,8 @@ class ServeCommand extends Command<void> {
     ServeFn? serveFn,
     WriteLine? stderrLine,
     ExitFn? exitFn,
+    AssetResolver? assetResolver,
+    AssetDownloader? assetDownloader,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -53,7 +58,11 @@ class ServeCommand extends Command<void> {
        _serverFactory = serverFactory ?? ((builder) => builder.build()),
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,
-       _exitFn = exitFn ?? exit {
+       _exitFn = exitFn ?? exit,
+       _assetResolver = assetResolver ?? AssetResolver() {
+    _assetDownloader =
+        assetDownloader ??
+        AssetDownloader(homeDir: _assetResolver.homeDir, version: _assetResolver.version, stderrLine: _stderrLine);
     argParser
       ..addOption('port', abbr: 'p', defaultsTo: '3333', help: 'Port to listen on')
       ..addOption('host', abbr: 'H', defaultsTo: 'localhost', help: 'Host to bind to')
@@ -74,6 +83,7 @@ class ServeCommand extends Command<void> {
         defaultsTo: 'INFO',
         help: 'Minimum log level',
       )
+      ..addFlag('offline', negatable: false, help: 'Do not download assets when missing')
       ..addFlag('dev', negatable: false, help: 'Enable dev mode (template hot-reload)');
   }
 
@@ -162,11 +172,31 @@ class ServeCommand extends Command<void> {
       _exitFn(1);
     }
 
-    // Load and validate HTML templates
+    // Load and validate HTML templates.
+    final resolvedAssets = _assetResolver.resolve();
+    final sourceTreeTemplatesDir = _sourceTreeTemplatesDir(config);
+
     try {
-      initTemplates(config.server.templatesDir, devMode: config.server.devMode, embeddedSources: embeddedTemplates);
+      if (resolvedAssets != null) {
+        initTemplates(resolvedAssets.templatesDir, devMode: config.server.devMode);
+      } else if (sourceTreeTemplatesDir != null) {
+        initTemplates(sourceTreeTemplatesDir, devMode: config.server.devMode);
+      } else {
+        if (argResults!['offline'] == true) {
+          _stderrLine(
+            'Assets for ${_assetDownloader.version} not found. Run \'dartclaw assets download\' or install without --offline.',
+          );
+          _exitFn(1);
+        }
+
+        final downloadedRoot = await _assetDownloader.download();
+        initTemplates(ResolvedAssetPaths(root: downloadedRoot).templatesDir, devMode: config.server.devMode);
+      }
     } on StateError catch (e) {
       _stderrLine('ERROR: ${e.message}');
+      _exitFn(1);
+    } on AssetDownloadException catch (error) {
+      _stderrLine(error.message);
       _exitFn(1);
     }
 
@@ -234,6 +264,7 @@ class ServeCommand extends Command<void> {
         config: config,
         dataDir: dataDir,
         port: port,
+        assetResolver: _assetResolver,
         harnessFactory: _harnessFactory,
         serverFactory: _serverFactory,
         searchDbFactory: _searchDbFactory,
@@ -359,6 +390,15 @@ class ServeCommand extends Command<void> {
     // run() and is testable.
     _exitFn(0);
   }
+}
+
+String? _sourceTreeTemplatesDir(DartclawConfig config) {
+  final templatesDir = Directory(config.server.templatesDir);
+  final staticDir = Directory(config.server.staticDir);
+  if (templatesDir.existsSync() && staticDir.existsSync()) {
+    return config.server.templatesDir;
+  }
+  return null;
 }
 
 /// Returns built-in tool names to suppress when the MCP server is active.

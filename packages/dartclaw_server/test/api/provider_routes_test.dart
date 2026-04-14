@@ -58,7 +58,7 @@ void main() {
       expect(byId['claude']!['health'], 'healthy');
 
       expect(byId['codex']!['credentialStatus'], 'missing');
-      expect(byId['codex']!['credentialEnvVar'], 'OPENAI_API_KEY');
+      expect(byId['codex']!['credentialEnvVar'], 'CODEX_API_KEY');
       expect(byId['codex']!['health'], 'degraded');
 
       expect(byId['ghost']!['credentialStatus'], 'missing');

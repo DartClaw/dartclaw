@@ -77,7 +77,7 @@ void main() {
     test('probeAuthStatus returns true for codex with stored CODEX_API_KEY', () async {
       _writeCodexAuth(tmpDir, {'CODEX_API_KEY': 'sk-test-key'});
 
-      final authed = await ProviderValidator.probeAuthStatus('codex', providerId: 'codex-exec', homePath: tmpDir.path);
+      final authed = await ProviderValidator.probeAuthStatus('codex', providerId: 'codex', homePath: tmpDir.path);
 
       expect(authed, isTrue);
     });
@@ -88,16 +88,6 @@ void main() {
       final authed = await ProviderValidator.probeAuthStatus('codex', providerId: 'codex', homePath: tmpDir.path);
 
       expect(authed, isFalse);
-    });
-
-    test('probeAuthStatus routes codex-exec to codex auth check', () async {
-      _writeCodexAuth(tmpDir, {
-        'tokens': {'access_token': 'test-token'},
-      });
-
-      final authed = await ProviderValidator.probeAuthStatus('codex', providerId: 'codex-exec', homePath: tmpDir.path);
-
-      expect(authed, isTrue);
     });
 
     test('probeAuthStatus rejects non-string access_token', () async {
@@ -237,28 +227,7 @@ void main() {
 
       expect(result.errors, isEmpty);
       expect(result.warnings, [
-        "Provider 'codex': credentials not configured (set OPENAI_API_KEY or add to credentials section)",
-      ]);
-    });
-
-    test('validate points codex-exec users at CODEX_API_KEY', () async {
-      final result = await ProviderValidator.validate(
-        providers: ProvidersConfig(
-          entries: {
-            'claude': ProviderEntry(executable: Platform.resolvedExecutable),
-            'codex-exec': ProviderEntry(executable: Platform.resolvedExecutable),
-          },
-        ),
-        registry: CredentialRegistry(
-          credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-        ),
-        defaultProvider: 'claude',
-        homePath: tmpDir.path,
-      );
-
-      expect(result.errors, isEmpty);
-      expect(result.warnings, [
-        "Provider 'codex-exec': credentials not configured (set CODEX_API_KEY or add to credentials section)",
+        "Provider 'codex': credentials not configured (set CODEX_API_KEY or add to credentials section)",
       ]);
     });
 

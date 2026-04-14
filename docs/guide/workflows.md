@@ -2,7 +2,7 @@
 
 DartClaw workflows are multi-step agent pipelines defined in YAML. Each step runs one or more agent turns, optionally passes structured data to the next step, and can be gated on human review or conditional expressions.
 
-This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-implement`, `code-review`, and `research-and-evaluate`) are worked examples of the fully matured end state.
+This guide walks through a progressive refinement process — from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-implement`, and `code-review`) are worked examples of the fully matured end state.
 
 ---
 
@@ -242,21 +242,22 @@ The first match wins. Explicit per-step values still override defaults.
 
 ### `spec-and-implement` — Feature Pipeline
 
-An 11-step pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, fans out correctness/security review, performs gap analysis, remediates findings, and finishes with `dartclaw-update-state`.
+An 11-step pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, fans out correctness/security review, performs gap analysis, loops through remediation/re-review, and finishes with `dartclaw-update-state`.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
-- **Workflow-skill composition**: built-in steps reference `dartclaw-*` skills but still carry fallback prompts so the workflow definition remains self-describing.
+- **Thin skill wrappers**: skill-backed steps pass only workflow-specific inputs and handoff/output instructions; the methodology lives in the `dartclaw-*` skills themselves.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 
 ### `plan-and-implement` — Story Fan-Out
 
-An 8-step multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, remediates findings, and updates state.
+A 9-step multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, loops through remediation/re-review, and updates state.
 
 Notable patterns:
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, and review uses `{{context.story_result[map.index]}}`.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Step defaults**: provider/model/token/cost defaults are set once for the whole workflow.
+- **Bounded remediation**: the batch now follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
 
 ### `code-review` — Deterministic Review Loop
 
@@ -266,10 +267,6 @@ Notable patterns:
 - **Deterministic extraction first**: diff generation happens before any reviewer prompt runs.
 - **Parallel review fan-out**: multiple specialized reviewers run concurrently with shared context.
 - **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
-
-### `research-and-evaluate` — Trade-Off Analysis
-
-A lighter workflow that now still begins with `discover-project`, then researches options, evaluates them, synthesizes trade-offs, and recommends an approach with project-aware context.
 
 ### Built-In Skill Library
 
@@ -286,7 +283,7 @@ The workflow engine now ships 10 built-in `dartclaw-*` skills:
 - `dartclaw-review-doc`
 - `dartclaw-refactor`
 
-These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading.
+These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading. Root-level support directories under the built-in skills tree, such as `references/`, are materialized alongside the skill directories but are not registered as skills.
 
 ### Supported SDD Frameworks
 

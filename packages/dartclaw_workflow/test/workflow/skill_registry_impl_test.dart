@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show SkillSource;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl, embeddedSkills;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistryImpl;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -31,16 +32,6 @@ void main() {
   }
 
   SkillRegistryImpl makeRegistry() => SkillRegistryImpl();
-
-  Map<String, Map<String, String>> snapshotEmbeddedSkills() => {
-    for (final entry in embeddedSkills.entries) entry.key: Map<String, String>.from(entry.value),
-  };
-
-  void restoreEmbeddedSkills(Map<String, Map<String, String>> snapshot) {
-    embeddedSkills
-      ..clear()
-      ..addAll({for (final entry in snapshot.entries) entry.key: Map<String, String>.from(entry.value)});
-  }
 
   group('SkillRegistryImpl.discover', () {
     test('skills in .claude/skills/ discovered with nativeHarnesses: {claude}', () {
@@ -294,77 +285,10 @@ void main() {
       expect(skills.first.nativeHarnesses, isEmpty);
     });
 
-    test('built-in skills directory is scanned as source dartclaw', () {
-      final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync();
-      makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code');
-
-      final registry = makeRegistry();
-      registry.discover(
-        workspaceDir: workspaceDir.path,
-        dataDir: dataDir.path,
-        userClaudeSkillsDir: '/nonexistent',
-        userAgentsSkillsDir: '/nonexistent',
-        builtInSkillsDir: builtInDir.path,
-      );
-
-      final skill = registry.getByName('dartclaw-review-code');
-      expect(skill, isNotNull);
-      expect(skill!.source, SkillSource.dartclaw);
-    });
-
-    test('embedded built-in skills are discovered when builtInSkillsDir is null', () {
-      final snapshot = snapshotEmbeddedSkills();
-      addTearDown(() => restoreEmbeddedSkills(snapshot));
-
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          'dartclaw-review-code': {
-            'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Reviews code\n---\n\n# review',
-            'agents/openai.yaml': 'provider: openai\n',
-          },
-          'dartclaw-plan': {'SKILL.md': '---\ndescription: Plans work\n---\n\n# plan'},
-        });
-
-      expect(embeddedSkills, isNotEmpty);
-      expect(embeddedSkills['dartclaw-review-code']?['SKILL.md'], isNotNull);
-
-      final registry = makeRegistry();
-      registry.discover(
-        workspaceDir: workspaceDir.path,
-        dataDir: dataDir.path,
-        userClaudeSkillsDir: '/nonexistent',
-        userAgentsSkillsDir: '/nonexistent',
-        builtInSkillsDir: null,
-      );
-
-      final review = registry.getByName('dartclaw-review-code');
-      final plan = registry.getByName('dartclaw-plan');
-      expect(review, isNotNull);
-      expect(review!.source, SkillSource.dartclaw);
-      expect(review.path, 'embedded');
-      expect(review.nativeHarnesses, {'claude', 'codex'});
-      expect(review.description, 'Reviews code');
-      expect(plan, isNotNull);
-      expect(plan!.source, SkillSource.dartclaw);
-      expect(plan.path, 'embedded');
-      expect(plan.description, 'Plans work');
-    });
-
-    test('built-in directory still wins when embedded skills are present', () {
-      final snapshot = snapshotEmbeddedSkills();
-      addTearDown(() => restoreEmbeddedSkills(snapshot));
-
-      embeddedSkills
-        ..clear()
-        ..addAll({
-          'dartclaw-review-code': {
-            'SKILL.md': '---\nname: dartclaw-review-code\ndescription: Embedded copy\n---\n\n# review',
-          },
-        });
-
-      final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync();
+    test('filesystem built-in skills are discovered when builtInSkillsDir is provided', () {
+      final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync(recursive: true);
       makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code', description: 'Filesystem copy');
+      Directory('${builtInDir.path}/references').createSync(recursive: true);
 
       final registry = makeRegistry();
       registry.discover(
@@ -378,7 +302,10 @@ void main() {
       final skill = registry.getByName('dartclaw-review-code');
       expect(skill, isNotNull);
       expect(skill!.source, SkillSource.dartclaw);
+      expect(skill.path, p.join(builtInDir.path, 'dartclaw-review-code'));
       expect(skill.description, 'Filesystem copy');
+      expect(skill.nativeHarnesses, isEmpty);
+      expect(registry.getByName('references'), isNull);
     });
 
     test('managed project skill copies are skipped in favor of built-in source', () {

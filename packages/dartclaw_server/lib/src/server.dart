@@ -12,7 +12,6 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
 
-import 'embedded_assets.dart';
 import 'api/agent_routes.dart';
 import 'api/chat_command_handler.dart';
 import 'api/config_api_routes.dart';
@@ -639,28 +638,21 @@ class DartclawServer {
   }
 
   void _mountStaticRoutes(Router router) {
-    if (embeddedStaticAssets.isNotEmpty) {
-      router.mount('/static/', _embeddedStaticHandler());
-      return;
-    }
-
-    final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
-    router.mount('/static/', staticHandler);
+    router.mount('/static/', _filesystemStaticHandler());
   }
 
-  Handler _embeddedStaticHandler() {
-    final assets = Map<String, List<int>>.from(embeddedStaticAssets);
-    final mimeTypes = Map<String, String>.from(embeddedStaticMimeTypes);
+  Handler _filesystemStaticHandler() {
+    final staticHandler = createStaticHandler(_staticDir, defaultDocument: null);
 
-    return (Request request) {
-      final path = request.url.path;
-      final bytes = assets[path];
-      final mimeType = mimeTypes[path];
-      if (bytes == null || mimeType == null) {
-        return Response.notFound('Not Found');
+    return (Request request) async {
+      final response = await staticHandler(request);
+      if (response.statusCode != 200) {
+        return response;
       }
 
-      return Response.ok(bytes, headers: {'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400'});
+      final headers = Map<String, String>.from(response.headers);
+      headers['Cache-Control'] = 'public, max-age=86400';
+      return response.change(headers: headers);
     };
   }
 

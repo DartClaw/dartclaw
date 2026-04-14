@@ -41,14 +41,8 @@ steps:
     type: research
     skill: dartclaw-discover-project
     prompt: |
-      Discover the project structure before reviewing the change.
-
       Target:
       {{TARGET}}
-
-      Identify the SDD framework, project root, document locations, and state
-      update protocol. Return a normalized project index for downstream steps.
-      Output the project index JSON directly.
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -157,8 +151,6 @@ steps:
     skill: dartclaw-review-code
     parallel: true
     prompt: |
-      Use the `dartclaw-review-code` skill to review correctness and spec compliance.
-
       Target:
       {{TARGET}}
 
@@ -174,9 +166,7 @@ steps:
       Diff summary:
       {{context.diff_summary}}
 
-      Evaluate logic errors, missing cases, edge conditions, and acceptance
-      criterion coverage. Be an independent evaluator and output PASS/FAIL with
-      a structured verdict. Output the verdict JSON directly.
+      Focus: correctness, edge cases, and acceptance-criteria coverage.
     contextInputs: [project_index, review_context, affected_files, diff_summary]
     contextOutputs: [correctness_findings]
     outputs:
@@ -191,8 +181,6 @@ steps:
     skill: dartclaw-review-code
     parallel: true
     prompt: |
-      Use the `dartclaw-review-code` skill to review security and data safety.
-
       Target:
       {{TARGET}}
 
@@ -208,9 +196,7 @@ steps:
       Diff summary:
       {{context.diff_summary}}
 
-      Focus on injection vectors, credential exposure, unsafe defaults,
-      input validation gaps, and OWASP Top 10 risks. Output PASS/FAIL with a
-      structured verdict. Output the verdict JSON directly.
+      Focus: security, unsafe defaults, data handling, and input validation.
     contextInputs: [project_index, review_context, affected_files, diff_summary]
     contextOutputs: [security_findings]
     outputs:
@@ -225,8 +211,6 @@ steps:
     skill: dartclaw-review-code
     parallel: true
     prompt: |
-      Use the `dartclaw-review-code` skill to review architecture and maintainability.
-
       Target:
       {{TARGET}}
 
@@ -242,9 +226,7 @@ steps:
       Diff summary:
       {{context.diff_summary}}
 
-      Focus on separation of concerns, coupling, cohesion, API shape, and
-      alignment with the repository's established patterns. Output PASS/FAIL
-      with a structured verdict. Output the verdict JSON directly.
+      Focus: architecture, maintainability, coupling, and established patterns.
     contextInputs: [project_index, review_context, affected_files, diff_summary]
     contextOutputs: [architecture_findings]
     outputs:
@@ -288,9 +270,6 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      Use the `dartclaw-remediate-findings` skill to apply the minimal fixes for
-      the issues found during synthesis.
-
       Project index:
       {{context.project_index}}
 
@@ -306,9 +285,7 @@ steps:
       Architecture findings:
       {{context.architecture_findings}}
 
-      If the synthesis indicates no remediation is needed, confirm that no code
-      changes are necessary and explain why the review is already acceptable.
-      Otherwise, address only the identified gaps and re-validate after each fix.
+      If no remediation is needed, say so plainly.
       End with `## Context Output` and a JSON object containing:
       - remediation_summary
       - diff_summary
@@ -320,8 +297,6 @@ steps:
     type: analysis
     skill: dartclaw-review-code
     prompt: |
-      Use the `dartclaw-review-code` skill to re-review the remediation result.
-
       Target:
       {{TARGET}}
 
@@ -337,9 +312,7 @@ steps:
       Updated diff summary:
       {{context.diff_summary}}
 
-      Re-check the original findings against the updated implementation. Set
-      findings_count to 0 only when every issue is resolved. End with
-      `## Context Output` and a JSON object containing `findings_count`.
+      End with `## Context Output` and a JSON object containing `findings_count`.
     contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
     contextOutputs: [findings_count]
 

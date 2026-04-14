@@ -2,6 +2,19 @@
 
 Use these conventions when updating project state.
 
+## Operation Vocabulary
+
+Use the same small set of operations across frameworks so downstream workflows can ask for state updates without inventing new verbs.
+
+- `mark in-progress` — set the active story, task, or change to in-progress
+- `mark complete` — mark the active story, task, or change complete
+- `add blocker` — record a new blocker or blocked reason
+- `add learnings` — append a short learning or session note when the framework supports it
+- `update phase` — move the current phase or lifecycle marker forward
+- `set overall status` — update the top-level project status such as On Track, At Risk, or Blocked
+
+If a framework does not support one of these operations directly, translate it to the closest native action instead of inventing a new state artifact.
+
 ## AndThen
 
 Canonical file: `docs/STATE.md`
@@ -69,4 +82,3 @@ There is no universal state file. Prefer the project's role files, instruction f
 ## none
 
 Create a minimal `STATE.md` in the canonical docs root and keep it short. The file exists only to support workflow continuity.
-

@@ -1,19 +1,33 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_list_command.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
+import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  late Directory tempDir;
+
   group('WorkflowListCommand', () {
     late List<String> output;
     late WorkflowListCommand command;
     late CommandRunner<void> runner;
 
     setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('workflow_list_command_test_');
       output = <String>[];
-      final config = DartclawConfig(server: ServerConfig(dataDir: '/tmp/dartclaw-test'));
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
       command = WorkflowListCommand(config: config, writeLine: output.add);
       runner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(command);
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
     });
 
     test('name is list', () {
@@ -28,7 +42,7 @@ void main() {
       expect(command.argParser.options.containsKey('json'), isTrue);
     });
 
-    test('default output is tabular with built-in workflows', () async {
+    test('default output is tabular with materialized workflows', () async {
       await runner.run(['list']);
 
       expect(output, isNotEmpty);
@@ -40,7 +54,7 @@ void main() {
       expect(joined, contains('SOURCE'));
       expect(joined, contains('DESCRIPTION'));
       expect(joined, contains('Total:'));
-      expect(joined, contains('built-in'));
+      expect(joined, contains('materialized'));
     });
 
     test('json output is valid JSON array', () async {
@@ -51,6 +65,8 @@ void main() {
       // Should be parseable JSON array
       expect(decoded.trim(), startsWith('['));
       expect(decoded.trim(), endsWith(']'));
+      final list = jsonDecode(decoded) as List<dynamic>;
+      expect(list.first['source'], 'materialized');
     });
 
     test('json output contains workflow fields', () async {
@@ -63,11 +79,41 @@ void main() {
       expect(output.first, contains('"source"'));
     });
 
-    test('summary line shows built-in count', () async {
+    test('summary line shows materialized count', () async {
       await runner.run(['list']);
 
       final totalLine = output.lastWhere((l) => l.contains('Total:'));
-      expect(totalLine, contains('built-in'));
+      expect(totalLine, contains('materialized'));
+    });
+
+    test('uses installed assets when available', () async {
+      final assetRoot = Directory(p.join(tempDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
+      Directory(p.join(assetRoot.path, 'templates')).createSync(recursive: true);
+      Directory(p.join(assetRoot.path, 'static')).createSync(recursive: true);
+      final workflowsDir = Directory(p.join(assetRoot.path, 'workflows'))..createSync(recursive: true);
+      File(p.join(workflowsDir.path, 'installed-workflow.yaml')).writeAsStringSync('''
+name: installed-workflow
+description: Installed workflow for testing.
+steps:
+  - id: step1
+    name: Step 1
+    prompt: Do the thing.
+''');
+
+      final installedResolver = AssetResolver(resolvedExecutable: p.join(tempDir.path, 'bin', 'dartclaw'));
+      final installedOutput = <String>[];
+      final installedCommand = WorkflowListCommand(
+        config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
+        assetResolver: installedResolver,
+        writeLine: installedOutput.add,
+      );
+      final installedRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(installedCommand);
+
+      await installedRunner.run(['list']);
+
+      final joined = installedOutput.join('\n');
+      expect(joined, contains('installed-workflow'));
+      expect(joined, contains('materialized'));
     });
   });
 }

@@ -211,7 +211,7 @@ void main() {
       description: 'Do work',
       type: TaskType.coding,
       autoStart: true,
-      provider: ProviderIdentity.codexExec,
+      provider: ProviderIdentity.codex,
       now: DateTime.parse('2026-03-10T10:00:00Z'),
     );
     await tasks.transition('task-1', TaskStatus.running, now: DateTime.parse('2026-03-10T10:05:00Z'));
@@ -244,7 +244,7 @@ void main() {
     expect(activeTasks.single['id'], 'task-1');
     expect(activeTasks.single['status'], 'review');
     expect(activeTasks.single['startedAt'], isA<String>());
-    expect(activeTasks.single['provider'], ProviderIdentity.codexExec);
+    expect(activeTasks.single['provider'], ProviderIdentity.codex);
     expect(activeTasks.single['providerLabel'], 'Codex');
     expect(DateTime.parse(activeTasks.single['startedAt'] as String), isA<DateTime>());
   });

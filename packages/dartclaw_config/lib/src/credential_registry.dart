@@ -7,8 +7,7 @@ class CredentialRegistry {
 
   static const Map<String, List<String>> _providerEnvFallbacks = {
     'claude': ['ANTHROPIC_API_KEY'],
-    'codex': ['OPENAI_API_KEY', 'CODEX_API_KEY'],
-    'codex-exec': ['CODEX_API_KEY', 'OPENAI_API_KEY'],
+    'codex': ['CODEX_API_KEY', 'OPENAI_API_KEY'],
   };
 
   final CredentialsConfig _credentials;

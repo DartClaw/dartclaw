@@ -40,7 +40,7 @@ class ProviderValidator {
   /// (OAuth/subscription), independent of an API key.
   ///
   /// For `claude`: runs `claude auth status` and checks `loggedIn`.
-  /// For `codex`/`codex-exec`: checks `~/.codex/auth.json` for tokens.
+  /// For `codex`: checks `~/.codex/auth.json` for tokens.
   /// Returns `false` for unknown providers or on any error.
   ///
   /// [homePath] overrides `$HOME` for testing.

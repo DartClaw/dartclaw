@@ -94,41 +94,13 @@ void main() {
       expect(status.version, 'Codex CLI 0.9.0');
       expect(status.binaryFound, isTrue);
       expect(status.credentialStatus, 'present');
-      expect(status.credentialEnvVar, 'OPENAI_API_KEY');
+      expect(status.credentialEnvVar, 'CODEX_API_KEY');
       expect(status.poolSize, 2);
       expect(status.activeWorkers, 1);
       expect(status.isDefault, isTrue);
       expect(status.health, 'healthy');
       expect(status.errorMessage, isNull);
       expect(service.getSummary(), {'configured': 1, 'healthy': 1, 'degraded': 0});
-    });
-
-    test('treats codex-exec as a codex-family provider for executable and credentials', () async {
-      final service = ProviderStatusService(
-        providers: const ProvidersConfig.defaults(),
-        registry: _registry(openAiApiKey: 'openai-key'),
-        defaultProvider: 'codex-exec',
-        pool: _buildPool(
-          pools: pools,
-          messages: messages,
-          workspaceDir: tempDir.path,
-          runners: const [
-            (providerId: 'codex-exec', state: WorkerState.idle),
-            (providerId: 'codex-exec', state: WorkerState.busy),
-            (providerId: 'codex-exec', state: WorkerState.idle),
-          ],
-        ),
-      );
-
-      await service.probe(commandProbe: probeResults({'codex': probeOk('Codex CLI 1.2.3')}));
-
-      final status = service.getAll().single;
-      expect(status.id, 'codex-exec');
-      expect(status.executable, 'codex');
-      expect(status.version, 'Codex CLI 1.2.3');
-      expect(status.credentialEnvVar, 'CODEX_API_KEY');
-      expect(status.activeWorkers, 1);
-      expect(status.isDefault, isTrue);
     });
 
     test('reports multiple configured providers with healthy, degraded, and unavailable states', () async {
@@ -185,10 +157,10 @@ void main() {
       final codex = statuses['codex']!;
       expect(codex.health, 'degraded');
       expect(codex.credentialStatus, 'missing');
-      expect(codex.credentialEnvVar, 'OPENAI_API_KEY');
+      expect(codex.credentialEnvVar, 'CODEX_API_KEY');
       expect(codex.binaryFound, isTrue);
       expect(codex.errorMessage, contains("Credentials missing for provider 'codex'"));
-      expect(codex.errorMessage, contains('OPENAI_API_KEY'));
+      expect(codex.errorMessage, contains('CODEX_API_KEY'));
       expect(codex.errorMessage, contains('credentials section'));
 
       final ghost = statuses['ghost']!;

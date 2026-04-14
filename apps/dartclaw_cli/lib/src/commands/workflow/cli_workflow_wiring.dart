@@ -3,17 +3,9 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show EventBus, HarnessConfig, HarnessFactory, HarnessFactoryConfig, KvService, MessageService, SessionService;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        SkillRegistryImpl,
-        WorkflowDefinitionParser,
-        WorkflowDefinitionValidator,
-        WorkflowRegistry,
-        WorkflowService,
-        WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
+        AssetResolver,
         ArtifactCollector,
         BehaviorFileService,
         HarnessPool,
@@ -22,11 +14,22 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         TaskService,
         TurnManager,
         TurnRunner;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        SkillRegistryImpl,
+        WorkflowDefinitionParser,
+        WorkflowDefinitionValidator,
+        WorkflowRegistry,
+        WorkflowSource,
+        WorkflowService,
+        WorkflowTurnAdapter,
+        WorkflowTurnOutcome;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SearchDbFactory, SqliteTaskRepository, SqliteWorkflowRunRepository, TaskDbFactory, openSearchDb, openTaskDb;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
 
+import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
 
 /// Minimal service graph for headless workflow execution.
@@ -41,6 +44,7 @@ class CliWorkflowWiring {
   final HarnessFactory _harnessFactory;
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
+  final AssetResolver assetResolver;
 
   late final EventBus eventBus;
   late final KvService kvService;
@@ -51,6 +55,7 @@ class CliWorkflowWiring {
   late final TaskService taskService;
   late final HarnessPool pool;
   late final TaskExecutor taskExecutor;
+  late final SkillRegistryImpl skillRegistry;
   late final WorkflowRegistry registry;
   late final WorkflowService workflowService;
   late final BehaviorFileService behavior;
@@ -65,9 +70,11 @@ class CliWorkflowWiring {
     HarnessFactory? harnessFactory,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
+    AssetResolver? assetResolver,
   }) : _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
-       _taskDbFactory = taskDbFactory ?? openTaskDb;
+       _taskDbFactory = taskDbFactory ?? openTaskDb,
+       assetResolver = assetResolver ?? AssetResolver();
 
   /// Constructs all services needed for headless workflow execution.
   ///
@@ -76,7 +83,9 @@ class CliWorkflowWiring {
   Future<void> wire() async {
     eventBus = EventBus();
     final projectDirs = _workflowSkillProjectDirs(config);
-    final builtInSkillsSourceDir = WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    final resolvedAssets = assetResolver.resolve();
+    final builtInSkillsSourceDir =
+        resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
     await WorkflowSkillMaterializer.materialize(
       activeHarnessTypes: _activeHarnessTypes(config),
       homeDir: skillsHomeDir,
@@ -203,8 +212,8 @@ class CliWorkflowWiring {
       dataDir: dataDir,
     );
 
-    // Registry — load built-in workflows, then discover custom ones.
-    final skillRegistry = SkillRegistryImpl();
+    // Registry — materialize built-in workflows, then discover custom ones.
+    skillRegistry = SkillRegistryImpl();
     skillRegistry.discover(
       projectDirs: projectDirs,
       workspaceDir: config.workspaceDir,
@@ -221,8 +230,8 @@ class CliWorkflowWiring {
       continuityProviders: continuityProviders,
     );
     registry.skillRegistry = skillRegistry;
-    registry.loadBuiltIn();
-    await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'));
+    await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
+    await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'), source: WorkflowSource.materialized);
     for (final projectDef in config.projects.definitions.values) {
       final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
       await registry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));

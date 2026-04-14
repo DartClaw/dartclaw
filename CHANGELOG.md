@@ -27,6 +27,10 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection
 - **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
 - **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
+- **Built-in workflow skills expanded to full-capability parity**: the 8 AndThen-derived `dartclaw-*` skills (`review-code`, `review-gap`, `spec`, `plan`, `exec-spec`, `remediate-findings`, `review-doc`, `refactor`) now ship with their full adapted DartClaw methodology instead of the earlier thin stubs, and `discover-project` / `update-state` were revalidated against the S11 contract
+- **Shared skill support content completed**: the built-in skill tree now includes the shared `references/` support content and expanded review/spec support files, with relative-path wiring verified in both the source tree and the installed harness-visible copies under `~/.claude/skills/` and `~/.agents/skills/`
+- **AndThen migration process documented**: the private milestone artifacts now include a repeatable checklist for porting future AndThen skill changes into DartClaw without reintroducing AndThen-only runtime assumptions
+- **Built-in workflow definitions tightened**: skill-backed workflow prompts now act as thin input/output wrappers around the `dartclaw-*` skills, `spec-and-implement` and `plan-and-implement` both use bounded remediation/re-review loops, and the obsolete `research-and-evaluate` built-in workflow was removed from the default set
 
 ### Fixed
 
@@ -50,7 +54,7 @@ Architecture Hygiene & Documentation — SDK Package Decomposition Phase 2. Comp
 - **Integration & scenario testing framework**: tagged integration tests for governance and thread-binding; governance testing profile at `docs/testing/workflows/`
 - **Workflow architecture deep-dive**: private architecture docs now include a full workflow architecture reference covering the definition model, parser/validator contract, context extraction chain, gates, loops, map/fan-out, crash recovery, and built-in workflow catalog
 - **Architecture fitness functions**: `tool/arch_check.dart` now enforces cycle freedom, `sqlite3` exclusion from `dartclaw_core`, no cross-package `src/` imports, core LOC/export ceilings, and workspace package-count limits
-- **Standalone binary build system**: `tool/embed_assets.dart` generates embedded maps of templates, static assets, and skills at build time; `tool/build.sh` and `Makefile` produce a self-contained `build/dartclaw` AOT binary that serves the full web UI and materializes skills without `--source-dir`, `--static-dir`, or `--templates-dir` flags. Auto-detection (empty maps = dev/filesystem mode, populated maps = embedded mode) means zero behavioral change during development. `.github/workflows/ci.yml` runs check + build jobs and uploads platform artifacts
+- **Standalone binary build system**: `tool/build.sh` now compiles `build/dartclaw` and packages external asset archives for templates, static assets, skills, and workflows, plus SHA256 checksums for release publication. `.github/workflows/ci.yml` runs check + build jobs and uploads platform artifacts
 - **CLI reference**: new `cli-reference.md` in the public guide documenting all `dartclaw` subcommands (`serve`, `init`, `status`, `token`, `sessions`, `workflow`, `service`, `rebuild-index`)
 
 ### Changed

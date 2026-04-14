@@ -22,7 +22,7 @@ curl -fsSL https://claude.ai/install.sh | bash
 sudo apt-get install libsqlite3-dev
 ```
 
-Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex app-server (`provider: codex`), use the Codex CLI's normal sign-in flow or `OPENAI_API_KEY`. For Codex exec (`provider: codex-exec`) in CI, prefer `CODEX_API_KEY`.
+Auth: for Claude, run `claude login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
 
 ## Install DartClaw
 
@@ -88,7 +88,9 @@ Setup reports one of two completion states:
 
 Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
 
-**Important**: Standalone binaries produced by `bash tool/build.sh` embed the web UI, static assets, and built-in skills, so they do not need `--source-dir`, `--static-dir`, or `--templates-dir`. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates and static assets from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
+**Important**: Standalone binaries produced by `bash tool/build.sh` ship the `dartclaw` executable plus companion assets. Packaged installs discover those assets from the filesystem (`../share/dartclaw/` in Homebrew, or `~/.dartclaw/assets/v{VERSION}/` after the first-run download fallback) rather than embedding web UI, static assets, skills, or workflows in the binary. When you run from a clone with `dart run` or `--dev`, DartClaw still reads templates, static assets, skills, and workflows from the source tree, and `dartclaw service install` keeps `--source-dir` in checkout-backed service units. For those clone-based runs, see [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
+
+If you install only the bare binary, the first `dartclaw serve` run downloads the matching asset archive unless you pass `--offline`.
 
 ## Run from Source
 

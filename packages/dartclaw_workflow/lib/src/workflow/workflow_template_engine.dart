@@ -49,6 +49,7 @@ class WorkflowTemplateEngine {
   /// - `{{map.item.field}}` — field access on Map item (fail-fast if item is scalar)
   /// - `{{map.item.a.b}}` / `{{map.item.a.b.c}}` — nested traversal (max 3 levels)
   /// - `{{map.index}}` — 0-based iteration index
+  /// - `{{map.display_index}}` — 1-based iteration index for author-facing text
   /// - `{{map.length}}` — total collection size
   /// - `{{context.key[map.index]}}` — indexed lookup into a List-typed context value
   ///
@@ -96,6 +97,7 @@ class WorkflowTemplateEngine {
   /// Resolves a `map.*` reference using the current [MapContext].
   String _resolveMapRef(String ref, MapContext mapCtx) {
     if (ref == 'map.index') return mapCtx.index.toString();
+    if (ref == 'map.display_index') return (mapCtx.index + 1).toString();
     if (ref == 'map.length') return mapCtx.length.toString();
     if (ref == 'map.item') {
       final item = mapCtx.item;

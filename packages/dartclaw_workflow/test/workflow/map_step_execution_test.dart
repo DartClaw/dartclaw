@@ -702,6 +702,57 @@ void main() {
       expect(completedEvent!.failureCount, equals(0));
       expect(completedEvent!.cancelledCount, equals(0));
     });
+
+    test('persists map progress checkpoints between sequential map iterations', () async {
+      final collection = ['a', 'b', 'c'];
+      final definition = WorkflowDefinition(
+        name: 'map-recovery',
+        description: 'Map recovery',
+        steps: const [
+          WorkflowStep(
+            id: 'map',
+            name: 'Map',
+            prompts: ['Process {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 1,
+            contextOutputs: ['mapped'],
+          ),
+        ],
+      );
+
+      var run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final queuedTitles = <String>[];
+      final checkpointReady = Completer<void>();
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        queuedTitles.add(task.title);
+        if (queuedTitles.length == 2 && !checkpointReady.isCompleted) {
+          checkpointReady.complete();
+        }
+        await completeTask(e.taskId);
+      });
+
+      final executeFuture = executor.execute(run, definition, context);
+      await checkpointReady.future;
+
+      final checkpointed = await repository.getById('run-1');
+      expect(checkpointed?.executionCursor?.nodeId, 'map');
+      expect(checkpointed?.executionCursor?.completedIndices, [0]);
+
+      await executeFuture;
+      await sub.cancel();
+
+      expect(queuedTitles, ['map-recovery — Map (1/3)', 'map-recovery — Map (2/3)', 'map-recovery — Map (3/3)']);
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
   });
 
   group('maxParallel resolution', () {

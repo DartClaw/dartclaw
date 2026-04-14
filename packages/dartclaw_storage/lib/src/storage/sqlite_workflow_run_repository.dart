@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowExecutionCursor, WorkflowRun, WorkflowRunStatus;
 import 'package:sqlite3/sqlite3.dart';
 
 /// SQLite-backed repository for workflow run persistence.
@@ -29,10 +29,15 @@ class SqliteWorkflowRunRepository {
         total_tokens INTEGER NOT NULL DEFAULT 0,
         current_step_index INTEGER NOT NULL DEFAULT 0,
         definition_json TEXT NOT NULL DEFAULT '{}',
+        execution_cursor_json TEXT,
         current_loop_id TEXT,
         current_loop_iteration INTEGER
       )
     ''');
+    final columns = _db.select('PRAGMA table_info(workflow_runs)').map((row) => row['name'] as String).toSet();
+    if (!columns.contains('execution_cursor_json')) {
+      _db.execute('ALTER TABLE workflow_runs ADD COLUMN execution_cursor_json TEXT');
+    }
     _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition ON workflow_runs(definition_name)');
   }
@@ -43,8 +48,8 @@ class SqliteWorkflowRunRepository {
         id, definition_name, status, context_json, variables_json,
         started_at, updated_at, completed_at, error_message,
         total_tokens, current_step_index, definition_json,
-        current_loop_id, current_loop_iteration
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        execution_cursor_json, current_loop_id, current_loop_iteration
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -60,6 +65,7 @@ class SqliteWorkflowRunRepository {
         run.totalTokens,
         run.currentStepIndex,
         _encodeJson(run.definitionJson),
+        _encodeJsonNullable(run.executionCursor?.toJson()),
         run.currentLoopId,
         run.currentLoopIteration,
       ]);
@@ -116,6 +122,7 @@ class SqliteWorkflowRunRepository {
         total_tokens = ?,
         current_step_index = ?,
         definition_json = ?,
+        execution_cursor_json = ?,
         current_loop_id = ?,
         current_loop_iteration = ?
       WHERE id = ?
@@ -131,6 +138,7 @@ class SqliteWorkflowRunRepository {
         run.totalTokens,
         run.currentStepIndex,
         _encodeJson(run.definitionJson),
+        _encodeJsonNullable(run.executionCursor?.toJson()),
         run.currentLoopId,
         run.currentLoopIteration,
         run.id,
@@ -163,6 +171,7 @@ class SqliteWorkflowRunRepository {
       totalTokens: (row['total_tokens'] as int?) ?? 0,
       currentStepIndex: (row['current_step_index'] as int?) ?? 0,
       definitionJson: _decodeJson(row['definition_json'] as String),
+      executionCursor: _decodeExecutionCursor(row['execution_cursor_json']),
       currentLoopId: row['current_loop_id'] as String?,
       currentLoopIteration: row['current_loop_iteration'] as int?,
     );
@@ -172,7 +181,17 @@ class SqliteWorkflowRunRepository {
 
   String _encodeJson(Map<dynamic, dynamic> value) => jsonEncode(value);
 
+  String? _encodeJsonNullable(Map<dynamic, dynamic>? value) => value == null ? null : jsonEncode(value);
+
   Map<String, dynamic> _decodeJson(String value) => Map<String, dynamic>.from(jsonDecode(value) as Map);
+
+  Map<String, dynamic>? _decodeJsonNullable(Object? value) =>
+      value == null ? null : Map<String, dynamic>.from(jsonDecode(value as String) as Map);
+
+  WorkflowExecutionCursor? _decodeExecutionCursor(Object? value) {
+    final json = _decodeJsonNullable(value);
+    return json == null ? null : WorkflowExecutionCursor.fromJson(json);
+  }
 
   Map<String, String> _decodeStringMap(String value) => Map<String, String>.from(jsonDecode(value) as Map);
 }

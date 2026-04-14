@@ -64,6 +64,18 @@ void main() {
         definitionJson: {'name': 'pipeline', 'steps': []},
         currentLoopId: 'loop-1',
         currentLoopIteration: 2,
+        executionCursor: WorkflowExecutionCursor.map(
+          stepId: 'map-step',
+          stepIndex: 4,
+          totalItems: 3,
+          completedIndices: const [0, 2],
+          failedIndices: const [2],
+          resultSlots: const [
+            'done',
+            null,
+            {'error': true, 'message': 'failed'},
+          ],
+        ),
       );
       final json = run.toJson();
       final restored = WorkflowRun.fromJson(json);
@@ -82,6 +94,10 @@ void main() {
       expect(restored.definitionJson['name'], 'pipeline');
       expect(restored.currentLoopId, 'loop-1');
       expect(restored.currentLoopIteration, 2);
+      expect(restored.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.map);
+      expect(restored.executionCursor?.nodeId, 'map-step');
+      expect(restored.executionCursor?.completedIndices, [0, 2]);
+      expect(restored.executionCursor?.failedIndices, [2]);
     });
 
     test('round-trips with minimal fields (defaults)', () {
@@ -94,6 +110,7 @@ void main() {
       expect(restored.definitionJson, isEmpty);
       expect(restored.currentLoopId, isNull);
       expect(restored.currentLoopIteration, isNull);
+      expect(restored.executionCursor, isNull);
     });
 
     test('copyWith preserves unchanged fields', () {

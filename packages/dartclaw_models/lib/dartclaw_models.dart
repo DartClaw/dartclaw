@@ -39,7 +39,12 @@ export 'src/task_event.dart'
         Compaction;
 export 'src/workflow_definition.dart'
     show
+        ActionNode,
+        LoopNode,
+        MapNode,
+        ParallelGroupNode,
         WorkflowDefinition,
+        WorkflowNode,
         WorkflowStep,
         WorkflowVariable,
         WorkflowLoop,
@@ -49,5 +54,6 @@ export 'src/workflow_definition.dart'
         ExtractionConfig,
         OutputFormat,
         OutputConfig;
-export 'src/workflow_run.dart' show WorkflowRun, WorkflowRunStatus;
+export 'src/workflow_run.dart'
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
 export 'src/skill_info.dart' show SkillInfo, SkillSource;

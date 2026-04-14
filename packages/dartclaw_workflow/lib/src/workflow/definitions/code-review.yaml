@@ -1,8 +1,8 @@
 name: code-review
 description: >-
   Deterministic code-review workflow — discover the project, extract a diff,
-  gather context, fan out specialized reviewers in parallel, synthesize the
-  findings, and iterate remediation up to a bounded limit.
+  gather context, run one comprehensive review phase, and iterate
+  remediation/re-review up to a bounded limit.
 variables:
   TARGET:
     required: true
@@ -30,10 +30,8 @@ variables:
 stepDefaults:
   - match: "review*"
     model: claude-opus-4
-    maxCostUsd: 2.00
   - match: "*"
     provider: claude
-    maxTokens: 50000
 
 steps:
   - id: discover-project
@@ -122,7 +120,7 @@ steps:
     name: Gather Context
     type: research
     prompt: |
-      Use the review context to prepare the reviewers.
+      Use the review context to prepare the reviewer.
 
       Target:
       {{TARGET}}
@@ -145,11 +143,10 @@ steps:
     contextOutputs: [review_context, affected_files]
     gate: "extract-diff.status == success"
 
-  - id: review-correctness
-    name: Review Correctness
+  - id: review-code
+    name: Review Code
     type: analysis
     skill: dartclaw-review-code
-    parallel: true
     prompt: |
       Target:
       {{TARGET}}
@@ -166,158 +163,79 @@ steps:
       Diff summary:
       {{context.diff_summary}}
 
-      Focus: correctness, edge cases, and acceptance-criteria coverage.
-    contextInputs: [project_index, review_context, affected_files, diff_summary]
-    contextOutputs: [correctness_findings]
-    outputs:
-      correctness_findings:
-        format: json
-        schema: verdict
-    gate: "gather-context.status == accepted"
+      Cover all review dimensions in one pass:
+      - correctness and regressions
+      - security and unsafe defaults
+      - architecture, maintainability, and coupling
 
-  - id: review-security
-    name: Review Security
-    type: analysis
-    skill: dartclaw-review-code
-    parallel: true
-    prompt: |
-      Target:
-      {{TARGET}}
-
-      Project index:
-      {{context.project_index}}
-
-      Review context:
-      {{context.review_context}}
-
-      Affected files:
-      {{context.affected_files}}
-
-      Diff summary:
-      {{context.diff_summary}}
-
-      Focus: security, unsafe defaults, data handling, and input validation.
-    contextInputs: [project_index, review_context, affected_files, diff_summary]
-    contextOutputs: [security_findings]
-    outputs:
-      security_findings:
-        format: json
-        schema: verdict
-    gate: "gather-context.status == accepted"
-
-  - id: review-architecture
-    name: Review Architecture
-    type: analysis
-    skill: dartclaw-review-code
-    parallel: true
-    prompt: |
-      Target:
-      {{TARGET}}
-
-      Project index:
-      {{context.project_index}}
-
-      Review context:
-      {{context.review_context}}
-
-      Affected files:
-      {{context.affected_files}}
-
-      Diff summary:
-      {{context.diff_summary}}
-
-      Focus: architecture, maintainability, coupling, and established patterns.
-    contextInputs: [project_index, review_context, affected_files, diff_summary]
-    contextOutputs: [architecture_findings]
-    outputs:
-      architecture_findings:
-        format: json
-        schema: verdict
-    gate: "gather-context.status == accepted"
-
-  - id: synthesize
-    name: Synthesize Reviews
-    type: analysis
-    prompt: |
-      Synthesize the parallel review results into a single remediation brief.
-
-      Correctness review:
-      {{context.correctness_findings}}
-
-      Security review:
-      {{context.security_findings}}
-
-      Architecture review:
-      {{context.architecture_findings}}
-
-      Summarize:
-      - Must-fix issues
-      - Nice-to-have issues
-      - Conflicting assessments
-      - Whether the implementation is ready or needs more work
-
-      Set needs_work to true if any must-fix issue remains.
       End with `## Context Output` and a JSON object containing:
       - review_summary
-      - needs_work
-    contextInputs: [correctness_findings, security_findings, architecture_findings]
-    contextOutputs: [review_summary, needs_work]
+      - findings_count
+    contextInputs: [project_index, review_context, affected_files, diff_summary]
+    contextOutputs: [review_summary, findings_count]
+    outputs:
+      review_summary:
+        format: json
+        schema: verdict
+    gate: "gather-context.status == accepted"
 
-  - id: remediate
-    name: Remediate Findings
-    type: coding
-    skill: dartclaw-remediate-findings
-    project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Project index:
-      {{context.project_index}}
-
-      Review summary:
-      {{context.review_summary}}
-
-      Correctness findings:
-      {{context.correctness_findings}}
-
-      Security findings:
-      {{context.security_findings}}
-
-      Architecture findings:
-      {{context.architecture_findings}}
-
-      If no remediation is needed, say so plainly.
-      End with `## Context Output` and a JSON object containing:
-      - remediation_summary
-      - diff_summary
-    contextInputs: [project_index, review_summary, correctness_findings, security_findings, architecture_findings]
-    contextOutputs: [remediation_summary, diff_summary]
-
-  - id: re-review
-    name: Re-review
-    type: analysis
-    skill: dartclaw-review-code
-    prompt: |
-      Target:
-      {{TARGET}}
-
-      Project index:
-      {{context.project_index}}
-
-      Original review summary:
-      {{context.review_summary}}
-
-      Remediation summary:
-      {{context.remediation_summary}}
-
-      Updated diff summary:
-      {{context.diff_summary}}
-
-      End with `## Context Output` and a JSON object containing `findings_count`.
-    contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-    contextOutputs: [findings_count]
-
-loops:
   - id: remediation-loop
-    steps: [remediate, re-review]
+    name: Remediation Loop
+    type: loop
     maxIterations: 3
     exitGate: "re-review.findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        type: coding
+        skill: dartclaw-remediate-findings
+        project: "{{PROJECT}}"
+        review: always
+        prompt: |
+          Project index:
+          {{context.project_index}}
+
+          Review summary:
+          {{context.review_summary}}
+
+          If no remediation is needed, say so plainly.
+          End with `## Context Output` and a JSON object containing:
+          - remediation_summary
+          - diff_summary
+        contextInputs: [project_index, review_summary]
+        contextOutputs: [remediation_summary, diff_summary]
+
+      - id: re-review
+        name: Re-review
+        type: analysis
+        skill: dartclaw-review-code
+        prompt: |
+          Target:
+          {{TARGET}}
+
+          Project index:
+          {{context.project_index}}
+
+          Original review summary:
+          {{context.review_summary}}
+
+          Remediation summary:
+          {{context.remediation_summary}}
+
+          Updated diff summary:
+          {{context.diff_summary}}
+
+          Cover the same review dimensions as the initial review:
+          - correctness and regressions
+          - security and unsafe defaults
+          - architecture, maintainability, and coupling
+
+          End with `## Context Output` and a JSON object containing:
+          - review_summary
+          - findings_count
+        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
+        contextOutputs: [review_summary, findings_count]
+        outputs:
+          review_summary:
+            format: json
+            schema: verdict

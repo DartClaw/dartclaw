@@ -24,6 +24,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
+        WorkflowDefinitionParser,
         WorkflowExecutor,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -35,6 +36,30 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+const _inlineLoopExecutionYaml = '''
+name: ordered-inline-loop
+description: Inline loop authored in step order
+steps:
+  - id: gap-analysis
+    name: Gap Analysis
+    prompt: Analyze the implementation
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: re-review.status == accepted
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes
+      - id: re-review
+        name: Re-review
+        prompt: Verify the fixes
+  - id: update-state
+    name: Update State
+    prompt: Record the final result
+''';
 
 void main() {
   late Directory tempDir;
@@ -340,7 +365,7 @@ void main() {
     expect(finalRun?.errorMessage, contains('Gate failed'));
   });
 
-  test('loop-owned steps are skipped in linear pass', () async {
+  test('loop nodes own their body steps and execute them in authored order', () async {
     final definition = WorkflowDefinition(
       name: 'test-workflow',
       description: 'Test',
@@ -369,12 +394,82 @@ void main() {
     await executor.execute(run, definition, context);
     await sub.cancel();
 
-    // Linear pass: step1 and step3 (step2 skipped). Loop pass: step2 runs once
-    // (exitGate 'step2.status == accepted' passes immediately). Total: 3 tasks.
+    // Authored order is step1 -> loop(step2) -> step3. The loop body executes
+    // once because the exit gate passes immediately.
     expect(executedStepIds.length, equals(3));
 
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop executes in authored order before following sibling steps', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineLoopExecutionYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
+
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('legacy loops execute in authored-order model at first loop step without side-table ordering drift', () async {
+    final definition = WorkflowDefinition(
+      name: 'legacy-side-table',
+      description: 'Legacy loops side table compatibility',
+      steps: [
+        const WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup']),
+        const WorkflowStep(id: 'remediate', name: 'Remediate', prompts: ['Fix']),
+        const WorkflowStep(id: 'middle', name: 'Middle', prompts: ['Middle']),
+        const WorkflowStep(id: 're-review', name: 'Re-review', prompts: ['Review']),
+        const WorkflowStep(id: 'after', name: 'After', prompts: ['After']),
+      ],
+      loops: [
+        const WorkflowLoop(
+          id: 'legacy-loop',
+          steps: ['remediate', 're-review'],
+          maxIterations: 2,
+          exitGate: 're-review.status == accepted',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['setup', 'remediate', 're-review', 'middle', 'after']));
   });
 
   test('cancellation token stops execution between steps', () async {
@@ -813,7 +908,7 @@ void main() {
       );
 
       // Simulate resume state: mid-loop, iteration 1, loopB failed.
-      var run = makeRun(definition, stepIndex: 2); // Past linear pass.
+      var run = makeRun(definition, stepIndex: 2); // Resume after the parallel group boundary.
       run = run.copyWith(
         contextJson: {
           '_loop.current.id': 'loop1',
@@ -841,7 +936,7 @@ void main() {
         run,
         definition,
         context,
-        startFromStepIndex: 2, // Past linear pass.
+        startFromStepIndex: 2, // Resume after the parallel group boundary.
         startFromLoopIndex: 0,
         startFromLoopIteration: 1,
         startFromLoopStepId: 'loopB',
@@ -853,6 +948,81 @@ void main() {
       expect(createdTaskTitles, hasLength(1));
       expect(createdTaskTitles.first, contains('Loop B'));
 
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('checkpoints loop cursor after each sibling step so resume can continue in-iteration', () async {
+      final definition = WorkflowDefinition(
+        name: 'loop-checkpoint',
+        description: 'Loop checkpointing',
+        steps: [
+          const WorkflowStep(id: 'loopA', name: 'Loop A', prompts: ['Do A']),
+          const WorkflowStep(id: 'loopB', name: 'Loop B', prompts: ['Do B']),
+        ],
+        loops: [
+          const WorkflowLoop(
+            id: 'loop1',
+            steps: ['loopA', 'loopB'],
+            maxIterations: 3,
+            exitGate: 'loopB.status == accepted',
+          ),
+        ],
+      );
+
+      var run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      var cancelAfterLoopASuccess = false;
+      final createdTaskTitlesFirstPass = <String>[];
+      final firstPassSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        createdTaskTitlesFirstPass.add(task.title);
+        await completeTask(e.taskId);
+        if (task.title.contains('Loop A')) {
+          cancelAfterLoopASuccess = true;
+        }
+      });
+
+      await executor.execute(run, definition, context, isCancelled: () => cancelAfterLoopASuccess);
+      await firstPassSub.cancel();
+
+      final interrupted = await repository.getById('run-1');
+      expect(createdTaskTitlesFirstPass, hasLength(1));
+      expect(createdTaskTitlesFirstPass.first, contains('Loop A'));
+      expect(interrupted?.contextJson['_loop.current.stepId'], equals('loopB'));
+      expect((interrupted?.contextJson['data'] as Map?)?['loopA.status'], equals('accepted'));
+
+      final createdTaskTitlesSecondPass = <String>[];
+      final secondPassSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen(
+        (e) async {
+          await Future<void>.delayed(Duration.zero);
+          final task = await taskService.get(e.taskId);
+          if (task == null) return;
+          createdTaskTitlesSecondPass.add(task.title);
+          await completeTask(e.taskId);
+        },
+      );
+
+      run = interrupted!;
+      await executor.execute(
+        run,
+        definition,
+        context,
+        startFromStepIndex: 0,
+        startFromLoopIndex: 0,
+        startFromLoopIteration: 1,
+        startFromLoopStepId: interrupted.contextJson['_loop.current.stepId'] as String?,
+      );
+      await secondPassSub.cancel();
+
+      expect(createdTaskTitlesSecondPass, hasLength(1));
+      expect(createdTaskTitlesSecondPass.first, contains('Loop B'));
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });

@@ -100,6 +100,42 @@ void main() {
     });
   });
 
+  group('WorkflowNode', () {
+    test('action node round-trips via toJson/fromJson', () {
+      const node = ActionNode(stepId: 'step-1');
+      final restored = WorkflowNode.fromJson(node.toJson());
+      expect(restored, isA<ActionNode>());
+      expect((restored as ActionNode).stepId, 'step-1');
+    });
+
+    test('map node round-trips via toJson/fromJson', () {
+      const node = MapNode(stepId: 'story-spec');
+      final restored = WorkflowNode.fromJson(node.toJson());
+      expect(restored, isA<MapNode>());
+      expect((restored as MapNode).stepId, 'story-spec');
+    });
+
+    test('parallel group node round-trips via toJson/fromJson', () {
+      const node = ParallelGroupNode(stepIds: ['review-a', 'review-b']);
+      final restored = WorkflowNode.fromJson(node.toJson());
+      expect(restored, isA<ParallelGroupNode>());
+      expect((restored as ParallelGroupNode).stepIds, ['review-a', 'review-b']);
+    });
+
+    test('loop node round-trips via toJson/fromJson', () {
+      const node = LoopNode(
+        loopId: 'remediation-loop',
+        stepIds: ['remediate', 're-review'],
+        finallyStepId: 'summarize',
+      );
+      final restored = WorkflowNode.fromJson(node.toJson());
+      expect(restored, isA<LoopNode>());
+      expect((restored as LoopNode).loopId, 'remediation-loop');
+      expect(restored.stepIds, ['remediate', 're-review']);
+      expect(restored.finallyStepId, 'summarize');
+    });
+  });
+
   group('StepConfigDefault (S03)', () {
     test('round-trips with all fields', () {
       const d = StepConfigDefault(
@@ -299,6 +335,9 @@ void main() {
       expect(restored.steps[1].id, 'step-2');
       expect(restored.loops.length, 1);
       expect(restored.loops[0].id, 'loop-1');
+      expect(restored.nodes, hasLength(2));
+      expect(restored.nodes.first, isA<ActionNode>());
+      expect(restored.nodes.last, isA<LoopNode>());
       expect(restored.maxTokens, 50000);
     });
 
@@ -312,6 +351,7 @@ void main() {
       );
       final restored = WorkflowDefinition.fromJson(def.toJson());
       expect(restored.loops, isEmpty);
+      expect(restored.nodes.single, isA<ActionNode>());
       expect(restored.maxTokens, isNull);
       expect(restored.stepDefaults, isNull);
     });
@@ -337,6 +377,39 @@ void main() {
       expect(restored.stepDefaults![0].model, 'claude-opus-4');
       expect(restored.stepDefaults![1].match, '*');
       expect(restored.stepDefaults![1].provider, 'claude');
+    });
+
+    test('normalizes action, map, parallel, and loop nodes when nodes are omitted from json', () {
+      const def = WorkflowDefinition(
+        name: 'normalized',
+        description: 'Normalized nodes',
+        steps: [
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['p']),
+          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories'),
+          WorkflowStep(id: 'review-a', name: 'Review A', prompts: ['p'], parallel: true),
+          WorkflowStep(id: 'review-b', name: 'Review B', prompts: ['p'], parallel: true),
+          WorkflowStep(id: 'remediate', name: 'Remediate', prompts: ['p']),
+          WorkflowStep(id: 're-review', name: 'Re-review', prompts: ['p']),
+        ],
+        loops: [
+          WorkflowLoop(
+            id: 'loop-1',
+            steps: ['remediate', 're-review'],
+            maxIterations: 3,
+            exitGate: 're-review.status == accepted',
+          ),
+        ],
+      );
+
+      final legacyJson = def.toJson()..remove('nodes');
+      final restored = WorkflowDefinition.fromJson(legacyJson);
+
+      expect(
+        restored.nodes.map((node) => node.runtimeType).toList(),
+        equals([ActionNode, MapNode, ParallelGroupNode, LoopNode]),
+      );
+      expect((restored.nodes[2] as ParallelGroupNode).stepIds, ['review-a', 'review-b']);
+      expect((restored.nodes[3] as LoopNode).stepIds, ['remediate', 're-review']);
     });
 
     test('stepDefaults absent from json when null (S03)', () {

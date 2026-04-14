@@ -24,12 +24,15 @@ class WorkflowDefinitionParser {
       throw FormatException('Invalid YAML${_at(sourcePath)}: ${e.message}');
     }
 
+    final parsedSteps = _parseSteps(yaml['steps'], sourcePath);
+    final loops = [...parsedSteps.inlineLoops, ..._normalizeLegacyLoops(_parseLoops(yaml['loops']), parsedSteps.steps)];
     return WorkflowDefinition(
       name: _requireString(yaml, 'name', sourcePath),
       description: _requireString(yaml, 'description', sourcePath),
       variables: _parseVariables(yaml['variables']),
-      steps: _parseSteps(yaml['steps'], sourcePath),
-      loops: _parseLoops(yaml['loops']),
+      steps: parsedSteps.steps,
+      loops: loops,
+      nodes: WorkflowDefinition.normalizeNodes(parsedSteps.steps, loops),
       maxTokens: yaml['maxTokens'] as int?,
       stepDefaults: _parseStepDefaults(yaml['stepDefaults'], sourcePath),
     );
@@ -69,7 +72,7 @@ class WorkflowDefinitionParser {
     );
   }
 
-  List<WorkflowStep> _parseSteps(Object? raw, String? sourcePath) {
+  _ParsedSteps _parseSteps(Object? raw, String? sourcePath) {
     if (raw == null) {
       throw FormatException('Missing required field "steps"${_at(sourcePath)}.');
     }
@@ -79,7 +82,93 @@ class WorkflowDefinitionParser {
     if (raw.isEmpty) {
       throw FormatException('Field "steps" must not be empty${_at(sourcePath)}.');
     }
-    return raw.map((s) => _parseStep(s as YamlMap, sourcePath)).toList(growable: false);
+    final steps = <WorkflowStep>[];
+    final inlineLoops = <WorkflowLoop>[];
+    for (final entry in raw) {
+      if (entry is! YamlMap) {
+        throw FormatException('Each step must be a mapping${_at(sourcePath)}.');
+      }
+      if (_isInlineLoopStep(entry)) {
+        final parsedLoop = _parseInlineLoopStep(entry, sourcePath);
+        inlineLoops.add(parsedLoop.loop);
+        steps.addAll(parsedLoop.steps);
+        if (parsedLoop.finalizerStep != null) {
+          steps.add(parsedLoop.finalizerStep!);
+        }
+      } else {
+        steps.add(_parseStep(entry, sourcePath));
+      }
+    }
+    return _ParsedSteps(steps: steps, inlineLoops: inlineLoops);
+  }
+
+  bool _isInlineLoopStep(YamlMap raw) => (raw['type'] as String?) == 'loop';
+
+  _ParsedInlineLoopStep _parseInlineLoopStep(YamlMap raw, String? sourcePath) {
+    final id = raw['id'];
+    if (id == null || id is! String || id.isEmpty) {
+      throw FormatException('Inline loop step must have a non-empty "id" field${_at(sourcePath)}.');
+    }
+
+    final name = raw['name'];
+    if (name == null || name is! String || name.isEmpty) {
+      throw FormatException('Inline loop "$id" must have a non-empty "name" field${_at(sourcePath)}.');
+    }
+
+    final maxIterations = raw['maxIterations'];
+    if (maxIterations == null || maxIterations is! int || maxIterations <= 0) {
+      throw FormatException('Inline loop "$id" must have integer maxIterations > 0${_at(sourcePath)}.');
+    }
+
+    final exitGate = raw['exitGate'];
+    if (exitGate == null || exitGate is! String || exitGate.isEmpty) {
+      throw FormatException('Inline loop "$id" must have a non-empty "exitGate"${_at(sourcePath)}.');
+    }
+
+    final loopStepsRaw = raw['steps'];
+    if (loopStepsRaw is! YamlList || loopStepsRaw.isEmpty) {
+      throw FormatException('Inline loop "$id" must include a non-empty "steps" list${_at(sourcePath)}.');
+    }
+
+    final loopSteps = <WorkflowStep>[];
+    for (final loopStepRaw in loopStepsRaw) {
+      if (loopStepRaw is! YamlMap) {
+        throw FormatException('Inline loop "$id" step entries must be mappings${_at(sourcePath)}.');
+      }
+      if (_isInlineLoopStep(loopStepRaw)) {
+        throw FormatException('Inline loop "$id" cannot contain nested inline loops${_at(sourcePath)}.');
+      }
+      loopSteps.add(_parseStep(loopStepRaw, sourcePath));
+    }
+
+    String? finallyStepId;
+    WorkflowStep? finalizerStep;
+    final finallyRaw = raw['finally'];
+    if (finallyRaw is String && finallyRaw.isNotEmpty) {
+      finallyStepId = finallyRaw;
+    } else if (finallyRaw is YamlMap) {
+      if (_isInlineLoopStep(finallyRaw)) {
+        throw FormatException('Inline loop "$id" finalizer cannot be a loop${_at(sourcePath)}.');
+      }
+      finalizerStep = _parseStep(finallyRaw, sourcePath);
+      finallyStepId = finalizerStep.id;
+    } else if (finallyRaw != null) {
+      throw FormatException(
+        'Inline loop "$id": "finally" must be a step ID string or a step mapping${_at(sourcePath)}.',
+      );
+    }
+
+    return _ParsedInlineLoopStep(
+      loop: WorkflowLoop(
+        id: id,
+        steps: loopSteps.map((step) => step.id).toList(growable: false),
+        maxIterations: maxIterations,
+        exitGate: exitGate,
+        finally_: finallyStepId,
+      ),
+      steps: loopSteps,
+      finalizerStep: finalizerStep,
+    );
   }
 
   WorkflowStep _parseStep(YamlMap raw, String? sourcePath) {
@@ -275,6 +364,31 @@ class WorkflowDefinitionParser {
     );
   }
 
+  List<WorkflowLoop> _normalizeLegacyLoops(List<WorkflowLoop> loops, List<WorkflowStep> steps) {
+    if (loops.length <= 1) return loops;
+    final indexByStepId = <String, int>{for (var i = 0; i < steps.length; i++) steps[i].id: i};
+    final decorated = loops
+        .asMap()
+        .entries
+        .map((entry) {
+          final originalIndex = entry.key;
+          final loop = entry.value;
+          final firstStepId = loop.steps.firstOrNull;
+          final authoredIndex = firstStepId != null
+              ? (indexByStepId[firstStepId] ?? steps.length + originalIndex)
+              : steps.length + originalIndex;
+          return (loop: loop, authoredIndex: authoredIndex, originalIndex: originalIndex);
+        })
+        .toList(growable: false);
+
+    decorated.sort((a, b) {
+      final byAuthoredIndex = a.authoredIndex.compareTo(b.authoredIndex);
+      if (byAuthoredIndex != 0) return byAuthoredIndex;
+      return a.originalIndex.compareTo(b.originalIndex);
+    });
+    return decorated.map((entry) => entry.loop).toList(growable: false);
+  }
+
   List<StepConfigDefault>? _parseStepDefaults(Object? raw, String? sourcePath) {
     if (raw is! YamlList) return null;
     return raw
@@ -320,4 +434,19 @@ class WorkflowDefinitionParser {
   }
 
   String _at(String? sourcePath) => sourcePath != null ? ' in "$sourcePath"' : '';
+}
+
+class _ParsedSteps {
+  final List<WorkflowStep> steps;
+  final List<WorkflowLoop> inlineLoops;
+
+  const _ParsedSteps({required this.steps, required this.inlineLoops});
+}
+
+class _ParsedInlineLoopStep {
+  final WorkflowLoop loop;
+  final List<WorkflowStep> steps;
+  final WorkflowStep? finalizerStep;
+
+  const _ParsedInlineLoopStep({required this.loop, required this.steps, this.finalizerStep});
 }

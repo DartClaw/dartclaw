@@ -233,7 +233,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 
    credentials:
      openai:
-       api_key: ${OPENAI_API_KEY}
+       api_key: ${CODEX_API_KEY}
    ```
 
    **Mixed (Claude default + Codex for tasks):**
@@ -254,7 +254,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
      anthropic:
        api_key: ${ANTHROPIC_API_KEY}
      openai:
-       api_key: ${OPENAI_API_KEY}
+       api_key: ${CODEX_API_KEY}
    ```
 
 4. **Start DartClaw** — it will probe each configured provider binary at startup and log the detected version and availability.

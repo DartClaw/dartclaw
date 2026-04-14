@@ -1,4 +1,5 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -14,6 +15,7 @@ WorkflowRun _buildRun({
   String? errorMessage,
   String? currentLoopId,
   int? currentLoopIteration,
+  WorkflowExecutionCursor? executionCursor,
 }) {
   final now = DateTime.parse('2026-01-01T10:00:00Z');
   return WorkflowRun(
@@ -29,6 +31,7 @@ WorkflowRun _buildRun({
     definitionJson: definitionJson ?? const {},
     currentLoopId: currentLoopId,
     currentLoopIteration: currentLoopIteration,
+    executionCursor: executionCursor,
   );
 }
 
@@ -117,6 +120,30 @@ void main() {
         expect(loaded.errorMessage, 'some error');
         expect(loaded.currentLoopId, 'loop-1');
         expect(loaded.currentLoopIteration, 2);
+      });
+
+      test('execution cursor round-trips through SQLite storage', () async {
+        final run = _buildRun(
+          executionCursor: WorkflowExecutionCursor.map(
+            stepId: 'map-step',
+            stepIndex: 2,
+            totalItems: 3,
+            completedIndices: const [0, 1],
+            failedIndices: const [1],
+            resultSlots: const [
+              'ok',
+              {'error': true, 'message': 'failed'},
+              null,
+            ],
+          ),
+        );
+        await repository.insert(run);
+
+        final loaded = await repository.getById(run.id);
+        expect(loaded?.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.map);
+        expect(loaded?.executionCursor?.nodeId, 'map-step');
+        expect(loaded?.executionCursor?.completedIndices, [0, 1]);
+        expect(loaded?.executionCursor?.failedIndices, [1]);
       });
     });
 

@@ -159,6 +159,29 @@ void main() {
       final names = registry.listAll().map((d) => d.name).toSet();
       expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review']));
     });
+
+    test('materialized workflow YAMLs do not embed runtime budget policy', () async {
+      final definitionsDir = _workflowDefinitionsDir();
+      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
+      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
+      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
+
+      for (final source in [specAndImplement, planAndImplement, codeReview]) {
+        expect(source, isNot(contains('maxTokens')));
+        expect(source, isNot(contains('maxCostUsd')));
+      }
+    });
+
+    test('code-review keeps review and re-review on the review-code methodology carrier', () async {
+      final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
+      final reviewCodeSkillCount = RegExp(r'skill:\s+dartclaw-review-code').allMatches(source).length;
+
+      expect(reviewCodeSkillCount, equals(2));
+      expect(source, isNot(contains('skill: dartclaw-review-gap')));
+      expect(source, isNot(contains('review-correctness')));
+      expect(source, isNot(contains('review-security')));
+      expect(source, isNot(contains('review-architecture')));
+    });
   });
 
   // ------------------------------------------------------------------

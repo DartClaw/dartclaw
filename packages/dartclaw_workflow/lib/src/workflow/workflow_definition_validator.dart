@@ -92,6 +92,7 @@ class WorkflowDefinitionValidator {
     _validateRequiredFields(definition, errors);
     _validateUniqueStepIds(definition, errors);
     _validateUniqueLoopIds(definition, errors);
+    _validateNormalizedNodes(definition, errors);
     _validateVariableReferences(definition, errors);
     _validateContextKeyConsistency(definition, errors);
     _validateGateExpressions(definition, errors);
@@ -109,6 +110,196 @@ class WorkflowDefinitionValidator {
     _validateSkillReferences(definition, errors);
     _validateHybridStepRules(definition, errors, warnings, continuityProviders);
     return ValidationReport(errors: errors, warnings: warnings);
+  }
+
+  void _validateNormalizedNodes(WorkflowDefinition definition, List<ValidationError> errors) {
+    final stepById = {for (final step in definition.steps) step.id: step};
+    final loopById = {for (final loop in definition.loops) loop.id: loop};
+    final seenStepIds = <String>{};
+
+    for (final node in definition.nodes) {
+      switch (node) {
+        case ActionNode(stepId: final stepId):
+          final step = stepById[stepId];
+          if (step == null) {
+            errors.add(
+              ValidationError(
+                message: 'Normalized action node references unknown step "$stepId".',
+                type: ValidationErrorType.invalidReference,
+                stepId: stepId,
+              ),
+            );
+            continue;
+          }
+          if (step.isMapStep) {
+            errors.add(
+              ValidationError(
+                message: 'Step "$stepId" is map-backed but was normalized as an action node.',
+                type: ValidationErrorType.contextInconsistency,
+                stepId: stepId,
+              ),
+            );
+          }
+          if (step.parallel) {
+            errors.add(
+              ValidationError(
+                message: 'Step "$stepId" is parallel but was normalized as an action node.',
+                type: ValidationErrorType.contextInconsistency,
+                stepId: stepId,
+              ),
+            );
+          }
+          _recordNormalizedStep(stepId, seenStepIds, errors);
+
+        case MapNode(stepId: final stepId):
+          final step = stepById[stepId];
+          if (step == null) {
+            errors.add(
+              ValidationError(
+                message: 'Normalized map node references unknown step "$stepId".',
+                type: ValidationErrorType.invalidReference,
+                stepId: stepId,
+              ),
+            );
+            continue;
+          }
+          if (!step.isMapStep) {
+            errors.add(
+              ValidationError(
+                message: 'Step "$stepId" is not a map step but was normalized as a map node.',
+                type: ValidationErrorType.contextInconsistency,
+                stepId: stepId,
+              ),
+            );
+          }
+          _recordNormalizedStep(stepId, seenStepIds, errors);
+
+        case ParallelGroupNode(stepIds: final stepIds):
+          if (stepIds.isEmpty) {
+            errors.add(
+              const ValidationError(
+                message: 'Normalized parallel group must contain at least one step.',
+                type: ValidationErrorType.missingField,
+              ),
+            );
+            continue;
+          }
+          for (final stepId in stepIds) {
+            final step = stepById[stepId];
+            if (step == null) {
+              errors.add(
+                ValidationError(
+                  message: 'Normalized parallel group references unknown step "$stepId".',
+                  type: ValidationErrorType.invalidReference,
+                  stepId: stepId,
+                ),
+              );
+              continue;
+            }
+            if (!step.parallel) {
+              errors.add(
+                ValidationError(
+                  message: 'Parallel group step "$stepId" is missing parallel:true in the authored step.',
+                  type: ValidationErrorType.contextInconsistency,
+                  stepId: stepId,
+                ),
+              );
+            }
+            if (step.isMapStep) {
+              errors.add(
+                ValidationError(
+                  message: 'Parallel group step "$stepId" cannot also be a map step.',
+                  type: ValidationErrorType.contextInconsistency,
+                  stepId: stepId,
+                ),
+              );
+            }
+            _recordNormalizedStep(stepId, seenStepIds, errors);
+          }
+
+        case LoopNode(loopId: final loopId, stepIds: final stepIds, finallyStepId: final finallyStepId):
+          final loop = loopById[loopId];
+          if (loop == null) {
+            errors.add(
+              ValidationError(
+                message: 'Normalized loop node references unknown loop "$loopId".',
+                type: ValidationErrorType.invalidReference,
+                loopId: loopId,
+              ),
+            );
+            continue;
+          }
+          if (!_sameStringList(loop.steps, stepIds)) {
+            errors.add(
+              ValidationError(
+                message: 'Loop "$loopId" node step order does not match the authored loop body.',
+                type: ValidationErrorType.contextInconsistency,
+                loopId: loopId,
+              ),
+            );
+          }
+          if (loop.finally_ != finallyStepId) {
+            errors.add(
+              ValidationError(
+                message: 'Loop "$loopId" node finalizer does not match the authored loop finalizer.',
+                type: ValidationErrorType.contextInconsistency,
+                loopId: loopId,
+              ),
+            );
+          }
+          final loopNodeStepIds = <String>[...stepIds];
+          if (finallyStepId != null) {
+            loopNodeStepIds.add(finallyStepId);
+          }
+          for (final stepId in loopNodeStepIds) {
+            if (!stepById.containsKey(stepId)) {
+              errors.add(
+                ValidationError(
+                  message: 'Loop "$loopId" node references unknown step "$stepId".',
+                  type: ValidationErrorType.invalidReference,
+                  stepId: stepId,
+                  loopId: loopId,
+                ),
+              );
+              continue;
+            }
+            _recordNormalizedStep(stepId, seenStepIds, errors, loopId: loopId);
+          }
+      }
+    }
+
+    for (final step in definition.steps) {
+      if (!seenStepIds.contains(step.id)) {
+        errors.add(
+          ValidationError(
+            message: 'Step "${step.id}" is not represented in the normalized execution graph.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+      }
+    }
+  }
+
+  void _recordNormalizedStep(String stepId, Set<String> seenStepIds, List<ValidationError> errors, {String? loopId}) {
+    if (!seenStepIds.add(stepId)) {
+      errors.add(
+        ValidationError(
+          message: 'Step "$stepId" is represented more than once in the normalized execution graph.',
+          type: ValidationErrorType.duplicateId,
+          stepId: stepId,
+          loopId: loopId,
+        ),
+      );
+    }
+  }
+
+  bool _sameStringList(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
   }
 
   void _validateSkillReferences(WorkflowDefinition definition, List<ValidationError> errors) {

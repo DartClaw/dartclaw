@@ -628,7 +628,7 @@ providers:
 
 credentials:
   openai:
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${CODEX_API_KEY}
 ```
 
 **Why this is safe**: Setting `approval: never` disables Codex's *internal* approval gate, but DartClaw's own defense-in-depth remains fully active: guard chain (command, file, network, content guards), container isolation, `TaskFileGuard`, and input sanitizer all still evaluate every tool call.

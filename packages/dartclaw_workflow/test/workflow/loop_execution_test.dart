@@ -359,7 +359,7 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('sequential steps + loop: linear pass then loop', () async {
+  test('sequential steps + loop: authored-order traversal executes the loop in place', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
@@ -455,12 +455,12 @@ void main() {
       await completeTask(e.taskId);
     });
 
-    // Resume from loop index 0, iteration 2 (skips step/linear pass).
+    // Resume from loop index 0, iteration 2 (the executor seeks back to the loop node).
     await executor.execute(
       seededRun,
       definition,
       context,
-      startFromStepIndex: definition.steps.length, // Skip linear pass.
+      startFromStepIndex: definition.steps.length, // Force loop-node resume resolution.
       startFromLoopIndex: 0,
       startFromLoopIteration: 2,
     );

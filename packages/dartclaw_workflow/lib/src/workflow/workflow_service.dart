@@ -9,6 +9,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         Task,
         TaskStatus,
+        WorkflowExecutionCursor,
+        WorkflowExecutionCursorNodeType,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowRun,
@@ -207,32 +209,9 @@ class WorkflowService {
     // Load context from disk.
     final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
 
-    // Determine resume point.
-    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    final currentLoopIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt();
-    final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
-
-    int? startLoopIndex;
-    int? startLoopIteration;
-    String? startLoopStepId;
-    int resumeStepIndex = run.currentStepIndex;
-
-    if (currentLoopId != null) {
-      // Was mid-loop — resume from that loop and iteration.
-      final loopIndex = definition.loops.indexWhere((l) => l.id == currentLoopId);
-      if (loopIndex >= 0) {
-        _log.info(
-          "Resuming workflow '${run.definitionName}' ($runId): "
-          "loop '$currentLoopId' at iteration ${currentLoopIteration ?? 1}"
-          "${currentLoopStepId != null ? ', step $currentLoopStepId' : ''}",
-        );
-        // Skip the linear pass — it was already completed.
-        resumeStepIndex = definition.steps.length;
-        startLoopIndex = loopIndex;
-        startLoopIteration = currentLoopIteration ?? 1;
-        startLoopStepId = currentLoopStepId;
-      }
-    }
+    final executionCursor = _resumeCursor(run, definition);
+    final resumeStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    _logResumeCursor(run, executionCursor, action: 'Resuming');
 
     // Transition to running.
     final running = run.copyWith(status: WorkflowRunStatus.running, errorMessage: null, updatedAt: DateTime.now());
@@ -246,15 +225,7 @@ class WorkflowService {
       newStatus: WorkflowRunStatus.running,
     );
 
-    _spawnExecutor(
-      running,
-      definition,
-      context,
-      startFromStepIndex: resumeStepIndex,
-      startFromLoopIndex: startLoopIndex,
-      startFromLoopIteration: startLoopIteration,
-      startFromLoopStepId: startLoopStepId,
-    );
+    _spawnExecutor(running, definition, context, startFromStepIndex: resumeStepIndex, startCursor: executionCursor);
 
     return running;
   }
@@ -385,28 +356,18 @@ class WorkflowService {
     // Load context from disk (fall back to SQLite snapshot).
     final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
 
-    // Check if run was mid-loop.
-    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
-    if (currentLoopId != null) {
-      final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
-      final loopIndex = definition.loops.indexWhere((l) => l.id == currentLoopId);
-      if (loopIndex >= 0) {
-        _log.info(
-          "Recovering workflow '${definition.name}' (${run.id}): "
-          "resuming loop '$currentLoopId' at iteration $currentIteration",
-        );
-        _cancelFlags.remove(run.id);
-        _spawnExecutor(
-          run,
-          definition,
-          context,
-          // Skip linear pass (already done); resume from this loop.
-          startFromStepIndex: definition.steps.length,
-          startFromLoopIndex: loopIndex,
-          startFromLoopIteration: currentIteration,
-        );
-        return;
-      }
+    final executionCursor = _resumeCursor(run, definition);
+    if (executionCursor != null) {
+      _logResumeCursor(run, executionCursor, action: 'Recovering');
+      _cancelFlags.remove(run.id);
+      _spawnExecutor(
+        run,
+        definition,
+        context,
+        startFromStepIndex: executionCursor.stepIndex,
+        startCursor: executionCursor,
+      );
+      return;
     }
 
     // Standard recovery: find the last completed step.
@@ -482,11 +443,53 @@ class WorkflowService {
     _approvalTimeoutTimers.clear();
   }
 
+  WorkflowExecutionCursor? _resumeCursor(WorkflowRun run, WorkflowDefinition definition) {
+    final cursor = run.executionCursor;
+    if (cursor != null) {
+      return cursor;
+    }
+
+    final currentLoopId = run.contextJson['_loop.current.id'] as String?;
+    if (currentLoopId == null) return null;
+    final currentIteration = (run.contextJson['_loop.current.iteration'] as num?)?.toInt() ?? 1;
+    final currentLoopStepId = run.contextJson['_loop.current.stepId'] as String?;
+    final loop = definition.loops.where((candidate) => candidate.id == currentLoopId).firstOrNull;
+    if (loop == null) return null;
+    final fallbackStepId = currentLoopStepId ?? loop.steps.first;
+    final stepIndex = definition.steps.indexWhere((step) => step.id == fallbackStepId);
+    if (stepIndex < 0) return null;
+    return WorkflowExecutionCursor.loop(
+      loopId: currentLoopId,
+      stepIndex: stepIndex,
+      iteration: currentIteration,
+      stepId: currentLoopStepId,
+    );
+  }
+
+  void _logResumeCursor(WorkflowRun run, WorkflowExecutionCursor? cursor, {required String action}) {
+    if (cursor == null) return;
+    switch (cursor.nodeType) {
+      case WorkflowExecutionCursorNodeType.loop:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "loop '${cursor.nodeId}' at iteration ${cursor.iteration ?? 1}"
+          "${cursor.stepId != null ? ', step ${cursor.stepId}' : ''}",
+        );
+      case WorkflowExecutionCursorNodeType.map:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "map step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
+          '${cursor.totalItems ?? cursor.resultSlots.length} settled iteration(s)',
+        );
+    }
+  }
+
   void _spawnExecutor(
     WorkflowRun run,
     WorkflowDefinition definition,
     WorkflowContext context, {
     int startFromStepIndex = 0,
+    WorkflowExecutionCursor? startCursor,
     int? startFromLoopIndex,
     int? startFromLoopIteration,
     String? startFromLoopStepId,
@@ -510,6 +513,7 @@ class WorkflowService {
           definition,
           context,
           startFromStepIndex: startFromStepIndex,
+          startCursor: startCursor,
           startFromLoopIndex: startFromLoopIndex,
           startFromLoopIteration: startFromLoopIteration,
           startFromLoopStepId: startFromLoopStepId,

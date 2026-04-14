@@ -236,6 +236,103 @@ class WorkflowLoop {
   );
 }
 
+/// A normalized execution node within a workflow definition.
+sealed class WorkflowNode {
+  const WorkflowNode();
+
+  /// Discriminator used for serialization.
+  String get type;
+
+  /// Step IDs referenced by this node in execution order.
+  List<String> get stepIds;
+
+  Map<String, dynamic> toJson();
+
+  factory WorkflowNode.fromJson(Map<String, dynamic> json) {
+    final type = json['type'] as String?;
+    return switch (type) {
+      'action' => ActionNode(stepId: json['stepId'] as String),
+      'map' => MapNode(stepId: json['stepId'] as String),
+      'parallelGroup' => ParallelGroupNode(stepIds: (json['stepIds'] as List).cast<String>()),
+      'loop' => LoopNode(
+        loopId: json['loopId'] as String,
+        stepIds: (json['stepIds'] as List).cast<String>(),
+        finallyStepId: json['finallyStepId'] as String?,
+      ),
+      _ => throw FormatException('Unknown workflow node type: $type'),
+    };
+  }
+}
+
+/// A normalized action node for an ordinary workflow step.
+final class ActionNode extends WorkflowNode {
+  final String stepId;
+
+  const ActionNode({required this.stepId});
+
+  @override
+  String get type => 'action';
+
+  @override
+  List<String> get stepIds => [stepId];
+
+  @override
+  Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
+}
+
+/// A normalized map/fan-out node.
+final class MapNode extends WorkflowNode {
+  final String stepId;
+
+  const MapNode({required this.stepId});
+
+  @override
+  String get type => 'map';
+
+  @override
+  List<String> get stepIds => [stepId];
+
+  @override
+  Map<String, dynamic> toJson() => {'type': type, 'stepId': stepId};
+}
+
+/// A normalized contiguous parallel group.
+final class ParallelGroupNode extends WorkflowNode {
+  @override
+  final List<String> stepIds;
+
+  const ParallelGroupNode({required this.stepIds});
+
+  @override
+  String get type => 'parallelGroup';
+
+  @override
+  Map<String, dynamic> toJson() => {'type': type, 'stepIds': stepIds.toList(growable: false)};
+}
+
+/// A normalized loop node with ordered body steps and optional finalizer.
+final class LoopNode extends WorkflowNode {
+  final String loopId;
+
+  @override
+  final List<String> stepIds;
+
+  final String? finallyStepId;
+
+  const LoopNode({required this.loopId, required this.stepIds, this.finallyStepId});
+
+  @override
+  String get type => 'loop';
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'loopId': loopId,
+    'stepIds': stepIds.toList(growable: false),
+    if (finallyStepId != null) 'finallyStepId': finallyStepId,
+  };
+}
+
 /// A single step within a workflow definition.
 class WorkflowStep {
   /// Unique identifier within the workflow.
@@ -501,6 +598,12 @@ class WorkflowDefinition {
   /// Loop definitions referencing step IDs.
   final List<WorkflowLoop> loops;
 
+  /// Explicit normalized execution graph.
+  ///
+  /// Older snapshots may omit this field; in that case it is rebuilt from
+  /// [steps] and [loops] on demand for backward compatibility.
+  final List<WorkflowNode>? _nodes;
+
   /// Optional workflow-level token budget ceiling.
   final int? maxTokens;
 
@@ -513,9 +616,13 @@ class WorkflowDefinition {
     this.variables = const {},
     required this.steps,
     this.loops = const [],
+    List<WorkflowNode>? nodes,
     this.maxTokens,
     this.stepDefaults,
-  });
+  }) : _nodes = nodes;
+
+  /// Normalized authored-order execution graph for this definition.
+  List<WorkflowNode> get nodes => _nodes ?? normalizeNodes(steps, loops);
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -523,6 +630,7 @@ class WorkflowDefinition {
     'variables': variables.map((k, v) => MapEntry(k, v.toJson())),
     'steps': steps.map((s) => s.toJson()).toList(),
     'loops': loops.map((l) => l.toJson()).toList(),
+    'nodes': nodes.map((n) => n.toJson()).toList(growable: false),
     if (maxTokens != null) 'maxTokens': maxTokens,
     if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
   };
@@ -541,9 +649,72 @@ class WorkflowDefinition {
             ?.map((l) => WorkflowLoop.fromJson(l as Map<String, dynamic>))
             .toList(growable: false) ??
         const [],
+    nodes: (json['nodes'] as List?)
+        ?.map((node) => WorkflowNode.fromJson(node as Map<String, dynamic>))
+        .toList(growable: false),
     maxTokens: json['maxTokens'] as int?,
     stepDefaults: (json['stepDefaults'] as List?)
         ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
         .toList(growable: false),
   );
+
+  /// Builds the authored-order execution graph used by validation and runtime.
+  static List<WorkflowNode> normalizeNodes(List<WorkflowStep> steps, List<WorkflowLoop> loops) {
+    final loopByFirstStepId = <String, WorkflowLoop>{
+      for (final loop in loops)
+        if (loop.steps.isNotEmpty) loop.steps.first: loop,
+    };
+    final loopOwnedStepIds = {
+      ...loops.expand((loop) => loop.steps),
+      ...loops.map((loop) => loop.finally_).whereType<String>(),
+    };
+
+    final nodes = <WorkflowNode>[];
+    final emittedLoopIds = <String>{};
+
+    for (var index = 0; index < steps.length; index++) {
+      final step = steps[index];
+      final loopAtStep = loopByFirstStepId[step.id];
+      if (loopAtStep != null && emittedLoopIds.add(loopAtStep.id)) {
+        nodes.add(
+          LoopNode(
+            loopId: loopAtStep.id,
+            stepIds: loopAtStep.steps.toList(growable: false),
+            finallyStepId: loopAtStep.finally_,
+          ),
+        );
+        continue;
+      }
+
+      if (loopOwnedStepIds.contains(step.id)) {
+        continue;
+      }
+
+      if (step.isMapStep) {
+        nodes.add(MapNode(stepId: step.id));
+        continue;
+      }
+
+      if (step.parallel) {
+        final parallelStepIds = <String>[step.id];
+        while (index + 1 < steps.length) {
+          final next = steps[index + 1];
+          if (loopOwnedStepIds.contains(next.id) ||
+              loopByFirstStepId.containsKey(next.id) ||
+              next.isMapStep ||
+              !next.parallel) {
+            break;
+          }
+          parallelStepIds.add(next.id);
+          index++;
+        }
+        nodes.add(ParallelGroupNode(stepIds: parallelStepIds));
+        continue;
+      }
+
+      nodes.add(ActionNode(stepId: step.id));
+    }
+
+    return nodes;
+  }
 }

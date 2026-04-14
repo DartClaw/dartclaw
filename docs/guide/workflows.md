@@ -196,7 +196,8 @@ This pattern is ideal for review fan-out, independent research, and summary gene
 
 ### Map / Fan-Out
 
-Use `mapOver` when one workflow step should iterate over a JSON array in context.
+Use `mapOver` (`map_over`) when one workflow step should iterate over a JSON array in context.
+This is map shorthand, not loop syntax.
 
 Key fields:
 
@@ -204,7 +205,37 @@ Key fields:
 - `maxParallel`: upper bound on concurrent iterations
 - `maxItems`: safety cap for large arrays
 
-Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+
+### Inline Loops
+
+Use inline loop blocks in `steps:` when remediation or validation must repeat in-place.
+
+```yaml
+steps:
+  - id: analyze
+    name: Analyze
+    prompt: Analyze gaps
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: "re-review.findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes
+      - id: re-review
+        name: Re-review
+        prompt: Verify fixes
+
+  - id: update-state
+    name: Update State
+    prompt: Record completion state
+```
+
+Execution follows authored order: `analyze -> remediation-loop -> update-state`.
 
 ### Skill-Aware Steps
 
@@ -229,9 +260,9 @@ Use `stepDefaults` to apply pattern-based defaults without repeating configurati
 ```yaml
 stepDefaults:
   - match: "review*"
-    maxCostUsd: 2.0
+    model: claude-opus-4
   - match: "*"
-    maxTokens: 40000
+    provider: claude
 ```
 
 The first match wins. Explicit per-step values still override defaults.
@@ -242,7 +273,7 @@ The first match wins. Explicit per-step values still override defaults.
 
 ### `spec-and-implement` — Feature Pipeline
 
-An 11-step pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, fans out correctness/security review, performs gap analysis, loops through remediation/re-review, and finishes with `dartclaw-update-state`.
+Pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, performs code review and gap analysis, runs an inline remediation loop, and finishes with `dartclaw-update-state`.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
@@ -251,21 +282,21 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-A 9-step multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, loops through remediation/re-review, and updates state.
+Multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, runs an inline remediation loop, and updates state.
 
 Notable patterns:
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, and review uses `{{context.story_result[map.index]}}`.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
-- **Step defaults**: provider/model/token/cost defaults are set once for the whole workflow.
+- **Step defaults**: provider/model defaults are set once for the whole workflow.
 - **Bounded remediation**: the batch now follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
 
 ### `code-review` — Deterministic Review Loop
 
-A review workflow that discovers the project, extracts a diff deterministically via bash, gathers context once, fans out correctness/security/architecture reviewers in parallel, synthesizes the verdict, and loops through remediation/re-review up to 3 iterations.
+A review workflow that discovers the project, extracts a diff deterministically via bash, gathers context once, runs one comprehensive review phase via `dartclaw-review-code`, and loops through remediation/re-review up to 3 iterations.
 
 Notable patterns:
 - **Deterministic extraction first**: diff generation happens before any reviewer prompt runs.
-- **Parallel review fan-out**: multiple specialized reviewers run concurrently with shared context.
+- **Single methodology carrier**: both the initial review and re-review live in `dartclaw-review-code` instead of three parallel review phases in YAML.
 - **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
 
 ### Built-In Skill Library
@@ -319,7 +350,7 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 | `description` | string | required | Human-readable description |
 | `variables` | map | `{}` | Input variable declarations (see below) |
 | `steps` | list | required | Ordered step definitions |
-| `loops` | list | `[]` | Loop definitions for iterative steps |
+| `loops` | list | `[]` | Legacy loop definitions (supported for compatibility) |
 | `maxTokens` | int | none | Global per-workflow token budget |
 | `stepDefaults` | list | none | Default config entries applied by glob pattern |
 
@@ -557,13 +588,14 @@ Templates in `prompt` and `project` fields support:
 | `{{map.item}}` | Current item in the mapped array (JSON for objects, toString for scalars) |
 | `{{map.item.field}}` | Field access on a Map item (dot notation, max 3 levels) |
 | `{{map.index}}` | 0-based iteration index |
+| `{{map.display_index}}` | 1-based iteration index |
 | `{{map.length}}` | Total number of items in the mapped array |
 | `{{context.key[map.index]}}` | Indexed lookup into a List-typed context value |
 | `{{context.key[map.index].field}}` | Field access on the indexed element |
 
 The `{{context.key[map.index]}}` pattern auto-extracts `.text` from structured result elements (supports S07 coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
 
-### `loops` Fields
+### Legacy `loops` Fields
 
 ```yaml
 loops:
@@ -573,6 +605,8 @@ loops:
     exitGate: "step-c.findings == 0"   # early exit condition
     finally: finalize-step             # optional: runs once after loop exits
 ```
+
+Inline `type: loop` authoring in `steps:` is preferred for readability and authored-order execution.
 
 ---
 

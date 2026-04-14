@@ -2,7 +2,7 @@ name: plan-and-implement
 description: >-
   Multi-story pipeline — discover the project, plan stories, spec each story,
   implement each story, review each story, synthesize results, iterate
-  remediation, and update state.
+  remediation, and update state in authored order.
 variables:
   REQUIREMENTS:
     required: true
@@ -18,14 +18,10 @@ variables:
 stepDefaults:
   - match: "implement*"
     provider: claude
-    maxTokens: 100000
-    maxCostUsd: 5.00
   - match: "review*"
     model: claude-opus-4
-    maxCostUsd: 2.00
   - match: "*"
     provider: claude
-    maxTokens: 50000
 
 steps:
   - id: discover-project
@@ -77,7 +73,7 @@ steps:
     max_parallel: "{{MAX_PARALLEL}}"
     max_items: 20
     prompt: |
-      Story {{map.index + 1}} of {{map.length}}:
+      Story {{map.display_index}} of {{map.length}}:
       {{map.item.title}} ({{map.item.id}})
 
       Story description:
@@ -109,7 +105,7 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      Story {{map.index + 1}} of {{map.length}}:
+      Story {{map.display_index}} of {{map.length}}:
       {{map.item.title}} ({{map.item.id}})
 
       Story spec:
@@ -136,7 +132,7 @@ steps:
     max_parallel: "{{MAX_PARALLEL}}"
     max_items: 20
     prompt: |
-      Story {{map.index + 1}} of {{map.length}}:
+      Story {{map.display_index}} of {{map.length}}:
       {{map.item.title}} ({{map.item.id}})
 
       Story spec:
@@ -197,59 +193,65 @@ steps:
     contextInputs: [project_index, stories, story_spec, story_result, review_result]
     contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
 
-  - id: remediate
-    name: Remediate Findings
-    type: coding
-    skill: dartclaw-remediate-findings
-    project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Project index:
-      {{context.project_index}}
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: "re-review.findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        type: coding
+        skill: dartclaw-remediate-findings
+        project: "{{PROJECT}}"
+        review: always
+        prompt: |
+          Project index:
+          {{context.project_index}}
 
-      Remediation plan:
-      {{context.remediation_plan}}
+          Remediation plan:
+          {{context.remediation_plan}}
 
-      Story implementations:
-      {{context.story_result}}
+          Story implementations:
+          {{context.story_result}}
 
-      Story reviews:
-      {{context.review_result}}
+          Story reviews:
+          {{context.review_result}}
 
-      If no remediation is needed, say so plainly.
-      End with `## Context Output` and a JSON object containing:
-      - remediation_summary
-      - diff_summary
-    contextInputs: [project_index, remediation_plan, story_result, review_result]
-    contextOutputs: [remediation_summary, diff_summary]
+          If no remediation is needed, say so plainly.
+          End with `## Context Output` and a JSON object containing:
+          - remediation_summary
+          - diff_summary
+        contextInputs: [project_index, remediation_plan, story_result, review_result]
+        contextOutputs: [remediation_summary, diff_summary]
 
-  - id: re-review
-    name: Re-review Batch
-    type: analysis
-    skill: dartclaw-review-gap
-    prompt: |
-      Requirements:
-      {{REQUIREMENTS}}
+      - id: re-review
+        name: Re-review Batch
+        type: analysis
+        skill: dartclaw-review-gap
+        prompt: |
+          Requirements:
+          {{REQUIREMENTS}}
 
-      Project index:
-      {{context.project_index}}
+          Project index:
+          {{context.project_index}}
 
-      Story plan:
-      {{context.stories}}
+          Story plan:
+          {{context.stories}}
 
-      Original implementation summary:
-      {{context.implementation_summary}}
+          Original implementation summary:
+          {{context.implementation_summary}}
 
-      Remediation summary:
-      {{context.remediation_summary}}
+          Remediation summary:
+          {{context.remediation_summary}}
 
-      Updated diff summary:
-      {{context.diff_summary}}
+          Updated diff summary:
+          {{context.diff_summary}}
 
-      For workflow handoff, end with `## Context Output` and a JSON object containing:
-      - findings_count
-    contextInputs: [project_index, stories, implementation_summary, remediation_summary, diff_summary]
-    contextOutputs: [findings_count]
+          For workflow handoff, end with `## Context Output` and a JSON object containing:
+          - findings_count
+        contextInputs: [project_index, stories, implementation_summary, remediation_summary, diff_summary]
+        contextOutputs: [findings_count]
 
   - id: update-state
     name: Update State
@@ -272,9 +274,3 @@ steps:
       End with `## Context Output` and a JSON object containing `state_update_summary`.
     contextInputs: [project_index, implementation_summary, remediation_summary]
     contextOutputs: [state_update_summary]
-
-loops:
-  - id: remediation-loop
-    steps: [remediate, re-review]
-    maxIterations: 3
-    exitGate: "re-review.findings_count == 0"

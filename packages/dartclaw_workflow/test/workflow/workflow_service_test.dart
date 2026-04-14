@@ -10,6 +10,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
+        WorkflowExecutionCursor,
+        WorkflowLoop,
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
@@ -269,6 +271,130 @@ void main() {
       recovered?.status,
       anyOf(equals(WorkflowRunStatus.completed), equals(WorkflowRunStatus.paused), equals(WorkflowRunStatus.running)),
     );
+  });
+
+  test('recoverIncompleteRuns() preserves active loop step id when resuming mid-loop', () async {
+    final definition = WorkflowDefinition(
+      name: 'loop-recovery',
+      description: 'Loop recovery',
+      steps: [
+        const WorkflowStep(id: 'loopA', name: 'Loop A', prompts: ['Do A']),
+        const WorkflowStep(id: 'loopB', name: 'Loop B', prompts: ['Do B']),
+      ],
+      loops: const [
+        WorkflowLoop(id: 'loop1', steps: ['loopA', 'loopB'], maxIterations: 3, exitGate: 'loopB.status == accepted'),
+      ],
+    );
+
+    final now = DateTime.now();
+    final run = WorkflowRun(
+      id: 'recover-loop-step',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: now,
+      updatedAt: now,
+      currentStepIndex: 0,
+      definitionJson: definition.toJson(),
+      contextJson: {
+        '_loop.current.id': 'loop1',
+        '_loop.current.iteration': 1,
+        '_loop.current.stepId': 'loopB',
+        'data': <String, dynamic>{'loopA.status': 'accepted', 'loopA.tokenCount': 50},
+        'variables': <String, dynamic>{},
+        'loopA.status': 'accepted',
+        'loopA.tokenCount': 50,
+      },
+    );
+    await repository.insert(run);
+
+    final createdTaskTitles = <String>[];
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await taskService.get(e.taskId);
+      if (task != null) {
+        createdTaskTitles.add(task.title);
+      }
+      await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+      await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+    });
+
+    await workflowService.recoverIncompleteRuns();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await sub.cancel();
+
+    expect(createdTaskTitles, hasLength(1));
+    expect(createdTaskTitles.first, contains('Loop B'));
+
+    final recovered = await workflowService.get('recover-loop-step');
+    expect(recovered?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('recoverIncompleteRuns() resumes unfinished map iterations without replaying settled items', () async {
+    final definition = WorkflowDefinition(
+      name: 'map-recovery',
+      description: 'Map recovery',
+      steps: const [
+        WorkflowStep(
+          id: 'map',
+          name: 'Map',
+          prompts: ['Process {{map.item}}'],
+          mapOver: 'items',
+          maxParallel: 1,
+          contextOutputs: ['mapped'],
+        ),
+      ],
+    );
+
+    final now = DateTime.now();
+    final run = WorkflowRun(
+      id: 'recover-map-step',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: now,
+      updatedAt: now,
+      currentStepIndex: 0,
+      definitionJson: definition.toJson(),
+      executionCursor: WorkflowExecutionCursor.map(
+        stepId: 'map',
+        stepIndex: 0,
+        totalItems: 3,
+        completedIndices: const [0, 1],
+        resultSlots: const ['done-a', 'done-b', null],
+      ),
+      contextJson: {
+        'data': {
+          'items': ['a', 'b', 'c'],
+          'map[0].tokenCount': 5,
+          'map[1].tokenCount': 5,
+        },
+        'variables': <String, dynamic>{},
+      },
+    );
+    await repository.insert(run);
+
+    final createdTaskTitles = <String>[];
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await taskService.get(e.taskId);
+      if (task != null) {
+        createdTaskTitles.add(task.title);
+      }
+      await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+      await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+    });
+
+    await workflowService.recoverIncompleteRuns();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await sub.cancel();
+
+    expect(createdTaskTitles, hasLength(1));
+    expect(createdTaskTitles.single, contains('(3/3)'));
+
+    final recovered = await workflowService.get('recover-map-step');
+    expect(recovered?.status, equals(WorkflowRunStatus.completed));
+    expect(((recovered?.contextJson['data'] as Map?)?['mapped'] as List?)?.length, equals(3));
   });
 
   test('recoverIncompleteRuns() skips paused runs', () async {

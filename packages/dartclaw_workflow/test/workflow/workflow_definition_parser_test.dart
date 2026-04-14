@@ -62,6 +62,71 @@ loops:
     exitGate: implement.status == done
 ''';
 
+const _inlineLoopYaml = '''
+name: ordered-inline-loop
+description: Inline loop authored in step order
+steps:
+  - id: gap-analysis
+    name: Gap Analysis
+    prompt: Analyze the current implementation
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: re-review.status == accepted
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes from the review
+      - id: re-review
+        name: Re-review
+        prompt: Check whether the fixes are sufficient
+  - id: update-state
+    name: Update State
+    prompt: Record the final workflow status
+''';
+
+const _legacyLoopsNormalizationYaml = '''
+name: legacy-loops-normalization
+description: Legacy loops are normalized by authored step position
+steps:
+  - id: setup
+    name: Setup
+    prompt: Setup context
+  - id: rem-a
+    name: Remediate A
+    prompt: Fix issue A
+  - id: mid
+    name: Mid Step
+    prompt: Mid step
+  - id: rem-b
+    name: Remediate B
+    prompt: Verify A
+  - id: fin-a
+    name: Finalize A
+    prompt: Finalize A
+  - id: rem-c
+    name: Remediate C
+    prompt: Fix issue C
+  - id: rem-d
+    name: Remediate D
+    prompt: Verify C
+  - id: fin-b
+    name: Finalize B
+    prompt: Finalize B
+loops:
+  - id: loop-b
+    steps: [rem-c, rem-d]
+    maxIterations: 2
+    exitGate: rem-d.status == accepted
+    finally: fin-b
+  - id: loop-a
+    steps: [rem-a, rem-b]
+    maxIterations: 2
+    exitGate: rem-b.status == accepted
+    finally: fin-a
+''';
+
 void main() {
   late WorkflowDefinitionParser parser;
 
@@ -125,6 +190,22 @@ void main() {
       expect(def.loops[0].steps, ['implement']);
       expect(def.loops[0].maxIterations, 3);
       expect(def.loops[0].exitGate, 'implement.status == done');
+    });
+
+    test('parses inline loop authoring and preserves definition round-trip', () {
+      final definition = parser.parse(_inlineLoopYaml);
+      final roundTrip = WorkflowDefinition.fromJson(definition.toJson());
+
+      expect(roundTrip.toJson(), equals(definition.toJson()));
+      expect(definition.nodes.map((node) => node.runtimeType).toList(), equals([ActionNode, LoopNode, ActionNode]));
+      expect((definition.nodes[1] as LoopNode).loopId, 'remediation-loop');
+      expect((definition.nodes[1] as LoopNode).stepIds, equals(['remediate', 're-review']));
+    });
+
+    test('normalizes legacy loops by first authored loop step order', () {
+      final definition = parser.parse(_legacyLoopsNormalizationYaml);
+      expect(definition.loops.map((loop) => loop.id).toList(), equals(['loop-a', 'loop-b']));
+      expect(definition.nodes.whereType<LoopNode>().map((node) => node.loopId).toList(), equals(['loop-a', 'loop-b']));
     });
 
     test('parses review field: always, coding-only, never', () {

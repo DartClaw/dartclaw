@@ -73,6 +73,7 @@ WorkflowDefinition _buildDef({
   Map<String, WorkflowVariable> variables = const {},
   List<WorkflowStep> steps = const [],
   List<WorkflowLoop> loops = const [],
+  List<WorkflowNode>? nodes,
 }) {
   return WorkflowDefinition(
     name: name,
@@ -84,6 +85,7 @@ WorkflowDefinition _buildDef({
           ]
         : steps,
     loops: loops,
+    nodes: nodes,
   );
 }
 
@@ -163,6 +165,62 @@ void main() {
         );
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.duplicateId && e.loopId == 'loop-x'), true);
+      });
+    });
+
+    group('normalized nodes', () {
+      test('malformed normalized graph is rejected', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 'setup'),
+            const WorkflowStep(
+              id: 'map-step',
+              name: 'Map',
+              prompts: ['p'],
+              mapOver: 'items',
+              contextInputs: ['items'],
+              contextOutputs: ['mapped'],
+            ),
+          ],
+          nodes: const [
+            ActionNode(stepId: 'setup'),
+            ActionNode(stepId: 'map-step'),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>().having(
+              (error) => error.message,
+              'message',
+              contains('map-backed but was normalized as an action node'),
+            ),
+          ),
+        );
+      });
+
+      test('every authored step must appear exactly once in the normalized graph', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 'a'),
+            _step(id: 'b', name: 'B', prompt: 'p'),
+          ],
+          nodes: const [ActionNode(stepId: 'a')],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(
+          errors,
+          contains(
+            isA<ValidationError>().having(
+              (error) => error.message,
+              'message',
+              contains('is not represented in the normalized execution graph'),
+            ),
+          ),
+        );
       });
     });
 

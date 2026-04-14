@@ -1,8 +1,8 @@
 name: spec-and-implement
 description: >-
   Full feature pipeline — discover the project, write a specification,
-  approve it, implement it with exec-spec, validate it, fan out reviews,
-  analyze gaps, iterate remediation, and update state.
+  approve it, implement it with exec-spec, analyze gaps, iterate remediation,
+  and update state in authored order.
 variables:
   FEATURE:
     required: true
@@ -18,14 +18,10 @@ variables:
 stepDefaults:
   - match: "implement*"
     provider: claude
-    maxTokens: 100000
-    maxCostUsd: 5.00
   - match: "review*"
     model: claude-opus-4
-    maxCostUsd: 2.00
   - match: "*"
     provider: claude
-    maxTokens: 50000
 
 steps:
   - id: discover-project
@@ -103,13 +99,12 @@ steps:
       diff_summary:
         format: text
 
-  - id: review-correctness
-    name: Review Correctness
+  - id: review-code
+    name: Review Code
     type: analysis
     skill: dartclaw-review-code
-    parallel: true
     prompt: |
-      Focus: correctness, edge cases, and acceptance-criteria coverage.
+      Review this implementation comprehensively for correctness, security, and architecture.
 
       Project index:
       {{context.project_index}}
@@ -129,51 +124,6 @@ steps:
         format: json
         schema: verdict
 
-  - id: review-security
-    name: Review Security
-    type: analysis
-    skill: dartclaw-review-code
-    parallel: true
-    prompt: |
-      Focus: security, unsafe defaults, data handling, and input validation.
-
-      Project index:
-      {{context.project_index}}
-
-      Implementation diff:
-      {{context.diff_summary}}
-    contextInputs: [project_index, diff_summary]
-    contextOutputs: [security_findings]
-    outputs:
-      security_findings:
-        format: json
-        schema: verdict
-
-  - id: review-synthesis
-    name: Review Synthesis
-    type: analysis
-    prompt: |
-      Synthesize the parallel review results into a single remediation brief.
-
-      Correctness review:
-      {{context.review_findings}}
-
-      Security review:
-      {{context.security_findings}}
-
-      Summarize:
-      - Must-fix issues
-      - Nice-to-have issues
-      - Conflicting assessments
-      - Whether the implementation is ready or needs more work
-
-      Set needs_work to true if any must-fix issue remains.
-      End with `## Context Output` and a JSON object with:
-      - review_summary
-      - needs_work
-    contextInputs: [review_findings, security_findings]
-    contextOutputs: [review_summary, needs_work]
-
   - id: gap-analysis
     name: Gap Analysis
     type: analysis
@@ -188,8 +138,8 @@ steps:
       Acceptance criteria:
       {{context.acceptance_criteria}}
 
-      Review synthesis:
-      {{context.review_summary}}
+      Code review findings:
+      {{context.review_findings}}
 
       Diff summary:
       {{context.diff_summary}}
@@ -197,62 +147,68 @@ steps:
       For workflow handoff, end with `## Context Output` and a JSON object with:
       - gap_report
       - needs_remediation
-    contextInputs: [project_index, spec_document, acceptance_criteria, review_summary, diff_summary]
+    contextInputs: [project_index, spec_document, acceptance_criteria, review_findings, diff_summary]
     contextOutputs: [gap_report, needs_remediation]
 
-  - id: remediate
-    name: Remediate Findings
-    type: coding
-    skill: dartclaw-remediate-findings
-    project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Project index:
-      {{context.project_index}}
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    exitGate: "re-review.findings_count == 0"
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        type: coding
+        skill: dartclaw-remediate-findings
+        project: "{{PROJECT}}"
+        review: always
+        prompt: |
+          Project index:
+          {{context.project_index}}
 
-      Gap report:
-      {{context.gap_report}}
+          Gap report:
+          {{context.gap_report}}
 
-      Specification:
-      {{context.spec_document}}
+          Specification:
+          {{context.spec_document}}
 
-      Review synthesis:
-      {{context.review_summary}}
+          Code review findings:
+          {{context.review_findings}}
 
-      If no remediation is needed, say so plainly.
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - remediation_summary
-      - diff_summary
-    contextInputs: [project_index, gap_report, spec_document, review_summary]
-    contextOutputs: [remediation_summary, diff_summary]
+          If no remediation is needed, say so plainly.
+          For workflow handoff, end with `## Context Output` and a JSON object with:
+          - remediation_summary
+          - diff_summary
+        contextInputs: [project_index, gap_report, spec_document, review_findings]
+        contextOutputs: [remediation_summary, diff_summary]
 
-  - id: re-review
-    name: Re-review Gaps
-    type: analysis
-    skill: dartclaw-review-gap
-    prompt: |
-      Project index:
-      {{context.project_index}}
+      - id: re-review
+        name: Re-review Gaps
+        type: analysis
+        skill: dartclaw-review-gap
+        prompt: |
+          Project index:
+          {{context.project_index}}
 
-      Requirements baseline:
-      {{context.spec_document}}
+          Requirements baseline:
+          {{context.spec_document}}
 
-      Acceptance criteria:
-      {{context.acceptance_criteria}}
+          Acceptance criteria:
+          {{context.acceptance_criteria}}
 
-      Original gap report:
-      {{context.gap_report}}
+          Original gap report:
+          {{context.gap_report}}
 
-      Remediation summary:
-      {{context.remediation_summary}}
+          Remediation summary:
+          {{context.remediation_summary}}
 
-      Updated diff summary:
-      {{context.diff_summary}}
+          Updated diff summary:
+          {{context.diff_summary}}
 
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - findings_count
-    contextInputs: [project_index, spec_document, acceptance_criteria, gap_report, remediation_summary, diff_summary]
-    contextOutputs: [findings_count]
+          For workflow handoff, end with `## Context Output` and a JSON object with:
+          - findings_count
+        contextInputs: [project_index, spec_document, acceptance_criteria, gap_report, remediation_summary, diff_summary]
+        contextOutputs: [findings_count]
 
   - id: update-state
     name: Update State
@@ -276,9 +232,3 @@ steps:
       - state_update_summary
     contextInputs: [project_index, spec_document, diff_summary, remediation_summary]
     contextOutputs: [state_update_summary]
-
-loops:
-  - id: remediation-loop
-    steps: [remediate, re-review]
-    maxIterations: 3
-    exitGate: "re-review.findings_count == 0"

@@ -24,7 +24,7 @@ class CredentialRegistry {
     final credentialName = _providerCredentialMap[providerFamily];
     if (credentialName != null) {
       final entry = _credentials[credentialName];
-      if (entry != null && entry.isPresent) {
+      if (entry != null && entry.isApiKeyCredential && entry.isPresent) {
         return entry.apiKey;
       }
     }

@@ -457,89 +457,16 @@ class ServiceWiring {
                 ),
               };
             },
-        publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-          final resolvedProject = await project.projectService.get(projectId);
-          if (resolvedProject == null) {
-            return WorkflowGitPublishResult(
-              status: 'failed',
-              branch: branch,
-              remote: 'origin',
-              prUrl: '',
-              error: 'Project "$projectId" not found',
-            );
-          }
-          final pushResult = await task.remotePushService.push(project: resolvedProject, branch: branch);
-          switch (pushResult) {
-            case PushSuccess():
-              final runTasks =
-                  (await storage.taskService.list()).where((candidate) => candidate.workflowRunId == runId).toList()
-                    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-              final artifactTask = runTasks.isEmpty ? null : runTasks.last;
-              if (resolvedProject.pr.strategy == PrStrategy.githubPr) {
-                final syntheticTask =
-                    artifactTask ??
-                    Task(
-                      id: 'workflow-$runId',
-                      title: 'workflow($runId)',
-                      description: 'Workflow publish from $branch',
-                      type: TaskType.coding,
-                      createdAt: DateTime.now(),
-                    );
-                final prResult = await task.prCreator.create(
-                  project: resolvedProject,
-                  task: syntheticTask,
-                  branch: branch,
-                );
-                switch (prResult) {
-                  case PrCreated(:final url):
-                    await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, url);
-                    return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: url);
-                  case PrGhNotFound(:final instructions):
-                    await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, instructions);
-                    return WorkflowGitPublishResult(status: 'manual', branch: branch, remote: 'origin', prUrl: '');
-                  case PrCreationFailed(:final error, :final details):
-                    await _persistWorkflowPrArtifact(
-                      storage.taskService,
-                      runId,
-                      artifactTask?.id,
-                      'PR creation failed: $error\n$details',
-                    );
-                    return WorkflowGitPublishResult(
-                      status: 'failed',
-                      branch: branch,
-                      remote: 'origin',
-                      prUrl: '',
-                      error: '$error: $details',
-                    );
-                }
-              }
-              await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, branch);
-              return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
-            case PushAuthFailure(:final details):
-              return WorkflowGitPublishResult(
-                status: 'failed',
-                branch: branch,
-                remote: 'origin',
-                prUrl: '',
-                error: 'Authentication failed: $details',
-              );
-            case PushRejected(:final reason):
-              return WorkflowGitPublishResult(
-                status: 'failed',
-                branch: branch,
-                remote: 'origin',
-                prUrl: '',
-                error: 'Remote rejected push: $reason',
-              );
-            case PushError(:final message):
-              return WorkflowGitPublishResult(
-                status: 'failed',
-                branch: branch,
-                remote: 'origin',
-                prUrl: '',
-                error: message,
-              );
-          }
+        publishWorkflowBranch: ({required runId, required projectId, required branch}) {
+          return publishWorkflowBranchWithProjectAuth(
+            runId: runId,
+            projectId: projectId,
+            branch: branch,
+            projectService: project.projectService,
+            taskService: storage.taskService,
+            remotePushService: task.remotePushService,
+            prCreator: task.prCreator,
+          );
         },
         cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
           if (preserveWorktrees) return;
@@ -1173,6 +1100,89 @@ Future<void> _persistWorkflowPrArtifact(TaskService taskService, String runId, S
     kind: ArtifactKind.pr,
     path: content,
   );
+}
+
+Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
+  required String runId,
+  required String projectId,
+  required String branch,
+  required ProjectService projectService,
+  required TaskService taskService,
+  required RemotePushService remotePushService,
+  required PrCreator prCreator,
+}) async {
+  final resolvedProject = await projectService.get(projectId);
+  if (resolvedProject == null) {
+    return WorkflowGitPublishResult(
+      status: 'failed',
+      branch: branch,
+      remote: 'origin',
+      prUrl: '',
+      error: 'Project "$projectId" not found',
+    );
+  }
+
+  final pushResult = await remotePushService.push(project: resolvedProject, branch: branch);
+  switch (pushResult) {
+    case PushSuccess():
+      final runTasks = (await taskService.list()).where((candidate) => candidate.workflowRunId == runId).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      final artifactTask = runTasks.isEmpty ? null : runTasks.last;
+      if (resolvedProject.pr.strategy == PrStrategy.githubPr) {
+        final syntheticTask =
+            artifactTask ??
+            Task(
+              id: 'workflow-$runId',
+              title: 'workflow($runId)',
+              description: 'Workflow publish from $branch',
+              type: TaskType.coding,
+              createdAt: DateTime.now(),
+            );
+        final prResult = await prCreator.create(project: resolvedProject, task: syntheticTask, branch: branch);
+        switch (prResult) {
+          case PrCreated(:final url):
+            await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, url);
+            return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: url);
+          case PrGhNotFound(:final instructions):
+            await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, instructions);
+            return WorkflowGitPublishResult(status: 'manual', branch: branch, remote: 'origin', prUrl: '');
+          case PrCreationFailed(:final error, :final details):
+            await _persistWorkflowPrArtifact(
+              taskService,
+              runId,
+              artifactTask?.id,
+              'PR creation failed: $error\n$details',
+            );
+            return WorkflowGitPublishResult(
+              status: 'failed',
+              branch: branch,
+              remote: 'origin',
+              prUrl: '',
+              error: '$error: $details',
+            );
+        }
+      }
+      await _persistWorkflowPrArtifact(taskService, runId, artifactTask?.id, branch);
+      return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+    case PushAuthFailure(:final details):
+      return WorkflowGitPublishResult(
+        status: 'failed',
+        branch: branch,
+        remote: 'origin',
+        prUrl: '',
+        error: 'Authentication failed: $details',
+      );
+    case PushRejected(:final reason):
+      return WorkflowGitPublishResult(
+        status: 'failed',
+        branch: branch,
+        remote: 'origin',
+        prUrl: '',
+        error: 'Remote rejected push: $reason',
+      );
+    case PushError(:final message):
+      return WorkflowGitPublishResult(status: 'failed', branch: branch, remote: 'origin', prUrl: '', error: message);
+  }
 }
 
 class WorkflowGitCleanupPlan {

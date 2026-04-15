@@ -649,6 +649,9 @@ class TaskExecutor {
             await onAutoAccept(task.id);
           } catch (error, stackTrace) {
             _log.warning('Auto-accept failed for task ${task.id}: $error', error, stackTrace);
+            if (task.workflowRunId != null) {
+              await _markFailedOrRetry(task, errorSummary: _sanitizeErrorSummary(error.toString()), retryable: false);
+            }
           }
         }
         return;

@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'project_auth_support.dart';
 import '../task/git_credential_env.dart';
 
 /// Function type for running git commands, injectable for testing.
@@ -51,6 +52,8 @@ class ProjectServiceImpl implements ProjectService {
   final CredentialsConfig _credentials;
   final EventBus? _eventBus;
   final GitRunner _gitRunner;
+  final HttpClient Function() _httpClientFactory;
+  final GitHubProbeRunner? _gitHubProbeRunner;
   final Logger _log;
 
   /// In-memory project registry keyed by id.
@@ -78,11 +81,15 @@ class ProjectServiceImpl implements ProjectService {
     required CredentialsConfig credentials,
     EventBus? eventBus,
     GitRunner? gitRunner,
+    HttpClient Function()? httpClientFactory,
+    GitHubProbeRunner? gitHubProbeRunner,
   }) : _dataDir = dataDir,
        _projectConfig = projectConfig,
        _credentials = credentials,
        _eventBus = eventBus,
        _gitRunner = gitRunner ?? _isolateGitRunner,
+       _httpClientFactory = httpClientFactory ?? HttpClient.new,
+       _gitHubProbeRunner = gitHubProbeRunner,
        _fetchCooldownMinutes = projectConfig.fetchCooldownMinutes,
        _log = Logger('ProjectService');
 
@@ -175,14 +182,16 @@ class ProjectServiceImpl implements ProjectService {
       createdAt: now,
     );
 
-    _projects[id] = project;
+    final prepared = await _requireCompatibleAuth(project);
+
+    _projects[id] = prepared;
     await _persist();
-    _fireStatusChanged(project, null);
+    _fireStatusChanged(prepared, null);
 
     // Clone in Isolate — fire-and-complete asynchronously.
-    unawaited(_cloneInIsolate(project));
+    unawaited(_cloneInIsolate(prepared));
 
-    return project;
+    return prepared;
   }
 
   @override
@@ -213,14 +222,15 @@ class ProjectServiceImpl implements ProjectService {
       credentialsRef: credentialsRef,
       pr: pr,
     );
+    final prepared = await _requireCompatibleAuth(updated);
 
     if (!coordinatesChanged) {
-      _projects[id] = updated;
+      _projects[id] = prepared;
       await _persist();
-      return updated;
+      return prepared;
     }
 
-    final recloning = updated.copyWith(status: ProjectStatus.cloning, lastFetchAt: null, errorMessage: null);
+    final recloning = prepared.copyWith(status: ProjectStatus.cloning, lastFetchAt: null, errorMessage: null);
     _projects[id] = recloning;
     await _persist();
     _fireStatusChanged(recloning, project.status);
@@ -242,8 +252,9 @@ class ProjectServiceImpl implements ProjectService {
   Future<Project> fetch(String id) async {
     final project = _projects[id];
     if (project == null) throw ArgumentError('Project "$id" not found');
+    final prepared = await _requireCompatibleAuth(project, persistFailure: true);
 
-    return _fetchProject(project, bypassCooldown: true);
+    return _fetchProject(prepared, bypassCooldown: true);
   }
 
   @override
@@ -298,11 +309,12 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   Future<void> _fetchExternal(Project project, {String? ref, bool strict = false}) async {
+    final prepared = await _requireCompatibleAuth(project, persistFailure: strict || project.configDefined);
     final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
-    final env = _resolveGitEnv(project.remoteUrl, project.credentialsRef);
+    final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
     final result = await _gitRunner(
-      ['fetch', 'origin', targetRef],
-      environment: env,
+      _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', targetRef]),
+      environment: plan.environment,
       workingDirectory: project.localPath,
     );
 
@@ -316,7 +328,7 @@ class ProjectServiceImpl implements ProjectService {
     }
 
     // Update lastFetchAt.
-    final updated = project.copyWith(lastFetchAt: DateTime.now());
+    final updated = prepared.copyWith(lastFetchAt: DateTime.now(), status: ProjectStatus.ready, errorMessage: null);
     _projects[project.id] = updated;
     await _persist();
     _log.info('Fetched latest for "${project.name}" (ref: $targetRef)');
@@ -484,9 +496,7 @@ class ProjectServiceImpl implements ProjectService {
       }
 
       final cloneExists = Directory(localPath).existsSync();
-      final status = cloneExists ? ProjectStatus.ready : ProjectStatus.cloning;
-
-      final project = Project(
+      var project = Project(
         id: id,
         name: def.id, // Use ID as name for config-defined (no display name in YAML)
         remoteUrl: def.remote,
@@ -495,14 +505,25 @@ class ProjectServiceImpl implements ProjectService {
         credentialsRef: def.credentials,
         cloneStrategy: def.cloneStrategy,
         pr: def.pr,
-        status: status,
+        status: cloneExists ? ProjectStatus.ready : ProjectStatus.cloning,
         configDefined: true,
         createdAt: DateTime.now(),
+      );
+      final auth = await probeProjectAuth(
+        project,
+        _credentials,
+        httpClientFactory: _httpClientFactory,
+        probeRunner: _gitHubProbeRunner,
+      );
+      project = project.copyWith(
+        auth: auth,
+        status: auth != null && !auth.compatible ? ProjectStatus.error : project.status,
+        errorMessage: auth != null && !auth.compatible ? auth.errorMessage : null,
       );
 
       _projects[id] = project;
 
-      if (!cloneExists) {
+      if (!cloneExists && (project.auth == null || project.auth!.compatible)) {
         unawaited(_cloneInIsolate(project));
       }
     }
@@ -530,10 +551,10 @@ class ProjectServiceImpl implements ProjectService {
 
   Future<void> _cloneInIsolate(Project project) async {
     try {
-      final env = _resolveGitEnv(project.remoteUrl, project.credentialsRef);
-      final args = _buildCloneArgs(project);
+      final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
+      final args = _buildCloneArgs(project, plan.remoteUrl);
 
-      final result = await _gitRunner(args, environment: env.isEmpty ? null : env);
+      final result = await _gitRunner(args, environment: plan.environment);
 
       if (result.exitCode == 0) {
         // Project may have been deleted while clone was in progress — discard.
@@ -577,13 +598,14 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   Future<Project> _fetchProject(Project project, {required bool bypassCooldown}) async {
-    final env = _resolveGitEnv(project.remoteUrl, project.credentialsRef);
-    final args = ['fetch', '--prune', 'origin'];
+    final prepared = await _requireCompatibleAuth(project, persistFailure: true);
+    final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
+    final args = _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', '--prune', 'origin']);
 
-    final result = await _gitRunner(args, environment: env.isEmpty ? null : env, workingDirectory: project.localPath);
+    final result = await _gitRunner(args, environment: plan.environment, workingDirectory: project.localPath);
 
     if (result.exitCode == 0) {
-      final updated = project.copyWith(status: ProjectStatus.ready, lastFetchAt: DateTime.now(), errorMessage: null);
+      final updated = prepared.copyWith(status: ProjectStatus.ready, lastFetchAt: DateTime.now(), errorMessage: null);
       if (_projects.containsKey(project.id)) {
         final prev = _projects[project.id]!;
         _projects[project.id] = updated;
@@ -598,22 +620,52 @@ class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  List<String> _buildCloneArgs(Project project) {
+  List<String> _buildCloneArgs(Project project, String remoteUrl) {
     return [
       'clone',
       if (project.cloneStrategy == CloneStrategy.shallow) '--depth=1',
       '--branch',
       project.defaultBranch,
-      project.remoteUrl,
+      remoteUrl,
       project.localPath,
     ];
   }
 
-  /// Resolves git environment variables for credential injection.
-  ///
-  /// Delegates to the shared [resolveGitCredentialEnv] utility.
-  Map<String, String> _resolveGitEnv(String remoteUrl, String? credentialsRef) {
-    return resolveGitCredentialEnv(remoteUrl, credentialsRef, _credentials, dataDir: _dataDir, tempFiles: _tempFiles);
+  GitCredentialPlan _resolveGitPlan(String remoteUrl, String? credentialsRef) {
+    return resolveGitCredentialPlan(remoteUrl, credentialsRef, _credentials, dataDir: _dataDir, tempFiles: _tempFiles);
+  }
+
+  List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
+    if (originalRemoteUrl == resolvedRemoteUrl) {
+      return gitArgs;
+    }
+    return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
+  }
+
+  Future<Project> _requireCompatibleAuth(Project project, {bool persistFailure = false}) async {
+    final auth = await probeProjectAuth(
+      project,
+      _credentials,
+      httpClientFactory: _httpClientFactory,
+      probeRunner: _gitHubProbeRunner,
+    );
+    final updated = project.copyWith(
+      auth: auth,
+      errorMessage: auth != null && !auth.compatible ? auth.errorMessage : null,
+    );
+    if (auth != null && !auth.compatible) {
+      if (persistFailure && _projects.containsKey(project.id)) {
+        final failed = updated.copyWith(status: ProjectStatus.error);
+        final previous = _projects[project.id]!;
+        _projects[project.id] = failed;
+        await _persist();
+        if (previous.status != failed.status) {
+          _fireStatusChanged(failed, previous.status);
+        }
+      }
+      throw ProjectAuthException(auth);
+    }
+    return updated;
   }
 
   Future<void> _persist() async {

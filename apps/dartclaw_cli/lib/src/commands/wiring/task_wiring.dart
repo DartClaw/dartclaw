@@ -129,7 +129,7 @@ class TaskWiring {
     await _worktreeManager.detectStaleWorktrees();
 
     _remotePushService = RemotePushService(credentials: config.credentials, dataDir: _dataDir);
-    _prCreator = PrCreator();
+    _prCreator = PrCreator(credentials: config.credentials);
 
     _taskReviewService = TaskReviewService(
       tasks: _storage.taskService,

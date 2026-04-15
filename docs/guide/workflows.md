@@ -231,6 +231,7 @@ Key runtime behavior:
 - Promotion-aware maps validate dependency IDs before dispatch; unknown IDs fail fast.
 - Promotion conflicts pause with a `promotion-conflict` reason and preserve worktrees for manual conflict resolution + `workflow resume`.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
+- For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
 
 ### Inline Loops
 

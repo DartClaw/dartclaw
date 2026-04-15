@@ -144,7 +144,12 @@ function populateSettingsForm(config, meta) {
         badge.className = 'restart-required-badge';
         badge.title = 'Requires restart';
         badge.textContent = '↺';
-        group.appendChild(badge);
+        var labelEl = group.querySelector('.form-label');
+        if (labelEl) {
+          labelEl.appendChild(badge);
+        } else {
+          group.appendChild(badge);
+        }
       }
     } else {
       group.removeAttribute('data-needs-restart');

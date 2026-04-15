@@ -3,6 +3,7 @@ import 'package:dartclaw_cli/src/commands/projects/projects_add_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_list_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_remove_command.dart';
+import 'package:dartclaw_cli/src/commands/projects/projects_show_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:test/test.dart';
 
@@ -87,6 +88,44 @@ void main() {
 
       expect(transport.requests.single.uri.path, '/api/projects/proj-1');
       expect(output.single, contains('Removed project proj-1'));
+    });
+
+    test('show renders project auth details', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(200, {
+            'id': 'proj-1',
+            'name': 'dartclaw',
+            'remoteUrl': 'git@github.com:acme/dartclaw.git',
+            'defaultBranch': 'main',
+          }),
+          jsonResponse(200, {
+            'status': 'error',
+            'cloneExists': true,
+            'lastFetchAt': null,
+            'errorMessage': 'Clone failed',
+            'auth': {
+              'compatible': false,
+              'repository': 'acme/dartclaw',
+              'credentialsRef': 'github-main',
+              'errorMessage': 'GitHub token "github-main" cannot access acme/dartclaw.',
+            },
+          }),
+        ],
+      );
+      final output = <String>[];
+      final command = ProjectsShowCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['show', 'proj-1']);
+
+      final rendered = output.join('\n');
+      expect(rendered, contains('Auth:       error'));
+      expect(rendered, contains('Repo:       acme/dartclaw'));
+      expect(rendered, contains('Credential: github-main'));
     });
   });
 }

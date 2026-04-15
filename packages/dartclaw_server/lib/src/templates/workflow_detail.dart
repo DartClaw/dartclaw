@@ -18,7 +18,7 @@ String workflowDetailPageTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final definitionName = run['definitionName']?.toString() ?? 'Workflow';
-  final topbar = pageTopbarTemplate(title: 'Workflow: $definitionName', backHref: '/tasks', backLabel: 'Back to Tasks');
+  final topbar = pageTopbarTemplate(title: 'Workflow: $definitionName', backHref: '/workflows', backLabel: 'Back to Workflows');
   final statusName = run['status']?.toString() ?? 'pending';
 
   // Compute progress.

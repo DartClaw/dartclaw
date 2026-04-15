@@ -48,6 +48,40 @@
     <hr class="sidebar-divider">
   </div>
 
+  <div tl:if="${hasActiveTasks}" id="sidebar-running">
+    <div class="sidebar-section-label sidebar-running-label">Running</div>
+    <div tl:each="task : ${activeTasks}" class="session-item sidebar-running-item">
+      <a tl:attr="href=${task.href},hx-get=${task.href}" class="session-item-link"
+        hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+        hx-select-oob="#topbar,#sidebar">
+        <span tl:if="${task.isReview}" class="status-dot status-dot--warning" aria-hidden="true"></span>
+        <span tl:unless="${task.isReview}" class="status-dot status-dot--live" aria-hidden="true"></span>
+        <span class="session-item-title" tl:text="${task.title}">Task</span>
+        <span tl:if="${task.isReview}" class="running-review-label">review</span>
+        <span tl:unless="${task.isReview}" class="task-elapsed running-elapsed"
+          tl:attr="data-started-at=${task.startedAt}">--:--</span>
+        <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+          tl:text="${task.providerLabel}">Claude</span>
+      </a>
+    </div>
+    <hr class="sidebar-divider sidebar-running-divider">
+  </div>
+
+  <div tl:if="${hasActiveWorkflows}" id="sidebar-workflows">
+    <div class="sidebar-section-label sidebar-workflows-label">Workflows</div>
+    <div tl:each="workflow : ${activeWorkflows}" class="session-item sidebar-workflow-item">
+      <a tl:attr="href=${workflow.href},hx-get=${workflow.href}" class="session-item-link"
+        hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+        hx-select-oob="#topbar,#sidebar">
+        <span tl:if="${workflow.isPaused}" class="status-dot status-dot--warning" aria-hidden="true"></span>
+        <span tl:unless="${workflow.isPaused}" class="status-dot status-dot--live" aria-hidden="true"></span>
+        <span class="session-item-title" tl:text="${workflow.title}">Workflow</span>
+        <span class="workflow-step-progress" tl:text="${workflow.progress}">0/0</span>
+      </a>
+    </div>
+    <hr class="sidebar-divider sidebar-workflows-divider">
+  </div>
+
   <div class="sidebar-section-label">Chats</div>
   <button class="btn btn-ghost btn-new-session" data-action="create-session" data-icon="new-session">New Chat</button>
   <div tl:if="${noActiveEntries}" class="sidebar-placeholder">No chats yet</div>

@@ -1,6 +1,8 @@
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
+import 'package:dartclaw_server/src/project/project_auth_support.dart' show ProjectAuthException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show ProjectAuthStatus;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -83,6 +85,48 @@ void main() {
       );
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'PROJECT_ID_CONFLICT');
+    });
+
+    test('project auth failures return 422 with auth details', () async {
+      final authFailingProjects = FakeProjectService(
+        onCreate:
+            ({
+              required name,
+              required remoteUrl,
+              defaultBranch = 'main',
+              credentialsRef,
+              cloneStrategy = CloneStrategy.shallow,
+              pr = const PrConfig.defaults(),
+            }) async {
+              throw const ProjectAuthException(
+                ProjectAuthStatus(
+                  repository: 'acme/private-repo',
+                  credentialsRef: 'github-main',
+                  credentialType: 'githubToken',
+                  compatible: false,
+                  errorCode: 'github_auth_failed',
+                  errorMessage: 'GitHub token "github-main" cannot access acme/private-repo.',
+                ),
+              );
+            },
+      );
+      final authHandler = projectRoutes(authFailingProjects).call;
+
+      final response = await authHandler(
+        jsonRequest('POST', '/api/projects', {
+          'name': 'Private App',
+          'remoteUrl': 'https://github.com/acme/private-repo.git',
+          'credentialsRef': 'github-main',
+        }),
+      );
+
+      expect(response.statusCode, 422);
+      final body = decodeObject(await response.readAsString());
+      expect((body['error'] as Map<String, dynamic>)['code'], 'github_auth_failed');
+      expect(
+        ((body['error'] as Map<String, dynamic>)['details'] as Map<String, dynamic>)['auth']['repository'],
+        'acme/private-repo',
+      );
     });
   });
 
@@ -404,6 +448,32 @@ void main() {
       final body = decodeObject(await response.readAsString());
       expect(body['status'], 'error');
       expect(body['errorMessage'], 'Clone failed');
+    });
+
+    test('status includes auth metadata when present', () async {
+      final p = Project(
+        id: 'auth-proj',
+        name: 'Auth',
+        remoteUrl: 'https://github.com/acme/private-repo.git',
+        localPath: '/tmp',
+        defaultBranch: 'main',
+        status: ProjectStatus.error,
+        auth: const ProjectAuthStatus(
+          repository: 'acme/private-repo',
+          credentialsRef: 'github-main',
+          credentialType: 'githubToken',
+          compatible: false,
+          errorCode: 'github_auth_failed',
+          errorMessage: 'denied',
+        ),
+        createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
+      );
+      projects.seed(p);
+      final response = await handler(_emptyRequest('GET', '/api/projects/auth-proj/status'));
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect((body['auth'] as Map<String, dynamic>)['repository'], 'acme/private-repo');
+      expect((body['auth'] as Map<String, dynamic>)['compatible'], isFalse);
     });
 
     test('unknown project returns 404', () async {

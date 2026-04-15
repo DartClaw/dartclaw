@@ -129,9 +129,9 @@ dartclaw projects list --json
 ### `projects add`
 
 ```bash
-dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git
+dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git --credentials-ref github-main
 dartclaw projects add --name docs --remote-url https://github.com/org/docs.git --branch main --credentials-ref github-main
-dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git --json
+dartclaw projects add --name dartclaw --remote-url git@github.com:DartClaw/dartclaw.git --credentials-ref github-main --json
 ```
 
 ### `projects show`

@@ -133,11 +133,41 @@ void main() {
 
       responses['diff --numstat main...feature'] = pr('');
       responses['diff -U3 --no-color main...feature'] = pr('');
+      responses['diff --numstat HEAD'] = pr('');
+      responses['diff -U3 --no-color HEAD'] = pr('');
+      responses['ls-files --others --exclude-standard'] = pr('');
 
       await generator.generate(baseRef: 'main', branch: 'feature');
 
-      expect(calls[0].args, contains('main...feature'));
-      expect(calls[1].args, contains('main...feature'));
+      expect(calls.any((call) => call.args.contains('main...feature')), isTrue);
+      expect(calls.any((call) => call.args.contains('HEAD')), isTrue);
+    });
+
+    test('includes untracked files from the worktree', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_diff_generator_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final noteFile = File('${tempDir.path}/notes/spec-publish.md');
+      noteFile.parent.createSync(recursive: true);
+      noteFile.writeAsStringSync('# Publish note\n- Added by workflow.\n');
+
+      generator = DiffGenerator(projectDir: tempDir.path, processRunner: mockRunner);
+
+      responses['diff --numstat main...feature'] = pr('');
+      responses['diff -U3 --no-color main...feature'] = pr('');
+      responses['diff --numstat HEAD'] = pr('');
+      responses['diff -U3 --no-color HEAD'] = pr('');
+      responses['ls-files --others --exclude-standard'] = pr('notes/spec-publish.md\n');
+
+      final result = await generator.generate(baseRef: 'main', branch: 'feature', projectDir: tempDir.path);
+
+      expect(result.filesChanged, 1);
+      expect(result.files.single.path, 'notes/spec-publish.md');
+      expect(result.files.single.status, DiffFileStatus.added);
+      expect(result.files.single.additions, 2);
     });
   });
 

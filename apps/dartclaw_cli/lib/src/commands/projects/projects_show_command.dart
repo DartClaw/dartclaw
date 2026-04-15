@@ -45,6 +45,19 @@ class ProjectsShowCommand extends Command<void> {
       _writeLine('  Status:     ${status['status']}');
       _writeLine('  Clone:      ${status['cloneExists'] == true ? 'present' : 'missing'}');
       _writeLine('  Last fetch: ${formatDateTime(status['lastFetchAt'])}');
+      final auth = status['auth'];
+      if (auth is Map<String, dynamic>) {
+        _writeLine('  Auth:       ${auth['compatible'] == true ? 'ready' : 'error'}');
+        if (auth['repository'] != null) {
+          _writeLine('  Repo:       ${auth['repository']}');
+        }
+        if (auth['credentialsRef'] != null) {
+          _writeLine('  Credential: ${auth['credentialsRef']}');
+        }
+        if (auth['errorMessage'] != null) {
+          _writeLine('  Auth error: ${auth['errorMessage']}');
+        }
+      }
       if (status['errorMessage'] != null) {
         _writeLine('  Error:      ${status['errorMessage']}');
       }

@@ -152,7 +152,7 @@ projects:
   workshop-repo:
     remote: git@github.com:org/workshop-repo.git
     branch: main
-    credentials: github-ssh               # reference to SSH key (never stored in config)
+    credentials: github-main              # github-token credential reference
     clone:
       depth: 1                            # shallow clone — faster initial setup
     pr:
@@ -191,8 +191,8 @@ What this enables:
 For full canvas configuration, security model, MCP tool reference, and troubleshooting, see the [Canvas guide](../canvas.md).
 
 **Pre-flight checklist** for Scenario B:
-- Verify SSH key or token: `git ls-remote git@github.com:org/workshop-repo.git`
-- Verify `gh` CLI: `gh auth status` (required for `github-pr` strategy; use `branch-only` if `gh` unavailable)
+- Export `GITHUB_TOKEN` and point a `github-token` credential entry at it
+- Verify the token can read and push to the target repository
 - Trigger initial clone before the workshop: start the server and create a test task, then verify `GET /api/projects` shows `status: ready`
 
 ### Scenario C: Freeform Ideation
@@ -654,8 +654,8 @@ The default 600s timeout means a single stuck turn blocks the shared session for
 - **`push back` transitions task to running**: When a participant sends `push back: <feedback>`, the task moves from `review` back to `running` -- it is not a new task. The agent revises the existing work and resubmits for review
 - **Project clone happens on first task**: When using `projects:`, the repo is cloned on first use (or server start). Large repos may take time -- verify the clone completes before the workshop starts by creating a test task
 - **Auto-fetch cooldown is 5 minutes**: `WorktreeManager` fetches the latest from the remote before creating each worktree, but with a 5-minute cooldown. If someone pushes directly to the remote, it may take up to 5 minutes for DartClaw to see the change
-- **`gh` CLI required for PR creation**: The `github-pr` strategy uses `gh pr create` under the hood. If `gh` is not installed or not authenticated, push-to-remote still works but no PR is created (branch name is stored as artifact instead)
-- **Credentials are reference-based**: The `credentials:` field in `projects:` is a key name, not the credential itself. Credentials are resolved at clone/push time via `GIT_SSH_COMMAND` / `GIT_ASKPASS` environment injection
+- **GitHub automation uses explicit project credentials**: `github-pr` uses the configured `github-token` credential for clone/fetch/push/PR creation. It does not depend on `gh auth login`, `ssh-agent`, or an unlocked SSH key
+- **Credentials are reference-based**: The `credentials:` field in `projects:` is a key name, not the credential itself. GitHub token credentials are injected at clone/push time through a non-interactive `GIT_ASKPASS` flow
 - **Scenario C: no per-contribution rollback**: In freeform ideation mode, all agent edits go directly to `main`. You can `git revert` after the fact, but there's no accept/reject flow. This is by design — the low friction is the point
 - **Workspace git sync ≠ project git sync**: `WorkspaceGitSync` only auto-commits files in `<data_dir>/workspace/` (behavioral files like SOUL.md, MEMORY.md). If your project directory is separate from the workspace, agent edits to project files are **not** auto-committed. Add "Git Discipline" instructions to SOUL.md (see Behavior Files above) to ensure the agent commits after making changes. For worktree-based tasks (Scenarios A & B), the task completion flow handles commit + push automatically
 - **Scenario C: heartbeat = commit interval**: Workspace auto-commits happen every `scheduling.heartbeat.interval_minutes` (default 5 min), not after each turn. This only applies to the workspace directory — project files must be committed explicitly unless the workspace IS the project directory

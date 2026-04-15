@@ -1,5 +1,75 @@
 const _projectFieldUnset = Object();
 
+/// Project auth probe details surfaced to operators.
+class ProjectAuthStatus {
+  /// Resolved repository identity, usually `owner/repo`.
+  final String? repository;
+
+  /// Credential reference used for the probe.
+  final String? credentialsRef;
+
+  /// Resolved credential type.
+  final String? credentialType;
+
+  /// Whether the credential and repository are currently compatible.
+  final bool compatible;
+
+  /// Last time this auth status was checked.
+  final DateTime? checkedAt;
+
+  /// Machine-readable auth/probe error code.
+  final String? errorCode;
+
+  /// Human-readable auth/probe error.
+  final String? errorMessage;
+
+  const ProjectAuthStatus({
+    this.repository,
+    this.credentialsRef,
+    this.credentialType,
+    required this.compatible,
+    this.checkedAt,
+    this.errorCode,
+    this.errorMessage,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'compatible': compatible,
+    if (repository != null) 'repository': repository,
+    if (credentialsRef != null) 'credentialsRef': credentialsRef,
+    if (credentialType != null) 'credentialType': credentialType,
+    if (checkedAt != null) 'checkedAt': checkedAt!.toIso8601String(),
+    if (errorCode != null) 'errorCode': errorCode,
+    if (errorMessage != null) 'errorMessage': errorMessage,
+  };
+
+  factory ProjectAuthStatus.fromJson(Map<String, dynamic> json) => ProjectAuthStatus(
+    repository: json['repository'] as String?,
+    credentialsRef: json['credentialsRef'] as String?,
+    credentialType: json['credentialType'] as String?,
+    compatible: json['compatible'] as bool? ?? false,
+    checkedAt: _parseDateTime(json['checkedAt']),
+    errorCode: json['errorCode'] as String?,
+    errorMessage: json['errorMessage'] as String?,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProjectAuthStatus &&
+          repository == other.repository &&
+          credentialsRef == other.credentialsRef &&
+          credentialType == other.credentialType &&
+          compatible == other.compatible &&
+          checkedAt == other.checkedAt &&
+          errorCode == other.errorCode &&
+          errorMessage == other.errorMessage;
+
+  @override
+  int get hashCode =>
+      Object.hash(repository, credentialsRef, credentialType, compatible, checkedAt, errorCode, errorMessage);
+}
+
 /// Lifecycle states for project management.
 enum ProjectStatus {
   /// Clone operation is in progress.
@@ -23,7 +93,7 @@ enum CloneStrategy {
   /// Full clone with complete history.
   full,
 
-  /// Sparse checkout (forward-defined, not implemented in S01).
+  /// Sparse checkout (reserved for future work).
   sparse,
 }
 
@@ -32,7 +102,7 @@ enum PrStrategy {
   /// Push branch only, no PR creation.
   branchOnly,
 
-  /// Push branch and create a GitHub PR via gh CLI.
+  /// Push branch and create a GitHub PR via DartClaw's GitHub API integration.
   githubPr;
 
   /// Parses a YAML or JSON string to [PrStrategy].
@@ -140,6 +210,9 @@ class Project {
   /// Error message when status is [ProjectStatus.error].
   final String? errorMessage;
 
+  /// Current auth/preflight metadata for the project.
+  final ProjectAuthStatus? auth;
+
   /// When this project record was created.
   final DateTime createdAt;
 
@@ -157,6 +230,7 @@ class Project {
     this.lastFetchAt,
     this.configDefined = false,
     this.errorMessage,
+    this.auth,
     required this.createdAt,
   });
 
@@ -174,6 +248,7 @@ class Project {
     Object? lastFetchAt = _projectFieldUnset,
     bool? configDefined,
     Object? errorMessage = _projectFieldUnset,
+    Object? auth = _projectFieldUnset,
     DateTime? createdAt,
   }) => Project(
     id: id ?? this.id,
@@ -188,6 +263,7 @@ class Project {
     lastFetchAt: identical(lastFetchAt, _projectFieldUnset) ? this.lastFetchAt : lastFetchAt as DateTime?,
     configDefined: configDefined ?? this.configDefined,
     errorMessage: identical(errorMessage, _projectFieldUnset) ? this.errorMessage : errorMessage as String?,
+    auth: identical(auth, _projectFieldUnset) ? this.auth : auth as ProjectAuthStatus?,
     createdAt: createdAt ?? this.createdAt,
   );
 
@@ -205,6 +281,7 @@ class Project {
     if (lastFetchAt != null) 'lastFetchAt': lastFetchAt!.toIso8601String(),
     'configDefined': configDefined,
     if (errorMessage != null) 'errorMessage': errorMessage,
+    if (auth != null) 'auth': auth!.toJson(),
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -224,6 +301,9 @@ class Project {
     lastFetchAt: _parseDateTime(json['lastFetchAt']),
     configDefined: json['configDefined'] as bool? ?? false,
     errorMessage: json['errorMessage'] as String?,
+    auth: json['auth'] is Map<String, dynamic>
+        ? ProjectAuthStatus.fromJson(json['auth'] as Map<String, dynamic>)
+        : null,
     createdAt: DateTime.parse(json['createdAt'] as String),
   );
 

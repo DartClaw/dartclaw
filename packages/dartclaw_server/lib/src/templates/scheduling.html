@@ -195,8 +195,8 @@
               <td><span class="delivery-badge" tl:text="${task.type}">type</span></td>
               <td><span tl:classappend="${task.statusDotClass}" class="status-dot"></span> <span tl:text="${task.statusText}">enabled</span></td>
               <td>
-                <div class="action-btns">
-                  <button class="btn-icon-sm"
+                <div class="action-btns scheduling-action-btns">
+                  <button class="btn btn-ghost btn-sm scheduling-action-toggle"
                           data-action="toggle-scheduled-task" tl:attr="data-task-id=${task.id}"
                           tl:text="${task.enabled ? 'Disable' : 'Enable'}"
                           title="Toggle">toggle</button>

@@ -12,6 +12,7 @@ import '../task/task_service.dart';
 import '../task/worktree_manager.dart';
 import '../turn_manager.dart';
 import 'api_helpers.dart';
+import '../project/project_auth_support.dart';
 
 final _log = Logger('ProjectRoutes');
 
@@ -66,6 +67,8 @@ Router projectRoutes(
           pr: pr,
         );
         return jsonResponse(201, project.toJson());
+      } on ProjectAuthException catch (e) {
+        return errorResponse(422, e.code, e.message, e.details);
       } on ArgumentError catch (e) {
         return errorResponse(409, 'PROJECT_ID_CONFLICT', '${e.message}');
       }
@@ -142,6 +145,8 @@ Router projectRoutes(
         pr: body.value!.containsKey('pr') ? _parsePrConfig(body.value!['pr']) : null,
       );
       return jsonResponse(200, updated.toJson());
+    } on ProjectAuthException catch (e) {
+      return errorResponse(422, e.code, e.message, e.details);
     } catch (e, st) {
       _log.warning('Failed to update project $id: $e', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update project');
@@ -181,6 +186,8 @@ Router projectRoutes(
 
       final updated = await projects.fetch(id);
       return jsonResponse(200, updated.toJson());
+    } on ProjectAuthException catch (e) {
+      return errorResponse(422, e.code, e.message, e.details);
     } catch (e, st) {
       _log.warning('Failed to fetch project $id: $e', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to fetch project');
@@ -201,6 +208,7 @@ Router projectRoutes(
         'lastFetchAt': project.lastFetchAt?.toIso8601String(),
         'errorMessage': project.errorMessage,
         'cloneExists': cloneExists,
+        'auth': project.auth?.toJson(),
       });
     } catch (e, st) {
       _log.warning('Failed to get status for project $id: $e', e, st);

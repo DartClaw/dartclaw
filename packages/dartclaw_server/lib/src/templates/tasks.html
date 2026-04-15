@@ -7,11 +7,11 @@
       <div tl:if="${bannerHtml}" tl:utext="${bannerHtml}">restart banner</div>
 
       <div class="task-filter-bar">
-        <select id="task-status-filter" data-task-filter="status">
+        <select id="task-status-filter" class="form-select" data-task-filter="status" data-enhance="custom-select">
           <option tl:each="opt : ${statusOptions}" tl:text="${opt.label}"
                   tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Statuses</option>
         </select>
-        <select id="task-type-filter" data-task-filter="type">
+        <select id="task-type-filter" class="form-select" data-task-filter="type" data-enhance="custom-select">
           <option tl:each="opt : ${typeOptions}" tl:text="${opt.label}"
                   tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Types</option>
         </select>

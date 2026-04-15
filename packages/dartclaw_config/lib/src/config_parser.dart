@@ -1133,13 +1133,41 @@ CredentialsConfig _parseCredentials(
     }
 
     final credentialMap = Map<String, dynamic>.from(value);
-    final apiKeyRaw = credentialMap['api_key'];
-    if (apiKeyRaw is! String) {
-      warns.add('credentials.$credentialName missing "api_key" — skipping');
+    final credentialTypeRaw = credentialMap['type'];
+    final credentialType = switch (credentialTypeRaw) {
+      null => null,
+      'api-key' || 'apiKey' => CredentialType.apiKey,
+      'github-token' || 'githubToken' => CredentialType.githubToken,
+      _ => null,
+    };
+
+    if (credentialTypeRaw != null && credentialType == null) {
+      warns.add('credentials.$credentialName has unknown "type" "$credentialTypeRaw" — skipping');
       continue;
     }
 
-    entries[credentialName] = CredentialEntry(apiKey: envSubstitute(apiKeyRaw, env: env));
+    switch (credentialType ?? CredentialType.apiKey) {
+      case CredentialType.apiKey:
+        final apiKeyRaw = credentialMap['api_key'];
+        if (apiKeyRaw is! String) {
+          warns.add('credentials.$credentialName missing "api_key" — skipping');
+          continue;
+        }
+        entries[credentialName] = CredentialEntry(apiKey: envSubstitute(apiKeyRaw, env: env));
+
+      case CredentialType.githubToken:
+        final tokenRaw = credentialMap['token'];
+        if (tokenRaw is! String) {
+          warns.add('credentials.$credentialName missing "token" — skipping');
+          continue;
+        }
+        final repositoryRaw = credentialMap['repository'];
+        final repository = repositoryRaw is String ? repositoryRaw.trim() : null;
+        entries[credentialName] = CredentialEntry.githubToken(
+          token: envSubstitute(tokenRaw, env: env),
+          repository: repository == null || repository.isEmpty ? null : repository,
+        );
+    }
   }
 
   return CredentialsConfig(entries: entries);

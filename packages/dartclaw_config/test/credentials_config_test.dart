@@ -79,6 +79,26 @@ credentials:
 ''');
 
       expect(config.credentials['openai']?.apiKey, 'literal-api-key');
+      expect(config.credentials['openai']?.type, CredentialType.apiKey);
+    });
+
+    test('parses typed github-token credentials with repository policy', () {
+      final config = _loadYaml(
+        '''
+credentials:
+  github-main:
+    type: github-token
+    token: \${GITHUB_TOKEN}
+    repository: acme/platform
+''',
+        env: {'GITHUB_TOKEN': 'ghp_token'},
+      );
+
+      final entry = config.credentials['github-main'];
+      expect(entry, isNotNull);
+      expect(entry?.type, CredentialType.githubToken);
+      expect(entry?.token, 'ghp_token');
+      expect(entry?.repository, 'acme/platform');
     });
 
     test('handles missing api_key field in credential entry', () {
@@ -97,6 +117,17 @@ credentials:
 
       expect(config.credentials.isEmpty, isTrue);
       expect(config.warnings, anyElement(contains('Invalid type for credentials')));
+    });
+
+    test('warns on missing github-token token field', () {
+      final config = _loadYaml('''
+credentials:
+  github-main:
+    type: github-token
+''');
+
+      expect(config.credentials.isEmpty, isTrue);
+      expect(config.warnings, anyElement(contains('credentials.github-main missing "token"')));
     });
   });
 }

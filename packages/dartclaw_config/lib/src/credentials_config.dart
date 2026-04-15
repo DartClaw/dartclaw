@@ -1,25 +1,61 @@
 import 'package:collection/collection.dart';
 
+/// Supported credential entry shapes.
+enum CredentialType {
+  /// Legacy API key / provider secret entry.
+  apiKey,
+
+  /// GitHub token used for project automation.
+  githubToken,
+}
+
 const _credentialEntriesEquality = MapEquality<String, CredentialEntry>();
 
-/// A single credential entry with a resolved API key.
+/// A single credential entry with a resolved secret value.
 class CredentialEntry {
-  /// The resolved API key value.
-  final String apiKey;
+  /// The credential type.
+  final CredentialType type;
 
-  const CredentialEntry({required this.apiKey});
+  /// The resolved secret value.
+  final String secret;
 
-  /// Whether the API key is non-empty.
-  bool get isPresent => apiKey.isNotEmpty;
+  /// Optional repository policy for project-scoped credentials.
+  final String? repository;
+
+  const CredentialEntry({required String apiKey}) : type = CredentialType.apiKey, secret = apiKey, repository = null;
+
+  /// Creates a first-class GitHub token credential.
+  const CredentialEntry.githubToken({required String token, this.repository})
+    : type = CredentialType.githubToken,
+      secret = token;
+
+  /// Backward-compatible API-key getter used by provider credential lookup.
+  String get apiKey => secret;
+
+  /// Token getter for typed token credentials.
+  String get token => secret;
+
+  /// Whether the secret value is non-empty.
+  bool get isPresent => secret.isNotEmpty;
+
+  /// Whether this entry is a provider-style API key credential.
+  bool get isApiKeyCredential => type == CredentialType.apiKey;
+
+  /// Whether this entry is a GitHub token credential.
+  bool get isGitHubToken => type == CredentialType.githubToken;
 
   @override
-  bool operator ==(Object other) => identical(this, other) || other is CredentialEntry && apiKey == other.apiKey;
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CredentialEntry && type == other.type && secret == other.secret && repository == other.repository;
 
   @override
-  int get hashCode => apiKey.hashCode;
+  int get hashCode => Object.hash(type, secret, repository);
 
   @override
-  String toString() => 'CredentialEntry(apiKey: ${apiKey.isEmpty ? "<empty>" : "***"})';
+  String toString() =>
+      'CredentialEntry(type: ${type.name}, secret: ${secret.isEmpty ? "<empty>" : "***"}'
+      '${repository == null ? "" : ", repository: $repository"})';
 }
 
 /// Multi-credential configuration.

@@ -9,6 +9,19 @@ typedef NavItem = ({String label, String href, bool active, String navGroup, Str
 /// Session entry for sidebar rendering, carrying type info.
 typedef SidebarSession = ({String id, String title, SessionType type, String provider});
 
+/// Active task summary for the live sidebar sections.
+typedef SidebarActiveTask = ({
+  String id,
+  String title,
+  String status,
+  String? startedAt,
+  String provider,
+  String providerLabel,
+});
+
+/// Active workflow summary for the live sidebar sections.
+typedef SidebarActiveWorkflow = ({String id, String definitionName, String status, int completedSteps, int totalSteps});
+
 /// Partitioned session data for sidebar rendering.
 typedef SidebarData = ({
   SidebarSession? main,
@@ -16,6 +29,8 @@ typedef SidebarData = ({
   List<SidebarSession> groupChannels,
   List<SidebarSession> activeEntries,
   List<SidebarSession> archivedEntries,
+  List<SidebarActiveTask> activeTasks,
+  List<SidebarActiveWorkflow> activeWorkflows,
   bool showChannels,
   bool tasksEnabled,
 });
@@ -37,6 +52,8 @@ String sidebarTemplate({
   List<SidebarSession> groupChannels = const [],
   List<SidebarSession> activeEntries = const [],
   List<SidebarSession> archivedEntries = const [],
+  List<SidebarActiveTask> activeTasks = const [],
+  List<SidebarActiveWorkflow> activeWorkflows = const [],
   bool showChannels = true,
   bool tasksEnabled = false,
   String? activeSessionId,
@@ -91,6 +108,28 @@ String sidebarTemplate({
   }).toList();
 
   final archiveContainsActive = activeSessionId != null && archivedEntries.any((e) => e.id == activeSessionId);
+  final activeTaskList = activeTasks
+      .map(
+        (task) => {
+          'href': '/tasks/${task.id}',
+          'title': task.title.trim().isEmpty ? 'Untitled Task' : task.title.trim(),
+          'isReview': task.status == 'review',
+          'startedAt': task.startedAt,
+          'provider': task.provider,
+          'providerLabel': task.providerLabel,
+        },
+      )
+      .toList();
+  final activeWorkflowList = activeWorkflows
+      .map(
+        (workflow) => {
+          'href': '/workflows/${workflow.id}',
+          'title': workflow.definitionName.trim().isEmpty ? 'Workflow' : workflow.definitionName.trim(),
+          'isPaused': workflow.status == 'paused',
+          'progress': '${workflow.completedSteps}/${workflow.totalSteps}',
+        },
+      )
+      .toList();
 
   final aside = templateLoader.trellis.renderFragment(
     templateLoader.source('sidebar'),
@@ -116,6 +155,10 @@ String sidebarTemplate({
       'archivedEntries': archiveList,
       'archivedCount': archivedEntries.length,
       'archiveContainsActive': archiveContainsActive,
+      'hasActiveTasks': activeTaskList.isNotEmpty,
+      'activeTasks': activeTaskList,
+      'hasActiveWorkflows': activeWorkflowList.isNotEmpty,
+      'activeWorkflows': activeWorkflowList,
       'hasNav': navItems.isNotEmpty,
       'showSystemNav': systemNavItems.isNotEmpty,
       'showExtensionNav': extensionNavItems.isNotEmpty,
@@ -162,6 +205,8 @@ String buildSidebar({required SidebarData sidebarData, required List<NavItem> na
     groupChannels: sidebarData.groupChannels,
     activeEntries: sidebarData.activeEntries,
     archivedEntries: sidebarData.archivedEntries,
+    activeTasks: sidebarData.activeTasks,
+    activeWorkflows: sidebarData.activeWorkflows,
     showChannels: sidebarData.showChannels,
     tasksEnabled: sidebarData.tasksEnabled,
     navItems: navItems,

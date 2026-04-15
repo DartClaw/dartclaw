@@ -170,7 +170,7 @@ projects:
   my-app:                              # project ID (any string except _local)
     remote: git@github.com:org/app.git # required: SSH or HTTPS URL
     branch: main                       # default branch (default: main)
-    credentials: github-ssh            # credential store reference (optional)
+    credentials: github-main           # github-token credential reference for GitHub automation
     default: true                      # default project for new tasks (optional)
     clone:
       strategy: shallow               # shallow | full | sparse (default: shallow)
@@ -379,6 +379,10 @@ credentials:
   # openai:                      # uncomment when using Codex
   #   api_key: ${CODEX_API_KEY}
   #                              # ${OPENAI_API_KEY} remains accepted as a fallback.
+  # github-main:                 # uncomment for external GitHub project automation
+  #   type: github-token
+  #   token: ${GITHUB_TOKEN}
+  #   repository: org/app        # optional repo-scope guard
 
 # --- Context Management ---
 context:

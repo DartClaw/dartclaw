@@ -29,6 +29,7 @@ import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
 import '../templates/topbar.dart';
 import '../runtime_config.dart';
+import '../sidebar_live_state.dart';
 import '../task/agent_observer.dart';
 import '../task/goal_service.dart';
 import '../task/task_progress_tracker.dart';
@@ -151,6 +152,8 @@ Router webRoutes(
       defaultProvider: defaultProvider,
       showChannels: visibility.showChannels,
       tasksEnabled: taskService != null && eventBus != null,
+      taskService: taskService,
+      workflowService: workflowService,
     ),
     restartBannerHtml: () => restartBannerHtml(appDisplay.dataDir),
     buildNavItems: ({required String activePage}) => registry.navItems(activePage: activePage),
@@ -221,6 +224,8 @@ Router webRoutes(
       defaultProvider: defaultProvider,
       showChannels: visibility.showChannels,
       tasksEnabled: taskService != null && eventBus != null,
+      taskService: taskService,
+      workflowService: workflowService,
     );
     final sidebar = sidebarTemplate(
       mainSession: sidebarData.main,
@@ -228,6 +233,8 @@ Router webRoutes(
       groupChannels: sidebarData.groupChannels,
       activeEntries: sidebarData.activeEntries,
       archivedEntries: sidebarData.archivedEntries,
+      activeTasks: sidebarData.activeTasks,
+      activeWorkflows: sidebarData.activeWorkflows,
       showChannels: sidebarData.showChannels,
       tasksEnabled: sidebarData.tasksEnabled,
       navItems: systemNav,
@@ -253,6 +260,8 @@ Router webRoutes(
         defaultProvider: defaultProvider,
         showChannels: visibility.showChannels,
         tasksEnabled: taskService != null && eventBus != null,
+        taskService: taskService,
+        workflowService: workflowService,
       );
       final msgs = await messages.getMessagesTail(id);
       final messageList = msgs
@@ -267,6 +276,8 @@ Router webRoutes(
         groupChannels: sidebarData.groupChannels,
         activeEntries: sidebarData.activeEntries,
         archivedEntries: sidebarData.archivedEntries,
+        activeTasks: sidebarData.activeTasks,
+        activeWorkflows: sidebarData.activeWorkflows,
         showChannels: sidebarData.showChannels,
         tasksEnabled: sidebarData.tasksEnabled,
         activeSessionId: id,
@@ -386,6 +397,8 @@ Router webRoutes(
           defaultProvider: defaultProvider,
           showChannels: visibility.showChannels,
           tasksEnabled: taskService != null && eventBus != null,
+          taskService: taskService,
+          workflowService: workflowService,
         ),
         navItems: systemNav,
         createdAt: session.createdAt.toIso8601String(),
@@ -438,6 +451,8 @@ Router webRoutes(
         defaultProvider: defaultProvider,
         showChannels: visibility.showChannels,
         tasksEnabled: taskService != null && eventBus != null,
+        taskService: taskService,
+        workflowService: workflowService,
       );
 
       if (type == 'whatsapp') {
@@ -681,6 +696,8 @@ Future<SidebarData> buildSidebarData(
   String defaultProvider = 'claude',
   bool showChannels = true,
   bool tasksEnabled = false,
+  TaskService? taskService,
+  WorkflowService? workflowService,
 }) async {
   final all = await sessions.listSessions();
   SidebarSession? main;
@@ -712,12 +729,19 @@ Future<SidebarData> buildSidebarData(
     }
   }
 
+  final activeTasks = tasksEnabled && taskService != null ? await buildActiveSidebarTasks(taskService) : const [];
+  final activeWorkflows = tasksEnabled && taskService != null && workflowService != null
+      ? await buildActiveSidebarWorkflows(workflowService, taskService)
+      : const [];
+
   return (
     main: main,
     dmChannels: dmChannels,
     groupChannels: groupChannels,
     activeEntries: activeEntries,
     archivedEntries: archivedEntries,
+    activeTasks: activeTasks,
+    activeWorkflows: activeWorkflows,
     showChannels: showChannels,
     tasksEnabled: tasksEnabled,
   );

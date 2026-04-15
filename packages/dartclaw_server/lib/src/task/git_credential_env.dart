@@ -4,7 +4,75 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../project/project_auth_support.dart';
+
 final _log = Logger('GitCredentialEnv');
+
+/// Per-command git credential resolution.
+final class GitCredentialPlan {
+  final String remoteUrl;
+  final Map<String, String> environment;
+
+  const GitCredentialPlan({required this.remoteUrl, required this.environment});
+}
+
+/// Resolves git transport and environment variables for credential injection.
+GitCredentialPlan resolveGitCredentialPlan(
+  String remoteUrl,
+  String? credentialsRef,
+  CredentialsConfig credentials, {
+  required String dataDir,
+  required List<String> tempFiles,
+}) {
+  final environment = <String, String>{'GIT_TERMINAL_PROMPT': '0', 'GCM_INTERACTIVE': 'never'};
+  final isSsh = remoteUrl.startsWith('git@') || remoteUrl.startsWith('ssh://');
+  if (credentialsRef == null) {
+    if (isSsh) {
+      environment['GIT_SSH_COMMAND'] = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new';
+    }
+    return GitCredentialPlan(remoteUrl: remoteUrl, environment: environment);
+  }
+
+  final entry = credentials[credentialsRef];
+  if (entry == null || !entry.isPresent) {
+    _log.warning('Credential "$credentialsRef" not found — using non-interactive default git auth');
+    if (isSsh) {
+      environment['GIT_SSH_COMMAND'] = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new';
+    }
+    return GitCredentialPlan(remoteUrl: remoteUrl, environment: environment);
+  }
+
+  if (entry.isGitHubToken) {
+    final gitHubRepo = GitHubRepositoryRef.tryParse(remoteUrl);
+    if (gitHubRepo != null) {
+      return GitCredentialPlan(
+        remoteUrl: gitHubRepo.canonicalHttpsUrl,
+        environment: {
+          ...environment,
+          ..._buildGitHubTokenEnv(credentialsRef, entry.token, dataDir: dataDir, tempFiles: tempFiles),
+        },
+      );
+    }
+  }
+
+  if (isSsh) {
+    return GitCredentialPlan(
+      remoteUrl: remoteUrl,
+      environment: {
+        ...environment,
+        'GIT_SSH_COMMAND': 'ssh -i ${entry.apiKey} -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
+      },
+    );
+  }
+
+  return GitCredentialPlan(
+    remoteUrl: remoteUrl,
+    environment: {
+      ...environment,
+      ..._buildLegacyAskPassEnv(credentialsRef, entry.apiKey, dataDir: dataDir, tempFiles: tempFiles),
+    },
+  );
+}
 
 /// Resolves git environment variables for credential injection.
 ///
@@ -20,46 +88,66 @@ Map<String, String> resolveGitCredentialEnv(
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  if (credentialsRef == null) return const {};
-
-  final entry = credentials[credentialsRef];
-  if (entry == null || !entry.isPresent) {
-    _log.warning('Credential "$credentialsRef" not found — using default git auth');
-    return const {};
-  }
-
-  return _buildGitEnvForCredential(remoteUrl, credentialsRef, entry.apiKey, dataDir: dataDir, tempFiles: tempFiles);
+  return resolveGitCredentialPlan(
+    remoteUrl,
+    credentialsRef,
+    credentials,
+    dataDir: dataDir,
+    tempFiles: tempFiles,
+  ).environment;
 }
 
-Map<String, String> _buildGitEnvForCredential(
-  String remoteUrl,
+Map<String, String> _buildLegacyAskPassEnv(
   String credRef,
   String apiKey, {
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  final isSsh = remoteUrl.startsWith('git@') || remoteUrl.startsWith('ssh://');
-
-  if (isSsh) {
-    return {'GIT_SSH_COMMAND': 'ssh -i $apiKey -o StrictHostKeyChecking=accept-new'};
-  } else {
-    // HTTPS: write the token to a key file and generate an askpass script that
-    // cats it. Avoids shell variable expansion — token is never interpolated
-    // into the script body, so metacharacters in the key are safe.
-    final keyFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.key');
-    final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
-    try {
-      Directory(p.dirname(scriptPath)).createSync(recursive: true);
-      File(keyFilePath).writeAsStringSync(apiKey);
-      File(scriptPath).writeAsStringSync('#!/bin/sh\ncat \'$keyFilePath\'\n');
-      Process.runSync('chmod', ['+x', scriptPath]);
-      for (final path in [scriptPath, keyFilePath]) {
-        if (!tempFiles.contains(path)) tempFiles.add(path);
-      }
-      return {'GIT_ASKPASS': scriptPath};
-    } catch (e) {
-      _log.warning('Failed to create askpass script: $e — using default git auth');
-      return const {};
+  final keyFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.key');
+  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  try {
+    Directory(p.dirname(scriptPath)).createSync(recursive: true);
+    File(keyFilePath).writeAsStringSync(apiKey);
+    File(scriptPath).writeAsStringSync('#!/bin/sh\ncat \'$keyFilePath\'\n');
+    Process.runSync('chmod', ['+x', scriptPath]);
+    for (final path in [scriptPath, keyFilePath]) {
+      if (!tempFiles.contains(path)) tempFiles.add(path);
     }
+    return {'GIT_ASKPASS': scriptPath};
+  } catch (e) {
+    _log.warning('Failed to create askpass script: $e — using default git auth');
+    return const {};
+  }
+}
+
+Map<String, String> _buildGitHubTokenEnv(
+  String credRef,
+  String token, {
+  required String dataDir,
+  required List<String> tempFiles,
+}) {
+  final tokenFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.token');
+  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  try {
+    Directory(p.dirname(scriptPath)).createSync(recursive: true);
+    File(tokenFilePath).writeAsStringSync(token);
+    File(scriptPath).writeAsStringSync(
+      [
+        '#!/bin/sh',
+        'case "\$1" in',
+        "  *Username*) printf '%s\\n' 'x-access-token' ;;",
+        "  *) cat '$tokenFilePath' ;;",
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    Process.runSync('chmod', ['+x', scriptPath]);
+    for (final path in [scriptPath, tokenFilePath]) {
+      if (!tempFiles.contains(path)) tempFiles.add(path);
+    }
+    return {'GIT_ASKPASS': scriptPath};
+  } catch (e) {
+    _log.warning('Failed to create GitHub askpass script: $e — using default git auth');
+    return const {};
   }
 }

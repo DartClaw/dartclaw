@@ -232,6 +232,29 @@ void main() {
     expect((await tasks.get('task-auto-accept-error'))!.status, TaskStatus.review);
   });
 
+  test('fails workflow-owned tasks when auto-accept callback errors', () async {
+    final autoAcceptExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        throw StateError('auto-accept failed for $taskId');
+      },
+    );
+    addTearDown(autoAcceptExecutor.stop);
+
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-auto-accept-workflow-error',
+      title: 'Workflow auto accept error task',
+      description: 'Should fail instead of hanging the workflow.',
+      type: TaskType.research,
+      autoStart: true,
+      workflowRunId: 'run-123',
+    );
+
+    await autoAcceptExecutor.pollOnce();
+
+    expect((await tasks.get('task-auto-accept-workflow-error'))!.status, TaskStatus.failed);
+  });
+
   test('does not invoke auto-accept callback when reviewMode completes directly to accepted', () async {
     final calls = <String>[];
     final autoAcceptExecutor = buildExecutor(

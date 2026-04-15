@@ -369,7 +369,7 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(mockDiffGen.lastBaseRef, 'origin/develop');
     expect(mockDiffGen.lastBranch, 'dartclaw/task-project-diff');
-    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
   });
 }
 

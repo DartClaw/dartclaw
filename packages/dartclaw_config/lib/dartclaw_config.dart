@@ -15,7 +15,7 @@ export 'src/config_validator.dart' show ConfigValidator, ValidationError;
 export 'src/config_writer.dart' show ConfigWriter;
 export 'src/context_config.dart' show ContextConfig;
 export 'src/credential_registry.dart' show CredentialRegistry;
-export 'src/credentials_config.dart' show CredentialsConfig, CredentialEntry;
+export 'src/credentials_config.dart' show CredentialsConfig, CredentialEntry, CredentialType;
 export 'src/dartclaw_config.dart' show DartclawConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;

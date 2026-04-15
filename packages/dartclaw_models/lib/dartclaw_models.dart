@@ -22,7 +22,7 @@ export 'src/container_config.dart' show ContainerConfig;
 export 'src/session_key.dart' show SessionKey;
 export 'src/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/task_type.dart' show TaskType;
-export 'src/project.dart' show Project, ProjectStatus, CloneStrategy, PrStrategy, PrConfig;
+export 'src/project.dart' show Project, ProjectAuthStatus, ProjectStatus, CloneStrategy, PrStrategy, PrConfig;
 export 'src/tool_call_record.dart' show ToolCallRecord;
 export 'src/turn_trace.dart' show TurnTrace;
 export 'src/turn_trace_summary.dart' show TurnTraceSummary;

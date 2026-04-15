@@ -100,6 +100,13 @@ void main() {
         lastFetchAt: now,
         configDefined: true,
         errorMessage: null,
+        auth: ProjectAuthStatus(
+          repository: 'user/repo',
+          credentialsRef: 'github-main',
+          credentialType: 'githubToken',
+          compatible: true,
+          checkedAt: now,
+        ),
         createdAt: now,
       );
 
@@ -114,6 +121,7 @@ void main() {
       expect(json['status'], equals('ready'));
       expect(json['lastFetchAt'], equals(now.toIso8601String()));
       expect(json['configDefined'], isTrue);
+      expect((json['auth'] as Map<String, dynamic>)['repository'], equals('user/repo'));
       expect(json.containsKey('errorMessage'), isFalse);
       expect(json['createdAt'], equals(now.toIso8601String()));
     });
@@ -132,6 +140,15 @@ void main() {
         lastFetchAt: now,
         configDefined: false,
         errorMessage: 'Clone failed',
+        auth: ProjectAuthStatus(
+          repository: 'user/repo',
+          credentialsRef: 'github-main',
+          credentialType: 'githubToken',
+          compatible: false,
+          checkedAt: now,
+          errorCode: 'github_auth_failed',
+          errorMessage: 'Token denied',
+        ),
         createdAt: now,
       );
 
@@ -149,6 +166,7 @@ void main() {
       expect(restored.lastFetchAt, equals(project.lastFetchAt));
       expect(restored.configDefined, equals(project.configDefined));
       expect(restored.errorMessage, equals(project.errorMessage));
+      expect(restored.auth, equals(project.auth));
       expect(restored.createdAt, equals(project.createdAt));
     });
 
@@ -158,6 +176,7 @@ void main() {
       expect(json.containsKey('credentialsRef'), isFalse);
       expect(json.containsKey('lastFetchAt'), isFalse);
       expect(json.containsKey('errorMessage'), isFalse);
+      expect(json.containsKey('auth'), isFalse);
     });
 
     test('fromJson applies defaults for missing optional fields', () {
@@ -176,6 +195,7 @@ void main() {
       expect(minimal.configDefined, isFalse);
       expect(minimal.lastFetchAt, isNull);
       expect(minimal.errorMessage, isNull);
+      expect(minimal.auth, isNull);
     });
 
     group('copyWith', () {
@@ -203,12 +223,14 @@ void main() {
           localPath: '/p',
           credentialsRef: 'cred',
           errorMessage: 'err',
+          auth: ProjectAuthStatus(compatible: true),
           createdAt: now,
           lastFetchAt: now,
         );
-        final cleared = project.copyWith(credentialsRef: null, errorMessage: null, lastFetchAt: null);
+        final cleared = project.copyWith(credentialsRef: null, errorMessage: null, auth: null, lastFetchAt: null);
         expect(cleared.credentialsRef, isNull);
         expect(cleared.errorMessage, isNull);
+        expect(cleared.auth, isNull);
         expect(cleared.lastFetchAt, isNull);
       });
 

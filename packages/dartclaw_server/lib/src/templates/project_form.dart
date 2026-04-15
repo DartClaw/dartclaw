@@ -33,7 +33,7 @@ String addProjectDialogHtml() {
       <div class="form-group">
         <label class="form-label" for="project-creds-ref">Credentials Reference</label>
         <input type="text" id="project-creds-ref" name="credentialsRef" class="form-input"
-               placeholder="github-ssh">
+               placeholder="github-main">
         <small class="form-hint">Optional. Name of a credential defined in dartclaw.yaml.</small>
       </div>
 

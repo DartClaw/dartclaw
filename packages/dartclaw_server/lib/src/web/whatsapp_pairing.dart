@@ -29,6 +29,8 @@ String whatsappPairingTemplate({
     groupChannels: [],
     activeEntries: [],
     archivedEntries: [],
+    activeTasks: [],
+    activeWorkflows: [],
     showChannels: true,
     tasksEnabled: false,
   ),

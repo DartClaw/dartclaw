@@ -86,5 +86,15 @@ void main() {
       expect(CredentialRegistry.envVarsFor('codex'), ['CODEX_API_KEY', 'OPENAI_API_KEY']);
       expect(CredentialRegistry.envVarsFor('unknown'), isEmpty);
     });
+
+    test('typed github-token credentials are ignored for provider API-key lookup', () {
+      final registry = CredentialRegistry(
+        credentials: const CredentialsConfig(
+          entries: {'anthropic': CredentialEntry.githubToken(token: 'ghp_token', repository: 'acme/repo')},
+        ),
+      );
+
+      expect(registry.getApiKey('claude'), isNull);
+    });
   });
 }

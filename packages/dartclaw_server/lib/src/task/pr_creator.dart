@@ -1,8 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
-import 'package:dartclaw_models/dartclaw_models.dart' show Project;
 import 'package:logging/logging.dart';
+
+import '../project/project_auth_support.dart';
+
+const _gitHubApiVersion = '2026-03-10';
 
 /// Result of a PR creation attempt.
 sealed class PrCreationResult {
@@ -17,7 +22,7 @@ final class PrCreated extends PrCreationResult {
   const PrCreated(this.url);
 }
 
-/// `gh` CLI was not found on PATH; manual instructions provided.
+/// Manual follow-up is required after the push completed.
 final class PrGhNotFound extends PrCreationResult {
   /// Human-readable instructions for creating the PR manually.
   final String instructions;
@@ -25,7 +30,7 @@ final class PrGhNotFound extends PrCreationResult {
   const PrGhNotFound(this.instructions);
 }
 
-/// `gh pr create` was invoked but failed.
+/// GitHub PR creation failed.
 final class PrCreationFailed extends PrCreationResult {
   final String error;
   final String details;
@@ -33,86 +38,118 @@ final class PrCreationFailed extends PrCreationResult {
   const PrCreationFailed({required this.error, required this.details});
 }
 
-/// Creates GitHub pull requests via the `gh` CLI.
-///
-/// Uses the outpost pattern: invokes `gh pr create` as a subprocess.
-/// Gracefully degrades when `gh` is not available on PATH.
+typedef GitHubApiRunner =
+    Future<({int statusCode, String body})> Function(
+      String method,
+      Uri uri, {
+      required Map<String, String> headers,
+      String? body,
+    });
+
+/// Creates GitHub pull requests via the GitHub REST API.
 class PrCreator {
   static final _log = Logger('PrCreator');
 
-  /// Cached result of the `gh` availability check.
-  bool? _ghAvailable;
+  final CredentialsConfig _credentials;
+  final HttpClient Function() _httpClientFactory;
 
-  /// Injectable process runner for testing.
-  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
-  _processRunner;
+  /// Injectable request runner for testing.
+  final GitHubApiRunner? _apiRunner;
 
   PrCreator({
-    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
-    processRunner,
-  }) : _processRunner = processRunner;
+    CredentialsConfig credentials = const CredentialsConfig.defaults(),
+    HttpClient Function()? httpClientFactory,
+    GitHubApiRunner? apiRunner,
+  }) : _credentials = credentials,
+       _httpClientFactory = httpClientFactory ?? HttpClient.new,
+       _apiRunner = apiRunner;
 
   /// Creates a GitHub PR for the given [branch].
-  ///
-  /// Returns [PrGhNotFound] if the `gh` CLI is not on PATH.
-  /// Returns [PrCreated] with the PR URL on success.
-  /// Returns [PrCreationFailed] on any `gh` error.
   Future<PrCreationResult> create({required Project project, required Task task, required String branch}) async {
-    if (!await _ensureGhAvailable()) {
-      return PrGhNotFound(_manualPrInstructions(project, branch));
+    final auth = describeProjectAuth(project, _credentials);
+    if (auth == null || !auth.compatible) {
+      return PrCreationFailed(
+        error: 'Project credential is not compatible with GitHub PR delivery',
+        details: auth?.errorMessage ?? 'The project is missing a usable GitHub token credential.',
+      );
+    }
+    final repo = GitHubRepositoryRef.tryParse(project.remoteUrl);
+    final credentialsRef = project.credentialsRef;
+    if (repo == null || credentialsRef == null) {
+      return const PrCreationFailed(
+        error: 'Project is not configured for GitHub PR delivery',
+        details: 'GitHub pull requests require a github.com remote and a credentialsRef.',
+      );
+    }
+    final entry = _credentials[credentialsRef];
+    if (entry == null || !entry.isGitHubToken || !entry.isPresent) {
+      return PrCreationFailed(
+        error: 'GitHub token credential is unavailable',
+        details: 'Credential "$credentialsRef" is missing, empty, or not a github-token entry.',
+      );
     }
 
-    final args = [
-      'pr',
-      'create',
-      '--title',
-      task.title,
-      '--body',
-      _buildPrBody(task),
-      '--head',
-      branch,
-      '--base',
-      project.defaultBranch,
-    ];
-
-    if (project.pr.draft) args.add('--draft');
-    for (final label in project.pr.labels) {
-      args.addAll(['--label', label]);
-    }
+    final headers = <String, String>{
+      HttpHeaders.acceptHeader: 'application/vnd.github+json',
+      HttpHeaders.authorizationHeader: 'Bearer ${entry.token}',
+      'X-GitHub-Api-Version': _gitHubApiVersion,
+      HttpHeaders.contentTypeHeader: ContentType.json.mimeType,
+      HttpHeaders.userAgentHeader: 'dartclaw',
+    };
 
     try {
-      final result = await _run('gh', args, workingDirectory: project.localPath);
-      final stdout = result.stdout as String;
-      final stderr = result.stderr as String;
-
-      if (result.exitCode == 0) {
-        final url = stdout.trim().split('\n').firstWhere((line) => line.trim().isNotEmpty, orElse: () => '');
-        _log.info('PR created for branch $branch: $url');
-        return PrCreated(url);
+      final prResponse = await _request(
+        'POST',
+        Uri.parse('https://api.github.com/repos/${repo.owner}/${repo.name}/pulls'),
+        headers: headers,
+        body: jsonEncode({
+          'title': task.title,
+          'body': _buildPrBody(task),
+          'head': branch,
+          'base': project.defaultBranch,
+          if (project.pr.draft) 'draft': true,
+        }),
+      );
+      if (prResponse.statusCode != 201) {
+        final message = _extractGitHubMessage(prResponse.body) ?? 'GitHub returned HTTP ${prResponse.statusCode}';
+        _log.warning('GitHub PR creation failed (${prResponse.statusCode}): $message');
+        return PrCreationFailed(error: 'GitHub PR creation failed (HTTP ${prResponse.statusCode})', details: message);
       }
 
-      _log.warning('gh pr create failed (exit ${result.exitCode}): $stderr');
-      return PrCreationFailed(
-        error: 'gh pr create failed with exit code ${result.exitCode}',
-        details: stderr.trim().isNotEmpty ? stderr.trim() : stdout.trim(),
-      );
+      final payload = jsonDecode(prResponse.body) as Map<String, dynamic>;
+      final url = payload['html_url'] as String? ?? '';
+      final issueNumber = payload['number'];
+      if (url.trim().isEmpty || issueNumber is! int) {
+        return const PrCreationFailed(
+          error: 'GitHub PR response was incomplete',
+          details: 'Expected html_url and number in the pull request response.',
+        );
+      }
+
+      if (project.pr.labels.isNotEmpty) {
+        final labelResponse = await _request(
+          'POST',
+          Uri.parse('https://api.github.com/repos/${repo.owner}/${repo.name}/issues/$issueNumber/labels'),
+          headers: headers,
+          body: jsonEncode({'labels': project.pr.labels}),
+        );
+        if (labelResponse.statusCode != 200) {
+          final message =
+              _extractGitHubMessage(labelResponse.body) ?? 'GitHub returned HTTP ${labelResponse.statusCode}';
+          _log.warning('GitHub label application failed (${labelResponse.statusCode}): $message');
+          return PrCreationFailed(
+            error: 'GitHub PR labels failed (HTTP ${labelResponse.statusCode})',
+            details: 'Created PR $url, but applying labels failed: $message',
+          );
+        }
+      }
+
+      _log.info('PR created for branch $branch: $url');
+      return PrCreated(url);
     } catch (e) {
-      _log.warning('gh pr create threw: $e');
-      return PrCreationFailed(error: 'Failed to invoke gh CLI', details: e.toString());
+      _log.warning('GitHub PR creation threw: $e');
+      return PrCreationFailed(error: 'Failed to call GitHub API', details: e.toString());
     }
-  }
-
-  Future<bool> _ensureGhAvailable() async {
-    if (_ghAvailable != null) return _ghAvailable!;
-
-    try {
-      final result = await _run('gh', ['--version']);
-      _ghAvailable = result.exitCode == 0;
-    } catch (_) {
-      _ghAvailable = false;
-    }
-
-    return _ghAvailable!;
   }
 
   String _buildPrBody(Task task) {
@@ -124,19 +161,45 @@ class PrCreator {
     return parts.join('\n');
   }
 
-  String _manualPrInstructions(Project project, String branch) {
-    return '''PR not created: gh CLI not found on PATH.
-Branch "$branch" has been pushed to ${project.remoteUrl}.
-To create a PR manually, run:
-  gh pr create --head $branch --base ${project.defaultBranch}
-Or visit: ${project.remoteUrl} and create a PR from the branch.''';
+  Future<({int statusCode, String body})> _request(
+    String method,
+    Uri uri, {
+    required Map<String, String> headers,
+    String? body,
+  }) async {
+    final runner = _apiRunner;
+    if (runner != null) {
+      return runner(method, uri, headers: headers, body: body);
+    }
+
+    final client = _httpClientFactory();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.openUrl(method, uri);
+      headers.forEach(request.headers.set);
+      if (body != null) {
+        request.encoding = utf8;
+        request.write(body);
+      }
+      final response = await request.close().timeout(const Duration(seconds: 15));
+      final responseBody = await utf8.decoder.bind(response).join();
+      return (statusCode: response.statusCode, body: responseBody);
+    } finally {
+      client.close(force: true);
+    }
   }
 
-  Future<ProcessResult> _run(String executable, List<String> arguments, {String? workingDirectory}) {
-    final runner = _processRunner;
-    if (runner != null) {
-      return runner(executable, arguments, workingDirectory: workingDirectory);
+  String? _extractGitHubMessage(String body) {
+    if (body.trim().isEmpty) {
+      return null;
     }
-    return Process.run(executable, arguments, workingDirectory: workingDirectory);
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) {
+      final message = decoded['message'];
+      if (message is String && message.trim().isNotEmpty) {
+        return message.trim();
+      }
+    }
+    return null;
   }
 }

@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 
+import '../project/project_auth_support.dart';
 import 'git_credential_env.dart';
 
 /// Result of a remote push attempt.
@@ -76,15 +77,24 @@ class RemotePushService {
   /// Runs git push via [Isolate.run] to avoid blocking the event loop.
   /// Resolves credentials from [project.credentialsRef].
   Future<PushResult> push({required Project project, required String branch}) async {
-    final env = _credentials != null
-        ? resolveGitCredentialEnv(
+    final credentials = _credentials;
+    if (credentials != null) {
+      final auth = describeProjectAuth(project, credentials);
+      if (auth != null && !auth.compatible) {
+        final credHint = project.credentialsRef != null ? ' (credential: ${project.credentialsRef})' : '';
+        return PushAuthFailure('${auth.errorMessage}$credHint');
+      }
+    }
+
+    final plan = credentials != null
+        ? resolveGitCredentialPlan(
             project.remoteUrl,
             project.credentialsRef,
-            _credentials,
+            credentials,
             dataDir: _dataDir,
             tempFiles: _tempFiles,
           )
-        : const <String, String>{};
+        : GitCredentialPlan(remoteUrl: project.remoteUrl, environment: const <String, String>{});
 
     final localPath = project.localPath;
     final runner = _processRunner;
@@ -96,20 +106,20 @@ class RemotePushService {
       // Test path — use injectable runner directly.
       final result = await runner(
         'git',
-        ['push', 'origin', branch],
+        _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]),
         workingDirectory: localPath,
-        environment: env.isEmpty ? null : env,
+        environment: plan.environment,
       );
       exitCode = result.exitCode;
       stderr = result.stderr;
     } else {
       // Production path — run in Isolate to avoid blocking event loop.
-      final argsCopy = ['push', 'origin', branch];
-      final envCopy = env.isEmpty ? null : Map<String, String>.unmodifiable(env);
+      final gitArgs = _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]);
+      final envCopy = Map<String, String>.unmodifiable(plan.environment);
       final wdCopy = localPath;
 
       final result = await Isolate.run(() async {
-        final r = await Process.run('git', argsCopy, workingDirectory: wdCopy, environment: envCopy);
+        final r = await Process.run('git', gitArgs, workingDirectory: wdCopy, environment: envCopy);
         return (exitCode: r.exitCode, stdout: r.stdout as String, stderr: r.stderr as String);
       });
       exitCode = result.exitCode;
@@ -141,5 +151,12 @@ class RemotePushService {
 
     _log.warning('Push failed for branch $branch (exit $exitCode): $stderr');
     return PushError(stderr.trim().isNotEmpty ? stderr.trim() : 'git push exited with code $exitCode');
+  }
+
+  List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
+    if (originalRemoteUrl == resolvedRemoteUrl) {
+      return gitArgs;
+    }
+    return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
   }
 }

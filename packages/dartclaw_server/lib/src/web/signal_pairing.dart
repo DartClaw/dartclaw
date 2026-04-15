@@ -76,5 +76,5 @@ String signalPairingTemplate({
   );
 
   if (fragmentOnly) return '$body$topbar$sidebar';
-  return layoutTemplate(title: 'Signal Setup', body: body, appName: appName);
+  return layoutTemplate(title: 'Signal Setup', body: body, appName: appName, scripts: standardShellScripts());
 }

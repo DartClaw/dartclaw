@@ -22,7 +22,12 @@ String memoryDashboardTemplate({
   if (bannerHtml.isNotEmpty) context['bannerHtml'] = bannerHtml;
 
   final body = templateLoader.trellis.render(templateLoader.source('memory_dashboard'), context);
-  return layoutTemplate(title: 'Memory', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Memory',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(const ['/static/memory.js']),
+  );
 }
 
 /// Renders only the inner content for HTMX polling refresh.

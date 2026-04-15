@@ -374,6 +374,7 @@ class TaskExecutor {
     var task = runningTask;
     WorktreeInfo? worktreeInfo;
     Project? project;
+    Set<String>? readOnlyProjectStatusBeforeTurn;
     try {
       // Resolve project for this task.
       final projectService = _projectService;
@@ -409,24 +410,37 @@ class TaskExecutor {
         final explicitBaseRef = _taskBaseRef(task);
         final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
         final workflowOwnedBranchTask = _workflowOwnedBranchRunId(task) != null;
+        final workflowOwnedLocalBaseRef = _isWorkflowOwnedLocalRef(effectiveBaseRef);
         final worktreeBaseRef = _worktreeBaseRefFor(task, project, effectiveBaseRef);
-        final strictGitValidation = task.workflowRunId != null && !workflowOwnedBranchTask;
-        final freshnessRef = workflowOwnedBranchTask ? null : _freshnessRefFor(project, effectiveBaseRef);
-        try {
-          await projectService.ensureFresh(project, ref: freshnessRef, strict: strictGitValidation);
-        } catch (e) {
-          await _markFailedOrRetry(
-            task,
-            errorSummary: 'Git reference validation failed for project "${project.name}": $e',
-            retryable: false,
+        final strictGitValidation =
+            task.workflowRunId != null && !workflowOwnedBranchTask && !workflowOwnedLocalBaseRef;
+        final freshnessRef = (workflowOwnedBranchTask || workflowOwnedLocalBaseRef)
+            ? null
+            : _freshnessRefFor(project, effectiveBaseRef);
+        if (strictGitValidation || freshnessRef != null) {
+          try {
+            await projectService.ensureFresh(project, ref: freshnessRef, strict: strictGitValidation);
+          } catch (e) {
+            await _markFailedOrRetry(
+              task,
+              errorSummary: 'Git reference validation failed for project "${project.name}": $e',
+              retryable: false,
+            );
+            return;
+          }
+        } else if (workflowOwnedLocalBaseRef) {
+          _log.fine(
+            'Task ${task.id}: skipping freshness fetch for local workflow-owned ref "$effectiveBaseRef" '
+            'in project "${project.name}"',
           );
-          return;
         }
         if (worktreeBaseRef != null && worktreeBaseRef.isNotEmpty) {
           final nextConfig = Map<String, dynamic>.from(task.configJson)..['_baseRef'] = worktreeBaseRef;
           task = await _tasks.updateFields(task.id, configJson: nextConfig);
         }
       }
+
+      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
 
       // Worktree setup for coding tasks
       if (task.type == TaskType.coding && _worktreeManager != null) {
@@ -623,6 +637,12 @@ class TaskExecutor {
       }
 
       if (outcome.status == TurnStatus.completed) {
+        final readOnlyMutationSummary = await _readOnlyMutationSummary(task, project, readOnlyProjectStatusBeforeTurn);
+        if (readOnlyMutationSummary != null) {
+          _log.warning('Task ${task.id}: $readOnlyMutationSummary');
+          await _markFailedOrRetry(task, errorSummary: readOnlyMutationSummary, retryable: false);
+          return;
+        }
         final refreshed = await _tasks.get(task.id) ?? task;
         if (refreshed.status == TaskStatus.cancelled) {
           return;
@@ -644,6 +664,13 @@ class TaskExecutor {
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
         if (onAutoAccept != null && postStatus == TaskStatus.review) {
+          if (_skipAutoAcceptForWorkflowTask(task)) {
+            _log.fine(
+              'Task ${task.id}: skipping task-level auto-accept because workflow git promotion '
+              'owns publish/merge for this task',
+            );
+            return;
+          }
           _log.info('Auto-accepting completed task ${task.id} after review transition');
           try {
             await onAutoAccept(task.id);
@@ -909,6 +936,9 @@ class TaskExecutor {
 
   bool _isReadOnlyTask(Task task) => task.configJson['readOnly'] == true;
 
+  bool _skipAutoAcceptForWorkflowTask(Task task) =>
+      task.workflowRunId != null && task.configJson['_workflowGit'] is Map;
+
   String? _reviewMode(Task task) {
     final raw = task.configJson['reviewMode'];
     if (raw is! String) return null;
@@ -1010,6 +1040,68 @@ class TaskExecutor {
       return baseRef;
     }
     return 'origin/$baseRef';
+  }
+
+  bool _isWorkflowOwnedLocalRef(String? ref) => ref != null && ref.startsWith('dartclaw/workflow/');
+
+  Future<Set<String>?> _captureReadOnlyProjectStatus(Task task, Project? project) async {
+    if (!_isReadOnlyTask(task) || project == null) {
+      return null;
+    }
+    return _gitStatusEntries(project.localPath, taskId: task.id);
+  }
+
+  Future<String?> _readOnlyMutationSummary(Task task, Project? project, Set<String>? baseline) async {
+    if (!_isReadOnlyTask(task) || project == null || baseline == null) {
+      return null;
+    }
+    final after = await _gitStatusEntries(project.localPath, taskId: task.id);
+    if (after == null) {
+      return null;
+    }
+    final addedEntries = after.difference(baseline).toList()..sort();
+    if (addedEntries.isEmpty) {
+      return null;
+    }
+    final preview = addedEntries.take(6).map(_statusEntryPath).join(', ');
+    final remaining = addedEntries.length - 6;
+    final suffix = remaining > 0 ? ' (+$remaining more)' : '';
+    return 'Read-only task modified project files: $preview$suffix';
+  }
+
+  Future<Set<String>?> _gitStatusEntries(String workingDirectory, {required String taskId}) async {
+    try {
+      final result = await Process.run('git', const [
+        'status',
+        '--short',
+        '--untracked-files=all',
+      ], workingDirectory: workingDirectory);
+      if (result.exitCode != 0) {
+        _log.fine(
+          'Task $taskId: skipping read-only mutation check for "$workingDirectory" '
+          'because git status failed: ${result.stderr}',
+        );
+        return null;
+      }
+      final stdout = (result.stdout as String).trimRight();
+      if (stdout.isEmpty) {
+        return <String>{};
+      }
+      return stdout.split('\n').map((line) => line.trimRight()).where((line) => line.isNotEmpty).toSet();
+    } catch (error) {
+      _log.fine(
+        'Task $taskId: skipping read-only mutation check for "$workingDirectory" because git status threw: $error',
+      );
+      return null;
+    }
+  }
+
+  String _statusEntryPath(String entry) {
+    final trimmed = entry.trimLeft();
+    if (trimmed.length <= 3) {
+      return trimmed;
+    }
+    return trimmed.substring(3).trim();
   }
 
   Future<String?> _currentSymbolicHead(String workingDirectory) async {

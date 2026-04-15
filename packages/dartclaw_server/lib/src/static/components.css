@@ -1937,6 +1937,7 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 @media (max-width: 768px) {
   .table-fade-wrap { position: relative; }
   .table-fade-wrap::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 32px; background: linear-gradient(to right, transparent, var(--bg-base)); pointer-events: none; z-index: 1; }
+  .table-wrap { padding-right: var(--sp-2); }
 }
 .data-table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: var(--text-sm); }
 .data-table th, .data-table td { border-bottom: var(--border); padding: var(--sp-2) var(--sp-3); text-align: left; white-space: nowrap; }
@@ -2120,6 +2121,17 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
   line-height: 1;
 }
 .btn-icon-sm:hover { color: var(--fg); border-color: var(--accent); }
+
+@media (max-width: 1024px) {
+  .topbar .menu-toggle,
+  .theme-toggle,
+  .btn-icon-sm {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+}
 
 /* === SETTINGS FORM === */
 .form-group { display: flex; flex-direction: column; gap: var(--sp-1); }
@@ -2541,19 +2553,26 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 }
 
 @media (max-width: 768px) {
-  .settings-tabs { position: relative; }
-  .settings-tabs::after {
-    content: '';
-    position: absolute;
-    top: 0; right: 0; bottom: 0;
-    width: 32px;
-    background: linear-gradient(to right, transparent, var(--bg-base));
-    pointer-events: none;
-    z-index: 11;
+  .settings-tabs {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sp-1);
+    border-bottom: none;
+    padding-bottom: var(--sp-2);
   }
+  .settings-tabs::after { display: none; }
   .settings-tab {
     padding: var(--sp-1) var(--sp-2);
     font-size: var(--text-xs);
+    margin-bottom: 0;
+    border: 1px solid var(--bg-surface1);
+    border-radius: 999px;
+    text-align: center;
+    white-space: normal;
+  }
+  .settings-tab.active {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
   }
 }
 
@@ -3043,6 +3062,69 @@ body.streaming [hx-get] { pointer-events: none; opacity: 0.5; }
 .task-status-group .status-badge {
   max-width: 100%;
 }
+
+@media (max-width: 768px) {
+  .task-status-group .table-wrap {
+    overflow-x: auto;
+  }
+
+  .task-status-group .data-table {
+    table-layout: auto;
+  }
+
+  .task-status-group .task-col-project,
+  .task-status-group .task-col-provider,
+  .task-status-group .task-col-created-by,
+  .task-status-group .task-col-created,
+  .task-status-group .task-col-tokens {
+    display: none;
+  }
+
+  .task-status-group .data-table th:nth-child(1),
+  .task-status-group .data-table td:nth-child(1),
+  .task-status-group .data-table th:nth-child(3),
+  .task-status-group .data-table td:nth-child(3),
+  .task-status-group .data-table th:nth-child(7),
+  .task-status-group .data-table td:nth-child(7) {
+    width: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .scheduling-jobs-table th:nth-child(3),
+  .scheduling-jobs-table td:nth-child(3),
+  .scheduling-tasks-table th:nth-child(3),
+  .scheduling-tasks-table td:nth-child(3) {
+    display: none;
+  }
+
+  .scheduling-tasks-table th:nth-child(4),
+  .scheduling-tasks-table td:nth-child(4) {
+    display: none;
+  }
+
+  .scheduling-jobs-table,
+  .scheduling-tasks-table {
+    min-width: 460px;
+  }
+
+  .scheduling-jobs-table th,
+  .scheduling-jobs-table td,
+  .scheduling-tasks-table th,
+  .scheduling-tasks-table td {
+    white-space: normal;
+  }
+
+  .scheduling-action-btns {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .scheduling-table-fade-wrap::after {
+    display: none;
+  }
+}
+
 .task-group-count {
   font-size: var(--text-xs); font-weight: var(--weight-medium);
   padding: var(--sp-1) var(--sp-2); border-radius: var(--radius);

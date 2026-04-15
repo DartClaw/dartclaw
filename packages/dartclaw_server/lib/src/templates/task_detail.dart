@@ -175,7 +175,7 @@ String taskDetailPageTemplate({
     'initialProgressPct': initialProgressPct,
   });
 
-  return layoutTemplate(title: 'Task: $title', body: body, appName: appName);
+  return layoutTemplate(title: 'Task: $title', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _formatDuration(int ms) {

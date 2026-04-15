@@ -65,7 +65,7 @@ String sessionInfoTemplate({
     'recentTurns': recentTurns,
   });
 
-  return layoutTemplate(title: 'Session Info', body: body, appName: appName);
+  return layoutTemplate(title: 'Session Info', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _formatNumber(int n) {

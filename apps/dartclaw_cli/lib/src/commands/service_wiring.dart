@@ -32,6 +32,7 @@ import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
 import 'workflow_materializer.dart';
+import 'workflow/workflow_git_support.dart';
 import 'workflow_skill_materializer.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
@@ -437,6 +438,15 @@ class ServiceWiring {
               final resolvedProject = await project.projectService.get(projectId);
               if (resolvedProject == null) {
                 return WorkflowGitPromotionError('Project "$projectId" not found');
+              }
+              try {
+                await commitWorkflowWorktreeChangesIfNeeded(
+                  projectDir: resolvedProject.localPath,
+                  branch: branch,
+                  commitMessage: 'workflow(${storyId ?? runId}): prepare promotion',
+                );
+              } catch (error) {
+                return WorkflowGitPromotionError(error.toString());
               }
               final mergeExecutor = MergeExecutor(
                 projectDir: resolvedProject.localPath,

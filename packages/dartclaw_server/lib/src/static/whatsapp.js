@@ -1,5 +1,11 @@
-// whatsapp.js - DartClaw WhatsApp pairing page logic
-'use strict';
+(() => {
+  'use strict';
+
+  // whatsapp.js - DartClaw WhatsApp pairing page logic
+  const dartclaw = window.dartclaw = window.dartclaw || {};
+  dartclaw.pages = dartclaw.pages || {};
+
+  const whatsAppPage = dartclaw.pages.whatsapp = dartclaw.pages.whatsapp || {};
 
 // QR image fallback: when a .wa-qr-img fails to load, hide it and show the
 // sibling .wa-qr-placeholder. Handles both error events and already-failed images.
@@ -54,3 +60,11 @@ function initQrCountdown() {
     }
   }, 1000);
 }
+
+whatsAppPage.onLoad = function () {
+  initQrFallback();
+  initQrCountdown();
+};
+whatsAppPage.onAfterSwap = whatsAppPage.onLoad;
+whatsAppPage.onHistoryRestore = whatsAppPage.onLoad;
+})();

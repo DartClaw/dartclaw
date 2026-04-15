@@ -189,6 +189,52 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
+  test('workflow-owned git coding task can complete from review state', () async {
+    final definition = WorkflowDefinition(
+      name: 'workflow-git-review',
+      description: 'Workflow-owned git tasks should unblock from review.',
+      gitStrategy: const WorkflowGitStrategy(
+        bootstrap: true,
+        worktree: 'per-map-item',
+        promotion: 'merge',
+        publish: WorkflowGitPublishStrategy(enabled: false),
+      ),
+      steps: const [
+        WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Implement the story']),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext();
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      await taskService.updateFields(
+        e.taskId,
+        worktreeJson: {
+          'path': p.join(tempDir.path, 'worktrees', e.taskId),
+          'branch': 'story-branch',
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+      );
+      try {
+        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+      } on StateError {
+        // Already running.
+      }
+      await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalTask = (await taskService.list()).single;
+    final finalRun = await repository.getById('run-1');
+    expect(finalTask.status, equals(TaskStatus.review));
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
   test('context from step 1 is available in step 2 prompt', () async {
     // Step 1 produces output; step 2 uses {{context.research_notes}}.
     final definition = makeDefinition(

@@ -30,7 +30,7 @@ String projectsPageTemplate({
     'addProjectDialogHtml': addProjectDialogHtml(),
   });
 
-  return layoutTemplate(title: 'Projects', body: body, appName: appName);
+  return layoutTemplate(title: 'Projects', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 Map<String, dynamic> _projectToMap(Project project, {Project? defaultProject}) {

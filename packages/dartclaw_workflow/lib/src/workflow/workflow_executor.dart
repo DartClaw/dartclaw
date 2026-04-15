@@ -1255,7 +1255,12 @@ class WorkflowExecutor {
           if (t != null) completer.complete(t);
         }
       } else if (event.newStatus == TaskStatus.review) {
-        // TaskExecutor handles auto-accept via configJson['reviewMode'].
+        final t = await _taskService.get(taskId);
+        if (!completer.isCompleted && t != null && _isWorkflowOwnedReviewReadyTask(t)) {
+          // Workflow-owned git tasks intentionally stay in review so the workflow
+          // can promote/publish their branch without task-level merge cleanup.
+          completer.complete(t);
+        }
       }
     });
 
@@ -1840,6 +1845,9 @@ class WorkflowExecutor {
       await sub.cancel();
     }
   }
+
+  bool _isWorkflowOwnedReviewReadyTask(Task task) =>
+      task.status == TaskStatus.review && task.workflowRunId != null && task.configJson['_workflowGit'] is Map;
 
   /// Builds configJson for a task from a workflow step and its resolved config.
   Map<String, dynamic> _buildStepConfig(
@@ -2545,6 +2553,11 @@ class WorkflowExecutor {
           final t = await _taskService.get(taskId);
           if (t != null) completer.complete(t);
         }
+      } else if (event.newStatus == TaskStatus.review) {
+        final t = await _taskService.get(taskId);
+        if (!completer.isCompleted && t != null && _isWorkflowOwnedReviewReadyTask(t)) {
+          completer.complete(t);
+        }
       }
     });
 
@@ -2867,11 +2880,16 @@ class WorkflowExecutor {
     final quickReviewStep = WorkflowStep(
       id: '${parentStep.id}-runtime-quick-review',
       name: 'Runtime Quick Review',
-      skill: 'dartclaw-quick-review',
       prompts: [
-        'Runtime quick review for story ${iterIndex + 1}.\n'
-            'Implementation result:\n$implementationResult\n'
-            'Return structured findings.',
+        'Runtime quick review for story ${iterIndex + 1}.\n\n'
+            'Review the implementation result below for concrete problems only.\n'
+            'Focus on correctness against the described result, missing implementation, and obvious scope drift.\n'
+            'Do not narrate your process.\n'
+            'Return only a workflow context payload in this exact shape:\n'
+            '<workflow-context>{"quick_review_result":{"pass":true,"findings_count":0,"summary":"...","findings":[]}}</workflow-context>\n'
+            'If there are problems, set "pass" to false and include concise findings with severity and description.\n'
+            'If there are no significant issues, keep "findings" empty.\n\n'
+            'Implementation result:\n$implementationResult',
       ],
       type: 'analysis',
       contextOutputs: const ['quick_review_result'],
@@ -2909,7 +2927,7 @@ class WorkflowExecutor {
       quickOutputs = await _contextExtractor.extract(quickReviewStep, quickTask);
     } catch (_) {}
     final quickTokenCount = await _readStepTokenCount(quickTask);
-    final quickVerdict = quickOutputs['quick_review_result'];
+    final quickVerdict = quickOutputs['quick_review_result'] ?? await _fallbackQuickReviewVerdict(quickTask);
     if (quickVerdict is! Map) {
       return _ParallelStepResult(
         step: quickReviewStep,
@@ -2998,6 +3016,122 @@ class WorkflowExecutor {
       return !pass;
     }
     return false;
+  }
+
+  Future<Map<String, dynamic>?> _fallbackQuickReviewVerdict(Task quickTask) async {
+    final sessionId = quickTask.sessionId;
+    final messageService = _messageService;
+    if (sessionId == null || messageService == null) {
+      return null;
+    }
+
+    final messages = await messageService.getMessages(sessionId);
+    String? assistantText;
+    for (final message in messages.reversed) {
+      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
+        assistantText = message.content.trim();
+        break;
+      }
+    }
+    if (assistantText == null) {
+      return null;
+    }
+
+    final normalized = assistantText.toLowerCase();
+    final findings = <Map<String, dynamic>>[];
+
+    final markdownFindingMatches = RegExp(
+      r'^\s*-\s*(high|medium|low|critical)\s*:\s*(.+)$',
+      multiLine: true,
+      caseSensitive: false,
+    ).allMatches(assistantText);
+    for (final match in markdownFindingMatches) {
+      findings.add(<String, dynamic>{
+        'severity': match.group(1)!.toLowerCase(),
+        'description': match.group(2)!.trim(),
+      });
+    }
+
+    final proseFindingMatches = RegExp(
+      r'^\s*(high|medium|low|critical)\s*:\s*(.+)$',
+      multiLine: true,
+      caseSensitive: false,
+    ).allMatches(assistantText);
+    for (final match in proseFindingMatches) {
+      final candidate = <String, dynamic>{
+        'severity': match.group(1)!.toLowerCase(),
+        'description': match.group(2)!.trim(),
+      };
+      if (!findings.any(
+        (finding) =>
+            finding['severity'] == candidate['severity'] && finding['description'] == candidate['description'],
+      )) {
+        findings.add(candidate);
+      }
+    }
+
+    final genericBulletMatches = RegExp(r'^\s*-\s*(.+)$', multiLine: true).allMatches(assistantText);
+    for (final match in genericBulletMatches) {
+      final description = match.group(1)!.trim();
+      if (description.toLowerCase().startsWith('none')) {
+        continue;
+      }
+      final candidate = <String, dynamic>{'severity': 'medium', 'description': description};
+      if (!findings.any((finding) => finding['description'] == candidate['description'])) {
+        findings.add(candidate);
+      }
+    }
+
+    if (findings.isNotEmpty) {
+      return <String, dynamic>{
+        'pass': false,
+        'findings_count': findings.length,
+        'summary': assistantText,
+        'findings': findings,
+      };
+    }
+
+    if (RegExp(r'\*\*findings\*\*\s*-\s*none\b', caseSensitive: false).hasMatch(assistantText) ||
+        RegExp(r'^\s*findings\s*:\s*none\b', multiLine: true, caseSensitive: false).hasMatch(assistantText)) {
+      return <String, dynamic>{
+        'pass': true,
+        'findings_count': 0,
+        'summary': assistantText,
+        'findings': const <Map<String, dynamic>>[],
+      };
+    }
+
+    if (normalized.contains('no significant issues') ||
+        normalized.contains('no issues found') ||
+        normalized.contains('no major issues found') ||
+        normalized.contains('no significant findings') ||
+        normalized.contains('looks good') ||
+        normalized.contains('passes review')) {
+      return <String, dynamic>{
+        'pass': true,
+        'findings_count': 0,
+        'summary': assistantText,
+        'findings': const <Map<String, dynamic>>[],
+      };
+    }
+    if (normalized.contains('blocker') ||
+        normalized.contains('did not execute') ||
+        normalized.contains('preflight failed') ||
+        normalized.contains('story remains unimplemented') ||
+        normalized.contains('was not implemented') ||
+        normalized.contains('no changed files') ||
+        normalized.contains('fileschanged: 0') ||
+        normalized.contains('there is nothing to validate')) {
+      return <String, dynamic>{
+        'pass': false,
+        'findings_count': 1,
+        'summary': assistantText,
+        'findings': <Map<String, dynamic>>[
+          <String, dynamic>{'severity': 'high', 'description': assistantText},
+        ],
+      };
+    }
+    return null;
   }
 
   Future<Task?> _runRuntimeOwnedTask({

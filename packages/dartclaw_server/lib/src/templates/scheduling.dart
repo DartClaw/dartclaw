@@ -112,5 +112,10 @@ String schedulingTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Scheduling', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Scheduling',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(const ['/static/scheduling.js']),
+  );
 }

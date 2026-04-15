@@ -62,5 +62,5 @@ String workflowListPageTemplate({
     'definitionOptions': definitionOptions,
   });
 
-  return layoutTemplate(title: 'Workflows', body: body);
+  return layoutTemplate(title: 'Workflows', body: body, scripts: standardShellScripts());
 }

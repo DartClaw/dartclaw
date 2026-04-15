@@ -178,7 +178,7 @@ String healthDashboardTemplate({
     'bannerHtml': bannerHtml.isNotEmpty ? bannerHtml : null,
   });
 
-  return layoutTemplate(title: 'Health', body: body, appName: appName);
+  return layoutTemplate(title: 'Health', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _formatLastPull(String? isoTimestamp) {

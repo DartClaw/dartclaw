@@ -212,7 +212,7 @@ String tasksPageTemplate({
     'showProjectColumn': showProjectColumn,
   });
 
-  return layoutTemplate(title: 'Tasks', body: body, appName: appName);
+  return layoutTemplate(title: 'Tasks', body: body, appName: appName, scripts: standardShellScripts());
 }
 
 String _classSuffix(String value) {

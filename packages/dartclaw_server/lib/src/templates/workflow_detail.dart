@@ -18,7 +18,11 @@ String workflowDetailPageTemplate({
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final definitionName = run['definitionName']?.toString() ?? 'Workflow';
-  final topbar = pageTopbarTemplate(title: 'Workflow: $definitionName', backHref: '/workflows', backLabel: 'Back to Workflows');
+  final topbar = pageTopbarTemplate(
+    title: 'Workflow: $definitionName',
+    backHref: '/workflows',
+    backLabel: 'Back to Workflows',
+  );
   final statusName = run['status']?.toString() ?? 'pending';
 
   // Compute progress.
@@ -115,7 +119,12 @@ String workflowDetailPageTemplate({
     'canReject': canReject,
   });
 
-  return layoutTemplate(title: 'Workflow: $definitionName', body: body, appName: appName);
+  return layoutTemplate(
+    title: 'Workflow: $definitionName',
+    body: body,
+    appName: appName,
+    scripts: standardShellScripts(),
+  );
 }
 
 /// Renders the step detail partial fragment for a workflow step.

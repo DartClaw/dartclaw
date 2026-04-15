@@ -31,6 +31,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+String _workflowContext(Map<String, Object?> values) => '<workflow-context>${jsonEncode(values)}</workflow-context>';
+
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -109,6 +111,108 @@ void main() {
   }
 
   group('core map execution', () {
+    test('workflow-owned map coding task can complete from review state', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-review-ready',
+        description: 'Workflow-owned map tasks should unblock from review.',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: 'per-map-item',
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement Stories',
+            type: 'coding',
+            project: 'my-project',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+            contextOutputs: ['story_result'],
+          ),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'map-review-ready-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final runtimeExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+        ),
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+        ),
+      );
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        await taskService.updateFields(
+          task.id,
+          worktreeJson: {
+            'path': p.join(tempDir.path, 'worktrees', task.id),
+            'branch': 'story-s01',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+        );
+        try {
+          await taskService.transition(task.id, TaskStatus.running, trigger: 'test');
+        } on StateError {
+          // Already running.
+        }
+        await taskService.transition(task.id, TaskStatus.review, trigger: 'test');
+      });
+
+      await runtimeExecutor.execute(run, definition, context);
+      await sub.cancel();
+
+      final finalRun = await repository.getById('map-review-ready-run');
+      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
     test('runtime quick review runs before promotion for per-map-item coding stories', () async {
       final promotedStoryIds = <String?>[];
       final definition = WorkflowDefinition(
@@ -374,6 +478,271 @@ void main() {
       expect(context['implement[0].story_result'], equals('Runtime remediation result'));
       expect(context['implement[0].tokenCount'], equals(17));
       expect((context['story_result'] as List).first, containsPair('text', 'Runtime remediation result'));
+    });
+
+    test('plain-text runtime quick review with no issues is treated as pass', () async {
+      var promotionCount = 0;
+      final definition = WorkflowDefinition(
+        name: 'plan-runtime-review-plain-text-pass',
+        description: 'Runtime quick review text fallback',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: 'per-map-item',
+          quickReview: true,
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement Stories',
+            type: 'coding',
+            project: 'my-project',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+            contextOutputs: ['story_result'],
+          ),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'runtime-review-text-pass-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final runtimeExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+        ),
+        messageService: messageService,
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async {
+                promotionCount++;
+                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
+              },
+        ),
+      );
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+
+        final session = await sessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+
+        if (task.title.contains('[quick-review]')) {
+          await messageService.insertMessage(
+            sessionId: session.id,
+            role: 'assistant',
+            content:
+                'Using the quick-review path to inspect the generated note before returning findings.\n'
+                '**Findings**\n'
+                '- None. The generated note matches the requested two-line shape.',
+          );
+        } else {
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': 'story-s01',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+          await messageService.insertMessage(
+            sessionId: session.id,
+            role: 'assistant',
+            content: _workflowContext({'story_result': 'IMPLEMENTED'}),
+          );
+        }
+        await completeTask(e.taskId);
+      });
+
+      await runtimeExecutor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(promotionCount, equals(1));
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.completed);
+    });
+
+    test('plain-text runtime quick review findings trigger remediation', () async {
+      var promotionCount = 0;
+      final queuedTitles = <String>[];
+      final definition = WorkflowDefinition(
+        name: 'plan-runtime-review-plain-text-findings',
+        description: 'Runtime quick review prose findings fallback',
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: 'per-map-item',
+          quickReview: true,
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: false),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement Stories',
+            type: 'coding',
+            project: 'my-project',
+            prompts: ['Implement {{map.item.id}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+            contextOutputs: ['story_result'],
+          ),
+        ],
+      );
+
+      final run = WorkflowRun(
+        id: 'runtime-review-text-findings-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+        definitionJson: definition.toJson(),
+      );
+      await repository.insert(run);
+
+      final context = WorkflowContext(
+        data: {
+          'stories': [
+            {'id': 'S01'},
+          ],
+        },
+        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
+      );
+
+      final runtimeExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+        ),
+        messageService: messageService,
+        dataDir: tempDir.path,
+        turnAdapter: WorkflowTurnAdapter(
+          reserveTurn: (_) => Future.value('turn-1'),
+          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+          promoteWorkflowBranch:
+              ({
+                required runId,
+                required projectId,
+                required branch,
+                required integrationBranch,
+                required strategy,
+                String? storyId,
+              }) async {
+                promotionCount++;
+                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
+              },
+        ),
+      );
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        queuedTitles.add(task.title);
+
+        final session = await sessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+
+        if (task.title.contains('[quick-review]')) {
+          await messageService.insertMessage(
+            sessionId: session.id,
+            role: 'assistant',
+            content:
+                '**Findings**\n'
+                '- `notes/example.md:1` does not satisfy the required output contract.\n'
+                '- The generated artifact is missing the expected status details.',
+          );
+        } else if (task.title.contains('[quick-remediate]')) {
+          final artifactsDir = Directory(p.join(tempDir.path, 'tasks', e.taskId, 'artifacts'))
+            ..createSync(recursive: true);
+          final output = File(p.join(artifactsDir.path, 'quick-remediation.md'));
+          output.writeAsStringSync('Remediated implementation result');
+          await taskService.addArtifact(
+            id: 'artifact-${e.taskId}',
+            taskId: e.taskId,
+            name: 'quick-remediation.md',
+            kind: ArtifactKind.document,
+            path: output.path,
+          );
+        } else {
+          await taskService.updateFields(
+            task.id,
+            worktreeJson: {
+              'path': p.join(tempDir.path, 'worktrees', task.id),
+              'branch': 'story-s01',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          );
+          await messageService.insertMessage(
+            sessionId: session.id,
+            role: 'assistant',
+            content: _workflowContext({'story_result': 'INITIAL_IMPLEMENTATION'}),
+          );
+        }
+        await completeTask(e.taskId);
+      });
+
+      await runtimeExecutor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(queuedTitles.where((title) => title.contains('[quick-remediate]')).length, equals(1));
+      expect(promotionCount, equals(1));
+      expect(context['implement[0].quick_remediation_passes'], equals(1));
+      expect(context['implement[0].story_result'], equals('Remediated implementation result'));
+      final finalRun = await repository.getById(run.id);
+      expect(finalRun?.status, WorkflowRunStatus.completed);
     });
 
     test('unreadable runtime quick review verdict fails closed and preserves spent tokens', () async {

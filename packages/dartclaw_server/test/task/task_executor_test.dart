@@ -255,6 +255,34 @@ void main() {
     expect((await tasks.get('task-auto-accept-workflow-error'))!.status, TaskStatus.failed);
   });
 
+  test('skips auto-accept for workflow git tasks so workflow promotion owns publish', () async {
+    final calls = <String>[];
+    final autoAcceptExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(autoAcceptExecutor.stop);
+
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-auto-accept-workflow-git',
+      title: 'Workflow git task',
+      description: 'Workflow-owned git tasks should stay in review for promotion.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-123',
+      configJson: const {
+        '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
+      },
+    );
+
+    await autoAcceptExecutor.pollOnce();
+
+    expect(calls, isEmpty);
+    expect((await tasks.get('task-auto-accept-workflow-git'))!.status, TaskStatus.review);
+  });
+
   test('does not invoke auto-accept callback when reviewMode completes directly to accepted', () async {
     final calls = <String>[];
     final autoAcceptExecutor = buildExecutor(
@@ -753,6 +781,58 @@ void main() {
     expect(postMap?.worktreeJson?['branch'], integrationBranch);
   });
 
+  test('workflow read-only tasks skip strict freshness fetch for local workflow-owned refs', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const integrationBranch = 'dartclaw/workflow/run789/integration';
+    await tasks.create(
+      id: 'task-readonly-workflow-ref',
+      title: 'Workflow spec step',
+      description: 'Should trust the workflow-owned local ref.',
+      type: TaskType.analysis,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-789',
+      configJson: const {
+        'readOnly': true,
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'per-map-item'},
+        '_mapIterationIndex': 0,
+      },
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    expect(projectService.ensureFreshCalls, isEmpty);
+    expect((await tasks.get('task-readonly-workflow-ref'))!.status, TaskStatus.review);
+  });
+
   test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
     final poolWorker1 = _FakeTaskWorker();
     final poolWorker2 = _FakeTaskWorker();
@@ -1063,6 +1143,81 @@ void main() {
       expect(capturing.lastDirectory, '/projects/my-app');
     });
   });
+
+  test('read-only project task fails when the repo becomes dirty during the turn', () async {
+    worker.responseText = 'Done.';
+
+    final projectDir = Directory.systemTemp.createTempSync('task_executor_readonly_repo_');
+    addTearDown(() {
+      if (projectDir.existsSync()) {
+        projectDir.deleteSync(recursive: true);
+      }
+    });
+    await Process.run('git', ['init', '-b', 'main'], workingDirectory: projectDir.path);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('fixture\n');
+    await Process.run('git', ['add', 'README.md'], workingDirectory: projectDir.path);
+    await Process.run(
+      'git',
+      ['commit', '-m', 'init', '--no-gpg-sign'],
+      workingDirectory: projectDir.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Test',
+        'GIT_AUTHOR_EMAIL': 'test@test.com',
+        'GIT_COMMITTER_NAME': 'Test',
+        'GIT_COMMITTER_EMAIL': 'test@test.com',
+      },
+    );
+
+    worker.onTurnWithDirectory = (_, directory) {
+      final repoPath = directory ?? projectDir.path;
+      final notesDir = Directory(p.join(repoPath, 'notes'))..createSync(recursive: true);
+      File(p.join(notesDir.path, 'leak.md')).writeAsStringSync('# leaked\n\n- mutation\n');
+    };
+
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: projectDir.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-readonly-dirty',
+      title: 'Read-only task',
+      description: 'Must not mutate the repo.',
+      type: TaskType.research,
+      autoStart: true,
+      projectId: 'my-app',
+      configJson: const {'readOnly': true},
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    final failed = await tasks.get('task-readonly-dirty');
+    expect(failed!.status, TaskStatus.failed);
+    expect(failed.configJson['errorSummary'], contains('Read-only task modified project files'));
+    expect(failed.configJson['errorSummary'], contains('notes/leak.md'));
+  });
 }
 
 class _FakeTaskWorker implements AgentHarness {
@@ -1070,10 +1225,12 @@ class _FakeTaskWorker implements AgentHarness {
 
   String responseText = '';
   String? lastModel;
+  String? lastDirectory;
   int inputTokens = 0;
   int outputTokens = 0;
   bool shouldFail = false;
   void Function(String sessionId)? onTurn;
+  void Function(String sessionId, String? directory)? onTurnWithDirectory;
   Future<void> Function(String sessionId)? beforeComplete;
 
   @override
@@ -1119,7 +1276,9 @@ class _FakeTaskWorker implements AgentHarness {
     int? maxTurns,
   }) async {
     onTurn?.call(sessionId);
+    onTurnWithDirectory?.call(sessionId, directory);
     lastModel = model;
+    lastDirectory = directory;
     final waitFor = beforeComplete;
     if (waitFor != null) {
       await waitFor(sessionId);

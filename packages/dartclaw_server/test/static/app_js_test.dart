@@ -8,6 +8,12 @@ void main() {
       : 'lib/src/static';
 
   final scriptPath = '$baseDir/app.js';
+  final schedulingScriptPath = '$baseDir/scheduling.js';
+  final settingsScriptPath = '$baseDir/settings.js';
+  final memoryScriptPath = '$baseDir/memory.js';
+  final whatsAppScriptPath = '$baseDir/whatsapp.js';
+  final tasksScriptPath = '$baseDir/tasks.js';
+  final workflowsScriptPath = '$baseDir/workflows.js';
   final componentsCssPath = '$baseDir/components.css';
 
   group('app.js HTMX SSE lifecycle', () {
@@ -107,14 +113,14 @@ void main() {
     });
 
     test('initSettingsForm checks dataset.settingsInit (in settings.js)', () {
-      final source = File('$baseDir/settings.js').readAsStringSync();
+      final source = File(settingsScriptPath).readAsStringSync();
       expect(source, contains('form.dataset.settingsInit'));
     });
   });
 
   group('app.js delete confirmation uses safe DOM API', () {
     test('confirmDeleteJob uses createElement not innerHTML for job name (in scheduling.js)', () {
-      final source = File('$baseDir/scheduling.js').readAsStringSync();
+      final source = File(schedulingScriptPath).readAsStringSync();
       // Should use textContent and dataset for safe attribute assignment
       expect(source, contains("msg.textContent = \"Delete '\" + jobName"));
       expect(source, contains('confirmBtn.dataset.jobName = jobName'));
@@ -123,23 +129,25 @@ void main() {
 
   group('memory dashboard (in memory.js)', () {
     test('initMemoryDefaultTab auto-loads active tab', () {
-      final source = File('$baseDir/memory.js').readAsStringSync();
+      final source = File(memoryScriptPath).readAsStringSync();
       expect(source, contains('function initMemoryDefaultTab()'));
       expect(source, contains('switchMemoryTab(activeTab, tabId)'));
     });
 
     test('prune success uses htmx.ajax for immediate refresh', () {
-      final source = File('$baseDir/memory.js').readAsStringSync();
+      final source = File(memoryScriptPath).readAsStringSync();
       expect(source, contains("htmx.ajax('GET', '/memory/content'"));
     });
   });
 
   group('app.js module split', () {
     test('page-specific module files exist', () {
-      expect(File('$baseDir/settings.js').existsSync(), isTrue);
-      expect(File('$baseDir/scheduling.js').existsSync(), isTrue);
-      expect(File('$baseDir/memory.js').existsSync(), isTrue);
-      expect(File('$baseDir/whatsapp.js').existsSync(), isTrue);
+      expect(File(settingsScriptPath).existsSync(), isTrue);
+      expect(File(schedulingScriptPath).existsSync(), isTrue);
+      expect(File(memoryScriptPath).existsSync(), isTrue);
+      expect(File(whatsAppScriptPath).existsSync(), isTrue);
+      expect(File(tasksScriptPath).existsSync(), isTrue);
+      expect(File(workflowsScriptPath).existsSync(), isTrue);
     });
 
     test('app.js does not contain extracted function bodies', () {
@@ -148,10 +156,13 @@ void main() {
       expect(source, isNot(contains('function toggleJobForm')));
       expect(source, isNot(contains('function switchMemoryTab')));
       expect(source, isNot(contains('function initQrFallback')));
+      expect(source, isNot(contains('function renderRunningSidebar(tasks)')));
+      expect(source, isNot(contains('function initTaskSse()')));
+      expect(source, isNot(contains('function initWorkflowDetailSSE()')));
     });
 
     test('settings.js contains settings functions', () {
-      final source = File('$baseDir/settings.js').readAsStringSync();
+      final source = File(settingsScriptPath).readAsStringSync();
       expect(source, contains('function initSettingsForm'));
       expect(source, contains('function activateSettingsTab'));
       expect(source, contains('function populateSettingsForm'));
@@ -159,16 +170,19 @@ void main() {
     });
 
     test('scheduling.js contains scheduling functions', () {
-      final source = File('$baseDir/scheduling.js').readAsStringSync();
+      final source = File(schedulingScriptPath).readAsStringSync();
       expect(source, contains('function toggleJobForm'));
       expect(source, contains('function submitJobForm'));
       expect(source, contains('function editJob'));
       expect(source, contains('function confirmDeleteJob'));
       expect(source, contains('function cancelDeleteJob'));
+      expect(source, contains('function submitTaskForm()'));
+      expect(source, contains('function editScheduledTask(taskId)'));
+      expect(source, contains("select: '#main-content'"));
     });
 
     test('memory.js contains memory functions', () {
-      final source = File('$baseDir/memory.js').readAsStringSync();
+      final source = File(memoryScriptPath).readAsStringSync();
       expect(source, contains('function initMemoryDefaultTab'));
       expect(source, contains('function switchMemoryTab'));
       expect(source, contains('function applyMemoryViewMode'));
@@ -178,27 +192,31 @@ void main() {
     });
 
     test('whatsapp.js contains WhatsApp functions', () {
-      final source = File('$baseDir/whatsapp.js').readAsStringSync();
+      final source = File(whatsAppScriptPath).readAsStringSync();
       expect(source, contains('function initQrFallback'));
       expect(source, contains('function initQrCountdown'));
     });
 
-    test('app.js uses typeof guards for page-specific init calls', () {
+    test('app.js routes page hooks through the shared namespace contract', () {
       final source = File(scriptPath).readAsStringSync();
-      expect(source, contains("typeof initSettingsForm === 'function'"));
-      expect(source, contains("typeof initQrFallback === 'function'"));
-      expect(source, contains("typeof initQrCountdown === 'function'"));
-      expect(source, contains("typeof initMemoryDefaultTab === 'function'"));
-      expect(source, contains("typeof initMemoryViewToggle === 'function'"));
-      expect(source, contains("typeof toggleJobForm === 'function'"));
-      expect(source, contains("typeof switchMemoryTab === 'function'"));
-      expect(source, contains("typeof confirmPrune === 'function'"));
+      expect(source, contains('function runPageHook(hookName, context)'));
+      expect(source, contains('function pageScriptsForPath(pathname) {'));
+      expect(source, contains("pathname === '/settings' || pathname.startsWith('/settings/')"));
+      expect(source, contains("pathname === '/memory'"));
+      expect(source, contains("pathname === '/scheduling'"));
+      expect(source, contains("pathname.startsWith('/whatsapp/')"));
+      expect(source, contains('function requestedPathFromSource(source) {'));
+      expect(source, contains('function ensurePageScriptsForPath(pathname) {'));
+      expect(source, contains("runPageHook('onLoad')"));
+      expect(source, contains("runPageHook('onAfterSwap'"));
+      expect(source, contains("runPageHook('onHistoryRestore')"));
+      expect(source, contains('dartclaw.pages.scheduling'));
     });
   });
 
-  group('app.js task page helpers', () {
+  group('tasks.js task page helpers', () {
     test('connects to task SSE and restores badge state after swaps', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains("new EventSource('/api/tasks/events')"));
       expect(source, contains("fetch('/api/tasks/sidebar-state')"));
       expect(source, contains('let latestTaskReviewCount = null;'));
@@ -207,12 +225,12 @@ void main() {
     });
 
     test('only starts task SSE when the server advertises task support', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains("if (taskEventSource || !document.querySelector('[data-tasks-enabled]')) return;"));
     });
 
     test('defines running sidebar rendering with cached active tasks', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('let cachedActiveTasks = [];'));
       expect(source, contains('function renderRunningSidebar(tasks) {'));
       expect(source, contains("const existing = document.getElementById('sidebar-running');"));
@@ -222,13 +240,13 @@ void main() {
     });
 
     test('running sidebar removes the section when no active tasks remain', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('if (!cachedActiveTasks.length) {'));
       expect(source, contains('existing && existing.remove();'));
     });
 
     test('running sidebar renders task links, review labels, and elapsed timers', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains("const href = '/tasks/' + taskId;"));
       expect(
         source,
@@ -246,12 +264,15 @@ void main() {
     });
 
     test('running sidebar re-renders after HTMX swaps and task SSE messages', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('refreshSidebarTaskState();'));
       expect(source, contains('renderRunningSidebar(cachedActiveTasks);'));
       expect(source, contains('renderRunningSidebar(data.activeTasks || []);'));
-      expect(source, contains('if (Array.isArray(data.activeWorkflows)) {'));
-      expect(source, contains('renderWorkflowSidebar(data.activeWorkflows);'));
+      expect(
+        source,
+        contains("if (Array.isArray(data.activeWorkflows) && typeof workflowPage().renderSidebar === 'function') {"),
+      );
+      expect(source, contains('workflowPage().renderSidebar(data.activeWorkflows);'));
       expect(
         RegExp(
           r"if \(data\.type === 'connected'\)[\s\S]*renderRunningSidebar\(data\.activeTasks \|\| \[\]\);",
@@ -267,31 +288,50 @@ void main() {
     });
 
     test('refreshes tasks content without forcing a full reload', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('async function refreshTasksPageContent()'));
       expect(source, contains('refreshTasksPageContent();'));
       expect(source, contains("headers: { 'HX-Request': 'true' }"));
     });
 
     test('task elapsed timers use a single managed interval', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('let taskElapsedTimer = null;'));
       expect(source, contains('clearInterval(taskElapsedTimer);'));
       expect(source, contains('function refreshTaskElapsedTimes()'));
     });
 
     test('sidebar task state refreshes from server after navigation and history restore', () {
-      final source = File(scriptPath).readAsStringSync();
+      final source = File(tasksScriptPath).readAsStringSync();
       expect(source, contains('async function refreshSidebarTaskState()'));
       expect(source, contains("if (target && target.id === 'main-content') {"));
       expect(source, contains('refreshSidebarTaskState();'));
-      expect(source, contains("document.body.addEventListener('htmx:historyRestore'"));
+      expect(source, contains('tasksPage.onHistoryRestore'));
     });
 
-    test('applyTaskFilters remains exposed on window', () {
-      final source = File(scriptPath).readAsStringSync();
-      expect(source, contains('window.applyTaskFilters = function()'));
+    test('applyTaskFilters stays module-local', () {
+      final source = File(tasksScriptPath).readAsStringSync();
+      expect(source, contains('function applyTaskFilters()'));
       expect(source, contains("window.location.href = '/tasks' + (qs ? '?' + qs : '');"));
+      expect(source, isNot(contains('window.applyTaskFilters = function()')));
+    });
+  });
+
+  group('workflows.js workflow helpers', () {
+    test('owns workflow sidebar rendering and notification state', () {
+      final source = File(workflowsScriptPath).readAsStringSync();
+      expect(source, contains('let cachedActiveWorkflows = [];'));
+      expect(source, contains('function renderWorkflowSidebar(workflows) {'));
+      expect(source, contains('function updateWorkflowBadge(count) {'));
+      expect(source, contains('function incrementWorkflowNotification() {'));
+    });
+
+    test('owns workflow detail SSE lifecycle and dialog picker', () {
+      final source = File(workflowsScriptPath).readAsStringSync();
+      expect(source, contains('function initWorkflowDetailSSE()'));
+      expect(source, contains("'/api/workflows/runs/' + runId + '/events'"));
+      expect(source, contains('function initWorkflowDialogTabs()'));
+      expect(source, contains('function handleWorkflowSubmit(errorEl)'));
     });
   });
 

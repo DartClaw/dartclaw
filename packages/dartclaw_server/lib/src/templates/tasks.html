@@ -59,33 +59,33 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Title</th>
-                    <th tl:if="${showProjectColumn}">Project</th>
-                    <th>Type</th>
-                    <th>Provider</th>
-                    <th>Created by</th>
-                    <th>Created</th>
-                    <th>Status</th>
-                    <th>Tokens</th>
+                    <th class="task-col-title">Title</th>
+                    <th tl:if="${showProjectColumn}" class="task-col-project">Project</th>
+                    <th class="task-col-type">Type</th>
+                    <th class="task-col-provider">Provider</th>
+                    <th class="task-col-created-by">Created by</th>
+                    <th class="task-col-created">Created</th>
+                    <th class="task-col-status">Status</th>
+                    <th class="task-col-tokens">Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr tl:each="task : ${group.tasks}">
-                    <td>
+                    <td class="task-col-title">
                       <a tl:if="${task.detailHref}" tl:attr="href=${task.detailHref}" tl:text="${task.title}">Task</a>
                       <span tl:unless="${task.detailHref}" tl:text="${task.title}">Task</span>
                       <div tl:if="${task.goalTitle}" class="task-goal-text">
                         Goal: <span tl:text="${task.goalTitle}">Goal title</span>
                       </div>
                     </td>
-                    <td tl:if="${showProjectColumn}" tl:text="${task.projectName}">—</td>
-                    <td><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
-                    <td><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                    <td tl:if="${showProjectColumn}" class="task-col-project" tl:text="${task.projectName}">—</td>
+                    <td class="task-col-type"><span class="type-badge" tl:text="${task.typeLabel}">Type</span></td>
+                    <td class="task-col-provider"><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
                               tl:text="${task.providerLabel}">Claude</span></td>
-                    <td tl:text="${task.createdByDisplay}">—</td>
-                    <td tl:text="${task.createdAtDisplay}">1h ago</td>
-                    <td><tl:block tl:utext="${task.statusBadgeHtml}">badge</tl:block></td>
-                    <td class="task-tokens-static" tl:text="${task.finalTokenDisplay}">—</td>
+                    <td class="task-col-created-by" tl:text="${task.createdByDisplay}">—</td>
+                    <td class="task-col-created" tl:text="${task.createdAtDisplay}">1h ago</td>
+                    <td class="task-col-status"><tl:block tl:utext="${task.statusBadgeHtml}">badge</tl:block></td>
+                    <td class="task-col-tokens task-tokens-static" tl:text="${task.finalTokenDisplay}">—</td>
                   </tr>
                 </tbody>
               </table>

@@ -189,6 +189,8 @@ void main() {
       expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
       expect(planAndImplement, contains(RegExp(r'^  quickReview:\s+true$', multiLine: true)));
       expect(planAndImplement, contains('skill: dartclaw-review'));
+      expect(planAndImplement, contains('This step is read-only planning only.'));
+      expect(planAndImplement, contains('This step is read-only specification only.'));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
@@ -229,7 +231,10 @@ void main() {
       );
 
       expect(codeReview, contains('- id: refactor-validate'));
-      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && refactor-validate.findings_count == 0"'));
+      expect(
+        codeReview,
+        contains('exitGate: "re-review.findings_count == 0 && refactor-validate.findings_count == 0"'),
+      );
     });
   });
 

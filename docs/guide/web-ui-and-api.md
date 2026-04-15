@@ -2,7 +2,7 @@
 
 ## Web Interface
 
-DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries and a single `app.js` file.
+DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, and server-rendered HTML fragments. No JavaScript build step — everything runs from vendored libraries plus a coarse static module split (`app.js`, `tasks.js`, `workflows.js`, and page-specific modules such as `settings.js` and `scheduling.js`).
 
 ### Layout
 

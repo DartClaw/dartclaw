@@ -48,6 +48,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 
 import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
+import 'workflow_git_support.dart';
 
 /// Minimal service graph for headless workflow execution.
 ///
@@ -263,6 +264,15 @@ class CliWorkflowWiring {
               required strategy,
               String? storyId,
             }) async {
+              try {
+                await commitWorkflowWorktreeChangesIfNeeded(
+                  projectDir: Directory.current.path,
+                  branch: branch,
+                  commitMessage: 'workflow(${storyId ?? runId}): prepare promotion',
+                );
+              } catch (error) {
+                return WorkflowGitPromotionError(error.toString());
+              }
               final args = strategy == 'merge'
                   ? ['merge', '--no-ff', branch, '-m', 'workflow(${storyId ?? runId}): promote']
                   : ['merge', '--squash', branch];

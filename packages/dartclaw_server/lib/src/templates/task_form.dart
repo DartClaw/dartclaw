@@ -3,7 +3,7 @@ import 'dart:convert';
 /// Returns HTML for the "New Task" dialog element.
 ///
 /// Rendered as a `<dialog>` that can be opened via `showModal()`.
-/// Form submission is handled by JS in `app.js`.
+/// Form submission is handled by the static task/workflow JS modules.
 ///
 /// When [projectOptions] is non-empty and contains at least one non-local
 /// project, a project selector is shown between the Type and Description fields.

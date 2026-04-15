@@ -243,7 +243,12 @@ Router webRoutes(
     final topbar = topbarTemplate(appName: appDisplay.name);
     final main = emptyAppStateTemplate(appName: appDisplay.name);
     final bodyHtml = '<div class="shell">$sidebar$topbar$main</div>';
-    final page = layoutTemplate(title: appDisplay.name, body: bodyHtml, appName: appDisplay.name);
+    final page = layoutTemplate(
+      title: appDisplay.name,
+      body: bodyHtml,
+      appName: appDisplay.name,
+      scripts: standardShellScripts(),
+    );
 
     return Response.ok(page, headers: htmlHeaders);
   });
@@ -322,7 +327,12 @@ Router webRoutes(
       }
 
       final bodyHtml = '<div class="shell">$sidebar$topbar$chat</div>';
-      final page = layoutTemplate(title: session.title ?? 'New Chat', body: bodyHtml, appName: appDisplay.name);
+      final page = layoutTemplate(
+        title: session.title ?? 'New Chat',
+        body: bodyHtml,
+        appName: appDisplay.name,
+        scripts: standardShellScripts(),
+      );
       return Response.ok(page, headers: htmlHeaders);
     } catch (e) {
       return _htmlError('Failed to load session: $e');

@@ -643,7 +643,7 @@ class TaskExecutor {
         final postStatus = _resolvePostCompletionStatus(task);
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
-        if (onAutoAccept != null) {
+        if (onAutoAccept != null && postStatus == TaskStatus.review) {
           _log.info('Auto-accepting completed task ${task.id} after review transition');
           try {
             await onAutoAccept(task.id);

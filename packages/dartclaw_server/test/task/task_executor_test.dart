@@ -232,6 +232,31 @@ void main() {
     expect((await tasks.get('task-auto-accept-error'))!.status, TaskStatus.review);
   });
 
+  test('does not invoke auto-accept callback when reviewMode completes directly to accepted', () async {
+    final calls = <String>[];
+    final autoAcceptExecutor = buildExecutor(
+      onAutoAccept: (taskId) async {
+        calls.add(taskId);
+      },
+    );
+    addTearDown(autoAcceptExecutor.stop);
+
+    worker.responseText = 'Done.';
+    await tasks.create(
+      id: 'task-coding-only-accepted',
+      title: 'Coding-only accepted task',
+      description: 'Non-coding tasks with coding-only reviewMode should skip auto-accept.',
+      type: TaskType.research,
+      autoStart: true,
+      configJson: const {'reviewMode': 'coding-only'},
+    );
+
+    await autoAcceptExecutor.pollOnce();
+
+    expect(calls, isEmpty);
+    expect((await tasks.get('task-coding-only-accepted'))!.status, TaskStatus.accepted);
+  });
+
   test('fails completed tasks that exceed token budget and preserves artifacts', () async {
     final calls = <String>[];
     final budgetExecutor = buildExecutor(

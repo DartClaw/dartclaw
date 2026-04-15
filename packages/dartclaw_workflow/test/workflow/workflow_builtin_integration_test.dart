@@ -52,6 +52,37 @@ String _definitionsDir() {
   }
 }
 
+String _workflowTestingFixtureDir() {
+  var current = Directory.current;
+  while (true) {
+    final candidates = [
+      p.join(
+        current.path,
+        '..',
+        'dartclaw-private',
+        'docs',
+        'testing',
+        'workflows',
+        'data',
+        'projects',
+        'workflow-testing',
+      ),
+      p.join(current.path, 'dartclaw-private', 'docs', 'testing', 'workflows', 'data', 'projects', 'workflow-testing'),
+    ];
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate workflow-testing fixture dir');
+    }
+    current = parent;
+  }
+}
+
 String _verdictJson({
   required int findingsCount,
   required String summary,
@@ -543,6 +574,23 @@ void main() {
     expect(discover, contains('Purpose: discover the target project boundary'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
     expect(discover, isNot(contains(feature)));
+  });
+
+  test('workflow-testing fixture keeps the standalone discovery boundary contract', () {
+    final fixtureDir = _workflowTestingFixtureDir();
+    final agents = File(p.join(fixtureDir, 'AGENTS.md')).readAsStringSync();
+    final claude = File(p.join(fixtureDir, 'CLAUDE.md')).readAsStringSync();
+
+    expect(agents, contains('Do not inspect parent or sibling repositories.'));
+    expect(agents, contains('framework: none'));
+    expect(claude, contains('Do not inspect parent or sibling repositories.'));
+    expect(claude, contains('framework: none'));
+
+    final topLevelEntries = Directory(
+      fixtureDir,
+    ).listSync(followLinks: false).map((entry) => p.basename(entry.path)).toSet();
+    expect(topLevelEntries, containsAll({'.git', 'README.md', 'AGENTS.md', 'CLAUDE.md'}));
+    expect(topLevelEntries.difference({'.git', 'README.md', 'AGENTS.md', 'CLAUDE.md'}), isEmpty);
   });
 
   test(

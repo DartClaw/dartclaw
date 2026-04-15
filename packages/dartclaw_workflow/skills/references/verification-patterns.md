@@ -1,100 +1,105 @@
-# DartClaw Verification Patterns
+# Verification Patterns Reference
 
-Use this reference when writing task verification criteria, review checklists, or implementation gates.
-
-The goal is not to sound thorough. The goal is to prove the change exists, is substantive, is wired in, and behaves correctly.
+Use this when defining or reviewing proof of completion. The point is to prove the outcome, not merely show that a file exists or a build still passes.
 
 ## The Four Dimensions of Verification
 
 ### 1. Exists
-- Confirm the artifact is present at the expected path.
-- Confirm the symbol, file, route, or config entry exists in the workspace.
-- Prefer direct path or symbol checks over inferred claims.
-- A missing artifact is a hard failure.
+The file, route, component, command, or config is present where it should be.
 
 ### 2. Substantive
-- Confirm the artifact contains real domain content, not a stub.
-- Look for actual logic, actual prose, actual defaults, or actual data.
-- A file with only headings is not substantive.
-- A function that only returns a constant empty value is usually not substantive.
+There is real implementation, not a placeholder, TODO, no-op, or thin stub.
 
 ### 3. Wired
-- Confirm the artifact is reachable from an entrypoint, registry, export, or loader.
-- Confirm the new file is imported, discovered, registered, or referenced by at least one consumer.
-- For support content, confirm it is materialized alongside the relevant root.
-- A dead artifact can exist without being useful.
+The new code is actually connected to the rest of the system.
 
 ### 4. Functional
-- Confirm the artifact performs the behavior described by the task.
-- Use observable output, filesystem state, registry state, or runtime behavior as evidence.
-- Prefer a narrow proof that matches the requested change.
-- Avoid broad claims when a single targeted check can prove the outcome.
+The behavior works when exercised.
+
+Most meaningful `Verify:` lines cover more than one dimension.
 
 ## Stub Detection Patterns
 
-### Dart stub indicators
-- `throw UnimplementedError()`
-- `throw UnimplementedError('...')`
-- `TODO`
-- `FIXME`
-- empty method bodies that do nothing meaningful
-- getters that always return empty collections without real backing state
-- setters that ignore their input
-- `late` fields that are declared but never assigned before use
-- fallback paths that always return `null`, `false`, `0`, or an empty string to avoid implementing behavior
+Look for evidence that code is present but not real:
 
-### Structural stub indicators
-- a file that only contains headings and no instructions
-- a placeholder constant that is never replaced
-- a test that only checks that code runs, not that it does anything useful
-- a registry or loader that scans a directory but never exposes the new entries
-- a generated asset file that omits the support directory tree even though the source tree contains it
+- TODOs, placeholders, `not implemented`, lorem ipsum
+- empty bodies or trivial returns
+- components that render only empty wrappers or placeholder text
+- handlers that always return a canned success response
+- skipped or empty tests
+- config values left at placeholder defaults
 
-### Review heuristics
-- If the code path is short and looks suspiciously easy, inspect for a stub.
-- If the content is all boilerplate, inspect for a stub.
-- If the file name suggests domain knowledge but the body is generic, inspect for a stub.
-- If the implementation only satisfies compilation, inspect for a stub.
+Representative scans:
+
+```bash
+rg "TODO|FIXME|placeholder|not[_ -]implemented|lorem ipsum" <path>
+rg "=>\\s*\\{\\s*\\}" <changed-files>
+rg "test\\.skip|it\\.todo|xdescribe|xit" <path>
+```
 
 ## Wiring Check Patterns
 
-### Barrel and export wiring
-- Confirm the new symbol is exported from the package barrel when consumers import the umbrella package.
-- Confirm nested files use the correct relative path from their location.
-- Confirm the path still resolves after materialization into installed harness roots.
+Ask the concrete integration question that matches the change:
 
-### Registry and discovery wiring
-- Confirm the registry discovers only items that satisfy the skill contract.
-- Confirm support directories are not mistaken for discoverable skills.
-- Confirm discovery remains non-recursive unless recursion is explicitly part of the design.
+- Is the new route registered?
+- Is the new component imported and rendered?
+- Is the new endpoint actually called by a client?
+- Is the new model used in queries or migrations?
+- Is the new env var actually read?
+- Is the middleware applied where it matters?
+- Is the new export consumed anywhere?
 
-### Service and command wiring
-- Confirm the new file or function is reachable from a command, service, or loader.
-- Confirm the command path uses the same source tree that the build step embeds.
-- Confirm the service startup path can see the installed copy, not just the source copy.
+Representative scans:
 
-### Data and asset wiring
-- Confirm the file is included in the embedded asset map.
-- Confirm the materializer writes the same path into both harness roots.
-- Confirm support content is copied as a sibling directory, not flattened into the skill directory.
+```bash
+rg "import.*ComponentName|<ComponentName" src/
+rg "app\\.(get|post|put|delete|use).*routePath" src/
+rg "process\\.env\\.VAR_NAME|env\\(.*VAR_NAME\\)" src/
+```
 
-### UI and routing wiring
-- Confirm a page, route, or action is registered in the main navigation or handler table.
-- Confirm the route is not just defined in isolation.
-- Confirm a template or fragment is referenced by at least one render path.
+## Quick Verification Commands
 
-## Practical Use
+Use commands that prove the specific claim:
 
-- When writing verification criteria, name the observable artifact first.
-- Then name the path, registry, or entrypoint that should expose it.
-- Then name the expected behavior in the smallest possible testable form.
-- If a verification item cannot be observed directly, the criterion is probably too vague.
+### Existence Check
+```bash
+ls -la path/to/expected/file
+```
 
-## Quick Checklist
+### Substance Check
+```bash
+rg "TODO|FIXME|placeholder|not[_ -]implemented" <changed-files>
+```
 
-- Artifact exists at the expected path.
-- Artifact contains substantive content.
-- Artifact is wired into a consumer.
-- Artifact behaves correctly under the requested scenario.
-- Support content stays adjacent to the skill root after materialization.
+### Wiring Check
+```bash
+rg -l "import.*from.*newFile|<ComponentName|routePath" src/
+```
 
+### Functional Check
+```bash
+npm run build
+npm test
+npx tsc --noEmit
+```
+
+Replace the commands with the project's actual tooling. Generic green checks are weak if they do not exercise the claimed outcome.
+
+## Applying Verification in FIS Tasks
+
+Good `Verify:` lines are concrete and falsifiable.
+
+Weak:
+- `Verify: build passes`
+- `Verify: tests pass`
+- `Verify: output exists`
+
+Stronger:
+- `Verify: traces list output includes columns IN_TOKENS, OUT_TOKENS, CACHE_R, CACHE_W`
+- `Verify: dispatch loop calls effectiveConcurrency() from TI01 when maxParallel is set`
+- `Verify: integration test fails before the change and passes after resume=true is returned at the harness boundary`
+
+Rule of thumb:
+- If the task prescribed a format, field, file path, or behavior, the verification must name it.
+- If the task created a new integration point, verification must prove it is wired.
+- If the task changes user-visible behavior, verification must exercise that behavior directly.

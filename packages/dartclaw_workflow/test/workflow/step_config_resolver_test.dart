@@ -1,5 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show StepConfigDefault, WorkflowStep, globMatchStepId, resolveStepConfig;
+    show StepConfigDefault, WorkflowRoleDefault, WorkflowRoleDefaults, WorkflowStep, globMatchStepId, resolveStepConfig;
 import 'package:test/test.dart';
 
 void main() {
@@ -163,6 +163,38 @@ void main() {
       final defaults = [const StepConfigDefault(match: '*', provider: 'catch-all-provider')];
       final resolved = resolveStepConfig(step, defaults);
       expect(resolved.provider, 'catch-all-provider');
+    });
+
+    test('role aliases resolve against configured workflow defaults', () {
+      final step = makeStep(id: 'review-code');
+      final defaults = [const StepConfigDefault(match: 'review*', provider: '@reviewer', model: '@reviewer')];
+      final resolved = resolveStepConfig(
+        step,
+        defaults,
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude', model: 'claude-sonnet-4'),
+          reviewer: WorkflowRoleDefault(provider: 'codex', model: 'gpt-5.4'),
+        ),
+      );
+
+      expect(resolved.provider, 'codex');
+      expect(resolved.model, 'gpt-5.4');
+    });
+
+    test('role-specific blanks inherit from general workflow defaults', () {
+      final step = makeStep(id: 'plan');
+      final defaults = [const StepConfigDefault(match: 'plan', provider: '@planner', model: '@planner')];
+      final resolved = resolveStepConfig(
+        step,
+        defaults,
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude', model: 'claude-sonnet-4'),
+          planner: WorkflowRoleDefault(model: 'claude-opus-4'),
+        ),
+      );
+
+      expect(resolved.provider, 'claude');
+      expect(resolved.model, 'claude-opus-4');
     });
   });
 }

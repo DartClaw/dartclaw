@@ -43,7 +43,7 @@ Use standalone mode when:
 
 - exit `0` = completed
 - exit `1` = failed
-- exit `2` = paused for approval or cancelled
+- exit `2` = paused or cancelled
 
 Use `--json` when you want machine-readable progress. Connected mode streams server-backed SSE events; standalone mode emits the same high-value lifecycle events directly from the local executor.
 
@@ -55,8 +55,9 @@ Use this when your CI job only needs a single local run and does not need a long
 dartclaw workflow run code-review \
   --standalone \
   --json \
+  --var TARGET="Review pull request #42 for regressions and missing tests" \
   --var PR_NUMBER=42 \
-  --var REPO=owner/repo
+  --var PROJECT=my-project-id
 ```
 
 ### Connected mode in automation
@@ -65,12 +66,15 @@ Use this when the pipeline needs server-backed lifecycle control (`workflow runs
 
 ```bash
 dartclaw serve >dartclaw.log 2>&1 &
-dartclaw workflow run code-review --json --var PR_NUMBER=42
+dartclaw workflow run code-review --json \
+  --var TARGET="Review pull request #42 for regressions and missing tests" \
+  --var PR_NUMBER=42 \
+  --var PROJECT=my-project-id
 ```
 
-### Approval steps
+### Pause conditions
 
-Standalone mode auto-accepts normal step review gates, but explicit workflow `approval` steps still pause the run and return exit code `2`. For CI:
+Standalone mode auto-accepts normal step review gates, but explicit workflow `approval` steps still pause the run and return exit code `2`. Runs can also pause for runtime-managed recovery paths such as `promotion-conflict` or deterministic publish recovery, and cancelled runs also return exit code `2`. For CI:
 
 - avoid `approval` steps in non-interactive workflows
 - or run the server and use connected `workflow resume` / `workflow cancel`
@@ -98,8 +102,9 @@ providers:
     dartclaw workflow run code-review \
       --standalone \
       --json \
+      --var TARGET="Review pull request #${{ github.event.pull_request.number }} for regressions and missing tests" \
       --var PR_NUMBER="${{ github.event.pull_request.number }}" \
-      --var REPO="${{ github.repository }}"
+      --var PROJECT="${{ vars.DARTCLAW_PROJECT_ID }}"
 ```
 
 When using Codex in CI, prefer `CODEX_API_KEY` and set the least-permissive sandbox that still fits the workflow.

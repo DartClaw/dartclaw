@@ -48,6 +48,8 @@ export 'src/workflow_definition.dart'
         WorkflowStep,
         WorkflowVariable,
         WorkflowLoop,
+        WorkflowGitPublishStrategy,
+        WorkflowGitStrategy,
         StepConfigDefault,
         StepReviewMode,
         ExtractionType,

@@ -2,7 +2,15 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, HarnessConfig, HarnessFactory, HarnessFactoryConfig, KvService, MessageService, SessionService;
+    show
+        ArtifactKind,
+        EventBus,
+        HarnessConfig,
+        HarnessFactory,
+        HarnessFactoryConfig,
+        KvService,
+        MessageService,
+        SessionService;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
@@ -20,8 +28,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
+        WorkflowRoleDefault,
+        WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowService,
+        WorkflowGitBootstrapResult,
+        WorkflowGitPromotionConflict,
+        WorkflowGitPromotionError,
+        WorkflowGitPromotionSuccess,
+        WorkflowGitPublishResult,
+        WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
@@ -185,8 +201,144 @@ class CliWorkflowWiring {
       repository: workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
+      roleDefaults: WorkflowRoleDefaults(
+        workflow: WorkflowRoleDefault(
+          provider: config.workflow.defaults.workflow.provider,
+          model: config.workflow.defaults.workflow.model,
+        ),
+        planner: WorkflowRoleDefault(
+          provider: config.workflow.defaults.planner.provider,
+          model: config.workflow.defaults.planner.model,
+        ),
+        executor: WorkflowRoleDefault(
+          provider: config.workflow.defaults.executor.provider,
+          model: config.workflow.defaults.executor.model,
+        ),
+        reviewer: WorkflowRoleDefault(
+          provider: config.workflow.defaults.reviewer.provider,
+          model: config.workflow.defaults.reviewer.model,
+        ),
+      ),
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
+        resolveStartContext: (definition, variables, {projectId}) async {
+          final declaresProject = definition.variables.containsKey('PROJECT');
+          final declaresBranch = definition.variables.containsKey('BRANCH');
+          final resolvedProjectId = (projectId ?? variables['PROJECT'])?.trim();
+          String? resolvedBranch;
+          if (declaresBranch) {
+            final requested = variables['BRANCH']?.trim();
+            if (requested != null && requested.isNotEmpty) {
+              final exists = await _localRefExists(Directory.current.path, requested);
+              if (!exists) {
+                throw ArgumentError('Ref "$requested" not found in local repository');
+              }
+              resolvedBranch = requested;
+            } else {
+              resolvedBranch = await _resolveSymbolicHeadBranch(Directory.current.path) ?? 'main';
+            }
+          }
+          return WorkflowStartResolution(
+            projectId: declaresProject ? resolvedProjectId : null,
+            branch: declaresBranch ? resolvedBranch : null,
+          );
+        },
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+          final integrationBranch = perMapItem
+              ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
+              : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
+          await _ensureLocalBranch(projectDir: Directory.current.path, branch: integrationBranch, baseRef: baseRef);
+          return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
+        },
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              final args = strategy == 'merge'
+                  ? ['merge', '--no-ff', branch, '-m', 'workflow(${storyId ?? runId}): promote']
+                  : ['merge', '--squash', branch];
+              final checkout = await Process.run('git', [
+                'checkout',
+                integrationBranch,
+              ], workingDirectory: Directory.current.path);
+              if (checkout.exitCode != 0) {
+                return WorkflowGitPromotionError((checkout.stderr as String).trim());
+              }
+              final merge = await Process.run('git', args, workingDirectory: Directory.current.path);
+              if (merge.exitCode != 0) {
+                await Process.run('git', ['merge', '--abort'], workingDirectory: Directory.current.path);
+                final conflicts = await Process.run('git', [
+                  'diff',
+                  '--name-only',
+                  '--diff-filter=U',
+                ], workingDirectory: Directory.current.path);
+                final files = (conflicts.stdout as String)
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .where((line) => line.isNotEmpty)
+                    .toList();
+                return WorkflowGitPromotionConflict(
+                  conflictingFiles: files,
+                  details: (merge.stderr as String).trim().isEmpty
+                      ? (merge.stdout as String).trim()
+                      : (merge.stderr as String).trim(),
+                );
+              }
+              if (strategy != 'merge') {
+                await Process.run('git', [
+                  'commit',
+                  '-m',
+                  'workflow(${storyId ?? runId}): promote',
+                ], workingDirectory: Directory.current.path);
+              }
+              final sha = await Process.run('git', ['rev-parse', 'HEAD'], workingDirectory: Directory.current.path);
+              return WorkflowGitPromotionSuccess(commitSha: (sha.stdout as String).trim());
+            },
+        publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+          final push = await Process.run('git', ['push', 'origin', branch], workingDirectory: Directory.current.path);
+          if (push.exitCode != 0) {
+            return WorkflowGitPublishResult(
+              status: 'failed',
+              branch: branch,
+              remote: 'origin',
+              prUrl: '',
+              error: (push.stderr as String).trim(),
+            );
+          }
+          final workflowTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList()
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          final artifactTaskId = workflowTasks.isEmpty ? null : workflowTasks.last.id;
+          if (artifactTaskId != null) {
+            await taskService.addArtifact(
+              id: 'workflow-publish-$runId-${DateTime.now().microsecondsSinceEpoch}',
+              taskId: artifactTaskId,
+              name: 'Workflow Publish',
+              kind: ArtifactKind.pr,
+              path: branch,
+            );
+          }
+          return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+        },
+        cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
+          if (preserveWorktrees) return;
+          final worktreePath = p.join(config.workspaceDir, '.dartclaw', 'worktrees', 'wf-$runId');
+          await Process.run('git', ['worktree', 'remove', worktreePath], workingDirectory: Directory.current.path);
+          await Process.run('git', [
+            'branch',
+            '--delete',
+            'dartclaw/workflow/${runId.replaceAll('-', '')}',
+          ], workingDirectory: Directory.current.path);
+          await Process.run('git', [
+            'branch',
+            '--delete',
+            'dartclaw/workflow/${runId.replaceAll('-', '')}/integration',
+          ], workingDirectory: Directory.current.path);
+        },
         reserveTurn: turns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
           sessionId,
@@ -309,6 +461,53 @@ List<String> _workflowSkillProjectDirs(DartclawConfig config) {
     return [Directory.current.path];
   }
   return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
+}
+
+Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
+  try {
+    final result = await Process.run('git', [
+      'symbolic-ref',
+      '--quiet',
+      '--short',
+      'HEAD',
+    ], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) return null;
+    final stdout = (result.stdout as String).trim();
+    return stdout.isEmpty ? null : stdout;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<bool> _localRefExists(String workingDirectory, String ref) async {
+  final candidates = <String>{ref};
+  if (!ref.startsWith('origin/') && !ref.startsWith('refs/')) {
+    candidates.add('origin/$ref');
+  }
+  for (final candidate in candidates) {
+    try {
+      final result = await Process.run('git', [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        candidate,
+      ], workingDirectory: workingDirectory);
+      if (result.exitCode == 0) return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+Future<void> _ensureLocalBranch({required String projectDir, required String branch, required String baseRef}) async {
+  final existing = await Process.run('git', ['rev-parse', '--verify', branch], workingDirectory: projectDir);
+  if (existing.exitCode == 0) {
+    return;
+  }
+  final create = await Process.run('git', ['branch', branch, baseRef], workingDirectory: projectDir);
+  if (create.exitCode != 0) {
+    final stderr = (create.stderr as String).trim();
+    throw StateError('Failed to create workflow branch "$branch" from "$baseRef": $stderr');
+  }
 }
 
 int _standaloneTaskRunnerCapacity(DartclawConfig config) {

@@ -31,6 +31,37 @@ class ProviderIdentity {
     };
   }
 
+  /// Parses a `provider/model` shorthand such as `claude/opus` or
+  /// `codex/gpt-5.4`.
+  ///
+  /// Returns `null` when [value] is not in shorthand form or when the
+  /// provider prefix is not a known provider family.
+  static ({String provider, String model})? parseProviderModelShorthand(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+
+    final slashIndex = trimmed.indexOf('/');
+    if (slashIndex <= 0 || slashIndex == trimmed.length - 1) {
+      return null;
+    }
+    if (trimmed.indexOf('/', slashIndex + 1) != -1) {
+      return null;
+    }
+
+    final providerPart = trimmed.substring(0, slashIndex).trim().toLowerCase();
+    final modelPart = trimmed.substring(slashIndex + 1).trim();
+    if (modelPart.isEmpty) {
+      return null;
+    }
+    if (providerPart != claude && providerPart != codex) {
+      return null;
+    }
+
+    return (provider: providerPart, model: modelPart);
+  }
+
   static String _titleCaseWords(String value) {
     return value
         .split(RegExp(r'[_\-\s]+'))

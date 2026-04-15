@@ -1016,13 +1016,48 @@ Future<Map<String, dynamic>?> _parseJsonBody(Request request) async {
   }
 }
 
-Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) => {
-  for (final entry in body.entries) entry.key: _normalizeConfigPatchValue(entry.key, entry.value),
-};
+Map<String, dynamic> _normalizeConfigPatch(Map<String, dynamic> body) {
+  final normalized = <String, dynamic>{};
+  for (final entry in body.entries) {
+    normalized.addAll(_normalizeConfigPatchEntry(entry.key, entry.value, body));
+  }
+  return normalized;
+}
+
+Map<String, dynamic> _normalizeConfigPatchEntry(String path, Object? value, Map<String, dynamic> rawBody) {
+  final normalizedValue = _normalizeConfigPatchValue(path, value);
+  final normalized = <String, dynamic>{path: normalizedValue};
+  final providerPath = _providerSiblingPath(path);
+  if (providerPath == null || rawBody.containsKey(providerPath) || normalizedValue is! String) {
+    return normalized;
+  }
+
+  final shorthand = ProviderIdentity.parseProviderModelShorthand(normalizedValue);
+  if (shorthand == null) {
+    return normalized;
+  }
+
+  normalized[path] = shorthand.model;
+  normalized[providerPath] = shorthand.provider;
+  return normalized;
+}
 
 Object? _normalizeConfigPatchValue(String path, Object? value) {
+  final meta = ConfigMeta.fields[path];
+  if (meta != null && meta.nullable && value is String && value.trim().isEmpty) {
+    return null;
+  }
   if (path.endsWith('.task_trigger.default_type') && value is String) {
     return TaskTriggerConfig.normalizeDefaultType(value);
   }
   return value;
 }
+
+String? _providerSiblingPath(String path) => switch (path) {
+  'agent.model' => 'agent.provider',
+  'workflow.defaults.workflow.model' => 'workflow.defaults.workflow.provider',
+  'workflow.defaults.planner.model' => 'workflow.defaults.planner.provider',
+  'workflow.defaults.executor.model' => 'workflow.defaults.executor.provider',
+  'workflow.defaults.reviewer.model' => 'workflow.defaults.reviewer.provider',
+  _ => null,
+};

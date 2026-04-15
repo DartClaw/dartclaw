@@ -51,11 +51,11 @@ void main() {
 
   test('materializes filesystem skills and preserves user overrides', () async {
     final sourceRoot = Directory(p.join(tempDir.path, 'source'))..createSync(recursive: true);
-    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review-code');
+    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review');
     _writeSupportDir(sourceRoot, 'references');
 
     final homeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
-    final preservedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review-code'))
+    final preservedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review'))
       ..createSync(recursive: true);
     File(p.join(preservedDir.path, 'SKILL.md')).writeAsStringSync('user override\n');
 
@@ -69,7 +69,7 @@ void main() {
 
     final managedClaudeDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'references'));
     final managedCodexDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'references'));
-    final managedCodexSkillDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'dartclaw-review-code'));
+    final managedCodexSkillDir = Directory(p.join(homeDir.path, '.agents', 'skills', 'dartclaw-review'));
 
     expect(File(p.join(managedClaudeDir.path, 'verification-patterns.md')).existsSync(), isTrue);
     expect(File(p.join(managedCodexDir.path, 'verification-patterns.md')).existsSync(), isTrue);
@@ -82,10 +82,10 @@ void main() {
 
   test('preserves managed copies owned by a different install', () async {
     final sourceRoot = Directory(p.join(tempDir.path, 'source'))..createSync(recursive: true);
-    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review-code', description: 'New filesystem review skill');
+    _writeFilesystemSkillSource(sourceRoot, 'dartclaw-review', description: 'New filesystem review skill');
 
     final homeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
-    final managedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review-code'))
+    final managedDir = Directory(p.join(homeDir.path, '.claude', 'skills', 'dartclaw-review'))
       ..createSync(recursive: true);
     File(p.join(managedDir.path, 'SKILL.md')).writeAsStringSync('existing managed copy\n');
     File(

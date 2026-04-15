@@ -98,6 +98,8 @@ class TaskWiring {
   MergeExecutor get mergeExecutor => _mergeExecutor;
   TaskFileGuard get taskFileGuard => _taskFileGuard;
   TaskReviewService get taskReviewService => _taskReviewService;
+  RemotePushService get remotePushService => _remotePushService;
+  PrCreator get prCreator => _prCreator;
   DiffGenerator get diffGenerator => _diffGenerator;
   ArtifactCollector get artifactCollector => _artifactCollector;
   AgentObserver get agentObserver => _agentObserver;

@@ -1,53 +1,48 @@
-# DartClaw Adversarial Challenge
+# Shared Adversarial Challenge Templates
 
-Use this template to challenge findings before they are reported or acted on.
-The point is to test whether a finding still survives scrutiny when phrased as a claim, not a hunch.
+Use this reference when a review skill needs a fresh-context sub-agent to challenge previously collected findings.
+
+## Common Pattern
+Every challenge prompt should include:
+- **Role**: who the challenger is
+- **Calibration refs**: the shared review calibration plus any skill-specific calibration
+- **Context block**: the project, document, or implementation context the challenger needs
+- **Questions**: the exact challenge questions to apply to each finding
+- **Verdicts**: the allowed outcomes for the challenge
+- **Non-expansion rule**: state that the challenger filters existing findings and does not add new ones, unless the calling workflow explicitly allows it
+- **Findings payload**: the findings set being challenged
 
 ## Generic Findings-Challenger Template
-
-### Role
-- You are a skeptical reviewer whose job is to pressure-test findings.
-- Your default stance is to ask whether the claim is actually proven.
-- You do not expand scope beyond the submitted finding.
-
-### Calibration References
-- Review the applicable calibration file before challenging the finding.
-- Compare the finding against the project's severity expectations.
-- Check for over-leniency, under-evidence, and scope drift.
-
-### Context Block
 ```text
-Context:
-- Target artifact: ...
-- Finding under challenge: ...
-- Relevant evidence: ...
-- Relevant constraints: ...
+You are {role}.
+
+Read the shared review calibration: {shared_calibration}
+Then read the skill-specific calibration: {skill_calibration}
+
+Context: {context_block}
+
+For each finding, evaluate:
+{questions}
+
+For each finding, assign a verdict:
+{verdicts}
+
+Do NOT add new findings — your job is to filter, not expand.
+
+{optional_extra_rules}
+
+Findings to challenge:
+{findings_payload}
 ```
 
-### Questions
-- What concrete behavior fails?
-- What evidence proves the behavior exists?
-- Is the issue observable in the current workspace?
-- Is the severity justified by the impact?
-- Is there a smaller or more accurate interpretation?
+## Review-Council Variants
 
-### Verdicts
-- `ACCEPTED`: the finding is still valid and actionable.
-- `PARTIALLY ACCEPTED`: the finding is real, but the severity or wording should change.
-- `REJECTED`: the finding is not supported by evidence.
-- `NEEDS MORE EVIDENCE`: the claim may be real, but the current record is insufficient.
+### Devil's Advocate
+- Reuse the generic template.
+- Typical verdicts: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`, and optional `DISPUTED`.
+- Typical context: council scope plus the full findings set from specialist reviewers.
 
-### Non-Expansion Rules
-- Do not add new findings while challenging an existing one.
-- Do not escalate scope beyond the target artifact.
-- Do not turn a local defect into a broad architecture critique unless the defect demands it.
-- Do not invent missing evidence.
-
-### Response Shape
-```text
-Verdict: ...
-Reasoning: ...
-Evidence: ...
-Scope note: ...
-```
-
+### Synthesis Challenger
+- Reuse the generic template's structure, but change the instructions from per-finding filtering to holistic synthesis.
+- Typical questions: severity consistency, merged systemic issues, missed patterns, false positives in context, and overall assessment accuracy.
+- Only allow adding new findings when the workflow explicitly expects systemic synthesis.

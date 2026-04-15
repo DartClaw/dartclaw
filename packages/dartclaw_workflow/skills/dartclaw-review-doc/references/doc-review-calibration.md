@@ -1,90 +1,83 @@
 # Document Review Calibration
 
-Domain-specific calibration for reviewing specifications, plans, PRDs, FIS files, and other requirement documents. Load `../../references/adversarial-challenge.md` and the universal review calibration first, then apply this document-specific calibration.
+Domain-specific calibration for reviewing specifications, plans, PRDs, and other documents. Load `${CLAUDE_PLUGIN_ROOT}/references/review-calibration.md` first for universal calibration principles (anti-leniency protocol, finding quality, over-leniency patterns), then apply the domain-specific calibration below.
 
-> **Core principle**: A document finding is severe when it would cause an implementer to build the wrong thing, miss a critical requirement, or make an irreversible decision from incomplete information.
+> **Core principle**: A document finding is severe when it would cause an implementer to build the wrong thing, miss a critical requirement, or make an irreversible decision based on incomplete information.
 
-## Severity Calibration
+
+## Severity Calibration — Contrastive Examples
+
+Each pair shows what IS and is NOT that severity level. Use these to calibrate your severity assignments.
 
 ### Critical
 
 **IS Critical:**
-> The FIS says "secure the admin workflow" for a multi-tenant product, but it never states the trust boundaries, authentication mechanism, authorization model, or tenant isolation rules.
+> The spec says "authenticate users" for a multi-tenant SaaS platform but provides no detail on the authentication mechanism, session management, tenant isolation, or authorization model. An implementer would have to guess at every security boundary.
 
-Why: A reviewer cannot infer the security boundary safely. An implementer could build an insecure system from the document alone.
+Why: Security-critical requirements with zero implementation guidance in a context where getting it wrong has severe consequences. An implementer could build an insecure system without realizing it.
 
 **IS Critical:**
-> The data model section says the core record has `amount`, `currency`, and `status`, but the workflow section describes the same record with `subtotal`, `tax`, `total`, and `state`.
+> The data model section defines a `Transaction` entity with fields `amount`, `currency`, and `status`, but the workflow section describes transactions as having `subtotal`, `tax`, `total`, and `state`. These appear to describe the same concept with conflicting structures and no reconciliation.
 
-Why: Contradictory core definitions will force a wrong implementation choice and create expensive rework.
+Why: Contradictory definitions of a core domain entity. An implementer would build against one section and break the other. This will surface late and be expensive to fix.
+
+**is NOT Critical (common over-escalation):**
+> The spec for a developer CLI tool doesn't include a rollback strategy or deployment plan.
+
+Why: A CLI tool distributed via package manager doesn't need a rollback strategy — users install a new version or pin the old one. This is not a gap; it's an inapplicable concern. Flag only if the project's nature actually requires it.
 
 **is NOT Critical:**
-> A small internal utility spec does not include a rollback strategy.
+> The spec uses "user" in some places and "account" in others but context makes the meaning clear each time.
 
-Why: A rollback plan is often not meaningful for a utility or prototype shipped by simple deployment or package update.
+Why: Terminology inconsistency worth noting (Medium), but if the meaning is unambiguous in context, it won't cause an implementer to build the wrong thing.
+
 
 ### High
 
 **IS High:**
-> The document requires "real-time updates" but does not say whether the mechanism is SSE, WebSockets, polling, or scheduled refresh.
+> The spec requires "real-time notifications" but doesn't specify: real-time via what mechanism (WebSocket, SSE, polling)? What events trigger notifications? What's the latency expectation? What happens when the user is offline?
 
-Why: The implementation path is materially different and the omission forces major architectural guessing.
+Why: An implementer cannot build this feature without making significant architectural decisions that the spec should have made. Different choices lead to fundamentally different implementations.
 
 **IS High:**
-> The acceptance criteria require filtering by date, but the described entity has no date field and the document never explains where that date comes from.
+> The acceptance criteria say "users can filter by date range" but the data model has no date field on the entity being filtered, and no section addresses how dates are derived or stored.
 
-Why: The requirement cannot be implemented as written without a missing design decision.
+Why: The spec promises functionality that its own technical design can't support. An implementer will discover this mismatch during implementation and have to redesign.
 
-**is NOT Critical:**
-> The spec does not name the exact button label for a low-risk settings action.
+**is NOT High (common over-escalation):**
+> The spec for an internal admin dashboard doesn't mention accessibility (WCAG) requirements.
 
-Why: Copy can often be finalized during implementation when it does not affect behavior or safety.
+Why: For an internal tool used by a small team, accessibility may genuinely not be in scope. Don't project enterprise requirements onto every project. This is Low unless the project's context demands it.
 
-### Medium
+**is NOT High:**
+> The spec doesn't specify exact error message wording for validation failures.
 
-**IS Medium:**
-> The document uses inconsistent names for the same concept, but the surrounding context still makes the meaning recoverable.
+Why: Error message copy is a detail that can be decided during implementation without architectural impact. This is Low — a nice-to-have level of specification detail.
 
-Why: This can slow implementation and review, but it is not necessarily a blocker.
 
-**IS Medium:**
-> A workflow is described, but the document does not state what should happen on a recoverable failure.
+### Proportionality Calibration
 
-Why: The gap is real, but the implementer can usually close it with a narrow assumption if the broader design is stable.
+**IS disproportionate flagging:**
+> Reviewing a spec for a simple webhook relay service (receives events, transforms, forwards). The reviewer flags: missing i18n strategy, missing monitoring/alerting plan, missing load testing strategy, missing disaster recovery plan, missing API versioning strategy.
 
-### Low
+Why this is wrong: A webhook relay is infrastructure glue. It doesn't have a UI (no i18n), its monitoring needs are basic (health check + error rate), and flagging DR/load testing/API versioning for a simple relay is projecting enterprise SaaS concerns onto a utility service.
 
-**IS Low:**
-> The document omits a minor example, formatting detail, or auxiliary note that does not change the implementation path.
+**IS a proportionate flag for the same project:**
+> The webhook relay spec doesn't address retry behavior when the downstream target is unavailable, or what happens to events during an outage.
 
-Why: Useful to note, but not worth inflating into a blocker.
+Why this is correct: Retry and failure handling IS the core complexity of a webhook relay. This is a genuine gap in the document's coverage of its primary concern.
 
-**is NOT Critical:**
-> A concise requirement says "export CSV" and does not also specify every column order in prose.
-
-Why: If the surrounding document already defines the data shape, the omission may be harmless or easy to resolve during implementation.
-
-## Proportionality
-
-- Judge the document against the project's actual scale and stage.
-- Prototype and MVP documents should optimize for the smallest sufficient answer, not enterprise completeness.
-- A utility spec should not be held to standards that only matter for large-scale platforms.
-- Flag missing detail when it would materially mislead implementation, not because the detail could theoretically be added.
-- Treat brevity as a problem only when it creates ambiguity, not when it simply reflects a lean scope.
 
 ## False Positive Traps
 
-1. Flagging absent sections that are irrelevant to the project stage or artifact type.
-2. Demanding implementation-level detail in a PRD, roadmap item, or high-level FIS when the document's job is to define *what*, not every *how*.
-3. Treating explicit scope exclusions as omissions instead of intentional decisions.
-4. Escalating a readable, compact requirement into a blocker just because it is short.
-5. Projecting enterprise expectations onto a small tool, prototype, or single-team workflow.
-6. Treating a minor wording issue as a contradiction when the intended meaning is recoverable from context.
+Common patterns that look like document issues but aren't:
 
-## Review Discipline
+1. **Flagging absent sections that aren't relevant to the project.** Example: marking "Missing: Internationalization Strategy" as High for a single-language internal tool. Always ask: "Does this project actually need this?" before flagging absence as a gap.
 
-- Prefer findings that would change implementation decisions.
-- Distinguish "nice to have" precision from "must have" precision.
-- Re-read adjacent artifacts before escalating a gap that may be covered elsewhere.
-- If the document is a FIS, verify that success criteria, implementation plan, and verification hooks are all present and consistent.
-- Use the calibration to keep severity aligned with the actual risk of the omission.
+2. **Demanding implementation-level detail in a high-level document.** Example: flagging a PRD for not specifying database indexes or API response schemas. PRDs define *what*, not *how*. Match your expectations to the document type.
+
+3. **Flagging intentional scope exclusions as gaps.** Example: the spec explicitly says "Push notifications are out of scope for v1" and the reviewer flags "Missing: push notification specification." The spec addressed this — it's a scope decision, not an oversight.
+
+4. **Treating brevity as incompleteness.** Example: flagging a concise, clear requirement ("Users can export data as CSV") as "underspecified" when the implementation path is obvious. Not every requirement needs a paragraph of elaboration.
+
+5. **Projecting a different project's needs.** Example: reviewing a prototype/MVP spec with production-system expectations (HA, multi-region, 99.99% uptime). Calibrate to the project's actual stage and goals.

@@ -297,7 +297,7 @@ tasks:
 agent:
   provider: claude               # default provider: claude | codex
   max_turns: 50
-  model: opus[1m]                # default; supports: haiku, sonnet, opus, opus[1m]
+  model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
   effort: high                   # reasoning effort: low, medium, high, max
   disallowed_tools: []
   agents:                        # subagent definitions — see Agents guide for details
@@ -315,6 +315,45 @@ agent:
     #   tools: [Read]
     #   model: haiku
     #   max_concurrent: 1
+
+# --- Workflow Defaults ---
+workflow:
+  workspace_dir: ~/.dartclaw/workflow-workspace
+  defaults:
+    workflow:
+      model: claude/sonnet       # shorthand sets both provider + model
+    planner:
+      model: claude/opusplan
+    executor:
+      model: codex/gpt-5.4-mini
+    reviewer:
+      model: claude/opus
+
+# Recommended presets for the shipped built-in workflows:
+#
+# Claude-first
+# workflow:
+#   defaults:
+#     workflow: { model: claude/sonnet }
+#     planner:  { model: claude/opusplan }
+#     executor: { model: claude/sonnet }
+#     reviewer: { model: claude/opus }
+#
+# Codex-first
+# workflow:
+#   defaults:
+#     workflow: { model: codex/gpt-5.4 }
+#     planner:  { model: codex/gpt-5.4 }
+#     executor: { model: codex/gpt-5.4-mini }
+#     reviewer: { model: codex/gpt-5-codex }
+#
+# Mixed setup
+# workflow:
+#   defaults:
+#     workflow: { model: claude/sonnet }
+#     planner:  { model: claude/opusplan }
+#     executor: { model: codex/gpt-5.4-mini }
+#     reviewer: { model: claude/opus }
 
 # --- Providers (0.13) ---
 providers:

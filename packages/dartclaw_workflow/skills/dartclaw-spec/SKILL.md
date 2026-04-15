@@ -1,153 +1,199 @@
 ---
-name: dartclaw-spec
-description: Create a concise Feature Implementation Specification with scenarios, proof paths, and implementation guidance.
-argument-hint: "<feature description | requirements file | plan story>"
-user-invocable: true
+description: Use when the user wants to generate a new spec or FIS before implementation for a feature or plan story. Do not use when the user wants to execute or implement an existing spec or FIS. Creates an execution-sized FIS by default, or pivots to a small plan bundle with multiple FIS files when one spec would be too large. Trigger on 'create a spec for this', 'create a FIS for this', 'write a spec', 'write a FIS', 'specify this feature'.
+argument-hint: <description> | @<requirements-file> | story <story-id> of <path-to-plan.md>
 ---
 
-# DartClaw Spec
+# Generate Feature Implementation Specification
 
-Generate a Feature Implementation Specification for a single feature or story. Use the project codebase, docs, and relevant research to produce a practical, testable FIS that another workflow step can implement without extra interpretation.
 
-## Instructions
+Given a feature request, generate an execution-sized specification artifact: a single Feature Implementation Specification (FIS) by default, or a small `plan.md` plus multiple child FIS files when one spec would clearly be too large.
 
-- Read the project learnings and any relevant architecture or guideline docs before writing the FIS.
-- Analyze the codebase before writing the spec body.
-- Write scenarios before the rest of the spec.
-- After drafting scenarios, apply the **negative-path checklist**: verify coverage for omitted optional inputs (null vs. empty, absent vs. zero), no-match cases (selector/filter returns nothing), and rejection paths (external integration rejects/rate-limits).
-- Keep the FIS concise but complete.
-- Every success criterion must have a proof path.
-- Task verification criteria must assert described behavior, not just build success.
-- Prescriptive details such as format strings, column names/orders, file paths, error messages, and UI elements must appear verbatim in task verification criteria.
-- Use canonical project language and concrete verification steps.
-- Use `CONFUSION` and `MISSING REQUIREMENT` from the structured output protocols instead of asking the user to clarify mid-flow.
-- When substantial codebase analysis, API research, or architecture trade-offs are needed to implement correctly, place them in `technical-research.md` alongside the FIS so the FIS stays intent-focused.
 
-## Workflow
+## VARIABLES
 
-### 1. Parse Input
+ARGUMENTS: $ARGUMENTS
 
-- Resolve the request into one of these forms: inline feature description, requirements file, or plan story.
-- If the input comes from a plan story, read the plan and extract the story scope, acceptance criteria, dependencies, phase context, and any key scenarios.
-- If the input is a directory or artifact bundle, use the provided clarified requirements as the request.
-- If the request is underspecified, emit `MISSING REQUIREMENT` with the missing input and a conservative assumption instead of inventing details.
 
-### 2. Priming & Project Understanding
+## USAGE
 
-- Read the project document index and use `project_index` to determine the correct output location for the FIS.
-- Prefer co-locating the FIS with the originating artifact: plan directory for plan stories, feature directory for clarified requirements, or the configured spec path in the project index.
-- Inspect the codebase structure, related packages, and comparable features.
-- Read project learnings, architecture docs, and relevant guidelines before committing to scope or wording.
-- Identify the existing naming conventions, test patterns, and any cross-file references the spec should preserve.
+```
+/spec <feature description>        # Create FIS from inline description
+/spec @docs/requirements.md        # Create FIS from requirements file
+/spec docs/specs/my-feature/       # Create FIS from clarify output directory
+/spec story S03 of docs/specs/dashboard/plan.md  # Create FIS for a plan story
+```
 
-### 3. Feature Research
 
-- Gather only the context needed to write a clear, executable spec.
-- Use codebase references and file:line pointers to anchor decisions.
-- Research API, library, or architecture details only when they materially affect the feature.
-- Separate intent-level decisions from implementation research.
-- If ambiguity remains but the work can proceed safely, record it as `CONFUSION` or `MISSING REQUIREMENT` with the best current assumption.
+## INSTRUCTIONS
 
-### 4. Write Scenarios
+- **Make sure `ARGUMENTS` is provided** – otherwise **STOP** immediately with a missing-input error that states the feature requirements or source artifact are required.
+- **Fully** read and understand the **Workflow Rules, Guardrails and Guidelines** section in CLAUDE.md / AGENTS.md (or system prompt) before starting work
+- **Spec generation only** - No code changes, commits, or modifications during execution of this command
+- **Remember**: Agents executing the FIS only get the context you provide. Include all necessary documentation, examples, and references.
+- **Read project learnings** – If the `Learnings` document (see **Project Document Index**) exists, read it before starting to avoid known traps and error patterns
 
-- Write the Scenarios section first, then build the rest of the FIS around it.
-- Use Given / When / Then language with actual domain terms.
-- Target 3-7 scenarios.
-- Start with the happy path, then cover boundary cases, then include at least one error or rejection case.
-- Make each scenario observable from the user or system perspective, not from internal implementation steps.
-- Treat scenarios as the proof-of-work contract for the spec.
 
-#### Scenario Guidance
+## GOTCHAS
 
-- Use concrete preconditions and outcomes.
-- Prefer behavior that can be verified by a test or observable check.
-- Cover state transitions, outputs, visible side effects, and failure handling.
-- Keep each scenario specific enough that a later implementation can be checked against it mechanically.
+**Generating a FIS without reading the codebase first** – architecture analysis (Step 1) must precede specification (Step 4).
 
-#### Negative-Path Checklist
+**Undefined behavior** – use structured output protocols (`../references/structured-output-protocols.md`) to surface ambiguity and missing requirements rather than silently inventing answers.
 
-- Omitted optional inputs.
-- No-match selector or filter cases.
-- Rejection or fallback behavior for external integrations.
+**Describing code changes instead of outcomes** – tasks should state what must be TRUE when done, not what code to write. Bad: "Create lib/auth.ts with login() and logout()". Good: "Auth module with login/logout; follow pattern at lib/users.ts:10-30".
 
-If a risky category is uncovered, add a scenario for it before writing the rest of the FIS.
+**Acceptance criteria that can't be verified programmatically** – every criterion needs a concrete verify command or observable check. If you can't write the scenario's **Then** clause, you don't understand the requirement yet.
 
-### 5. Generate FIS
+**Scenarios that describe implementation, not behavior** – scenarios should use Given/When/Then to describe observable outcomes from the user's or system's perspective, not internal code steps. Bad: "Given a new AuthService class, When login() is called...". Good: "Given valid credentials, When the user submits login, Then a session token is returned."
 
-- Use the local template at `templates/spec-template.md`.
-- Follow the authoring guidelines in `references/authoring-guidelines.md`.
-- Keep the FIS outcome-focused and avoid describing file edits as the goal.
-- Include the chosen architecture or implementation direction at a high level.
-- Add a `technical-research.md` companion document only when the research is substantial enough to help the executor build correctly without cluttering the FIS.
-- The FIS should say what must be true when complete, not just what code to write.
+**Over-researching** – gather just enough context for a clear spec. Default to skipping research phases unless clearly needed (gap in requirements, unfamiliar APIs, novel features). A spec that reads like a diff is too detailed. A 30-line minimal FIS is fine; zero FIS is not. Most strong FIS files land in the 100-300 line range. If the first-pass draft is pushing past roughly ~400 lines or >12 tasks, pivot at spec time into a small plan bundle with multiple child FIS files instead of leaving the problem for `exec-spec`.
 
-## Structured Output Protocols
+**Generic "What We're NOT Doing" section** – use it to record real non-goals or deferrals with reasons, not filler bullets.
 
-- Reference `../references/structured-output-protocols.md` when surfacing ambiguity, missing requirements, or partial confidence.
-- Use `CONFUSION` when inputs conflict or a safe interpretation cannot be chosen.
-- Use `MISSING REQUIREMENT` when required context is absent.
-- Use `NOTICED BUT NOT TOUCHING` when something is relevant but out of scope.
-- Use `ASSUMPTION` sparingly when execution can proceed conservatively.
 
-## Technical Research Separation Guidance
+## ORCHESTRATOR ROLE _(if supported by your coding agent)_
 
-- Keep the FIS focused on intent, scope, scenarios, success criteria, and proof paths.
-- Move code inventories, API quirks, trade-off comparisons, field-level schemas, and implementation workarounds into `technical-research.md`.
-- Put only the minimum architecture decision needed for intent review in the FIS.
-- If a reviewer needs to know whether the right thing is being built, keep that detail in the FIS.
-- If the detail mainly helps the executor build the thing right, move it to technical research.
+You are the orchestrator: parse input, delegate codebase analysis and research to specialist sub-agents when available, then author the FIS from their findings. Use an architecture-focused sub-agent for codebase analysis, and use documentation-lookup or research-oriented sub-agents for external research. Write the FIS yourself to keep it coherent.
 
-## Plan-Spec Alignment Check
 
-- When the FIS originates from a plan story, cross-check every plan acceptance criterion against the FIS.
-- If an acceptance criterion is narrowed, record the narrowing in Scope & Boundaries.
-- If an acceptance criterion is missing coverage, expand the FIS before finalizing it.
-- Do not silently narrow the plan.
-- Preserve the story ID and update the plan entry with the generated FIS path and `Spec Ready` status when the plan is the source of truth.
+## WORKFLOW
 
-## Output Contract
+### 0. Parse Input & Get Requirements
 
-- The FIS must be usable by an implementation skill without extra interpretation.
-- Use `project_index` to decide where the file belongs, then write the FIS there.
-- If a companion `technical-research.md` is warranted, save it alongside the FIS in the same directory.
-- Keep the output location stable and predictable for downstream execution.
+**If `--issue` flag present**: use `gh issue view <number>` to fetch issue details, then inspect the body for a typed envelope per `../references/github-artifact-roundtrip.md`.
+- If `artifact_type: fis-bundle`, **STOP** — the spec already exists. Exit with the correct downstream path: `dartclaw-exec-spec`, `dartclaw-review`, or the local FIS path. Do not regenerate it.
+- If `artifact_type: plan-bundle`, **STOP** — the issue contains a plan, not a single-feature request. Exit with the correct downstream path: `story {story_id} of <path-to-plan.md>`, `dartclaw-spec-plan`, or the plan-execution workflow in your environment.
+- If the issue contains another typed workflow artifact (`triage-plan`, `triage-completion`, or any `*-review` report), **STOP** and exit with the matching downstream skill.
+- Otherwise use the issue as the feature request and store the issue number for FIS reference.
 
-## FIS Structure
+**If ARGUMENTS is a directory with `requirements-clarification.md`** (from earlier clarification work): read it; use clarified scope, functional requirements, edge cases, success criteria, design decisions, wireframes, and any explicit non-goals / deferred items as the feature request. Skip or reduce research phases because the discovery work already happened. Only do codebase research and any external/API research the requirements reference but haven't investigated.
 
-Use the local template and include:
+**If ARGUMENTS use `story {story_id} of {path-to-plan.md}`**: read the plan; locate the story by ID; use its scope, acceptance criteria, dependencies, and phase context as feature request. If the story has **Key Scenarios**, use them as seeds for the Scenarios section (Step 3) — elaborate each seed into full Given/When/Then format. Store plan path and story ID for output updates.
 
-- feature overview and goal
-- success criteria
-- scenarios
-- scope and boundaries
-- architecture or implementation notes
-- technical overview
-- references and constraints
-- implementation plan
-- testing strategy
-- final validation checklist
-- open questions or assumptions when needed
+**Otherwise**: use inline description or file reference as the feature request.
 
-## Self-Check
 
-Before saving, confirm:
+### 1. Priming and Project Understanding
 
-- [ ] The FIS is outcome-focused and not implementation-by-file-edit prose
-- [ ] Scenarios cover the happy path, edge cases, and at least one error or rejection case
-- [ ] Every success criterion has a proof path
-- [ ] Prescriptive details appear in task verification criteria, not hidden in body text
-- [ ] Technical research is separated from intent-level content when needed
-- [ ] Plan acceptance criteria were checked against the FIS when applicable
-- [ ] The vocabulary matches DartClaw canonical terms
-- [ ] `CONFUSION` and `MISSING REQUIREMENT` are used for unresolved ambiguity instead of interactive questioning
-- [ ] The output path was chosen via `project_index`
+Analyse the codebase to understand project structure, relevant files and similar patterns. Use `tree -d` and `git ls-files | head -250` for overview. Use the `Explore` agent _(if supported)_ for deeper context.
 
-## Confidence Rating
 
-Rate the FIS for single-pass implementation success from 1-10.
+### 2. Feature Research and Design
 
-- 9-10: clear, complete, and mechanically verifiable
-- 7-8: good shape, minor gaps may remain
-- below 7: revise before execution
+Fully understand the feature request. Identify any ambiguities. Research only what's needed:
 
-If the score is below 7, the spec needs more context or tighter proof paths.
+- **Codebase research**: similar features/patterns, files to reference with line numbers, existing conventions and test patterns. Delegate to an architecture-focused sub-agent _(if supported)_.
+- **External research** _(if references to APIs/libraries without prior research)_: current documentation, known gotchas. Delegate to a research-oriented or documentation-lookup sub-agent _(if supported)_.
+- **Architecture trade-offs** _(if no ADR in ARGUMENTS)_: analyze 1-3 approaches, document risks. Delegate to an architecture-focused sub-agent _(if supported)_.
+- **UI research** _(if applicable, and no prior wireframes)_: existing patterns, create wireframes. Delegate to a UI/UX-oriented sub-agent _(if supported)_.
+
+**Save research findings** (if substantial) to `technical-research.md` in the FIS output directory — a companion document that keeps the FIS lean and reviewable. The FIS references this document; the executing agent reads it alongside the FIS for implementation context. See the [Technical Research Separation](../references/fis-authoring-guidelines.md#technical-research-separation) guidelines for what belongs in the research doc vs the FIS. Skip this if findings are minimal — not every spec needs a technical research document.
+
+If an existing `technical-research.md` already exists (e.g. from `dartclaw-spec-plan` or `dartclaw-plan`), append story-specific findings under a `## {Story Name}` heading rather than overwriting.
+
+Only stop for ambiguity when it blocks a defensible specification. In that case, return the minimum missing decisions required rather than pausing for routine clarification.
+
+
+### 3. Write Scenarios
+
+Before generating the full FIS, write the **Scenarios** section first. Scenarios are concrete examples of expected behavior (BDD-style Given/When/Then) that serve triple duty: requirement, test specification, and proof-of-work contract. Start with the happy path, then edge cases, then error cases. 3-7 scenarios is the sweet spot. After drafting, apply the **negative-path checklist** from the FIS authoring guidelines — verify coverage for omitted optional inputs, no-match selectors/filters, and rejection paths. See the FIS authoring guidelines for detailed guidance.
+
+**Lock down proof-of-work**: every Success Criterion must have a proof path — at least one scenario (for behavioral criteria) or a task Verify line (for structural criteria). If a criterion has no proof path after writing scenarios, either add a scenario or flag it for a Verify line during FIS generation.
+
+
+### 4. Generate FIS
+
+#### Gather Context (as references, not inline content)
+- Technical research from Step 2 (reference `technical-research.md` — don't inline findings into the FIS)
+- ADRs and the `Architecture` document (see **Project Document Index**); file paths with line numbers for patterns to follow
+- UI wireframes/mockups; design system references; external documentation URLs
+- `Ubiquitous Language` document (see **Project Document Index**) – use canonical terms; flag any contradictions
+
+#### Generate from Template
+**IMPORTANT**: Use the `Plan` agent _(if supported by your coding agent)_ to generate the FIS — it provides structured authoring support.
+
+Use the template in the **Appendix** below. Then read and follow the FIS authoring guidelines at
+[`../references/fis-authoring-guidelines.md`](../references/fis-authoring-guidelines.md).
+
+> **Optional**: Invoke the `dartclaw-review --doc-only` skill for thorough validation (recommended for large/complex features). This keeps pre-implementation FIS review on the document-review path.
+
+### 4.5 Oversize Pivot
+
+After drafting the first-pass FIS, assess whether it is still execution-sized.
+
+- Oversize signals: the draft is pushing past roughly ~400 lines, exceeds ~12 implementation tasks, spans multiple major execution phases that would likely be executed independently, or feels like a small plan disguised as one spec.
+- If the draft is still execution-sized, save the single FIS normally.
+- If the draft is oversized **and the input is a standalone feature request / issue / clarification directory**:
+  1. Do **not** save the giant single FIS as the primary artifact.
+  2. Create a small `plan.md` in the output directory with 2-5 focused stories in execution order.
+  3. Generate that `plan.md` using the `dartclaw-plan` template at `../dartclaw-plan/templates/plan-template.md`. Treat the template as an operational contract, not loose guidance.
+  4. Preserve the plan template invariants because downstream skills parse them directly:
+     - keep the heading names and overall document shape stable
+     - keep the Story Catalog columns exactly `ID | Name | Phase | Wave | Dependencies | Parallel | Risk | Status | FIS`
+     - include the document references header blockquote at the top with actual relative links for `PRD`, `ADRs`, `Design System`, `Wireframes`, and `Technical Research` when those documents exist
+     - for each story, include `**Status**`, `**FIS**`, `**Phase**`, `**Wave**`, `**Dependencies**`, `**Parallel**`, `**Risk**`, `**Scope**`, `**Acceptance Criteria**`, and `**Asset refs**`
+     - keep `**Key Scenarios**` optional, but include them when behavioral seeds are useful for downstream FIS generation
+     - include `**Provenance**` when a story has no direct PRD feature coverage
+  5. Use the oversize pivot as a **simple one-story-per-FIS breakdown**. Do **not** run THIN/COMPOSITE/shared-FIS classification here and do **not** emit `thin-specs.md`.
+  6. Generate exactly one child FIS per story in the same directory, reusing the shared `technical-research.md` when present.
+  7. For each child FIS:
+     - use the standard FIS template in the Appendix below and the FIS authoring guidelines
+     - derive the content from that story's `Scope`, `Acceptance Criteria`, and `Key Scenarios` in the generated `plan.md`
+     - reference the shared `technical-research.md` from the FIS instead of copying codebase analysis or API research into each spec
+     - save with a stable story-scoped filename such as `s01-{story-name}.md`
+     - keep the spec execution-sized; if a child FIS would still be oversized, split the story further in `plan.md` before saving specs
+  8. Update the generated `plan.md` immediately after each child FIS is written so that every story points at its child FIS path and has `Status: Spec Ready`.
+  9. Treat the result as a **plan bundle** whose downstream path is the plan-execution workflow, not `dartclaw-exec-spec`.
+- If the draft is oversized **and the input is `story {story_id} of {path-to-plan.md}`**:
+  - Do **not** silently fan one plan story out into multiple FIS files.
+  - **STOP** and report that the story itself needs upstream plan decomposition before spec generation can complete cleanly. Exit without generating a partial or oversized FIS.
+  - Do not save an oversized single FIS just to satisfy the command.
+
+
+## OUTPUT
+
+### Single-FIS Mode
+- Directory input (e.g. clarify output): save FIS inside as `{feature-name}.md`
+- Plan story input: save FIS in plan directory as `{story-name}.md`
+- Otherwise: save at `docs/specs/{feature-name}.md` _(or as configured in **Project Document Index**)_
+  - GitHub issue input: include issue reference in filename, e.g. `issue-123-feature-name.md`
+- **Technical research**: save as `technical-research.md` in the same directory as the FIS. If the FIS is for a plan story and a plan-level `technical-research.md` already exists, append story-specific findings under a `## {Story Name}` heading rather than creating a separate file.
+- **Update source plan** – if this spec was created for a plan story:
+  - Set the story's **FIS** field to the generated FIS file path
+  - Set the story's **Status** field to `Spec Ready`
+
+### Oversize Pivot Mode
+- Save `plan.md` in the output directory as the primary artifact
+- Generate `plan.md` from `../dartclaw-plan/templates/plan-template.md` and preserve its required headings, Story Catalog columns, and story metadata labels
+- Save exactly one child FIS per story in the same directory (prefer stable names like `s01-{story-name}.md`)
+- Do **not** use THIN/COMPOSITE/shared-FIS grouping in oversize pivot mode; this mode is a straightforward one-story-per-FIS decomposition
+- Save or reuse `technical-research.md` beside the plan bundle
+- Update `plan.md` so each generated story references its child FIS path and has `Status` = `Spec Ready`
+- The downstream execution path is the plan-execution workflow
+- Do **not** use oversize pivot mode for `story {story_id} of {path-to-plan.md}` input; that case must escalate for upstream plan decomposition instead
+
+### Publish to GitHub _(if --to-issue)_
+Follow `../references/github-artifact-roundtrip.md`:
+- **Single-FIS mode**:
+  - `artifact_type`: `fis-bundle`
+  - Title: `[FIS] {feature-name}`
+  - Primary file: generated FIS (`fis_path`)
+  - Companion files: include `technical-research.md` when it exists; if this spec came from a plan story, also include the current `plan.md`
+  - Metadata: always set `fis_path`; if this spec came from a plan story, also set `plan_path` and `story_ids` (all constituent story IDs for composite/shared FIS)
+  - Labels: `spec`, `fis`, `andthen-artifact`
+- **Oversize pivot mode**:
+  - `artifact_type`: `plan-bundle`
+  - Title: `[PLAN] {feature-name}`
+  - Primary file: generated `plan.md` (`plan_path`)
+  - Companion files: include sibling `prd.md` when present, `technical-research.md` when present, and every child FIS referenced by the plan
+  - Metadata: set `plan_path`; leave `story_ids` empty at the bundle level unless a downstream consumer requires them
+  - Labels: `plan`, `spec`, `andthen-artifact`
+
+Print the issue URL and the local primary path (the generated FIS or `plan.md`, depending on mode).
+
+
+---
+
+
+## Appendix: FIS Template
+
+**USE THE TEMPLATE**: Read and use the template at [`templates/fis-template.md`](templates/fis-template.md) to generate the Feature Implementation Specification.

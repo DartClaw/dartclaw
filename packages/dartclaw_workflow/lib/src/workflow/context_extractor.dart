@@ -125,6 +125,12 @@ class ContextExtractor {
         continue;
       }
 
+      final derivedValue = _deriveFromStructuredOutputs(outputs, outputKey);
+      if (derivedValue != null) {
+        outputs[outputKey] = derivedValue;
+        continue;
+      }
+
       // Fall through to convention-based extraction (text format or no config).
 
       // Try agent convention (## Context Output) first.
@@ -170,6 +176,18 @@ class ContextExtractor {
     }
 
     return outputs;
+  }
+
+  dynamic _deriveFromStructuredOutputs(Map<String, dynamic> outputs, String outputKey) {
+    for (final value in outputs.values) {
+      if (value is Map<String, dynamic> && value.containsKey(outputKey)) {
+        return value[outputKey];
+      }
+      if (value is Map && value.containsKey(outputKey)) {
+        return value[outputKey];
+      }
+    }
+    return null;
   }
 
   /// Extracts raw text content for format-aware processing.

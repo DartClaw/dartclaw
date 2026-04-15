@@ -111,6 +111,7 @@ class TaskExecutor {
   Timer? _timer;
   Future<bool>? _inFlightPoll;
   bool _isSpawning = false;
+  final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
 
   void start() {
     if (_timer != null) return;
@@ -400,15 +401,51 @@ class TaskExecutor {
         } else {
           project = await projectService.getDefaultProject();
         }
-        // Auto-fetch — best-effort; never throws.
-        await projectService.ensureFresh(project);
+        final explicitBaseRef = _taskBaseRef(task);
+        final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
+        final workflowOwnedBranchTask = _workflowOwnedBranchRunId(task) != null;
+        final worktreeBaseRef = _worktreeBaseRefFor(task, project, effectiveBaseRef);
+        final strictGitValidation = task.workflowRunId != null && !workflowOwnedBranchTask;
+        final freshnessRef = workflowOwnedBranchTask ? null : _freshnessRefFor(project, effectiveBaseRef);
+        try {
+          await projectService.ensureFresh(project, ref: freshnessRef, strict: strictGitValidation);
+        } catch (e) {
+          await _markFailedOrRetry(
+            task,
+            errorSummary: 'Git reference validation failed for project "${project.name}": $e',
+            retryable: false,
+          );
+          return;
+        }
+        if (worktreeBaseRef != null && worktreeBaseRef.isNotEmpty) {
+          final nextConfig = Map<String, dynamic>.from(task.configJson)..['_baseRef'] = worktreeBaseRef;
+          task = await _tasks.updateFields(task.id, configJson: nextConfig);
+        }
       }
 
       // Worktree setup for coding tasks
       if (task.type == TaskType.coding && _worktreeManager != null) {
-        // Pass project only when it's not the implicit _local project.
-        final worktreeProject = (project != null && project.id != '_local') ? project : null;
-        worktreeInfo = await _worktreeManager.create(task.id, project: worktreeProject);
+        final sharedRunId = _workflowOwnedBranchRunId(task);
+        if (sharedRunId != null) {
+          final existing = _workflowSharedWorktrees[sharedRunId];
+          if (existing != null) {
+            worktreeInfo = existing;
+          } else {
+            // Pass project only when it's not the implicit _local project.
+            final worktreeProject = (project != null && project.id != '_local') ? project : null;
+            worktreeInfo = await _worktreeManager.create(
+              'wf-$sharedRunId',
+              project: worktreeProject,
+              baseRef: _taskBaseRef(task),
+              createBranch: false,
+            );
+            _workflowSharedWorktrees[sharedRunId] = worktreeInfo;
+          }
+        } else {
+          // Pass project only when it's not the implicit _local project.
+          final worktreeProject = (project != null && project.id != '_local') ? project : null;
+          worktreeInfo = await _worktreeManager.create(task.id, project: worktreeProject, baseRef: _taskBaseRef(task));
+        }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
       }
@@ -785,6 +822,21 @@ class TaskExecutor {
     return next;
   }
 
+  String? _workflowOwnedBranchRunId(Task task) {
+    final workflowRunId = task.workflowRunId;
+    if (workflowRunId == null || workflowRunId.isEmpty) return null;
+    final workflowGit = task.configJson['_workflowGit'];
+    if (workflowGit is! Map) return null;
+    final strategy = workflowGit['worktree'] as String?;
+    if (strategy == 'shared') return workflowRunId;
+    if (strategy == 'per-map-item') {
+      // Post-map serial coding steps must operate on the workflow-owned integration branch.
+      final isMapIteration = task.configJson.containsKey('_mapIterationIndex');
+      if (!isMapIteration) return workflowRunId;
+    }
+    return null;
+  }
+
   List<String>? _allowedTools(Task task) {
     final raw = task.configJson['allowedTools'];
     if (raw is! List) return null;
@@ -854,6 +906,65 @@ class TaskExecutor {
       }
     }
     return null;
+  }
+
+  String? _taskBaseRef(Task task) {
+    final raw = task.configJson['_baseRef'] ?? task.configJson['baseRef'];
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<String?> _resolveEffectiveBaseRef(Task task, Project project, {String? explicitBaseRef}) async {
+    if (explicitBaseRef != null && explicitBaseRef.isNotEmpty) {
+      return explicitBaseRef;
+    }
+    if (project.id == '_local' && task.workflowRunId != null) {
+      final head = await _currentSymbolicHead(project.localPath);
+      if (head != null && head.isNotEmpty) {
+        return head;
+      }
+    }
+    return project.defaultBranch;
+  }
+
+  String? _freshnessRefFor(Project project, String? baseRef) {
+    if (baseRef == null || baseRef.isEmpty) return null;
+    if (project.id != '_local' && baseRef.startsWith('origin/')) {
+      final trimmed = baseRef.substring('origin/'.length).trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+    return baseRef;
+  }
+
+  String? _worktreeBaseRefFor(Task task, Project project, String? baseRef) {
+    if (baseRef == null || baseRef.isEmpty) return null;
+    final workflowGit = task.configJson['_workflowGit'];
+    if (workflowGit is Map) {
+      // Workflow-owned branches are local refs; do not rewrite to origin/*.
+      return baseRef;
+    }
+    if (project.id == '_local') return baseRef;
+    if (baseRef.startsWith('origin/') || baseRef.startsWith('refs/')) {
+      return baseRef;
+    }
+    return 'origin/$baseRef';
+  }
+
+  Future<String?> _currentSymbolicHead(String workingDirectory) async {
+    try {
+      final result = await Process.run('git', [
+        'symbolic-ref',
+        '--quiet',
+        '--short',
+        'HEAD',
+      ], workingDirectory: workingDirectory);
+      if (result.exitCode != 0) return null;
+      final stdout = (result.stdout as String).trim();
+      return stdout.isEmpty ? null : stdout;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Pre-turn budget check. Returns verdict and optional warning message to inject.

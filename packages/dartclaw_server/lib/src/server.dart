@@ -689,6 +689,7 @@ class DartclawServer {
       config: githubConfig,
       workflows: workflows,
       definitions: definitions,
+      projects: _projectService,
       eventBus: _eventBus,
       trustedProxies: config.auth.trustedProxies,
     );

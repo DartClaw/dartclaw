@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw Quick Review"
+  short_description: "Run a fast fresh-context review"
+  default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes."
+
+policy:
+  allow_implicit_invocation: true

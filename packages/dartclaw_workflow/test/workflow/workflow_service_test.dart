@@ -8,6 +8,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         TaskStatus,
         TaskStatusChangedEvent,
+        TaskType,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowExecutionCursor,
@@ -16,7 +17,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
-        WorkflowVariable;
+        WorkflowVariable,
+        WorkflowStartResolution,
+        WorkflowTurnOutcome,
+        WorkflowTurnAdapter;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
@@ -127,6 +131,108 @@ void main() {
     expect(run.variablesJson['topic'], equals('Dart programming'));
   });
 
+  test('start() injects projectId into PROJECT when the workflow declares that variable', () async {
+    final definition = makeDefinition(
+      variables: {'PROJECT': const WorkflowVariable(required: false, description: 'Target project')},
+    );
+    autoCompleteNewTasks();
+
+    final run = await workflowService.start(definition, const {}, projectId: 'my-app');
+
+    expect(run.variablesJson['PROJECT'], equals('my-app'));
+  });
+
+  test('start() resolves omitted BRANCH to symbolic HEAD before first step context is built', () async {
+    final localRepo = Directory.systemTemp.createTempSync('wf_service_local_repo_');
+    addTearDown(() {
+      if (localRepo.existsSync()) {
+        localRepo.deleteSync(recursive: true);
+      }
+    });
+    await Process.run('git', ['init'], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', '-b', 'develop'], workingDirectory: localRepo.path);
+    File(p.join(localRepo.path, 'README.md')).writeAsStringSync('local');
+    await Process.run('git', ['add', '.'], workingDirectory: localRepo.path);
+    await Process.run(
+      'git',
+      ['commit', '-m', 'init', '--no-gpg-sign'],
+      workingDirectory: localRepo.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Test',
+        'GIT_AUTHOR_EMAIL': 'test@test.com',
+        'GIT_COMMITTER_NAME': 'Test',
+        'GIT_COMMITTER_EMAIL': 'test@test.com',
+      },
+    );
+
+    workflowService = WorkflowService(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) async => 'turn-id',
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        resolveStartContext: (definition, variables, {projectId}) async {
+          final head = await Process.run('git', [
+            'symbolic-ref',
+            '--quiet',
+            '--short',
+            'HEAD',
+          ], workingDirectory: localRepo.path);
+          return WorkflowStartResolution(projectId: '_local', branch: (head.stdout as String).trim());
+        },
+      ),
+    );
+    autoCompleteNewTasks();
+
+    final definition = makeDefinition(
+      variables: const {
+        'PROJECT': WorkflowVariable(required: false),
+        'BRANCH': WorkflowVariable(required: false, defaultValue: 'main'),
+      },
+    );
+    final run = await workflowService.start(definition, const {});
+
+    expect(run.variablesJson['PROJECT'], equals('_local'));
+    expect(run.variablesJson['BRANCH'], equals('develop'));
+  });
+
+  test('start() fails preflight before creating run or coding task', () async {
+    workflowService = WorkflowService(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) async => 'turn-id',
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        resolveStartContext: (definition, variables, {projectId}) async {
+          throw ArgumentError('Ref "missing/ref" not found');
+        },
+      ),
+    );
+    final definition = makeDefinition(
+      variables: const {'PROJECT': WorkflowVariable(required: false), 'BRANCH': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(id: 'coding-step', name: 'Coding', type: 'coding', prompts: ['Implement']),
+      ],
+    );
+
+    await expectLater(
+      workflowService.start(definition, const {'PROJECT': 'my-app', 'BRANCH': 'missing/ref'}),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(await workflowService.list(), isEmpty);
+    expect(await taskService.list(), isEmpty);
+  });
+
   test('start() throws when required variable missing', () async {
     final definition = makeDefinition(
       variables: {'topic': const WorkflowVariable(required: true, description: 'Required')},
@@ -202,6 +308,53 @@ void main() {
 
     final stored = await workflowService.get(run.id);
     expect(stored?.status, equals(WorkflowRunStatus.cancelled));
+  });
+
+  test('cancel() invokes workflow git cleanup after child tasks are cancelled', () async {
+    final cleanupObservedNonTerminalCounts = <int>[];
+    workflowService = WorkflowService(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) async => 'turn-id',
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
+          final tasks = await taskService.list();
+          final remaining = tasks.where((task) => task.workflowRunId == runId && !task.status.terminal).length;
+          cleanupObservedNonTerminalCounts.add(remaining);
+        },
+      ),
+    );
+
+    final run = WorkflowRun(
+      id: 'cancel-order-run',
+      definitionName: 'test-workflow',
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'my-app'},
+      definitionJson: makeDefinition().toJson(),
+    );
+    await repository.insert(run);
+    final task = await taskService.create(
+      id: 'cancel-order-task',
+      title: 'cancel order task',
+      description: 'x',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: run.id,
+    );
+    await taskService.transition(task.id, TaskStatus.running, trigger: 'test');
+
+    await workflowService.cancel(run.id);
+
+    expect((await taskService.get(task.id))?.status, TaskStatus.cancelled);
+    expect(cleanupObservedNonTerminalCounts, equals([0]));
   });
 
   test('cancel() is idempotent on already-terminal run', () async {

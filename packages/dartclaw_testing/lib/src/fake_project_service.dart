@@ -22,7 +22,7 @@ typedef FakeProjectUpdateCallback =
 
 typedef FakeProjectFetchCallback = Future<Project> Function(String id);
 typedef FakeProjectDeleteCallback = Future<void> Function(String id);
-typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project);
+typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project, {String? ref, bool strict});
 
 typedef RecordedProjectCreate = ({
   String name,
@@ -90,7 +90,7 @@ class FakeProjectService implements ProjectService {
   final List<String> getCalls = [];
   final List<String> fetchCalls = [];
   final List<String> deleteCalls = [];
-  final List<Project> ensureFreshCalls = [];
+  final List<({Project project, String? ref, bool strict})> ensureFreshCalls = [];
   final List<RecordedProjectCreate> createCalls = [];
   final List<RecordedProjectUpdate> updateCalls = [];
 
@@ -268,9 +268,9 @@ class FakeProjectService implements ProjectService {
   }
 
   @override
-  Future<void> ensureFresh(Project project) async {
-    ensureFreshCalls.add(project);
-    await onEnsureFresh?.call(project);
+  Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {
+    ensureFreshCalls.add((project: project, ref: ref, strict: strict));
+    await onEnsureFresh?.call(project, ref: ref, strict: strict);
   }
 
   @override

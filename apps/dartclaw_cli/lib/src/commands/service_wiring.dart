@@ -12,8 +12,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
+        WorkflowRoleDefault,
+        WorkflowRoleDefaults,
         WorkflowSource,
         WorkflowService,
+        WorkflowGitBootstrapResult,
+        WorkflowGitPromotionConflict,
+        WorkflowGitPromotionError,
+        WorkflowGitPromotionSuccess,
+        WorkflowGitPublishResult,
+        WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
 import 'package:logging/logging.dart';
@@ -341,8 +349,216 @@ class ServiceWiring {
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
       messageService: storage.messages,
+      roleDefaults: WorkflowRoleDefaults(
+        workflow: WorkflowRoleDefault(
+          provider: config.workflow.defaults.workflow.provider,
+          model: config.workflow.defaults.workflow.model,
+        ),
+        planner: WorkflowRoleDefault(
+          provider: config.workflow.defaults.planner.provider,
+          model: config.workflow.defaults.planner.model,
+        ),
+        executor: WorkflowRoleDefault(
+          provider: config.workflow.defaults.executor.provider,
+          model: config.workflow.defaults.executor.model,
+        ),
+        reviewer: WorkflowRoleDefault(
+          provider: config.workflow.defaults.reviewer.provider,
+          model: config.workflow.defaults.reviewer.model,
+        ),
+      ),
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
+        resolveStartContext: (definition, variables, {projectId}) async {
+          final declaresProject = definition.variables.containsKey('PROJECT');
+          final declaresBranch = definition.variables.containsKey('BRANCH');
+          final projectService = project.projectService;
+
+          var effectiveProjectId = (projectId ?? variables['PROJECT'])?.trim();
+          Project resolvedProject;
+          if (effectiveProjectId != null && effectiveProjectId.isNotEmpty) {
+            final found = await projectService.get(effectiveProjectId);
+            if (found == null) {
+              throw ArgumentError('Project "$effectiveProjectId" not found');
+            }
+            resolvedProject = found;
+          } else {
+            resolvedProject = await projectService.getDefaultProject();
+            if (declaresProject) {
+              effectiveProjectId = resolvedProject.id;
+            }
+          }
+
+          String? effectiveBranch;
+          if (declaresBranch) {
+            final requestedBranch = variables['BRANCH']?.trim();
+            if (requestedBranch != null && requestedBranch.isNotEmpty) {
+              effectiveBranch = requestedBranch;
+            } else if (resolvedProject.id == '_local') {
+              effectiveBranch =
+                  await _resolveSymbolicHeadBranch(resolvedProject.localPath) ?? resolvedProject.defaultBranch;
+            } else {
+              effectiveBranch = resolvedProject.defaultBranch;
+            }
+          }
+
+          final refToValidate = _workflowFreshnessRefForProject(resolvedProject, effectiveBranch);
+          await projectService.ensureFresh(resolvedProject, ref: refToValidate, strict: true);
+          return WorkflowStartResolution(
+            projectId: declaresProject ? effectiveProjectId : null,
+            branch: declaresBranch ? effectiveBranch : null,
+          );
+        },
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) {
+            throw ArgumentError('Project "$projectId" not found');
+          }
+          final integrationBranch = perMapItem
+              ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
+              : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
+          await _ensureLocalBranch(
+            projectDir: resolvedProject.localPath,
+            branch: integrationBranch,
+            baseRef: baseRef,
+            remoteBacked: resolvedProject.id != '_local',
+          );
+          return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
+        },
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              final resolvedProject = await project.projectService.get(projectId);
+              if (resolvedProject == null) {
+                return WorkflowGitPromotionError('Project "$projectId" not found');
+              }
+              final mergeExecutor = MergeExecutor(
+                projectDir: resolvedProject.localPath,
+                defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+              );
+              final mergeResult = await mergeExecutor.merge(
+                branch: branch,
+                baseRef: integrationBranch,
+                taskId: storyId ?? runId,
+                taskTitle: storyId == null ? 'workflow promotion' : 'promote $storyId',
+                strategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+              );
+              return switch (mergeResult) {
+                MergeSuccess(:final commitSha) => WorkflowGitPromotionSuccess(commitSha: commitSha),
+                MergeConflict(:final conflictingFiles, :final details) => WorkflowGitPromotionConflict(
+                  conflictingFiles: conflictingFiles,
+                  details: details,
+                ),
+              };
+            },
+        publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) {
+            return WorkflowGitPublishResult(
+              status: 'failed',
+              branch: branch,
+              remote: 'origin',
+              prUrl: '',
+              error: 'Project "$projectId" not found',
+            );
+          }
+          final pushResult = await task.remotePushService.push(project: resolvedProject, branch: branch);
+          switch (pushResult) {
+            case PushSuccess():
+              final runTasks =
+                  (await storage.taskService.list()).where((candidate) => candidate.workflowRunId == runId).toList()
+                    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+              final artifactTask = runTasks.isEmpty ? null : runTasks.last;
+              if (resolvedProject.pr.strategy == PrStrategy.githubPr) {
+                final syntheticTask =
+                    artifactTask ??
+                    Task(
+                      id: 'workflow-$runId',
+                      title: 'workflow($runId)',
+                      description: 'Workflow publish from $branch',
+                      type: TaskType.coding,
+                      createdAt: DateTime.now(),
+                    );
+                final prResult = await task.prCreator.create(
+                  project: resolvedProject,
+                  task: syntheticTask,
+                  branch: branch,
+                );
+                switch (prResult) {
+                  case PrCreated(:final url):
+                    await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, url);
+                    return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: url);
+                  case PrGhNotFound(:final instructions):
+                    await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, instructions);
+                    return WorkflowGitPublishResult(status: 'manual', branch: branch, remote: 'origin', prUrl: '');
+                  case PrCreationFailed(:final error, :final details):
+                    await _persistWorkflowPrArtifact(
+                      storage.taskService,
+                      runId,
+                      artifactTask?.id,
+                      'PR creation failed: $error\n$details',
+                    );
+                    return WorkflowGitPublishResult(
+                      status: 'failed',
+                      branch: branch,
+                      remote: 'origin',
+                      prUrl: '',
+                      error: '$error: $details',
+                    );
+                }
+              }
+              await _persistWorkflowPrArtifact(storage.taskService, runId, artifactTask?.id, branch);
+              return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+            case PushAuthFailure(:final details):
+              return WorkflowGitPublishResult(
+                status: 'failed',
+                branch: branch,
+                remote: 'origin',
+                prUrl: '',
+                error: 'Authentication failed: $details',
+              );
+            case PushRejected(:final reason):
+              return WorkflowGitPublishResult(
+                status: 'failed',
+                branch: branch,
+                remote: 'origin',
+                prUrl: '',
+                error: 'Remote rejected push: $reason',
+              );
+            case PushError(:final message):
+              return WorkflowGitPublishResult(
+                status: 'failed',
+                branch: branch,
+                remote: 'origin',
+                prUrl: '',
+                error: message,
+              );
+          }
+        },
+        cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
+          if (preserveWorktrees) return;
+          final resolvedProject = await project.projectService.get(projectId);
+          if (resolvedProject == null) return;
+          final runTasks = (await storage.taskService.list())
+              .where((candidate) => candidate.workflowRunId == runId)
+              .toList();
+          final cleanupPlan = buildWorkflowCleanupPlan(runId, runTasks);
+          final gitDir = resolvedProject.localPath;
+
+          for (final worktreePath in cleanupPlan.worktreePaths) {
+            await Process.run('git', ['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+          }
+          for (final branch in cleanupPlan.branches) {
+            if (branch.startsWith('origin/')) continue;
+            await Process.run('git', ['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+          }
+        },
         reserveTurn: serverTurns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => serverTurns.reserveTurn(
           sessionId,
@@ -903,4 +1119,85 @@ List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
     return [Directory.current.path];
   }
   return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
+}
+
+String? _workflowFreshnessRefForProject(Project project, String? branch) {
+  if (branch == null || branch.isEmpty) return null;
+  if (project.id != '_local' && branch.startsWith('origin/')) {
+    final trimmed = branch.substring('origin/'.length).trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+  return branch;
+}
+
+Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
+  try {
+    final result = await Process.run('git', [
+      'symbolic-ref',
+      '--quiet',
+      '--short',
+      'HEAD',
+    ], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) return null;
+    final stdout = (result.stdout as String).trim();
+    return stdout.isEmpty ? null : stdout;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _ensureLocalBranch({
+  required String projectDir,
+  required String branch,
+  required String baseRef,
+  required bool remoteBacked,
+}) async {
+  final normalizedBaseRef = remoteBacked && !baseRef.startsWith('origin/') ? 'origin/$baseRef' : baseRef;
+  final existing = await Process.run('git', ['rev-parse', '--verify', branch], workingDirectory: projectDir);
+  if (existing.exitCode == 0) {
+    return;
+  }
+  final create = await Process.run('git', ['branch', branch, normalizedBaseRef], workingDirectory: projectDir);
+  if (create.exitCode != 0) {
+    final stderr = (create.stderr as String).trim();
+    throw StateError('Failed to create workflow branch "$branch" from "$normalizedBaseRef": $stderr');
+  }
+}
+
+Future<void> _persistWorkflowPrArtifact(TaskService taskService, String runId, String? taskId, String content) async {
+  if (taskId == null || taskId.isEmpty) return;
+  await taskService.addArtifact(
+    id: 'workflow-publish-$runId-${DateTime.now().microsecondsSinceEpoch}',
+    taskId: taskId,
+    name: 'Workflow Publish',
+    kind: ArtifactKind.pr,
+    path: content,
+  );
+}
+
+class WorkflowGitCleanupPlan {
+  final Set<String> worktreePaths;
+  final Set<String> branches;
+
+  const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
+  final runToken = runId.replaceAll('-', '');
+  final worktreePaths = <String>{};
+  final branches = <String>{'dartclaw/workflow/$runToken', 'dartclaw/workflow/$runToken/integration'};
+
+  for (final task in runTasks) {
+    final worktree = task.worktreeJson;
+    if (worktree == null) continue;
+    final path = worktree['path'];
+    final branch = worktree['branch'];
+    if (path is String && path.trim().isNotEmpty) {
+      worktreePaths.add(path.trim());
+    }
+    if (branch is String && branch.trim().isNotEmpty) {
+      branches.add(branch.trim());
+    }
+  }
+  return WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
 }

@@ -10,13 +10,18 @@ const dartclawSkillNames = <String>{
   'dartclaw-discover-project',
   'dartclaw-exec-spec',
   'dartclaw-plan',
+  'dartclaw-quick-review',
   'dartclaw-refactor',
   'dartclaw-remediate-findings',
+  'dartclaw-review',
   'dartclaw-review-code',
+  'dartclaw-review-council',
   'dartclaw-review-doc',
   'dartclaw-review-gap',
   'dartclaw-spec',
+  'dartclaw-spec-plan',
   'dartclaw-update-state',
+  'dartclaw-validate',
 };
 
 void main() {
@@ -54,7 +59,7 @@ void main() {
 
   group('GET /api/skills', () {
     test('returns discovered skills with metadata', () async {
-      final registry = makeRegistry(skillNames: ['andthen:review-code', 'andthen:implement']);
+      final registry = makeRegistry(skillNames: ['dartclaw-review-code', 'custom-implement']);
       final router = skillRoutes(registry);
 
       final response = await router.call(Request('GET', Uri.parse('http://localhost/api/skills')));
@@ -69,7 +74,7 @@ void main() {
       expect(skills, hasLength(2));
 
       final names = skills.map((s) => s['name'] as String).toSet();
-      expect(names, containsAll(<String>['andthen:review-code', 'andthen:implement']));
+      expect(names, containsAll(<String>['dartclaw-review-code', 'custom-implement']));
 
       // Each skill has required fields.
       for (final skill in skills) {
@@ -126,8 +131,8 @@ void main() {
 
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       final skills = (body['skills'] as List<dynamic>).cast<Map<String, dynamic>>();
-      expect(body['count'], 10);
-      expect(skills, hasLength(10));
+      expect(body['count'], 15);
+      expect(skills, hasLength(15));
       expect(skills.map((skill) => skill['name'] as String).toSet(), containsAll(dartclawSkillNames));
       expect(skills.every((skill) => skill['source'] == SkillSource.dartclaw.name), isTrue);
     });

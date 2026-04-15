@@ -60,12 +60,14 @@ abstract class ProjectService {
   /// same project are serialized: the second caller waits for the first
   /// fetch to complete rather than triggering a parallel fetch.
   ///
-  /// For the implicit _local project: runs `git fetch` + `git merge --ff-only`.
-  /// For external projects: runs `git fetch origin <defaultBranch>`.
+  /// For the implicit _local project: runs `git fetch` + `git merge --ff-only`
+  /// when no [ref] is specified. With [ref], validates branch/ref non-destructively.
+  /// For external projects: runs `git fetch origin <ref>` when provided,
+  /// otherwise fetches `origin <defaultBranch>`.
   ///
-  /// Network failures are best-effort: logs a warning, does not throw.
-  /// The caller should proceed with the local state.
-  Future<void> ensureFresh(Project project);
+  /// Network failures are best-effort by default: logs a warning, does not throw.
+  /// When [strict] is true, fetch/validation failures are surfaced to the caller.
+  Future<void> ensureFresh(Project project, {String? ref, bool strict = false});
 
   /// Deletes a runtime-created project.
   ///

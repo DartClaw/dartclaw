@@ -172,15 +172,67 @@ void main() {
       }
     });
 
-    test('code-review keeps review and re-review on the review-code methodology carrier', () async {
-      final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
-      final reviewCodeSkillCount = RegExp(r'skill:\s+dartclaw-review-code').allMatches(source).length;
+    test('built-ins adopt the shared project/branch contract and unified review surface', () async {
+      final definitionsDir = _workflowDefinitionsDir();
+      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
+      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
+      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
 
-      expect(reviewCodeSkillCount, equals(2));
-      expect(source, isNot(contains('skill: dartclaw-review-gap')));
+      expect(specAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
+      expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
+      expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
+      expect(specAndImplement, isNot(contains('- id: approve-spec')));
+      expect(specAndImplement, contains('skill: dartclaw-validate'));
+      expect(specAndImplement, contains('skill: dartclaw-review'));
+
+      expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
+      expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
+      expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
+      expect(planAndImplement, contains(RegExp(r'^  quickReview:\s+true$', multiLine: true)));
+      expect(planAndImplement, contains('skill: dartclaw-validate'));
+      expect(planAndImplement, contains('skill: dartclaw-review'));
+
+      expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
+      expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
+      expect(codeReview, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
+      expect(codeReview, contains('skill: dartclaw-validate'));
+      expect(codeReview, contains('skill: dartclaw-review'));
+    });
+
+    test('code-review keeps review and re-review on the unified review entrypoint', () async {
+      final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
+      final reviewSkillCount = RegExp(r'skill:\s+dartclaw-review').allMatches(source).length;
+
+      expect(reviewSkillCount, equals(2));
+      expect(source, isNot(contains('extract-diff')));
+      expect(source, isNot(contains('gather-context')));
       expect(source, isNot(contains('review-correctness')));
       expect(source, isNot(contains('review-security')));
       expect(source, isNot(contains('review-architecture')));
+    });
+
+    test('implementation built-ins include validate steps with combined remediation gates', () async {
+      final definitionsDir = _workflowDefinitionsDir();
+      final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
+      final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
+      final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
+
+      expect(specAndImplement, contains('- id: validate'));
+      expect(specAndImplement, contains('- id: re-validate'));
+      expect(
+        specAndImplement,
+        contains('exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"'),
+      );
+
+      expect(planAndImplement, contains('- id: validate'));
+      expect(planAndImplement, contains('- id: re-validate'));
+      expect(
+        planAndImplement,
+        contains('exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"'),
+      );
+
+      expect(codeReview, contains('- id: validate'));
+      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && validate.findings_count == 0"'));
     });
   });
 

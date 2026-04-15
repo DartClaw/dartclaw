@@ -26,6 +26,7 @@ import 'package:uuid/uuid.dart';
 import 'workflow_context.dart';
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
+import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
 import 'workflow_turn_adapter.dart';
 
@@ -44,6 +45,7 @@ class WorkflowService {
   final KvService _kvService;
   final String _dataDir;
   final Uuid _uuid;
+  final WorkflowRoleDefaults _roleDefaults;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -62,6 +64,7 @@ class WorkflowService {
     required EventBus eventBus,
     required KvService kvService,
     required String dataDir,
+    WorkflowRoleDefaults? roleDefaults,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
@@ -70,6 +73,7 @@ class WorkflowService {
        _eventBus = eventBus,
        _kvService = kvService,
        _dataDir = dataDir,
+       _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -95,6 +99,28 @@ class WorkflowService {
         if (entry.value.defaultValue != null) entry.key: entry.value.defaultValue!,
       ...variables,
     };
+    final trimmedProjectId = projectId?.trim();
+    if (trimmedProjectId != null &&
+        trimmedProjectId.isNotEmpty &&
+        definition.variables.containsKey('PROJECT') &&
+        !resolvedVariables.containsKey('PROJECT')) {
+      resolvedVariables['PROJECT'] = trimmedProjectId;
+    }
+
+    final resolver = _turnAdapter?.resolveStartContext;
+    if (resolver != null) {
+      final resolution = await resolver(definition, resolvedVariables, projectId: trimmedProjectId);
+      final resolvedProjectId = resolution.projectId?.trim();
+      if (resolvedProjectId != null && resolvedProjectId.isNotEmpty) {
+        if (definition.variables.containsKey('PROJECT')) {
+          resolvedVariables['PROJECT'] = resolvedProjectId;
+        }
+      }
+      final resolvedBranch = resolution.branch?.trim();
+      if (resolvedBranch != null && resolvedBranch.isNotEmpty && definition.variables.containsKey('BRANCH')) {
+        resolvedVariables['BRANCH'] = resolvedBranch;
+      }
+    }
 
     final now = DateTime.now();
     final runId = _uuid.v4();
@@ -306,6 +332,7 @@ class WorkflowService {
         _log.warning('Failed to cancel workflow task ${task.id}: $e');
       }
     }
+    await _invokeWorkflowGitCleanup(cancelled, preserveWorktrees: false);
   }
 
   /// Returns the workflow run with [runId], or null if not found.
@@ -504,6 +531,7 @@ class WorkflowService {
       messageService: _messageService,
       turnAdapter: _turnAdapter,
       dataDir: _dataDir,
+      roleDefaults: _roleDefaults,
     );
 
     Future<void> executeFn() async {
@@ -536,6 +564,7 @@ class WorkflowService {
               updatedAt: DateTime.now(),
             );
             await _repository.update(failed);
+            await _invokeWorkflowGitCleanup(failed, preserveWorktrees: false);
             _fireStatusChanged(
               runId: run.id,
               definitionName: run.definitionName,
@@ -568,6 +597,18 @@ class WorkflowService {
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, 'context.json'));
     await atomicWriteJson(file, context.toJson());
+  }
+
+  Future<void> _invokeWorkflowGitCleanup(WorkflowRun run, {required bool preserveWorktrees}) async {
+    final cleanup = _turnAdapter?.cleanupWorkflowGit;
+    if (cleanup == null) return;
+    final projectId = run.variablesJson['PROJECT']?.trim();
+    if (projectId == null || projectId.isEmpty) return;
+    try {
+      await cleanup(runId: run.id, projectId: projectId, status: run.status.name, preserveWorktrees: preserveWorktrees);
+    } catch (e, st) {
+      _log.warning("Workflow '${run.id}' cleanup callback failed", e, st);
+    }
   }
 
   Future<WorkflowContext?> _loadContext(String runId) async {

@@ -1,135 +1,187 @@
 ---
-name: dartclaw-review-gap
-description: Compare implementation against requirements and produce a remediation-focused gap analysis.
-argument-hint: "<requirements-baseline>"
-user-invocable: true
+description: "Use when you explicitly want requirements-vs-implementation review rather than the general `review` router: compare the current implementation against a spec, PRD, or plan and produce remediation guidance. Trigger on 'gap analysis', 'review against the spec', 'compare implementation to the plan', 'compare implementation to the PRD'."
+argument-hint: "[Requirements baseline: plan/spec/PRD/issue/directory/URL] [--inline-findings] [--to-issue] [--to-pr <number>]"
 ---
 
-# dartclaw-review-gap
+# Gap Analysis
 
-Use this skill to compare an implementation against a requirements baseline, identify observable gaps, and return a strict PASS or FAIL verdict with a remediation plan.
+Compare the current implementation in the workspace against requirements, then produce a remediation-focused report. The target is always the implementation, not the requirements document itself.
 
-## Operating Rules
-- Read the requirements baseline and identify the implementation target before reviewing.
-- Treat the implementation as the target, not the spec document itself.
-- Reuse `../dartclaw-review-code/references/review-calibration.md` for severity calibration.
-- Delegate the implementation review lens to `dartclaw-review-code` when possible.
-- Keep conclusions grounded in observable evidence, not speculation.
+Most users should start with `dartclaw-review`. Use this skill directly when the question is explicitly whether an implementation matches its requirements baseline.
 
-## Requirements Discovery
-- When the input is a directory, search the directory and its parent for sibling `prd.md`, `plan.md`, and FIS files.
-- When the input is a plan file, extract all FIS paths from the Story Catalog table and the Phase Breakdown sections.
-- When the input is a specific file, review that file as the baseline and note the narrower scope.
-- When no sibling files are found, proceed with the single input and call out the limited baseline in the report.
-- Identify the implementation target paths before quality review begins.
+## VARIABLES
+ADDITIONAL_CONTEXT: $ARGUMENTS
 
-## Workflow
+### Optional Output Flags
+- `--inline-findings` → return findings and PASS/FAIL verdict inline and skip report-file output (for delegated use by `dartclaw-review`)
+- `--to-issue` → PUBLISH_ISSUE
+- `--to-pr <number>` → PUBLISH_PR
 
-### 1. Resolve Target
-- Determine the requirements baseline and the implementation target.
-- Explicitly map which files or directories are being compared.
-- Stop if there is still no implementation target to evaluate.
+## INSTRUCTIONS
+- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
+- Read-only analysis. The only file you write is the report.
+- If `--inline-findings` is present, do not write a report file. Return findings plus verdict inline to the parent skill instead.
+- Calibrate severity with `../references/review-calibration.md` and `../dartclaw-review-code/references/code-review-calibration.md`.
+- Default to workspace-wide resolution when requirements and implementation may live in different repos.
+- Delegate implementation code review to a sub-agent using `dartclaw-review-code` when available. Instruct the sub-agent to return findings inline — do **not** let it write a separate report file. This skill produces the single consolidated report.
 
-### 2. Compile Requirements
-- Build a concise view of expected behavior, constraints, success criteria, and non-functional requirements.
-- Confirm any external technical claims against authoritative sources when needed.
-- Preserve direct quotes only when they are needed to pin down a requirement.
+## GOTCHAS
+- Reviewing the wrong implementation target
+- Treating the requirements document as the review target
+- Losing the PASS/FAIL contract by writing a hand-wavy conclusion
+- Using only the provided input as requirements when sibling PRD/plan/FIS files exist — always run discovery
 
-### 3. Inspect Implementation
-- Inventory the relevant implementation files and affected components.
-- Understand the codebase structure, integration points, and current patterns.
-- Scan for stubs, placeholders, partial flows, and missing wiring.
+### Helper Scripts
+- `../scripts/check-stubs.sh <path>`
+- `../scripts/check-wiring.sh <path>`
+- `../scripts/run-security-scan.sh <path>`
 
-### 4. Quality Review
-- Review solution quality and gather evidence before gap scoring.
-- Run checks that matter here: static analysis, linting, type checks, and tests when applicable.
-- Delegate a focused implementation review to `dartclaw-review-code`.
-- Use `../dartclaw-review-code/references/review-calibration.md` to calibrate severity and reduce leniency drift.
+## WORKFLOW
 
-## Evidence Requirements
-- Record the smallest file set that proves each gap.
-- Prefer exact lines, explicit symbols, and concrete runtime behavior over broad summaries.
-- If a gap cannot be demonstrated from the implementation, downgrade it or withdraw it during challenge.
-- Separate missing capability from incomplete wiring so the remediation plan can target the right fix.
-- Keep note of any verification command that failed and what it failed to prove.
+### 0. Resolve Review Target
 
-### 5. Gap Analysis
-Record findings in these six gap categories:
-- Functionality
-- Integration
-- Requirement mismatches
-- Consistency
-- Domain language
-- Verification depth
+#### Requirements Discovery
+When `ADDITIONAL_CONTEXT` is a directory path or a plan file, discover the full requirements baseline rather than treating the single input as the only source.
+
+**GitHub issue or URL** — fetch the body and inspect the typed envelope per `../references/github-artifact-roundtrip.md` before treating it as prose:
+- `artifact_type: plan-bundle` — extract embedded files to `.agent_temp/github-artifacts/{github-id}-plan-bundle/` and continue as a directory / plan input so sibling PRD and FIS discovery still works
+- `artifact_type: fis-bundle` — extract embedded files to `.agent_temp/github-artifacts/{github-id}-fis-bundle/` and continue as a specific FIS input
+- Any `*-review` artifact — **STOP** and exit with the correct downstream path: `dartclaw-remediate-findings`
+- Any other typed artifact — **STOP** and exit with the matching workflow skill. Do not infer compatibility from prose content
+- Untyped issue or URL — use as-is without further discovery
+
+**Directory path** — search the directory (and its parent, for cases where a subdirectory like `fis/` is given) for:
+- `plan.md` — the implementation plan with story breakdown
+- `prd.md` — the product requirements document
+- FIS/spec files (`s01-*.md`, `s02-*.md`, etc.) co-located with the plan
+- Also check the Project Document Index in the project `CLAUDE.md` for additional pointers
+
+**Plan file** — read the plan and extract related requirements:
+- Look for a sibling `prd.md` in the same directory
+- Extract FIS file paths from the **Story Catalog** table (`FIS` column) and from `**FIS**:` fields in Phase Breakdown sections — these are typically relative paths in the same directory or under a `fis/` subdirectory
+- Read all referenced FIS files that exist on disk (skip entries marked `–` or not yet created)
+
+**Any other input** (specific file, issue, URL) — use as-is without further discovery.
+
+#### State
+- **Requirements baselines**: all discovered files, issues, PRDs, plans, or URLs that define expected behavior
+- **Implementation target**: repo(s), package(s), directories, or changed files that contain the implementation
+- **Mapping rationale**: why those paths are the right implementation target
+
+If no implementation target exists yet, stop and report that gap analysis cannot run.
+
+**Gate**: Requirements sources and implementation target are explicit
+
+### 1. Compile Requirements
+Gather the requirements baseline from docs, issues, comments, and `ADDITIONAL_CONTEXT`. Build a concise view of expected behavior, success criteria, constraints, and non-functional requirements. Verify external technical claims against authoritative docs when needed.
+
+**Gate**: Requirements are understood
+
+### 2. Inspect Current Implementation
+Map the current implementation state:
+- Identify relevant changed files and implementation inventory
+- Understand codebase structure, affected components, and existing patterns
+- Stop if there is still nothing implemented to compare
+
+**Gate**: Implementation state is understood
+
+### 3. Quality Review
+Review solution quality and gather evidence:
+- Run project checks that matter here: static analysis, linting, type checks, tests when applicable
+- Scan for stubs/placeholders
+- Delegate comprehensive code review to `dartclaw-review-code` sub-agent — instruct it to skip report file output and return findings inline
+- Check substance and wiring using `../references/verification-patterns.md`
+
+**Gate**: Quality review complete
+
+### 4. Gap Analysis
+Record gaps in these categories:
+- **Functionality**
+- **Integration**
+- **Requirement mismatches**
+- **Consistency**
+- **Domain language** when the `Ubiquitous Language` document (see **Project Document Index**) exists
+- **Holistic sanity check**
+- **Verification depth**: substance, wiring, and failing verification signals
+
+### 5. Optional Retrospective
+If it adds value, reflect on architectural trade-offs, simpler alternatives, process failures, and recurring knowledge gaps.
 
 ### 6. Adversarial Challenge
-- Challenge the findings using `../references/adversarial-challenge.md`.
-- Use the generic findings-challenger template with the implementation target context.
-- Include the review-code calibration reference in the challenge context.
-- Filter out findings that are downgraded or withdrawn before scoring.
+Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+- **Role**: `Adversarial Challenger reviewing gap analysis findings`
+- **Shared calibration**: `../references/review-calibration.md`
+- **Skill calibration**: `../dartclaw-review-code/references/code-review-calibration.md`
+- **Context block**: `Review target context: {implementation target paths from Step 0}`
+- **Questions**:
+  1. `Is this a real gap, or acceptable in context?`
+  2. `Is the severity justified per the calibration examples?`
+  3. `Could there be an existing mitigation the reviewer missed?`
+  4. `Would a senior engineer on this codebase flag this in review?`
+- **Verdicts**: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`
+- **Optional extra rules**: `Normalize review-code severities as CRITICAL -> Critical, HIGH -> High, SUGGESTIONS -> Medium.`
+- **Findings payload**: `{all findings from quality review, gap analysis, and optional retrospective}`
+
+Apply verdicts before scoring.
+
+**Gate**: Findings challenged and filtered
 
 ### 7. Dimensional Scoring & Verdict
 
-| Dimension | Threshold | Scoring Guide |
-|-----------|-----------|---------------|
-| Functionality | >= 7 | 10: all required behavior works; 7: core behavior works with minor gaps; 4: major paths broken; 1: does not function |
-| Completeness | >= 9 | 10: no stubs, placeholders, or missing features; 9: only trivial gaps; 7: meaningful missing pieces remain; 1: mostly incomplete |
-| Wiring | >= 8 | 10: all critical paths are wired end to end; 8: critical paths work with minor integration gaps; 5: some components are disconnected; 1: major wiring is absent |
+| Dimension | Question | Threshold | Scoring Guide |
+|-----------|----------|-----------|---------------|
+| **Functionality** | Does it work correctly for specified requirements? | >= 7 | 10: all requirements met, edge cases handled. 7: core happy path works, minor gaps. 4: major functionality broken. 1: does not function. |
+| **Completeness** | Are there stubs, TODOs, placeholders, or missing features? | >= 9 | 10: no stubs/TODOs, all features present. 9: trivial TODOs only. 7: non-critical features stubbed. 4: significant features missing. 1: mostly stubs. |
+| **Wiring** | Is everything connected end-to-end? | >= 8 | 10: all components wired, verified via build/tests. 8: all critical paths wired, minor integration gaps. 5: some components exist but are not connected. 2: significant unwired code. |
 
-**Verdict rule**: any dimension is below threshold: **FAIL**
+**Verdict rules**
+- If any dimension is below threshold: **FAIL**
+- If all dimensions meet threshold: **PASS**
+- No conditional verdicts
 
-**Verdict rule**: all dimensions meet or exceed threshold: **PASS**
+Include this exact summary in the Executive Summary:
 
-**Verdict rule**: no conditional verdicts
-
-## Severity Notes
-- Use the calibration file to avoid inflating minor omissions into high-severity findings.
-- Treat obvious stubs, missing wiring, and broken core flows as stronger evidence than stylistic concerns.
-- When a gap spans more than one category, record it once and note the secondary effect rather than duplicating the finding.
-- Keep the scoring table aligned with the written verdict so the report is internally consistent.
-
-#### Verdict Table Markdown Format
 ```markdown
-| Dimension | Score | Threshold | Status |
-|-----------|-------|-----------|--------|
-| Functionality | X/10 | >= 7 | PASS/FAIL |
-| Completeness | X/10 | >= 9 | PASS/FAIL |
-| Wiring | X/10 | >= 8 | PASS/FAIL |
-| Overall | PASS/FAIL | - | Final verdict |
+## Verdict
+
+| Dimension     | Score | Threshold | Status |
+|---------------|-------|-----------|--------|
+| Functionality | X/10  | >= 7      | PASS/FAIL |
+| Completeness  | X/10  | >= 9      | PASS/FAIL |
+| Wiring        | X/10  | >= 8      | PASS/FAIL |
+
+**Overall: PASS / FAIL**
 ```
 
 ### 8. Report
-Write a markdown report with these sections:
-- Executive Summary
-- Requirements Analysis
-- Implementation Overview
-- Quality Review Findings
-- Over-Engineering Analysis
-- Gap Analysis Results
-- Remediation Plan
-- Appendix when needed
+Write a markdown report with the following sections unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form, including the PASS/FAIL verdict and prioritized remediation guidance.
 
-The Executive Summary must include the verdict table and a short statement of the final verdict.
+Standard report sections:
+- **Executive Summary**: overview, verdict table, high-level findings, challenge stats
+- **Requirements Analysis**
+- **Implementation Overview**
+- **Quality Review Findings**
+- **Over-Engineering Analysis**
+- **Gap Analysis Results**
+- **Retrospective & Reflection** when used
+- **Remediation Plan**: Critical/High/Medium/Low, dependencies, sequencing, acceptance criteria
+- **Appendix** when needed
 
-## Gap Review Focus
-- Missing functionality
-- Missing integration or wiring
-- Requirement mismatches
-- Inconsistent behavior or naming
-- Domain language drift
-- Weak verification depth or unproven behavior
+**Report output conventions**: Follow `../references/report-output-conventions.md` with:
+- **Report suffix**: `gap-review`
+- **Scope placeholder**: `feature-name`
+- **Spec-directory rule**: the requirements baseline is a spec/FIS/plan in a spec directory, or the reviewed feature has an associated spec directory from the Project Document Index
+- **Target-directory rule**: the implementation being reviewed is localized to a specific directory, so the report belongs next to the primary implementation target
 
-## Report Discipline
-- Keep the report grounded in concrete file paths, line references, and observable behavior.
-- Use the calibration file to separate real issues from low-signal noise.
-- If the review scope is limited, say so explicitly.
-- Avoid any GitHub publishing workflow in this skill.
-- Call out remediation dependencies in the same order they should be fixed.
-- Prefer one crisp finding per gap instead of compound prose that hides the root cause.
-- If a gap is borderline, explain why the threshold is not met rather than hedging.
+If notable recurring traps emerge, append them to an existing learnings file.
 
-## Completion Protocol
-- State the final verdict explicitly as PASS or FAIL.
-- Include the dimensional scores and the verdict table in the final report.
-- Include a remediation plan for every non-trivial gap.
-- If no implementation target or requirements baseline can be established, report that as a blocking gap.
+#### Publish to GitHub
+If PUBLISH_ISSUE is `true`:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Title template: `[Review] {scope}: Gap Analysis Report`
+2. Print the issue URL
+
+If PUBLISH_PR is set:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Publish target: typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup before completing
+2. Print the direct comment URL

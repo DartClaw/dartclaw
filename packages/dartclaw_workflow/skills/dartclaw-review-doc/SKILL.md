@@ -1,70 +1,90 @@
 ---
-name: dartclaw-review-doc
-description: Review specs, plans, PRDs, requirement documents, and FIS files for completeness, clarity, technical accuracy, and readiness.
-argument-hint: "<spec-path-or-focus>"
+description: Use when you explicitly want document review for a spec, PRD, plan, or similar artifact rather than the general `review` router. Reviews documentation for clarity, edge cases, and technical accuracy. Trigger on 'review this spec', 'review this PRD', 'review this plan'.
+context: fork
+agent: general-purpose
+user-invocable: true
+argument-hint: "[document path or focus] [--inline-findings]"
 ---
 
-# dartclaw-review-doc
+# Review Spec, Plan, Requirements, or Other Documents
 
-Use this skill to review documentation before implementation starts.
+Thoroughly review specifications, implementation plans, PRDs, technical designs, or other requirement documents to determine whether they are complete, clear, proportionate, and ready for implementation.
 
-## Discovery
-- Locate the document or focus area from `SPEC_PATH_OR_FOCUS`.
-- Determine the document type, project stage, surrounding artifacts, and intended audience.
-- Read the surrounding project context only as far as it affects the document being reviewed.
-- If the target is a FIS, confirm the document is actually a FIS and not a different planning artifact.
-- If the document is a FIS, verify it still follows the `dartclaw-spec` structure and includes the expected implementation handoff material.
-- Capture the document's purpose in one sentence before judging completeness or severity.
-- Note any linked roadmap, plan, or architecture artifacts that define the review boundary.
+Most users should start with `dartclaw-review`. Use this skill directly when you already know the target is a document.
 
-## Review Pass
-- Review the document for completeness, clarity, technical accuracy, scope, and stakeholder fit.
-- Check for missing edge cases, missing testing guidance, and missing operational or integration detail when those are relevant to the artifact type.
-- Use the project scale to decide how much detail is warranted.
-- Apply the proportionality principle: prototypes, MVPs, and small tools should not be judged like enterprise platforms.
-- Apply the over-engineering lens: flag complexity that does not pay for itself at the current stage.
-- When the document names concrete frameworks, APIs, libraries, or version-bound patterns, verify the claims against authoritative sources when needed.
-- Calibrate findings before writing them down so minor issues do not masquerade as blockers.
-- Prefer gaps that would change implementation behavior over gaps that merely refine wording.
-- Treat explicit exclusions as decisions, not omissions.
-- Check that success criteria can actually be verified, not just read.
+## VARIABLES
+SPEC_PATH_OR_FOCUS: $ARGUMENTS
 
-## Adversarial Challenge
-- Challenge every finding before reporting it.
-- Use `../references/adversarial-challenge.md` as the pressure-test template.
-- Use `references/doc-review-calibration.md` to calibrate severity and false positives.
-- Ask whether the finding is real, proportional, already addressed elsewhere, and likely to block or mislead implementation.
-- Filter the findings to the ones that survive scrutiny.
-- Prefer precise wording over dramatic wording.
-- If a finding is downgraded, say why the lower severity is still meaningful.
-- If a finding is withdrawn, keep the evidence trail so the review remains auditable.
+## INSTRUCTIONS
+- Make sure `SPEC_PATH_OR_FOCUS` is provided; otherwise stop and ask for it.
+- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
+- Read-only review. Do not modify the reviewed document.
+- If `--inline-findings` is present, do not write a report file. Return findings inline to the parent skill instead.
+- Calibrate severity with `../references/review-calibration.md` and `../dartclaw-review-doc/references/doc-review-calibration.md`.
+- Favor proportional review. A prototype, library, or MVP should not be judged like an enterprise platform.
+- Favor simplicity. Flag over-engineering and recommend the smallest solution that meets the real need.
 
-## Report
-- Produce a concise markdown report with only the surviving findings.
-- Include an executive summary that states the overall readiness of the document.
-- Include prioritized findings with severity and rationale.
-- Include coverage for completeness, clarity, technical accuracy, edge cases, architecture, and over-engineering where relevant.
-- Include a readiness assessment using `Ready`, `Needs Minor Updates`, `Needs Significant Rework`, or `Not Ready`.
-- If the document is a FIS, call out structure problems explicitly so they can be fixed before implementation.
-- After the report, ask whether the user wants the document updated, the review narrowed, implementation to begin, or critical issues escalated.
-- Keep the report focused on decisions the author can act on.
-- Do not bury the readiness call in a wall of commentary.
+## GOTCHAS
+- Reviewing at the wrong depth for the document's maturity
+- Confusing `review-doc` with `review-gap`
 
-## Review Discipline
-- Read the document in the context of the surrounding project.
-- Stay proportional to the maturity of the artifact.
-- Challenge findings adversarially before reporting them.
-- Prefer concise, actionable findings over exhaustive commentary.
-- Do not introduce implementation work into a read-only review.
-- Do not escalate every omission into a blocker.
+## WORKFLOW
 
-## Report Shape
-- Executive summary
-- Scope and context
-- Prioritized findings
-- Over-engineering analysis
-- Readiness assessment
-- Recommended follow-up actions
-- Findings should be ordered from the most implementation-shaping issue to the least.
-- If the document is ready, say what specifically is sufficient about it.
-- If the document is not ready, say what class of gap remains.
+### 1. Discovery and Context
+1. Locate the document(s) or focus area from `SPEC_PATH_OR_FOCUS`.
+2. Build context: project type, stage, goals, constraints, existing patterns, and any related docs.
+3. Read extra docs only when they materially affect correctness.
+
+**Gate**: Scope, context, and project scale are clear
+
+### 2. Review Pass
+Review the document through these lenses and record only issues relevant to the project's scale:
+- **Completeness**: functional requirements, important non-functional requirements, integrations, edge cases, testing, and operations where applicable
+- **Clarity**: vague language, contradictions, missing details, inconsistent naming, unclear acceptance criteria, or unclear implementation handoff
+- **Technical accuracy**: outdated APIs, deprecated approaches, infeasible designs, missing standards alignment. When the document names concrete frameworks, APIs, libraries, or version-bound patterns, verify claims against authoritative documentation (use a documentation-lookup specialist if available)
+- **Scope and architecture**: explicit in/out-of-scope boundaries, phase boundaries, architecture soundness, and signs of disproportionate complexity
+- **Stakeholder fit**: user needs, success criteria, UX/error-state coverage
+
+If the document is a FIS, verify it still follows the `dartclaw-spec` structure.
+
+**Gate**: Findings identified across all relevant dimensions
+
+### 3. Adversarial Challenge
+Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+- **Role**: `Adversarial Challenger reviewing document review findings`
+- **Shared calibration**: `../references/review-calibration.md`
+- **Skill calibration**: `../dartclaw-review-doc/references/doc-review-calibration.md`
+- **Context block**: `The document being reviewed is a {document type} for a {project description and scale}. Document under review: {path to document}. Project scale/stage context: {from discovery}.`
+- **Questions**:
+  1. `Is this a real gap, or irrelevant given the project's scale, stage, and goals?`
+  2. `Is the severity proportional to the document's purpose and audience?`
+  3. `Is this addressed elsewhere in the document or project context?`
+  4. `Would this actually mislead or block implementation?`
+- **Verdicts**: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`
+- **Findings payload**: `{all findings}`
+
+Apply verdicts before writing the final report.
+
+**Gate**: Findings challenged and filtered
+
+### 4. Report
+Generate a markdown report using only surviving findings, unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form instead of writing a file.
+
+Standard report contents:
+- **Executive Summary**: overall assessment, high-level findings, challenge stats, key recommendations
+- **Scope and Context**
+- **Completeness Analysis**
+- **Clarity Issues**
+- **Technical Accuracy**
+- **Edge Cases and Risks**
+- **Architecture Assessment**
+- **Over-Engineering Analysis**
+- **Stakeholder Alignment**
+- **Prioritized Recommendations**: Critical/High/Medium/Low
+- **Readiness Assessment**: Ready / Needs Minor Updates / Needs Significant Rework / Not Ready
+
+**Report output conventions**: Follow `../references/report-output-conventions.md` with:
+- **Report suffix**: `doc-review`
+- **Scope placeholder**: `spec-name`
+- **Spec-directory rule**: the document being reviewed lives in a spec/FIS directory or has an associated spec directory from the Project Document Index
+- **Target-directory rule**: otherwise, store the report in the same directory as the document being reviewed

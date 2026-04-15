@@ -1,5 +1,52 @@
 import 'package:dartclaw_models/dartclaw_models.dart';
 
+const workflowRoleDefaultAlias = '@workflow';
+const plannerRoleDefaultAlias = '@planner';
+const executorRoleDefaultAlias = '@executor';
+const reviewerRoleDefaultAlias = '@reviewer';
+
+/// Provider/model defaults for workflow execution roles.
+class WorkflowRoleDefault {
+  final String? provider;
+  final String? model;
+
+  const WorkflowRoleDefault({this.provider, this.model});
+}
+
+/// Runtime role defaults used when workflow YAML references `@workflow`,
+/// `@planner`, `@executor`, or `@reviewer`.
+class WorkflowRoleDefaults {
+  final WorkflowRoleDefault workflow;
+  final WorkflowRoleDefault planner;
+  final WorkflowRoleDefault executor;
+  final WorkflowRoleDefault reviewer;
+
+  const WorkflowRoleDefaults({
+    this.workflow = const WorkflowRoleDefault(),
+    this.planner = const WorkflowRoleDefault(),
+    this.executor = const WorkflowRoleDefault(),
+    this.reviewer = const WorkflowRoleDefault(),
+  });
+
+  WorkflowRoleDefault resolve(String alias) {
+    final specific = switch (alias) {
+      workflowRoleDefaultAlias => workflow,
+      plannerRoleDefaultAlias => planner,
+      executorRoleDefaultAlias => executor,
+      reviewerRoleDefaultAlias => reviewer,
+      _ => const WorkflowRoleDefault(),
+    };
+
+    if (alias == workflowRoleDefaultAlias) {
+      return workflow;
+    }
+    return WorkflowRoleDefault(
+      provider: specific.provider ?? workflow.provider,
+      model: specific.model ?? workflow.model,
+    );
+  }
+}
+
 /// Resolved effective config for a step, merging per-step fields with the
 /// first matching [StepConfigDefault] entry. Per-step explicit values win.
 class ResolvedStepConfig {
@@ -38,7 +85,11 @@ bool globMatchStepId(String pattern, String stepId) {
 /// glob-matches [step.id] provides the defaults. First match wins; entries
 /// are NOT merged. Per-step explicit fields take precedence over the matched
 /// default's fields (field-level, from the ONE matching default).
-ResolvedStepConfig resolveStepConfig(WorkflowStep step, List<StepConfigDefault>? defaults) {
+ResolvedStepConfig resolveStepConfig(
+  WorkflowStep step,
+  List<StepConfigDefault>? defaults, {
+  WorkflowRoleDefaults? roleDefaults,
+}) {
   StepConfigDefault? matched;
   if (defaults != null) {
     for (final d in defaults) {
@@ -49,12 +100,39 @@ ResolvedStepConfig resolveStepConfig(WorkflowStep step, List<StepConfigDefault>?
     }
   }
 
+  final provider = _resolveAlias(step.provider ?? matched?.provider, roleDefaults, isProvider: true);
+  final model = _resolveAlias(step.model ?? matched?.model, roleDefaults, isProvider: false);
+
   return ResolvedStepConfig(
-    provider: step.provider ?? matched?.provider,
-    model: step.model ?? matched?.model,
+    provider: provider,
+    model: model,
     maxTokens: step.maxTokens ?? matched?.maxTokens,
     maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
     maxRetries: step.maxRetries ?? matched?.maxRetries,
     allowedTools: step.allowedTools ?? matched?.allowedTools,
   );
+}
+
+String? _resolveAlias(String? value, WorkflowRoleDefaults? roleDefaults, {required bool isProvider}) {
+  if (value == null) {
+    return null;
+  }
+  final defaults = roleDefaults;
+  if (defaults == null) {
+    return value;
+  }
+
+  final role = switch (value) {
+    workflowRoleDefaultAlias ||
+    plannerRoleDefaultAlias ||
+    executorRoleDefaultAlias ||
+    reviewerRoleDefaultAlias => value,
+    _ => null,
+  };
+  if (role == null) {
+    return value;
+  }
+
+  final resolved = defaults.resolve(role);
+  return isProvider ? resolved.provider : resolved.model;
 }

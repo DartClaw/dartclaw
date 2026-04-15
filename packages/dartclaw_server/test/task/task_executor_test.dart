@@ -449,6 +449,262 @@ void main() {
     expect(failed.configJson['errorSummary'], contains('Authentication denied'));
   });
 
+  test('workflow coding tasks pass configured _baseRef to project freshness and worktree creation', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-workflow-branch',
+      title: 'Workflow coding task',
+      description: 'Should use workflow branch base ref.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-123',
+      configJson: const {'_baseRef': 'release/0.16'},
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    final ensureFreshCall = projectService.ensureFreshCalls.single;
+    expect(ensureFreshCall.ref, 'release/0.16');
+    expect(ensureFreshCall.strict, isTrue);
+    expect(worktreeManager.lastBaseRef, 'origin/release/0.16');
+  });
+
+  test('workflow local coding task defaults _baseRef to current symbolic HEAD branch', () async {
+    worker.responseText = 'Done.';
+
+    final localRepo = Directory.systemTemp.createTempSync('task_executor_local_repo_');
+    addTearDown(() {
+      if (localRepo.existsSync()) localRepo.deleteSync(recursive: true);
+    });
+    await Process.run('git', ['init'], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', '-b', 'develop'], workingDirectory: localRepo.path);
+    File(p.join(localRepo.path, 'README.md')).writeAsStringSync('local');
+    await Process.run('git', ['add', '.'], workingDirectory: localRepo.path);
+    await Process.run(
+      'git',
+      ['commit', '-m', 'init', '--no-gpg-sign'],
+      workingDirectory: localRepo.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Test',
+        'GIT_AUTHOR_EMAIL': 'test@test.com',
+        'GIT_COMMITTER_NAME': 'Test',
+        'GIT_COMMITTER_EMAIL': 'test@test.com',
+      },
+    );
+
+    final projectService = FakeProjectService(
+      projects: const [],
+      localProject: Project(
+        id: '_local',
+        name: 'local',
+        remoteUrl: '',
+        localPath: localRepo.path,
+        defaultBranch: 'main',
+        status: ProjectStatus.ready,
+        createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+      ),
+      defaultProjectId: '_local',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-workflow-local-branch',
+      title: 'Workflow local coding task',
+      description: 'Should derive branch from local symbolic HEAD.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-local',
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    final ensureFreshCall = projectService.ensureFreshCalls.single;
+    expect(ensureFreshCall.ref, 'develop');
+    expect(ensureFreshCall.strict, isTrue);
+    expect(worktreeManager.lastBaseRef, 'develop');
+  });
+
+  test('shared workflow coding tasks attach to workflow-owned branch/worktree', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const integrationBranch = 'dartclaw/workflow/run123/integration';
+    await tasks.create(
+      id: 'task-shared-1',
+      title: 'Shared workflow step',
+      description: 'Should attach to workflow-owned branch.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-123',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'shared'},
+      },
+    );
+
+    await projectExecutor.pollOnce();
+
+    final first = await tasks.get('task-shared-1');
+    expect(worktreeManager.lastCreateBranch, isFalse);
+    expect(worktreeManager.createCallCount, 1);
+    expect(first?.worktreeJson?['branch'], integrationBranch);
+
+    await tasks.create(
+      id: 'task-shared-2',
+      title: 'Shared workflow step 2',
+      description: 'Must reuse same workflow worktree.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-123',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'shared'},
+      },
+    );
+    await projectExecutor.pollOnce();
+    final second = await tasks.get('task-shared-2');
+    expect(worktreeManager.createCallCount, 1, reason: 'shared workflow must reuse the same workflow worktree');
+    expect(second?.worktreeJson?['path'], first?.worktreeJson?['path']);
+    expect(second?.worktreeJson?['branch'], integrationBranch);
+  });
+
+  test('per-map-item post-map coding step attaches to integration branch, map iteration does not', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const integrationBranch = 'dartclaw/workflow/run456/integration';
+    await tasks.create(
+      id: 'task-map-iter',
+      title: 'Map iteration coding step',
+      description: 'Iteration keeps story-isolated branch.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-456',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'per-map-item'},
+        '_mapIterationIndex': 0,
+      },
+    );
+    await projectExecutor.pollOnce();
+    expect(worktreeManager.lastCreateBranch, isTrue);
+
+    await tasks.create(
+      id: 'task-post-map',
+      title: 'Post-map remediation',
+      description: 'Should attach integration branch.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-456',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'per-map-item'},
+      },
+    );
+    await projectExecutor.pollOnce();
+    final postMap = await tasks.get('task-post-map');
+    expect(worktreeManager.lastCreateBranch, isFalse);
+    expect(postMap?.worktreeJson?['branch'], integrationBranch);
+  });
+
   test('executes tasks via pool-mode when maxConcurrentTasks > 0', () async {
     final poolWorker1 = _FakeTaskWorker();
     final poolWorker2 = _FakeTaskWorker();
@@ -795,6 +1051,35 @@ class _FakeTaskWorker implements AgentHarness {
       await _eventsCtrl.close();
     }
   }
+}
+
+class _CapturingWorktreeManager extends WorktreeManager {
+  _CapturingWorktreeManager()
+    : super(
+        dataDir: '/tmp',
+        processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
+      );
+
+  String? lastBaseRef;
+  Project? lastProject;
+  bool? lastCreateBranch;
+  int createCallCount = 0;
+
+  @override
+  Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project, bool createBranch = true}) async {
+    createCallCount++;
+    lastBaseRef = baseRef;
+    lastProject = project;
+    lastCreateBranch = createBranch;
+    return WorktreeInfo(
+      path: '/tmp/worktrees/$taskId',
+      branch: createBranch ? 'dartclaw/task-$taskId' : (baseRef ?? 'main'),
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> cleanup(String taskId, {Project? project}) async {}
 }
 
 class _CapturingTurnManager extends TurnManager {

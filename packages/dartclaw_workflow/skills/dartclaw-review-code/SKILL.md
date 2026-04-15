@@ -1,145 +1,143 @@
 ---
-name: dartclaw-review-code
-description: Perform a structured DartClaw review with code quality, security, architecture, domain language, and optional UI/UX lenses.
-argument-hint: "[scope/files]"
+description: Perform implementation-focused review covering code quality, security, architecture, and UI/UX. Use when you explicitly want code review rather than the general `review` router. Trigger on 'review this code', 'review this PR', 'audit these changes'.
 user-invocable: true
+argument-hint: "[scope/files] [--inline-findings] [--to-issue] [--to-pr <number>]"
 ---
 
-# DartClaw Review Code
+# Code Review Skill
 
-Structured, evidence-based code review for DartClaw work. Analysis only. Do not modify files.
+Comprehensive code review covering correctness, security, architecture, maintainability, and UI/UX where relevant.
 
-## Scope
+Most users should start with `dartclaw-review`. Use this skill directly when you already know the target is implementation/code.
 
-- Start by defining the exact review scope: files, package, route, workflow, or change set.
-- Read the project instructions, nearby implementation, and any relevant ADRs or guidance before evaluating findings.
-- Exclude generated assets, vendored code, lockfiles, and other noise unless the review explicitly depends on them.
-- Calibrate candidate findings against `references/review-calibration.md` before assigning severity.
-- Use `../references/verification-patterns.md` when judging whether something merely exists or is actually substantive, wired, and functional.
-- Treat the review as a proof exercise, not a preference exercise.
+## VARIABLES
+ARGUMENTS: $ARGUMENTS
 
-## Review
+### Optional Output Flags
+- `--inline-findings` → return findings inline and skip report-file output (for delegated use by `dartclaw-review` or other orchestration skills)
+- `--to-issue` → PUBLISH_ISSUE
+- `--to-pr <number>` → PUBLISH_PR
 
-Follow this gate-structured workflow in order:
+## INSTRUCTIONS
+- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
+- Analysis only. Do not modify code.
+- If `--inline-findings` is present, do not write a report file. Return findings inline to the parent skill instead.
+- Calibrate severity with `../references/review-calibration.md` and `references/code-review-calibration.md`.
+- Read project learnings if they exist.
+- Exclude generated, vendored, and lockfile noise.
+- Run applicable project verification commands that strengthen review signal when they are discoverable and safe to run read-only: linting, static analysis, type checks, and formatter/compile sanity checks where relevant.
+- When invoked standalone, treat those checks as part of the review evidence. When invoked by an orchestrator that already ran them, reuse fresh results when available instead of rerunning broad project checks unnecessarily.
+- Report which verification commands were run, which were skipped, and why. Do not claim a clean review if a critical available check failed or could not be interpreted.
+- When the review touches browser state, AI/agent flows, logs, stack traces, error output, scraped content, tool results, or other external-data flows, apply `../references/trust-boundaries.md`.
 
-1. Scope
-1. Review
-1. Findings and Report
+## GOTCHAS
+- Over-reporting nits
+- Treating review as eyeballing only when cheap high-signal project checks are available
+- Forgetting Semgrep when it is available
+- Reviewing generated output instead of human-authored code
 
-### Scope Gate
+### Helper Scripts
+- `../scripts/run-security-scan.sh <path>`
 
-- Confirm the changed behavior, entry points, and blast radius.
-- Decide which lenses apply before forming conclusions.
-- Note whether the change is local, cross-cutting, or foundational.
-- Separate implementation defects from style preferences and intentional trade-offs.
+## ORCHESTRATION
+When supported, delegate parallel reviewers for:
+1. Code quality
+2. Security
+3. Architecture
+4. Domain language
+5. UI/UX
 
-### Review Gate
+If sub-agents are unavailable, run the same lenses sequentially.
 
-Use the applicable lenses below. Do not force a lens where it does not belong.
+## WORKFLOW
 
-#### 1. Code Quality
+### 1. Scope
+Determine scope from conversation context, explicit paths, PR number, or current pending changes. Build a quick codebase overview, identify affected files, choose the applicable review lenses, and verify external technical claims against authoritative sources when needed.
 
-Use `checklists/code-quality.md` for correctness, readability, performance, maintainability, wiring, and stub detection.
+Identify the project checks relevant to the review scope by inspecting the repo's existing automation surfaces first: package scripts, Make targets, Justfiles, CI workflows, language-native config files, or documented contributor commands. Prefer the narrowest commands that still give trustworthy signal for the changed scope.
 
-#### 2. Security
+**Gate**: Scope and applicable review lenses are clear
 
-Use `checklists/security.md` when the scope can affect secrets, trust boundaries, privileged actions, file or shell access, network calls, prompt handling, or agentic behavior.
+### 2. Review
+- **Verification evidence** — run the applicable project linting, static-analysis, type-checking, and formatter/compile sanity commands when available. Record pass/fail/skip status and treat failures as review inputs, not as optional background noise.
+- **Code quality** — use [CODE-REVIEW-CHECKLIST.md](checklists/CODE-REVIEW-CHECKLIST.md): correctness, edge cases, readability, naming, maintainability, performance, duplication
+- **Architecture** — use [ARCHITECTURAL-REVIEW-CHECKLIST.md](checklists/ARCHITECTURAL-REVIEW-CHECKLIST.md): pattern adherence, coupling/cohesion, CUPID, DDD where relevant, resilience/performance trade-offs
+- **Domain language** — use [DOMAIN-LANGUAGE-REVIEW-CHECKLIST.md](checklists/DOMAIN-LANGUAGE-REVIEW-CHECKLIST.md) when the `Ubiquitous Language` document (see **Project Document Index**) exists: terminology consistency
+- **UI/UX** — use [UI-UX-REVIEW-CHECKLIST.md](checklists/UI-UX-REVIEW-CHECKLIST.md) when UI changed: usability, responsiveness, accessibility, interaction quality
 
-Security review is most relevant for Web, API, and LLM or agentic surfaces. Skip the security checklist for Mobile-only or CI/CD-only changes unless the change also touches a privileged trust boundary, credential flow, or runtime policy.
+#### Security Review
+Select the applicable checklist(s):
 
-#### 3. Architecture
+| Checklist | Standard | Apply when... |
+|-----------|----------|---------------|
+| [SECURITY-CHECKLIST-WEB.md](checklists/SECURITY-CHECKLIST-WEB.md) | OWASP Top 10:2025 | Web applications, server-rendered pages, or any general-purpose backend |
+| [SECURITY-CHECKLIST-API.md](checklists/SECURITY-CHECKLIST-API.md) | OWASP API Security Top 10:2023 | REST, GraphQL, gRPC, microservices, or other HTTP-exposed code |
+| [SECURITY-CHECKLIST-LLM.md](checklists/SECURITY-CHECKLIST-LLM.md) | OWASP LLM Top 10:2025 | LLM, RAG, agentic, or AI-generated-output systems |
+| [SECURITY-CHECKLIST-MOBILE.md](checklists/SECURITY-CHECKLIST-MOBILE.md) | OWASP Mobile Top 10:2024 | Native or cross-platform mobile apps |
+| [SECURITY-CHECKLIST-CICD.md](checklists/SECURITY-CHECKLIST-CICD.md) | OWASP CI/CD Risks | Pipelines, IaC, deployment workflows, build scripts, supply chain changes |
 
-Use `checklists/architecture.md` when the change affects module shape, dependency direction, layer boundaries, coupling, or long-term system structure.
+Assess input validation, injection risks, authz/authn, crypto, secret handling, API security, and supply-chain integrity. Run available security tooling such as Semgrep when possible.
 
-#### 4. Domain Language
+**Gate**: Applicable review lenses complete
 
-Use `checklists/domain-language.md` when the project has `UBIQUITOUS_LANGUAGE.md` or the change introduces new terms, states, actions, or bounded-context language.
+### 3. Findings and Report
+Categorize findings as:
+- **CRITICAL**: security vulnerabilities, data loss, or broken core behavior
+- **HIGH**: significant maintainability, performance, or correctness issues
+- **SUGGESTIONS**: worthwhile improvements or cleanup
 
-#### 5. Optional UI/UX
+Also flag obsolete files, unmotivated complexity, and cleanup candidates.
 
-Apply a UI/UX lens when the change affects templates, pages, interaction flow, accessibility, copy, or visual structure.
+Generate a markdown report unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form instead of writing a file.
 
-- Check consistency with project UI guidance and adjacent screens.
-- Verify labels, states, and interactions are clear and intentional.
-- Check that empty states, errors, and responsive behavior are handled deliberately.
-- Do not invent UI findings when there is no user-facing surface.
+Standard report format:
 
-### Review Order
-
-1. Establish scope and entry points.
-2. Check code quality and wiring first.
-3. Check security when the scope can reach trust boundaries or privileged operations.
-4. Check architecture and dependency direction.
-5. Check domain language against the glossary and adjacent terminology.
-6. Check optional UI/UX if the change is user-facing.
-7. Re-evaluate candidate findings with calibration and verification references before reporting.
-
-## Findings and Report
-
-Record only findings that are real, reproducible, and supported by evidence.
-
-### Severity Expectations
-
-| Severity | Meaning |
-| --- | --- |
-| Critical | Security bypass, data loss, broken core behavior, or a flaw that makes the feature unsafe or unusable in normal operation. |
-| High | Major correctness, integration, architectural, or security failure that will affect real use. |
-| Suggestion | Useful cleanup, hardening, or clarity improvement that is not blocking. |
-
-- Do not inflate severity for style nits or hypothetical issues without a concrete failure mode.
-- If the evidence shows the path still works, keep the finding out of the report.
-- If a file exists but is not wired, substantive, or reachable, treat that as a real defect, not a cosmetic gap.
-
-### Report Rules
-
-- Use file and line references where possible.
-- Explain the failure mode, not just the symptom.
-- State why the issue matters in DartClaw terms.
-- Keep suggestions separate from blocking defects.
-- If the scope is clean, say so directly instead of padding the report.
-
-### Required Report Template
-
-Produce the report with these exact sections and in this order:
+```markdown
+# Review Report - [Date]
 
 ## Summary
+[2-3 sentence overview]
 
 ## CRITICAL ISSUES
+[Title, impact, location, fix required]
 
 ## HIGH PRIORITY
+[Title, impact, location, recommendation]
 
 ## SUGGESTIONS
+[Brief list]
 
 ## Cleanup Required
+- [Obsolete or temporary files]
+- [Dead code]
 
 ## Compliance
+- Guidelines adherence: [Assessment]
+- Architecture patterns: [Assessment]
+- Security best practices: [Assessment]
+- [UI/UX if applicable]: [Assessment]
+
+## Verification Evidence
+- Commands run: [with result]
+- Commands skipped/unavailable: [with reason]
 
 ## Next Steps
+1. [Prioritized action items]
+```
 
-### Compliance Notes
+**Report output conventions**: Follow `../references/report-output-conventions.md` with:
+- **Report suffix**: `code-review`
+- **Scope placeholder**: `feature-name`
+- **Spec-directory rule**: the files being reviewed correspond to a feature that has an associated spec directory from the Project Document Index
+- **Target-directory rule**: the review target is a specific file or localized directory, so the report belongs next to the primary review target
 
-- Mention which lenses were used and which were skipped.
-- Note whether `references/review-calibration.md` was used to calibrate severity.
-- Note whether `../references/verification-patterns.md` was used to judge existence, substance, wiring, and function.
-- Call out any stubs, TODOs, placeholder logic, or dead wiring that remain.
-- If a checklist file was not applicable, explain why.
+### Publish to GitHub
+If PUBLISH_ISSUE is `true`:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Title template: `[Code Review] {scope}: Review Report`
+2. Print the issue URL
 
-### Next Steps Guidance
-
-- If blocking issues exist, list the smallest credible fix path.
-- If only suggestions remain, label them as non-blocking follow-up work.
-- If the review is clean, say what was verified and what residual risk remains.
-
-## Checklist References
-
-- `checklists/code-quality.md`
-- `checklists/security.md`
-- `checklists/architecture.md`
-- `checklists/domain-language.md`
-- `references/review-calibration.md`
-- `../references/verification-patterns.md`
-
-## Output Contract
-
-Summarize findings with evidence, then present the report using the required sections above.
-Keep the review strict, specific, and calibrated.
+If PUBLISH_PR is set:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Publish target: typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup before completing
+2. Print the direct comment URL

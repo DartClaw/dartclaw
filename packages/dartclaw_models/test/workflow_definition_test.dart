@@ -277,19 +277,19 @@ void main() {
     });
 
     test('skill field round-trips (S04)', () {
-      const step = WorkflowStep(id: 's', name: 'S', skill: 'andthen:review-code', prompts: ['Do the review']);
+      const step = WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review-code', prompts: ['Do the review']);
       final json = step.toJson();
-      expect(json['skill'], 'andthen:review-code');
+      expect(json['skill'], 'dartclaw-review-code');
       final restored = WorkflowStep.fromJson(json);
-      expect(restored.skill, 'andthen:review-code');
+      expect(restored.skill, 'dartclaw-review-code');
     });
 
     test('skill-only step (no prompts) round-trips (S04)', () {
-      const step = WorkflowStep(id: 's', name: 'S', skill: 'andthen:review-code');
+      const step = WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review-code');
       final json = step.toJson();
       expect(json.containsKey('prompts'), isFalse);
       final restored = WorkflowStep.fromJson(json);
-      expect(restored.skill, 'andthen:review-code');
+      expect(restored.skill, 'dartclaw-review-code');
       expect(restored.prompts, isNull);
       expect(restored.prompt, isNull);
     });
@@ -379,6 +379,36 @@ void main() {
       expect(restored.stepDefaults![1].provider, 'claude');
     });
 
+    test('round-trips with gitStrategy (S16b)', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: 'shared',
+          quickReview: true,
+          promotion: 'merge',
+          finalReview: true,
+          publish: WorkflowGitPublishStrategy(enabled: true),
+          cleanup: 'preserve-on-failure',
+        ),
+      );
+      final json = def.toJson();
+      expect(json.containsKey('gitStrategy'), true);
+      final restored = WorkflowDefinition.fromJson(json);
+      expect(restored.gitStrategy, isNotNull);
+      expect(restored.gitStrategy!.bootstrap, isTrue);
+      expect(restored.gitStrategy!.worktree, 'shared');
+      expect(restored.gitStrategy!.quickReview, isTrue);
+      expect(restored.gitStrategy!.promotion, 'merge');
+      expect(restored.gitStrategy!.finalReview, isTrue);
+      expect(restored.gitStrategy!.publish?.enabled, isTrue);
+      expect(restored.gitStrategy!.cleanup, 'preserve-on-failure');
+    });
+
     test('normalizes action, map, parallel, and loop nodes when nodes are omitted from json', () {
       const def = WorkflowDefinition(
         name: 'normalized',
@@ -423,6 +453,19 @@ void main() {
       final json = def.toJson();
       expect(json.containsKey('stepDefaults'), false);
       expect(WorkflowDefinition.fromJson(json).stepDefaults, isNull);
+    });
+
+    test('gitStrategy absent from json when null (S16b)', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+      );
+      final json = def.toJson();
+      expect(json.containsKey('gitStrategy'), false);
+      expect(WorkflowDefinition.fromJson(json).gitStrategy, isNull);
     });
   });
 

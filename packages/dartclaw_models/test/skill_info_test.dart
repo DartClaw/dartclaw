@@ -17,7 +17,7 @@ void main() {
 
   group('SkillInfo', () {
     const skill = SkillInfo(
-      name: 'andthen:review-code',
+      name: 'dartclaw-review-code',
       description: 'Reviews code for correctness and style',
       source: SkillSource.projectClaude,
       path: '/project/.claude/skills/review-code',

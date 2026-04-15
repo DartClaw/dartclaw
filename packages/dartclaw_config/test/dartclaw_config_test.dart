@@ -876,6 +876,20 @@ projects:
         expect(config.agent.provider, 'codex');
       });
 
+      test('agent.model shorthand populates agent.provider and agent.model', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') return 'agent:\n  model: codex/gpt-5.4\n';
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.agent.provider, 'codex');
+        expect(config.agent.model, 'gpt-5.4');
+        expect(config.warnings, isEmpty);
+      });
+
       test('invalid type for agent.provider produces warning and uses default', () {
         final config = DartclawConfig.load(
           fileReader: (path) {

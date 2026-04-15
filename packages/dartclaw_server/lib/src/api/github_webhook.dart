@@ -16,6 +16,7 @@ class GitHubWebhookHandler {
   final GitHubWebhookConfig config;
   final WorkflowService workflows;
   final WorkflowDefinitionSource definitions;
+  final ProjectService? projects;
   final EventBus? eventBus;
   final List<String> trustedProxies;
 
@@ -23,6 +24,7 @@ class GitHubWebhookHandler {
     required this.config,
     required this.workflows,
     required this.definitions,
+    this.projects,
     this.eventBus,
     this.trustedProxies = const [],
   });
@@ -86,7 +88,17 @@ class GitHubWebhookHandler {
 
     final prNumber = pullRequest['number']?.toString() ?? '';
     final repoSlug = repository['full_name']?.toString() ?? '';
-    if (await _isDuplicate(trigger.workflow, prNumber, repoSlug)) {
+    final requiresProject = definition.variables.containsKey('PROJECT');
+    final projectId = requiresProject ? await _resolveProjectId(repoSlug) : null;
+    if (requiresProject && projectId == null) {
+      return errorResponse(
+        400,
+        'PROJECT_RESOLUTION_FAILED',
+        'No unique configured project matched repository slug: $repoSlug',
+      );
+    }
+
+    if (await _isDuplicate(trigger.workflow, prNumber, projectId: projectId, repoSlug: repoSlug)) {
       return jsonResponse(200, {'ok': true, 'deduped': true});
     }
 
@@ -97,10 +109,13 @@ class GitHubWebhookHandler {
       'PR_NUMBER': prNumber,
       'BRANCH': head?['ref']?.toString() ?? '',
       'BASE_BRANCH': base?['ref']?.toString() ?? '',
-      'REPO': repoSlug,
+      if (!requiresProject) 'REPO': repoSlug,
     };
+    if (projectId != null) {
+      variables['PROJECT'] = projectId;
+    }
 
-    final run = await workflows.start(definition, variables);
+    final run = await workflows.start(definition, variables, projectId: projectId);
     return jsonResponse(200, {'ok': true, 'runId': run.id});
   }
 
@@ -116,11 +131,52 @@ class GitHubWebhookHandler {
     return constantTimeEquals(signatureHeader, 'sha256=$digest');
   }
 
-  Future<bool> _isDuplicate(String workflowName, String prNumber, String repoSlug) async {
+  Future<bool> _isDuplicate(String workflowName, String prNumber, {String? projectId, required String repoSlug}) async {
     final runs = await workflows.list(definitionName: workflowName);
-    return runs.any(
-      (run) =>
-          !run.status.terminal && run.variablesJson['PR_NUMBER'] == prNumber && run.variablesJson['REPO'] == repoSlug,
-    );
+    return runs.any((run) {
+      if (run.status.terminal || run.variablesJson['PR_NUMBER'] != prNumber) return false;
+      if (projectId != null) {
+        return run.variablesJson['PROJECT'] == projectId;
+      }
+      return run.variablesJson['REPO'] == repoSlug;
+    });
+  }
+
+  Future<String?> _resolveProjectId(String repoSlug) async {
+    if (repoSlug.trim().isEmpty) return null;
+
+    final projectService = projects;
+    if (projectService == null) {
+      return null;
+    }
+
+    final target = repoSlug.toLowerCase();
+    final allProjects = await projectService.getAll();
+    final matches = allProjects
+        .where((project) => _repoSlugFromRemote(project.remoteUrl) == target)
+        .map((project) => project.id)
+        .toList(growable: false);
+    if (matches.length != 1) {
+      return null;
+    }
+    return matches.single;
+  }
+
+  String? _repoSlugFromRemote(String remoteUrl) {
+    final trimmed = remoteUrl.trim();
+    if (trimmed.isEmpty) return null;
+
+    final ssh = RegExp(r'^[^@]+@[^:]+:([^/]+)/(.+?)(?:\.git)?$').firstMatch(trimmed);
+    if (ssh != null) {
+      return '${ssh.group(1)}/${ssh.group(2)}'.toLowerCase();
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return null;
+    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (segments.length < 2) return null;
+    final owner = segments[0];
+    final repo = segments[1].replaceFirst(RegExp(r'\.git$'), '');
+    return '$owner/$repo'.toLowerCase();
   }
 }

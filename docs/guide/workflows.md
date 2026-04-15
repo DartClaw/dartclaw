@@ -207,6 +207,31 @@ Key fields:
 
 Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
 
+### Workflow-Owned Git Lifecycle
+
+Workflows can now own git promotion/publish semantics directly through `gitStrategy`:
+
+```yaml
+gitStrategy:
+  bootstrap: true
+  worktree: per-map-item   # or shared
+  quickReview: true
+  promotion: merge
+  finalReview: true
+  publish:
+    enabled: true
+  cleanup: preserve-on-failure
+```
+
+Key runtime behavior:
+
+- `bootstrap: true` initializes a workflow-owned integration branch from `BRANCH` (or project default branch).
+- `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
+- `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
+- Promotion-aware maps validate dependency IDs before dispatch; unknown IDs fail fast.
+- Promotion conflicts pause with a `promotion-conflict` reason and preserve worktrees for manual conflict resolution + `workflow resume`.
+- Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
+
 ### Inline Loops
 
 Use inline loop blocks in `steps:` when remediation or validation must repeat in-place.
@@ -273,48 +298,95 @@ The first match wins. Explicit per-step values still override defaults.
 
 ### `spec-and-implement` — Feature Pipeline
 
-Pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, requires an approval gate, implements via `dartclaw-exec-spec`, performs code review and gap analysis, runs an inline remediation loop, and finishes with `dartclaw-update-state`.
+Pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, reviews that spec with unified `dartclaw-review` (`Mode: doc`), implements via `dartclaw-exec-spec`, validates with `dartclaw-validate`, runs an integrated review plus a bounded remediate → re-validate → re-review loop, updates state, and then lets the runtime handle deterministic publish/cleanup from `gitStrategy`.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
-- **Thin skill wrappers**: skill-backed steps pass only workflow-specific inputs and handoff/output instructions; the methodology lives in the `dartclaw-*` skills themselves.
+- **Thin skill wrappers**: skill-backed steps pass only workflow-specific inputs; methodology lives in the `dartclaw-*` skills and structured output contracts come from step schemas.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec`, reviews each story, synthesizes the batch, runs an inline remediation loop, and updates state.
+Multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec` under per-map-item git isolation/promotion, validates the merged batch, synthesizes a remediation plan, runs a bounded remediate → re-validate → re-review loop, updates state, and then lets the runtime handle deterministic publish/cleanup from `gitStrategy`.
 
 Notable patterns:
-- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, and review uses `{{context.story_result[map.index]}}`.
+- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later synthesize/re-review steps consume the aggregated `story_result` array.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
-- **Step defaults**: provider/model defaults are set once for the whole workflow.
+- **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
+- **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch now follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
 
-### `code-review` — Deterministic Review Loop
+Role usage:
+- `@workflow`: `discover-project`, `synthesize`
+- `@planner`: `plan`, `spec`
+- `@executor`: `implement`, `validate`, `remediate`, `re-validate`, `update-state`
+- `@reviewer`: `re-review`
 
-A review workflow that discovers the project, extracts a diff deterministically via bash, gathers context once, runs one comprehensive review phase via `dartclaw-review-code`, and loops through remediation/re-review up to 3 iterations.
+### `spec-and-implement` — Single-Feature Pipeline
+
+Single-feature pipeline that discovers the project, writes a specification, reviews that spec in-flow, implements it, validates it, runs integrated review plus a gap-analysis/remediation loop, and updates state.
+
+Role usage:
+- `@workflow`: `discover-project`
+- `@planner`: `spec`
+- `@executor`: `implement`, `validate`, `remediate`, `re-validate`, `update-state`
+- `@reviewer`: `review-spec`, `integrated-review`, `re-review`
+
+### `code-review` — Review And Remediate Loop
+
+A review workflow that discovers the project, routes the initial review and re-review through unified `dartclaw-review`, and loops through remediate → validate → re-review up to 3 iterations.
 
 Notable patterns:
-- **Deterministic extraction first**: diff generation happens before any reviewer prompt runs.
-- **Single methodology carrier**: both the initial review and re-review live in `dartclaw-review-code` instead of three parallel review phases in YAML.
+- **Inputs-only review prompts**: the workflow passes target identifiers and prior outputs; diff discovery and review method stay inside the review skill.
+- **Role-based model defaults**: built-ins can reference `@workflow`, `@planner`, `@executor`, and `@reviewer` instead of hardcoding provider/model pairs in YAML.
+- **Single methodology carrier**: both the initial review and re-review live in `dartclaw-review`, while `dartclaw-validate` proves that remediation did not break the target.
 - **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
+
+Role usage:
+- `@workflow`: `discover-project`
+- `@executor`: `remediate`, `validate`
+- `@reviewer`: `review-code`, `re-review`
+
+### Choosing Defaults
+
+The three shipped built-ins all use the same four workflow roles:
+
+| Role | Typical work |
+| --- | --- |
+| `@workflow` | discovery, synthesis, and general coordination |
+| `@planner` | planning and specification authoring |
+| `@executor` | implementation, remediation, and state updates |
+| `@reviewer` | document, code, and gap review |
+
+Recommended presets:
+
+- Claude-first: `workflow=claude/sonnet`, `planner=claude/opusplan`, `executor=claude/sonnet`, `reviewer=claude/opus`
+- Codex-first: `workflow=codex/gpt-5.4`, `planner=codex/gpt-5.4`, `executor=codex/gpt-5.4-mini`, `reviewer=codex/gpt-5-codex`
+- Mixed: `workflow=claude/sonnet`, `planner=claude/opusplan`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
+
+Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field.
 
 ### Built-In Skill Library
 
-The workflow engine now ships 10 built-in `dartclaw-*` skills:
+The workflow engine now ships 15 built-in `dartclaw-*` skills:
 
 - `dartclaw-discover-project`
 - `dartclaw-update-state`
+- `dartclaw-review`
 - `dartclaw-review-code`
+- `dartclaw-review-doc`
 - `dartclaw-review-gap`
+- `dartclaw-review-council`
+- `dartclaw-quick-review`
 - `dartclaw-spec`
+- `dartclaw-spec-plan`
 - `dartclaw-plan`
 - `dartclaw-exec-spec`
 - `dartclaw-remediate-findings`
-- `dartclaw-review-doc`
+- `dartclaw-validate`
 - `dartclaw-refactor`
 
-These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading. Root-level support directories under the built-in skills tree, such as `references/`, are materialized alongside the skill directories but are not registered as skills.
+These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading. Root-level support directories under the built-in skills tree, such as `references/` and `scripts/`, are materialized alongside the skill directories but are not registered as skills.
 
 ### Supported SDD Frameworks
 

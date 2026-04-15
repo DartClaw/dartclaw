@@ -577,6 +577,80 @@ class WorkflowStep {
   }
 }
 
+/// Publish strategy configuration nested under [WorkflowGitStrategy].
+class WorkflowGitPublishStrategy {
+  /// Whether publish behavior is enabled for the workflow.
+  final bool? enabled;
+
+  const WorkflowGitPublishStrategy({this.enabled});
+
+  Map<String, dynamic> toJson() => {if (enabled != null) 'enabled': enabled};
+
+  factory WorkflowGitPublishStrategy.fromJson(Map<String, dynamic> json) =>
+      WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
+}
+
+/// Reusable workflow-level git behavior strategy surface.
+///
+/// This shape is intentionally declarative for S16b. Runtime enforcement is
+/// owned by later milestones.
+class WorkflowGitStrategy {
+  /// Whether workflow startup should bootstrap a workflow-owned feature branch.
+  final bool? bootstrap;
+
+  /// Worktree strategy (`shared`, `per-task`, `per-map-item`).
+  final String? worktree;
+
+  /// Whether quick-review checkpoints are enabled.
+  final bool? quickReview;
+
+  /// Promotion strategy (`merge`, `rebase`, `none`).
+  final String? promotion;
+
+  /// Whether a final integrated review is required.
+  final bool? finalReview;
+
+  /// Publish behavior configuration.
+  final WorkflowGitPublishStrategy? publish;
+
+  /// Cleanup behavior (`always`, `preserve-on-failure`, `never`).
+  final String? cleanup;
+
+  const WorkflowGitStrategy({
+    this.bootstrap,
+    this.worktree,
+    this.quickReview,
+    this.promotion,
+    this.finalReview,
+    this.publish,
+    this.cleanup,
+  });
+
+  Map<String, dynamic> toJson() => {
+    if (bootstrap != null) 'bootstrap': bootstrap,
+    if (worktree != null) 'worktree': worktree,
+    if (quickReview != null) 'quickReview': quickReview,
+    if (promotion != null) 'promotion': promotion,
+    if (finalReview != null) 'finalReview': finalReview,
+    if (publish != null) 'publish': publish!.toJson(),
+    if (cleanup != null) 'cleanup': cleanup,
+  };
+
+  factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
+    bootstrap: json['bootstrap'] as bool?,
+    worktree: json['worktree'] as String?,
+    quickReview: json['quickReview'] as bool?,
+    promotion: json['promotion'] as String?,
+    finalReview: json['finalReview'] as bool?,
+    publish: switch (json['publish']) {
+      Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
+      Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+      _ => null,
+    },
+    cleanup: json['cleanup'] as String?,
+  );
+}
+
 /// A workflow definition parsed from a YAML file.
 ///
 /// Immutable value object describing a multi-step agent pipeline.
@@ -610,6 +684,9 @@ class WorkflowDefinition {
   /// Optional pattern-based step config defaults applied in order (first match wins).
   final List<StepConfigDefault>? stepDefaults;
 
+  /// Optional workflow-level git strategy configuration.
+  final WorkflowGitStrategy? gitStrategy;
+
   const WorkflowDefinition({
     required this.name,
     required this.description,
@@ -619,6 +696,7 @@ class WorkflowDefinition {
     List<WorkflowNode>? nodes,
     this.maxTokens,
     this.stepDefaults,
+    this.gitStrategy,
   }) : _nodes = nodes;
 
   /// Normalized authored-order execution graph for this definition.
@@ -633,6 +711,7 @@ class WorkflowDefinition {
     'nodes': nodes.map((n) => n.toJson()).toList(growable: false),
     if (maxTokens != null) 'maxTokens': maxTokens,
     if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
+    if (gitStrategy != null) 'gitStrategy': gitStrategy!.toJson(),
   };
 
   factory WorkflowDefinition.fromJson(Map<String, dynamic> json) => WorkflowDefinition(
@@ -656,6 +735,11 @@ class WorkflowDefinition {
     stepDefaults: (json['stepDefaults'] as List?)
         ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
         .toList(growable: false),
+    gitStrategy: switch (json['gitStrategy']) {
+      Map<String, dynamic> strategy => WorkflowGitStrategy.fromJson(strategy),
+      Map<Object?, Object?> strategy => WorkflowGitStrategy.fromJson(Map<String, dynamic>.from(strategy)),
+      _ => null,
+    },
   );
 
   /// Builds the authored-order execution graph used by validation and runtime.

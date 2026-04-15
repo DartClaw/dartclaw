@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw Spec Plan"
+  short_description: "Batch-create specs for a plan"
+  default_prompt: "Use $dartclaw-spec-plan to generate FIS files for the stories in the provided plan directory."
+
+policy:
+  allow_implicit_invocation: true

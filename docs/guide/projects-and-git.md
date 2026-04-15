@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.14**
+> Current through: **0.16.4**
 
 DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
 
@@ -230,6 +230,23 @@ tasks:
 **Conflict handling**: If the merge hits conflicts, DartClaw aborts the merge, preserves a `conflict.json` artifact, and keeps the task in review. The operator must resolve conflicts manually in the worktree.
 
 **State restoration**: MergeExecutor always restores the repository to its pre-merge state (original branch + stashed changes) regardless of success or failure.
+
+## Workflow-Owned Promotion and Publish
+
+Workflow runs with `gitStrategy.publish.enabled: true` now publish deterministically from workflow runtime state, instead of only from manual task acceptance flows.
+
+For project-backed workflows:
+
+- Bootstrap can create a workflow integration branch from `BRANCH` (or the project default branch).
+- Mapped story branches can be promoted into that integration branch through runtime-controlled merge operations.
+- Dependency-aware map execution blocks dependent stories until prerequisite promotion succeeds.
+- Publish pushes the workflow branch and optionally creates a PR (`pr.strategy: github-pr`), writing machine-readable workflow outputs:
+  - `publish.status` (`success`, `manual`, `failed`)
+  - `publish.branch`
+  - `publish.remote`
+  - `publish.pr_url`
+
+Publish failures leave inspectable git state and surface structured failure details in workflow context.
 
 ## Credential Handling
 

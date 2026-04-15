@@ -132,14 +132,26 @@ void main() {
     expect(platformEntries, contains('share/dartclaw/templates/layout.html'));
     expect(platformEntries, contains('share/dartclaw/static/app.js'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-plan/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-review/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-quick-review/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/references/verification-patterns.md'));
+    expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
+    expect(platformEntries, contains('share/dartclaw/workflows/code-review.yaml'));
     expect(platformEntries, contains('VERSION'));
 
     expect(assetEntries, isNot(contains('bin/dartclaw')));
     expect(assetEntries, contains('templates/layout.html'));
     expect(assetEntries, contains('static/app.js'));
     expect(assetEntries, contains('skills/dartclaw-plan/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-review/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-quick-review/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-validate/SKILL.md'));
+    expect(assetEntries, contains('skills/references/verification-patterns.md'));
+    expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
     expect(assetEntries, contains('workflows/plan-and-implement.yaml'));
+    expect(assetEntries, contains('workflows/code-review.yaml'));
     expect(assetEntries, contains('VERSION'));
 
     final platformHash = _hashFile(platformArchive);

@@ -1,7 +1,7 @@
 name: spec-and-implement
 description: >-
   Full feature pipeline — discover the project, write a specification,
-  approve it, implement it with exec-spec, analyze gaps, iterate remediation,
+  review and remediate it, implement it with exec-spec, run integrated review,
   and update state in authored order.
 variables:
   FEATURE:
@@ -10,18 +10,46 @@ variables:
   PROJECT:
     required: false
     description: Target project for coding steps (omit for default project)
-  BASE_BRANCH:
+  BRANCH:
     required: false
-    description: Base branch used for validation context and comparisons
+    description: Base branch/ref used for workflow bootstrap and comparisons
     default: "main"
 
+gitStrategy:
+  bootstrap: true
+  worktree: shared
+  quickReview: false
+  promotion: merge
+  finalReview: true
+  publish:
+    enabled: true
+  cleanup: preserve-on-failure
+
 stepDefaults:
+  - match: "spec"
+    provider: "@planner"
+    model: "@planner"
   - match: "implement*"
-    provider: claude
-  - match: "review*"
-    model: claude-opus-4
+    provider: "@executor"
+    model: "@executor"
+  - match: "*validate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "gap-*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate"
+    provider: "@executor"
+    model: "@executor"
+  - match: "update-state"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
-    provider: claude
+    provider: "@workflow"
+    model: "@workflow"
 
 steps:
   - id: discover-project
@@ -30,7 +58,7 @@ steps:
     skill: dartclaw-discover-project
     prompt: |
       Feature: {{FEATURE}}
-      Base branch: {{BASE_BRANCH}}
+      Branch: {{BRANCH}}
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -55,7 +83,7 @@ steps:
     contextInputs: [project_index]
     prompt: |
       Feature: {{FEATURE}}
-      Base branch: {{BASE_BRANCH}}
+      Branch: {{BRANCH}}
 
       Project index:
       {{context.project_index}}
@@ -65,15 +93,28 @@ steps:
       - acceptance_criteria
     contextOutputs: [spec_document, acceptance_criteria]
 
-  - id: approve-spec
-    name: Approve Spec
-    type: approval
+  - id: review-spec
+    name: Review Spec
+    type: analysis
+    skill: dartclaw-review
     prompt: |
-      Approve the specification before implementation.
+      Run a document review against the generated specification before implementation.
+      Mode: doc
 
-      Reject if the scope is unclear, the acceptance criteria are not binary-testable,
-      or the project index does not match the discovered framework.
+      Feature: {{FEATURE}}
+      Branch: {{BRANCH}}
+      Project index:
+      {{context.project_index}}
+      Specification:
+      {{context.spec_document}}
+      Acceptance criteria:
+      {{context.acceptance_criteria}}
     contextInputs: [project_index, spec_document, acceptance_criteria]
+    contextOutputs: [review_findings]
+    outputs:
+      review_findings:
+        format: json
+        schema: verdict
 
   - id: implement
     name: Implement
@@ -99,12 +140,38 @@ steps:
       diff_summary:
         format: text
 
-  - id: review-code
-    name: Review Code
+  - id: validate
+    name: Validate Implementation
+    type: coding
+    skill: dartclaw-validate
+    project: "{{PROJECT}}"
+    review: never
+    prompt: |
+      Project index:
+      {{context.project_index}}
+
+      Specification:
+      {{context.spec_document}}
+
+      Implementation diff:
+      {{context.diff_summary}}
+
+      Run build, tests, static analysis, and simplification checks for the completed implementation.
+      If the project has no runnable test surface, skip tests and say so explicitly.
+
+      For workflow handoff, end with `## Context Output` and a JSON object with:
+      - validation_summary
+      - findings_count
+    contextInputs: [project_index, diff_summary, spec_document]
+    contextOutputs: [validation_summary, findings_count]
+
+  - id: integrated-review
+    name: Integrated Review
     type: analysis
-    skill: dartclaw-review-code
+    skill: dartclaw-review
     prompt: |
       Review this implementation comprehensively for correctness, security, and architecture.
+      Mode: code
 
       Project index:
       {{context.project_index}}
@@ -112,49 +179,26 @@ steps:
       Specification:
       {{context.spec_document}}
 
+      Validation summary:
+      {{context.validation_summary}}
+
       Acceptance criteria:
       {{context.acceptance_criteria}}
 
       Implementation diff:
       {{context.diff_summary}}
-    contextInputs: [project_index, spec_document, acceptance_criteria, diff_summary]
+    contextInputs: [project_index, spec_document, validation_summary, acceptance_criteria, diff_summary]
     contextOutputs: [review_findings]
     outputs:
       review_findings:
         format: json
         schema: verdict
 
-  - id: gap-analysis
-    name: Gap Analysis
-    type: analysis
-    skill: dartclaw-review-gap
-    prompt: |
-      Project index:
-      {{context.project_index}}
-
-      Requirements baseline:
-      {{context.spec_document}}
-
-      Acceptance criteria:
-      {{context.acceptance_criteria}}
-
-      Code review findings:
-      {{context.review_findings}}
-
-      Diff summary:
-      {{context.diff_summary}}
-
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - gap_report
-      - needs_remediation
-    contextInputs: [project_index, spec_document, acceptance_criteria, review_findings, diff_summary]
-    contextOutputs: [gap_report, needs_remediation]
-
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -166,27 +210,57 @@ steps:
           Project index:
           {{context.project_index}}
 
-          Gap report:
-          {{context.gap_report}}
+          Integrated review findings:
+          {{context.review_findings}}
+
+          Validation summary:
+          {{context.validation_summary}}
 
           Specification:
           {{context.spec_document}}
-
-          Code review findings:
-          {{context.review_findings}}
 
           If no remediation is needed, say so plainly.
           For workflow handoff, end with `## Context Output` and a JSON object with:
           - remediation_summary
           - diff_summary
-        contextInputs: [project_index, gap_report, spec_document, review_findings]
+        contextInputs: [project_index, spec_document, review_findings, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
+
+      - id: re-validate
+        name: Re-validate Implementation
+        type: coding
+        skill: dartclaw-validate
+        project: "{{PROJECT}}"
+        review: never
+        prompt: |
+          Project index:
+          {{context.project_index}}
+
+          Specification:
+          {{context.spec_document}}
+
+          Remediation summary:
+          {{context.remediation_summary}}
+
+          Updated diff summary:
+          {{context.diff_summary}}
+
+          Run build, tests, static analysis, and simplification checks after remediation.
+          If the project has no runnable test surface, skip tests and say so explicitly.
+
+          For workflow handoff, end with `## Context Output` and a JSON object with:
+          - validation_summary
+          - findings_count
+          - re-validate.findings_count
+        contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
+        contextOutputs: [validation_summary, findings_count, re-validate.findings_count]
 
       - id: re-review
         name: Re-review Gaps
         type: analysis
-        skill: dartclaw-review-gap
+        skill: dartclaw-review
         prompt: |
+          Mode: gap
           Project index:
           {{context.project_index}}
 
@@ -196,8 +270,8 @@ steps:
           Acceptance criteria:
           {{context.acceptance_criteria}}
 
-          Original gap report:
-          {{context.gap_report}}
+          Re-validation summary:
+          {{context.validation_summary}}
 
           Remediation summary:
           {{context.remediation_summary}}
@@ -206,9 +280,15 @@ steps:
           {{context.diff_summary}}
 
           For workflow handoff, end with `## Context Output` and a JSON object with:
+          - review_findings
           - findings_count
-        contextInputs: [project_index, spec_document, acceptance_criteria, gap_report, remediation_summary, diff_summary]
-        contextOutputs: [findings_count]
+          - re-review.findings_count
+        contextInputs: [project_index, spec_document, acceptance_criteria, validation_summary, remediation_summary, diff_summary]
+        contextOutputs: [review_findings, findings_count, re-review.findings_count]
+        outputs:
+          review_findings:
+            format: json
+            schema: verdict
 
   - id: update-state
     name: Update State

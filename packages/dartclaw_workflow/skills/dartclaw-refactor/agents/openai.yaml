@@ -1,4 +1,7 @@
 interface:
   display_name: "DartClaw Refactor"
-  short_description: "Simplify code while preserving behavior"
-  default_prompt: "Use $dartclaw-refactor to simplify scoped code, preserve behavior, and verify there are no regressions."
+  short_description: "Refactor code without changing behavior"
+  default_prompt: "Use $dartclaw-refactor to simplify the provided code while preserving exact behavior."
+
+policy:
+  allow_implicit_invocation: true

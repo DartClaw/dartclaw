@@ -37,7 +37,7 @@ void main() {
     test('skills in .claude/skills/ discovered with nativeHarnesses: {claude}', () {
       final projectDir = Directory('${tmpDir.path}/project')..createSync();
       final claudeSkills = Directory('${projectDir.path}/.claude/skills')..createSync(recursive: true);
-      makeSkill(claudeSkills, 'review-code', name: 'andthen:review-code', description: 'Reviews code');
+      makeSkill(claudeSkills, 'review-code', name: 'dartclaw-review-code', description: 'Reviews code');
 
       final registry = makeRegistry();
       registry.discover(
@@ -51,7 +51,7 @@ void main() {
 
       final skills = registry.listAll();
       expect(skills.length, 1);
-      expect(skills.first.name, 'andthen:review-code');
+      expect(skills.first.name, 'dartclaw-review-code');
       expect(skills.first.source, SkillSource.projectClaude);
       expect(skills.first.nativeHarnesses, {'claude'});
       expect(skills.first.description, 'Reviews code');
@@ -287,7 +287,7 @@ void main() {
 
     test('filesystem built-in skills are discovered when builtInSkillsDir is provided', () {
       final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync(recursive: true);
-      makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code', description: 'Filesystem copy');
+      makeSkill(builtInDir, 'dartclaw-review', name: 'dartclaw-review', description: 'Filesystem copy');
       Directory('${builtInDir.path}/references').createSync(recursive: true);
 
       final registry = makeRegistry();
@@ -299,10 +299,10 @@ void main() {
         builtInSkillsDir: builtInDir.path,
       );
 
-      final skill = registry.getByName('dartclaw-review-code');
+      final skill = registry.getByName('dartclaw-review');
       expect(skill, isNotNull);
       expect(skill!.source, SkillSource.dartclaw);
-      expect(skill.path, p.join(builtInDir.path, 'dartclaw-review-code'));
+      expect(skill.path, p.join(builtInDir.path, 'dartclaw-review'));
       expect(skill.description, 'Filesystem copy');
       expect(skill.nativeHarnesses, isEmpty);
       expect(registry.getByName('references'), isNull);
@@ -311,11 +311,11 @@ void main() {
     test('managed project skill copies are skipped in favor of built-in source', () {
       final projectDir = Directory('${tmpDir.path}/project')..createSync();
       final claudeSkills = Directory('${projectDir.path}/.claude/skills')..createSync(recursive: true);
-      final managedCopy = makeSkill(claudeSkills, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      final managedCopy = makeSkill(claudeSkills, 'dartclaw-review', name: 'dartclaw-review');
       File('${managedCopy.path}/.dartclaw-managed').writeAsStringSync('{}');
 
       final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync();
-      makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      makeSkill(builtInDir, 'dartclaw-review', name: 'dartclaw-review');
 
       final registry = makeRegistry();
       registry.discover(
@@ -327,7 +327,7 @@ void main() {
         builtInSkillsDir: builtInDir.path,
       );
 
-      final skill = registry.getByName('dartclaw-review-code');
+      final skill = registry.getByName('dartclaw-review');
       expect(skill, isNotNull);
       expect(skill!.source, SkillSource.dartclaw);
     });
@@ -335,13 +335,13 @@ void main() {
     test('managed user skill copies are skipped in favor of built-in source', () {
       final userClaudeSkills = Directory('${tmpDir.path}/home/.claude/skills')..createSync(recursive: true);
       final userCodexSkills = Directory('${tmpDir.path}/home/.agents/skills')..createSync(recursive: true);
-      final managedClaudeCopy = makeSkill(userClaudeSkills, 'dartclaw-review-code', name: 'dartclaw-review-code');
-      final managedCodexCopy = makeSkill(userCodexSkills, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      final managedClaudeCopy = makeSkill(userClaudeSkills, 'dartclaw-review', name: 'dartclaw-review');
+      final managedCodexCopy = makeSkill(userCodexSkills, 'dartclaw-review', name: 'dartclaw-review');
       File('${managedClaudeCopy.path}/.dartclaw-managed').writeAsStringSync('{}');
       File('${managedCodexCopy.path}/.dartclaw-managed').writeAsStringSync('{}');
 
       final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync();
-      makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      makeSkill(builtInDir, 'dartclaw-review', name: 'dartclaw-review');
 
       final registry = makeRegistry();
       registry.discover(
@@ -352,7 +352,7 @@ void main() {
         builtInSkillsDir: builtInDir.path,
       );
 
-      final skill = registry.getByName('dartclaw-review-code');
+      final skill = registry.getByName('dartclaw-review');
       expect(skill, isNotNull);
       expect(skill!.source, SkillSource.dartclaw);
     });
@@ -360,10 +360,10 @@ void main() {
     test('project override without managed marker wins over built-in source', () {
       final projectDir = Directory('${tmpDir.path}/project')..createSync();
       final claudeSkills = Directory('${projectDir.path}/.claude/skills')..createSync(recursive: true);
-      makeSkill(claudeSkills, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      makeSkill(claudeSkills, 'dartclaw-review', name: 'dartclaw-review');
 
       final builtInDir = Directory('${tmpDir.path}/built-ins')..createSync();
-      makeSkill(builtInDir, 'dartclaw-review-code', name: 'dartclaw-review-code');
+      makeSkill(builtInDir, 'dartclaw-review', name: 'dartclaw-review');
 
       final registry = makeRegistry();
       registry.discover(
@@ -375,7 +375,7 @@ void main() {
         builtInSkillsDir: builtInDir.path,
       );
 
-      final skill = registry.getByName('dartclaw-review-code');
+      final skill = registry.getByName('dartclaw-review');
       expect(skill, isNotNull);
       expect(skill!.source, SkillSource.projectClaude);
       expect(skill.nativeHarnesses, {'claude'});
@@ -476,8 +476,8 @@ void main() {
 
     setUp(() {
       final wsSkills = Directory('${workspaceDir.path}/skills')..createSync();
-      makeSkill(wsSkills, 'review-code', name: 'andthen:review-code');
-      makeSkill(wsSkills, 'implement', name: 'andthen:implement');
+      makeSkill(wsSkills, 'review-code', name: 'dartclaw-review-code');
+      makeSkill(wsSkills, 'implement', name: 'custom-implement');
 
       registry = makeRegistry();
       registry.discover(
@@ -490,13 +490,13 @@ void main() {
     });
 
     test('validateRef for existing skill -> null (valid)', () {
-      expect(registry.validateRef('andthen:review-code'), isNull);
+      expect(registry.validateRef('dartclaw-review-code'), isNull);
     });
 
     test('validateRef for missing skill -> error message with available alternatives', () {
-      final error = registry.validateRef('andthen:unknown');
+      final error = registry.validateRef('dartclaw-unknown');
       expect(error, isNotNull);
-      expect(error, contains('andthen:unknown'));
+      expect(error, contains('dartclaw-unknown'));
       expect(error, contains('not found'));
     });
 
@@ -530,7 +530,7 @@ void main() {
     setUp(() {
       final projectDir = Directory('${tmpDir.path}/project')..createSync();
       final claudeSkills = Directory('${projectDir.path}/.claude/skills')..createSync(recursive: true);
-      makeSkill(claudeSkills, 'review-code', name: 'andthen:review-code');
+      makeSkill(claudeSkills, 'review-code', name: 'dartclaw-review-code');
 
       registry = makeRegistry();
       registry.discover(
@@ -544,11 +544,11 @@ void main() {
     });
 
     test('skill in claude harness -> true for "claude"', () {
-      expect(registry.isNativeFor('andthen:review-code', 'claude'), isTrue);
+      expect(registry.isNativeFor('dartclaw-review-code', 'claude'), isTrue);
     });
 
     test('skill in claude harness -> false for "codex"', () {
-      expect(registry.isNativeFor('andthen:review-code', 'codex'), isFalse);
+      expect(registry.isNativeFor('dartclaw-review-code', 'codex'), isFalse);
     });
 
     test('unknown skill -> false', () {

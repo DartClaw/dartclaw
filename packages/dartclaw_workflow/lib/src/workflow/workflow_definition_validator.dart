@@ -101,6 +101,7 @@ class WorkflowDefinitionValidator {
     _validateLoopStepOverlap(definition, errors);
     _validateLoopFinalizers(definition, errors);
     _validateStepDefaults(definition);
+    _validateGitStrategy(definition, errors);
     _validateOutputConfigs(definition, errors);
     _validateMapOverReferences(definition, errors);
     _validateMapStepConstraints(definition, errors);
@@ -417,6 +418,51 @@ class WorkflowDefinitionValidator {
           }
         }
       }
+    }
+  }
+
+  void _validateGitStrategy(WorkflowDefinition definition, List<ValidationError> errors) {
+    final strategy = definition.gitStrategy;
+    if (strategy == null) return;
+
+    const worktreeValues = {'shared', 'per-task', 'per-map-item'};
+    const promotionValues = {'merge', 'rebase', 'none'};
+    const cleanupValues = {'always', 'preserve-on-failure', 'never'};
+
+    final worktree = strategy.worktree;
+    if (worktree != null && !worktreeValues.contains(worktree)) {
+      errors.add(
+        ValidationError(
+          message:
+              'gitStrategy.worktree must be one of ${worktreeValues.join(', ')}; '
+              'received "$worktree".',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
+    final promotion = strategy.promotion;
+    if (promotion != null && !promotionValues.contains(promotion)) {
+      errors.add(
+        ValidationError(
+          message:
+              'gitStrategy.promotion must be one of ${promotionValues.join(', ')}; '
+              'received "$promotion".',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
+
+    final cleanup = strategy.cleanup;
+    if (cleanup != null && !cleanupValues.contains(cleanup)) {
+      errors.add(
+        ValidationError(
+          message:
+              'gitStrategy.cleanup must be one of ${cleanupValues.join(', ')}; '
+              'received "$cleanup".',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
     }
   }
 

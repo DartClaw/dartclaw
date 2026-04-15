@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw Validate"
+  short_description: "Run build, tests, analysis, and simplification checks"
+  default_prompt: "Use $dartclaw-validate to validate the completed implementation with build, test, static analysis, and simplification checks: "
+
+policy:
+  allow_implicit_invocation: true

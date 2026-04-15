@@ -352,6 +352,42 @@ void main() {
     expect(outputs['diff_changes'], contains('1 files changed'));
   });
 
+  test('derived outputs reuse fields from an earlier parsed JSON output', () async {
+    final session = await sessionService.getOrCreateMain();
+    await taskService.create(
+      id: 'task-session-json',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-session-json', sessionId: session.id);
+    final task = (await taskService.get('task-session-json'))!;
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: jsonEncode({
+        'pass': false,
+        'findings_count': 2,
+        'findings': [
+          {'severity': 'high', 'location': 'lib/a.dart:10', 'description': 'Issue A'},
+          {'severity': 'low', 'location': 'lib/b.dart:12', 'description': 'Issue B'},
+        ],
+        'summary': 'Two findings remain.',
+      }),
+    );
+
+    final step = makeStep(
+      contextOutputs: ['review_summary', 'findings_count'],
+      outputs: const {'review_summary': OutputConfig(format: OutputFormat.json, schema: 'verdict')},
+    );
+
+    final outputs = await extractor.extract(step, task);
+    expect(outputs['review_summary'], isA<Map<String, dynamic>>());
+    expect((outputs['review_summary'] as Map<String, dynamic>)['findings_count'], 2);
+    expect(outputs['findings_count'], 2);
+  });
+
   group('S04 (0.16.1): worktree source outputs', () {
     test('source: worktree.branch extracts branch from task.worktreeJson', () async {
       final task = await taskService.create(

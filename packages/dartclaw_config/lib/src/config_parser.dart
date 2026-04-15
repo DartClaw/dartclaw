@@ -2,8 +2,28 @@ part of 'dartclaw_config.dart';
 
 const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
 const _recognizedEfforts = <String>{'low', 'medium', 'high', 'max'};
-final _recognizedClaudeModels = RegExp(r'^(haiku|sonnet|opus)(\[[^\]]+\])?$', caseSensitive: false);
-const _recognizedCodexModels = <String>{'gpt-4o', 'gpt-5', 'gpt-5-mini', 'o1', 'o3', 'o4-mini'};
+final _recognizedClaudeModels = RegExp(
+  r'^(default|haiku|sonnet|opus|opusplan)(\[[^\]]+\])?$|^(claude-[a-z0-9][a-z0-9.\-]*|anthropic\.claude-[a-z0-9.\-]+(@[a-z0-9.\-]+)?)$',
+  caseSensitive: false,
+);
+const _recognizedCodexModels = <String>{
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-5-codex',
+  'gpt-5.3-codex',
+  'gpt-5.2-codex',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'codex-mini-latest',
+  'o1',
+  'o3',
+  'o4-mini',
+};
 
 const _knownKeys = {
   'port',
@@ -280,7 +300,20 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
     }
     final modelVal = agentMap['model'];
     if (modelVal is String) {
-      model = modelVal;
+      final shorthand = ProviderIdentity.parseProviderModelShorthand(modelVal);
+      if (shorthand != null) {
+        model = shorthand.model;
+        if (providerVal == null) {
+          provider = shorthand.provider;
+        } else if (ProviderIdentity.normalize(provider) != shorthand.provider) {
+          warns.add(
+            'agent.model shorthand provider "${shorthand.provider}" conflicts with agent.provider '
+            '"${ProviderIdentity.normalize(provider)}" — using agent.provider',
+          );
+        }
+      } else {
+        model = modelVal;
+      }
     } else if (modelVal != null) {
       warns.add('Invalid type for agent.model: "${modelVal.runtimeType}" — ignoring');
     }

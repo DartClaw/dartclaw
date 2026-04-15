@@ -57,9 +57,7 @@ class ProjectServiceImpl implements ProjectService {
   /// Does NOT include `_local` (accessed via [getLocalProject]).
   final Map<String, Project> _projects = {};
 
-  /// In-flight fetch completers, keyed by project ID.
-  ///
-  /// Prevents concurrent fetches on the same project.
+  /// In-flight fetch/validation completers, keyed by project+ref+strictness.
   final Map<String, Completer<void>> _fetchInFlight = {};
 
   /// The implicit _local project (ephemeral, not persisted).
@@ -249,10 +247,14 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   @override
-  Future<void> ensureFresh(Project project) async {
+  Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {
+    final effectiveRef = ref?.trim();
+    final bypassCooldown = effectiveRef != null && effectiveRef.isNotEmpty;
+    final inFlightKey = _fetchInFlightKey(project.id, effectiveRef, strict);
+
     // Cooldown check.
     final lastFetch = project.lastFetchAt;
-    if (lastFetch != null) {
+    if (!bypassCooldown && lastFetch != null) {
       final elapsed = DateTime.now().difference(lastFetch);
       if (elapsed < Duration(minutes: _fetchCooldownMinutes)) {
         _log.fine(
@@ -263,8 +265,8 @@ class ProjectServiceImpl implements ProjectService {
       }
     }
 
-    // Per-project lock: wait for in-flight fetch if one exists.
-    final existing = _fetchInFlight[project.id];
+    // Ref-aware lock: wait for in-flight fetch/validation for the same target.
+    final existing = _fetchInFlight[inFlightKey];
     if (existing != null) {
       _log.fine('Fetch already in flight for "${project.name}" — waiting');
       await existing.future;
@@ -272,33 +274,44 @@ class ProjectServiceImpl implements ProjectService {
     }
 
     final completer = Completer<void>();
-    _fetchInFlight[project.id] = completer;
+    _fetchInFlight[inFlightKey] = completer;
+    // Prevent unhandled async errors when strict mode fails without concurrent waiters.
+    unawaited(completer.future.catchError((_) {}));
 
     try {
       if (project.id == '_local') {
-        await _fetchLocal(project);
+        await _fetchLocal(project, ref: effectiveRef, strict: strict);
       } else {
-        await _fetchExternal(project);
+        await _fetchExternal(project, ref: effectiveRef, strict: strict);
       }
       completer.complete();
     } catch (e) {
+      if (strict) {
+        completer.completeError(e);
+        rethrow;
+      }
       _log.warning('Fetch failed for "${project.name}": $e — proceeding with local state');
       completer.complete(); // Complete normally — fetch failure is best-effort.
     } finally {
-      _fetchInFlight.remove(project.id);
+      _fetchInFlight.remove(inFlightKey);
     }
   }
 
-  Future<void> _fetchExternal(Project project) async {
+  Future<void> _fetchExternal(Project project, {String? ref, bool strict = false}) async {
+    final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
     final env = _resolveGitEnv(project.remoteUrl, project.credentialsRef);
     final result = await _gitRunner(
-      ['fetch', 'origin', project.defaultBranch],
+      ['fetch', 'origin', targetRef],
       environment: env,
       workingDirectory: project.localPath,
     );
 
     if (result.exitCode != 0) {
-      _log.warning('git fetch failed for "${project.name}": ${result.stderr}');
+      final message = 'git fetch failed for "${project.name}" (ref: $targetRef): ${result.stderr}';
+      if (strict) {
+        throw StateError(message);
+      }
+      _log.warning(message);
       return; // Best-effort — proceed with local state.
     }
 
@@ -306,10 +319,23 @@ class ProjectServiceImpl implements ProjectService {
     final updated = project.copyWith(lastFetchAt: DateTime.now());
     _projects[project.id] = updated;
     await _persist();
-    _log.info('Fetched latest for "${project.name}" (branch: ${project.defaultBranch})');
+    _log.info('Fetched latest for "${project.name}" (ref: $targetRef)');
   }
 
-  Future<void> _fetchLocal(Project project) async {
+  Future<void> _fetchLocal(Project project, {String? ref, bool strict = false}) async {
+    if (ref != null && ref.isNotEmpty) {
+      if (await _refExistsNonDestructively(project.localPath, ref)) {
+        _log.info('Validated _local ref "$ref" without mutating the working tree');
+        return;
+      }
+      final message = 'Ref "$ref" not found in _local repository';
+      if (strict) {
+        throw StateError(message);
+      }
+      _log.warning(message);
+      return;
+    }
+
     // For _local: attempt fetch + fast-forward merge.
     final fetchResult = await _gitRunner(['fetch', 'origin'], workingDirectory: project.localPath);
 
@@ -334,6 +360,40 @@ class ProjectServiceImpl implements ProjectService {
     }
 
     _log.info('Fast-forwarded _local project to origin/${project.defaultBranch}');
+  }
+
+  String _normalizeExternalRef(String? ref, {required String defaultBranch}) {
+    if (ref == null || ref.isEmpty) return defaultBranch;
+    if (ref.startsWith('origin/')) {
+      final trimmed = ref.substring('origin/'.length).trim();
+      return trimmed.isEmpty ? defaultBranch : trimmed;
+    }
+    return ref;
+  }
+
+  Future<bool> _refExistsNonDestructively(String workingDirectory, String ref) async {
+    final candidates = <String>{ref};
+    if (!ref.startsWith('origin/') && !ref.startsWith('refs/')) {
+      candidates.add('origin/$ref');
+    }
+    for (final candidate in candidates) {
+      final result = await _gitRunner([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        candidate,
+      ], workingDirectory: workingDirectory);
+      if (result.exitCode == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _fetchInFlightKey(String projectId, String? ref, bool strict) {
+    final normalizedRef = (ref == null || ref.isEmpty) ? '<default>' : ref;
+    final strictness = strict ? 'strict' : 'best-effort';
+    return '$projectId::$normalizedRef::$strictness';
   }
 
   @override

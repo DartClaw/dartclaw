@@ -127,6 +127,24 @@ loops:
     finally: fin-a
 ''';
 
+const _gitStrategyYaml = '''
+name: git-strategy-workflow
+description: Workflow with reusable git strategy
+gitStrategy:
+  bootstrap: true
+  worktree: shared
+  quickReview: true
+  promotion: merge
+  finalReview: true
+  publish:
+    enabled: true
+  cleanup: preserve-on-failure
+steps:
+  - id: step-1
+    name: Step One
+    prompt: Do something
+''';
+
 void main() {
   late WorkflowDefinitionParser parser;
 
@@ -206,6 +224,22 @@ void main() {
       final definition = parser.parse(_legacyLoopsNormalizationYaml);
       expect(definition.loops.map((loop) => loop.id).toList(), equals(['loop-a', 'loop-b']));
       expect(definition.nodes.whereType<LoopNode>().map((node) => node.loopId).toList(), equals(['loop-a', 'loop-b']));
+    });
+
+    test('parses reusable gitStrategy blocks for user-authored workflows', () {
+      final definition = parser.parse(_gitStrategyYaml);
+      expect(
+        definition.toJson()['gitStrategy'],
+        equals({
+          'bootstrap': true,
+          'worktree': 'shared',
+          'quickReview': true,
+          'promotion': 'merge',
+          'finalReview': true,
+          'publish': {'enabled': true},
+          'cleanup': 'preserve-on-failure',
+        }),
+      );
     });
 
     test('parses review field: always, coding-only, never', () {
@@ -722,11 +756,11 @@ description: d
 steps:
   - id: s
     name: S
-    skill: andthen:review-code
+    skill: dartclaw-review-code
     prompt: Also do this.
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].skill, 'andthen:review-code');
+      expect(def.steps[0].skill, 'dartclaw-review-code');
       expect(def.steps[0].prompt, 'Also do this.');
     });
 
@@ -737,10 +771,10 @@ description: d
 steps:
   - id: s
     name: S
-    skill: andthen:review-code
+    skill: dartclaw-review-code
 ''';
       final def = parser.parse(yaml);
-      expect(def.steps[0].skill, 'andthen:review-code');
+      expect(def.steps[0].skill, 'dartclaw-review-code');
       expect(def.steps[0].prompt, isNull);
       expect(def.steps[0].prompts, isNull);
     });

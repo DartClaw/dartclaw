@@ -43,7 +43,12 @@ class ConfigSerializer {
       'baseUrl': config.server.baseUrl,
       'workerTimeout': config.server.workerTimeout,
       'memoryMaxBytes': config.memory.maxBytes,
-      'agent': {'model': config.agent.model, 'effort': config.agent.effort, 'maxTurns': config.agent.maxTurns},
+      'agent': {
+        'provider': config.agent.provider,
+        'model': config.agent.model,
+        'effort': config.agent.effort,
+        'maxTurns': config.agent.maxTurns,
+      },
       'advisor': {
         'enabled': config.advisor.enabled,
         'model': config.advisor.model,
@@ -154,6 +159,27 @@ class ConfigSerializer {
           'taskBoard': config.canvas.workshopMode.taskBoard,
           'showContributorStats': config.canvas.workshopMode.showContributorStats,
           'showBudgetBar': config.canvas.workshopMode.showBudgetBar,
+        },
+      },
+      'workflow': {
+        'workspaceDir': config.workflow.workspaceDir,
+        'defaults': {
+          'workflow': {
+            'provider': config.workflow.defaults.workflow.provider,
+            'model': config.workflow.defaults.workflow.model,
+          },
+          'planner': {
+            'provider': config.workflow.defaults.planner.provider,
+            'model': config.workflow.defaults.planner.model,
+          },
+          'executor': {
+            'provider': config.workflow.defaults.executor.provider,
+            'model': config.workflow.defaults.executor.model,
+          },
+          'reviewer': {
+            'provider': config.workflow.defaults.reviewer.provider,
+            'model': config.workflow.defaults.reviewer.model,
+          },
         },
       },
       'channels': {

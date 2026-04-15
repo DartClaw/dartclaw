@@ -234,6 +234,45 @@ void main() {
         expect(worktreeCall.arguments, contains('origin/develop'));
       });
 
+      test('create() with project honors explicit baseRef overrides', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'develop',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await manager.create('task-1', project: project, baseRef: 'origin/release/0.16');
+
+        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        expect(worktreeCall.arguments, contains('origin/release/0.16'));
+        expect(worktreeCall.arguments, isNot(contains('origin/develop')));
+      });
+
+      test('create() with project normalizes raw branch overrides to remote-tracking refs', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'develop',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await manager.create('task-1', project: project, baseRef: 'release/0.16');
+
+        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        expect(worktreeCall.arguments, contains('origin/release/0.16'));
+      });
+
       test('create() with project uses single-step git worktree add -b', () async {
         final project = Project(
           id: 'my-app',

@@ -1,71 +1,62 @@
-# DartClaw Structured Output Protocols
+# Structured Output Protocols
 
-Use these protocols whenever a workflow step needs to surface ambiguity, missing input, or partial confidence without pausing for interactive clarification.
+Named communication formats for common situations during implementation. Use these when you encounter ambiguity, scope boundaries, or missing requirements — they surface uncertainty to the user rather than hiding it.
+
 
 ## CONFUSION
 
-Use when the available context conflicts or the target cannot be resolved safely.
+When requirements are ambiguous or contradict existing patterns, surface it with options:
 
-Format:
-
-```text
+```
 CONFUSION:
-- What conflicts: ...
-- Why it matters: ...
-- What would resolve it: ...
+[description of the ambiguity]
+
+Options:
+A) [first approach]
+B) [second approach]
+C) Ask [stakeholder/user]
+
+-> Which approach?
 ```
 
-Use this instead of guessing when two valid interpretations lead to different outputs.
+**Why**: Prevents silent guessing. A wrong guess costs more than a 30-second pause.
+
 
 ## NOTICED BUT NOT TOUCHING
 
-Use when you observe a relevant issue, but it is outside the current scope.
+When you discover issues outside the current scope, surface them without acting:
 
-Format:
-
-```text
+```
 NOTICED BUT NOT TOUCHING:
-- Observation: ...
-- Why it is out of scope: ...
-- Suggested follow-up: ...
+- [issue] (unrelated to this task)
+- [issue] (out of scope)
+-> Want me to create tasks for these?
 ```
 
-Use this to keep the main deliverable focused while still preserving useful signal.
+The inverse — documenting intentional non-changes:
+
+```
+THINGS I DIDN'T TOUCH (intentionally):
+- [file/issue]: [why it was left alone]
+```
+
+**Why**: Prevents scope creep while preserving information. Issues surfaced now can be addressed later; issues silently ignored are lost.
+
 
 ## MISSING REQUIREMENT
 
-Use when the request depends on information that is not available in the current context.
+When behavior is undefined and a decision is needed before implementation can proceed:
 
-Format:
-
-```text
+```
 MISSING REQUIREMENT:
-- Missing input: ...
-- Impact on execution: ...
-- Best current assumption: ...
+[what is undefined — e.g., "duplicate title behavior not specified"]
+
+Options:
+A) [concrete option]
+B) [concrete option]
+C) [concrete option]
+
+-> Which behavior?
 ```
 
-Use this when the correct next step is to continue with a clearly labeled assumption.
-
-## ASSUMPTION
-
-Use when the workflow must proceed and the missing detail can be handled conservatively.
-
-Format:
-
-```text
-ASSUMPTION:
-- Assumed value: ...
-- Why this assumption is safe enough: ...
-- How to validate later: ...
-```
-
-Use assumptions sparingly. A good assumption should be explicit, narrow, and easy to revoke later.
-
-## Guidance
-
-- Keep each block short and machine-readable.
-- Prefer one concrete issue per block.
-- Do not bury uncertainty inside long prose.
-- If a block needs more than a few bullets, the underlying problem likely needs to be split.
-
+**Why**: Makes implicit requirements explicit. Every undefined behavior the model invents is a silent assumption that may be wrong.

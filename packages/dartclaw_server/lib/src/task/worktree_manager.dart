@@ -106,7 +106,7 @@ class WorktreeManager {
   ///
   /// Throws [GitNotFoundException] if git is not available.
   /// Throws [WorktreeException] on git failure (with stderr output).
-  Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project}) async {
+  Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project, bool createBranch = true}) async {
     await _ensureGitAvailable();
 
     final effectiveProjectDir = project?.localPath ?? _projectDir;
@@ -117,16 +117,15 @@ class WorktreeManager {
     await Directory(_worktreesDir).create(recursive: true);
 
     if (project != null) {
-      // Project-backed: single-step worktree creation from remote tracking ref.
-      final effectiveBaseRef = 'origin/${project.defaultBranch}';
-      final worktreeResult = await _runProcess('git', [
-        'worktree',
-        'add',
-        worktreePath,
-        '-b',
-        branch,
-        effectiveBaseRef,
-      ], workingDirectory: effectiveProjectDir);
+      // Project-backed: create from remote tracking ref by default.
+      final requestedBaseRef = (baseRef != null && baseRef.trim().isNotEmpty)
+          ? baseRef.trim()
+          : 'origin/${project.defaultBranch}';
+      final effectiveBaseRef = _normalizeProjectBaseRef(requestedBaseRef, project.defaultBranch);
+      final args = createBranch
+          ? ['worktree', 'add', worktreePath, '-b', branch, effectiveBaseRef]
+          : ['worktree', 'add', worktreePath, effectiveBaseRef];
+      final worktreeResult = await _runProcess('git', args, workingDirectory: effectiveProjectDir);
       if (worktreeResult.exitCode != 0) {
         throw WorktreeException(
           'Failed to create worktree at $worktreePath',
@@ -134,27 +133,29 @@ class WorktreeManager {
           exitCode: worktreeResult.exitCode,
         );
       }
+      if (!createBranch) {
+        _log.info('Attached worktree $worktreePath to existing ref $effectiveBaseRef');
+      }
     } else {
       // Local fallback: two-step branch + worktree creation.
       final ref = baseRef ?? _baseRef;
-      final branchResult = await _runProcess('git', ['branch', branch, ref], workingDirectory: effectiveProjectDir);
-      if (branchResult.exitCode != 0) {
-        throw WorktreeException(
-          'Failed to create branch $branch from $ref',
-          gitStderr: (branchResult.stderr as String).trim(),
-          exitCode: branchResult.exitCode,
-        );
+      if (createBranch) {
+        final branchResult = await _runProcess('git', ['branch', branch, ref], workingDirectory: effectiveProjectDir);
+        if (branchResult.exitCode != 0) {
+          throw WorktreeException(
+            'Failed to create branch $branch from $ref',
+            gitStderr: (branchResult.stderr as String).trim(),
+            exitCode: branchResult.exitCode,
+          );
+        }
       }
-
-      final worktreeResult = await _runProcess('git', [
-        'worktree',
-        'add',
-        worktreePath,
-        branch,
-      ], workingDirectory: effectiveProjectDir);
+      final worktreeArgs = createBranch ? ['worktree', 'add', worktreePath, branch] : ['worktree', 'add', worktreePath, ref];
+      final worktreeResult = await _runProcess('git', worktreeArgs, workingDirectory: effectiveProjectDir);
       if (worktreeResult.exitCode != 0) {
-        // Clean up the branch if worktree creation fails
-        await _runProcess('git', ['branch', '--delete', branch], workingDirectory: effectiveProjectDir);
+        if (createBranch) {
+          // Clean up the branch if worktree creation fails
+          await _runProcess('git', ['branch', '--delete', branch], workingDirectory: effectiveProjectDir);
+        }
         throw WorktreeException(
           'Failed to create worktree at $worktreePath',
           gitStderr: (worktreeResult.stderr as String).trim(),
@@ -163,13 +164,24 @@ class WorktreeManager {
       }
     }
 
-    final info = WorktreeInfo(path: worktreePath, branch: branch, createdAt: DateTime.now());
+    final info = WorktreeInfo(
+      path: worktreePath,
+      branch: createBranch ? branch : ((baseRef != null && baseRef.trim().isNotEmpty) ? baseRef.trim() : branch),
+      createdAt: DateTime.now(),
+    );
     _worktrees[taskId] = info;
     _log.info(
       'Created worktree for task $taskId at $worktreePath '
       '(branch: $branch, project: ${project?.id ?? "_local"})',
     );
     return info;
+  }
+
+  String _normalizeProjectBaseRef(String ref, String defaultBranch) {
+    final trimmed = ref.trim();
+    if (trimmed.isEmpty) return 'origin/$defaultBranch';
+    if (trimmed.startsWith('origin/') || trimmed.startsWith('refs/')) return trimmed;
+    return 'origin/$trimmed';
   }
 
   /// Removes worktree directory and deletes the branch.

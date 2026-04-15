@@ -1,4 +1,7 @@
 interface:
   display_name: "DartClaw Plan"
-  short_description: "Decompose requirements into executable stories"
-  default_prompt: "Use $dartclaw-plan to turn requirements into a workflow-safe story plan, surfacing assumptions and open questions instead of blocking."
+  short_description: "Create a PRD and story plan"
+  default_prompt: "Use $dartclaw-plan to turn the provided requirements into a PRD-backed implementation plan."
+
+policy:
+  allow_implicit_invocation: true

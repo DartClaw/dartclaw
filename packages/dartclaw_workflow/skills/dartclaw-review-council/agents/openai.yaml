@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw Review Council"
+  short_description: "Run an adversarial multi-reviewer pass"
+  default_prompt: "Use $dartclaw-review-council to run an adversarial multi-reviewer code review on the provided scope."
+
+policy:
+  allow_implicit_invocation: true

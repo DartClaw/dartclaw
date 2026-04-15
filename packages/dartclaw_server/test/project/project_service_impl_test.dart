@@ -487,6 +487,23 @@ void main() {
       expect(fetchCall, contains('main'));
     });
 
+    test('fetch for external project honors explicit ref override', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await svc.ensureFresh(makeReadyProject(), ref: 'release/0.16', strict: true);
+
+      final fetchCall = commands.firstWhere((c) => c.isNotEmpty && c[0] == 'fetch', orElse: () => []);
+      expect(fetchCall, contains('release/0.16'));
+      expect(fetchCall, isNot(contains('main')));
+    });
+
     test('does not throw on fetch failure — best-effort', () async {
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
@@ -534,6 +551,43 @@ void main() {
       await svc.initialize();
 
       await expectLater(svc.ensureFresh(svc.getLocalProject()), completes);
+    });
+
+    test('_local explicit ref validates non-destructively (no merge)', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          if (args.isNotEmpty && args.first == 'rev-parse') {
+            return (exitCode: 0, stderr: '', stdout: 'abc123');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await svc.ensureFresh(svc.getLocalProject(), ref: 'release/0.16', strict: true);
+
+      expect(commands, anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'rev-parse')));
+      expect(commands, isNot(anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'merge'))));
+      expect(commands, isNot(anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'fetch'))));
+    });
+
+    test('_local explicit ref throws in strict mode when ref is missing', () async {
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          if (args.isNotEmpty && args.first == 'rev-parse') {
+            return (exitCode: 1, stderr: 'unknown revision', stdout: '');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      await expectLater(
+        svc.ensureFresh(svc.getLocalProject(), ref: 'missing/ref', strict: true),
+        throwsA(isA<StateError>()),
+      );
     });
 
     test('does not fetch within cooldown window (existing test)', () async {
@@ -586,6 +640,38 @@ void main() {
 
       // Only one fetch should have run — the second waited on the in-flight Completer.
       expect(fetchCallCount, equals(1));
+    });
+
+    test('concurrent ensureFresh calls with different refs do not share in-flight validation', () async {
+      final calls = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          calls.add(args);
+          if (args.isNotEmpty && args.first == 'fetch' && args.contains('release/0.16')) {
+            await Future<void>.delayed(const Duration(milliseconds: 15));
+            return (exitCode: 0, stderr: '', stdout: '');
+          }
+          if (args.isNotEmpty && args.first == 'fetch' && args.contains('missing/ref')) {
+            return (exitCode: 1, stderr: 'fatal: invalid ref', stdout: '');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = makeReadyProject();
+      final releaseCall = svc.ensureFresh(project, ref: 'release/0.16', strict: true);
+      final missingCall = svc.ensureFresh(project, ref: 'missing/ref', strict: true);
+      final missingHandled = missingCall.then<Object?>((_) => null).catchError((error) => error);
+
+      await expectLater(releaseCall, completes);
+      final missingError = await missingHandled;
+      expect(missingError, isA<StateError>());
+
+      final fetchCalls = calls.where((args) => args.isNotEmpty && args.first == 'fetch').toList();
+      expect(fetchCalls, hasLength(2));
+      expect(fetchCalls.any((args) => args.contains('release/0.16')), isTrue);
+      expect(fetchCalls.any((args) => args.contains('missing/ref')), isTrue);
     });
   });
 }

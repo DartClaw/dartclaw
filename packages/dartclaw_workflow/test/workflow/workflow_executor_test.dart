@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -12,6 +13,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         OutputConfig,
         OutputFormat,
+        SessionService,
         StepConfigDefault,
         Task,
         TaskStatus,
@@ -25,6 +27,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowDefinitionParser,
+        WorkflowGitPublishResult,
+        WorkflowGitPublishStrategy,
+        WorkflowGitStrategy,
         WorkflowExecutor,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -234,6 +239,40 @@ void main() {
     expect(capturedDescriptions[1], contains('Key findings about the topic.'));
   });
 
+  test('failed first-prompt steps still persist token usage before pause', () async {
+    final definition = makeDefinition(
+      steps: [
+        const WorkflowStep(id: 'step1', name: 'Failing Step', prompts: ['Do the failing step']),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final sessionService = SessionService(baseDir: sessionsDir);
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await taskService.get(e.taskId);
+      if (task == null) return;
+
+      final session = await sessionService.createSession(type: SessionType.task);
+      await taskService.updateFields(task.id, sessionId: session.id);
+      await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 7}));
+      await taskService.transition(task.id, TaskStatus.running, trigger: 'test');
+      await taskService.transition(task.id, TaskStatus.failed, trigger: 'test');
+    });
+
+    final context = WorkflowContext();
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = await repository.getById(run.id);
+    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.totalTokens, equals(7));
+    expect(context['step1.status'], equals('failed'));
+    expect(context['step1.tokenCount'], equals(7));
+  });
+
   test('task description includes required output format for explicit json schema', () async {
     final definition = makeDefinition(
       steps: [
@@ -299,6 +338,62 @@ void main() {
     expect(capturedDescription, contains('Write the specification.'));
     expect(capturedConfigJson?['_workflowWorkspaceDir'], workflowWorkspaceDir);
     expect(File(p.join(workflowWorkspaceDir, 'AGENTS.md')).existsSync(), isTrue);
+  });
+
+  test('deterministic publish writes publish.* outputs when enabled', () async {
+    final publishExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+      ),
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+            WorkflowGitPublishResult(
+              status: 'success',
+              branch: branch,
+              remote: 'origin',
+              prUrl: 'https://example.test/pr/123',
+            ),
+      ),
+    );
+
+    final definition = WorkflowDefinition(
+      name: 'publish-only',
+      description: 'No steps, publish only',
+      gitStrategy: const WorkflowGitStrategy(publish: WorkflowGitPublishStrategy(enabled: true)),
+      steps: const [],
+    );
+
+    final run = WorkflowRun(
+      id: 'publish-run',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'},
+      definitionJson: definition.toJson(),
+    );
+    await repository.insert(run);
+
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'});
+    await publishExecutor.execute(run, definition, context);
+
+    final finalRun = await repository.getById(run.id);
+    expect(finalRun?.status, WorkflowRunStatus.completed);
+    expect(context['publish.status'], 'success');
+    expect(context['publish.branch'], 'feature/test');
+    expect(context['publish.remote'], 'origin');
+    expect(context['publish.pr_url'], 'https://example.test/pr/123');
   });
 
   test('step failure pauses workflow', () async {

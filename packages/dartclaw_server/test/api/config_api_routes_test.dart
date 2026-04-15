@@ -1211,6 +1211,40 @@ workspace:
       expect(json['pendingRestart'], isNot(contains('concurrency.max_parallel_turns')));
     });
 
+    test('workflow model shorthand patch also writes the sibling provider field', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final router = createRouterWithNotifier(notifier);
+
+      final response = await patch(router, '/api/config', {'workflow.defaults.reviewer.model': 'codex/gpt-5-codex'});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['pendingRestart'], contains('workflow.defaults.reviewer.model'));
+      expect(json['pendingRestart'], contains('workflow.defaults.reviewer.provider'));
+
+      final written = File(configPath).readAsStringSync();
+      expect(written, contains('reviewer:'));
+      expect(written, contains('provider: codex'));
+      expect(written, contains('model: gpt-5-codex'));
+    });
+
+    test('agent model shorthand patch also writes agent.provider', () async {
+      final notifier = ConfigNotifier(const DartclawConfig.defaults());
+      final router = createRouterWithNotifier(notifier);
+
+      final response = await patch(router, '/api/config', {'agent.model': 'codex/gpt-5.4'});
+
+      expect(response.statusCode, 200);
+      final json = await readJson(response);
+      expect(json['pendingRestart'], contains('agent.model'));
+      expect(json['pendingRestart'], contains('agent.provider'));
+
+      final written = File(configPath).readAsStringSync();
+      expect(written, contains('agent:'));
+      expect(written, contains('provider: codex'));
+      expect(written, contains('model: gpt-5.4'));
+    });
+
     test('ConfigNotifier.reload() failure falls back to pendingRestart', () async {
       // Use _ThrowingConfigNotifier to simulate a reload() failure.
       final throwingRouter = _buildRouterWithThrowingNotifier(configPath, dataDir);

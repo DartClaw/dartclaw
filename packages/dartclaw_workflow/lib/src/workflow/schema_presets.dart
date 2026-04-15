@@ -17,6 +17,7 @@ class SchemaPreset {
 /// Lookup by name: `schemaPresets['verdict']`.
 const schemaPresets = <String, SchemaPreset>{
   'verdict': verdictPreset,
+  'remediation-result': remediationResultPreset,
   'story-plan': storyPlanPreset,
   'file-list': fileListPreset,
   'checklist': checklistPreset,
@@ -99,6 +100,23 @@ const storyPlanPreset = SchemaPreset(
 - dependencies (array of strings): IDs of stories this depends on
 - key_files (array of strings): Primary files affected
 - effort (string): "small", "medium", or "large"
+
+Output the JSON directly — do not wrap in markdown code fences.''',
+);
+
+const remediationResultPreset = SchemaPreset(
+  name: 'remediation-result',
+  schema: {
+    'type': 'object',
+    'required': ['remediation_summary', 'diff_summary'],
+    'properties': {
+      'remediation_summary': {'type': 'string'},
+      'diff_summary': {'type': 'string'},
+    },
+  },
+  promptFragment: '''Produce your final output as a JSON object with these fields:
+- remediation_summary (string): What was re-validated and changed
+- diff_summary (string): A concise summary of the resulting code diff
 
 Output the JSON directly — do not wrap in markdown code fences.''',
 );

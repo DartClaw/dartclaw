@@ -106,6 +106,19 @@ class DependencyGraph {
     }
   }
 
+  /// Returns dependency IDs that are declared but not present in the collection.
+  Set<String> unknownDependencyIds() {
+    final unknown = <String>{};
+    for (final depIds in _deps.values) {
+      for (final depId in depIds) {
+        if (!_idToIndex.containsKey(depId)) {
+          unknown.add(depId);
+        }
+      }
+    }
+    return unknown;
+  }
+
   /// Returns indices of items that are ready to dispatch given [completed] item IDs.
   ///
   /// An item is ready when all its declared dependencies are in [completed].

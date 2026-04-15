@@ -35,6 +35,7 @@ class WorkflowDefinitionParser {
       nodes: WorkflowDefinition.normalizeNodes(parsedSteps.steps, loops),
       maxTokens: yaml['maxTokens'] as int?,
       stepDefaults: _parseStepDefaults(yaml['stepDefaults'], sourcePath),
+      gitStrategy: _parseGitStrategy(yaml['gitStrategy'], sourcePath),
     );
   }
 
@@ -361,6 +362,31 @@ class WorkflowDefinitionParser {
       maxIterations: raw['maxIterations'] as int,
       exitGate: (raw['exitGate'] as String?) ?? '',
       finally_: raw['finally'] as String?,
+    );
+  }
+
+  WorkflowGitStrategy? _parseGitStrategy(Object? raw, String? sourcePath) {
+    if (raw == null) return null;
+    if (raw is! YamlMap) {
+      throw FormatException('Field "gitStrategy" must be a mapping${_at(sourcePath)}.');
+    }
+    final publishRaw = raw['publish'];
+    WorkflowGitPublishStrategy? publish;
+    if (publishRaw != null) {
+      if (publishRaw is! YamlMap) {
+        throw FormatException('Field "gitStrategy.publish" must be a mapping${_at(sourcePath)}.');
+      }
+      publish = WorkflowGitPublishStrategy(enabled: publishRaw['enabled'] as bool?);
+    }
+
+    return WorkflowGitStrategy(
+      bootstrap: raw['bootstrap'] as bool?,
+      worktree: raw['worktree'] as String?,
+      quickReview: raw['quickReview'] as bool?,
+      promotion: raw['promotion'] as String?,
+      finalReview: raw['finalReview'] as bool?,
+      publish: publish,
+      cleanup: raw['cleanup'] as String?,
     );
   }
 

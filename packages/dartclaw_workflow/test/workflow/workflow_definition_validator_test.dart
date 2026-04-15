@@ -598,6 +598,49 @@ void main() {
     });
   });
 
+  group('S16b: gitStrategy validation', () {
+    test('valid gitStrategy passes validation', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: 'shared',
+          quickReview: true,
+          promotion: 'merge',
+          finalReview: true,
+          publish: WorkflowGitPublishStrategy(enabled: true),
+          cleanup: 'preserve-on-failure',
+        ),
+      );
+      expect(validator.validate(def).errors, isEmpty);
+    });
+
+    test('invalid gitStrategy enum-like values produce validation errors', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: 'invalid-worktree',
+          promotion: 'invalid-promotion',
+          cleanup: 'invalid-cleanup',
+        ),
+      );
+
+      final errors = validator.validate(def).errors;
+      expect(errors, hasLength(3));
+      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.worktree'));
+      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.promotion'));
+      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.cleanup'));
+    });
+  });
+
   group('skill validation (S04)', () {
     WorkflowDefinition makeSkillDef(WorkflowStep step, {String name = 'wf', String description = 'd'}) {
       return WorkflowDefinition(name: name, description: description, steps: [step]);
@@ -674,10 +717,10 @@ void main() {
         if (userClaudeSkillsDir.existsSync()) userClaudeSkillsDir.deleteSync(recursive: true);
       });
 
-      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review-code'))..createSync(recursive: true);
+      final skillDir = Directory(p.join(userClaudeSkillsDir.path, 'dartclaw-review'))..createSync(recursive: true);
       File(
         p.join(skillDir.path, 'SKILL.md'),
-      ).writeAsStringSync('---\nname: dartclaw-review-code\ndescription: Filesystem review skill\n---\n\n# review');
+      ).writeAsStringSync('---\nname: dartclaw-review\ndescription: Filesystem review skill\n---\n\n# review');
 
       final registry = SkillRegistryImpl();
       registry.discover(
@@ -690,7 +733,7 @@ void main() {
 
       final validator = WorkflowDefinitionValidator()..skillRegistry = registry;
       final def = makeSkillDef(
-        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review-code', provider: 'claude', prompts: ['p']),
+        const WorkflowStep(id: 's', name: 'S', skill: 'dartclaw-review', provider: 'claude', prompts: ['p']),
       );
 
       expect(validator.validate(def).errors, isEmpty);

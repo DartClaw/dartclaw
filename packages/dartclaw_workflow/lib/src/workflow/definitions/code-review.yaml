@@ -1,8 +1,7 @@
 name: code-review
 description: >-
-  Deterministic code-review workflow — discover the project, extract a diff,
-  gather context, run one comprehensive review phase, and iterate
-  remediation/re-review up to a bounded limit.
+  Review and remediate a pull request, branch, or code area with a single
+  review methodology and a bounded remediation loop.
 variables:
   TARGET:
     required: true
@@ -19,19 +18,33 @@ variables:
     required: false
     description: Base branch to diff against when using a branch review
     default: "main"
-  REPO:
-    required: false
-    description: GitHub repository slug (owner/repo) used for PR diffs
-    default: ""
   PROJECT:
     required: false
     description: Target project for remediation steps (omit for default project)
 
+gitStrategy:
+  bootstrap: false
+  worktree: shared
+  quickReview: false
+  promotion: none
+  finalReview: true
+  publish:
+    enabled: false
+  cleanup: always
+
 stepDefaults:
-  - match: "review*"
-    model: claude-opus-4
+  - match: "*validate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
-    provider: claude
+    provider: "@workflow"
+    model: "@workflow"
 
 steps:
   - id: discover-project
@@ -58,132 +71,30 @@ steps:
             state_protocol:
               type: object
 
-  - id: extract-diff
-    name: Extract Diff
-    type: bash
-    workdir: "{{context.project_index.project_root}}"
-    prompt: |
-      # ASSUMPTION: the target repository is available at the discovered project root.
-      # CUSTOMIZATION: adjust the diff command for non-GitHub forges or alternate
-      # review conventions if needed.
-      pr_number=$(cat <<'__DARTCLAW_PR_NUMBER__'
-      {{PR_NUMBER}}
-      __DARTCLAW_PR_NUMBER__
-      )
-      branch=$(cat <<'__DARTCLAW_BRANCH__'
-      {{BRANCH}}
-      __DARTCLAW_BRANCH__
-      )
-      base_branch=$(cat <<'__DARTCLAW_BASE_BRANCH__'
-      {{BASE_BRANCH}}
-      __DARTCLAW_BASE_BRANCH__
-      )
-      repo=$(cat <<'__DARTCLAW_REPO__'
-      {{REPO}}
-      __DARTCLAW_REPO__
-      )
-
-      {
-        printf 'Target: %s\n' "{{TARGET}}"
-        printf 'Project root: %s\n' "$PWD"
-        printf 'Base branch: %s\n' "$base_branch"
-        if [ -n "$pr_number" ]; then
-          printf 'Source: PR #%s\n' "$pr_number"
-          REPO_FLAG=""
-          if [ -n "$repo" ]; then
-            REPO_FLAG="--repo $repo"
-          fi
-          gh pr view "$pr_number" $REPO_FLAG --json files --jq '.files[].path' | sort -u | sed 's/^/- /'
-          printf '\n---\n'
-          gh pr diff "$pr_number" $REPO_FLAG --patch
-        elif [ -n "$branch" ]; then
-          printf 'Source: branch %s\n' "$branch"
-          git fetch origin "$base_branch" 2>/dev/null || true
-          git diff --name-only "origin/$base_branch...$branch" | sed 's/^/- /'
-          printf '\n---\n'
-          git diff "origin/$base_branch...$branch"
-        else
-          printf 'Source: current HEAD\n'
-          git fetch origin "$base_branch" 2>/dev/null || true
-          git diff --name-only "origin/$base_branch...HEAD" | sed 's/^/- /'
-          printf '\n---\n'
-          git diff "origin/$base_branch...HEAD"
-        fi
-      }
-    contextOutputs: [diff_summary]
-    outputs:
-      diff_summary:
-        format: text
-    onError: fail
-
-  - id: gather-context
-    name: Gather Context
-    type: research
-    prompt: |
-      Use the review context to prepare the reviewer.
-
-      Target:
-      {{TARGET}}
-
-      Project index:
-      {{context.project_index}}
-
-      Diff summary:
-      {{context.diff_summary}}
-
-      Summarize:
-      - The purpose of the change
-      - The modules and tests most likely affected
-      - The documentation or state files that may be relevant
-      - Any project-specific constraints that reviewers should keep in mind
-      End with `## Context Output` and a JSON object containing:
-      - review_context
-      - affected_files
-    contextInputs: [project_index, diff_summary]
-    contextOutputs: [review_context, affected_files]
-    gate: "extract-diff.status == success"
-
   - id: review-code
     name: Review Code
     type: analysis
-    skill: dartclaw-review-code
+    skill: dartclaw-review
     prompt: |
-      Target:
-      {{TARGET}}
-
+      Target: {{TARGET}}
+      Mode: code
+      PR number: {{PR_NUMBER}}
+      Branch: {{BRANCH}}
+      Base branch: {{BASE_BRANCH}}
       Project index:
       {{context.project_index}}
-
-      Review context:
-      {{context.review_context}}
-
-      Affected files:
-      {{context.affected_files}}
-
-      Diff summary:
-      {{context.diff_summary}}
-
-      Cover all review dimensions in one pass:
-      - correctness and regressions
-      - security and unsafe defaults
-      - architecture, maintainability, and coupling
-
-      End with `## Context Output` and a JSON object containing:
-      - review_summary
-      - findings_count
-    contextInputs: [project_index, review_context, affected_files, diff_summary]
+    contextInputs: [project_index]
     contextOutputs: [review_summary, findings_count]
     outputs:
       review_summary:
         format: json
         schema: verdict
-    gate: "gather-context.status == accepted"
 
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -192,49 +103,71 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          Project index:
-          {{context.project_index}}
-
           Review summary:
           {{context.review_summary}}
+          Validation summary:
+          {{context.validation_summary}}
+          Project index:
+          {{context.project_index}}
+        contextInputs: [project_index, review_summary, validation_summary]
+        contextOutputs: [remediation_result, remediation_summary, diff_summary]
+        outputs:
+          remediation_result:
+            format: json
+            schema: remediation-result
 
-          If no remediation is needed, say so plainly.
-          End with `## Context Output` and a JSON object containing:
-          - remediation_summary
-          - diff_summary
-        contextInputs: [project_index, review_summary]
-        contextOutputs: [remediation_summary, diff_summary]
+      - id: validate
+        name: Validate Remediation
+        type: coding
+        skill: dartclaw-validate
+        project: "{{PROJECT}}"
+        review: never
+        prompt: |
+          Target: {{TARGET}}
+          PR number: {{PR_NUMBER}}
+          Branch: {{BRANCH}}
+          Base branch: {{BASE_BRANCH}}
+          Project index:
+          {{context.project_index}}
+          Original review summary:
+          {{context.review_summary}}
+          Remediation summary:
+          {{context.remediation_summary}}
+          Updated diff summary:
+          {{context.diff_summary}}
+
+          Run build, tests, static analysis, and simplification checks after remediation.
+          If the project has no runnable test surface, skip tests and say so explicitly.
+
+          For workflow handoff, end with `## Context Output` and a JSON object with:
+          - validation_summary
+          - findings_count
+          - validate.findings_count
+        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
+        contextOutputs: [validation_summary, findings_count, validate.findings_count]
 
       - id: re-review
         name: Re-review
         type: analysis
-        skill: dartclaw-review-code
+        skill: dartclaw-review
         prompt: |
-          Target:
-          {{TARGET}}
-
+          Target: {{TARGET}}
+          Mode: code
+          PR number: {{PR_NUMBER}}
+          Branch: {{BRANCH}}
+          Base branch: {{BASE_BRANCH}}
           Project index:
           {{context.project_index}}
-
           Original review summary:
           {{context.review_summary}}
-
+          Validation summary:
+          {{context.validation_summary}}
           Remediation summary:
           {{context.remediation_summary}}
-
           Updated diff summary:
           {{context.diff_summary}}
-
-          Cover the same review dimensions as the initial review:
-          - correctness and regressions
-          - security and unsafe defaults
-          - architecture, maintainability, and coupling
-
-          End with `## Context Output` and a JSON object containing:
-          - review_summary
-          - findings_count
-        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-        contextOutputs: [review_summary, findings_count]
+        contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
+        contextOutputs: [review_summary, findings_count, re-review.findings_count]
         outputs:
           review_summary:
             format: json

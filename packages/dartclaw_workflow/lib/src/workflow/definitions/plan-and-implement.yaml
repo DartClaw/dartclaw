@@ -10,18 +10,50 @@ variables:
   PROJECT:
     required: false
     description: Project ID for worktree isolation
+  BRANCH:
+    required: false
+    description: Base branch/ref used for workflow bootstrap and comparisons
+    default: "main"
   MAX_PARALLEL:
     required: false
     description: Max parallel story executions
     default: "2"
 
+gitStrategy:
+  bootstrap: true
+  worktree: per-map-item
+  quickReview: true
+  promotion: merge
+  finalReview: true
+  publish:
+    enabled: true
+  cleanup: preserve-on-failure
+
 stepDefaults:
+  - match: "plan"
+    provider: "@planner"
+    model: "@planner"
+  - match: "spec"
+    provider: "@planner"
+    model: "@planner"
   - match: "implement*"
-    provider: claude
-  - match: "review*"
-    model: claude-opus-4
+    provider: "@executor"
+    model: "@executor"
+  - match: "*validate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate"
+    provider: "@executor"
+    model: "@executor"
+  - match: "update-state"
+    provider: "@executor"
+    model: "@executor"
   - match: "*"
-    provider: claude
+    provider: "@workflow"
+    model: "@workflow"
 
 steps:
   - id: discover-project
@@ -124,36 +156,30 @@ steps:
       story_result:
         format: text
 
-  - id: review
-    name: Review Stories
-    type: analysis
-    skill: dartclaw-review-code
-    map_over: stories
-    max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
+  - id: validate
+    name: Validate Batch
+    type: coding
+    skill: dartclaw-validate
+    project: "{{PROJECT}}"
+    review: never
     prompt: |
-      Story {{map.display_index}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
-
-      Story spec:
-      {{context.story_spec[map.index]}}
-
-      Implementation result:
-      {{context.story_result[map.index]}}
-
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
+      Requirements:
+      {{REQUIREMENTS}}
 
       Project index:
       {{context.project_index}}
 
-      Focus: correctness, security, performance, and spec compliance.
-    contextInputs: [project_index, stories, story_spec, story_result]
-    contextOutputs: [review_result]
-    outputs:
-      review_result:
-        format: json
-        schema: verdict
+      Story implementations:
+      {{context.story_result}}
+
+      Run build, tests, static analysis, and simplification checks across the merged implementation result.
+      If the project has no runnable test surface, skip tests and say so explicitly.
+
+      End with `## Context Output` and a JSON object containing:
+      - validation_summary
+      - findings_count
+    contextInputs: [project_index, story_result]
+    contextOutputs: [validation_summary, findings_count]
 
   - id: synthesize
     name: Synthesize Stories
@@ -176,8 +202,8 @@ steps:
       Story implementations:
       {{context.story_result}}
 
-      Story reviews:
-      {{context.review_result}}
+      Validation summary:
+      {{context.validation_summary}}
 
       Summarize:
       - Which stories are complete
@@ -190,14 +216,14 @@ steps:
       - implementation_summary
       - remediation_plan
       - needs_remediation
-    contextInputs: [project_index, stories, story_spec, story_result, review_result]
+    contextInputs: [project_index, stories, story_spec, story_result, validation_summary, findings_count]
     contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
 
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -215,23 +241,53 @@ steps:
           Story implementations:
           {{context.story_result}}
 
-          Story reviews:
-          {{context.review_result}}
+          Validation summary:
+          {{context.validation_summary}}
 
           If no remediation is needed, say so plainly.
           End with `## Context Output` and a JSON object containing:
           - remediation_summary
           - diff_summary
-        contextInputs: [project_index, remediation_plan, story_result, review_result]
+        contextInputs: [project_index, remediation_plan, story_result, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
+
+      - id: re-validate
+        name: Re-validate Batch
+        type: coding
+        skill: dartclaw-validate
+        project: "{{PROJECT}}"
+        review: never
+        prompt: |
+          Requirements:
+          {{REQUIREMENTS}}
+
+          Project index:
+          {{context.project_index}}
+
+          Remediation summary:
+          {{context.remediation_summary}}
+
+          Updated diff summary:
+          {{context.diff_summary}}
+
+          Run build, tests, static analysis, and simplification checks after remediation.
+          If the project has no runnable test surface, skip tests and say so explicitly.
+
+          End with `## Context Output` and a JSON object containing:
+          - validation_summary
+          - findings_count
+          - re-validate.findings_count
+        contextInputs: [project_index, remediation_summary, diff_summary]
+        contextOutputs: [validation_summary, findings_count, re-validate.findings_count]
 
       - id: re-review
         name: Re-review Batch
         type: analysis
-        skill: dartclaw-review-gap
+        skill: dartclaw-review
         prompt: |
           Requirements:
           {{REQUIREMENTS}}
+          Mode: gap
 
           Project index:
           {{context.project_index}}
@@ -242,6 +298,9 @@ steps:
           Original implementation summary:
           {{context.implementation_summary}}
 
+          Re-validation summary:
+          {{context.validation_summary}}
+
           Remediation summary:
           {{context.remediation_summary}}
 
@@ -249,9 +308,11 @@ steps:
           {{context.diff_summary}}
 
           For workflow handoff, end with `## Context Output` and a JSON object containing:
+          - remediation_plan
           - findings_count
-        contextInputs: [project_index, stories, implementation_summary, remediation_summary, diff_summary]
-        contextOutputs: [findings_count]
+          - re-review.findings_count
+        contextInputs: [project_index, stories, implementation_summary, validation_summary, remediation_summary, diff_summary]
+        contextOutputs: [remediation_plan, findings_count, re-review.findings_count]
 
   - id: update-state
     name: Update State

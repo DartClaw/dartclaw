@@ -7,18 +7,18 @@ void main() {
 
   group('SkillPromptBuilder.build', () {
     test('skill + prompt -> skill line + blank line + prompt', () {
-      final result = builder.build(skill: 'andthen:review-code', resolvedPrompt: 'Review this file.');
-      expect(result, "Use the 'andthen:review-code' skill.\n\nReview this file.");
+      final result = builder.build(skill: 'dartclaw-review-code', resolvedPrompt: 'Review this file.');
+      expect(result, "Use the 'dartclaw-review-code' skill.\n\nReview this file.");
     });
 
     test('skill + no prompt + contextSummary -> skill line + Context section', () {
-      final result = builder.build(skill: 'andthen:review-code', contextSummary: '- findings: some findings');
-      expect(result, "Use the 'andthen:review-code' skill.\n\nContext:\n- findings: some findings");
+      final result = builder.build(skill: 'dartclaw-review-code', contextSummary: '- findings: some findings');
+      expect(result, "Use the 'dartclaw-review-code' skill.\n\nContext:\n- findings: some findings");
     });
 
     test('skill + no prompt + no context -> skill line only', () {
-      final result = builder.build(skill: 'andthen:review-code');
-      expect(result, "Use the 'andthen:review-code' skill.");
+      final result = builder.build(skill: 'dartclaw-review-code');
+      expect(result, "Use the 'dartclaw-review-code' skill.");
     });
 
     test('no skill + prompt -> passthrough', () {
@@ -38,11 +38,11 @@ void main() {
 
     test('skill + prompt + schema -> skill line + prompt + Required Output Format', () {
       final result = builder.build(
-        skill: 'andthen:review-code',
+        skill: 'dartclaw-review-code',
         resolvedPrompt: 'Review this.',
         outputs: {'result': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
       );
-      expect(result, contains("Use the 'andthen:review-code' skill."));
+      expect(result, contains("Use the 'dartclaw-review-code' skill."));
       expect(result, contains('Review this.'));
       expect(result, contains('## Required Output Format'));
     });

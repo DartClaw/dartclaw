@@ -35,6 +35,7 @@ void main() {
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;
+      expect(agent['provider'], 'claude');
       expect(agent['model'], isNull);
       expect(agent['maxTurns'], isNull);
       expect(agent['effort'], isNull);
@@ -84,6 +85,15 @@ void main() {
       final governance = json['governance'] as Map<String, dynamic>;
       expect(governance['queueStrategy'], 'fifo');
       expect((governance['crowdCoding'] as Map<String, dynamic>)['model'], isNull);
+
+      final workflow = json['workflow'] as Map<String, dynamic>;
+      expect(workflow['workspaceDir'], isNull);
+      expect(workflow['defaults'], {
+        'workflow': {'provider': 'claude', 'model': null},
+        'planner': {'provider': null, 'model': null},
+        'executor': {'provider': null, 'model': null},
+        'reviewer': {'provider': null, 'model': 'claude-opus-4'},
+      });
     });
 
     test('gateway.token masked as "***" when non-null', () {
@@ -95,6 +105,32 @@ void main() {
       expect(gateway['token'], '***');
       expect(gateway['authMode'], 'token');
       expect(gateway['hsts'], false);
+    });
+
+    test('workflow defaults serialize configured role overrides', () {
+      final config = const DartclawConfig(
+        workflow: WorkflowConfig(
+          workspaceDir: '/tmp/workflow-space',
+          defaults: WorkflowRoleDefaultsConfig(
+            workflow: WorkflowRoleModelConfig(provider: 'codex', model: 'gpt-5'),
+            planner: WorkflowRoleModelConfig(model: 'gpt-5-thinking'),
+            executor: WorkflowRoleModelConfig(provider: 'claude'),
+            reviewer: WorkflowRoleModelConfig(provider: 'codex', model: 'gpt-5.4'),
+          ),
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      expect(json['workflow'], {
+        'workspaceDir': '/tmp/workflow-space',
+        'defaults': {
+          'workflow': {'provider': 'codex', 'model': 'gpt-5'},
+          'planner': {'provider': null, 'model': 'gpt-5-thinking'},
+          'executor': {'provider': 'claude', 'model': null},
+          'reviewer': {'provider': 'codex', 'model': 'gpt-5.4'},
+        },
+      });
     });
 
     test('gateway.hsts is serialized', () {

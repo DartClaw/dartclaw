@@ -431,6 +431,7 @@ class DartclawServer {
       showMemory: visibility.showMemory,
       showScheduling: visibility.showScheduling,
       showTasks: visibility.showTasks,
+      showCanvas: canvasService != null,
       showWorkflows: workflowService != null,
       projectService: projectService,
     );

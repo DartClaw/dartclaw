@@ -490,6 +490,61 @@ void main() {
     expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
   });
 
+  test('spec-and-implement discovery prompt excludes authored feature text', () async {
+    const feature = 'FEATURE_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'feature/discovery-baseline'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+          ),
+          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
+          ),
+          'integrated-review' => _StubResponse(
+            assistantContent: _verdictJson(findingsCount: 0, summary: 'review accepted'),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          'refactor-re-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'VALID_AGAIN',
+              'findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final discover = trace.tasksForStep('discover-project').single.description;
+    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch: feature/discovery-baseline'));
+    expect(discover, isNot(contains(feature)));
+  });
+
   test(
     'spec-and-implement integration enters remediation when refactor-validate finds issues and exits after refactor-re-validation',
     () async {
@@ -758,6 +813,91 @@ void main() {
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
 
+  test('plan-and-implement discovery prompt excludes authored requirements text', () async {
+    const requirements = 'REQUIREMENTS_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': requirements,
+        'PROJECT': 'demo-project',
+        'BRANCH': 'feature/discovery-baseline',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: jsonEncode([
+              {
+                'id': 'S01',
+                'title': 'Minimal Story',
+                'description': 'Verify discover prompt scope',
+                'acceptance_criteria': ['discover prompt stays narrow'],
+                'type': 'coding',
+                'dependencies': <String>[],
+                'key_files': ['README.md'],
+                'effort': 'small',
+              },
+            ]),
+          ),
+          'spec' => _StubResponse(assistantContent: _contextOutput({'story_spec': 'STORY_SPEC'})),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'STORY_RESULT'}),
+            worktreeJson: {
+              'branch': 'story-branch',
+              'path': '/tmp/worktrees/story-branch',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'runtime-quick-review' => _StubResponse(
+            assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
+          ),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
+          ),
+          'synthesize' => _StubResponse(
+            assistantContent: _contextOutput({
+              'implementation_summary': 'complete',
+              'remediation_plan': 'none',
+              'needs_remediation': false,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          'refactor-re-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'PLAN_REVALIDATED',
+              'findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_plan': 'No further remediation',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final discover = trace.tasksForStep('discover-project').single.description;
+    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch: feature/discovery-baseline'));
+    expect(discover, isNot(contains(requirements)));
+  });
+
   test(
     'plan-and-implement integration enters remediation when validation finds issues and exits after re-validation',
     () async {
@@ -1003,6 +1143,70 @@ void main() {
       expect(trace.tasksForStep('refactor-validate').single.configJson.containsKey('readOnly'), isFalse);
     },
   );
+
+  test('code-review discovery prompt excludes authored target text', () async {
+    const target = 'TARGET_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'code-review.yaml',
+      variables: {
+        'TARGET': target,
+        'BRANCH': 'feature/discovery-baseline',
+        'PR_NUMBER': '42',
+        'BASE_BRANCH': 'main',
+        'PROJECT': 'demo-project',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'review-code' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
+              'findings_count': 0,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_result': jsonEncode({
+                'remediation_summary': 'No remediation needed',
+                'diff_summary': 'No diff',
+              }),
+              'remediation_summary': 'No remediation needed',
+              'diff_summary': 'No diff',
+            }),
+          ),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'Validation is clean',
+              'findings_count': 0,
+              'refactor-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final discover = trace.tasksForStep('discover-project').single.description;
+    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch: feature/discovery-baseline'));
+    expect(discover, contains('Base branch: main'));
+    expect(discover, contains('PR number: 42'));
+    expect(discover, isNot(contains(target)));
+  });
 
   test(
     'code-review integration keeps looping until both refactor-validate and re-review findings reach zero',

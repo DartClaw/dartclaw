@@ -59,7 +59,7 @@ steps:
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     prompt: |
-      Feature: {{FEATURE}}
+      Purpose: discover the target project boundary and normalize project metadata for a later spec-and-implement run.
       Branch: {{BRANCH}}
       This step is read-only discovery only. Do not implement the feature or edit files.
     contextOutputs: [project_index]

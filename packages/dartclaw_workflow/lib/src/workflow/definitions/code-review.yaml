@@ -54,8 +54,10 @@ steps:
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     prompt: |
-      Target:
-      {{TARGET}}
+      Purpose: discover the target project boundary and normalize project metadata for a later code-review run.
+      Branch: {{BRANCH}}
+      Base branch: {{BASE_BRANCH}}
+      PR number: {{PR_NUMBER}}
       This step is read-only discovery only. Do not remediate or edit files.
     contextOutputs: [project_index]
     outputs:

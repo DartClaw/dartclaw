@@ -241,6 +241,24 @@ void main() {
     });
   });
 
+  group('dashboard registration', () {
+    test('registers canvas admin route when canvas service is configured', () async {
+      server =
+          (DartclawServerBuilder()
+                ..sessions = sessions
+                ..messages = messages
+                ..worker = worker
+                ..staticDir = _staticDir()
+                ..behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test')
+                ..canvasService = CanvasService())
+              .build();
+
+      final response = await server.handler(Request('GET', Uri.parse('http://localhost/canvas-admin')));
+
+      expect(response.statusCode, equals(200));
+    });
+  });
+
   group('registerDashboardPage', () {
     test('serves registered page routes and adds them to sidebar nav', () async {
       server.registerDashboardPage(_TestDashboardPage());

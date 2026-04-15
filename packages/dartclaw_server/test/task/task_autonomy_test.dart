@@ -338,6 +338,24 @@ void main() {
       expect(filter.allowedTools, isNull);
     });
 
+    test('TurnRunner.setTaskReadOnly toggles read-only mode on the guard', () {
+      final filter = TaskToolFilterGuard()..readOnly = false;
+
+      final runner = TurnRunner(
+        harness: worker,
+        messages: messages,
+        behavior: BehaviorFileService(workspaceDir: workspaceDir),
+        sessions: sessions,
+        taskToolFilterGuard: filter,
+      );
+
+      runner.setTaskReadOnly(true);
+      expect(filter.readOnly, isTrue);
+
+      runner.setTaskReadOnly(false);
+      expect(filter.readOnly, isFalse);
+    });
+
     test('TurnRunner.setTaskToolFilter is a no-op when no guard is present', () {
       final runner = TurnRunner(
         harness: worker,
@@ -406,6 +424,53 @@ void main() {
       expect((await tasks.get('task-malformed-filter'))!.status, TaskStatus.review);
       // Guard should be null (cleared after turn).
       expect(filter.allowedTools, isNull);
+    });
+
+    test('read-only mode blocks mutating shell commands', () async {
+      final guard = TaskToolFilterGuard()..readOnly = true;
+
+      final verdict = await guard.evaluate(
+        GuardContext(
+          hookPoint: 'beforeToolCall',
+          toolName: 'shell',
+          toolInput: const {'command': 'touch docs/generated.md'},
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      expect(verdict.isBlock, isTrue);
+      expect(verdict.message, contains('read-only'));
+    });
+
+    test('read-only mode allows non-mutating shell commands', () async {
+      final guard = TaskToolFilterGuard()..readOnly = true;
+
+      final verdict = await guard.evaluate(
+        GuardContext(
+          hookPoint: 'beforeToolCall',
+          toolName: 'shell',
+          toolInput: const {'command': 'find docs -maxdepth 2 -type f'},
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      expect(verdict.isPass, isTrue);
+    });
+
+    test('read-only mode blocks file edit tools even without an allowlist', () async {
+      final guard = TaskToolFilterGuard()..readOnly = true;
+
+      final verdict = await guard.evaluate(
+        GuardContext(
+          hookPoint: 'beforeToolCall',
+          toolName: 'file_edit',
+          toolInput: const {'path': 'docs/generated.md'},
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      expect(verdict.isBlock, isTrue);
+      expect(verdict.message, contains('read-only'));
     });
   });
 }

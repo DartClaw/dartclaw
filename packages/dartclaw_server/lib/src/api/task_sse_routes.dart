@@ -57,6 +57,20 @@ Router taskSseRoutes(
 }) {
   final router = Router();
 
+  router.get('/api/tasks/sidebar-state', (Request request) async {
+    final reviewTasks = await tasks.list(status: TaskStatus.review);
+    final payload = <String, dynamic>{
+      'reviewCount': reviewTasks.length,
+      'activeTasks': await _buildActiveTasks(tasks),
+      if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
+    };
+
+    return Response.ok(
+      jsonEncode(payload),
+      headers: {'Content-Type': 'application/json'},
+    );
+  });
+
   router.get('/api/tasks/events', (Request request) async {
     final controller = StreamController<List<int>>();
 
@@ -92,7 +106,7 @@ Router taskSseRoutes(
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
       final reviewCount = (await tasks.list(status: TaskStatus.review)).length;
       final activeTasks = await _buildActiveTasks(tasks);
-      final data = jsonEncode({
+      final payload = <String, dynamic>{
         'type': 'task_status_changed',
         'taskId': event.taskId,
         'oldStatus': event.oldStatus.name,
@@ -100,7 +114,9 @@ Router taskSseRoutes(
         'trigger': event.trigger,
         'reviewCount': reviewCount,
         'activeTasks': activeTasks,
-      });
+        if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
+      };
+      final data = jsonEncode(payload);
       if (!controller.isClosed) {
         controller.add(utf8.encode('data: $data\n\n'));
       }

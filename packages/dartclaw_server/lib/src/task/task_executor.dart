@@ -112,6 +112,7 @@ class TaskExecutor {
   Future<bool>? _inFlightPoll;
   bool _isSpawning = false;
   final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
+  final Set<String> _runnerWaitLoggedTaskIds = <String>{};
 
   void start() {
     if (_timer != null) return;
@@ -170,10 +171,11 @@ class TaskExecutor {
         }
 
         final profile = resolveProfile(task.type);
-        final runner = _acquirePoolRunner(profile, provider: task.provider);
+        final runner = _acquirePoolRunnerForTask(task, profile);
         if (runner == null) {
           continue;
         }
+        _runnerWaitLoggedTaskIds.remove(task.id);
 
         final runnerIndex = _pool.indexOf(runner);
         final runningTask = await _checkout(task);
@@ -309,6 +311,7 @@ class TaskExecutor {
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,
       setTaskToolFilter: runner.setTaskToolFilter,
+      setTaskReadOnly: runner.setTaskReadOnly,
     );
   }
 
@@ -337,6 +340,7 @@ class TaskExecutor {
       executeTurn: _turns.executeTurn,
       waitForOutcome: _turns.waitForOutcome,
       setTaskToolFilter: _turns.setTaskToolFilter,
+      setTaskReadOnly: _turns.setTaskReadOnly,
     );
   }
 
@@ -365,6 +369,7 @@ class TaskExecutor {
     executeTurn,
     required Future<TurnOutcome> Function(String sessionId, String turnId) waitForOutcome,
     void Function(List<String>?)? setTaskToolFilter,
+    void Function(bool)? setTaskReadOnly,
   }) async {
     var task = runningTask;
     WorktreeInfo? worktreeInfo;
@@ -517,6 +522,9 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
+      final projectDir = (project != null && project.id != '_local') ? project.localPath : null;
+      final turnDirectory = worktreeInfo?.path ?? projectDir;
+
       // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
       final workflowWorkspaceDir = task.configJson['_workflowWorkspaceDir'] as String?;
@@ -524,15 +532,16 @@ class TaskExecutor {
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workflowWorkspaceDir,
+          projectDir: projectDir,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
           identifierInstructions: _identifierInstructions,
         );
-      } else if (project != null && project.id != '_local' && workspaceDir != null) {
+      } else if (projectDir != null && workspaceDir != null) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workspaceDir,
-          projectDir: project.localPath,
+          projectDir: projectDir,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
@@ -541,6 +550,7 @@ class TaskExecutor {
       }
 
       setTaskToolFilter?.call(_allowedTools(task));
+      setTaskReadOnly?.call(_isReadOnlyTask(task));
 
       // Determine prompt scope for this task turn.
       // Restricted profile gets tools-only; all other tasks get the lean task
@@ -556,7 +566,7 @@ class TaskExecutor {
 
       final turnId = await reserveTurn(
         session.id,
-        directory: worktreeInfo?.path,
+        directory: turnDirectory,
         model: modelOverride,
         effort: effortOverride,
         behaviorOverride: taskBehavior,
@@ -673,6 +683,7 @@ class TaskExecutor {
     } finally {
       // Clear per-task tool filter to prevent stale state on the next task.
       setTaskToolFilter?.call(null);
+      setTaskReadOnly?.call(false);
     }
   }
 
@@ -701,12 +712,51 @@ class TaskExecutor {
     }
   }
 
-  TurnRunner? _acquirePoolRunner(String profile, {String? provider}) {
+  TurnRunner? _acquirePoolRunnerForTask(Task task, String profile) {
+    final provider = task.provider;
     if (provider != null) {
       if (!_pool.hasTaskRunnerForProvider(provider)) {
+        final provisioning = _isSpawning || _pool.spawnableCount > 0;
+        _logRunnerWaitOnce(
+          task,
+          provisioning
+              ? 'Task ${task.id} (${task.title}) is queued while provisioning a task runner for provider '
+                    '"$provider". Available providers: ${_pool.taskProviders.join(', ')}'
+              : 'Task ${task.id} (${task.title}) is queued but no task runner is configured for provider '
+                    '"$provider". Available providers: ${_pool.taskProviders.join(', ')}',
+          level: provisioning ? Level.INFO : Level.WARNING,
+        );
         return null;
       }
-      return _pool.tryAcquireForProviderAndProfile(provider, profile);
+
+      final exactMatch = _pool.tryAcquireForProviderAndProfile(provider, profile);
+      if (exactMatch != null) {
+        return exactMatch;
+      }
+
+      // When container isolation is disabled, the task pool only exposes the
+      // workspace profile. Research tasks still resolve to the logical
+      // restricted profile, so fall back to the workspace runner for the
+      // selected provider instead of leaving the task queued forever.
+      if (profile != 'workspace' && _pool.taskProfiles.length == 1 && _pool.taskProfiles.contains('workspace')) {
+        final workspaceFallback = _pool.tryAcquireForProvider(provider);
+        if (workspaceFallback != null) {
+          if (_runnerWaitLoggedTaskIds.add(task.id)) {
+            _log.info(
+              'Task ${task.id} (${task.title}) requested profile "$profile" for provider "$provider", '
+              'but only workspace task runners are available. Falling back to the workspace runner.',
+            );
+          }
+          return workspaceFallback;
+        }
+      }
+
+      _logRunnerWaitOnce(
+        task,
+        'Task ${task.id} (${task.title}) is queued waiting for an idle task runner for provider '
+        '"$provider" in profile "$profile". Available profiles: ${_pool.taskProfiles.join(', ')}',
+      );
+      return null;
     }
     if (_pool.hasTaskRunnerForProfile(profile)) {
       return _pool.tryAcquireForProfile(profile);
@@ -715,6 +765,12 @@ class TaskExecutor {
       return _pool.tryAcquire();
     }
     return null;
+  }
+
+  void _logRunnerWaitOnce(Task task, String message, {Level level = Level.WARNING}) {
+    if (_runnerWaitLoggedTaskIds.add(task.id)) {
+      _log.log(level, message);
+    }
   }
 
   void _triggerSpawn() {
@@ -847,6 +903,8 @@ class TaskExecutor {
       return null;
     }
   }
+
+  bool _isReadOnlyTask(Task task) => task.configJson['readOnly'] == true;
 
   String? _reviewMode(Task task) {
     final raw = task.configJson['reviewMode'];

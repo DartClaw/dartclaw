@@ -118,10 +118,14 @@ class WorktreeManager {
 
     if (project != null) {
       // Project-backed: create from remote tracking ref by default.
-      final requestedBaseRef = (baseRef != null && baseRef.trim().isNotEmpty)
-          ? baseRef.trim()
-          : 'origin/${project.defaultBranch}';
-      final effectiveBaseRef = _normalizeProjectBaseRef(requestedBaseRef, project.defaultBranch);
+      final hasExplicitBaseRef = baseRef != null && baseRef.trim().isNotEmpty;
+      final requestedBaseRef = hasExplicitBaseRef ? baseRef.trim() : 'origin/${project.defaultBranch}';
+      final effectiveBaseRef = await _resolveProjectBaseRef(
+        requestedBaseRef: requestedBaseRef,
+        defaultBranch: project.defaultBranch,
+        workingDirectory: effectiveProjectDir,
+        preserveLocalRef: hasExplicitBaseRef,
+      );
       final args = createBranch
           ? ['worktree', 'add', worktreePath, '-b', branch, effectiveBaseRef]
           : ['worktree', 'add', worktreePath, effectiveBaseRef];
@@ -149,7 +153,9 @@ class WorktreeManager {
           );
         }
       }
-      final worktreeArgs = createBranch ? ['worktree', 'add', worktreePath, branch] : ['worktree', 'add', worktreePath, ref];
+      final worktreeArgs = createBranch
+          ? ['worktree', 'add', worktreePath, branch]
+          : ['worktree', 'add', worktreePath, ref];
       final worktreeResult = await _runProcess('git', worktreeArgs, workingDirectory: effectiveProjectDir);
       if (worktreeResult.exitCode != 0) {
         if (createBranch) {
@@ -177,11 +183,30 @@ class WorktreeManager {
     return info;
   }
 
-  String _normalizeProjectBaseRef(String ref, String defaultBranch) {
+  Future<String> _resolveProjectBaseRef({
+    required String requestedBaseRef,
+    required String defaultBranch,
+    required String workingDirectory,
+    required bool preserveLocalRef,
+  }) async {
+    final ref = requestedBaseRef;
     final trimmed = ref.trim();
     if (trimmed.isEmpty) return 'origin/$defaultBranch';
     if (trimmed.startsWith('origin/') || trimmed.startsWith('refs/')) return trimmed;
+    if (preserveLocalRef && trimmed != defaultBranch && await _localRefExists(trimmed, workingDirectory)) {
+      return trimmed;
+    }
     return 'origin/$trimmed';
+  }
+
+  Future<bool> _localRefExists(String ref, String workingDirectory) async {
+    final result = await _runProcess('git', [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      ref,
+    ], workingDirectory: workingDirectory);
+    return result.exitCode == 0;
   }
 
   /// Removes worktree directory and deletes the branch.

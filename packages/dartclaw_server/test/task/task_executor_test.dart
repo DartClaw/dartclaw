@@ -968,6 +968,52 @@ void main() {
       expect(capturing.lastPromptScope, PromptScope.task);
       expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
     });
+
+    test('project-backed workflow research task runs in the project directory', () async {
+      worker.responseText = 'Done.';
+      final projectService = FakeProjectService(
+        projects: [
+          Project(
+            id: 'my-app',
+            name: 'My App',
+            remoteUrl: 'git@github.com:acme/my-app.git',
+            localPath: '/projects/my-app',
+            defaultBranch: 'main',
+            status: ProjectStatus.ready,
+            createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+          ),
+        ],
+        includeLocalProjectInGetAll: false,
+        defaultProjectId: 'my-app',
+      );
+      final projectExecutor = TaskExecutor(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        turns: capturing,
+        artifactCollector: collector,
+        projectService: projectService,
+        pollInterval: const Duration(milliseconds: 10),
+      );
+      addTearDown(projectExecutor.stop);
+
+      await tasks.create(
+        id: 'task-scope-project-research',
+        title: 'Workflow research task',
+        description: 'Should inspect the target project, not the host workspace.',
+        type: TaskType.research,
+        projectId: 'my-app',
+        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
+        autoStart: true,
+      );
+      await projectExecutor.pollOnce();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(capturing.lastPromptScope, PromptScope.task);
+      expect(capturing.lastBehaviorOverride?.workspaceDir, workflowWorkspaceDir);
+      expect(capturing.lastBehaviorOverride?.projectDir, '/projects/my-app');
+      expect(capturing.lastDirectory, '/projects/my-app');
+    });
   });
 }
 
@@ -1094,6 +1140,8 @@ class _CapturingTurnManager extends TurnManager {
 
   BehaviorFileService? lastBehaviorOverride;
 
+  String? lastDirectory;
+
   @override
   Iterable<String> get activeSessionIds => const <String>[];
 
@@ -1109,6 +1157,7 @@ class _CapturingTurnManager extends TurnManager {
     BehaviorFileService? behaviorOverride,
     PromptScope? promptScope,
   }) async {
+    lastDirectory = directory;
     lastPromptScope = promptScope;
     lastBehaviorOverride = behaviorOverride;
     return 'scope-turn';

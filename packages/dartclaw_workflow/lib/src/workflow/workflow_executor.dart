@@ -1854,6 +1854,9 @@ class WorkflowExecutor {
     if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
+    if (step.type == 'research' || step.type == 'analysis') {
+      config['readOnly'] = true;
+    }
     final branch = context.variables['BRANCH']?.trim();
     if (branch != null && branch.isNotEmpty) {
       config['_baseRef'] = branch;

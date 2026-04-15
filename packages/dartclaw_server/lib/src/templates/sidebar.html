@@ -52,9 +52,9 @@
   <button class="btn btn-ghost btn-new-session" data-action="create-session" data-icon="new-session">New Chat</button>
   <div tl:if="${noActiveEntries}" class="sidebar-placeholder">No chats yet</div>
 
-  <div tl:each="entry : ${activeEntries}" class="session-item" tl:attr="data-icon=${'message-circle'}"
+  <div tl:each="entry : ${activeEntries}" class="session-item"
     tl:classappend="${entry.extraClass}">
-    <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
+    <a tl:attr="href=${entry.href},hx-get=${entry.href},data-icon=${'message-circle'}" class="session-item-link"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#sidebar">
       <span class="session-item-title" tl:text="${entry.title}">Session</span>
@@ -74,9 +74,9 @@
       <span class="sidebar-archive-chevron" data-icon="chevron-down" aria-hidden="true"></span>
     </button>
     <div class="sidebar-archive-list" style="display: none;">
-      <div tl:each="entry : ${archivedEntries}" class="session-item session-item-archive" tl:attr="data-icon=${'archive'}"
+      <div tl:each="entry : ${archivedEntries}" class="session-item session-item-archive"
         tl:classappend="${entry.extraClass}">
-        <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
+        <a tl:attr="href=${entry.href},hx-get=${entry.href},data-icon=${'archive'}" class="session-item-link"
           hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
           hx-select-oob="#topbar,#sidebar">
           <span class="session-item-title" tl:text="${entry.title}">Archived session</span>

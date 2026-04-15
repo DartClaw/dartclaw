@@ -56,9 +56,12 @@ steps:
     name: Discover Project
     type: research
     skill: dartclaw-discover-project
+    project: "{{PROJECT}}"
+    allowedTools: [shell, file_read]
     prompt: |
       Feature: {{FEATURE}}
       Branch: {{BRANCH}}
+      This step is read-only discovery only. Do not implement the feature or edit files.
     contextOutputs: [project_index]
     outputs:
       project_index:

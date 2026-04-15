@@ -1,5 +1,6 @@
 export 'agent_observer.dart' show AgentObserver, AgentMetrics, AgentState;
 export 'artifact_collector.dart' show ArtifactCollector;
+export 'task_cancellation_subscriber.dart' show TaskCancellationSubscriber;
 export 'compaction_task_event_subscriber.dart' show CompactionTaskEventSubscriber;
 export 'container_task_failure_subscriber.dart' show ContainerTaskFailureSubscriber;
 export 'diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;

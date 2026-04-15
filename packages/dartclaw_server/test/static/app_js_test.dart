@@ -200,6 +200,7 @@ void main() {
     test('connects to task SSE and restores badge state after swaps', () {
       final source = File(scriptPath).readAsStringSync();
       expect(source, contains("new EventSource('/api/tasks/events')"));
+      expect(source, contains("fetch('/api/tasks/sidebar-state')"));
       expect(source, contains('let latestTaskReviewCount = null;'));
       expect(source, contains('function restoreTaskBadge()'));
       expect(source, contains('restoreTaskBadge();'));
@@ -246,8 +247,11 @@ void main() {
 
     test('running sidebar re-renders after HTMX swaps and task SSE messages', () {
       final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('refreshSidebarTaskState();'));
       expect(source, contains('renderRunningSidebar(cachedActiveTasks);'));
       expect(source, contains('renderRunningSidebar(data.activeTasks || []);'));
+      expect(source, contains('if (Array.isArray(data.activeWorkflows)) {'));
+      expect(source, contains('renderWorkflowSidebar(data.activeWorkflows);'));
       expect(
         RegExp(
           r"if \(data\.type === 'connected'\)[\s\S]*renderRunningSidebar\(data\.activeTasks \|\| \[\]\);",
@@ -276,6 +280,14 @@ void main() {
       expect(source, contains('function refreshTaskElapsedTimes()'));
     });
 
+    test('sidebar task state refreshes from server after navigation and history restore', () {
+      final source = File(scriptPath).readAsStringSync();
+      expect(source, contains('async function refreshSidebarTaskState()'));
+      expect(source, contains("if (target && target.id === 'main-content') {"));
+      expect(source, contains('refreshSidebarTaskState();'));
+      expect(source, contains("document.body.addEventListener('htmx:historyRestore'"));
+    });
+
     test('applyTaskFilters remains exposed on window', () {
       final source = File(scriptPath).readAsStringSync();
       expect(source, contains('window.applyTaskFilters = function()'));
@@ -292,11 +304,36 @@ void main() {
       expect(css, contains('.status-dot--live::after'));
     });
 
+    test('sidebar scrolls vertically instead of clipping overflow', () {
+      final css = File(componentsCssPath).readAsStringSync();
+      expect(css, contains('overflow-y: auto;'));
+      expect(css, contains('overflow-x: hidden;'));
+      expect(css, contains('overscroll-behavior: contain;'));
+    });
+
     test('reduced motion disables pulsing status-dot animation', () {
       final css = File(componentsCssPath).readAsStringSync();
       expect(css, contains('@media (prefers-reduced-motion: reduce)'));
       expect(css, contains('.status-dot--live::before,'));
       expect(css, contains('.status-dot--live::after { animation: none; }'));
+    });
+  });
+
+  group('system nav icon mappings', () {
+    test('projects and workflows nav icons have explicit mask mappings', () {
+      final css = File('$baseDir/icons.css').readAsStringSync();
+      expect(css, contains('--icon-folder-git:'));
+      expect(css, contains('--icon-workflow:'));
+      expect(css, contains('[data-icon="folder-git"]::before'));
+      expect(css, contains('[data-icon="workflows"]::before'));
+    });
+
+    test('desktop topbar hides the sidebar toggle despite generic btn-icon rules', () {
+      final css = File('$baseDir/icons.css').readAsStringSync();
+      expect(css, contains('.topbar .menu-toggle.btn-icon[data-icon]'));
+      expect(css, contains('display: none;'));
+      expect(css, contains('@media (max-width: 768px)'));
+      expect(css, contains('display: inline-flex;'));
     });
   });
 }

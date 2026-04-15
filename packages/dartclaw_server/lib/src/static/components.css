@@ -42,7 +42,10 @@ a:hover { text-decoration: underline; }
   border-right: var(--border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Mobile: sidebar slides in from left — must come AFTER base .sidebar rule (source order) */

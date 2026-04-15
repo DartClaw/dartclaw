@@ -131,6 +131,64 @@ void main() {
       expect(wf['totalSteps'], 4);
       expect(wf['completedSteps'], isA<int>());
     });
+
+    test('sidebar-state endpoint includes activeWorkflows when workflows are configured', () async {
+      final def = _makeDef(steps: 4);
+      await workflows.start(def, const {});
+
+      final handler = taskSseRoutes(tasks, eventBus, workflows: workflows).call;
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/sidebar-state')));
+      final payload = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(response.statusCode, 200);
+      expect(payload['activeWorkflows'], isA<List<dynamic>>());
+      final activeWorkflows = payload['activeWorkflows'] as List<dynamic>;
+      expect(activeWorkflows, hasLength(1));
+      final wf = activeWorkflows.first as Map<String, dynamic>;
+      expect(wf['definitionName'], 'spec-and-implement');
+      expect(wf['status'], 'running');
+    });
+  });
+
+  group('TaskStatusChangedEvent', () {
+    test('includes activeWorkflows when WorkflowService is provided', () async {
+      final def = _makeDef(steps: 3);
+      final run = await workflows.start(def, const {});
+
+      await tasks.create(
+        id: 'task-1',
+        title: 'Workflow task',
+        description: 'desc',
+        type: TaskType.coding,
+        autoStart: true,
+        workflowRunId: run.id,
+        stepIndex: 0,
+      );
+      await tasks.transition('task-1', TaskStatus.running);
+
+      final it = await connectSse(wf: workflows);
+      addTearDown(it.cancel);
+      await nextFrame(it); // connected
+
+      await tasks.transition('task-1', TaskStatus.review);
+      eventBus.fire(
+        TaskStatusChangedEvent(
+          taskId: 'task-1',
+          oldStatus: TaskStatus.running,
+          newStatus: TaskStatus.review,
+          trigger: 'system',
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      final payload = await nextFrameOfType(it, 'task_status_changed');
+      expect(payload['activeWorkflows'], isA<List<dynamic>>());
+      final activeWorkflows = payload['activeWorkflows'] as List<dynamic>;
+      expect(activeWorkflows, isNotEmpty);
+      final wf = activeWorkflows.first as Map<String, dynamic>;
+      expect(wf['id'], run.id);
+      expect(wf['definitionName'], 'spec-and-implement');
+    });
   });
 
   group('WorkflowRunStatusChangedEvent', () {

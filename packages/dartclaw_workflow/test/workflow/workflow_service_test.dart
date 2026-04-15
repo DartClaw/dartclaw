@@ -21,9 +21,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStartResolution,
         WorkflowTurnOutcome,
         WorkflowTurnAdapter;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -355,6 +356,41 @@ void main() {
 
     expect((await taskService.get(task.id))?.status, TaskStatus.cancelled);
     expect(cleanupObservedNonTerminalCounts, equals([0]));
+  });
+
+  test('cancel() propagates to the active turn when the cancellation subscriber is installed', () async {
+    final turns = FakeTurnManager();
+    final subscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns)..subscribe(eventBus);
+    addTearDown(subscriber.dispose);
+
+    final run = WorkflowRun(
+      id: 'cancel-turn-run',
+      definitionName: 'test-workflow',
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      definitionJson: makeDefinition().toJson(),
+    );
+    await repository.insert(run);
+
+    final task = await taskService.create(
+      id: 'cancel-turn-task',
+      title: 'cancel turn task',
+      description: 'x',
+      type: TaskType.research,
+      autoStart: true,
+      provider: 'codex',
+      workflowRunId: run.id,
+    );
+    final running = await taskService.transition(task.id, TaskStatus.running, trigger: 'test');
+    await taskService.updateFields(running.id, sessionId: 'session-cancel-turn');
+
+    await workflowService.cancel(run.id);
+    await Future<void>.delayed(Duration.zero);
+
+    expect((await taskService.get(task.id))?.status, TaskStatus.cancelled);
+    expect(turns.cancelTurnCallCount, 1);
+    expect(turns.cancelledSessionIds, ['session-cancel-turn']);
   });
 
   test('cancel() is idempotent on already-terminal run', () async {

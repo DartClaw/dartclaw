@@ -59,7 +59,7 @@ class WorkflowRunCommand extends Command<void> {
        _exitFn = exitFn ?? exit,
        _interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})) {
     argParser
-      ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE')
+      ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE', splitCommas: false)
       ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps')
       ..addFlag('standalone', negatable: false, help: 'Run the workflow in-process without using the server API')
       ..addFlag('force', negatable: false, help: 'Bypass the standalone safety check')

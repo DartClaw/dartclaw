@@ -106,7 +106,8 @@ class ContextExtractor {
               outputs[outputKey] = payloadValue;
             case OutputFormat.lines:
               outputs[outputKey] = switch (payloadValue) {
-                final List<dynamic> values => values.map((value) => value.toString().trim()).where((s) => s.isNotEmpty).toList(),
+                final List<dynamic> values =>
+                  values.map((value) => value.toString().trim()).where((s) => s.isNotEmpty).toList(),
                 _ => extractLines(_stringifyWorkflowValue(payloadValue)),
               };
             case OutputFormat.text:
@@ -228,7 +229,9 @@ class ContextExtractor {
   /// Soft-validates parsed JSON against the output config's schema.
   ///
   /// Logs warnings but never throws.
-  void _softValidate(Object parsed, OutputConfig config, String stepId, String outputKey) {
+  void _softValidate(Object? parsed, OutputConfig config, String stepId, String outputKey) {
+    if (parsed == null) return;
+
     Map<String, dynamic>? schema;
 
     if (config.presetName != null) {

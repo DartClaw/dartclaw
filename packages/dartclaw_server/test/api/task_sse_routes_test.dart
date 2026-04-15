@@ -75,6 +75,31 @@ void main() {
     expect(frame, contains('"reviewCount":1'));
   });
 
+  test('sidebar-state endpoint returns review count and active tasks as json', () async {
+    await tasks.create(
+      id: 'task-running',
+      title: 'Running task',
+      description: 'Do work',
+      type: TaskType.coding,
+      autoStart: true,
+      provider: ProviderIdentity.codex,
+      now: DateTime.parse('2026-03-10T08:00:00Z'),
+    );
+    await tasks.transition('task-running', TaskStatus.running, now: DateTime.parse('2026-03-10T08:05:00Z'));
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/sidebar-state')));
+    final payload = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    expect(response.statusCode, 200);
+    expect(response.headers['content-type'], 'application/json');
+    expect(payload['reviewCount'], 0);
+    expect(payload['activeTasks'], isA<List<dynamic>>());
+    final activeTasks = (payload['activeTasks'] as List<dynamic>).cast<Map<String, dynamic>>();
+    expect(activeTasks, hasLength(1));
+    expect(activeTasks.single['id'], 'task-running');
+    expect(activeTasks.single['status'], 'running');
+  });
+
   test('connected frame includes activeTasks with running and review tasks', () async {
     await tasks.create(
       id: 'task-running',

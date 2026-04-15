@@ -187,6 +187,9 @@ void main() {
           calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory));
           if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
           if (arguments.contains('--list')) return ProcessResult(0, branchListExitCode, '', '');
+          if (arguments.length >= 3 && arguments[0] == 'rev-parse' && arguments[1] == '--verify') {
+            return ProcessResult(0, 1, '', '');
+          }
           if (arguments.contains('worktree')) return ProcessResult(0, worktreeExitCode, '', '');
           return ProcessResult(0, 0, '', '');
         };
@@ -271,6 +274,41 @@ void main() {
 
         final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
         expect(worktreeCall.arguments, contains('origin/release/0.16'));
+      });
+
+      test('create() with project preserves explicit local workflow refs when they already exist locally', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:u/my-app.git',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          processRunner: (executable, arguments, {String? workingDirectory}) async {
+            if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+            if (arguments.contains('--list')) return ProcessResult(0, 0, '', '');
+            if (arguments.length >= 4 &&
+                arguments[0] == 'rev-parse' &&
+                arguments[1] == '--verify' &&
+                arguments[2] == '--quiet' &&
+                arguments[3] == 'dartclaw/workflow/run123') {
+              return ProcessResult(0, 0, 'dartclaw/workflow/run123', '');
+            }
+            calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory));
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        await manager.create('task-1', project: project, baseRef: 'dartclaw/workflow/run123');
+
+        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        expect(worktreeCall.arguments, contains('dartclaw/workflow/run123'));
+        expect(worktreeCall.arguments, isNot(contains('origin/dartclaw/workflow/run123')));
       });
 
       test('create() with project uses single-step git worktree add -b', () async {

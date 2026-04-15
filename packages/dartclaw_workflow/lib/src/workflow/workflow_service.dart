@@ -319,8 +319,8 @@ class WorkflowService {
     );
 
     // Cancel all non-terminal child tasks.
-    // Running tasks: transition to cancelled triggers TurnRunner.cancelTurn()
-    // (stdin close + SIGTERM). Immediate — no grace period.
+    // Host-side wiring is responsible for reacting to running->cancelled task
+    // transitions and terminating any active turn bound to the task session.
     final allTasks = await _taskService.list();
     final workflowTasks = allTasks.where((t) => t.workflowRunId == runId && !t.status.terminal);
     for (final task in workflowTasks) {

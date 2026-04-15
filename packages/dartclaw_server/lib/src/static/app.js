@@ -828,9 +828,13 @@ function initAfterSwapReinit() {
     typeof initQrCountdown === 'function' && initQrCountdown();
     typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
     typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
-    restoreTaskBadge();
-    renderRunningSidebar(cachedActiveTasks);
-    renderWorkflowSidebar(cachedActiveWorkflows);
+    if (target && target.id === 'main-content') {
+      refreshSidebarTaskState();
+    } else {
+      restoreTaskBadge();
+      renderRunningSidebar(cachedActiveTasks);
+      renderWorkflowSidebar(cachedActiveWorkflows);
+    }
     resetWorkflowNotificationIfOnWorkflowsPage();
     initTaskElapsedTimers();
     initTaskListControls();
@@ -857,8 +861,7 @@ function initHistoryRestore() {
   document.body.addEventListener('htmx:historyRestore', () => {
     renderMarkdown();
     scrollToBottom();
-    renderRunningSidebar(cachedActiveTasks);
-    renderWorkflowSidebar(cachedActiveWorkflows);
+    refreshSidebarTaskState();
     resetWorkflowNotificationIfOnWorkflowsPage();
     initThemeToggle();
     initSidebar();
@@ -873,7 +876,6 @@ function initHistoryRestore() {
     typeof initQrCountdown === 'function' && initQrCountdown();
     typeof initMemoryViewToggle === 'function' && initMemoryViewToggle();
     typeof initMemoryDefaultTab === 'function' && initMemoryDefaultTab();
-    restoreTaskBadge();
     initTaskElapsedTimers();
     initTaskListControls();
     initTaskReviewActions();
@@ -1439,6 +1441,21 @@ function renderRunningSidebar(tasks) {
   initTaskElapsedTimers();
 }
 
+async function refreshSidebarTaskState() {
+  if (!document.querySelector('[data-tasks-enabled]')) return;
+
+  try {
+    const response = await fetch('/api/tasks/sidebar-state');
+    if (!response.ok) return;
+
+    const payload = await response.json();
+    latestTaskReviewCount = payload.reviewCount ?? 0;
+    updateTaskBadge(latestTaskReviewCount);
+    renderRunningSidebar(payload.activeTasks || []);
+    renderWorkflowSidebar(payload.activeWorkflows || []);
+  } catch (_) {}
+}
+
 function initTaskSse() {
   // Only connect when the server rendered an explicit task-SSE capability
   // marker. This avoids reconnect loops on taskless deployments.
@@ -1467,6 +1484,9 @@ function initTaskSse() {
       if (data.type === 'task_status_changed') {
         updateTaskBadge(data.reviewCount || 0);
         renderRunningSidebar(data.activeTasks || []);
+        if (Array.isArray(data.activeWorkflows)) {
+          renderWorkflowSidebar(data.activeWorkflows);
+        }
         if (shouldRefreshTaskContent(data.taskId)) {
           refreshTasksPageContent();
         }

@@ -363,6 +363,14 @@ class TurnRunner {
     _taskToolFilterGuard?.allowedTools = allowedTools;
   }
 
+  /// Enables or disables per-task read-only enforcement.
+  ///
+  /// When enabled, the underlying [TaskToolFilterGuard] blocks mutating shell
+  /// commands and file-edit tools for the duration of the task turn.
+  void setTaskReadOnly(bool readOnly) {
+    _taskToolFilterGuard?.readOnly = readOnly;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
@@ -626,7 +634,11 @@ class TurnRunner {
       } catch (e, st) {
         final wasCancelled = _cancelledTurns.remove(turnId);
         final loopDetection = _loopDetectedTurns.remove(turnId);
-        _log.warning('Turn $turnId ${wasCancelled ? 'cancelled' : 'failed'}', e, st);
+        if (wasCancelled) {
+          _log.info('Turn $turnId cancelled');
+        } else {
+          _log.warning('Turn $turnId failed', e, st);
+        }
         try {
           var partial = buffer.toString();
           if (partial.isNotEmpty && _redactor != null) {

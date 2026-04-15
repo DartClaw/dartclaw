@@ -18,6 +18,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         BehaviorFileService,
         HarnessPool,
         PromptScope,
+        TaskCancellationSubscriber,
         TaskExecutor,
         TaskService,
         TurnManager,
@@ -71,6 +72,7 @@ class CliWorkflowWiring {
   late final TaskService taskService;
   late final HarnessPool pool;
   late final TaskExecutor taskExecutor;
+  late final TaskCancellationSubscriber taskCancellationSubscriber;
   late final SkillRegistryImpl skillRegistry;
   late final WorkflowRegistry registry;
   late final WorkflowService workflowService;
@@ -168,6 +170,8 @@ class CliWorkflowWiring {
     pool = HarnessPool(runners: [primaryRunner, ...taskRunners], maxConcurrentTasks: maxConcurrentTasks);
 
     final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);
+    taskCancellationSubscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns);
+    taskCancellationSubscriber.subscribe(eventBus);
 
     final artifactCollector = ArtifactCollector(
       tasks: taskService,
@@ -394,6 +398,7 @@ class CliWorkflowWiring {
   Future<void> dispose() async {
     await workflowService.dispose();
     await taskExecutor.stop();
+    await taskCancellationSubscriber.dispose();
     await taskService.dispose();
     await pool.dispose();
     await kvService.dispose();

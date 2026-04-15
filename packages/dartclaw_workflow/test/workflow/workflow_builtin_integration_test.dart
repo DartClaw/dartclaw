@@ -98,15 +98,37 @@ class _ExecutionTrace {
   final WorkflowRun? finalRun;
   final Map<String, List<String>> descriptionsByStep;
   final List<String> queuedStepOrder;
+  final List<_QueuedTaskRecord> queuedTasks;
 
   const _ExecutionTrace({
     required this.context,
     required this.finalRun,
     required this.descriptionsByStep,
     required this.queuedStepOrder,
+    required this.queuedTasks,
   });
 
   int count(String stepKey) => queuedStepOrder.where((step) => step == stepKey).length;
+
+  List<_QueuedTaskRecord> tasksForStep(String stepKey) => queuedTasks.where((task) => task.stepKey == stepKey).toList();
+}
+
+class _QueuedTaskRecord {
+  final String stepKey;
+  final String taskId;
+  final String? projectId;
+  final String title;
+  final String description;
+  final Map<String, dynamic> configJson;
+
+  const _QueuedTaskRecord({
+    required this.stepKey,
+    required this.taskId,
+    required this.projectId,
+    required this.title,
+    required this.description,
+    required this.configJson,
+  });
 }
 
 void main() {
@@ -228,6 +250,7 @@ void main() {
     final executor = makeExecutor();
     final descriptionsByStep = <String, List<String>>{};
     final queuedStepOrder = <String>[];
+    final queuedTasks = <_QueuedTaskRecord>[];
     final occurrenceByStep = <String, int>{};
 
     final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
@@ -243,6 +266,16 @@ void main() {
       final occurrence = occurrenceByStep.update(stepKey, (count) => count + 1, ifAbsent: () => 0);
       descriptionsByStep.putIfAbsent(stepKey, () => []).add(task.description);
       queuedStepOrder.add(stepKey);
+      queuedTasks.add(
+        _QueuedTaskRecord(
+          stepKey: stepKey,
+          taskId: task.id,
+          projectId: task.projectId,
+          title: task.title,
+          description: task.description,
+          configJson: Map<String, dynamic>.from(task.configJson),
+        ),
+      );
 
       final queued = _QueuedStep(
         definition: definition,
@@ -265,6 +298,7 @@ void main() {
       finalRun: finalRun,
       descriptionsByStep: descriptionsByStep,
       queuedStepOrder: queuedStepOrder,
+      queuedTasks: queuedTasks,
     );
   }
 
@@ -284,10 +318,7 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_document': 'SPEC_DOC_MARKER',
-              'acceptance_criteria': 'AC_MARKER',
-            }),
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC_MARKER', 'acceptance_criteria': 'AC_MARKER'}),
           ),
           'review-spec' => _StubResponse(
             assistantContent: _verdictJson(findingsCount: 0, summary: 'spec is consistent'),
@@ -335,6 +366,130 @@ void main() {
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
   });
 
+  test('spec-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+            }),
+          ),
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+          ),
+          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
+          ),
+          'integrated-review' => _StubResponse(
+            assistantContent: _verdictJson(findingsCount: 0, summary: 'review accepted'),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          'refactor-re-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'VALID_AGAIN',
+              'findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('spec').single.projectId, isNull);
+    expect(trace.tasksForStep('review-spec').single.projectId, isNull);
+    expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('remediate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('refactor-re-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
+  });
+
+  test('spec-and-implement integration marks research and analysis steps read-only', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': 'Read-only policy check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+            }),
+          ),
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+          ),
+          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
+          ),
+          'integrated-review' => _StubResponse(
+            assistantContent: _verdictJson(findingsCount: 0, summary: 'review accepted'),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          'refactor-re-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'VALID_AGAIN',
+              'findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_findings': _verdictJson(findingsCount: 0, summary: 'no gaps'),
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+
+    final discover = trace.tasksForStep('discover-project').single;
+    expect(discover.configJson['readOnly'], isTrue);
+    expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
+
+    expect(trace.tasksForStep('review-spec').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('re-review').single.configJson['readOnly'], isTrue);
+
+    expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('refactor-validate').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('remediate').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
+  });
+
   test(
     'spec-and-implement integration enters remediation when refactor-validate finds issues and exits after refactor-re-validation',
     () async {
@@ -353,10 +508,7 @@ void main() {
               }),
             ),
             'spec' => _StubResponse(
-              assistantContent: _contextOutput({
-                'spec_document': 'SPEC_LOOP_DOC',
-                'acceptance_criteria': 'LOOP_AC',
-              }),
+              assistantContent: _contextOutput({'spec_document': 'SPEC_LOOP_DOC', 'acceptance_criteria': 'LOOP_AC'}),
             ),
             'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
@@ -451,9 +603,7 @@ void main() {
             ]),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'story_spec': 'STORY_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
-            }),
+            assistantContent: _contextOutput({'story_spec': 'STORY_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}'}),
           ),
           'implement' => _StubResponse(
             assistantContent: _contextOutput({
@@ -519,12 +669,213 @@ void main() {
     expect((storyResults[1] as Map<String, dynamic>)['text'], 'STORY_RESULT_BETA');
   });
 
-  test('code-review integration keeps looping until both refactor-validate and re-review findings reach zero', () async {
+  test('plan-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Project binding check for plan workflow',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: jsonEncode([
+              {
+                'id': 'S01',
+                'title': 'Project Bound Story',
+                'description': 'Verify project propagation',
+                'acceptance_criteria': ['all coding steps use the workflow project'],
+                'type': 'coding',
+                'dependencies': <String>[],
+                'key_files': ['lib/a.dart'],
+                'effort': 'small',
+              },
+            ]),
+          ),
+          'spec' => _StubResponse(assistantContent: _contextOutput({'story_spec': 'PROJECT_BOUND_SPEC'})),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'PROJECT_BOUND_RESULT'}),
+            worktreeJson: {
+              'branch': 'project-bound-story',
+              'path': '/tmp/worktrees/project-bound-story',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'runtime-quick-review' => _StubResponse(
+            assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
+          ),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
+          ),
+          'synthesize' => _StubResponse(
+            assistantContent: _contextOutput({
+              'implementation_summary': 'Single story complete',
+              'remediation_plan': 'No remediation needed',
+              'needs_remediation': false,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          'refactor-re-validate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'PLAN_REVALIDATED',
+              'findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_plan': 'No further remediation',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('plan').single.projectId, isNull);
+    expect(trace.tasksForStep('spec').single.projectId, isNull);
+    expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('runtime-quick-review').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('synthesize').single.projectId, isNull);
+    expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
+  });
+
+  test(
+    'plan-and-implement integration enters remediation when validation finds issues and exits after re-validation',
+    () async {
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'plan-and-implement.yaml',
+        variables: {
+          'REQUIREMENTS': 'Loop until findings are cleared',
+          'PROJECT': 'demo-project',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '1',
+        },
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'discover-project' => _StubResponse(
+              assistantContent: jsonEncode({
+                'framework': 'dart',
+                'project_root': '/repo/demo',
+                'document_locations': {'product': 'PRODUCT.md'},
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+                'marker': 'PLAN_DISCOVER_LOOP',
+              }),
+            ),
+            'plan' => _StubResponse(
+              assistantContent: jsonEncode([
+                {
+                  'id': 'S01',
+                  'title': 'Loop Story Alpha',
+                  'description': 'First story for remediation loop',
+                  'acceptance_criteria': ['alpha passes'],
+                  'type': 'coding',
+                  'dependencies': <String>[],
+                  'key_files': ['lib/a.dart'],
+                  'effort': 'small',
+                },
+                {
+                  'id': 'S02',
+                  'title': 'Loop Story Beta',
+                  'description': 'Second story for remediation loop',
+                  'acceptance_criteria': ['beta passes'],
+                  'type': 'coding',
+                  'dependencies': ['S01'],
+                  'key_files': ['lib/b.dart'],
+                  'effort': 'small',
+                },
+              ]),
+            ),
+            'spec' => _StubResponse(
+              assistantContent: _contextOutput({'story_spec': 'LOOP_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}'}),
+            ),
+            'implement' => _StubResponse(
+              assistantContent: _contextOutput({
+                'story_result': 'LOOP_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+              }),
+              worktreeJson: {
+                'branch': queued.mapIndex == 0 ? 'loop-alpha' : 'loop-beta',
+                'path': '/tmp/worktrees/${queued.mapIndex == 0 ? 'loop-alpha' : 'loop-beta'}',
+                'createdAt': DateTime.now().toIso8601String(),
+              },
+            ),
+            'runtime-quick-review' => _StubResponse(
+              assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
+            ),
+            'refactor-validate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
+                'findings_count': 1,
+              }),
+            ),
+            'synthesize' => _StubResponse(
+              assistantContent: _contextOutput({
+                'implementation_summary': 'Batch needs remediation',
+                'remediation_plan': 'Fix INITIAL_VALIDATE_FINDINGS',
+                'needs_remediation': true,
+              }),
+            ),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_summary': 'Remediated batch findings',
+                'diff_summary': 'REMEDIATED_DIFF',
+              }),
+            ),
+            'refactor-re-validate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'validation_summary': 'REVALIDATED_CLEAN',
+                'findings_count': 0,
+                'refactor-re-validate.findings_count': 0,
+              }),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_plan': 'No further remediation needed',
+                'findings_count': 0,
+                're-review.findings_count': 0,
+              }),
+            ),
+            'update-state' => _StubResponse(
+              assistantContent: _contextOutput({'state_update_summary': 'updated after remediation'}),
+            ),
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
+
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+      expect(trace.count('remediate'), 1);
+      expect(trace.count('refactor-re-validate'), 1);
+      expect(trace.count('re-review'), 1);
+      expect(trace.descriptionsByStep['remediate']!.single, contains('INITIAL_VALIDATE_FINDINGS'));
+      expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
+    },
+  );
+
+  test('code-review integration binds discover-project and remediation steps to the workflow PROJECT', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
-        'TARGET': 'feature branch',
-        'BRANCH': 'feature/validate',
+        'TARGET': 'Project binding check',
+        'BRANCH': 'feature/project-binding',
         'PR_NUMBER': '',
         'BASE_BRANCH': 'main',
         'PROJECT': 'demo-project',
@@ -534,64 +885,39 @@ void main() {
           'discover-project' => _StubResponse(
             assistantContent: jsonEncode({
               'framework': 'dart',
-              'project_root': '/repo/demo',
+              'project_root': '/repo/demo-project',
               'document_locations': {'product': 'PRODUCT.md'},
               'state_protocol': {'state_file': 'docs/STATE.md'},
-              'marker': 'REVIEW_DISCOVER_MARKER',
             }),
           ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_summary': _verdictJson(
-                findingsCount: 1,
-                summary: 'Initial review found one issue',
-                pass: false,
-                findings: const [
-                  {
-                    'severity': 'high',
-                    'location': 'lib/workflow.dart:42',
-                    'description': 'One issue remains before acceptance',
-                  },
-                ],
-              ),
-              'findings_count': 1,
+              'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
+              'findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
               'remediation_result': jsonEncode({
-                'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-                'diff_summary': 'Diff summary ${queued.occurrence + 1}',
+                'remediation_summary': 'No remediation needed',
+                'diff_summary': 'No diff',
               }),
-              'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-              'diff_summary': 'Diff summary ${queued.occurrence + 1}',
+              'remediation_summary': 'No remediation needed',
+              'diff_summary': 'No diff',
             }),
           ),
           'refactor-validate' => _StubResponse(
             assistantContent: _contextOutput({
-              'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
+              'validation_summary': 'Validation is clean',
               'findings_count': 0,
               'refactor-validate.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_summary': _verdictJson(
-                findingsCount: queued.occurrence == 0 ? 1 : 0,
-                summary: queued.occurrence == 0 ? 'One review finding remains' : 'Review is now clean',
-                pass: queued.occurrence != 0,
-                findings: queued.occurrence == 0
-                    ? const [
-                        {
-                          'severity': 'medium',
-                          'location': 'lib/workflow.dart:88',
-                          'description': 'Another pass is still required',
-                        },
-                      ]
-                    : const [],
-              ),
-              'findings_count': queued.occurrence == 0 ? 1 : 0,
-              're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
+              'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
+              'findings_count': 0,
+              're-review.findings_count': 0,
             }),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -600,18 +926,178 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('refactor-validate'), 2);
-    expect(trace.count('re-review'), 2);
-    expect(trace.queuedStepOrder.where((step) => step == 'remediate' || step == 'refactor-validate' || step == 're-review'), [
-      'remediate',
-      'refactor-validate',
-      're-review',
-      'remediate',
-      'refactor-validate',
-      're-review',
-    ]);
-    expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
+    expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('review-code').single.projectId, isNull);
+    expect(trace.tasksForStep('remediate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('re-review').single.projectId, isNull);
   });
+
+  test(
+    'code-review integration marks research and review steps read-only while keeping remediation writable',
+    () async {
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'code-review.yaml',
+        variables: {
+          'TARGET': 'Read-only policy check',
+          'BRANCH': 'feature/read-only',
+          'PR_NUMBER': '',
+          'BASE_BRANCH': 'main',
+          'PROJECT': 'demo-project',
+        },
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'discover-project' => _StubResponse(
+              assistantContent: jsonEncode({
+                'framework': 'dart',
+                'project_root': '/repo/demo-project',
+                'document_locations': {'product': 'PRODUCT.md'},
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+              }),
+            ),
+            'review-code' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
+                'findings_count': 0,
+              }),
+            ),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_result': jsonEncode({
+                  'remediation_summary': 'No remediation needed',
+                  'diff_summary': 'No diff',
+                }),
+                'remediation_summary': 'No remediation needed',
+                'diff_summary': 'No diff',
+              }),
+            ),
+            'refactor-validate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'validation_summary': 'Validation is clean',
+                'findings_count': 0,
+                'refactor-validate.findings_count': 0,
+              }),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
+                'findings_count': 0,
+                're-review.findings_count': 0,
+              }),
+            ),
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
+
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+
+      final discover = trace.tasksForStep('discover-project').single;
+      expect(discover.configJson['readOnly'], isTrue);
+      expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
+
+      expect(trace.tasksForStep('review-code').single.configJson['readOnly'], isTrue);
+      expect(trace.tasksForStep('re-review').single.configJson['readOnly'], isTrue);
+
+      expect(trace.tasksForStep('remediate').single.configJson.containsKey('readOnly'), isFalse);
+      expect(trace.tasksForStep('refactor-validate').single.configJson.containsKey('readOnly'), isFalse);
+    },
+  );
+
+  test(
+    'code-review integration keeps looping until both refactor-validate and re-review findings reach zero',
+    () async {
+      final trace = await executeBuiltInWorkflow(
+        workflowFileName: 'code-review.yaml',
+        variables: {
+          'TARGET': 'feature branch',
+          'BRANCH': 'feature/validate',
+          'PR_NUMBER': '',
+          'BASE_BRANCH': 'main',
+          'PROJECT': 'demo-project',
+        },
+        responseForStep: (queued) async {
+          return switch (queued.stepKey) {
+            'discover-project' => _StubResponse(
+              assistantContent: jsonEncode({
+                'framework': 'dart',
+                'project_root': '/repo/demo',
+                'document_locations': {'product': 'PRODUCT.md'},
+                'state_protocol': {'state_file': 'docs/STATE.md'},
+                'marker': 'REVIEW_DISCOVER_MARKER',
+              }),
+            ),
+            'review-code' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_summary': _verdictJson(
+                  findingsCount: 1,
+                  summary: 'Initial review found one issue',
+                  pass: false,
+                  findings: const [
+                    {
+                      'severity': 'high',
+                      'location': 'lib/workflow.dart:42',
+                      'description': 'One issue remains before acceptance',
+                    },
+                  ],
+                ),
+                'findings_count': 1,
+              }),
+            ),
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_result': jsonEncode({
+                  'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
+                  'diff_summary': 'Diff summary ${queued.occurrence + 1}',
+                }),
+                'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
+                'diff_summary': 'Diff summary ${queued.occurrence + 1}',
+              }),
+            ),
+            'refactor-validate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
+                'findings_count': 0,
+                'refactor-validate.findings_count': 0,
+              }),
+            ),
+            're-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'review_summary': _verdictJson(
+                  findingsCount: queued.occurrence == 0 ? 1 : 0,
+                  summary: queued.occurrence == 0 ? 'One review finding remains' : 'Review is now clean',
+                  pass: queued.occurrence != 0,
+                  findings: queued.occurrence == 0
+                      ? const [
+                          {
+                            'severity': 'medium',
+                            'location': 'lib/workflow.dart:88',
+                            'description': 'Another pass is still required',
+                          },
+                        ]
+                      : const [],
+                ),
+                'findings_count': queued.occurrence == 0 ? 1 : 0,
+                're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
+              }),
+            ),
+            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+          };
+        },
+      );
+
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+      expect(trace.count('refactor-validate'), 2);
+      expect(trace.count('re-review'), 2);
+      expect(
+        trace.queuedStepOrder.where(
+          (step) => step == 'remediate' || step == 'refactor-validate' || step == 're-review',
+        ),
+        ['remediate', 'refactor-validate', 're-review', 'remediate', 'refactor-validate', 're-review'],
+      );
+      expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
+    },
+  );
 
   test('code-review integration carries refactor-validate-only failures into the next remediation pass', () async {
     final trace = await executeBuiltInWorkflow(

@@ -41,5 +41,19 @@ void main() {
 
       expect(html, contains('data-tasks-enabled="true"'));
     });
+
+    test('chat entry icons live on the clickable link', () {
+      final html = sidebarTemplate(
+        activeEntries: const [(id: 'chat-1', title: 'Inbox', type: SessionType.user, provider: 'codex')],
+        archivedEntries: const [(id: 'chat-2', title: 'Done', type: SessionType.archive, provider: 'codex')],
+        navItems: const [],
+      );
+
+      expect(html, contains('class="session-item-link"'));
+      expect(html, contains('data-icon="message-circle"'));
+      expect(html, contains('data-icon="archive"'));
+      expect(html, isNot(contains('class="session-item" data-icon="message-circle"')));
+      expect(html, isNot(contains('class="session-item session-item-archive" data-icon="archive"')));
+    });
   });
 }

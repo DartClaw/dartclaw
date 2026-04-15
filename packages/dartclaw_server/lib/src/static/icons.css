@@ -62,6 +62,9 @@
   /* folder-kanban — projects */
   --icon-folder-kanban: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/%3E%3Cpath d='M8 10v4'/%3E%3Cpath d='M12 10v2'/%3E%3Cpath d='M16 10v6'/%3E%3C/svg%3E");
 
+  /* folder-git — repository projects */
+  --icon-folder-git: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/%3E%3Ccircle cx='10' cy='11' r='1'/%3E%3Ccircle cx='14' cy='15' r='1'/%3E%3Cpath d='M10 12v3a1 1 0 0 0 1 1h2'/%3E%3C/svg%3E");
+
   /* hash — channel indicator */
   --icon-hash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='4' x2='20' y1='9' y2='9'/%3E%3Cline x1='4' x2='20' y1='15' y2='15'/%3E%3Cline x1='10' x2='8' y1='3' y2='21'/%3E%3Cline x1='16' x2='14' y1='3' y2='21'/%3E%3C/svg%3E");
 
@@ -118,6 +121,9 @@
 
   /* wrench — tool invocation */
   --icon-wrench: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/%3E%3C/svg%3E");
+
+  /* workflow — branching execution graph */
+  --icon-workflow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='6' height='6' rx='1'/%3E%3Crect x='15' y='3' width='6' height='6' rx='1'/%3E%3Crect x='15' y='15' width='6' height='6' rx='1'/%3E%3Cpath d='M9 6h3a3 3 0 0 1 3 3v0'/%3E%3Cpath d='M12 6v9a3 3 0 0 0 3 3h0'/%3E%3C/svg%3E");
 
   /* users — groups subsection */
   --icon-users: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Cpath d='M16 3.128a4 4 0 0 1 0 7.744'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3C/svg%3E");
@@ -185,6 +191,7 @@
 .icon-circle-check      { -webkit-mask-image: var(--icon-circle-check);    mask-image: var(--icon-circle-check); }
 .icon-circle-x          { -webkit-mask-image: var(--icon-circle-x);        mask-image: var(--icon-circle-x); }
 .icon-clipboard-list    { -webkit-mask-image: var(--icon-clipboard-list);  mask-image: var(--icon-clipboard-list); }
+.icon-folder-git        { -webkit-mask-image: var(--icon-folder-git);       mask-image: var(--icon-folder-git); }
 .icon-folder-kanban     { -webkit-mask-image: var(--icon-folder-kanban);   mask-image: var(--icon-folder-kanban); }
 .icon-hash              { -webkit-mask-image: var(--icon-hash);            mask-image: var(--icon-hash); }
 .icon-info              { -webkit-mask-image: var(--icon-info);            mask-image: var(--icon-info); }
@@ -206,6 +213,7 @@
 .icon-triangle-alert    { -webkit-mask-image: var(--icon-triangle-alert);  mask-image: var(--icon-triangle-alert); }
 .icon-users             { -webkit-mask-image: var(--icon-users);           mask-image: var(--icon-users); }
 .icon-wrench            { -webkit-mask-image: var(--icon-wrench);          mask-image: var(--icon-wrench); }
+.icon-workflow          { -webkit-mask-image: var(--icon-workflow);        mask-image: var(--icon-workflow); }
 .icon-x                 { -webkit-mask-image: var(--icon-x);               mask-image: var(--icon-x); }
 
 
@@ -221,7 +229,9 @@
 [data-icon="memory"]::before     { -webkit-mask-image: var(--icon-brain);          mask-image: var(--icon-brain); }
 [data-icon="scheduling"]::before { -webkit-mask-image: var(--icon-calendar-clock); mask-image: var(--icon-calendar-clock); }
 [data-icon="tasks"]::before      { -webkit-mask-image: var(--icon-clipboard-list); mask-image: var(--icon-clipboard-list); }
+[data-icon="folder-git"]::before { -webkit-mask-image: var(--icon-folder-git);     mask-image: var(--icon-folder-git); }
 [data-icon="projects"]::before   { -webkit-mask-image: var(--icon-folder-kanban);  mask-image: var(--icon-folder-kanban); }
+[data-icon="workflows"]::before  { -webkit-mask-image: var(--icon-workflow);       mask-image: var(--icon-workflow); }
 
 /* Sidebar — session items */
 [data-icon="terminal"]::before       { -webkit-mask-image: var(--icon-terminal);       mask-image: var(--icon-terminal); }
@@ -280,6 +290,17 @@
 }
 .btn-icon[data-icon]::before {
   margin-right: 0;
+}
+
+/* Preserve topbar sidebar-toggle visibility rules despite generic btn-icon layout. */
+.topbar .menu-toggle.btn-icon[data-icon] {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .topbar .menu-toggle.btn-icon[data-icon] {
+    display: inline-flex;
+  }
 }
 
 /* Theme toggle: replace Unicode sun/moon with SVG icons */

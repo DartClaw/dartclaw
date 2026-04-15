@@ -367,6 +367,14 @@ class TurnManager implements Reconfigurable {
     _primary.setTaskToolFilter(allowedTools);
   }
 
+  /// Updates the per-task read-only mode on the primary runner's guard.
+  ///
+  /// Used by [TaskExecutor] in single-harness mode — passes through to
+  /// the primary [TurnRunner.setTaskReadOnly].
+  void setTaskReadOnly(bool readOnly) {
+    _primary.setTaskReadOnly(readOnly);
+  }
+
   Future<TurnRunner> _reserveRunnerForSession(String sessionId) async {
     final activeRunner = _providerSessionRunners[sessionId];
     if (activeRunner != null) {

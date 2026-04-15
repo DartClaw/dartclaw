@@ -144,6 +144,55 @@ void main() {
     expect((await tasks.get('task-provider-miss'))!.status, TaskStatus.queued);
   });
 
+  test(
+    'provider-overridden research task falls back to workspace runner when restricted profile is unavailable',
+    () async {
+      final primaryWorker = _ProviderWorker(responseText: 'primary complete');
+      final codexWorkspaceWorker = _ProviderWorker(responseText: 'codex workspace complete');
+      addTearDown(() async {
+        await primaryWorker.dispose();
+        await codexWorkspaceWorker.dispose();
+      });
+
+      final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+      final primaryRunner = TurnRunner(harness: primaryWorker, messages: messages, behavior: behavior);
+      final taskCodexWorkspaceRunner = TurnRunner(
+        harness: codexWorkspaceWorker,
+        messages: messages,
+        behavior: behavior,
+        providerId: 'codex',
+      );
+      final pool = HarnessPool(runners: [primaryRunner, taskCodexWorkspaceRunner]);
+      final turns = TurnManager.fromPool(pool: pool);
+      executor = TaskExecutor(
+        tasks: tasks,
+        sessions: sessions,
+        messages: messages,
+        turns: turns,
+        artifactCollector: collector,
+        pollInterval: const Duration(milliseconds: 10),
+      );
+      addTearDown(executor.stop);
+
+      await tasks.create(
+        id: 'task-provider-workspace-fallback',
+        title: 'Codex research task',
+        description: 'Should use the codex workspace worker when restricted is unavailable.',
+        type: TaskType.research,
+        autoStart: true,
+        provider: 'codex',
+      );
+
+      final processed = await executor.pollOnce();
+
+      expect(processed, isTrue);
+      await _waitForTaskStatus(tasks, 'task-provider-workspace-fallback', TaskStatus.review);
+      expect(primaryWorker.turnCalls, 0);
+      expect(codexWorkspaceWorker.turnCalls, 1);
+      expect((await tasks.get('task-provider-workspace-fallback'))!.status, TaskStatus.review);
+    },
+  );
+
   test('task with provider override stays queued when provider exists only in another profile', () async {
     final primaryWorker = _ProviderWorker(responseText: 'primary complete');
     final codexRestrictedWorker = _ProviderWorker(responseText: 'codex restricted complete');

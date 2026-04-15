@@ -91,6 +91,7 @@ class TaskWiring {
   late AgentObserver _agentObserver;
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
+  late TaskCancellationSubscriber _taskCancellationSubscriber;
   late ContainerTaskFailureSubscriber _containerTaskFailureSubscriber;
   late CompactionTaskEventSubscriber _compactionTaskEventSubscriber;
 
@@ -170,6 +171,9 @@ class TaskWiring {
     _containerTaskFailureSubscriber = ContainerTaskFailureSubscriber(tasks: _storage.taskService);
     _containerTaskFailureSubscriber.subscribe(_eventBus);
 
+    _taskCancellationSubscriber = TaskCancellationSubscriber(tasks: _storage.taskService, turns: turns);
+    _taskCancellationSubscriber.subscribe(_eventBus);
+
     _compactionTaskEventSubscriber = CompactionTaskEventSubscriber(
       tasks: _storage.taskService,
       eventRecorder: _storage.taskEventRecorder,
@@ -236,6 +240,7 @@ class TaskWiring {
   Future<void> dispose() async {
     await _taskExecutor.stop();
     _agentObserver.dispose();
+    await _taskCancellationSubscriber.dispose();
     await _containerTaskFailureSubscriber.dispose();
     await _compactionTaskEventSubscriber.dispose();
   }

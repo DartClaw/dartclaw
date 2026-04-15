@@ -1,7 +1,7 @@
 const _sentinel = Object();
 
 /// Node kinds that can be resumed via a persisted execution cursor.
-enum WorkflowExecutionCursorNodeType { loop, map }
+enum WorkflowExecutionCursorNodeType { loop, map, foreach }
 
 /// Persisted cursor for resuming workflow execution without replaying settled work.
 class WorkflowExecutionCursor {
@@ -71,6 +71,26 @@ class WorkflowExecutionCursor {
     List<dynamic> resultSlots = const [],
   }) => WorkflowExecutionCursor(
     nodeType: WorkflowExecutionCursorNodeType.map,
+    nodeId: stepId,
+    stepIndex: stepIndex,
+    totalItems: totalItems,
+    completedIndices: List<int>.from(completedIndices),
+    failedIndices: List<int>.from(failedIndices),
+    cancelledIndices: List<int>.from(cancelledIndices),
+    resultSlots: List<dynamic>.from(resultSlots),
+  );
+
+  /// Creates a cursor for resuming a foreach/sub-pipeline node.
+  factory WorkflowExecutionCursor.foreach({
+    required String stepId,
+    required int stepIndex,
+    required int totalItems,
+    List<int> completedIndices = const [],
+    List<int> failedIndices = const [],
+    List<int> cancelledIndices = const [],
+    List<dynamic> resultSlots = const [],
+  }) => WorkflowExecutionCursor(
+    nodeType: WorkflowExecutionCursorNodeType.foreach,
     nodeId: stepId,
     stepIndex: stepIndex,
     totalItems: totalItems,

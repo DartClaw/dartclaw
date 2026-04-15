@@ -215,7 +215,6 @@ Workflows can now own git promotion/publish semantics directly through `gitStrat
 gitStrategy:
   bootstrap: true
   worktree: per-map-item   # or shared
-  quickReview: true
   promotion: merge
   finalReview: true
   publish:

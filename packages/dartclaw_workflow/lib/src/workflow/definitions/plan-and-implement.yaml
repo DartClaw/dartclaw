@@ -1,8 +1,7 @@
 name: plan-and-implement
 description: >-
-  Multi-story pipeline — discover the project, plan stories, spec each story,
-  implement each story, review each story, synthesize results, iterate
-  remediation, and update state in authored order.
+  Multi-story pipeline — discover the project, plan stories, spec-plan the full story set,
+  implement + validate + review each story, iterate plan-level remediation, and update state.
 variables:
   REQUIREMENTS:
     required: true
@@ -22,7 +21,6 @@ variables:
 gitStrategy:
   bootstrap: true
   worktree: per-map-item
-  quickReview: true
   promotion: merge
   finalReview: true
   publish:
@@ -33,7 +31,7 @@ stepDefaults:
   - match: "plan"
     provider: "@planner"
     model: "@planner"
-  - match: "spec"
+  - match: "spec*"
     provider: "@planner"
     model: "@planner"
   - match: "implement*"
@@ -94,121 +92,153 @@ steps:
 
       Project index:
       {{context.project_index}}
+
+      This step is read-only planning only.
+      Do not create, modify, delete, or stage files.
+      Return the plan inline in the workflow output contract only.
     contextOutputs: [stories]
     outputs:
       stories:
         format: json
         schema: story-plan
 
-  - id: spec
-    name: Spec Stories
+  - id: spec-plan
+    name: Spec and Plan Stories
     type: analysis
-    skill: dartclaw-spec
-    map_over: stories
-    max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
-    prompt: |
-      Story {{map.display_index}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
-
-      Story description:
-      {{map.item.description}}
-
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
-
-      Key files:
-      {{map.item.key_files}}
-
-      Project index:
-      {{context.project_index}}
+    skill: dartclaw-spec-plan
     contextInputs: [project_index, stories]
-    contextOutputs: [story_spec]
-    outputs:
-      story_spec:
-        format: text
+    prompt: |
+      Requirements:
+      {{REQUIREMENTS}}
 
-  - id: implement
-    name: Implement Stories
-    type: coding
-    skill: dartclaw-exec-spec
+      Project index:
+      {{context.project_index}}
+
+      Initial story plan:
+      {{context.stories}}
+
+      Refine the story plan and produce a complete spec for each story.
+      You may reorder, split, or merge stories as needed to improve clarity and implementability.
+      Return the refined story set and per-story specs in the workflow output contract.
+      This step is read-only planning and specification only.
+      Do not create, modify, delete, or stage files.
+    contextOutputs: [stories, story_spec]
+    outputs:
+      stories:
+        format: json
+        schema: story-plan
+      story_spec:
+        format: json
+
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
     map_over: stories
     max_parallel: "{{MAX_PARALLEL}}"
     max_items: 20
     project: "{{PROJECT}}"
-    review: always
-    prompt: |
-      Story {{map.display_index}} of {{map.length}}:
-      {{map.item.title}} ({{map.item.id}})
+    contextOutputs: [story_results]
+    steps:
+      - id: implement
+        name: Implement Story
+        type: coding
+        skill: dartclaw-exec-spec
+        project: "{{PROJECT}}"
+        review: always
+        prompt: |
+          Story {{map.display_index}} of {{map.length}}:
+          {{map.item.title}} ({{map.item.id}})
 
-      Story spec:
-      {{context.story_spec[map.index]}}
+          Story spec:
+          {{context.story_spec[map.index]}}
 
-      Acceptance criteria:
-      {{map.item.acceptance_criteria}}
+          Acceptance criteria:
+          {{map.item.acceptance_criteria}}
 
-      Project index:
-      {{context.project_index}}
-    contextInputs: [project_index, stories, story_spec]
-    contextOutputs: [story_result]
-    outputs:
-      story_result:
-        format: text
+          Project index:
+          {{context.project_index}}
+        contextInputs: [project_index, stories, story_spec]
+        contextOutputs: [story_result]
+        outputs:
+          story_result:
+            format: text
 
-  - id: refactor-validate
-    name: Validate Batch
-    type: coding
-    skill: dartclaw-refactor
-    project: "{{PROJECT}}"
-    review: never
-    prompt: |
-      Requirements:
-      {{REQUIREMENTS}}
+      - id: refactor-validate
+        name: Validate Story
+        type: coding
+        skill: dartclaw-refactor
+        project: "{{PROJECT}}"
+        review: never
+        prompt: |
+          Story {{map.display_index}} of {{map.length}}:
+          {{map.item.title}} ({{map.item.id}})
 
-      Project index:
-      {{context.project_index}}
+          Requirements:
+          {{REQUIREMENTS}}
 
-      Story implementations:
-      {{context.story_result}}
+          Project index:
+          {{context.project_index}}
 
-      Run build, tests, static analysis, and simplification checks across the merged implementation result.
-      If the project has no runnable test surface, skip tests and say so explicitly.
-    contextInputs: [project_index, story_result]
-    contextOutputs: [validation_summary, findings_count]
+          Story implementation:
+          {{context.implement.story_result}}
 
-  - id: synthesize
-    name: Synthesize Stories
+          Run build, tests, static analysis, and simplification checks for this story's implementation.
+          If the project has no runnable test surface, skip tests and say so explicitly.
+        contextInputs: [project_index]
+        contextOutputs: [validation_summary, findings_count]
+
+      - id: quick-review
+        name: Quick Review Story
+        type: analysis
+        skill: dartclaw-review-gap
+        prompt: |
+          Story {{map.display_index}} of {{map.length}}:
+          {{map.item.title}} ({{map.item.id}})
+
+          Requirements:
+          {{REQUIREMENTS}}
+
+          Story spec:
+          {{context.story_spec[map.index]}}
+
+          Story implementation:
+          {{context.implement.story_result}}
+
+          Validation summary:
+          {{context.refactor-validate.validation_summary}}
+
+          Review the story implementation against its spec and acceptance criteria.
+          Focus on correctness, completeness, and obvious scope drift.
+          Return a concise findings summary.
+        contextInputs: [project_index, story_spec]
+        contextOutputs: [quick_review_summary, quick_review_findings_count]
+
+  - id: plan-review
+    name: Review Full Implementation
     type: analysis
+    skill: dartclaw-review
+    contextInputs: [project_index, stories, story_spec]
     prompt: |
-      Synthesize the mapped story results into a single delivery summary.
-
       Requirements:
       {{REQUIREMENTS}}
+      Mode: gap
 
       Project index:
       {{context.project_index}}
 
-      Story plans:
+      Story plan:
       {{context.stories}}
 
       Story specs:
       {{context.story_spec}}
 
-      Story implementations:
-      {{context.story_result}}
+      Per-story results (implement / validate / quick-review for each story):
+      {{context.story_results}}
 
-      Validation summary:
-      {{context.validation_summary}}
-
-      Summarize:
-      - Which stories are complete
-      - Which stories still need work
-      - Cross-story risks or integration gaps
-      - Whether remediation is needed before state update
-
-      Set needs_remediation to true if any story still has unresolved findings.
-    contextInputs: [project_index, stories, story_spec, story_result, validation_summary, findings_count]
-    contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
+      Review the full implementation across all stories.
+      Identify gaps, cross-story integration issues, and any stories that need remediation.
+      Set needs_remediation to true if remediation is required.
+    contextOutputs: [implementation_summary, remediation_plan, needs_remediation, findings_count]
 
   - id: remediation-loop
     name: Remediation Loop
@@ -229,18 +259,15 @@ steps:
           Remediation plan:
           {{context.remediation_plan}}
 
-          Story implementations:
-          {{context.story_result}}
-
-          Validation summary:
-          {{context.validation_summary}}
+          Implementation summary:
+          {{context.implementation_summary}}
 
           If no remediation is needed, say so plainly.
-        contextInputs: [project_index, remediation_plan, story_result, validation_summary]
+        contextInputs: [project_index, remediation_plan, implementation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
       - id: refactor-re-validate
-        name: Re-validate Batch
+        name: Re-validate After Remediation
         type: coding
         skill: dartclaw-refactor
         project: "{{PROJECT}}"
@@ -264,7 +291,7 @@ steps:
         contextOutputs: [validation_summary, findings_count, refactor-re-validate.findings_count]
 
       - id: re-review
-        name: Re-review Batch
+        name: Re-review After Remediation
         type: analysis
         skill: dartclaw-review
         prompt: |
@@ -278,7 +305,7 @@ steps:
           Story plan:
           {{context.stories}}
 
-          Original implementation summary:
+          Implementation summary:
           {{context.implementation_summary}}
 
           Re-validation summary:

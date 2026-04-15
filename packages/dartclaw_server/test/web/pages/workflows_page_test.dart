@@ -31,12 +31,14 @@ WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
   );
 }
 
-const _emptySidebarData = (
+final _emptySidebarData = (
   main: null,
   dmChannels: <SidebarSession>[],
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  activeTasks: <SidebarActiveTask>[],
+  activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: false,
   tasksEnabled: false,
 );

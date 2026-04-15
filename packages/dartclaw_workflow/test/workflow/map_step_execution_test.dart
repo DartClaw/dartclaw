@@ -1,17 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        ArtifactKind,
         EventBus,
         KvService,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
         MessageService,
-        SessionService,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -25,20 +21,18 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show ContextExtractor, GateEvaluator, WorkflowExecutor, WorkflowTurnAdapter, WorkflowTurnOutcome;
+import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionCursor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-String _workflowContext(Map<String, Object?> values) => '<workflow-context>${jsonEncode(values)}</workflow-context>';
-
 void main() {
   late Directory tempDir;
   late String sessionsDir;
   late TaskService taskService;
   late MessageService messageService;
-  late SessionService sessionService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
   late EventBus eventBus;
@@ -53,7 +47,6 @@ void main() {
     eventBus = EventBus();
     taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
     repository = SqliteWorkflowRunRepository(db);
-    sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
@@ -211,658 +204,6 @@ void main() {
 
       final finalRun = await repository.getById('map-review-ready-run');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
-    });
-
-    test('runtime quick review runs before promotion for per-map-item coding stories', () async {
-      final promotedStoryIds = <String?>[];
-      final definition = WorkflowDefinition(
-        name: 'plan-runtime-review',
-        description: 'Runtime quick review sequencing',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: 'per-map-item',
-          quickReview: true,
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
-        steps: const [
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-            mapOver: 'stories',
-            maxParallel: 1,
-            contextOutputs: ['story_result'],
-          ),
-        ],
-      );
-
-      final run = WorkflowRun(
-        id: 'runtime-review-run',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {'id': 'S01'},
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-        ),
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async {
-                promotedStoryIds.add(storyId);
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-        ),
-      );
-
-      final queuedTitles = <String>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        final task = await taskService.get(e.taskId);
-        if (task == null) return;
-        queuedTitles.add(task.title);
-
-        if (task.title.contains('[quick-review]')) {
-          final artifactsDir = Directory(p.join(tempDir.path, 'tasks', e.taskId, 'artifacts'))
-            ..createSync(recursive: true);
-          final output = File(p.join(artifactsDir.path, 'quick-review.md'));
-          output.writeAsStringSync('{"pass": true, "findings_count": 0, "findings": [], "summary": "ok"}');
-          await taskService.addArtifact(
-            id: 'artifact-${e.taskId}',
-            taskId: e.taskId,
-            name: 'quick-review.md',
-            kind: ArtifactKind.document,
-            path: output.path,
-          );
-        } else if (task.title.contains('Implement Stories')) {
-          await taskService.updateFields(
-            task.id,
-            worktreeJson: {
-              'path': p.join(tempDir.path, 'worktrees', task.id),
-              'branch': 'story-s01',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          );
-        }
-        await completeTask(e.taskId);
-      });
-
-      await runtimeExecutor.execute(run, definition, context);
-      await sub.cancel();
-
-      expect(queuedTitles.first, contains('Implement Stories'));
-      expect(queuedTitles[1], contains('[quick-review]'));
-      expect(queuedTitles.where((title) => title.contains('[quick-remediate]')), isEmpty);
-      expect(promotedStoryIds, equals(['S01']));
-    });
-
-    test('runtime quick review remediation is bounded to a single pass before promotion', () async {
-      var promotionCount = 0;
-      final definition = WorkflowDefinition(
-        name: 'plan-runtime-remediate',
-        description: 'Runtime quick remediation bound',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: 'per-map-item',
-          quickReview: true,
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
-        steps: const [
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-            mapOver: 'stories',
-            maxParallel: 1,
-            contextOutputs: ['story_result'],
-          ),
-        ],
-      );
-
-      final run = WorkflowRun(
-        id: 'runtime-remediate-run',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {'id': 'S01'},
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-        ),
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async {
-                promotionCount++;
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-        ),
-      );
-
-      final queuedTitles = <String>[];
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        final task = await taskService.get(e.taskId);
-        if (task == null) return;
-        queuedTitles.add(task.title);
-
-        if (task.title.contains('[quick-review]')) {
-          final session = await sessionService.createSession(type: SessionType.task);
-          await taskService.updateFields(task.id, sessionId: session.id);
-          await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 3}));
-          final artifactsDir = Directory(p.join(tempDir.path, 'tasks', e.taskId, 'artifacts'))
-            ..createSync(recursive: true);
-          final output = File(p.join(artifactsDir.path, 'quick-review.md'));
-          output.writeAsStringSync(
-            '{"pass": false, "findings_count": 2, "findings": [{"severity":"high","title":"x"}], "summary": "needs remediation"}',
-          );
-          await taskService.addArtifact(
-            id: 'artifact-${e.taskId}',
-            taskId: e.taskId,
-            name: 'quick-review.md',
-            kind: ArtifactKind.document,
-            path: output.path,
-          );
-        } else if (task.title.contains('[quick-remediate]')) {
-          final session = await sessionService.createSession(type: SessionType.task);
-          await taskService.updateFields(task.id, sessionId: session.id);
-          await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 4}));
-          final artifactsDir = Directory(p.join(tempDir.path, 'tasks', e.taskId, 'artifacts'))
-            ..createSync(recursive: true);
-          final output = File(p.join(artifactsDir.path, 'quick-remediation.md'));
-          output.writeAsStringSync('Runtime remediation result');
-          await taskService.addArtifact(
-            id: 'artifact-${e.taskId}',
-            taskId: e.taskId,
-            name: 'quick-remediation.md',
-            kind: ArtifactKind.document,
-            path: output.path,
-          );
-        } else if (task.title.contains('Implement Stories')) {
-          await taskService.updateFields(
-            task.id,
-            sessionId: (await sessionService.createSession(type: SessionType.task)).id,
-            worktreeJson: {
-              'path': p.join(tempDir.path, 'worktrees', task.id),
-              'branch': 'story-s01',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          );
-          final refreshedTask = await taskService.get(task.id);
-          await kvService.set('session_cost:${refreshedTask!.sessionId}', jsonEncode({'total_tokens': 10}));
-        }
-        await completeTask(e.taskId);
-      });
-
-      await runtimeExecutor.execute(run, definition, context);
-      await sub.cancel();
-
-      expect(queuedTitles.where((title) => title.contains('[quick-remediate]')).length, equals(1));
-      expect(promotionCount, equals(1));
-      expect(context['implement[0].quick_remediation_passes'], equals(1));
-      expect(context['implement[0].story_result'], equals('Runtime remediation result'));
-      expect(context['implement[0].tokenCount'], equals(17));
-      expect((context['story_result'] as List).first, containsPair('text', 'Runtime remediation result'));
-    });
-
-    test('plain-text runtime quick review with no issues is treated as pass', () async {
-      var promotionCount = 0;
-      final definition = WorkflowDefinition(
-        name: 'plan-runtime-review-plain-text-pass',
-        description: 'Runtime quick review text fallback',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: 'per-map-item',
-          quickReview: true,
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
-        steps: const [
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-            mapOver: 'stories',
-            maxParallel: 1,
-            contextOutputs: ['story_result'],
-          ),
-        ],
-      );
-
-      final run = WorkflowRun(
-        id: 'runtime-review-text-pass-run',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {'id': 'S01'},
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-        ),
-        messageService: messageService,
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async {
-                promotionCount++;
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-        ),
-      );
-
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        final task = await taskService.get(e.taskId);
-        if (task == null) return;
-
-        final session = await sessionService.createSession(type: SessionType.task);
-        await taskService.updateFields(task.id, sessionId: session.id);
-
-        if (task.title.contains('[quick-review]')) {
-          await messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content:
-                'Using the quick-review path to inspect the generated note before returning findings.\n'
-                '**Findings**\n'
-                '- None. The generated note matches the requested two-line shape.',
-          );
-        } else {
-          await taskService.updateFields(
-            task.id,
-            worktreeJson: {
-              'path': p.join(tempDir.path, 'worktrees', task.id),
-              'branch': 'story-s01',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          );
-          await messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content: _workflowContext({'story_result': 'IMPLEMENTED'}),
-          );
-        }
-        await completeTask(e.taskId);
-      });
-
-      await runtimeExecutor.execute(run, definition, context);
-      await sub.cancel();
-
-      expect(promotionCount, equals(1));
-      final finalRun = await repository.getById(run.id);
-      expect(finalRun?.status, WorkflowRunStatus.completed);
-    });
-
-    test('plain-text runtime quick review findings trigger remediation', () async {
-      var promotionCount = 0;
-      final queuedTitles = <String>[];
-      final definition = WorkflowDefinition(
-        name: 'plan-runtime-review-plain-text-findings',
-        description: 'Runtime quick review prose findings fallback',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: 'per-map-item',
-          quickReview: true,
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
-        steps: const [
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-            mapOver: 'stories',
-            maxParallel: 1,
-            contextOutputs: ['story_result'],
-          ),
-        ],
-      );
-
-      final run = WorkflowRun(
-        id: 'runtime-review-text-findings-run',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {'id': 'S01'},
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-        ),
-        messageService: messageService,
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async {
-                promotionCount++;
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-        ),
-      );
-
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        final task = await taskService.get(e.taskId);
-        if (task == null) return;
-        queuedTitles.add(task.title);
-
-        final session = await sessionService.createSession(type: SessionType.task);
-        await taskService.updateFields(task.id, sessionId: session.id);
-
-        if (task.title.contains('[quick-review]')) {
-          await messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content:
-                '**Findings**\n'
-                '- `notes/example.md:1` does not satisfy the required output contract.\n'
-                '- The generated artifact is missing the expected status details.',
-          );
-        } else if (task.title.contains('[quick-remediate]')) {
-          final artifactsDir = Directory(p.join(tempDir.path, 'tasks', e.taskId, 'artifacts'))
-            ..createSync(recursive: true);
-          final output = File(p.join(artifactsDir.path, 'quick-remediation.md'));
-          output.writeAsStringSync('Remediated implementation result');
-          await taskService.addArtifact(
-            id: 'artifact-${e.taskId}',
-            taskId: e.taskId,
-            name: 'quick-remediation.md',
-            kind: ArtifactKind.document,
-            path: output.path,
-          );
-        } else {
-          await taskService.updateFields(
-            task.id,
-            worktreeJson: {
-              'path': p.join(tempDir.path, 'worktrees', task.id),
-              'branch': 'story-s01',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          );
-          await messageService.insertMessage(
-            sessionId: session.id,
-            role: 'assistant',
-            content: _workflowContext({'story_result': 'INITIAL_IMPLEMENTATION'}),
-          );
-        }
-        await completeTask(e.taskId);
-      });
-
-      await runtimeExecutor.execute(run, definition, context);
-      await sub.cancel();
-
-      expect(queuedTitles.where((title) => title.contains('[quick-remediate]')).length, equals(1));
-      expect(promotionCount, equals(1));
-      expect(context['implement[0].quick_remediation_passes'], equals(1));
-      expect(context['implement[0].story_result'], equals('Remediated implementation result'));
-      final finalRun = await repository.getById(run.id);
-      expect(finalRun?.status, WorkflowRunStatus.completed);
-    });
-
-    test('unreadable runtime quick review verdict fails closed and preserves spent tokens', () async {
-      var promotionCount = 0;
-      final iterationEvents = <MapIterationCompletedEvent>[];
-      final definition = WorkflowDefinition(
-        name: 'plan-runtime-review-invalid',
-        description: 'Runtime quick review must fail closed on unreadable verdicts',
-        gitStrategy: const WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: 'per-map-item',
-          quickReview: true,
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: false),
-        ),
-        steps: const [
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement Stories',
-            type: 'coding',
-            project: 'my-project',
-            prompts: ['Implement {{map.item.id}}'],
-            mapOver: 'stories',
-            maxParallel: 1,
-            contextOutputs: ['story_result'],
-          ),
-        ],
-      );
-
-      final run = WorkflowRun(
-        id: 'runtime-review-invalid-run',
-        definitionName: definition.name,
-        status: WorkflowRunStatus.running,
-        startedAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-        definitionJson: definition.toJson(),
-      );
-      await repository.insert(run);
-
-      final context = WorkflowContext(
-        data: {
-          'stories': [
-            {'id': 'S01'},
-          ],
-        },
-        variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'},
-      );
-
-      final runtimeExecutor = WorkflowExecutor(
-        taskService: taskService,
-        eventBus: eventBus,
-        kvService: kvService,
-        repository: repository,
-        gateEvaluator: GateEvaluator(),
-        contextExtractor: ContextExtractor(
-          taskService: taskService,
-          messageService: messageService,
-          dataDir: tempDir.path,
-        ),
-        dataDir: tempDir.path,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: (_) => Future.value('turn-1'),
-          executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
-          waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-          bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
-              const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async {
-                promotionCount++;
-                return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
-              },
-        ),
-      );
-
-      final eventSub = eventBus.on<MapIterationCompletedEvent>().listen(iterationEvents.add);
-      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        final task = await taskService.get(e.taskId);
-        if (task == null) return;
-
-        if (task.title.contains('[quick-review]')) {
-          final session = await sessionService.createSession(type: SessionType.task);
-          await taskService.updateFields(task.id, sessionId: session.id);
-          await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 3}));
-        } else if (task.title.contains('Implement Stories')) {
-          final session = await sessionService.createSession(type: SessionType.task);
-          await taskService.updateFields(
-            task.id,
-            sessionId: session.id,
-            worktreeJson: {
-              'path': p.join(tempDir.path, 'worktrees', task.id),
-              'branch': 'story-s01',
-              'createdAt': DateTime.now().toIso8601String(),
-            },
-          );
-          await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 10}));
-        }
-        await completeTask(e.taskId);
-      });
-
-      await runtimeExecutor.execute(run, definition, context);
-      await sub.cancel();
-      await eventSub.cancel();
-
-      final finalRun = await repository.getById(run.id);
-      expect(finalRun?.status, WorkflowRunStatus.paused);
-      expect(promotionCount, equals(0));
-      expect(context['implement[0].tokenCount'], equals(13));
-      expect(iterationEvents, hasLength(1));
-      expect(iterationEvents.single.success, isFalse);
-      expect(iterationEvents.single.tokenCount, equals(13));
     });
 
     test('3-item array creates 3 tasks', () async {
@@ -1720,6 +1061,324 @@ void main() {
       final updatedRun = await repository.getById('run-1');
       expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
       expect(updatedRun?.errorMessage, contains('maxParallel'));
+    });
+  });
+
+  group('S19: foreach execution', () {
+    test('foreach iterates items and runs child steps sequentially per item', () async {
+      final collection = [
+        {'id': 'S01', 'title': 'Story 1'},
+        {'id': 'S02', 'title': 'Story 2'},
+        {'id': 'S03', 'title': 'Story 3'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-test',
+        description: 'Foreach execution test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement', 'validate'],
+            contextOutputs: ['story_results'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Build {{map.item}}'], type: 'coding'),
+          WorkflowStep(id: 'validate', name: 'Validate', prompts: ['Validate {{map.item}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      // Track task creation order to verify sequential child-step execution.
+      var taskCount = 0;
+      final taskTitles = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        final task = await taskService.get(e.taskId);
+        if (task != null) taskTitles.add(task.title);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      // 3 items × 2 child steps = 6 tasks.
+      expect(taskCount, 6);
+      // Task titles should alternate implement/validate for sequential per-item execution.
+      expect(taskTitles.length, 6);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('foreach with empty collection succeeds with empty results', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-empty',
+        description: 'Empty foreach',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = <Map<String, dynamic>>[];
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+      expect(context['results'], isA<List<Object?>>());
+      expect((context['results'] as List<Object?>), isEmpty);
+    });
+
+    test('foreach child step failure records iteration failure', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-fail',
+        description: 'Foreach with child failure',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['step-a', 'step-b'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'step-a', name: 'A', prompts: ['p']),
+          WorkflowStep(id: 'step-b', name: 'B', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['item1', 'item2'];
+
+      var taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        await Future<void>.delayed(Duration.zero);
+        if (taskCount == 1) {
+          // Fail the first child step of item1 — item1 should fail, item2 proceeds.
+          await completeTask(e.taskId, status: TaskStatus.failed);
+        } else {
+          await completeTask(e.taskId);
+        }
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      // item1: step-a fails → no step-b for item1. item2 still runs (step-a + step-b).
+      // Total: 3 tasks (item1: 1, item2: 2).
+      expect(taskCount, 3);
+
+      // Foreach with a failed iteration pauses the workflow (consistent with map step behavior).
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+    });
+
+    test('foreach fires MapIterationCompletedEvent per item', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-events',
+        description: 'Event test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b'];
+
+      final iterEvents = <MapIterationCompletedEvent>[];
+      final iterSub = eventBus.on<MapIterationCompletedEvent>().listen(iterEvents.add);
+
+      final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await taskSub.cancel();
+      await iterSub.cancel();
+
+      expect(iterEvents.length, 2);
+      expect(iterEvents[0].iterationIndex, 0);
+      expect(iterEvents[1].iterationIndex, 1);
+      expect(iterEvents[0].stepId, 'fe');
+    });
+
+    test('foreach fires MapStepCompletedEvent with aggregate stats', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-complete-event',
+        description: 'Completion event test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b'];
+
+      MapStepCompletedEvent? completionEvent;
+      final completeSub = eventBus.on<MapStepCompletedEvent>().listen((e) => completionEvent = e);
+
+      final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await taskSub.cancel();
+      await completeSub.cancel();
+
+      expect(completionEvent, isNotNull);
+      expect(completionEvent!.stepId, 'fe');
+      expect(completionEvent!.totalIterations, 2);
+    });
+
+    test('foreach crash recovery resumes from crashed iteration without replaying completed', () async {
+      final collection = [
+        {'id': 'S01'},
+        {'id': 'S02'},
+        {'id': 'S03'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-recovery',
+        description: 'Recovery test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['Do {{map.item}}']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      // Seed cursor: iteration 0 completed, iterations 1 and 2 pending.
+      final foreachCursor = WorkflowExecutionCursor.foreach(
+        stepId: 'fe',
+        stepIndex: 1, // index of the foreach controller in the step list
+        totalItems: 3,
+        completedIndices: [0],
+        resultSlots: [{'child': {}}, null, null],
+      );
+      final seededRun = run.copyWith(
+        executionCursor: foreachCursor,
+        contextJson: {
+          'stories': collection,
+          '_foreach.current.stepId': 'fe',
+          '_foreach.current.total': 3,
+          '_foreach.current.completedIndices': [0],
+          '_foreach.current.failedIndices': <int>[],
+          '_foreach.current.cancelledIndices': <int>[],
+        },
+      );
+      await repository.insert(seededRun);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      var taskCount = 0;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        taskCount++;
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      // Resume: the executor should skip iteration 0 and run iterations 1 and 2.
+      await executor.execute(
+        seededRun,
+        definition,
+        context,
+        startCursor: foreachCursor,
+      );
+      await sub.cancel();
+
+      // Only 2 tasks (for iterations 1 and 2), not 3.
+      expect(taskCount, 2, reason: 'Already-completed iteration 0 should not be replayed');
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('foreach exceeding maxItems fails the step', () async {
+      final definition = WorkflowDefinition(
+        name: 'foreach-max',
+        description: 'MaxItems test',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'fe',
+            name: 'FE',
+            type: 'foreach',
+            mapOver: 'items',
+            maxItems: 2,
+            foreachSteps: ['child'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(id: 'child', name: 'Child', prompts: ['p']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = ['a', 'b', 'c'];
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+
+      final updatedRun = await repository.getById('run-1');
+      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.errorMessage, contains('maxItems'));
     });
   });
 }

@@ -12,6 +12,8 @@ SidebarData _emptySidebar() => (
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  activeTasks: <SidebarActiveTask>[],
+  activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: true,
   tasksEnabled: false,
 );

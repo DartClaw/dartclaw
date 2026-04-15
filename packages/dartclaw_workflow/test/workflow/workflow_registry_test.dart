@@ -187,10 +187,10 @@ void main() {
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
-      expect(planAndImplement, contains(RegExp(r'^  quickReview:\s+true$', multiLine: true)));
+      expect(planAndImplement, isNot(contains('quickReview')));
       expect(planAndImplement, contains('skill: dartclaw-review'));
       expect(planAndImplement, contains('This step is read-only planning only.'));
-      expect(planAndImplement, contains('This step is read-only specification only.'));
+      expect(planAndImplement, contains('This step is read-only planning and specification only.'));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));

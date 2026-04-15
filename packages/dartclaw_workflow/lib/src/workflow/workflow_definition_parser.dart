@@ -96,6 +96,10 @@ class WorkflowDefinitionParser {
         if (parsedLoop.finalizerStep != null) {
           steps.add(parsedLoop.finalizerStep!);
         }
+      } else if (_isInlineForeachStep(entry)) {
+        final parsedForeach = _parseInlineForeachStep(entry, sourcePath);
+        steps.add(parsedForeach.controller);
+        steps.addAll(parsedForeach.childSteps);
       } else {
         steps.add(_parseStep(entry, sourcePath));
       }
@@ -104,6 +108,54 @@ class WorkflowDefinitionParser {
   }
 
   bool _isInlineLoopStep(YamlMap raw) => (raw['type'] as String?) == 'loop';
+
+  bool _isInlineForeachStep(YamlMap raw) => (raw['type'] as String?) == 'foreach';
+
+  _ParsedInlineForeachStep _parseInlineForeachStep(YamlMap raw, String? sourcePath) {
+    final id = raw['id'];
+    if (id == null || id is! String || id.isEmpty) {
+      throw FormatException('Foreach step must have a non-empty "id" field${_at(sourcePath)}.');
+    }
+    final name = raw['name'];
+    if (name == null || name is! String || name.isEmpty) {
+      throw FormatException('Foreach "$id" must have a non-empty "name" field${_at(sourcePath)}.');
+    }
+    final mapOver = (raw['map_over'] ?? raw['mapOver']) as String?;
+    if (mapOver == null || mapOver.isEmpty) {
+      throw FormatException('Foreach "$id" must specify "map_over"${_at(sourcePath)}.');
+    }
+    final childStepsRaw = raw['steps'];
+    if (childStepsRaw is! YamlList || childStepsRaw.isEmpty) {
+      throw FormatException('Foreach "$id" must include a non-empty "steps" list${_at(sourcePath)}.');
+    }
+    final childSteps = <WorkflowStep>[];
+    for (final childRaw in childStepsRaw) {
+      if (childRaw is! YamlMap) {
+        throw FormatException('Foreach "$id" step entries must be mappings${_at(sourcePath)}.');
+      }
+      if (_isInlineLoopStep(childRaw) || _isInlineForeachStep(childRaw)) {
+        throw FormatException(
+          'Foreach "$id" cannot contain nested loops or foreach steps${_at(sourcePath)}.',
+        );
+      }
+      childSteps.add(_parseStep(childRaw, sourcePath));
+    }
+    final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
+    final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+    final controller = WorkflowStep(
+      id: id,
+      name: name,
+      type: 'foreach',
+      mapOver: mapOver,
+      maxParallel: maxParallel,
+      maxItems: maxItems,
+      project: raw['project'] as String?,
+      contextInputs: _parseStringList(raw['contextInputs']),
+      contextOutputs: _parseStringList(raw['contextOutputs']),
+      foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
+    );
+    return _ParsedInlineForeachStep(controller: controller, childSteps: childSteps);
+  }
 
   _ParsedInlineLoopStep _parseInlineLoopStep(YamlMap raw, String? sourcePath) {
     final id = raw['id'];
@@ -216,9 +268,10 @@ class WorkflowDefinitionParser {
     final stepType = (raw['type'] as String?) ?? 'research';
 
     // Reject no-skill + no-prompt at parse time, except for bash/approval steps
-    // which do not need an agent prompt (S02/S03 own their execution semantics).
+    // which do not need an agent prompt, and foreach controllers which are pure
+    // orchestration containers (their child steps have the prompts).
     if (skill == null && (prompts == null || prompts.isEmpty)) {
-      if (stepType != 'bash' && stepType != 'approval') {
+      if (stepType != 'bash' && stepType != 'approval' && stepType != 'foreach') {
         throw FormatException('Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.');
       }
     }
@@ -277,6 +330,10 @@ class WorkflowDefinitionParser {
     final mapOver = (raw['map_over'] ?? raw['mapOver']) as String?;
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
     final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+    final foreachStepsRaw = raw['foreach_steps'] ?? raw['foreachSteps'];
+    final foreachSteps = foreachStepsRaw is YamlList
+        ? foreachStepsRaw.cast<String>().toList(growable: false)
+        : (foreachStepsRaw as List?)?.cast<String>();
 
     return WorkflowStep(
       id: id,
@@ -302,6 +359,7 @@ class WorkflowDefinitionParser {
       mapOver: mapOver,
       maxParallel: maxParallel,
       maxItems: maxItems,
+      foreachSteps: foreachSteps,
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
@@ -382,7 +440,6 @@ class WorkflowDefinitionParser {
     return WorkflowGitStrategy(
       bootstrap: raw['bootstrap'] as bool?,
       worktree: raw['worktree'] as String?,
-      quickReview: raw['quickReview'] as bool?,
       promotion: raw['promotion'] as String?,
       finalReview: raw['finalReview'] as bool?,
       publish: publish,
@@ -475,4 +532,11 @@ class _ParsedInlineLoopStep {
   final WorkflowStep? finalizerStep;
 
   const _ParsedInlineLoopStep({required this.loop, required this.steps, this.finalizerStep});
+}
+
+class _ParsedInlineForeachStep {
+  final WorkflowStep controller;
+  final List<WorkflowStep> childSteps;
+
+  const _ParsedInlineForeachStep({required this.controller, required this.childSteps});
 }

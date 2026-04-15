@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         KvService,
         LoopNode,
         LoopIterationCompletedEvent,
+        ForeachNode,
         MapNode,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
@@ -450,6 +451,98 @@ class WorkflowExecutor {
           await _repository.update(run);
           nodeIndex++;
 
+        case ForeachNode(stepId: final foreachStepId, childStepIds: final childStepIds):
+          final foreachStep = stepById[foreachStepId];
+          final foreachStepIndex = stepIndexById[foreachStepId];
+          if (foreachStep == null || foreachStepIndex == null) {
+            await _pauseRun(run, 'Normalized foreach node references missing step "$foreachStepId".');
+            return;
+          }
+
+          final refreshedRunForeach = await _repository.getById(run.id) ?? run;
+          run = refreshedRunForeach;
+          run = await _checkWorkflowBudgetWarning(run, definition);
+          if (_workflowBudgetExceeded(run, definition)) {
+            final msg = 'Workflow budget exceeded: ${run.totalTokens} / ${definition.maxTokens} tokens';
+            _log.info("Workflow '${run.id}': $msg");
+            await _pauseRun(run, msg);
+            return;
+          }
+
+          final foreachCursor = switch (activeCursor) {
+            WorkflowExecutionCursor(nodeType: WorkflowExecutionCursorNodeType.foreach, nodeId: final cursorStepId)
+                when cursorStepId == foreachStep.id =>
+              activeCursor,
+            _ => null,
+          };
+          final foreachResult = await _executeForeachStep(
+            run,
+            definition,
+            foreachStep,
+            childStepIds,
+            context,
+            stepById: stepById,
+            stepIndex: foreachStepIndex,
+            resumeCursor: foreachCursor,
+          );
+          if (foreachResult == null) return;
+          activeCursor = null;
+
+          // Write aggregated per-item results to context for downstream steps that reference
+          // {{context.story-pipeline}} or any declared contextOutputs on the foreach controller.
+          for (final outputKey in foreachStep.contextOutputs) {
+            context[outputKey] = foreachResult.results;
+          }
+
+          if (!foreachResult.success) {
+            final msg = foreachResult.error ?? "Foreach step '${foreachStep.id}' failed";
+            _log.info("Workflow '${run.id}': $msg");
+            run = run.copyWith(
+              totalTokens: run.totalTokens + foreachResult.totalTokens,
+              executionCursor: null,
+              contextJson: {
+                for (final e in run.contextJson.entries)
+                  if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
+                ...context.toJson(),
+              },
+              updatedAt: DateTime.now(),
+            );
+            await _persistContext(run.id, context);
+            await _repository.update(run);
+            await _pauseRun(run, msg);
+            return;
+          }
+
+          run = run.copyWith(
+            totalTokens: run.totalTokens + foreachResult.totalTokens,
+            currentStepIndex: foreachStepIndex + 1,
+            executionCursor: null,
+            contextJson: {
+              for (final e in run.contextJson.entries)
+                if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
+              ...context.toJson(),
+            },
+            updatedAt: DateTime.now(),
+          );
+          await _persistContext(run.id, context);
+          await _repository.update(run);
+
+          _eventBus.fire(
+            WorkflowStepCompletedEvent(
+              runId: run.id,
+              stepId: foreachStep.id,
+              stepName: foreachStep.name,
+              stepIndex: foreachStepIndex,
+              totalSteps: totalSteps,
+              taskId: '',
+              success: true,
+              tokenCount: foreachResult.totalTokens,
+              timestamp: DateTime.now(),
+            ),
+          );
+
+          nodeIndex++;
+
         case ActionNode(stepId: final stepId):
           final step = stepById[stepId];
           final stepIndex = stepIndexById[stepId];
@@ -679,6 +772,9 @@ class WorkflowExecutor {
         if (finallyStepId != null) {
           yield finallyStepId;
         }
+      case ForeachNode(stepId: final stepId, childStepIds: final childStepIds):
+        yield stepId;
+        yield* childStepIds;
     }
   }
 
@@ -1191,6 +1287,7 @@ class WorkflowExecutor {
     required int stepIndex,
     String? loopId,
     int? loopIteration,
+    MapContext? mapCtx,
   }) async {
     // Dispatch bash steps to the zero-task host executor.
     if (step.type == 'bash') {
@@ -1207,8 +1304,11 @@ class WorkflowExecutor {
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
 
     // Augment only the LAST prompt with schema instructions.
+    // resolveWithMap handles {{map.*}} references (null mapCtx falls back to resolve).
     final effectiveOutputs = step.outputs;
-    final resolvedFirstPrompt = step.prompts != null ? _templateEngine.resolve(step.prompts!.first, context) : null;
+    final resolvedFirstPrompt = step.prompts != null
+        ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
+        : null;
     final contextSummary = step.skill != null && resolvedFirstPrompt == null
         ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
         : null;
@@ -1218,7 +1318,19 @@ class WorkflowExecutor {
     final effectiveProvider = continuedRootStep != null
         ? resolveStepConfig(continuedRootStep, definition.stepDefaults, roleDefaults: _roleDefaults).provider
         : resolved.provider;
-    final effectiveProjectId = _resolveProjectId(continuedRootStep ?? step, context);
+    final effectiveProjectId = mapCtx != null
+        ? _resolveProjectIdWithMap(continuedRootStep ?? step, context, mapCtx)
+        : _resolveProjectId(continuedRootStep ?? step, context);
+
+    // Inject per-iteration metadata for foreach child steps so downstream tracking and tests
+    // can identify which story iteration this task belongs to.
+    if (mapCtx != null) {
+      taskConfig = {
+        ...taskConfig,
+        '_mapIterationIndex': mapCtx.index,
+        '_mapIterationTotal': mapCtx.length,
+      };
+    }
 
     // continueSession: resolve root session and snapshot token baseline.
     if (continuedRootStep != null) {
@@ -2212,7 +2324,6 @@ class WorkflowExecutor {
         strategy?.promotion != null &&
         strategy!.promotion != 'none' &&
         step.type == 'coding';
-    final quickReviewEnabled = promotionAware && strategy.quickReview == true;
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds = (context['_map.${step.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
     if (depGraph.hasDependencies) {
@@ -2340,7 +2451,6 @@ class WorkflowExecutor {
               mapCtx: mapCtx,
               context: context,
               promotionAware: promotionAware,
-              quickReviewEnabled: quickReviewEnabled,
               integrationBranch: integrationBranch,
               promotionStrategy: strategy?.promotion ?? 'merge',
               promotedIds: promotedIds,
@@ -2516,6 +2626,692 @@ class WorkflowExecutor {
   String? _restoredMapTaskId(dynamic slotValue) =>
       slotValue is Map && slotValue['task_id'] is String ? slotValue['task_id'] as String : null;
 
+  // ── Foreach step execution ──────────────────────────────────────────────────
+
+  /// Executes a foreach step: iterates over a collection and runs an ordered sequence
+  /// of child steps per item. Supports bounded concurrency across iterations.
+  ///
+  /// Returns null if the executor has already paused the run.
+  /// Returns a [_MapStepResult] on success or failure.
+  Future<_MapStepResult?> _executeForeachStep(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowStep controllerStep,
+    List<String> childStepIds,
+    WorkflowContext context, {
+    required Map<String, WorkflowStep> stepById,
+    required int stepIndex,
+    WorkflowExecutionCursor? resumeCursor,
+  }) async {
+    // 1. Resolve collection from context.
+    final rawCollection = context[controllerStep.mapOver!];
+    if (rawCollection == null) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error: "Foreach step '${controllerStep.id}': context key '${controllerStep.mapOver}' is null or missing",
+      );
+    }
+    if (rawCollection is! List) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error:
+            "Foreach step '${controllerStep.id}': context key '${controllerStep.mapOver}' is not a List "
+            '(got ${rawCollection.runtimeType})',
+      );
+    }
+    final collection = rawCollection;
+
+    // 2. Check maxItems.
+    if (collection.length > controllerStep.maxItems) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error:
+            "Foreach step '${controllerStep.id}': collection has ${collection.length} items "
+            'which exceeds maxItems (${controllerStep.maxItems}). '
+            'Consider decomposing into smaller batches.',
+      );
+    }
+
+    // 3. Empty collection — succeed immediately.
+    if (collection.isEmpty) {
+      _log.warning(
+        "Workflow '${run.id}': foreach step '${controllerStep.id}' has empty collection — "
+        'succeeding with empty result array',
+      );
+      return const _MapStepResult(results: [], totalTokens: 0, success: true);
+    }
+
+    // 4. Resolve maxParallel (default 1 = sequential).
+    final int? maxParallel;
+    try {
+      maxParallel = _resolveMaxParallel(controllerStep.maxParallel, context, controllerStep.id);
+    } on ArgumentError catch (e) {
+      return _MapStepResult(results: const [], totalTokens: 0, success: false, error: e.message.toString());
+    }
+
+    // 5. Resolve child steps.
+    final childSteps = childStepIds.map((id) => stepById[id]).nonNulls.toList(growable: false);
+    if (childSteps.length != childStepIds.length) {
+      return _MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        success: false,
+        error: "Foreach step '${controllerStep.id}': one or more child steps are missing from the definition",
+      );
+    }
+
+    // 6. gitStrategy context.
+    final strategy = definition.gitStrategy;
+    final promotionAware =
+        strategy?.worktree == 'per-map-item' &&
+        strategy?.promotion != null &&
+        strategy!.promotion != 'none' &&
+        childSteps.any((s) => s.type == 'coding');
+    final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
+    final promotedIds = (context['_map.${controllerStep.id}.promotedIds'] as List?)?.whereType<String>().toSet() ??
+        <String>{};
+
+    // 7. Create MapStepContext.
+    final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: controllerStep.maxItems);
+    _restoreForeachProgress(mapCtx, resumeCursor, collectionLength: collection.length);
+
+    // 8. Persist initial progress.
+    await _persistForeachProgress(
+      run,
+      controllerStep,
+      context,
+      mapCtx,
+      stepIndex: stepIndex,
+      promotedIds: promotedIds,
+    );
+
+    // 9. Bounded concurrency dispatch loop.
+    final inFlight = <int, Future<void>>{};
+    final settledIndices = mapCtx.completedIndices;
+    final pending = Queue<int>.from(
+      List.generate(collection.length, (i) => i).where((i) => !settledIndices.contains(i)),
+    );
+    var totalTokens = 0;
+
+    while (pending.isNotEmpty || inFlight.isNotEmpty) {
+      if (mapCtx.budgetExhausted) {
+        while (pending.isNotEmpty) {
+          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: budget exhausted');
+        }
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        break;
+      }
+
+      final poolAvailable = _turnAdapter?.availableRunnerCount?.call();
+      final concurrencyCap = mapCtx.effectiveConcurrency(poolAvailable);
+      while (inFlight.length < concurrencyCap && pending.isNotEmpty) {
+        final iterIndex = pending.removeFirst();
+        final mapContext = MapContext(
+          item: (collection[iterIndex] as Object?) ?? '',
+          index: iterIndex,
+          length: collection.length,
+        );
+        final effectiveProjectId = _resolveProjectIdWithMap(controllerStep, context, mapContext);
+        mapCtx.inFlightCount++;
+
+        inFlight[iterIndex] = _dispatchForeachIteration(
+          run: run,
+          definition: definition,
+          controllerStep: controllerStep,
+          childSteps: childSteps,
+          stepIndex: stepIndex,
+          iterIndex: iterIndex,
+          mapContext: mapContext,
+          mapCtx: mapCtx,
+          context: context,
+          promotionAware: promotionAware,
+          integrationBranch: integrationBranch,
+          promotionStrategy: strategy?.promotion ?? 'merge',
+          promotedIds: promotedIds,
+          projectId: effectiveProjectId,
+        ).then((_) { inFlight.remove(iterIndex); });
+      }
+
+      if (inFlight.isEmpty && pending.isNotEmpty) {
+        _log.warning(
+          "Workflow '${run.id}': foreach step '${controllerStep.id}' — "
+          '${pending.length} items stalled; cancelling.',
+        );
+        while (pending.isNotEmpty) {
+          mapCtx.recordCancelled(pending.removeFirst(), 'Cancelled: dispatch stall');
+        }
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        break;
+      }
+
+      if (inFlight.isEmpty) break;
+
+      await Future.any(inFlight.values);
+
+      final refreshedRun = await _repository.getById(run.id) ?? run;
+      run = refreshedRun;
+      if (_workflowBudgetExceeded(run, definition)) {
+        mapCtx.budgetExhausted = true;
+      }
+
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    if (inFlight.isNotEmpty) {
+      await Future.wait(inFlight.values, eagerError: false);
+    }
+
+    // 10. Accumulate total tokens from all child step token keys.
+    for (var i = 0; i < collection.length; i++) {
+      for (final childStep in childSteps) {
+        final t = context['${childStep.id}[$i].tokenCount'];
+        if (t is int) totalTokens += t;
+      }
+    }
+
+    // 11. Fire MapStepCompletedEvent.
+    _eventBus.fire(
+      MapStepCompletedEvent(
+        runId: run.id,
+        stepId: controllerStep.id,
+        stepName: controllerStep.name,
+        totalIterations: collection.length,
+        successCount: mapCtx.successCount,
+        failureCount: mapCtx.failedIndices.length,
+        cancelledCount: mapCtx.cancelledCount,
+        totalTokens: totalTokens,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    // 12. Return result.
+    if (mapCtx.hasFailures) {
+      return _MapStepResult(
+        results: List<dynamic>.from(mapCtx.results),
+        totalTokens: totalTokens,
+        success: false,
+        error: "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed",
+      );
+    }
+
+    return _MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
+  }
+
+  /// Executes a single foreach iteration: runs each child step sequentially in a
+  /// per-iteration context overlay. Records result in [mapCtx] and fires events.
+  Future<void> _dispatchForeachIteration({
+    required WorkflowRun run,
+    required WorkflowDefinition definition,
+    required WorkflowStep controllerStep,
+    required List<WorkflowStep> childSteps,
+    required int stepIndex,
+    required int iterIndex,
+    required MapContext mapContext,
+    required MapStepContext mapCtx,
+    required WorkflowContext context,
+    required bool promotionAware,
+    required String? integrationBranch,
+    required String promotionStrategy,
+    required Set<String> promotedIds,
+    required String? projectId,
+  }) async {
+    // Build per-iteration context overlay: starts with global context data + map variables.
+    // Child steps can see each other's outputs within the iteration via this overlay.
+    final iterData = Map<String, dynamic>.from(context.data);
+    iterData['map.item'] = mapContext.item;
+    iterData['map.index'] = mapContext.index;
+    iterData['map.length'] = mapContext.length;
+    final iterContext = WorkflowContext(data: iterData, variables: context.variables);
+
+    int iterTokens = 0;
+    Map<String, dynamic> iterResult = {};
+    String? firstTaskId;
+
+    // Run each child step sequentially.
+    for (var childIndex = 0; childIndex < childSteps.length; childIndex++) {
+      final childStep = childSteps[childIndex];
+      final childStepIndex = definition.steps.indexOf(childStep);
+
+      final result = await _executeStep(
+        run,
+        definition,
+        childStep,
+        iterContext,
+        stepIndex: childStepIndex,
+        mapCtx: mapContext,
+      );
+
+      if (result == null) {
+        // _executeStep paused the run (task creation failure / approval / timeout).
+        mapCtx.recordFailure(iterIndex, "Foreach child step '${childStep.id}' failed to create task", null);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: mapCtx.itemId(iterIndex),
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+
+      if (childIndex == 0) firstTaskId = result.task?.id;
+      final tokenCount = result.tokenCount;
+      iterTokens += tokenCount;
+
+      // Write indexed token count to global context for budget tracking.
+      context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
+
+      if (!result.success) {
+        // Propagate failure outputs to both iter context and global indexed keys.
+        iterContext.merge(result.outputs);
+        iterContext['${childStep.id}.status'] = 'failed';
+        iterContext['${childStep.id}.tokenCount'] = tokenCount;
+        for (final entry in result.outputs.entries) {
+          context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
+        }
+        context['${childStep.id}[$iterIndex].status'] = 'failed';
+
+        mapCtx.recordFailure(iterIndex, "Foreach child step '${childStep.id}' failed", result.task?.id);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          WorkflowStepCompletedEvent(
+            runId: run.id,
+            stepId: childStep.id,
+            stepName: childStep.name,
+            stepIndex: childStepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            tokenCount: tokenCount,
+            timestamp: DateTime.now(),
+          ),
+        );
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: mapCtx.itemId(iterIndex),
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+
+      // Child step succeeded — merge outputs into iteration context and global indexed keys.
+      // Write bare keys (e.g. `story_result`) AND step-prefixed keys (e.g. `implement.story_result`)
+      // so sibling child steps can reference `{{context.implement.story_result}}`.
+      iterContext.merge(result.outputs);
+      for (final entry in result.outputs.entries) {
+        iterContext['${childStep.id}.${entry.key}'] = entry.value;
+      }
+      if (!result.outputs.containsKey('${childStep.id}.status')) {
+        iterContext['${childStep.id}.status'] = result.task?.status.name ?? 'completed';
+      }
+      iterContext['${childStep.id}.tokenCount'] = tokenCount;
+      final childSessionId = result.task?.sessionId;
+      if (childSessionId != null) {
+        iterContext['${childStep.id}.sessionId'] = childSessionId;
+      }
+
+      for (final entry in result.outputs.entries) {
+        context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
+      }
+      context['${childStep.id}[$iterIndex].status'] = iterContext['${childStep.id}.status'];
+      context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
+
+      // Accumulate per-iteration outputs for the aggregate result.
+      iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
+
+      _eventBus.fire(
+        WorkflowStepCompletedEvent(
+          runId: run.id,
+          stepId: childStep.id,
+          stepName: childStep.name,
+          stepIndex: childStepIndex,
+          totalSteps: definition.steps.length,
+          taskId: result.task?.id ?? '',
+          success: true,
+          tokenCount: tokenCount,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
+
+    // All child steps succeeded — handle worktree promotion before recording result.
+    if (promotionAware) {
+      // Find the first coding child step and get its branch.
+      final codingStep = childSteps.firstWhere((s) => s.type == 'coding', orElse: () => childSteps.first);
+      final storyBranch = (iterContext['${codingStep.id}.branch'] as String?)?.trim();
+      final promote = _turnAdapter?.promoteWorkflowBranch;
+      final storyId = mapCtx.itemId(iterIndex);
+
+      if (promote == null) {
+        mapCtx.recordFailure(iterIndex, 'promotion failed: host promotion callback is not configured', firstTaskId);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: storyId,
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+      if (projectId == null || projectId.isEmpty) {
+        mapCtx.recordFailure(iterIndex, 'promotion failed: foreach iteration has no project binding', firstTaskId);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: storyId,
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+      if (storyBranch == null || storyBranch.isEmpty) {
+        mapCtx.recordFailure(iterIndex, 'promotion failed: task worktree branch is unavailable', firstTaskId);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: storyId,
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+      if (integrationBranch == null || integrationBranch.isEmpty) {
+        mapCtx.recordFailure(iterIndex, 'promotion failed: integration branch is not initialized', firstTaskId);
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        mapCtx.inFlightCount--;
+        _eventBus.fire(
+          MapIterationCompletedEvent(
+            runId: run.id,
+            stepId: controllerStep.id,
+            iterationIndex: iterIndex,
+            totalIterations: mapCtx.collection.length,
+            itemId: storyId,
+            taskId: firstTaskId ?? '',
+            success: false,
+            tokenCount: iterTokens,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return;
+      }
+
+      final promotionResult = await promote(
+        runId: run.id,
+        projectId: projectId,
+        branch: storyBranch,
+        integrationBranch: integrationBranch,
+        strategy: promotionStrategy,
+        storyId: storyId,
+      );
+      switch (promotionResult) {
+        case WorkflowGitPromotionSuccess(:final commitSha):
+          if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
+          context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
+          context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
+        case WorkflowGitPromotionConflict(:final conflictingFiles, :final details):
+          final conflictMsg =
+              'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+          context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
+          context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
+          mapCtx.recordFailure(iterIndex, conflictMsg, firstTaskId);
+          await _persistForeachProgress(
+            run,
+            controllerStep,
+            context,
+            mapCtx,
+            stepIndex: stepIndex,
+            promotedIds: promotedIds,
+          );
+          mapCtx.inFlightCount--;
+          _eventBus.fire(
+            MapIterationCompletedEvent(
+              runId: run.id,
+              stepId: controllerStep.id,
+              iterationIndex: iterIndex,
+              totalIterations: mapCtx.collection.length,
+              itemId: storyId,
+              taskId: firstTaskId ?? '',
+              success: false,
+              tokenCount: iterTokens,
+              timestamp: DateTime.now(),
+            ),
+          );
+          return;
+        case WorkflowGitPromotionError(:final message):
+          context['${controllerStep.id}[$iterIndex].promotion'] = 'failed';
+          mapCtx.recordFailure(iterIndex, 'promotion failed: $message', firstTaskId);
+          await _persistForeachProgress(
+            run,
+            controllerStep,
+            context,
+            mapCtx,
+            stepIndex: stepIndex,
+            promotedIds: promotedIds,
+          );
+          mapCtx.inFlightCount--;
+          _eventBus.fire(
+            MapIterationCompletedEvent(
+              runId: run.id,
+              stepId: controllerStep.id,
+              iterationIndex: iterIndex,
+              totalIterations: mapCtx.collection.length,
+              itemId: storyId,
+              taskId: firstTaskId ?? '',
+              success: false,
+              tokenCount: iterTokens,
+              timestamp: DateTime.now(),
+            ),
+          );
+          return;
+      }
+    }
+
+    // Record successful iteration aggregate result.
+    mapCtx.recordResult(iterIndex, iterResult);
+    await _persistForeachProgress(
+      run,
+      controllerStep,
+      context,
+      mapCtx,
+      stepIndex: stepIndex,
+      promotedIds: promotedIds,
+    );
+    mapCtx.inFlightCount--;
+
+    _eventBus.fire(
+      MapIterationCompletedEvent(
+        runId: run.id,
+        stepId: controllerStep.id,
+        iterationIndex: iterIndex,
+        totalIterations: mapCtx.collection.length,
+        itemId: mapCtx.itemId(iterIndex),
+        taskId: firstTaskId ?? '',
+        success: true,
+        tokenCount: iterTokens,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Restores foreach progress from a persisted cursor into [mapCtx].
+  void _restoreForeachProgress(
+    MapStepContext mapCtx,
+    WorkflowExecutionCursor? cursor, {
+    required int collectionLength,
+  }) {
+    if (cursor == null || cursor.nodeType != WorkflowExecutionCursorNodeType.foreach) return;
+
+    final safeResultSlots = cursor.resultSlots.isEmpty
+        ? List<dynamic>.filled(collectionLength, null)
+        : List<dynamic>.from(cursor.resultSlots);
+    if (safeResultSlots.length < collectionLength) {
+      safeResultSlots.addAll(List<dynamic>.filled(collectionLength - safeResultSlots.length, null));
+    } else if (safeResultSlots.length > collectionLength) {
+      safeResultSlots.removeRange(collectionLength, safeResultSlots.length);
+    }
+
+    final failed = cursor.failedIndices.toSet();
+    final cancelled = cursor.cancelledIndices.toSet();
+    for (final index in cursor.completedIndices) {
+      if (index < 0 || index >= collectionLength) continue;
+      final slotValue = safeResultSlots[index];
+      if (cancelled.contains(index)) {
+        mapCtx.recordCancelled(index, _restoredMapCancellationMessage(slotValue));
+      } else if (failed.contains(index)) {
+        final restoredFailure = _restoredMapFailureMessage(slotValue);
+        if (restoredFailure.startsWith('promotion-conflict')) {
+          continue; // Leave unsettled so resume can re-attempt promotion.
+        }
+        mapCtx.recordFailure(index, restoredFailure, _restoredMapTaskId(slotValue));
+      } else {
+        mapCtx.recordResult(index, slotValue);
+      }
+    }
+  }
+
+  /// Persists foreach cursor and progress markers into the run record.
+  Future<void> _persistForeachProgress(
+    WorkflowRun run,
+    WorkflowStep step,
+    WorkflowContext context,
+    MapStepContext mapCtx, {
+    required int stepIndex,
+    Set<String> promotedIds = const <String>{},
+  }) async {
+    context['_map.${step.id}.promotedIds'] = promotedIds.toList()..sort();
+    final refreshedRun = await _repository.getById(run.id) ?? run;
+    final cursor = WorkflowExecutionCursor.foreach(
+      stepId: step.id,
+      stepIndex: stepIndex,
+      totalItems: mapCtx.collection.length,
+      completedIndices: mapCtx.completedIndices.toList()..sort(),
+      failedIndices: mapCtx.failedIndices.toList()..sort(),
+      cancelledIndices: mapCtx.cancelledIndices.toList()..sort(),
+      resultSlots: List<dynamic>.from(mapCtx.results),
+    );
+
+    final updatedRun = refreshedRun.copyWith(
+      executionCursor: cursor,
+      contextJson: {
+        for (final e in refreshedRun.contextJson.entries)
+          if (e.key.startsWith('_') && !e.key.startsWith('_foreach.current')) e.key: e.value,
+        ...context.toJson(),
+        '_foreach.current.stepId': step.id,
+        '_foreach.current.total': mapCtx.collection.length,
+        '_foreach.current.completedIndices': cursor.completedIndices,
+        '_foreach.current.failedIndices': cursor.failedIndices,
+        '_foreach.current.cancelledIndices': cursor.cancelledIndices,
+        '_map.${step.id}.promotedIds': context['_map.${step.id}.promotedIds'],
+      },
+      updatedAt: DateTime.now(),
+    );
+
+    await _repository.update(updatedRun);
+  }
+
   /// Executes a single map iteration: creates a task, awaits completion,
   /// extracts outputs, records result in [mapCtx], fires [MapIterationCompletedEvent].
   Future<void> _dispatchIteration({
@@ -2532,7 +3328,6 @@ class WorkflowExecutor {
     required MapStepContext mapCtx,
     required WorkflowContext context,
     required bool promotionAware,
-    required bool quickReviewEnabled,
     required String? integrationBranch,
     required String promotionStrategy,
     required Set<String> promotedIds,
@@ -2713,57 +3508,6 @@ class WorkflowExecutor {
 
       if (promotionAware) {
         final storyBranch = (finalTask.worktreeJson?['branch'] as String?)?.trim();
-        final quickReviewResult = quickReviewEnabled
-            ? await _runRuntimeQuickReviewAndSingleRemediation(
-                run: run,
-                definition: definition,
-                parentStep: step,
-                stepIndex: stepIndex,
-                context: context,
-                iterIndex: iterIndex,
-                projectId: projectId,
-                storyBranch: storyBranch,
-                implementationResult: resultValue,
-              )
-            : null;
-        if (quickReviewResult != null) {
-          tokenCount += quickReviewResult.tokenCount;
-        }
-        if (quickReviewResult case _ParallelStepResult(success: false, error: final error)) {
-          persistIterationOutputs();
-          mapCtx.recordFailure(iterIndex, error ?? 'quick review/remediation failed', taskId);
-          await _persistMapProgress(run, step, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
-          mapCtx.inFlightCount--;
-          emitIterationFailure();
-          return;
-        }
-        if (quickReviewResult case _ParallelStepResult(
-          step: final quickStep,
-          task: final quickTask?,
-        ) when quickStep.id == '${step.id}-runtime-remediate') {
-          Map<String, dynamic> remediationOutputs = {};
-          try {
-            remediationOutputs = await _contextExtractor.extract(quickStep, quickTask);
-          } catch (e, st) {
-            _log.warning(
-              "Workflow '${run.id}': context extraction failed for runtime remediation "
-              "step '${quickStep.id}' iteration $iterIndex: $e",
-              e,
-              st,
-            );
-          }
-          if (step.contextOutputs.length == 1) {
-            final remediationText = remediationOutputs.values.whereType<String>().firstOrNull;
-            if (remediationText != null && remediationText.isNotEmpty) {
-              outputs[step.contextOutputs.first] = remediationText;
-            }
-          }
-          for (final entry in remediationOutputs.entries) {
-            context['${step.id}[$iterIndex].${entry.key}'] = entry.value;
-          }
-          resultValue = await _buildCodingResult(quickTask, remediationOutputs);
-        }
-
         final promote = _turnAdapter?.promoteWorkflowBranch;
         final branch = storyBranch;
         final promotionProjectId = projectId?.trim();
@@ -2838,7 +3582,7 @@ class WorkflowExecutor {
         }
       }
 
-      // Persist per-iteration outputs after any runtime quick review/remediation adjustments.
+      // Persist per-iteration outputs (extraction results, token counts, status).
       persistIterationOutputs();
       mapCtx.recordResult(iterIndex, resultValue);
     } else {
@@ -2864,332 +3608,6 @@ class WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-  }
-
-  Future<_ParallelStepResult> _runRuntimeQuickReviewAndSingleRemediation({
-    required WorkflowRun run,
-    required WorkflowDefinition definition,
-    required WorkflowStep parentStep,
-    required int stepIndex,
-    required WorkflowContext context,
-    required int iterIndex,
-    required String? projectId,
-    required String? storyBranch,
-    required dynamic implementationResult,
-  }) async {
-    final quickReviewStep = WorkflowStep(
-      id: '${parentStep.id}-runtime-quick-review',
-      name: 'Runtime Quick Review',
-      prompts: [
-        'Runtime quick review for story ${iterIndex + 1}.\n\n'
-            'Review the implementation result below for concrete problems only.\n'
-            'Focus on correctness against the described result, missing implementation, and obvious scope drift.\n'
-            'Do not narrate your process.\n'
-            'Return only a workflow context payload in this exact shape:\n'
-            '<workflow-context>{"quick_review_result":{"pass":true,"findings_count":0,"summary":"...","findings":[]}}</workflow-context>\n'
-            'If there are problems, set "pass" to false and include concise findings with severity and description.\n'
-            'If there are no significant issues, keep "findings" empty.\n\n'
-            'Implementation result:\n$implementationResult',
-      ],
-      type: 'analysis',
-      contextOutputs: const ['quick_review_result'],
-      outputs: const {'quick_review_result': OutputConfig(format: OutputFormat.json, schema: 'verdict')},
-    );
-    final quickResolved = resolveStepConfig(quickReviewStep, definition.stepDefaults, roleDefaults: _roleDefaults);
-    final quickConfig = {
-      ..._buildStepConfig(run, definition, quickReviewStep, quickResolved, context),
-      '_mapStepId': parentStep.id,
-      '_mapIterationIndex': iterIndex,
-      '_mapIterationTotal': 1,
-      '_runtimeQuickReview': true,
-    };
-    final quickTitle = '${definition.name} — ${parentStep.name} [quick-review] (${iterIndex + 1})';
-
-    final quickTask = await _runRuntimeOwnedTask(
-      run: run,
-      step: quickReviewStep,
-      stepIndex: stepIndex,
-      title: quickTitle,
-      prompt: quickReviewStep.prompt ?? '',
-      type: TaskType.analysis,
-      provider: quickResolved.provider,
-      projectId: projectId,
-      maxTokens: quickResolved.maxTokens,
-      maxRetries: quickResolved.maxRetries ?? 0,
-      configJson: quickConfig,
-    );
-    if (quickTask == null || quickTask.status == TaskStatus.failed || quickTask.status == TaskStatus.cancelled) {
-      return _ParallelStepResult(step: quickReviewStep, success: false, error: 'quick review task failed');
-    }
-
-    Map<String, dynamic> quickOutputs = {};
-    try {
-      quickOutputs = await _contextExtractor.extract(quickReviewStep, quickTask);
-    } catch (_) {}
-    final quickTokenCount = await _readStepTokenCount(quickTask);
-    final quickVerdict = quickOutputs['quick_review_result'] ?? await _fallbackQuickReviewVerdict(quickTask);
-    if (quickVerdict is! Map) {
-      return _ParallelStepResult(
-        step: quickReviewStep,
-        task: quickTask,
-        outputs: quickOutputs,
-        tokenCount: quickTokenCount,
-        success: false,
-        error: 'quick review verdict missing or unreadable',
-      );
-    }
-    context['${parentStep.id}[$iterIndex].quick_review'] = quickVerdict;
-    if (!_quickReviewNeedsRemediation(quickVerdict)) {
-      return _ParallelStepResult(
-        step: quickReviewStep,
-        task: quickTask,
-        outputs: quickOutputs,
-        tokenCount: quickTokenCount,
-        success: true,
-      );
-    }
-
-    final remediationStep = WorkflowStep(
-      id: '${parentStep.id}-runtime-remediate',
-      name: 'Runtime Quick Remediation',
-      skill: 'dartclaw-remediate-findings',
-      prompts: [
-        'Apply a single remediation pass for story ${iterIndex + 1} based on quick-review findings.\n'
-            'Findings:\n${quickOutputs['quick_review_result'] ?? quickOutputs}\n'
-            'Implementation context:\n$implementationResult',
-      ],
-      type: 'coding',
-      project: projectId,
-      contextOutputs: const ['quick_remediation_summary'],
-    );
-    final remediationResolved = resolveStepConfig(
-      remediationStep,
-      definition.stepDefaults,
-      roleDefaults: _roleDefaults,
-    );
-    final remediationConfig = {
-      ..._buildStepConfig(run, definition, remediationStep, remediationResolved, context),
-      '_mapStepId': parentStep.id,
-      '_mapIterationIndex': iterIndex,
-      '_mapIterationTotal': 1,
-      '_runtimeQuickReview': true,
-      if (storyBranch != null && storyBranch.isNotEmpty) '_baseRef': 'refs/heads/$storyBranch',
-    };
-    final remediationTitle = '${definition.name} — ${parentStep.name} [quick-remediate] (${iterIndex + 1})';
-
-    final remediationTask = await _runRuntimeOwnedTask(
-      run: run,
-      step: remediationStep,
-      stepIndex: stepIndex,
-      title: remediationTitle,
-      prompt: remediationStep.prompt ?? '',
-      type: TaskType.coding,
-      provider: remediationResolved.provider,
-      projectId: projectId,
-      maxTokens: remediationResolved.maxTokens,
-      maxRetries: remediationResolved.maxRetries ?? 0,
-      configJson: remediationConfig,
-    );
-    if (remediationTask == null ||
-        remediationTask.status == TaskStatus.failed ||
-        remediationTask.status == TaskStatus.cancelled) {
-      return _ParallelStepResult(step: remediationStep, success: false, error: 'runtime remediation pass failed');
-    }
-    final remediationTokenCount = await _readStepTokenCount(remediationTask);
-    context['${parentStep.id}[$iterIndex].quick_remediation_passes'] = 1;
-    return _ParallelStepResult(
-      step: remediationStep,
-      task: remediationTask,
-      outputs: const {},
-      tokenCount: quickTokenCount + remediationTokenCount,
-      success: true,
-    );
-  }
-
-  bool _quickReviewNeedsRemediation(Map<dynamic, dynamic> quickVerdict) {
-    final findingsCount = quickVerdict['findings_count'];
-    if (findingsCount is num && findingsCount > 0) {
-      return true;
-    }
-    final pass = quickVerdict['pass'];
-    if (pass is bool) {
-      return !pass;
-    }
-    return false;
-  }
-
-  Future<Map<String, dynamic>?> _fallbackQuickReviewVerdict(Task quickTask) async {
-    final sessionId = quickTask.sessionId;
-    final messageService = _messageService;
-    if (sessionId == null || messageService == null) {
-      return null;
-    }
-
-    final messages = await messageService.getMessages(sessionId);
-    String? assistantText;
-    for (final message in messages.reversed) {
-      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
-        assistantText = message.content.trim();
-        break;
-      }
-    }
-    if (assistantText == null) {
-      return null;
-    }
-
-    final normalized = assistantText.toLowerCase();
-    final findings = <Map<String, dynamic>>[];
-
-    final markdownFindingMatches = RegExp(
-      r'^\s*-\s*(high|medium|low|critical)\s*:\s*(.+)$',
-      multiLine: true,
-      caseSensitive: false,
-    ).allMatches(assistantText);
-    for (final match in markdownFindingMatches) {
-      findings.add(<String, dynamic>{
-        'severity': match.group(1)!.toLowerCase(),
-        'description': match.group(2)!.trim(),
-      });
-    }
-
-    final proseFindingMatches = RegExp(
-      r'^\s*(high|medium|low|critical)\s*:\s*(.+)$',
-      multiLine: true,
-      caseSensitive: false,
-    ).allMatches(assistantText);
-    for (final match in proseFindingMatches) {
-      final candidate = <String, dynamic>{
-        'severity': match.group(1)!.toLowerCase(),
-        'description': match.group(2)!.trim(),
-      };
-      if (!findings.any(
-        (finding) =>
-            finding['severity'] == candidate['severity'] && finding['description'] == candidate['description'],
-      )) {
-        findings.add(candidate);
-      }
-    }
-
-    final genericBulletMatches = RegExp(r'^\s*-\s*(.+)$', multiLine: true).allMatches(assistantText);
-    for (final match in genericBulletMatches) {
-      final description = match.group(1)!.trim();
-      if (description.toLowerCase().startsWith('none')) {
-        continue;
-      }
-      final candidate = <String, dynamic>{'severity': 'medium', 'description': description};
-      if (!findings.any((finding) => finding['description'] == candidate['description'])) {
-        findings.add(candidate);
-      }
-    }
-
-    if (findings.isNotEmpty) {
-      return <String, dynamic>{
-        'pass': false,
-        'findings_count': findings.length,
-        'summary': assistantText,
-        'findings': findings,
-      };
-    }
-
-    if (RegExp(r'\*\*findings\*\*\s*-\s*none\b', caseSensitive: false).hasMatch(assistantText) ||
-        RegExp(r'^\s*findings\s*:\s*none\b', multiLine: true, caseSensitive: false).hasMatch(assistantText)) {
-      return <String, dynamic>{
-        'pass': true,
-        'findings_count': 0,
-        'summary': assistantText,
-        'findings': const <Map<String, dynamic>>[],
-      };
-    }
-
-    if (normalized.contains('no significant issues') ||
-        normalized.contains('no issues found') ||
-        normalized.contains('no major issues found') ||
-        normalized.contains('no significant findings') ||
-        normalized.contains('looks good') ||
-        normalized.contains('passes review')) {
-      return <String, dynamic>{
-        'pass': true,
-        'findings_count': 0,
-        'summary': assistantText,
-        'findings': const <Map<String, dynamic>>[],
-      };
-    }
-    if (normalized.contains('blocker') ||
-        normalized.contains('did not execute') ||
-        normalized.contains('preflight failed') ||
-        normalized.contains('story remains unimplemented') ||
-        normalized.contains('was not implemented') ||
-        normalized.contains('no changed files') ||
-        normalized.contains('fileschanged: 0') ||
-        normalized.contains('there is nothing to validate')) {
-      return <String, dynamic>{
-        'pass': false,
-        'findings_count': 1,
-        'summary': assistantText,
-        'findings': <Map<String, dynamic>>[
-          <String, dynamic>{'severity': 'high', 'description': assistantText},
-        ],
-      };
-    }
-    return null;
-  }
-
-  Future<Task?> _runRuntimeOwnedTask({
-    required WorkflowRun run,
-    required WorkflowStep step,
-    required int stepIndex,
-    required String title,
-    required String prompt,
-    required TaskType type,
-    required String? provider,
-    required String? projectId,
-    required int? maxTokens,
-    required int maxRetries,
-    required Map<String, dynamic> configJson,
-  }) async {
-    final taskId = _uuid.v4();
-    final completer = Completer<Task>();
-    final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) async {
-      if (event.newStatus == TaskStatus.failed) {
-        final t = await _taskService.get(taskId);
-        if (t == null) return;
-        if (t.status == TaskStatus.queued || t.status == TaskStatus.running) return;
-        if (t.retryCount < t.maxRetries) return;
-        if (!completer.isCompleted) completer.complete(t);
-      } else if (event.newStatus.terminal) {
-        if (!completer.isCompleted) {
-          final t = await _taskService.get(taskId);
-          if (t != null) completer.complete(t);
-        }
-      }
-    });
-
-    try {
-      await _taskService.create(
-        id: taskId,
-        title: title,
-        description: prompt,
-        type: type,
-        autoStart: true,
-        provider: provider,
-        projectId: projectId,
-        maxTokens: maxTokens,
-        maxRetries: maxRetries,
-        workflowRunId: run.id,
-        stepIndex: stepIndex,
-        configJson: configJson,
-        trigger: 'workflow',
-      );
-    } catch (_) {
-      await sub.cancel();
-      return null;
-    }
-
-    try {
-      return await _waitForTaskCompletion(taskId, step, completer, sub);
-    } catch (_) {
-      return null;
-    }
   }
 
   Future<String?> _initializeWorkflowGit(

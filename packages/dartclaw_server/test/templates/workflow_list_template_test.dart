@@ -5,12 +5,14 @@ import 'package:test/test.dart';
 
 import '../test_utils.dart';
 
-const SidebarData _emptySidebar = (
+final SidebarData _emptySidebar = (
   main: null,
   dmChannels: <SidebarSession>[],
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  activeTasks: <SidebarActiveTask>[],
+  activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: false,
   tasksEnabled: false,
 );

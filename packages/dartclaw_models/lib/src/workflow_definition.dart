@@ -259,6 +259,10 @@ sealed class WorkflowNode {
         stepIds: (json['stepIds'] as List).cast<String>(),
         finallyStepId: json['finallyStepId'] as String?,
       ),
+      'foreach' => ForeachNode(
+        stepId: json['stepId'] as String,
+        childStepIds: (json['childStepIds'] as List).cast<String>(),
+      ),
       _ => throw FormatException('Unknown workflow node type: $type'),
     };
   }
@@ -330,6 +334,36 @@ final class LoopNode extends WorkflowNode {
     'loopId': loopId,
     'stepIds': stepIds.toList(growable: false),
     if (finallyStepId != null) 'finallyStepId': finallyStepId,
+  };
+}
+
+/// A normalized foreach/sub-pipeline node.
+///
+/// Represents "for each item in a collection, run this ordered sequence of steps".
+/// The [stepId] refers to the controller step (which declares [mapOver] and
+/// [foreachSteps]). [childStepIds] are the ordered substep IDs that execute
+/// per item. Child steps are "foreach-owned" and are not emitted as top-level
+/// nodes during normalization.
+final class ForeachNode extends WorkflowNode {
+  /// The controller step that drives the iteration.
+  final String stepId;
+
+  /// Ordered sub-pipeline step IDs executed sequentially per item.
+  final List<String> childStepIds;
+
+  const ForeachNode({required this.stepId, required this.childStepIds});
+
+  @override
+  String get type => 'foreach';
+
+  @override
+  List<String> get stepIds => [stepId, ...childStepIds];
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'stepId': stepId,
+    'childStepIds': childStepIds.toList(growable: false),
   };
 }
 
@@ -430,6 +464,14 @@ class WorkflowStep {
   /// Acts as a safety cap to prevent runaway fan-out.
   final int maxItems;
 
+  /// Ordered child step IDs for a per-item sub-pipeline (foreach).
+  ///
+  /// When set alongside [mapOver], this step becomes a "foreach controller"
+  /// that iterates [mapOver] and runs these child steps in authored order for
+  /// each item before moving to the next phase. The controller step itself does
+  /// not create an agent task — it is a pure orchestration container.
+  final List<String>? foreachSteps;
+
   /// Optional step reference whose root agent session should be continued.
   ///
   /// The value is normally a step ID. The legacy boolean form
@@ -466,6 +508,9 @@ class WorkflowStep {
   /// Whether this step is a map/fan-out step.
   bool get isMapStep => mapOver != null;
 
+  /// Whether this step is a foreach controller (per-item ordered sub-pipeline).
+  bool get isForeachController => mapOver != null && foreachSteps != null && foreachSteps!.isNotEmpty;
+
   const WorkflowStep({
     required this.id,
     required this.name,
@@ -490,6 +535,7 @@ class WorkflowStep {
     this.mapOver,
     this.maxParallel,
     this.maxItems = 20,
+    this.foreachSteps,
     this.continueSession,
     this.onError,
     this.workdir,
@@ -519,6 +565,7 @@ class WorkflowStep {
     if (mapOver != null) 'mapOver': mapOver,
     if (maxParallel != null) 'maxParallel': maxParallel,
     if (maxItems != 20) 'maxItems': maxItems,
+    if (foreachSteps != null) 'foreachSteps': foreachSteps!.toList(growable: false),
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
@@ -566,6 +613,7 @@ class WorkflowStep {
       mapOver: json['mapOver'] as String?,
       maxParallel: json['maxParallel'],
       maxItems: (json['maxItems'] as int?) ?? 20,
+      foreachSteps: (json['foreachSteps'] as List?)?.cast<String>(),
       continueSession: switch (json['continueSession']) {
         true => '@previous',
         String value when value.isNotEmpty => value,
@@ -601,9 +649,6 @@ class WorkflowGitStrategy {
   /// Worktree strategy (`shared`, `per-task`, `per-map-item`).
   final String? worktree;
 
-  /// Whether quick-review checkpoints are enabled.
-  final bool? quickReview;
-
   /// Promotion strategy (`merge`, `rebase`, `none`).
   final String? promotion;
 
@@ -619,7 +664,6 @@ class WorkflowGitStrategy {
   const WorkflowGitStrategy({
     this.bootstrap,
     this.worktree,
-    this.quickReview,
     this.promotion,
     this.finalReview,
     this.publish,
@@ -629,7 +673,6 @@ class WorkflowGitStrategy {
   Map<String, dynamic> toJson() => {
     if (bootstrap != null) 'bootstrap': bootstrap,
     if (worktree != null) 'worktree': worktree,
-    if (quickReview != null) 'quickReview': quickReview,
     if (promotion != null) 'promotion': promotion,
     if (finalReview != null) 'finalReview': finalReview,
     if (publish != null) 'publish': publish!.toJson(),
@@ -639,7 +682,6 @@ class WorkflowGitStrategy {
   factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
     bootstrap: json['bootstrap'] as bool?,
     worktree: json['worktree'] as String?,
-    quickReview: json['quickReview'] as bool?,
     promotion: json['promotion'] as String?,
     finalReview: json['finalReview'] as bool?,
     publish: switch (json['publish']) {
@@ -752,6 +794,13 @@ class WorkflowDefinition {
       ...loops.expand((loop) => loop.steps),
       ...loops.map((loop) => loop.finally_).whereType<String>(),
     };
+    // Foreach-owned steps are child steps of foreach controllers; they are
+    // not emitted as top-level nodes.
+    final foreachOwnedStepIds = {
+      for (final step in steps)
+        if (step.isForeachController)
+          ...step.foreachSteps!,
+    };
 
     final nodes = <WorkflowNode>[];
     final emittedLoopIds = <String>{};
@@ -774,6 +823,20 @@ class WorkflowDefinition {
         continue;
       }
 
+      if (foreachOwnedStepIds.contains(step.id)) {
+        continue;
+      }
+
+      if (step.isForeachController) {
+        nodes.add(
+          ForeachNode(
+            stepId: step.id,
+            childStepIds: step.foreachSteps!.toList(growable: false),
+          ),
+        );
+        continue;
+      }
+
       if (step.isMapStep) {
         nodes.add(MapNode(stepId: step.id));
         continue;
@@ -784,8 +847,10 @@ class WorkflowDefinition {
         while (index + 1 < steps.length) {
           final next = steps[index + 1];
           if (loopOwnedStepIds.contains(next.id) ||
+              foreachOwnedStepIds.contains(next.id) ||
               loopByFirstStepId.containsKey(next.id) ||
               next.isMapStep ||
+              next.isForeachController ||
               !next.parallel) {
             break;
           }

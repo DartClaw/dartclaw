@@ -134,6 +134,24 @@ void main() {
       expect(restored.stepIds, ['remediate', 're-review']);
       expect(restored.finallyStepId, 'summarize');
     });
+
+    test('foreach node round-trips via toJson/fromJson (S19)', () {
+      const node = ForeachNode(
+        stepId: 'story-pipeline',
+        childStepIds: ['implement', 'refactor-validate', 'quick-review'],
+      );
+      final json = node.toJson();
+      expect(json['type'], 'foreach');
+      expect(json['stepId'], 'story-pipeline');
+      expect(json['childStepIds'], ['implement', 'refactor-validate', 'quick-review']);
+
+      final restored = WorkflowNode.fromJson(json);
+      expect(restored, isA<ForeachNode>());
+      final foreach = restored as ForeachNode;
+      expect(foreach.stepId, 'story-pipeline');
+      expect(foreach.childStepIds, ['implement', 'refactor-validate', 'quick-review']);
+      expect(foreach.stepIds, ['story-pipeline', 'implement', 'refactor-validate', 'quick-review']);
+    });
   });
 
   group('StepConfigDefault (S03)', () {
@@ -389,7 +407,6 @@ void main() {
         gitStrategy: WorkflowGitStrategy(
           bootstrap: true,
           worktree: 'shared',
-          quickReview: true,
           promotion: 'merge',
           finalReview: true,
           publish: WorkflowGitPublishStrategy(enabled: true),
@@ -402,7 +419,6 @@ void main() {
       expect(restored.gitStrategy, isNotNull);
       expect(restored.gitStrategy!.bootstrap, isTrue);
       expect(restored.gitStrategy!.worktree, 'shared');
-      expect(restored.gitStrategy!.quickReview, isTrue);
       expect(restored.gitStrategy!.promotion, 'merge');
       expect(restored.gitStrategy!.finalReview, isTrue);
       expect(restored.gitStrategy!.publish?.enabled, isTrue);
@@ -440,6 +456,46 @@ void main() {
       );
       expect((restored.nodes[2] as ParallelGroupNode).stepIds, ['review-a', 'review-b']);
       expect((restored.nodes[3] as LoopNode).stepIds, ['remediate', 're-review']);
+    });
+
+    test('normalizes foreach controller into ForeachNode and excludes child steps from top-level (S19)', () {
+      const def = WorkflowDefinition(
+        name: 'foreach-norm',
+        description: 'Foreach normalization',
+        steps: [
+          WorkflowStep(id: 'plan', name: 'Plan', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            foreachSteps: ['implement', 'validate', 'review'],
+            contextOutputs: ['story_results'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], type: 'coding'),
+          WorkflowStep(id: 'validate', name: 'Validate', prompts: ['p']),
+          WorkflowStep(id: 'review', name: 'Review', prompts: ['p']),
+          WorkflowStep(id: 'publish', name: 'Publish', prompts: ['p']),
+        ],
+      );
+
+      expect(
+        def.nodes.map((n) => n.runtimeType).toList(),
+        equals([ActionNode, ForeachNode, ActionNode]),
+      );
+      final foreachNode = def.nodes[1] as ForeachNode;
+      expect(foreachNode.stepId, 'story-pipeline');
+      expect(foreachNode.childStepIds, ['implement', 'validate', 'review']);
+
+      // Round-trip preserves foreach normalization.
+      final restored = WorkflowDefinition.fromJson(def.toJson());
+      expect(
+        restored.nodes.map((n) => n.runtimeType).toList(),
+        equals([ActionNode, ForeachNode, ActionNode]),
+      );
+      final restoredForeach = restored.nodes[1] as ForeachNode;
+      expect(restoredForeach.stepId, 'story-pipeline');
+      expect(restoredForeach.childStepIds, ['implement', 'validate', 'review']);
     });
 
     test('stepDefaults absent from json when null (S03)', () {

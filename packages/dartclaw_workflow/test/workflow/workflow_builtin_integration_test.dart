@@ -661,7 +661,7 @@ void main() {
     },
   );
 
-  test('plan-and-implement integration merges map outputs before refactor-validate', () async {
+  test('plan-and-implement integration runs per-story foreach pipeline after spec-plan', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
@@ -705,8 +705,33 @@ void main() {
               },
             ]),
           ),
-          'spec' => _StubResponse(
-            assistantContent: _contextOutput({'story_spec': 'STORY_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}'}),
+          // spec-plan runs once (not per-story) and owns canonical stories + per-story specs.
+          'spec-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'stories': [
+                {
+                  'id': 'S01',
+                  'title': 'Story One',
+                  'description': 'First integration story',
+                  'acceptance_criteria': ['first passes'],
+                  'type': 'coding',
+                  'dependencies': <String>[],
+                  'key_files': ['lib/a.dart'],
+                  'effort': 'small',
+                },
+                {
+                  'id': 'S02',
+                  'title': 'Story Two',
+                  'description': 'Second integration story',
+                  'acceptance_criteria': ['second passes'],
+                  'type': 'coding',
+                  'dependencies': ['S01'],
+                  'key_files': ['lib/b.dart'],
+                  'effort': 'small',
+                },
+              ],
+              'story_spec': ['STORY_SPEC_ALPHA', 'STORY_SPEC_BETA'],
+            }),
           ),
           'implement' => _StubResponse(
             assistantContent: _contextOutput({
@@ -718,17 +743,25 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'runtime-quick-review' => _StubResponse(
-            assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
-          ),
           'refactor-validate' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE_MARKER', 'findings_count': 0}),
+            assistantContent: _contextOutput({
+              'validation_summary': 'PLAN_VALIDATE_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+              'findings_count': 0,
+            }),
           ),
-          'synthesize' => _StubResponse(
+          // quick-review is now an authored per-story step (not a runtime-synthesized task).
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'quick_review_summary': 'No issues for ${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+              'quick_review_findings_count': 0,
+            }),
+          ),
+          'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
               'implementation_summary': 'Both stories merged successfully',
               'remediation_plan': 'No remediation needed',
               'needs_remediation': false,
+              'findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -760,16 +793,20 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('spec'), 2);
+    // spec-plan runs once; implement, refactor-validate, quick-review run per story in foreach.
+    expect(trace.count('spec-plan'), 1);
     expect(trace.count('implement'), 2);
-    expect(trace.count('runtime-quick-review'), 2);
-    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('STORY_RESULT_ALPHA'));
-    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('STORY_RESULT_BETA'));
+    expect(trace.count('refactor-validate'), 2);
+    expect(trace.count('quick-review'), 2);
+    expect(trace.count('plan-review'), 1);
 
-    final storyResults = trace.context['story_result'] as List<dynamic>;
+    // Per-story results are aggregated in story_results from the foreach controller contextOutputs.
+    final storyResults = trace.context['story_results'] as List<dynamic>;
     expect(storyResults, hasLength(2));
-    expect((storyResults[0] as Map<String, dynamic>)['text'], 'STORY_RESULT_ALPHA');
-    expect((storyResults[1] as Map<String, dynamic>)['text'], 'STORY_RESULT_BETA');
+    final r0 = storyResults[0] as Map<String, dynamic>;
+    final r1 = storyResults[1] as Map<String, dynamic>;
+    expect((r0['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_ALPHA');
+    expect((r1['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_BETA');
   });
 
   test('plan-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
@@ -805,7 +842,23 @@ void main() {
               },
             ]),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'story_spec': 'PROJECT_BOUND_SPEC'})),
+          'spec-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'stories': [
+                {
+                  'id': 'S01',
+                  'title': 'Project Bound Story',
+                  'description': 'Verify project propagation',
+                  'acceptance_criteria': ['all coding steps use the workflow project'],
+                  'type': 'coding',
+                  'dependencies': <String>[],
+                  'key_files': ['lib/a.dart'],
+                  'effort': 'small',
+                },
+              ],
+              'story_spec': ['PROJECT_BOUND_SPEC'],
+            }),
+          ),
           'implement' => _StubResponse(
             assistantContent: _contextOutput({'story_result': 'PROJECT_BOUND_RESULT'}),
             worktreeJson: {
@@ -814,17 +867,21 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'runtime-quick-review' => _StubResponse(
-            assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
-          ),
           'refactor-validate' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
-          'synthesize' => _StubResponse(
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'quick_review_summary': 'No issues',
+              'quick_review_findings_count': 0,
+            }),
+          ),
+          'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
               'implementation_summary': 'Single story complete',
               'remediation_plan': 'No remediation needed',
               'needs_remediation': false,
+              'findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -853,11 +910,11 @@ void main() {
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan').single.projectId, isNull);
-    expect(trace.tasksForStep('spec').single.projectId, isNull);
+    expect(trace.tasksForStep('spec-plan').single.projectId, isNull);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('runtime-quick-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('synthesize').single.projectId, isNull);
+    expect(trace.tasksForStep('quick-review').single.projectId, isNull);
+    expect(trace.tasksForStep('plan-review').single.projectId, isNull);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
 
@@ -895,7 +952,23 @@ void main() {
               },
             ]),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'story_spec': 'STORY_SPEC'})),
+          'spec-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'stories': [
+                {
+                  'id': 'S01',
+                  'title': 'Minimal Story',
+                  'description': 'Verify discover prompt scope',
+                  'acceptance_criteria': ['discover prompt stays narrow'],
+                  'type': 'coding',
+                  'dependencies': <String>[],
+                  'key_files': ['README.md'],
+                  'effort': 'small',
+                },
+              ],
+              'story_spec': ['STORY_SPEC'],
+            }),
+          ),
           'implement' => _StubResponse(
             assistantContent: _contextOutput({'story_result': 'STORY_RESULT'}),
             worktreeJson: {
@@ -904,17 +977,21 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'runtime-quick-review' => _StubResponse(
-            assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
-          ),
           'refactor-validate' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
-          'synthesize' => _StubResponse(
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'quick_review_summary': 'No issues',
+              'quick_review_findings_count': 0,
+            }),
+          ),
+          'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
               'implementation_summary': 'complete',
               'remediation_plan': 'none',
               'needs_remediation': false,
+              'findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -947,7 +1024,7 @@ void main() {
   });
 
   test(
-    'plan-and-implement integration enters remediation when validation finds issues and exits after re-validation',
+    'plan-and-implement integration enters remediation when plan-review finds issues and exits after re-validation',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'plan-and-implement.yaml',
@@ -992,8 +1069,32 @@ void main() {
                 },
               ]),
             ),
-            'spec' => _StubResponse(
-              assistantContent: _contextOutput({'story_spec': 'LOOP_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}'}),
+            'spec-plan' => _StubResponse(
+              assistantContent: _contextOutput({
+                'stories': [
+                  {
+                    'id': 'S01',
+                    'title': 'Loop Story Alpha',
+                    'description': 'First story for remediation loop',
+                    'acceptance_criteria': ['alpha passes'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Loop Story Beta',
+                    'description': 'Second story for remediation loop',
+                    'acceptance_criteria': ['beta passes'],
+                    'type': 'coding',
+                    'dependencies': ['S01'],
+                    'key_files': ['lib/b.dart'],
+                    'effort': 'small',
+                  },
+                ],
+                'story_spec': ['LOOP_SPEC_ALPHA', 'LOOP_SPEC_BETA'],
+              }),
             ),
             'implement' => _StubResponse(
               assistantContent: _contextOutput({
@@ -1005,20 +1106,24 @@ void main() {
                 'createdAt': DateTime.now().toIso8601String(),
               },
             ),
-            'runtime-quick-review' => _StubResponse(
-              assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
-            ),
             'refactor-validate' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
                 'findings_count': 1,
               }),
             ),
-            'synthesize' => _StubResponse(
+            'quick-review' => _StubResponse(
+              assistantContent: _contextOutput({
+                'quick_review_summary': 'Minor issues for ${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+                'quick_review_findings_count': 0,
+              }),
+            ),
+            'plan-review' => _StubResponse(
               assistantContent: _contextOutput({
                 'implementation_summary': 'Batch needs remediation',
                 'remediation_plan': 'Fix INITIAL_VALIDATE_FINDINGS',
                 'needs_remediation': true,
+                'findings_count': 2,
               }),
             ),
             'remediate' => _StubResponse(

@@ -133,7 +133,6 @@ description: Workflow with reusable git strategy
 gitStrategy:
   bootstrap: true
   worktree: shared
-  quickReview: true
   promotion: merge
   finalReview: true
   publish:
@@ -233,7 +232,6 @@ void main() {
         equals({
           'bootstrap': true,
           'worktree': 'shared',
-          'quickReview': true,
           'promotion': 'merge',
           'finalReview': true,
           'publish': {'enabled': true},
@@ -1211,6 +1209,198 @@ steps:
     type: research
 ''';
       expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
+  });
+
+  group('S19: foreach step parsing', () {
+    test('parses valid inline foreach step with child steps', () {
+      const yaml = '''
+name: foreach-wf
+description: Foreach test
+steps:
+  - id: plan
+    name: Plan
+    prompt: Make a plan
+    contextOutputs: [stories]
+  - id: story-pipeline
+    name: Story Pipeline
+    type: foreach
+    map_over: stories
+    steps:
+      - id: implement
+        name: Implement
+        prompt: Build {{map.item}}
+        type: coding
+      - id: validate
+        name: Validate
+        prompt: Validate {{map.item}}
+      - id: review
+        name: Review
+        prompt: Review {{map.item}}
+    contextOutputs: [story_results]
+  - id: publish
+    name: Publish
+    prompt: Publish
+''';
+      final def = parser.parse(yaml);
+      // Controller + 3 child steps + plan + publish = 6 steps total.
+      expect(def.steps.length, 6);
+
+      final controller = def.steps[1];
+      expect(controller.id, 'story-pipeline');
+      expect(controller.type, 'foreach');
+      expect(controller.mapOver, 'stories');
+      expect(controller.isForeachController, isTrue);
+      expect(controller.foreachSteps, ['implement', 'validate', 'review']);
+      expect(controller.contextOutputs, ['story_results']);
+
+      // Child steps follow controller in step list.
+      expect(def.steps[2].id, 'implement');
+      expect(def.steps[3].id, 'validate');
+      expect(def.steps[4].id, 'review');
+
+      // Normalization produces ForeachNode.
+      expect(def.nodes.length, 3); // ActionNode(plan), ForeachNode, ActionNode(publish)
+      expect(def.nodes[1], isA<ForeachNode>());
+      final foreachNode = def.nodes[1] as ForeachNode;
+      expect(foreachNode.stepId, 'story-pipeline');
+      expect(foreachNode.childStepIds, ['implement', 'validate', 'review']);
+    });
+
+    test('foreach with max_parallel and max_items parses correctly', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    max_parallel: 2
+    max_items: 50
+    steps:
+      - id: child
+        name: Child
+        prompt: Process {{map.item}}
+''';
+      final def = parser.parse(yaml);
+      final controller = def.steps[0];
+      expect(controller.maxParallel, 2);
+      expect(controller.maxItems, 50);
+    });
+
+    test('nested foreach inside foreach throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: outer
+    name: Outer
+    type: foreach
+    map_over: items
+    steps:
+      - id: inner
+        name: Inner
+        type: foreach
+        map_over: sub_items
+        steps:
+          - id: leaf
+            name: Leaf
+            prompt: Do thing
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('nested loop inside foreach throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: outer
+    name: Outer
+    type: foreach
+    map_over: items
+    steps:
+      - id: inner
+        name: Inner
+        type: loop
+        steps:
+          - id: leaf
+            name: Leaf
+            prompt: Do thing
+        exitGate: leaf.done == true
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('foreach without map_over throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    steps:
+      - id: child
+        name: Child
+        prompt: Do thing
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('foreach with empty steps list throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    steps: []
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('foreach without steps field throws FormatException', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('foreach round-trips through toJson/fromJson', () {
+      const yaml = '''
+name: foreach-roundtrip
+description: RT test
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    contextOutputs: [results]
+    steps:
+      - id: c1
+        name: C1
+        prompt: First
+      - id: c2
+        name: C2
+        prompt: Second
+''';
+      final def = parser.parse(yaml);
+      final restored = WorkflowDefinition.fromJson(def.toJson());
+      expect(restored.nodes.length, def.nodes.length);
+      expect(restored.nodes[0], isA<ForeachNode>());
+      final foreachNode = restored.nodes[0] as ForeachNode;
+      expect(foreachNode.stepId, 'fe');
+      expect(foreachNode.childStepIds, ['c1', 'c2']);
     });
   });
 }

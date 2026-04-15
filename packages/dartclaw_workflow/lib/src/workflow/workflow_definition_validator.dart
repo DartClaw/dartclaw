@@ -72,7 +72,7 @@ class WorkflowDefinitionValidator {
   final _engine = WorkflowTemplateEngine();
 
   /// Step types known by the engine. Any other type produces a warning.
-  static const _knownTypes = {'research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval'};
+  static const _knownTypes = {'research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval', 'foreach', 'loop'};
 
   /// Optional skill registry for skill-aware validation.
   ///
@@ -266,6 +266,51 @@ class WorkflowDefinitionValidator {
             }
             _recordNormalizedStep(stepId, seenStepIds, errors, loopId: loopId);
           }
+
+        case ForeachNode(stepId: final controllerStepId, childStepIds: final childStepIds):
+          final controllerStep = stepById[controllerStepId];
+          if (controllerStep == null) {
+            errors.add(
+              ValidationError(
+                message: 'Normalized foreach node references unknown controller step "$controllerStepId".',
+                type: ValidationErrorType.invalidReference,
+                stepId: controllerStepId,
+              ),
+            );
+            continue;
+          }
+          if (!controllerStep.isForeachController) {
+            errors.add(
+              ValidationError(
+                message: 'Step "$controllerStepId" is not a foreach controller but was normalized as a foreach node.',
+                type: ValidationErrorType.contextInconsistency,
+                stepId: controllerStepId,
+              ),
+            );
+          }
+          if (childStepIds.isEmpty) {
+            errors.add(
+              ValidationError(
+                message: 'Foreach node "$controllerStepId" must have at least one child step.',
+                type: ValidationErrorType.missingField,
+                stepId: controllerStepId,
+              ),
+            );
+          }
+          _recordNormalizedStep(controllerStepId, seenStepIds, errors);
+          for (final childStepId in childStepIds) {
+            if (!stepById.containsKey(childStepId)) {
+              errors.add(
+                ValidationError(
+                  message: 'Foreach "$controllerStepId" references unknown child step "$childStepId".',
+                  type: ValidationErrorType.invalidReference,
+                  stepId: childStepId,
+                ),
+              );
+              continue;
+            }
+            _recordNormalizedStep(childStepId, seenStepIds, errors);
+          }
       }
     }
 
@@ -394,9 +439,11 @@ class WorkflowDefinitionValidator {
         );
       }
       // Prompt is optional when skill is present (S04) or when the step type is
-      // bash or approval (S02/S03 own execution semantics for those types).
+      // bash, approval, foreach, or loop (these types own their execution semantics
+      // and orchestrate child steps rather than issuing prompts themselves).
       final isBashOrApproval = step.type == 'bash' || step.type == 'approval';
-      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty) && !isBashOrApproval) {
+      final isForeachOrLoop = step.type == 'foreach' || step.type == 'loop';
+      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty) && !isBashOrApproval && !isForeachOrLoop) {
         errors.add(
           ValidationError(
             message: 'Step "${step.id}" must have at least one prompt.',

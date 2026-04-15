@@ -25,7 +25,6 @@ variables:
 gitStrategy:
   bootstrap: false
   worktree: shared
-  quickReview: false
   promotion: none
   finalReview: true
   publish:

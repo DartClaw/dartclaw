@@ -40,6 +40,7 @@ export 'src/task_event.dart'
 export 'src/workflow_definition.dart'
     show
         ActionNode,
+        ForeachNode,
         LoopNode,
         MapNode,
         ParallelGroupNode,

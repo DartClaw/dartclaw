@@ -139,12 +139,14 @@ CommandProbe _probeMissing(String executableName) {
   return (executable, arguments) async => throw ProcessException(executableName, arguments, 'missing binary');
 }
 
-const _emptySidebarData = (
+final _emptySidebarData = (
   main: null,
   dmChannels: <SidebarSession>[],
   groupChannels: <SidebarSession>[],
   activeEntries: <SidebarSession>[],
   archivedEntries: <SidebarSession>[],
+  activeTasks: <SidebarActiveTask>[],
+  activeWorkflows: <SidebarActiveWorkflow>[],
   showChannels: true,
   tasksEnabled: false,
 );

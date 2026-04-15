@@ -20,6 +20,8 @@ void main() {
     groupChannels: <SidebarSession>[],
     activeEntries: <SidebarSession>[],
     archivedEntries: <SidebarSession>[],
+    activeTasks: <SidebarActiveTask>[],
+    activeWorkflows: <SidebarActiveWorkflow>[],
     showChannels: true,
     tasksEnabled: false,
   );
@@ -254,7 +256,7 @@ void main() {
     test('Tokens column header present in non-running table', () {
       final html = tasksPageTemplate(sidebarData: emptySidebar, navItems: navItems, tasks: const [reviewTask]);
 
-      expect(html, contains('<th>Tokens</th>'));
+      expect(html, contains('<th class="task-col-tokens">Tokens</th>'));
     });
 
     test('shows dash when task has no token events', () {

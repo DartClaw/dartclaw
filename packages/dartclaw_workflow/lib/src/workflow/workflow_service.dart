@@ -508,6 +508,12 @@ class WorkflowService {
           "map step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
           '${cursor.totalItems ?? cursor.resultSlots.length} settled iteration(s)',
         );
+      case WorkflowExecutionCursorNodeType.foreach:
+        _log.info(
+          "$action workflow '${run.definitionName}' (${run.id}): "
+          "foreach step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
+          '${cursor.totalItems ?? cursor.resultSlots.length} completed iteration(s)',
+        );
     }
   }
 

@@ -729,8 +729,10 @@ Future<SidebarData> buildSidebarData(
     }
   }
 
-  final activeTasks = tasksEnabled && taskService != null ? await buildActiveSidebarTasks(taskService) : const [];
-  final activeWorkflows = tasksEnabled && taskService != null && workflowService != null
+  final List<SidebarActiveTask> activeTasks = tasksEnabled && taskService != null
+      ? await buildActiveSidebarTasks(taskService)
+      : const [];
+  final List<SidebarActiveWorkflow> activeWorkflows = tasksEnabled && taskService != null && workflowService != null
       ? await buildActiveSidebarWorkflows(workflowService, taskService)
       : const [];
 

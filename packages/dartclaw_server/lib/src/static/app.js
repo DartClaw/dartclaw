@@ -68,7 +68,6 @@ function enhanceCustomSelect(select) {
   const caret = document.createElement('span');
   caret.className = 'custom-select-caret';
   caret.setAttribute('aria-hidden', 'true');
-  caret.textContent = '▾';
 
   trigger.append(label, caret);
 

@@ -888,6 +888,8 @@ class DartclawServer {
         groupChannels: sidebarData.groupChannels,
         activeEntries: sidebarData.activeEntries,
         archivedEntries: sidebarData.archivedEntries,
+        activeTasks: sidebarData.activeTasks,
+        activeWorkflows: sidebarData.activeWorkflows,
         showChannels: sidebarData.showChannels,
         tasksEnabled: sidebarData.tasksEnabled,
         activeSessionId: activeSessionId,

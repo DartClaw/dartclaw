@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         AgentStateChangedEvent,
@@ -12,7 +11,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ProjectStatusChangedEvent,
         PushBack,
         StatusChanged,
-        Task,
         TaskErrorEvent,
         TaskEventCreatedEvent,
         TaskEventKind,
@@ -20,8 +18,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskStatusChangedEvent,
         TokenUpdate,
         ToolCalled,
-        WorkflowDefinition,
-        WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
@@ -33,6 +29,7 @@ import '../task/agent_observer.dart';
 import '../task/task_progress_tracker.dart';
 import '../task/task_service.dart';
 import '../task/tool_call_summary.dart';
+import '../sidebar_live_state.dart';
 import '../templates/helpers.dart';
 import '../templates/task_event_display.dart';
 
@@ -61,14 +58,15 @@ Router taskSseRoutes(
     final reviewTasks = await tasks.list(status: TaskStatus.review);
     final payload = <String, dynamic>{
       'reviewCount': reviewTasks.length,
-      'activeTasks': await _buildActiveTasks(tasks),
-      if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
+      'activeTasks': (await buildActiveSidebarTasks(tasks)).map(sidebarActiveTaskToJson).toList(),
+      if (workflows != null)
+        'activeWorkflows': (await buildActiveSidebarWorkflows(
+          workflows,
+          tasks,
+        )).map(sidebarActiveWorkflowToJson).toList(),
     };
 
-    return Response.ok(
-      jsonEncode(payload),
-      headers: {'Content-Type': 'application/json'},
-    );
+    return Response.ok(jsonEncode(payload), headers: {'Content-Type': 'application/json'});
   });
 
   router.get('/api/tasks/events', (Request request) async {
@@ -79,8 +77,12 @@ Router taskSseRoutes(
     final connectedPayload = <String, dynamic>{
       'type': 'connected',
       'reviewCount': reviewTasks.length,
-      'activeTasks': await _buildActiveTasks(tasks),
-      if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
+      'activeTasks': (await buildActiveSidebarTasks(tasks)).map(sidebarActiveTaskToJson).toList(),
+      if (workflows != null)
+        'activeWorkflows': (await buildActiveSidebarWorkflows(
+          workflows,
+          tasks,
+        )).map(sidebarActiveWorkflowToJson).toList(),
     };
     if (observer != null) {
       final pool = observer.poolStatus;
@@ -105,7 +107,7 @@ Router taskSseRoutes(
     // Subscribe to task status change events.
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
       final reviewCount = (await tasks.list(status: TaskStatus.review)).length;
-      final activeTasks = await _buildActiveTasks(tasks);
+      final activeTasks = (await buildActiveSidebarTasks(tasks)).map(sidebarActiveTaskToJson).toList();
       final payload = <String, dynamic>{
         'type': 'task_status_changed',
         'taskId': event.taskId,
@@ -114,7 +116,11 @@ Router taskSseRoutes(
         'trigger': event.trigger,
         'reviewCount': reviewCount,
         'activeTasks': activeTasks,
-        if (workflows != null) 'activeWorkflows': await _buildActiveWorkflows(workflows, tasks),
+        if (workflows != null)
+          'activeWorkflows': (await buildActiveSidebarWorkflows(
+            workflows,
+            tasks,
+          )).map(sidebarActiveWorkflowToJson).toList(),
       };
       final data = jsonEncode(payload);
       if (!controller.isClosed) {
@@ -186,7 +192,10 @@ Router taskSseRoutes(
     StreamSubscription<WorkflowRunStatusChangedEvent>? workflowStatusSub;
     if (workflows != null) {
       workflowStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) async {
-        final activeWorkflows = await _buildActiveWorkflows(workflows, tasks);
+        final activeWorkflows = (await buildActiveSidebarWorkflows(
+          workflows,
+          tasks,
+        )).map(sidebarActiveWorkflowToJson).toList();
         final isTerminal =
             event.newStatus == WorkflowRunStatus.completed ||
             event.newStatus == WorkflowRunStatus.failed ||
@@ -208,7 +217,10 @@ Router taskSseRoutes(
     StreamSubscription<WorkflowStepCompletedEvent>? workflowStepSub;
     if (workflows != null) {
       workflowStepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) async {
-        final activeWorkflows = await _buildActiveWorkflows(workflows, tasks);
+        final activeWorkflows = (await buildActiveSidebarWorkflows(
+          workflows,
+          tasks,
+        )).map(sidebarActiveWorkflowToJson).toList();
         final data = jsonEncode({
           'type': 'workflow_sidebar_update',
           'activeWorkflows': activeWorkflows,
@@ -243,73 +255,6 @@ Router taskSseRoutes(
   });
 
   return router;
-}
-
-/// Builds lightweight workflow run summaries for sidebar display.
-///
-/// Returns running and paused runs with step progress counts. Each entry
-/// includes `completedSteps` / `totalSteps` derived from child tasks.
-/// Returns empty list when [workflows] is null (workflows not configured).
-Future<List<Map<String, dynamic>>> _buildActiveWorkflows(WorkflowService workflows, TaskService tasks) async {
-  final running = await workflows.list(status: WorkflowRunStatus.running);
-  final paused = await workflows.list(status: WorkflowRunStatus.paused);
-  final activeRuns = [...running, ...paused];
-
-  if (activeRuns.isEmpty) return [];
-
-  final allTasks = await tasks.list();
-  return activeRuns.map((WorkflowRun run) {
-    WorkflowDefinition? definition;
-    try {
-      definition = WorkflowDefinition.fromJson(run.definitionJson);
-    } catch (_) {}
-    final totalSteps = definition?.steps.length ?? 0;
-    final childTasks = allTasks.where((Task t) => t.workflowRunId == run.id);
-    // Use distinct step indices to avoid overcounting in loop workflows.
-    final completedStepIndices = childTasks
-        .where((Task t) => t.status == TaskStatus.accepted && t.stepIndex != null)
-        .map((Task t) => t.stepIndex!)
-        .toSet()
-        .length;
-    final completedSteps = totalSteps > 0 ? completedStepIndices.clamp(0, totalSteps) : 0;
-
-    return {
-      'id': run.id,
-      'definitionName': run.definitionName,
-      'status': run.status.name,
-      'completedSteps': completedSteps,
-      'totalSteps': totalSteps,
-    };
-  }).toList();
-}
-
-Future<List<Map<String, dynamic>>> _buildActiveTasks(TaskService tasks) async {
-  final runningTasks = await tasks.list(status: TaskStatus.running);
-  final reviewTasks = await tasks.list(status: TaskStatus.review);
-
-  runningTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
-  reviewTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
-
-  return [...runningTasks.map(_activeTaskPayload), ...reviewTasks.map(_activeTaskPayload)];
-}
-
-Map<String, dynamic> _activeTaskPayload(Task task) {
-  final provider = task.provider ?? 'claude';
-  return {
-    'id': task.id,
-    'title': task.title,
-    'status': task.status.name,
-    'startedAt': task.startedAt?.toIso8601String(),
-    'provider': provider,
-    'providerLabel': ProviderIdentity.displayName(provider),
-  };
-}
-
-int _compareNullableDateTimeAsc(DateTime? left, DateTime? right) {
-  if (left == null && right == null) return 0;
-  if (left == null) return 1;
-  if (right == null) return -1;
-  return left.compareTo(right);
 }
 
 // === S11: Dashboard compact event view-model helpers ===

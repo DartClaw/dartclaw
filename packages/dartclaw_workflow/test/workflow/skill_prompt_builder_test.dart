@@ -47,6 +47,20 @@ void main() {
       expect(result, contains('## Required Output Format'));
     });
 
+    test('context outputs append workflow-context contract', () {
+      final result = builder.build(
+        skill: 'dartclaw-review-code',
+        resolvedPrompt: 'Review this.',
+        outputs: {'review_summary': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
+        contextOutputs: const ['review_summary', 'findings_count'],
+      );
+      expect(result, contains('## Workflow Output Contract'));
+      expect(result, contains('<workflow-context>'));
+      expect(result, contains('"review_summary"'));
+      expect(result, contains('"findings_count"'));
+      expect(result, isNot(contains('Output the JSON directly')));
+    });
+
     test('no skill + prompt + schema -> prompt + Required Output Format', () {
       final result = builder.build(
         skill: null,

@@ -1270,12 +1270,14 @@ class WorkflowExecutor {
             skill: step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
+            contextOutputs: step.contextOutputs,
           )
         : _skillPromptBuilder.build(
             skill: step.skill,
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             outputs: effectiveOutputs,
+            contextOutputs: step.contextOutputs,
           );
 
     try {
@@ -1737,6 +1739,7 @@ class WorkflowExecutor {
               skill: null, // skill prefix applied to first prompt only
               resolvedPrompt: resolvedFollowUp,
               outputs: effectiveOutputs,
+              contextOutputs: step.contextOutputs,
             )
           : resolvedFollowUp;
 
@@ -2302,6 +2305,7 @@ class WorkflowExecutor {
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,
+          contextOutputs: step.contextOutputs,
         );
         final taskConfig = _buildStepConfig(run, definition, step, resolved, context);
         final iterTitle = '${definition.name} — ${step.name} (${iterIndex + 1}/${collection.length})';

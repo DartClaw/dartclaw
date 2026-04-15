@@ -15,13 +15,11 @@ const dartclawSkillNames = <String>{
   'dartclaw-remediate-findings',
   'dartclaw-review',
   'dartclaw-review-code',
-  'dartclaw-review-council',
   'dartclaw-review-doc',
   'dartclaw-review-gap',
   'dartclaw-spec',
   'dartclaw-spec-plan',
   'dartclaw-update-state',
-  'dartclaw-validate',
 };
 
 void main() {
@@ -131,8 +129,8 @@ void main() {
 
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       final skills = (body['skills'] as List<dynamic>).cast<Map<String, dynamic>>();
-      expect(body['count'], 15);
-      expect(skills, hasLength(15));
+      expect(body['count'], 13);
+      expect(skills, hasLength(13));
       expect(skills.map((skill) => skill['name'] as String).toSet(), containsAll(dartclawSkillNames));
       expect(skills.every((skill) => skill['source'] == SkillSource.dartclaw.name), isTrue);
     });

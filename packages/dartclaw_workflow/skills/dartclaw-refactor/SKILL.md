@@ -5,7 +5,7 @@ argument-hint: <scope/description> | --path <dir/file>
 
 # Refactor & Simplify Code
 
-Systematic code improvement – simplification, refactoring, and cleanup. The goal: make code easier to understand and change while preserving exact behavior.
+Systematic code improvement, simplification, scoped remediation, and validation-first cleanup. The goal: make code easier to understand and change while preserving exact behavior, and when the prompt asks for validation, run the relevant project checks and report or remediate only within the requested scope.
 
 
 ## VARIABLES
@@ -30,6 +30,8 @@ ARGUMENTS: $ARGUMENTS
 - **No scope creep** – only refactor what's specified
 - **Tests must pass** before and after refactoring
 - Match the codebase's existing conventions and style – read the project guidelines before making style judgments
+- **Validation-first mode is allowed** – if the prompt asks you to run tests, linting, type checks, build checks, or simplification passes before deciding whether edits are needed, do that first and keep the result scoped to what the prompt requested
+- **Do not edit just because you can** – when the prompt is validation-oriented, report clean results or concrete failures unless it also asks you to remediate
 - If cleanup starts widening in scope or you feel tempted to smuggle unrelated fixes into the refactor, load `../references/anti-rationalization.md`.
 
 ### Refactoring Philosophy
@@ -45,6 +47,7 @@ The purpose of refactoring is to make code easier to understand, maintain, and e
 ## GOTCHAS
 - Changing behavior while refactoring – preserve all existing functionality
 - Not establishing a baseline (tests pass, build succeeds) before starting
+- Treating validation prompts as permission for broad cleanup or opportunistic rewrites
 - Over-simplification that makes code harder to debug or extend
 - Premature abstraction – three similar lines of code is often better than one clever helper
 
@@ -65,35 +68,42 @@ The purpose of refactoring is to make code easier to understand, maintain, and e
 - Use `git diff --name-only HEAD~5` to find recently changed files
 
 #### 1.2. Establish Baseline
-- Run existing tests to confirm passing state
-- Run linting/type checks
+- Run the relevant existing checks to establish the current state
+- Prefer the strongest project-configured checks that fit the scoped change: tests, linting, type checks, build/package validation, or formatter/compile sanity where applicable
 - Note current state for regression comparison
+- If the prompt is validation-first, treat this baseline as the primary output unless follow-up remediation is explicitly requested
 
 **Gate**: Scope defined, baseline passing
 
 
 ### Phase 2: Analysis
 
-Analyze the scoped code for improvement opportunities:
+Analyze the scoped code for improvement opportunities or validation failures:
 - Unnecessary complexity, over-abstraction
 - Code duplication
 - Dead code, unused imports/variables
 - Inconsistent patterns or naming
 - Readability and maintainability issues
 - Simplification opportunities
+- Build, test, lint, or type-check failures that the prompt asks you to evaluate
 
 Before proposing removal of any code, understand why it exists — check callers, tests, and git history. Never remove what you don't understand (Chesterton's Fence).
 
-Produce a prioritized list of improvements. Ask user for confirmation before proceeding if changes are substantial.
+Produce a prioritized list of improvements or concrete validation findings. Ask user for confirmation before proceeding if changes are substantial.
 
 
 ### Phase 3: Refactoring
 
-Execute improvements from the prioritized list:
+Execute improvements from the prioritized list when the prompt calls for edits or remediation:
 - Work file-by-file or by logical unit
 - For independent changes, use **parallel sub-agents** _(if supported)_
 - Verify each change preserves existing behavior
 - Keep individual changes small and verifiable – don't batch unrelated improvements
+
+If the prompt is validation-only or validation-first:
+- run the requested checks first
+- report passes, failures, and skips explicitly
+- only make edits when the prompt also asks for remediation or when a tiny scoped fix is clearly part of the requested pass
 
 
 ### Phase 4: Verification
@@ -103,6 +113,7 @@ Run in **parallel sub-agents** _(if supported; otherwise sequentially)_:
 1. **Tests**: Run full test suite – all tests must pass
 2. **Code review**: Invoke the `dartclaw-review-code` skill to verify improvements and catch regressions
 3. **Linting/types**: Run static analysis, confirm no new issues
+4. **Build/package checks**: Run the strongest project-configured build or package validation relevant to the scope when applicable
 
 **If failures:** fix issues and re-verify before completing.
 
@@ -112,3 +123,4 @@ Include verification evidence in completion summary (as applicable):
 - **Tests**: pass/fail counts (e.g., "42/42 pass")
 - **Linting/types**: error and warning counts
 - **Build**: exit code or success/failure status
+- **Skipped checks**: what was skipped and why

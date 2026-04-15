@@ -1,7 +1,7 @@
 ---
-description: Unified review entrypoint that inspects the current changes or given input, then routes to code review, document review, gap analysis, and optional council escalation. Trigger on 'review this', 'review these changes', 'review this PR', 'audit this', 'does this match the spec'.
+description: Unified review entrypoint that inspects the current changes or given input, then routes to code review, document review, or gap analysis and produces one consolidated result. Trigger on 'review this', 'review these changes', 'review this PR', 'audit this', 'does this match the spec'.
 user-invocable: true
-argument-hint: "[target/files/PR/spec path] [--deep] [--council] [--code-only] [--doc-only] [--gap-only] [--to-issue] [--to-pr <number>]"
+argument-hint: "[target/files/PR/spec path] [--deep] [--code-only] [--doc-only] [--gap-only] [--to-issue] [--to-pr <number>]"
 ---
 
 # Review
@@ -14,8 +14,7 @@ Use this as the default review skill. Reach for `dartclaw-review-code`, `dartcla
 ARGUMENTS: $ARGUMENTS
 
 ### Optional Mode Flags
-- `--deep` → prefer more thorough review and escalate when risk justifies it on implementation-facing reviews
-- `--council` → force `dartclaw-review-council` in addition to the primary stack for implementation-facing reviews
+- `--deep` → prefer more thorough review depth on implementation-facing reviews
 - `--code-only` → force implementation/code review
 - `--doc-only` → force document review
 - `--gap-only` → force requirements-vs-implementation review
@@ -27,13 +26,12 @@ ARGUMENTS: $ARGUMENTS
 - Read-only analysis. Do not modify the reviewed artifacts.
 - Default to the minimum sufficient review stack. More reviewers and more review types are only better when they improve signal.
 - Own the final synthesis. If you delegate to specialist review skills, gather their results and present one clear conclusion rather than dumping disconnected outputs.
-- Preserve clean boundaries: `review-code` for implementation, `review-doc` for requirements/design artifacts, `review-gap` for implementation-vs-requirements comparison, `review-council` for high-assurance adversarial validation.
+- Preserve clean boundaries: `review-code` for implementation, `review-doc` for requirements/design artifacts, and `review-gap` for implementation-vs-requirements comparison.
 
 ## GOTCHAS
 - Treating all review requests as code review
 - Running `review-gap` without a real requirements baseline
 - Running both `review-doc` and `review-gap` when `review-gap` already covers the real question
-- Escalating to `review-council` by default instead of when risk, ambiguity, or user intent warrants it
 - Letting delegated skills each write their own report file when this skill should own the combined output
 
 ## WORKFLOW
@@ -106,15 +104,6 @@ Mixed-mode rule:
 - If the real question is “does this implementation satisfy the requirements?”, classify as **Gap** instead of **Mixed**
 - Once **Mixed** is selected, keep it as the review mode through execution and final reporting; do not collapse it later into vague wording like “gap or split review”
 
-Escalate with `dartclaw-review-council` when:
-- the selected review surface is **Code**, **Gap**, or **Mixed** with implementation changes
-- `--council` is present
-- `--deep` is present and the change is broad, risky, or cross-cutting
-- the primary review finds severe or ambiguous issues that would benefit from adversarial challenge
-- the user explicitly wants a high-confidence or multi-perspective review
-
-Do **not** route doc-only review requests to `review-council`. If the user asks for `--council` on a doc-only review, explain that `review-council` is implementation-focused and continue with `review-doc` unless the user explicitly broadens the scope to include implementation.
-
 When delegating:
 - Instruct `review-code` and `review-doc` to return findings inline and skip separate report-file output
 - Instruct `review-gap` to return inline findings plus PASS/FAIL verdict when used as a delegated sub-review
@@ -130,7 +119,6 @@ Delegation guidance:
 - `review-code`: implementation-focused findings only
 - `review-doc`: document readiness findings only
 - `review-gap`: requirements-vs-implementation findings, verdict, and remediation priorities
-- `review-council`: challenge and validate implementation-facing findings; do not use it as a generic router
 
 If a delegated review cannot run, fall back to direct analysis using the same lens and note the fallback.
 
@@ -144,7 +132,6 @@ Produce one final review output. Include:
 - **Review stack run**
 - **Findings by severity**
 - **Gap verdict** when `review-gap` ran
-- **Escalation result** when `review-council` ran
 - **Recommended next action**
 
 Output conventions:

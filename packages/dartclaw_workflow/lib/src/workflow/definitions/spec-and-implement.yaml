@@ -87,10 +87,6 @@ steps:
 
       Project index:
       {{context.project_index}}
-
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - spec_document
-      - acceptance_criteria
     contextOutputs: [spec_document, acceptance_criteria]
 
   - id: review-spec
@@ -131,19 +127,16 @@ steps:
 
       Acceptance criteria:
       {{context.acceptance_criteria}}
-
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - diff_summary
     contextInputs: [project_index, spec_document, acceptance_criteria]
     contextOutputs: [diff_summary]
     outputs:
       diff_summary:
         format: text
 
-  - id: validate
+  - id: refactor-validate
     name: Validate Implementation
     type: coding
-    skill: dartclaw-validate
+    skill: dartclaw-refactor
     project: "{{PROJECT}}"
     review: never
     prompt: |
@@ -158,10 +151,6 @@ steps:
 
       Run build, tests, static analysis, and simplification checks for the completed implementation.
       If the project has no runnable test surface, skip tests and say so explicitly.
-
-      For workflow handoff, end with `## Context Output` and a JSON object with:
-      - validation_summary
-      - findings_count
     contextInputs: [project_index, diff_summary, spec_document]
     contextOutputs: [validation_summary, findings_count]
 
@@ -198,7 +187,7 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -220,16 +209,13 @@ steps:
           {{context.spec_document}}
 
           If no remediation is needed, say so plainly.
-          For workflow handoff, end with `## Context Output` and a JSON object with:
-          - remediation_summary
-          - diff_summary
         contextInputs: [project_index, spec_document, review_findings, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
-      - id: re-validate
+      - id: refactor-re-validate
         name: Re-validate Implementation
         type: coding
-        skill: dartclaw-validate
+        skill: dartclaw-refactor
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -247,13 +233,8 @@ steps:
 
           Run build, tests, static analysis, and simplification checks after remediation.
           If the project has no runnable test surface, skip tests and say so explicitly.
-
-          For workflow handoff, end with `## Context Output` and a JSON object with:
-          - validation_summary
-          - findings_count
-          - re-validate.findings_count
         contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, re-validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, refactor-re-validate.findings_count]
 
       - id: re-review
         name: Re-review Gaps
@@ -278,11 +259,6 @@ steps:
 
           Updated diff summary:
           {{context.diff_summary}}
-
-          For workflow handoff, end with `## Context Output` and a JSON object with:
-          - review_findings
-          - findings_count
-          - re-review.findings_count
         contextInputs: [project_index, spec_document, acceptance_criteria, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:
@@ -307,8 +283,5 @@ steps:
 
       Remediation summary:
       {{context.remediation_summary}}
-
-      End with `## Context Output` and a JSON object with:
-      - state_update_summary
     contextInputs: [project_index, spec_document, diff_summary, remediation_summary]
     contextOutputs: [state_update_summary]

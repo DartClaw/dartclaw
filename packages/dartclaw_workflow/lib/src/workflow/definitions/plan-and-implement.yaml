@@ -119,8 +119,6 @@ steps:
 
       Project index:
       {{context.project_index}}
-
-      For workflow handoff, end with `## Context Output` and a JSON object containing `story_spec`.
     contextInputs: [project_index, stories]
     contextOutputs: [story_spec]
     outputs:
@@ -148,18 +146,16 @@ steps:
 
       Project index:
       {{context.project_index}}
-
-      End with `## Context Output` and a JSON object containing `story_result`.
     contextInputs: [project_index, stories, story_spec]
     contextOutputs: [story_result]
     outputs:
       story_result:
         format: text
 
-  - id: validate
+  - id: refactor-validate
     name: Validate Batch
     type: coding
-    skill: dartclaw-validate
+    skill: dartclaw-refactor
     project: "{{PROJECT}}"
     review: never
     prompt: |
@@ -174,10 +170,6 @@ steps:
 
       Run build, tests, static analysis, and simplification checks across the merged implementation result.
       If the project has no runnable test surface, skip tests and say so explicitly.
-
-      End with `## Context Output` and a JSON object containing:
-      - validation_summary
-      - findings_count
     contextInputs: [project_index, story_result]
     contextOutputs: [validation_summary, findings_count]
 
@@ -212,10 +204,6 @@ steps:
       - Whether remediation is needed before state update
 
       Set needs_remediation to true if any story still has unresolved findings.
-      End with `## Context Output` and a JSON object containing:
-      - implementation_summary
-      - remediation_plan
-      - needs_remediation
     contextInputs: [project_index, stories, story_spec, story_result, validation_summary, findings_count]
     contextOutputs: [implementation_summary, remediation_plan, needs_remediation]
 
@@ -223,7 +211,7 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -245,16 +233,13 @@ steps:
           {{context.validation_summary}}
 
           If no remediation is needed, say so plainly.
-          End with `## Context Output` and a JSON object containing:
-          - remediation_summary
-          - diff_summary
         contextInputs: [project_index, remediation_plan, story_result, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
-      - id: re-validate
+      - id: refactor-re-validate
         name: Re-validate Batch
         type: coding
-        skill: dartclaw-validate
+        skill: dartclaw-refactor
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -272,13 +257,8 @@ steps:
 
           Run build, tests, static analysis, and simplification checks after remediation.
           If the project has no runnable test surface, skip tests and say so explicitly.
-
-          End with `## Context Output` and a JSON object containing:
-          - validation_summary
-          - findings_count
-          - re-validate.findings_count
         contextInputs: [project_index, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, re-validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, refactor-re-validate.findings_count]
 
       - id: re-review
         name: Re-review Batch
@@ -306,11 +286,6 @@ steps:
 
           Updated diff summary:
           {{context.diff_summary}}
-
-          For workflow handoff, end with `## Context Output` and a JSON object containing:
-          - remediation_plan
-          - findings_count
-          - re-review.findings_count
         contextInputs: [project_index, stories, implementation_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [remediation_plan, findings_count, re-review.findings_count]
 
@@ -331,7 +306,5 @@ steps:
 
       Remediation summary:
       {{context.remediation_summary}}
-
-      End with `## Context Output` and a JSON object containing `state_update_summary`.
     contextInputs: [project_index, implementation_summary, remediation_summary]
     contextOutputs: [state_update_summary]

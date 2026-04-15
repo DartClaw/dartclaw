@@ -8,7 +8,7 @@ argument-hint: "[optional focus or scope]"
 
 Lightweight, ad-hoc review of recent work in the current conversation. Spawns a fresh-context sub-agent to critique what was just done — catching errors, inconsistencies, and missed edge cases that in-context work tends to overlook.
 
-**For thorough reviews, start with:** `dartclaw-review`. Use `dartclaw-review-council` when you explicitly want multi-perspective adversarial review.
+**For thorough reviews, start with:** `dartclaw-review`.
 
 
 ## VARIABLES

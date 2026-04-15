@@ -94,7 +94,7 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && validate.findings_count == 0"
+    exitGate: "re-review.findings_count == 0 && refactor-validate.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -116,10 +116,10 @@ steps:
             format: json
             schema: remediation-result
 
-      - id: validate
+      - id: refactor-validate
         name: Validate Remediation
         type: coding
-        skill: dartclaw-validate
+        skill: dartclaw-refactor
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -138,13 +138,8 @@ steps:
 
           Run build, tests, static analysis, and simplification checks after remediation.
           If the project has no runnable test surface, skip tests and say so explicitly.
-
-          For workflow handoff, end with `## Context Output` and a JSON object with:
-          - validation_summary
-          - findings_count
-          - validate.findings_count
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, refactor-validate.findings_count]
 
       - id: re-review
         name: Re-review

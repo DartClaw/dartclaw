@@ -105,14 +105,14 @@ void main() {
     expect(outputs['research_notes'], contains('Research Notes'));
   });
 
-  test('extracts from agent ## Context Output convention (key: value)', () async {
+  test('extracts from workflow-context XML tag', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(sessionId: session.id, role: 'user', content: 'Do some research');
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
       content:
-          'Here is my response.\n\n## Context Output\nresearch_notes: Found important findings about X.\nsummary: Brief summary here.',
+          'Here is my response.\n\n<workflow-context>{"research_notes":"Found important findings about X.","summary":"Brief summary here."}</workflow-context>',
     );
 
     // Task needs a sessionId — create it via updateFields after autoStart.
@@ -131,13 +131,12 @@ void main() {
     expect(outputs['research_notes'], equals('Found important findings about X.'));
   });
 
-  test('extracts from ## Context Output JSON fenced code block', () async {
+  test('extracts structured JSON values from workflow-context XML tag', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
-      content:
-          'Done.\n\n## Context Output\n```json\n{"research_notes": "JSON extracted value", "summary": "JSON summary"}\n```',
+      content: 'Done.\n\n<workflow-context>{"research_notes":"JSON extracted value","summary":"JSON summary"}</workflow-context>',
     );
 
     await taskService.create(

@@ -182,20 +182,17 @@ void main() {
       expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
       expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
-      expect(specAndImplement, contains('skill: dartclaw-validate'));
       expect(specAndImplement, contains('skill: dartclaw-review'));
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
       expect(planAndImplement, contains(RegExp(r'^  quickReview:\s+true$', multiLine: true)));
-      expect(planAndImplement, contains('skill: dartclaw-validate'));
       expect(planAndImplement, contains('skill: dartclaw-review'));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
       expect(codeReview, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(codeReview, contains('skill: dartclaw-validate'));
       expect(codeReview, contains('skill: dartclaw-review'));
     });
 
@@ -217,22 +214,22 @@ void main() {
       final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
       final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
 
-      expect(specAndImplement, contains('- id: validate'));
-      expect(specAndImplement, contains('- id: re-validate'));
+      expect(specAndImplement, contains('- id: refactor-validate'));
+      expect(specAndImplement, contains('- id: refactor-re-validate'));
       expect(
         specAndImplement,
-        contains('exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"'),
+        contains('exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"'),
       );
 
-      expect(planAndImplement, contains('- id: validate'));
-      expect(planAndImplement, contains('- id: re-validate'));
+      expect(planAndImplement, contains('- id: refactor-validate'));
+      expect(planAndImplement, contains('- id: refactor-re-validate'));
       expect(
         planAndImplement,
-        contains('exitGate: "re-review.findings_count == 0 && re-validate.findings_count == 0"'),
+        contains('exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"'),
       );
 
-      expect(codeReview, contains('- id: validate'));
-      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && validate.findings_count == 0"'));
+      expect(codeReview, contains('- id: refactor-validate'));
+      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && refactor-validate.findings_count == 0"'));
     });
   });
 

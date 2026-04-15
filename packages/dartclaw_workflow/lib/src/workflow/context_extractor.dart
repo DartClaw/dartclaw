@@ -23,7 +23,7 @@ import 'schema_validator.dart';
 ///
 /// Four extraction strategies (in priority order for each output key):
 /// 1. Explicit [ExtractionConfig] on the step (artifact lookup by name pattern).
-/// 2. Agent convention: `## Context Output` section in last assistant message.
+/// 2. Workflow context tag: `<workflow-context>{...}</workflow-context>` in the last assistant message.
 /// 3. First `.md` artifact file content.
 /// 4. `diff.json` artifact for diff-related keys.
 ///
@@ -53,6 +53,7 @@ class ContextExtractor {
   /// Returns a map of output key → extracted value.
   Future<Map<String, dynamic>> extract(WorkflowStep step, Task task) async {
     final outputs = <String, dynamic>{};
+    final workflowContextPayload = await _extractWorkflowContextPayload(task);
 
     // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
     if (step.extraction != null && step.contextOutputs.isNotEmpty) {
@@ -94,6 +95,27 @@ class ContextExtractor {
         );
       }
 
+      if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
+        final payloadValue = workflowContextPayload[outputKey];
+        if (config == null || config.format == OutputFormat.text) {
+          outputs[outputKey] = _stringifyWorkflowValue(payloadValue);
+        } else {
+          switch (config.format) {
+            case OutputFormat.json:
+              _softValidate(payloadValue, config, step.id, outputKey);
+              outputs[outputKey] = payloadValue;
+            case OutputFormat.lines:
+              outputs[outputKey] = switch (payloadValue) {
+                final List<dynamic> values => values.map((value) => value.toString().trim()).where((s) => s.isNotEmpty).toList(),
+                _ => extractLines(_stringifyWorkflowValue(payloadValue)),
+              };
+            case OutputFormat.text:
+              outputs[outputKey] = _stringifyWorkflowValue(payloadValue);
+          }
+        }
+        continue;
+      }
+
       if (config != null && config.format != OutputFormat.text) {
         // Format-aware extraction (json or lines).
         final rawContent = await _extractRawContent(step, task, outputKey);
@@ -132,13 +154,6 @@ class ContextExtractor {
       }
 
       // Fall through to convention-based extraction (text format or no config).
-
-      // Try agent convention (## Context Output) first.
-      final conventionValue = await _extractFromAgentConvention(task, outputKey);
-      if (conventionValue != null) {
-        outputs[outputKey] = conventionValue;
-        continue;
-      }
 
       // Try first .md artifact.
       final mdContent = await _extractFirstMdArtifact(task);
@@ -192,25 +207,21 @@ class ContextExtractor {
 
   /// Extracts raw text content for format-aware processing.
   ///
-  /// Priority: explicit extraction config → agent convention → last assistant message → first .md artifact.
+  /// Priority: explicit extraction config → last assistant message → first .md artifact.
   Future<String?> _extractRawContent(WorkflowStep step, Task task, String outputKey) async {
     // 1. Explicit extraction config.
     if (step.extraction != null) {
       return _applyExtractionConfig(step.extraction!, task);
     }
 
-    // 2. Agent convention (## Context Output).
-    final convention = await _extractFromAgentConvention(task, outputKey);
-    if (convention != null) return convention;
-
-    // 3. Last assistant message content (full text for JSON extraction).
+    // 2. Last assistant message content (full text for JSON extraction).
     if (task.sessionId != null) {
       final messages = await _messageService.getMessagesTail(task.sessionId!, count: 5);
       final lastAssistant = messages.where((m) => m.role == 'assistant').lastOrNull;
       if (lastAssistant != null) return lastAssistant.content;
     }
 
-    // 4. First .md artifact.
+    // 3. First .md artifact.
     return _extractFirstMdArtifact(task);
   }
 
@@ -265,8 +276,8 @@ class ContextExtractor {
     return null;
   }
 
-  /// Parses the `## Context Output` section from the last assistant message.
-  Future<String?> _extractFromAgentConvention(Task task, String outputKey) async {
+  /// Parses the `<workflow-context>` payload from the last assistant message.
+  Future<Map<String, dynamic>?> _extractWorkflowContextPayload(Task task) async {
     if (task.sessionId == null) return null;
 
     final messages = await _messageService.getMessagesTail(task.sessionId!, count: 50);
@@ -274,35 +285,23 @@ class ContextExtractor {
     if (assistants.isEmpty) return null;
     final lastAssistant = assistants.last;
 
-    // Find ## Context Output section.
     final content = lastAssistant.content;
-    final headerIndex = content.indexOf('## Context Output');
-    if (headerIndex < 0) return null;
+    final match = RegExp(r'<workflow-context>\s*([\s\S]*?)\s*</workflow-context>').firstMatch(content);
+    if (match == null) return null;
 
-    final section = content.substring(headerIndex + '## Context Output'.length);
-
-    // Try JSON fenced code block first.
-    final fenceMatch = RegExp(r'```(?:json)?\s*\n([\s\S]*?)\n```').firstMatch(section);
-    if (fenceMatch != null) {
-      try {
-        final decoded = jsonDecode(fenceMatch.group(1)!) as Map<String, dynamic>;
-        return decoded[outputKey]?.toString();
-      } catch (_) {
-        // Not valid JSON; fall through to key-value parsing.
-      }
+    final rawJson = match.group(1)!;
+    final decoded = jsonDecode(rawJson);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
     }
+    throw const FormatException('workflow-context payload must decode to a JSON object');
+  }
 
-    // Parse key: value pairs (one per line).
-    for (final line in section.split('\n')) {
-      final colonIndex = line.indexOf(':');
-      if (colonIndex < 0) continue;
-      final key = line.substring(0, colonIndex).trim();
-      if (key == outputKey) {
-        return line.substring(colonIndex + 1).trim();
-      }
-    }
-
-    return null;
+  String _stringifyWorkflowValue(Object? value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    return jsonEncode(value);
   }
 
   /// Returns the content of the first `.md` artifact for [task].

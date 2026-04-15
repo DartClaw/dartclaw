@@ -32,10 +32,8 @@ void main() {
     expect(File(p.join(skillsDir, 'dartclaw-review-code', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-review-doc', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-review-gap', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'dartclaw-review-council', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-quick-review', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-spec-plan', 'SKILL.md')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'dartclaw-validate', 'SKILL.md')).existsSync(), isTrue);
 
     final skillDirs = Directory(skillsDir)
         .listSync()
@@ -43,15 +41,13 @@ void main() {
         .map((dir) => p.basename(dir.path))
         .where((name) => name.startsWith('dartclaw-'))
         .toSet();
-    expect(skillDirs.length, 15);
+    expect(skillDirs.length, 13);
     expect(skillDirs, contains('dartclaw-review'));
     expect(skillDirs, contains('dartclaw-review-code'));
     expect(skillDirs, contains('dartclaw-review-doc'));
     expect(skillDirs, contains('dartclaw-review-gap'));
-    expect(skillDirs, contains('dartclaw-review-council'));
     expect(skillDirs, contains('dartclaw-quick-review'));
     expect(skillDirs, contains('dartclaw-spec-plan'));
-    expect(skillDirs, contains('dartclaw-validate'));
 
     expect(File(p.join(skillsDir, 'references', 'verification-patterns.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'references', 'structured-output-protocols.md')).existsSync(), isTrue);

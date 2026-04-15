@@ -66,7 +66,7 @@ String _verdictJson({
   });
 }
 
-String _contextOutput(Map<String, Object?> values) => '## Context Output\n```json\n${jsonEncode(values)}\n```';
+String _contextOutput(Map<String, Object?> values) => '<workflow-context>${jsonEncode(values)}</workflow-context>';
 
 class _StubResponse {
   final String assistantContent;
@@ -283,30 +283,33 @@ void main() {
               'marker': 'DISCOVER_MARKER',
             }),
           ),
-          'spec' => const _StubResponse(
-            assistantContent: '## Context Output\nspec_document: SPEC_DOC_MARKER\nacceptance_criteria: AC_MARKER',
+          'spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_document': 'SPEC_DOC_MARKER',
+              'acceptance_criteria': 'AC_MARKER',
+            }),
           ),
           'review-spec' => _StubResponse(
             assistantContent: _verdictJson(findingsCount: 0, summary: 'spec is consistent'),
           ),
-          'implement' => const _StubResponse(
-            assistantContent: '## Context Output\ndiff_summary: IMPLEMENT_DIFF_MARKER',
-          ),
-          'validate' => const _StubResponse(
-            assistantContent: '## Context Output\nvalidation_summary: VALIDATE_MARKER\nfindings_count: 0',
+          'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'VALIDATE_MARKER', 'findings_count': 0}),
           ),
           'integrated-review' => _StubResponse(
             assistantContent: _verdictJson(findingsCount: 0, summary: 'integrated review passed'),
           ),
-          'remediate' => const _StubResponse(
-            assistantContent:
-                '## Context Output\nremediation_summary: No remediation needed\ndiff_summary: IMPLEMENT_DIFF_MARKER',
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_summary': 'No remediation needed',
+              'diff_summary': 'IMPLEMENT_DIFF_MARKER',
+            }),
           ),
-          're-validate' => _StubResponse(
+          'refactor-re-validate' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'REVALIDATE_MARKER',
               'findings_count': 0,
-              're-validate.findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -316,8 +319,8 @@ void main() {
               're-review.findings_count': 0,
             }),
           ),
-          'update-state' => const _StubResponse(
-            assistantContent: '## Context Output\nstate_update_summary: State updated cleanly',
+          'update-state' => _StubResponse(
+            assistantContent: _contextOutput({'state_update_summary': 'State updated cleanly'}),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -328,12 +331,12 @@ void main() {
     expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
     expect(trace.descriptionsByStep['implement']!.single, contains('SPEC_DOC_MARKER'));
     expect(trace.descriptionsByStep['implement']!.single, contains('AC_MARKER'));
-    expect(trace.descriptionsByStep['validate']!.single, contains('IMPLEMENT_DIFF_MARKER'));
+    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('IMPLEMENT_DIFF_MARKER'));
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
   });
 
   test(
-    'spec-and-implement integration enters remediation when validate finds issues and exits after re-validation',
+    'spec-and-implement integration enters remediation when refactor-validate finds issues and exits after refactor-re-validation',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
@@ -349,26 +352,34 @@ void main() {
                 'marker': 'DISCOVER_LOOP_MARKER',
               }),
             ),
-            'spec' => const _StubResponse(
-              assistantContent: '## Context Output\nspec_document: SPEC_LOOP_DOC\nacceptance_criteria: LOOP_AC',
+            'spec' => _StubResponse(
+              assistantContent: _contextOutput({
+                'spec_document': 'SPEC_LOOP_DOC',
+                'acceptance_criteria': 'LOOP_AC',
+              }),
             ),
             'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
-            'implement' => const _StubResponse(assistantContent: '## Context Output\ndiff_summary: LOOP_DIFF_MARKER'),
-            'validate' => const _StubResponse(
-              assistantContent: '## Context Output\nvalidation_summary: INITIAL_VALIDATE_FINDINGS\nfindings_count: 2',
+            'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
+            'refactor-validate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
+                'findings_count': 2,
+              }),
             ),
             'integrated-review' => _StubResponse(
               assistantContent: _verdictJson(findingsCount: 0, summary: 'implementation is otherwise sound'),
             ),
-            'remediate' => const _StubResponse(
-              assistantContent:
-                  '## Context Output\nremediation_summary: Fixed the lint findings\ndiff_summary: LOOP_DIFF_MARKER_AFTER_FIX',
+            'remediate' => _StubResponse(
+              assistantContent: _contextOutput({
+                'remediation_summary': 'Fixed the lint findings',
+                'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
+              }),
             ),
-            're-validate' => _StubResponse(
+            'refactor-re-validate' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'REVALIDATED_CLEAN',
                 'findings_count': 0,
-                're-validate.findings_count': 0,
+                'refactor-re-validate.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -378,8 +389,8 @@ void main() {
                 're-review.findings_count': 0,
               }),
             ),
-            'update-state' => const _StubResponse(
-              assistantContent: '## Context Output\nstate_update_summary: State updated after remediation',
+            'update-state' => _StubResponse(
+              assistantContent: _contextOutput({'state_update_summary': 'State updated after remediation'}),
             ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
@@ -388,14 +399,14 @@ void main() {
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
       expect(trace.count('remediate'), 1);
-      expect(trace.count('re-validate'), 1);
+      expect(trace.count('refactor-re-validate'), 1);
       expect(trace.count('re-review'), 1);
       expect(trace.descriptionsByStep['remediate']!.single, contains('INITIAL_VALIDATE_FINDINGS'));
       expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
     },
   );
 
-  test('plan-and-implement integration merges map outputs before validate', () async {
+  test('plan-and-implement integration merges map outputs before refactor-validate', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
@@ -440,11 +451,14 @@ void main() {
             ]),
           ),
           'spec' => _StubResponse(
-            assistantContent: '## Context Output\nstory_spec: STORY_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+            assistantContent: _contextOutput({
+              'story_spec': 'STORY_SPEC_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+            }),
           ),
           'implement' => _StubResponse(
-            assistantContent:
-                '## Context Output\nstory_result: STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+            assistantContent: _contextOutput({
+              'story_result': 'STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
+            }),
             worktreeJson: {
               'branch': queued.mapIndex == 0 ? 'story-alpha' : 'story-beta',
               'path': '/tmp/worktrees/${queued.mapIndex == 0 ? 'alpha' : 'beta'}',
@@ -454,8 +468,8 @@ void main() {
           'runtime-quick-review' => _StubResponse(
             assistantContent: _verdictJson(findingsCount: 0, summary: 'runtime quick review passed'),
           ),
-          'validate' => const _StubResponse(
-            assistantContent: '## Context Output\nvalidation_summary: PLAN_VALIDATE_MARKER\nfindings_count: 0',
+          'refactor-validate' => _StubResponse(
+            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE_MARKER', 'findings_count': 0}),
           ),
           'synthesize' => _StubResponse(
             assistantContent: _contextOutput({
@@ -464,15 +478,17 @@ void main() {
               'needs_remediation': false,
             }),
           ),
-          'remediate' => const _StubResponse(
-            assistantContent:
-                '## Context Output\nremediation_summary: No batch remediation needed\ndiff_summary: batch clean',
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_summary': 'No batch remediation needed',
+              'diff_summary': 'batch clean',
+            }),
           ),
-          're-validate' => _StubResponse(
+          'refactor-re-validate' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'PLAN_REVALIDATED',
               'findings_count': 0,
-              're-validate.findings_count': 0,
+              'refactor-re-validate.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -482,8 +498,8 @@ void main() {
               're-review.findings_count': 0,
             }),
           ),
-          'update-state' => const _StubResponse(
-            assistantContent: '## Context Output\nstate_update_summary: Story state updated',
+          'update-state' => _StubResponse(
+            assistantContent: _contextOutput({'state_update_summary': 'Story state updated'}),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -494,8 +510,8 @@ void main() {
     expect(trace.count('spec'), 2);
     expect(trace.count('implement'), 2);
     expect(trace.count('runtime-quick-review'), 2);
-    expect(trace.descriptionsByStep['validate']!.single, contains('STORY_RESULT_ALPHA'));
-    expect(trace.descriptionsByStep['validate']!.single, contains('STORY_RESULT_BETA'));
+    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('STORY_RESULT_ALPHA'));
+    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('STORY_RESULT_BETA'));
 
     final storyResults = trace.context['story_result'] as List<dynamic>;
     expect(storyResults, hasLength(2));
@@ -503,7 +519,7 @@ void main() {
     expect((storyResults[1] as Map<String, dynamic>)['text'], 'STORY_RESULT_BETA');
   });
 
-  test('code-review integration keeps looping until both validate and re-review findings reach zero', () async {
+  test('code-review integration keeps looping until both refactor-validate and re-review findings reach zero', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -551,11 +567,11 @@ void main() {
               'diff_summary': 'Diff summary ${queued.occurrence + 1}',
             }),
           ),
-          'validate' => _StubResponse(
+          'refactor-validate' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
               'findings_count': 0,
-              'validate.findings_count': 0,
+              'refactor-validate.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -584,20 +600,20 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('validate'), 2);
+    expect(trace.count('refactor-validate'), 2);
     expect(trace.count('re-review'), 2);
-    expect(trace.queuedStepOrder.where((step) => step == 'remediate' || step == 'validate' || step == 're-review'), [
+    expect(trace.queuedStepOrder.where((step) => step == 'remediate' || step == 'refactor-validate' || step == 're-review'), [
       'remediate',
-      'validate',
+      'refactor-validate',
       're-review',
       'remediate',
-      'validate',
+      'refactor-validate',
       're-review',
     ]);
     expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
   });
 
-  test('code-review integration carries validate-only failures into the next remediation pass', () async {
+  test('code-review integration carries refactor-validate-only failures into the next remediation pass', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -634,11 +650,11 @@ void main() {
               'diff_summary': 'Diff summary ${queued.occurrence + 1}',
             }),
           ),
-          'validate' => _StubResponse(
+          'refactor-validate' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': queued.occurrence == 0 ? 'BROKEN_BUILD_MARKER' : 'Validation is now clean',
               'findings_count': queued.occurrence == 0 ? 1 : 0,
-              'validate.findings_count': queued.occurrence == 0 ? 1 : 0,
+              'refactor-validate.findings_count': queued.occurrence == 0 ? 1 : 0,
             }),
           ),
           're-review' => _StubResponse(

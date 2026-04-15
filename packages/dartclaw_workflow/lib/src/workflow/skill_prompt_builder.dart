@@ -23,13 +23,14 @@ class SkillPromptBuilder {
   /// [resolvedPrompt] is the template-resolved prompt (may be null for
   /// skill-only steps). [contextSummary] provides context when prompt is
   /// absent — formatted as `"- key: <value>"` lines from resolved
-  /// contextInputs. [outputs] is forwarded to [PromptAugmenter] for schema
-  /// augmentation.
+  /// contextInputs. [outputs] and [contextOutputs] are forwarded to
+  /// [PromptAugmenter] for schema and workflow-context augmentation.
   String build({
     required String? skill,
     String? resolvedPrompt,
     String? contextSummary,
     Map<String, OutputConfig>? outputs,
+    List<String> contextOutputs = const [],
   }) {
     final String prompt;
 
@@ -52,7 +53,7 @@ class SkillPromptBuilder {
     }
 
     // Append schema-driven output format section via PromptAugmenter (S01).
-    return _augmenter.augment(prompt, outputs);
+    return _augmenter.augment(prompt, outputs: outputs, contextOutputs: contextOutputs);
   }
 
   /// Formats resolved context inputs as a summary string for skill-only steps.

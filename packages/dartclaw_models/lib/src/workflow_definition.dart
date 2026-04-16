@@ -71,7 +71,20 @@ class OutputConfig {
   /// Extraction mode for JSON outputs.
   final OutputMode outputMode;
 
-  const OutputConfig({this.format = OutputFormat.text, this.schema, this.source, this.outputMode = OutputMode.prompt});
+  /// Optional human-readable description of the semantic meaning of this output.
+  ///
+  /// Included verbatim in the prompt augmentation sections (Workflow Output Contract
+  /// and Required Output Format) so the agent understands *what* a field represents,
+  /// not just its name and JSON shape. Keep to one concise sentence.
+  final String? description;
+
+  const OutputConfig({
+    this.format = OutputFormat.text,
+    this.schema,
+    this.source,
+    this.outputMode = OutputMode.prompt,
+    this.description,
+  });
 
   /// Whether this config has a schema (preset name or inline).
   bool get hasSchema => schema != null;
@@ -87,6 +100,7 @@ class OutputConfig {
     if (schema != null) 'schema': schema,
     if (source != null) 'source': source,
     if (outputMode != OutputMode.prompt) 'outputMode': outputMode.name,
+    if (description != null) 'description': description,
   };
 
   factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
@@ -94,6 +108,7 @@ class OutputConfig {
     schema: json['schema'],
     source: json['source'] as String?,
     outputMode: json['outputMode'] != null ? OutputMode.values.byName(json['outputMode'] as String) : OutputMode.prompt,
+    description: json['description'] as String?,
   );
 }
 

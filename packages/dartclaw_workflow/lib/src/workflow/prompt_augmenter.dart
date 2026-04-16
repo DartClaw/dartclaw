@@ -1,6 +1,7 @@
 import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, OutputFormat, OutputMode;
 
 import 'schema_presets.dart';
+import 'workflow_output_contract.dart';
 
 /// Augments a step prompt with output format instructions from schema declarations.
 class PromptAugmenter {
@@ -45,7 +46,13 @@ class PromptAugmenter {
         fragment = _generateInlineFragment(config.inlineSchema!, entry.key);
       }
 
-      if (fragment != null) fragments.add(fragment);
+      if (fragment != null) {
+        final desc = config.description?.trim();
+        if (desc != null && desc.isNotEmpty) {
+          fragment = '"${entry.key}" — $desc\n\n$fragment';
+        }
+        fragments.add(fragment);
+      }
     }
 
     if (fragments.isEmpty) return null;
@@ -60,8 +67,8 @@ class PromptAugmenter {
     final buf = StringBuffer();
     buf.writeln('## Workflow Output Contract');
     buf.writeln();
-    buf.writeln('End your final response with `<workflow-context>` containing a single JSON object.');
-    buf.writeln('Do not use markdown code fences inside `<workflow-context>`.');
+    buf.writeln('End your final response with `$kWorkflowContextOpen` containing a single JSON object.');
+    buf.writeln('Do not use markdown code fences inside `$kWorkflowContextOpen`.');
     buf.writeln('Include exactly these keys:');
 
     for (final key in contextOutputs) {
@@ -71,33 +78,37 @@ class PromptAugmenter {
 
     buf.writeln();
     buf.writeln('Example:');
-    buf.writeln('<workflow-context>');
+    buf.writeln(kWorkflowContextOpen);
     buf.writeln('{"key":"value"}');
-    buf.writeln('</workflow-context>');
+    buf.writeln(kWorkflowContextClose);
     return buf.toString().trimRight();
   }
 
   void _writeWorkflowContextField(StringBuffer buf, String key, OutputConfig? config) {
+    final descSuffix = (config?.description != null && config!.description!.trim().isNotEmpty)
+        ? ' — ${config.description!.trim()}'
+        : '';
+
     if (config == null || config.format == OutputFormat.text) {
-      buf.writeln('- "$key": JSON string');
+      buf.writeln('- "$key": JSON string$descSuffix');
       return;
     }
 
     if (config.format == OutputFormat.lines) {
-      buf.writeln('- "$key": JSON array of strings');
+      buf.writeln('- "$key": JSON array of strings$descSuffix');
       return;
     }
 
     final schema = config.presetName != null ? schemaPresets[config.presetName]?.schema : config.inlineSchema;
 
     if (schema == null) {
-      buf.writeln('- "$key": JSON value');
+      buf.writeln('- "$key": JSON value$descSuffix');
       return;
     }
 
     final type = schema['type'] as String?;
     if (type == 'array') {
-      buf.writeln('- "$key": JSON array');
+      buf.writeln('- "$key": JSON array$descSuffix');
       final items = schema['items'] as Map<String, dynamic>?;
       if (items != null) {
         buf.writeln('  Each item has:');
@@ -107,12 +118,12 @@ class PromptAugmenter {
     }
 
     if (type == 'object') {
-      buf.writeln('- "$key": JSON object with:');
+      buf.writeln('- "$key": JSON object$descSuffix${descSuffix.isEmpty ? " with:" : ", with:"}');
       _writeProperties(buf, schema, indent: '  ');
       return;
     }
 
-    buf.writeln('- "$key": JSON $type');
+    buf.writeln('- "$key": JSON $type$descSuffix');
   }
 
   /// Generates a prompt fragment from an inline JSON Schema by walking properties.

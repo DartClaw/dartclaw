@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'json_extraction.dart';
 import 'schema_presets.dart';
 import 'schema_validator.dart';
+import 'workflow_output_contract.dart';
 
 /// Extracts context outputs from a completed task's artifacts and messages.
 ///
@@ -370,7 +371,7 @@ class ContextExtractor {
   Future<Map<String, dynamic>?> _extractWorkflowContextPayload(Task task) async {
     final content = await _extractLastAssistantContent(task);
     if (content == null) return null;
-    final match = RegExp(r'<workflow-context>\s*([\s\S]*?)\s*</workflow-context>').firstMatch(content);
+    final match = workflowContextRegExp.firstMatch(content);
     if (match == null) return null;
 
     final rawJson = match.group(1)!;

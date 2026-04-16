@@ -323,7 +323,14 @@ class WorkflowDefinitionParser {
                       'Step "$id" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
                     )))
               : OutputMode.prompt;
-          outputs[key] = OutputConfig(format: format, schema: schema, source: outputSource, outputMode: outputMode);
+          final description = value['description'] as String?;
+          outputs[key] = OutputConfig(
+            format: format,
+            schema: schema,
+            source: outputSource,
+            outputMode: outputMode,
+            description: description,
+          );
         } else {
           // Shorthand: `key: json` or `key: lines`
           final format = OutputFormat.fromYaml(value.toString());

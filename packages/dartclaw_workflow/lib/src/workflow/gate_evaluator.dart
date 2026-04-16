@@ -34,7 +34,7 @@ class GateEvaluator {
     // so gates like "findings_count == 0" pass when the key was never set.
     final actual = rawActual.isEmpty && double.tryParse(expected) != null ? '0' : rawActual;
 
-    return switch (op) {
+    final result = switch (op) {
       '==' => actual == expected,
       '!=' => actual != expected,
       '<' => _compareNumeric(actual, expected) < 0,
@@ -43,6 +43,8 @@ class GateEvaluator {
       '>=' => _compareNumeric(actual, expected) >= 0,
       _ => false,
     };
+    _log.fine('Gate condition: $key $op $expected → actual="$actual", result=$result');
+    return result;
   }
 
   /// Numeric comparison with string fallback.

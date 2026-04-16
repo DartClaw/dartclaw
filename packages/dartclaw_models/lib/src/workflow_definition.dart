@@ -182,6 +182,9 @@ class StepConfigDefault {
   /// Optional model override.
   final String? model;
 
+  /// Optional reasoning effort level (e.g. "low", "medium", "high").
+  final String? effort;
+
   /// Optional per-step token budget.
   final int? maxTokens;
 
@@ -198,6 +201,7 @@ class StepConfigDefault {
     required this.match,
     this.provider,
     this.model,
+    this.effort,
     this.maxTokens,
     this.maxCostUsd,
     this.maxRetries,
@@ -208,6 +212,7 @@ class StepConfigDefault {
     'match': match,
     if (provider != null) 'provider': provider,
     if (model != null) 'model': model,
+    if (effort != null) 'effort': effort,
     if (maxTokens != null) 'maxTokens': maxTokens,
     if (maxCostUsd != null) 'maxCostUsd': maxCostUsd,
     if (maxRetries != null) 'maxRetries': maxRetries,
@@ -218,6 +223,7 @@ class StepConfigDefault {
     match: json['match'] as String,
     provider: json['provider'] as String?,
     model: json['model'] as String?,
+    effort: json['effort'] as String?,
     maxTokens: json['maxTokens'] as int?,
     maxCostUsd: (json['maxCostUsd'] as num?)?.toDouble(),
     maxRetries: json['maxRetries'] as int?,
@@ -444,6 +450,9 @@ class WorkflowStep {
   /// Optional model override for the provider.
   final String? model;
 
+  /// Optional reasoning effort level (e.g. "low", "medium", "high").
+  final String? effort;
+
   /// Step timeout in seconds (null means no timeout).
   final int? timeoutSeconds;
 
@@ -564,6 +573,7 @@ class WorkflowStep {
     this.project,
     this.provider,
     this.model,
+    this.effort,
     this.timeoutSeconds,
     this.review = StepReviewMode.codingOnly,
     this.parallel = false,
@@ -597,6 +607,7 @@ class WorkflowStep {
     if (project != null) 'project': project,
     if (provider != null) 'provider': provider,
     if (model != null) 'model': model,
+    if (effort != null) 'effort': effort,
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (gate != null) 'gate': gate,
     'contextInputs': contextInputs.toList(),

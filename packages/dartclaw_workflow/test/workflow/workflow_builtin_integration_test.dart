@@ -52,37 +52,6 @@ String _definitionsDir() {
   }
 }
 
-String _workflowTestingFixtureDir() {
-  var current = Directory.current;
-  while (true) {
-    final candidates = [
-      p.join(
-        current.path,
-        '..',
-        'dartclaw-private',
-        'docs',
-        'testing',
-        'workflows',
-        'data',
-        'projects',
-        'workflow-testing',
-      ),
-      p.join(current.path, 'dartclaw-private', 'docs', 'testing', 'workflows', 'data', 'projects', 'workflow-testing'),
-    ];
-    for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) {
-        return candidate;
-      }
-    }
-
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not locate workflow-testing fixture dir');
-    }
-    current = parent;
-  }
-}
-
 String _verdictJson({
   required int findingsCount,
   required String summary,
@@ -349,10 +318,13 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC_MARKER', 'acceptance_criteria': 'AC_MARKER'}),
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC_MARKER'}),
           ),
-          'review-spec' => _StubResponse(
-            assistantContent: _verdictJson(findingsCount: 0, summary: 'spec is consistent'),
+          'revise-spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_document': 'REVISED_SPEC_DOC_MARKER',
+              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec is consistent')),
+            }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
           'verify-refine' => _StubResponse(
@@ -391,8 +363,8 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
-    expect(trace.descriptionsByStep['implement']!.single, contains('SPEC_DOC_MARKER'));
-    expect(trace.descriptionsByStep['implement']!.single, contains('AC_MARKER'));
+    expect(trace.descriptionsByStep['revise-spec']!.single, contains('SPEC_DOC_MARKER'));
+    expect(trace.descriptionsByStep['implement']!.single, contains('REVISED_SPEC_DOC_MARKER'));
     expect(trace.descriptionsByStep['verify-refine']!.single, contains('IMPLEMENT_DIFF_MARKER'));
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
   });
@@ -412,9 +384,14 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'}),
           ),
-          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'revise-spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_document': 'REVISED_SPEC_DOC',
+              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+            }),
+          ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
@@ -447,8 +424,8 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('spec').single.projectId, isNull);
-    expect(trace.tasksForStep('review-spec').single.projectId, isNull);
+    expect(trace.tasksForStep('spec').single.projectId, 'demo-project'); // inherits via continueSession: discover-project
+    expect(trace.tasksForStep('revise-spec').single.projectId, 'demo-project'); // inherits via continueSession: spec
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
@@ -471,9 +448,14 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'}),
           ),
-          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'revise-spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_document': 'REVISED_SPEC_DOC',
+              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+            }),
+          ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
@@ -510,7 +492,7 @@ void main() {
     expect(discover.configJson['readOnly'], isTrue);
     expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
-    expect(trace.tasksForStep('review-spec').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('revise-spec').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('re-review'), isEmpty);
 
@@ -537,9 +519,14 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC', 'acceptance_criteria': 'AC'}),
+            assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'}),
           ),
-          'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+          'revise-spec' => _StubResponse(
+            assistantContent: _contextOutput({
+              'spec_document': 'REVISED_SPEC_DOC',
+              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+            }),
+          ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
@@ -576,23 +563,6 @@ void main() {
     expect(discover, isNot(contains(feature)));
   });
 
-  test('workflow-testing fixture keeps the standalone discovery boundary contract', () {
-    final fixtureDir = _workflowTestingFixtureDir();
-    final agents = File(p.join(fixtureDir, 'AGENTS.md')).readAsStringSync();
-    final claude = File(p.join(fixtureDir, 'CLAUDE.md')).readAsStringSync();
-
-    expect(agents, contains('Do not inspect parent or sibling repositories.'));
-    expect(agents, contains('framework: none'));
-    expect(claude, contains('Do not inspect parent or sibling repositories.'));
-    expect(claude, contains('framework: none'));
-
-    final topLevelEntries = Directory(
-      fixtureDir,
-    ).listSync(followLinks: false).map((entry) => p.basename(entry.path)).toSet();
-    expect(topLevelEntries, containsAll({'.git', 'README.md', 'AGENTS.md', 'CLAUDE.md'}));
-    expect(topLevelEntries.difference({'.git', 'README.md', 'AGENTS.md', 'CLAUDE.md'}), isEmpty);
-  });
-
   test(
     'spec-and-implement integration enters remediation when verify-refine finds issues and exits after refactor-re-validation',
     () async {
@@ -611,9 +581,14 @@ void main() {
               }),
             ),
             'spec' => _StubResponse(
-              assistantContent: _contextOutput({'spec_document': 'SPEC_LOOP_DOC', 'acceptance_criteria': 'LOOP_AC'}),
+              assistantContent: _contextOutput({'spec_document': 'SPEC_LOOP_DOC'}),
             ),
-            'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
+            'revise-spec' => _StubResponse(
+              assistantContent: _contextOutput({
+                'spec_document': 'SPEC_LOOP_DOC_REVISED',
+                'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+              }),
+            ),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
             'verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
@@ -622,7 +597,10 @@ void main() {
               }),
             ),
             'integrated-review' => _StubResponse(
-              assistantContent: _verdictJson(findingsCount: 1, summary: 'implementation still needs validation cleanup'),
+              assistantContent: _verdictJson(
+                findingsCount: 1,
+                summary: 'implementation still needs validation cleanup',
+              ),
             ),
             'remediate' => _StubResponse(
               assistantContent: _contextOutput({
@@ -682,33 +660,73 @@ void main() {
             }),
           ),
           'plan' => _StubResponse(
-            assistantContent: jsonEncode([
-              {
-                'id': 'S01',
-                'title': 'Story One',
-                'description': 'First integration story',
-                'acceptance_criteria': ['first passes'],
-                'type': 'coding',
-                'dependencies': <String>[],
-                'key_files': ['lib/a.dart'],
-                'effort': 'small',
+            assistantContent: _contextOutput({
+              'prd': '# PRD\n\nPRD_MARKER_PLAN_PIPELINE',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'description': 'First integration story',
+                    'acceptance_criteria': ['first passes'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'description': 'Second integration story',
+                    'acceptance_criteria': ['second passes'],
+                    'type': 'coding',
+                    'dependencies': ['S01'],
+                    'key_files': ['lib/b.dart'],
+                    'effort': 'small',
+                  },
+                ],
               },
-              {
-                'id': 'S02',
-                'title': 'Story Two',
-                'description': 'Second integration story',
-                'acceptance_criteria': ['second passes'],
-                'type': 'coding',
-                'dependencies': ['S01'],
-                'key_files': ['lib/b.dart'],
-                'effort': 'small',
-              },
-            ]),
+            }),
           ),
-          // spec-plan runs once (not per-story) and owns canonical stories + per-story specs.
+          'revise-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': '# Revised PRD\n\nPRD_MARKER_REVISED_PLAN_PIPELINE',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'description': 'First integration story',
+                    'acceptance_criteria': ['first passes'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'description': 'Second integration story',
+                    'acceptance_criteria': ['second passes'],
+                    'type': 'coding',
+                    'dependencies': ['S01'],
+                    'key_files': ['lib/b.dart'],
+                    'effort': 'small',
+                  },
+                ],
+              },
+              'plan_review_findings': {
+                'pass': true,
+                'findings_count': 0,
+                'findings': <Object>[],
+                'summary': 'Plan and PRD are consistent.',
+              },
+            }),
+          ),
+          // spec-plan runs once (not per-story) and hands the detailed execution specs to foreach.
           'spec-plan' => _StubResponse(
             assistantContent: _contextOutput({
-              'stories': [
+              'story_specs': [
                 {
                   'id': 'S01',
                   'title': 'Story One',
@@ -718,6 +736,7 @@ void main() {
                   'dependencies': <String>[],
                   'key_files': ['lib/a.dart'],
                   'effort': 'small',
+                  'spec': 'STORY_SPEC_ALPHA',
                 },
                 {
                   'id': 'S02',
@@ -728,9 +747,9 @@ void main() {
                   'dependencies': ['S01'],
                   'key_files': ['lib/b.dart'],
                   'effort': 'small',
+                  'spec': 'STORY_SPEC_BETA',
                 },
               ],
-              'story_spec': ['STORY_SPEC_ALPHA', 'STORY_SPEC_BETA'],
             }),
           ),
           'implement' => _StubResponse(
@@ -794,7 +813,10 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     // spec-plan runs once; implement, verify-refine, quick-review run per story in foreach.
+    expect(trace.count('revise-plan'), 1);
+    expect(trace.descriptionsByStep['revise-plan']!.single, contains('PRD_MARKER_PLAN_PIPELINE'));
     expect(trace.count('spec-plan'), 1);
+    expect(trace.descriptionsByStep['spec-plan']!.single, contains('PRD_MARKER_REVISED_PLAN_PIPELINE'));
     expect(trace.count('implement'), 2);
     expect(trace.count('verify-refine'), 2);
     expect(trace.count('quick-review'), 2);
@@ -829,22 +851,52 @@ void main() {
             }),
           ),
           'plan' => _StubResponse(
-            assistantContent: jsonEncode([
-              {
-                'id': 'S01',
-                'title': 'Project Bound Story',
-                'description': 'Verify project propagation',
-                'acceptance_criteria': ['all coding steps use the workflow project'],
-                'type': 'coding',
-                'dependencies': <String>[],
-                'key_files': ['lib/a.dart'],
-                'effort': 'small',
+            assistantContent: _contextOutput({
+              'prd': '# PRD\n\nPROJECT_BOUND_PRD',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Project Bound Story',
+                    'description': 'Verify project propagation',
+                    'acceptance_criteria': ['all coding steps use the workflow project'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                ],
               },
-            ]),
+            }),
+          ),
+          'revise-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': '# Revised PRD\n\nPROJECT_BOUND_PRD_REVISED',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Project Bound Story',
+                    'description': 'Verify project propagation',
+                    'acceptance_criteria': ['all coding steps use the workflow project'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                ],
+              },
+              'plan_review_findings': {
+                'pass': true,
+                'findings_count': 0,
+                'findings': <Object>[],
+                'summary': 'Project-bound plan is clean.',
+              },
+            }),
           ),
           'spec-plan' => _StubResponse(
             assistantContent: _contextOutput({
-              'stories': [
+              'story_specs': [
                 {
                   'id': 'S01',
                   'title': 'Project Bound Story',
@@ -854,9 +906,9 @@ void main() {
                   'dependencies': <String>[],
                   'key_files': ['lib/a.dart'],
                   'effort': 'small',
+                  'spec': 'PROJECT_BOUND_SPEC',
                 },
               ],
-              'story_spec': ['PROJECT_BOUND_SPEC'],
             }),
           ),
           'implement' => _StubResponse(
@@ -871,10 +923,7 @@ void main() {
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'quick_review_summary': 'No issues',
-              'quick_review_findings_count': 0,
-            }),
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -909,11 +958,12 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('plan').single.projectId, isNull);
-    expect(trace.tasksForStep('spec-plan').single.projectId, isNull);
+    expect(trace.tasksForStep('plan').single.projectId, 'demo-project'); // inherits via continueSession: discover-project
+    expect(trace.tasksForStep('revise-plan').single.projectId, 'demo-project'); // inherits via continueSession: plan
+    expect(trace.tasksForStep('spec-plan').single.projectId, 'demo-project'); // inherits via continueSession: revise-plan
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('quick-review').single.projectId, isNull);
+    expect(trace.tasksForStep('quick-review').single.projectId, 'demo-project'); // inherits via continueSession: verify-refine
     expect(trace.tasksForStep('plan-review').single.projectId, isNull);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
@@ -939,22 +989,52 @@ void main() {
             }),
           ),
           'plan' => _StubResponse(
-            assistantContent: jsonEncode([
-              {
-                'id': 'S01',
-                'title': 'Minimal Story',
-                'description': 'Verify discover prompt scope',
-                'acceptance_criteria': ['discover prompt stays narrow'],
-                'type': 'coding',
-                'dependencies': <String>[],
-                'key_files': ['README.md'],
-                'effort': 'small',
+            assistantContent: _contextOutput({
+              'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Minimal Story',
+                    'description': 'Verify discover prompt scope',
+                    'acceptance_criteria': ['discover prompt stays narrow'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['README.md'],
+                    'effort': 'small',
+                  },
+                ],
               },
-            ]),
+            }),
+          ),
+          'revise-plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': '# Revised PRD\n\nDISCOVERY_SCOPE_PRD_REVISED',
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Minimal Story',
+                    'description': 'Verify discover prompt scope',
+                    'acceptance_criteria': ['discover prompt stays narrow'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['README.md'],
+                    'effort': 'small',
+                  },
+                ],
+              },
+              'plan_review_findings': {
+                'pass': true,
+                'findings_count': 0,
+                'findings': <Object>[],
+                'summary': 'Discovery-scope plan is clean.',
+              },
+            }),
           ),
           'spec-plan' => _StubResponse(
             assistantContent: _contextOutput({
-              'stories': [
+              'story_specs': [
                 {
                   'id': 'S01',
                   'title': 'Minimal Story',
@@ -964,9 +1044,9 @@ void main() {
                   'dependencies': <String>[],
                   'key_files': ['README.md'],
                   'effort': 'small',
+                  'spec': 'STORY_SPEC',
                 },
               ],
-              'story_spec': ['STORY_SPEC'],
             }),
           ),
           'implement' => _StubResponse(
@@ -981,10 +1061,7 @@ void main() {
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
           'quick-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'quick_review_summary': 'No issues',
-              'quick_review_findings_count': 0,
-            }),
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
           'plan-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1046,32 +1123,72 @@ void main() {
               }),
             ),
             'plan' => _StubResponse(
-              assistantContent: jsonEncode([
-                {
-                  'id': 'S01',
-                  'title': 'Loop Story Alpha',
-                  'description': 'First story for remediation loop',
-                  'acceptance_criteria': ['alpha passes'],
-                  'type': 'coding',
-                  'dependencies': <String>[],
-                  'key_files': ['lib/a.dart'],
-                  'effort': 'small',
+              assistantContent: _contextOutput({
+                'prd': '# PRD\n\nREMEDIATION_LOOP_PRD',
+                'stories': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Loop Story Alpha',
+                      'description': 'First story for remediation loop',
+                      'acceptance_criteria': ['alpha passes'],
+                      'type': 'coding',
+                      'dependencies': <String>[],
+                      'key_files': ['lib/a.dart'],
+                      'effort': 'small',
+                    },
+                    {
+                      'id': 'S02',
+                      'title': 'Loop Story Beta',
+                      'description': 'Second story for remediation loop',
+                      'acceptance_criteria': ['beta passes'],
+                      'type': 'coding',
+                      'dependencies': ['S01'],
+                      'key_files': ['lib/b.dart'],
+                      'effort': 'small',
+                    },
+                  ],
                 },
-                {
-                  'id': 'S02',
-                  'title': 'Loop Story Beta',
-                  'description': 'Second story for remediation loop',
-                  'acceptance_criteria': ['beta passes'],
-                  'type': 'coding',
-                  'dependencies': ['S01'],
-                  'key_files': ['lib/b.dart'],
-                  'effort': 'small',
+              }),
+            ),
+            'revise-plan' => _StubResponse(
+              assistantContent: _contextOutput({
+                'prd': '# Revised PRD\n\nREMEDIATION_LOOP_PRD_REVISED',
+                'stories': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Loop Story Alpha',
+                      'description': 'First story for remediation loop',
+                      'acceptance_criteria': ['alpha passes'],
+                      'type': 'coding',
+                      'dependencies': <String>[],
+                      'key_files': ['lib/a.dart'],
+                      'effort': 'small',
+                    },
+                    {
+                      'id': 'S02',
+                      'title': 'Loop Story Beta',
+                      'description': 'Second story for remediation loop',
+                      'acceptance_criteria': ['beta passes'],
+                      'type': 'coding',
+                      'dependencies': ['S01'],
+                      'key_files': ['lib/b.dart'],
+                      'effort': 'small',
+                    },
+                  ],
                 },
-              ]),
+                'plan_review_findings': {
+                  'pass': true,
+                  'findings_count': 0,
+                  'findings': <Object>[],
+                  'summary': 'Remediation-loop plan is clean.',
+                },
+              }),
             ),
             'spec-plan' => _StubResponse(
               assistantContent: _contextOutput({
-                'stories': [
+                'story_specs': [
                   {
                     'id': 'S01',
                     'title': 'Loop Story Alpha',
@@ -1081,6 +1198,7 @@ void main() {
                     'dependencies': <String>[],
                     'key_files': ['lib/a.dart'],
                     'effort': 'small',
+                    'spec': 'LOOP_SPEC_ALPHA',
                   },
                   {
                     'id': 'S02',
@@ -1091,9 +1209,9 @@ void main() {
                     'dependencies': ['S01'],
                     'key_files': ['lib/b.dart'],
                     'effort': 'small',
+                    'spec': 'LOOP_SPEC_BETA',
                   },
                 ],
-                'story_spec': ['LOOP_SPEC_ALPHA', 'LOOP_SPEC_BETA'],
               }),
             ),
             'implement' => _StubResponse(
@@ -1220,7 +1338,7 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('review-code').single.projectId, isNull);
+    expect(trace.tasksForStep('review-code').single.projectId, 'demo-project'); // inherits via continueSession: discover-project
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('verify-refine'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);
@@ -1361,100 +1479,95 @@ void main() {
     expect(discover, isNot(contains(target)));
   });
 
-  test(
-    'code-review integration keeps looping until both verify-refine and re-review findings reach zero',
-    () async {
-      final trace = await executeBuiltInWorkflow(
-        workflowFileName: 'code-review.yaml',
-        variables: {
-          'TARGET': 'feature branch',
-          'BRANCH': 'feature/validate',
-          'PR_NUMBER': '',
-          'BASE_BRANCH': 'main',
-          'PROJECT': 'demo-project',
-        },
-        responseForStep: (queued) async {
-          return switch (queued.stepKey) {
-            'discover-project' => _StubResponse(
-              assistantContent: jsonEncode({
-                'framework': 'dart',
-                'project_root': '/repo/demo',
-                'document_locations': {'product': 'PRODUCT.md'},
-                'state_protocol': {'state_file': 'docs/STATE.md'},
-                'marker': 'REVIEW_DISCOVER_MARKER',
-              }),
-            ),
-            'review-code' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_summary': _verdictJson(
-                  findingsCount: 1,
-                  summary: 'Initial review found one issue',
-                  pass: false,
-                  findings: const [
-                    {
-                      'severity': 'high',
-                      'location': 'lib/workflow.dart:42',
-                      'description': 'One issue remains before acceptance',
-                    },
-                  ],
-                ),
-                'findings_count': 1,
-              }),
-            ),
-            'remediate' => _StubResponse(
-              assistantContent: _contextOutput({
-                'remediation_result': jsonEncode({
-                  'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-                  'diff_summary': 'Diff summary ${queued.occurrence + 1}',
-                }),
+  test('code-review integration keeps looping until both verify-refine and re-review findings reach zero', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'code-review.yaml',
+      variables: {
+        'TARGET': 'feature branch',
+        'BRANCH': 'feature/validate',
+        'PR_NUMBER': '',
+        'BASE_BRANCH': 'main',
+        'PROJECT': 'demo-project',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'dart',
+              'project_root': '/repo/demo',
+              'document_locations': {'product': 'PRODUCT.md'},
+              'state_protocol': {'state_file': 'docs/STATE.md'},
+              'marker': 'REVIEW_DISCOVER_MARKER',
+            }),
+          ),
+          'review-code' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_summary': _verdictJson(
+                findingsCount: 1,
+                summary: 'Initial review found one issue',
+                pass: false,
+                findings: const [
+                  {
+                    'severity': 'high',
+                    'location': 'lib/workflow.dart:42',
+                    'description': 'One issue remains before acceptance',
+                  },
+                ],
+              ),
+              'findings_count': 1,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_result': jsonEncode({
                 'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
                 'diff_summary': 'Diff summary ${queued.occurrence + 1}',
               }),
-            ),
-            'verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
-                'findings_count': 0,
-                'verify-refine.findings_count': 0,
-              }),
-            ),
-            're-review' => _StubResponse(
-              assistantContent: _contextOutput({
-                'review_summary': _verdictJson(
-                  findingsCount: queued.occurrence == 0 ? 1 : 0,
-                  summary: queued.occurrence == 0 ? 'One review finding remains' : 'Review is now clean',
-                  pass: queued.occurrence != 0,
-                  findings: queued.occurrence == 0
-                      ? const [
-                          {
-                            'severity': 'medium',
-                            'location': 'lib/workflow.dart:88',
-                            'description': 'Another pass is still required',
-                          },
-                        ]
-                      : const [],
-                ),
-                'findings_count': queued.occurrence == 0 ? 1 : 0,
-                're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
-              }),
-            ),
-            _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-          };
-        },
-      );
+              'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
+              'diff_summary': 'Diff summary ${queued.occurrence + 1}',
+            }),
+          ),
+          'verify-refine' => _StubResponse(
+            assistantContent: _contextOutput({
+              'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
+              'findings_count': 0,
+              'verify-refine.findings_count': 0,
+            }),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'review_summary': _verdictJson(
+                findingsCount: queued.occurrence == 0 ? 1 : 0,
+                summary: queued.occurrence == 0 ? 'One review finding remains' : 'Review is now clean',
+                pass: queued.occurrence != 0,
+                findings: queued.occurrence == 0
+                    ? const [
+                        {
+                          'severity': 'medium',
+                          'location': 'lib/workflow.dart:88',
+                          'description': 'Another pass is still required',
+                        },
+                      ]
+                    : const [],
+              ),
+              'findings_count': queued.occurrence == 0 ? 1 : 0,
+              're-review.findings_count': queued.occurrence == 0 ? 1 : 0,
+            }),
+          ),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-      expect(trace.count('verify-refine'), 2);
-      expect(trace.count('re-review'), 2);
-      expect(
-        trace.queuedStepOrder.where(
-          (step) => step == 'remediate' || step == 'verify-refine' || step == 're-review',
-        ),
-        ['remediate', 'verify-refine', 're-review', 'remediate', 'verify-refine', 're-review'],
-      );
-      expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
-    },
-  );
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.count('verify-refine'), 2);
+    expect(trace.count('re-review'), 2);
+    expect(
+      trace.queuedStepOrder.where((step) => step == 'remediate' || step == 'verify-refine' || step == 're-review'),
+      ['remediate', 'verify-refine', 're-review', 'remediate', 'verify-refine', 're-review'],
+    );
+    expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
+  });
 
   test('code-review integration carries verify-refine-only failures into the next remediation pass', () async {
     final trace = await executeBuiltInWorkflow(

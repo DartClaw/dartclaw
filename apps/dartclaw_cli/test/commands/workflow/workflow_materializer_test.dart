@@ -48,7 +48,14 @@ void main() {
 
     final targetDir = Directory(p.join(tempDir.path, 'workflows'));
     expect(targetDir.existsSync(), isTrue);
-    final names = targetDir.listSync().whereType<File>().map((file) => p.basename(file.path)).toList()..sort();
+    final names =
+        targetDir
+            .listSync()
+            .whereType<File>()
+            .where((file) => file.path.endsWith('.yaml'))
+            .map((file) => p.basename(file.path))
+            .toList()
+          ..sort();
     expect(names, equals(['code-review.yaml', 'plan-and-implement.yaml', 'spec-and-implement.yaml']));
 
     final copiedAgain = await WorkflowMaterializer.materialize(
@@ -70,5 +77,113 @@ void main() {
 
     expect(copied, 2);
     expect(existingFile.readAsStringSync(), 'name: code-review\ndescription: local override\n');
+  });
+
+  test('updates a managed workflow file when the built-in source changes', () async {
+    await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
+
+    final sourceDir = Directory.systemTemp.createTempSync('workflow_materializer_source_');
+    addTearDown(() {
+      if (sourceDir.existsSync()) {
+        sourceDir.deleteSync(recursive: true);
+      }
+    });
+
+    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'spec-and-implement.yaml']) {
+      final sourcePath = p.join(_workflowDefinitionsDir(), name);
+      File(sourcePath).copySync(p.join(sourceDir.path, name));
+    }
+
+    final updatedSource = File(p.join(sourceDir.path, 'code-review.yaml'));
+    updatedSource.writeAsStringSync('name: code-review\ndescription: refreshed built-in\n');
+
+    final copied = await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: sourceDir.path);
+
+    expect(copied, 1);
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'code-review.yaml'));
+    expect(targetFile.readAsStringSync(), contains('refreshed built-in'));
+  });
+
+  test('preserves locally modified managed workflow files', () async {
+    await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
+
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'code-review.yaml'));
+    targetFile.writeAsStringSync('name: code-review\ndescription: locally edited managed copy\n');
+
+    final sourceDir = Directory.systemTemp.createTempSync('workflow_materializer_source_');
+    addTearDown(() {
+      if (sourceDir.existsSync()) {
+        sourceDir.deleteSync(recursive: true);
+      }
+    });
+
+    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'spec-and-implement.yaml']) {
+      final sourcePath = p.join(_workflowDefinitionsDir(), name);
+      File(sourcePath).copySync(p.join(sourceDir.path, name));
+    }
+
+    File(
+      p.join(sourceDir.path, 'code-review.yaml'),
+    ).writeAsStringSync('name: code-review\ndescription: upstream built-in update\n');
+
+    final copied = await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: sourceDir.path);
+
+    expect(copied, 0);
+    expect(targetFile.readAsStringSync(), contains('locally edited managed copy'));
+  });
+
+  test('removes a stale managed workflow file that no longer exists upstream', () async {
+    await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
+
+    // Create a reduced source dir that omits code-review.yaml
+    final sourceDir = Directory.systemTemp.createTempSync('workflow_materializer_source_');
+    addTearDown(() {
+      if (sourceDir.existsSync()) {
+        sourceDir.deleteSync(recursive: true);
+      }
+    });
+
+    for (final name in ['plan-and-implement.yaml', 'spec-and-implement.yaml']) {
+      File(p.join(_workflowDefinitionsDir(), name)).copySync(p.join(sourceDir.path, name));
+    }
+
+    final staleFile = File(p.join(tempDir.path, 'workflows', 'code-review.yaml'));
+    expect(staleFile.existsSync(), isTrue, reason: 'code-review.yaml should exist before cleanup');
+
+    final copied = await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: sourceDir.path);
+
+    expect(copied, 0);
+    expect(staleFile.existsSync(), isFalse, reason: 'stale managed file should be removed');
+    expect(
+      File('${staleFile.path}.dartclaw-managed.json').existsSync(),
+      isFalse,
+      reason: 'marker file should also be removed',
+    );
+  });
+
+  test('preserves a stale managed workflow file that has local edits', () async {
+    await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: _workflowDefinitionsDir());
+
+    // Locally edit the managed file before it becomes stale
+    final targetFile = File(p.join(tempDir.path, 'workflows', 'code-review.yaml'));
+    targetFile.writeAsStringSync('name: code-review\ndescription: locally edited\n');
+
+    // Create a reduced source dir that omits code-review.yaml
+    final sourceDir = Directory.systemTemp.createTempSync('workflow_materializer_source_');
+    addTearDown(() {
+      if (sourceDir.existsSync()) {
+        sourceDir.deleteSync(recursive: true);
+      }
+    });
+
+    for (final name in ['plan-and-implement.yaml', 'spec-and-implement.yaml']) {
+      File(p.join(_workflowDefinitionsDir(), name)).copySync(p.join(sourceDir.path, name));
+    }
+
+    final copied = await WorkflowMaterializer.materialize(workspaceDir: tempDir.path, sourceDir: sourceDir.path);
+
+    expect(copied, 0);
+    expect(targetFile.existsSync(), isTrue, reason: 'locally edited stale file should be preserved');
+    expect(targetFile.readAsStringSync(), contains('locally edited'));
   });
 }

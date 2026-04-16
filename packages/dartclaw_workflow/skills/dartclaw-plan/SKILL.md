@@ -46,7 +46,7 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 - **Document decisions** - Record rationale, trade-offs, alternatives considered
 
 ### Workflow-Step Mode
-When invoked as a workflow step (detectable via the `## Workflow Output Contract` section appended to the prompt, or a project index handoff from `dartclaw-discover-project`), return the plan inline through the workflow output contract only. Do not write `prd.md` or `plan.md` to disk — the workflow engine captures step output through `contextOutputs`. Standalone file-writing behavior is preserved for direct invocation.
+When invoked as a workflow step (detectable via the `## Workflow Output Contract` section appended to the prompt, or a project index handoff from `dartclaw-discover-project`), return the requested artifacts inline through the workflow output contract only. If the contract requests both `prd` and `stories`, include both: `prd` as the synthesized PRD text and `stories` as the structured implementation plan. Do not write `prd.md` or `plan.md` to disk — the workflow engine captures step output through `contextOutputs`. Standalone file-writing behavior is preserved for direct invocation.
 
 
 ## GOTCHAS

@@ -93,6 +93,26 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
   required String branch,
   String remote = 'origin',
 }) async {
+  // Commit any pending worktree changes before pushing. For shared-worktree
+  // workflows the agent may leave uncommitted changes in the worktree that is
+  // checked out on [branch]. Without this step the push would succeed but the
+  // remote branch would have no new commits relative to the base.
+  try {
+    await commitWorkflowWorktreeChangesIfNeeded(
+      projectDir: projectDir,
+      branch: branch,
+      commitMessage: 'workflow: prepare publish',
+    );
+  } catch (e) {
+    return WorkflowGitPublishResult(
+      status: 'failed',
+      branch: branch,
+      remote: remote,
+      prUrl: '',
+      error: 'Failed to commit pending worktree changes before publish: $e',
+    );
+  }
+
   final push = await Process.run('git', ['push', remote, branch], workingDirectory: projectDir);
   if (push.exitCode != 0) {
     return WorkflowGitPublishResult(

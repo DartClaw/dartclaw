@@ -188,6 +188,7 @@ void main() {
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
+      expect(planAndImplement, contains('skill: dartclaw-review-doc'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
       expect(planAndImplement, isNot(contains('quickReview')));
       expect(planAndImplement, contains('skill: dartclaw-review-gap'));

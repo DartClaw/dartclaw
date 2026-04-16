@@ -1,0 +1,76 @@
+# Public workflow e2e profile fixture.
+#
+# The test suite templates absolute paths for:
+# - data_dir
+# - workflow.workspace_dir
+
+port: 3333
+data_dir: "__DATA_DIR__"
+
+agent:
+  provider: codex
+  model: gpt-5.4
+
+gateway:
+  auth_mode: token
+
+guards:
+  enabled: true
+
+providers:
+  codex:
+    executable: codex
+    pool_size: 3
+    approval: never
+    sandbox: danger-full-access
+
+credentials:
+  openai:
+    api_key: ${CODEX_API_KEY}
+  github-main:
+    type: github-token
+    token: ${GITHUB_TOKEN}
+    repository: tolo/dartclaw-workflow-testing
+
+workflow:
+  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  defaults:
+    workflow:
+      model: codex/gpt-5.4
+    planner:
+      model: codex/gpt-5.4
+    executor:
+      model: codex/gpt-5.3-codex
+    reviewer:
+      model: codex/gpt-5.3-codex
+
+projects:
+  workflow-testing:
+    remote: git@github.com:tolo/dartclaw-workflow-testing.git
+    branch: main
+    credentials: github-main
+    default: true
+    pr:
+      strategy: github-pr
+      draft: true
+      labels: [workflow-test]
+
+workspace:
+  git_sync:
+    enabled: false
+
+logging:
+  level: FINE
+
+governance:
+  budget:
+    daily_tokens: 5000000
+  loop_detection:
+    enabled: true
+
+tasks:
+  completion_action: accept
+
+features:
+  thread_binding:
+    enabled: true

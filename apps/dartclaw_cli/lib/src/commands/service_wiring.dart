@@ -361,18 +361,22 @@ class ServiceWiring {
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,
           model: config.workflow.defaults.workflow.model,
+          effort: config.workflow.defaults.workflow.effort,
         ),
         planner: WorkflowRoleDefault(
           provider: config.workflow.defaults.planner.provider,
           model: config.workflow.defaults.planner.model,
+          effort: config.workflow.defaults.planner.effort,
         ),
         executor: WorkflowRoleDefault(
           provider: config.workflow.defaults.executor.provider,
           model: config.workflow.defaults.executor.model,
+          effort: config.workflow.defaults.executor.effort,
         ),
         reviewer: WorkflowRoleDefault(
           provider: config.workflow.defaults.reviewer.provider,
           model: config.workflow.defaults.reviewer.model,
+          effort: config.workflow.defaults.reviewer.effort,
         ),
       ),
       turnAdapter: WorkflowTurnAdapter(

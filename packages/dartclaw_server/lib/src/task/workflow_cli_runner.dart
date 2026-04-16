@@ -100,6 +100,7 @@ class WorkflowCliRunner {
           prompt: prompt,
           providerSessionId: providerSessionId,
           model: model,
+          effort: effort,
           jsonSchema: jsonSchema,
           schemaDirectory: workingDirectory,
           containerManager: profileContainer,
@@ -208,6 +209,7 @@ class WorkflowCliRunner {
     required String prompt,
     String? providerSessionId,
     String? model,
+    String? effort,
     Map<String, dynamic>? jsonSchema,
     required String schemaDirectory,
     required ContainerExecutor? containerManager,
@@ -215,6 +217,9 @@ class WorkflowCliRunner {
     final args = <String>['exec', '--json', '--full-auto', '--skip-git-repo-check'];
     if (model != null && model.trim().isNotEmpty) {
       args.addAll(['--model', model]);
+    }
+    if (effort != null && effort.trim().isNotEmpty) {
+      args.addAll(['-c', 'model_reasoning_effort="$effort"']);
     }
     final sandbox = providers['codex']?.options['sandbox']?.toString().trim();
     if (sandbox != null && sandbox.isNotEmpty) {

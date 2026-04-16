@@ -28,6 +28,9 @@ stepDefaults:
   - match: "spec"
     provider: "@planner"
     model: "@planner"
+  - match: "revise-spec"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -48,6 +51,7 @@ stepDefaults:
     model: "@workflow"
 
 steps:
+  # Discover the project layout and document/state locations before authoring work starts.
   - id: discover-project
     name: Discover Project
     type: research
@@ -73,39 +77,50 @@ steps:
             state_protocol:
               type: object
 
+  # Draft the initial implementation spec from the requested feature and discovered project context.
   - id: spec
     name: Generate Specification
     type: writing
     skill: dartclaw-spec
+    continueSession: discover-project
     contextInputs: [project_index]
     prompt: |
-      Feature: {{FEATURE}}
-      Branch: {{BRANCH}}
+      <FEATURE>
+      {{FEATURE}}
+      </FEATURE>
 
-      Project index:
+      <project_index>
       {{context.project_index}}
-    contextOutputs: [spec_document, acceptance_criteria]
+      </project_index>
+    contextOutputs: [spec_document]
 
-  - id: review-spec
-    name: Review Spec
+  # Review the draft spec and emit a revised spec plus structured findings for traceability.
+  - id: revise-spec
+    name: Revise Spec
     type: analysis
     skill: dartclaw-review-doc
+    continueSession: spec
     prompt: |
-      Feature: {{FEATURE}}
-      Branch: {{BRANCH}}
-      Project index:
+      Review the specification for clarity, completeness, correctness, and implementability.
+      Revise it to address any actionable findings you identify.
+      Preserve the existing intent when the review is already clean; only make minimal cleanup edits in that case.
+      Return the full revised specification and the spec review findings for traceability.
+
+      <project_index>
       {{context.project_index}}
-      Specification:
+      </project_index>
+
+      <spec_document>
       {{context.spec_document}}
-      Acceptance criteria:
-      {{context.acceptance_criteria}}
-    contextInputs: [project_index, spec_document, acceptance_criteria]
-    contextOutputs: [review_findings]
+      </spec_document>
+    contextInputs: [project_index, spec_document]
+    contextOutputs: [spec_document, spec_review_findings]
     outputs:
-      review_findings:
+      spec_review_findings:
         format: json
         schema: verdict
 
+  # Implement the feature against the revised specification.
   - id: implement
     name: Implement
     type: coding
@@ -113,64 +128,72 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Specification:
+      <spec_document>
       {{context.spec_document}}
-
-      Acceptance criteria:
-      {{context.acceptance_criteria}}
-    contextInputs: [project_index, spec_document, acceptance_criteria]
+      </spec_document>
+    contextInputs: [project_index, spec_document]
     contextOutputs: [diff_summary]
     outputs:
       diff_summary:
         format: text
 
+  # Validate the implementation and capture any remaining findings.
   - id: verify-refine
     name: Validate Implementation
     type: coding
     skill: dartclaw-verify-refine
     project: "{{PROJECT}}"
     review: never
+    continueSession: implement
     prompt: |
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Specification:
+      <spec_document>
       {{context.spec_document}}
+      </spec_document>
 
-      Implementation diff:
+      <diff_summary>
       {{context.diff_summary}}
+      </diff_summary>
     contextInputs: [project_index, diff_summary, spec_document]
     contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
 
+  # Run an integrated implementation review after validation to decide whether remediation is needed.
   - id: integrated-review
     name: Integrated Review
     type: analysis
     skill: dartclaw-review-code
+    continueSession: verify-refine
     prompt: |
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Specification:
+      <spec_document>
       {{context.spec_document}}
+      </spec_document>
 
-      Validation summary:
+      <validation_summary>
       {{context.validation_summary}}
+      </validation_summary>
 
-      Acceptance criteria:
-      {{context.acceptance_criteria}}
-
-      Implementation diff:
+      <diff_summary>
       {{context.diff_summary}}
-    contextInputs: [project_index, spec_document, validation_summary, acceptance_criteria, diff_summary]
+      </diff_summary>
+    contextInputs: [project_index, spec_document, validation_summary, diff_summary]
     contextOutputs: [review_findings, findings_count, integrated-review.findings_count]
     outputs:
       review_findings:
         format: json
         schema: verdict
 
+  # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
@@ -178,6 +201,7 @@ steps:
     entryGate: "integrated-review.findings_count > 0"
     exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
     steps:
+      # Apply fixes for the current set of integrated-review findings.
       - id: remediate
         name: Remediate Findings
         type: coding
@@ -185,86 +209,105 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Integrated review findings:
+          <review_findings>
           {{context.review_findings}}
+          </review_findings>
 
-          Validation summary:
+          <validation_summary>
           {{context.validation_summary}}
+          </validation_summary>
 
-          Specification:
+          <spec_document>
           {{context.spec_document}}
+          </spec_document>
         contextInputs: [project_index, spec_document, review_findings, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
+      # Re-run validation after remediation to confirm the fixes hold.
       - id: re-verify-refine
         name: Re-validate Implementation
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
+        continueSession: remediate
         prompt: |
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Specification:
+          <spec_document>
           {{context.spec_document}}
+          </spec_document>
 
-          Remediation summary:
+          <remediation_summary>
           {{context.remediation_summary}}
+          </remediation_summary>
 
-          Updated diff summary:
+          <diff_summary>
           {{context.diff_summary}}
+          </diff_summary>
         contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
 
+      # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
         type: analysis
         skill: dartclaw-review-gap
+        continueSession: re-verify-refine
         prompt: |
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Requirements baseline:
+          <spec_document>
           {{context.spec_document}}
+          </spec_document>
 
-          Acceptance criteria:
-          {{context.acceptance_criteria}}
-
-          Re-validation summary:
+          <validation_summary>
           {{context.validation_summary}}
+          </validation_summary>
 
-          Remediation summary:
+          <remediation_summary>
           {{context.remediation_summary}}
+          </remediation_summary>
 
-          Updated diff summary:
+          <diff_summary>
           {{context.diff_summary}}
-        contextInputs: [project_index, spec_document, acceptance_criteria, validation_summary, remediation_summary, diff_summary]
+          </diff_summary>
+        contextInputs: [project_index, spec_document, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:
           review_findings:
             format: json
             schema: verdict
 
+  # Record the finished workflow outcome in the project state document.
   - id: update-state
     name: Update State
     type: coding
     skill: dartclaw-update-state
     project: "{{PROJECT}}"
     prompt: |
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Specification:
+      <spec_document>
       {{context.spec_document}}
+      </spec_document>
 
-      Implementation summary:
+      <diff_summary>
       {{context.diff_summary}}
+      </diff_summary>
 
-      Remediation summary:
+      <remediation_summary>
       {{context.remediation_summary}}
+      </remediation_summary>
     contextInputs: [project_index, spec_document, diff_summary, remediation_summary]
     contextOutputs: [state_update_summary]

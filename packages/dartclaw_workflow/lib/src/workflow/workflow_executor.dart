@@ -37,6 +37,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent,
         WorkflowTaskService,
         atomicWriteJson;
+import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:dartclaw_models/dartclaw_models.dart' show OutputMode, WorkflowExecutionMode;
 import 'package:logging/logging.dart';
@@ -1350,7 +1351,7 @@ class WorkflowExecutor {
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
     final effectiveProvider = continuedRootStep != null
-        ? resolveStepConfig(continuedRootStep, definition.stepDefaults, roleDefaults: _roleDefaults).provider
+        ? _resolveContinueSessionProvider(definition, step, continuedRootStep, resolved)
         : resolved.provider;
     final effectiveProjectId = mapCtx != null
         ? _resolveProjectIdWithMap(continuedRootStep ?? step, context, mapCtx)
@@ -2025,6 +2026,7 @@ class WorkflowExecutor {
   ) {
     final config = <String, dynamic>{};
     if (resolved.model != null) config['model'] = resolved.model;
+    if (resolved.effort != null) config['effort'] = resolved.effort;
     if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
@@ -2177,6 +2179,41 @@ class WorkflowExecutor {
 
   WorkflowExecutionMode _effectiveExecutionMode(WorkflowStep step) {
     return step.executionMode ?? _turnAdapter?.executionMode ?? WorkflowExecutionMode.oneshot;
+  }
+
+  /// Resolves the effective provider for a continued session step.
+  ///
+  /// Session continuity requires the same provider family (e.g. both `codex`).
+  /// If the current step's resolved provider matches the root step's family,
+  /// the root's provider is used (the session thread belongs to it). If the
+  /// families differ, the root's provider is used with a warning – the step
+  /// cannot resume a thread from a different provider.
+  ///
+  /// The current step's **model** is preserved regardless – models can switch
+  /// between turns within the same provider session.
+  String? _resolveContinueSessionProvider(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowStep rootStep,
+    ResolvedStepConfig resolved,
+  ) {
+    final rootResolved = resolveStepConfig(rootStep, definition.stepDefaults, roleDefaults: _roleDefaults);
+    final rootProvider = rootResolved.provider;
+    final stepProvider = resolved.provider;
+
+    if (stepProvider != null && rootProvider != null) {
+      final rootFamily = ProviderIdentity.family(rootProvider);
+      final stepFamily = ProviderIdentity.family(stepProvider);
+      if (rootFamily != stepFamily) {
+        _log.warning(
+          'Step "${step.id}" uses continueSession but its resolved provider "$stepProvider" '
+          '(family: $stepFamily) differs from root step "${rootStep.id}" provider "$rootProvider" '
+          '(family: $rootFamily). Falling back to root provider "$rootProvider" for session continuity.',
+        );
+      }
+    }
+
+    return rootProvider;
   }
 
   String? _resolveContinueSessionRootProviderSessionId(

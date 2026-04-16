@@ -6,18 +6,23 @@ import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionMode
 class WorkflowRoleModelConfig {
   final String? provider;
   final String? model;
+  final String? effort;
 
-  const WorkflowRoleModelConfig({this.provider, this.model});
+  const WorkflowRoleModelConfig({this.provider, this.model, this.effort});
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is WorkflowRoleModelConfig && provider == other.provider && model == other.model;
+      identical(this, other) ||
+      other is WorkflowRoleModelConfig &&
+          provider == other.provider &&
+          model == other.model &&
+          effort == other.effort;
 
   @override
-  int get hashCode => Object.hash(provider, model);
+  int get hashCode => Object.hash(provider, model, effort);
 
   @override
-  String toString() => 'WorkflowRoleModelConfig(provider: $provider, model: $model)';
+  String toString() => 'WorkflowRoleModelConfig(provider: $provider, model: $model, effort: $effort)';
 }
 
 /// Configurable workflow role defaults.
@@ -175,6 +180,7 @@ WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMa
   final roleMap = raw.cast<Object?, Object?>();
   var provider = _readNullableString(roleMap['provider'], 'workflow.defaults.$role.provider', warns);
   var model = _readNullableString(roleMap['model'], 'workflow.defaults.$role.model', warns);
+  final effort = _readNullableString(roleMap['effort'], 'workflow.defaults.$role.effort', warns);
   final shorthand = ProviderIdentity.parseProviderModelShorthand(model);
   if (shorthand != null) {
     model = shorthand.model;
@@ -187,7 +193,7 @@ WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMa
       );
     }
   }
-  return WorkflowRoleModelConfig(provider: provider, model: model);
+  return WorkflowRoleModelConfig(provider: provider, model: model, effort: effort);
 }
 
 String? _readNullableString(Object? raw, String path, List<String> warns) {

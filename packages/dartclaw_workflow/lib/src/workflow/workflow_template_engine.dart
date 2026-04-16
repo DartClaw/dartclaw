@@ -12,6 +12,7 @@ class WorkflowTemplateEngine {
   static final _log = Logger('WorkflowTemplateEngine');
   static final _pattern = RegExp(r'\{\{([^}]+)\}\}');
   static final _indexedContextPattern = RegExp(r'^([\w]+)\[map\.index\](?:\.(.+))?$');
+  static final Object _missingIndexedElement = Object();
 
   /// Resolves all template references in [template] against [context].
   ///
@@ -156,22 +157,18 @@ class WorkflowTemplateEngine {
       );
       return '';
     }
-    if (raw is! List) {
+    final element = switch (raw) {
+      final List<dynamic> list => _resolveIndexedListElement(key, list, mapCtx),
+      final Map<dynamic, dynamic> map => _resolveIndexedMapElement(key, map, mapCtx),
+      _ => _missingIndexedElement,
+    };
+    if (identical(element, _missingIndexedElement)) {
       _log.warning(
         'Indexed context reference {{context.$key[map.index]}}: '
-        'value for "$key" is not a List (got ${raw.runtimeType}) — resolving to empty string.',
+        'value for "$key" could not be indexed (got ${raw.runtimeType}) — resolving to empty string.',
       );
       return '';
     }
-    final idx = mapCtx.index;
-    if (idx < 0 || idx >= raw.length) {
-      _log.warning(
-        'Indexed context reference {{context.$key[map.index]}}: '
-        'index $idx out of bounds for list of length ${raw.length} — resolving to empty string.',
-      );
-      return '';
-    }
-    final element = raw[idx];
 
     if (dotSuffix != null) {
       // Explicit dot-access: bypass auto-extraction, resolve named field
@@ -193,6 +190,43 @@ class WorkflowTemplateEngine {
 
     if (element == null) return '';
     return element.toString();
+  }
+
+  Object? _resolveIndexedListElement(String key, List<dynamic> raw, MapContext mapCtx) {
+    final idx = mapCtx.index;
+    if (idx < 0 || idx >= raw.length) {
+      _log.warning(
+        'Indexed context reference {{context.$key[map.index]}}: '
+        'index $idx out of bounds for list of length ${raw.length} — resolving to empty string.',
+      );
+      return _missingIndexedElement;
+    }
+    return raw[idx];
+  }
+
+  Object? _resolveIndexedMapElement(String key, Map<dynamic, dynamic> raw, MapContext mapCtx) {
+    if (raw.length == 1 && raw.values.first is List<dynamic>) {
+      return _resolveIndexedListElement(key, raw.values.first as List<dynamic>, mapCtx);
+    }
+
+    final item = mapCtx.item;
+    if (item is Map<dynamic, dynamic>) {
+      final itemId = item['id'];
+      if (itemId != null && raw.containsKey(itemId)) {
+        return raw[itemId];
+      }
+    }
+
+    if (raw.containsKey(mapCtx.index)) {
+      return raw[mapCtx.index];
+    }
+
+    final stringIndex = mapCtx.index.toString();
+    if (raw.containsKey(stringIndex)) {
+      return raw[stringIndex];
+    }
+
+    return _missingIndexedElement;
   }
 
   /// Extracts all variable references (non-context) from [template].

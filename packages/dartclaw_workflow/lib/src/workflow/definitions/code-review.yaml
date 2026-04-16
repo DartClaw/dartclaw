@@ -46,6 +46,7 @@ stepDefaults:
     model: "@workflow"
 
 steps:
+  # Discover the project layout and relevant Git context before the review begins.
   - id: discover-project
     name: Discover Project
     type: research
@@ -73,17 +74,20 @@ steps:
             state_protocol:
               type: object
 
+  # Run the initial code review and emit a structured verdict for the remediation loop.
   - id: review-code
     name: Review Code
     type: analysis
     skill: dartclaw-review-code
+    continueSession: discover-project
     prompt: |
       Target: {{TARGET}}
       PR number: {{PR_NUMBER}}
       Branch: {{BRANCH}}
       Base branch: {{BASE_BRANCH}}
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
     contextInputs: [project_index]
     contextOutputs: [review_summary, findings_count, review-code.findings_count]
     outputs:
@@ -91,6 +95,7 @@ steps:
         format: json
         schema: verdict
 
+  # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
@@ -98,6 +103,7 @@ steps:
     entryGate: "review-code.findings_count > 0"
     exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"
     steps:
+      # Apply fixes for the issues captured in the current review summary.
       - id: remediate
         name: Remediate Findings
         type: coding
@@ -105,12 +111,15 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          Review summary:
+          <review_summary>
           {{context.review_summary}}
-          Validation summary:
+          </review_summary>
+          <validation_summary>
           {{context.validation_summary}}
-          Project index:
+          </validation_summary>
+          <project_index>
           {{context.project_index}}
+          </project_index>
         contextInputs: [project_index, review_summary, validation_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
@@ -118,47 +127,60 @@ steps:
             format: json
             schema: remediation-result
 
+      # Validate the remediation changes before re-running the code review.
       - id: verify-refine
         name: Validate Remediation
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
+        continueSession: remediate
         prompt: |
           Target: {{TARGET}}
           PR number: {{PR_NUMBER}}
           Branch: {{BRANCH}}
           Base branch: {{BASE_BRANCH}}
-          Project index:
+          <project_index>
           {{context.project_index}}
-          Original review summary:
+          </project_index>
+          <review_summary>
           {{context.review_summary}}
-          Remediation summary:
+          </review_summary>
+          <remediation_summary>
           {{context.remediation_summary}}
-          Updated diff summary:
+          </remediation_summary>
+          <diff_summary>
           {{context.diff_summary}}
+          </diff_summary>
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
 
+      # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
         type: analysis
         skill: dartclaw-review-code
+        continueSession: verify-refine
         prompt: |
           Target: {{TARGET}}
           PR number: {{PR_NUMBER}}
           Branch: {{BRANCH}}
           Base branch: {{BASE_BRANCH}}
-          Project index:
+          <project_index>
           {{context.project_index}}
-          Original review summary:
+          </project_index>
+          <review_summary>
           {{context.review_summary}}
-          Validation summary:
+          </review_summary>
+          <validation_summary>
           {{context.validation_summary}}
-          Remediation summary:
+          </validation_summary>
+          <remediation_summary>
           {{context.remediation_summary}}
-          Updated diff summary:
+          </remediation_summary>
+          <diff_summary>
           {{context.diff_summary}}
+          </diff_summary>
         contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, findings_count, re-review.findings_count]
         outputs:

@@ -109,6 +109,47 @@ Use `contextOutputs` with `format: json` to enforce structured handoffs between 
 
 Without `format: json`, the agent produces free text and downstream steps must parse it themselves. With `schema: verdict`, the step automatically receives instructions to produce a JSON object with `pass`, `findings_count`, `findings`, and `summary` fields.
 
+### Workflow Context: What `contextInputs` and `contextOutputs` Actually Do
+
+Every workflow run has one persistent workflow context: a key-value map that survives from step to step.
+
+- `contextOutputs` declares which keys the current step writes back into workflow context after it finishes.
+- `contextInputs` declares which existing context keys the current step depends on.
+- `{{context.some_key}}` is how authored prompts read values from workflow context.
+
+The common pattern is:
+
+```yaml
+steps:
+  - id: discover
+    name: Discover Project
+    prompt: Inspect the repository and summarize it.
+    contextOutputs: [project_index]
+
+  - id: spec
+    name: Write Spec
+    contextInputs: [project_index]
+    prompt: |
+      Use this project index:
+      {{context.project_index}}
+    contextOutputs: [spec_document]
+```
+
+Important details:
+
+- `contextInputs` is the dependency contract. It does not automatically inject values into a normal prompt. Use `{{context.key}}` in authored prompts when you want the value rendered explicitly.
+- Skill-only steps are the exception: when a step has `skill:` but no prompt, the engine builds a compact context summary from the declared `contextInputs`.
+- Repeating a key in a later step's `contextOutputs` is valid when that step intentionally replaces the canonical value. For example, a `revise-spec` step can output `spec_document` again so downstream steps see the revised document.
+- Many built-ins also emit step-scoped aliases such as `verify-refine.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps.
+
+The runtime also writes metadata keys automatically:
+
+- `<stepId>.status`
+- `<stepId>.tokenCount`
+- step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
+
+Agent steps with `contextOutputs` receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys.
+
 ### Step 5: Narrow to Determinism
 
 Replace agent steps with deterministic alternatives where patterns are clear. If the "list affected files" step always runs `git diff --name-only`, replace the agent step with a pre-workflow shell script and inject the result as a variable.
@@ -163,7 +204,7 @@ workflow:
   workspace_dir: /path/to/custom-workflow-workspace
 ```
 
-When `workflow.workspace_dir` is unset, DartClaw materializes a built-in workflow workspace under `<dataDir>/workflow-workspace/`. Workflow steps use that dedicated workspace, not the main interactive `workspace/` behavior files.
+When `workflow.workspace_dir` is unset, DartClaw materializes a built-in workflow workspace under `<dataDir>/workflow-workspace/`. Workflow steps use that dedicated workspace, not the main interactive `workspace/` behavior files. Managed built-in workflow YAMLs are refreshed when the shipped definition changes, while unmanaged or locally edited copies are preserved as overrides.
 
 ### Step 7: Iterate with Multi-Prompt
 
@@ -252,6 +293,78 @@ Key fields:
 - `maxItems`: safety cap for large arrays
 
 Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+
+#### Plain `mapOver` Steps
+
+A plain mapped step is still one authored step. The runtime executes it once per array item, then aggregates the per-item results into a list.
+
+The controller step's `contextOutputs` names the exported aggregate key:
+
+```yaml
+- id: review-story
+  name: Review Story
+  type: analysis
+  map_over: stories
+  contextOutputs: [review_results]
+```
+
+After the step completes, `context.review_results` contains one entry per item in `stories`.
+
+For each iteration:
+
+- if the step is non-coding and extracts exactly one output key, the aggregate entry is that single value
+- if the step is non-coding and extracts multiple output keys, the aggregate entry is an object containing those outputs
+- if the step is a coding step, the aggregate entry is the coding result object built by the runtime
+
+So `contextOutputs` on a plain map step controls the name of the top-level aggregate key, not the internal shape of each entry.
+
+#### `foreach` Per-Item Sub-Pipelines
+
+Use `type: foreach` when each item needs multiple authored substeps that run in order.
+
+```yaml
+- id: story-pipeline
+  name: Per-Story Pipeline
+  type: foreach
+  map_over: stories
+  contextOutputs: [story_results]
+  steps:
+    - id: implement
+      contextOutputs: [story_result]
+    - id: verify-refine
+      contextOutputs: [validation_summary, findings_count]
+```
+
+`foreach` has two scopes:
+
+- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`.
+- The child steps' `contextOutputs` are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
+
+Within one iteration, child step outputs are available both as bare keys and as step-prefixed keys:
+
+- `story_result`
+- `implement.story_result`
+
+That is why later child steps in the same pipeline can use references like `{{context.implement.story_result}}`.
+
+The final aggregate exported by a `foreach` controller is a list of per-item objects keyed by child step id. For the example above, one entry in `story_results` looks like:
+
+```json
+{
+  "implement": {
+    "story_result": "..."
+  },
+  "verify-refine": {
+    "validation_summary": "...",
+    "findings_count": 0
+  }
+}
+```
+
+In other words:
+
+- child step `contextOutputs` control the shape inside each per-item result
+- controller `contextOutputs` control the top-level exported aggregate key
 
 ### Workflow-Owned Git Lifecycle
 
@@ -353,10 +466,11 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline that discovers the project, plans stories, specs each story with `map_over`, implements each story with `dartclaw-exec-spec` under per-map-item git isolation/promotion, validates the merged batch via `verify-refine`, uses direct `dartclaw-review-gap` review steps, and enters remediation only when the plan-level review reports remaining findings.
+Multi-story pipeline that discovers the project, plans stories, writes full story specs, runs a per-story `foreach` pipeline (`implement -> verify-refine -> quick-review`) under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings.
 
 Notable patterns:
-- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_result` array.
+- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
+- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` and `{{context.verify-refine.validation_summary}}` within the same story iteration.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
@@ -364,7 +478,7 @@ Notable patterns:
 
 Role usage:
 - `@workflow`: `discover-project`
-- `@planner`: `plan`, `spec`
+- `@planner`: `plan`, `spec-plan`
 - `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
 - `@reviewer`: `quick-review`, `plan-review`, `re-review`
 
@@ -457,7 +571,7 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 
 ---
 
-## YAML Field Reference (0.16.3)
+## YAML Field Reference (0.16.4)
 
 ### Top-Level Fields
 
@@ -468,6 +582,7 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 | `variables` | map | `{}` | Input variable declarations (see below) |
 | `steps` | list | required | Ordered step definitions |
 | `loops` | list | `[]` | Legacy loop definitions (supported for compatibility) |
+| `gitStrategy` | map | none | Workflow-owned git bootstrap, promotion, publish, and cleanup policy |
 | `maxTokens` | int | none | Global per-workflow token budget |
 | `stepDefaults` | list | none | Default config entries applied by glob pattern |
 
@@ -487,10 +602,11 @@ variables:
 |-------|------|---------|-------------|
 | `id` | string | required | Unique step identifier |
 | `name` | string | required | Human-readable step name |
-| `type` | string | `research` | Step type: `research`, `analysis`, `coding`, `writing`, `bash`, `approval` |
+| `type` | string | `research` | Step type: `research`, `analysis`, `coding`, `writing`, `bash`, `approval`, or orchestration containers `foreach` / `loop` |
 | `prompt` | string or list | required* | Step instruction(s). Agent steps may use a list for multi-prompt turns. `bash` and `approval` steps accept a single prompt string |
 | `provider` | string | default | AI provider: `claude`, `codex` (agent steps only) |
 | `model` | string | default | Model override (provider-specific name, agent steps only) |
+| `effort` | string | none | Provider-specific reasoning effort override |
 | `project` | string | none | Project ID for worktree isolation (coding steps) |
 | `review` | string | `codingOnly` | Review mode: `always`, `codingOnly`, `never` (agent steps only) |
 | `gate` | string | none | Condition expression — step skipped if false |
@@ -508,12 +624,14 @@ variables:
 | `mapOver` (`map_over`) | string | none | Context key naming a JSON array — step runs once per element |
 | `maxParallel` (`max_parallel`) | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
 | `maxItems` (`max_items`) | int | `20` | Max items processed from the mapped array |
+| `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
 | `outputs` | map | none | Output format configs (see below) |
 | `onError` | string | `pause` | Failure policy: `pause` (default) or `continue`. Applies to bash and agent steps |
 | `workdir` | string | workspace root | Working directory for `bash` steps. Supports template references |
+| `executionMode` (`execution_mode`) | string | workflow default | `oneshot` or `streaming` for agent execution |
 | `finally` | string | none | Finalizer step ID for loop cleanup/handoff |
 
-*`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps.
+*`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps. `foreach` and inline `loop` controllers do not carry prompts themselves; their child steps do.
 
 ### `approval` Steps
 

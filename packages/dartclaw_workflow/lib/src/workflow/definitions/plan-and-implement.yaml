@@ -31,6 +31,9 @@ stepDefaults:
   - match: "plan"
     provider: "@planner"
     model: "@planner"
+  - match: "revise-plan"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "spec*"
     provider: "@planner"
     model: "@planner"
@@ -54,6 +57,7 @@ stepDefaults:
     model: "@workflow"
 
 steps:
+  # Discover the project layout and document/state locations before planning begins.
   - id: discover-project
     name: Discover Project
     type: research
@@ -79,54 +83,103 @@ steps:
             state_protocol:
               type: object
 
+  # Turn the requested requirements into a PRD and an initial story plan.
   - id: plan
     name: Plan Stories
     type: analysis
     skill: dartclaw-plan
+    continueSession: discover-project
     contextInputs: [project_index]
     prompt: |
-      Requirements:
+      <REQUIREMENTS>
       {{REQUIREMENTS}}
+      </REQUIREMENTS>
 
-      Project index:
+      <project_index>
       {{context.project_index}}
-    contextOutputs: [stories]
+      </project_index>
+    contextOutputs: [prd, stories]
     outputs:
+      prd:
+        format: text
       stories:
         format: json
         schema: story-plan
 
+  # Review the draft PRD and story plan and emit revised artifacts plus findings for traceability.
+  - id: revise-plan
+    name: Revise Plan
+    type: analysis
+    skill: dartclaw-review-doc
+    continueSession: plan
+    contextInputs: [project_index, prd, stories]
+    prompt: |
+      Review the PRD and story plan for clarity, completeness, correctness, sequencing, and implementability.
+      Revise both artifacts to address any actionable findings you identify.
+      Preserve the existing intent when the review is already clean; only make minimal cleanup edits in that case.
+      Return the full revised PRD, the full revised story plan, and the plan review findings for traceability.
+
+      <project_index>
+      {{context.project_index}}
+      </project_index>
+
+      <prd>
+      {{context.prd}}
+      </prd>
+
+      <stories>
+      {{context.stories}}
+      </stories>
+    contextOutputs: [prd, stories, plan_review_findings]
+    outputs:
+      prd:
+        format: text
+      stories:
+        format: json
+        schema: story-plan
+      plan_review_findings:
+        format: json
+        schema: verdict
+
+  # Generate story-level specifications and tighten the story plan before implementation starts.
   - id: spec-plan
     name: Spec and Plan Stories
     type: analysis
     skill: dartclaw-spec-plan
-    contextInputs: [project_index, stories]
+    continueSession: revise-plan
+    contextInputs: [project_index, prd, stories]
     prompt: |
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Initial story plan:
+      <prd>
+      {{context.prd}}
+      </prd>
+
+      <stories>
       {{context.stories}}
-    contextOutputs: [stories, story_spec]
+      </stories>
+    contextOutputs: [story_specs]
     outputs:
-      stories:
+      story_specs:
         format: json
-        schema: story-plan
-      story_spec:
-        format: json
+        schema:
+          type: array
+          items:
+            type: object
 
+  # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
     name: Per-Story Pipeline
     type: foreach
-    map_over: stories
+    map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
     max_items: 20
     project: "{{PROJECT}}"
     contextOutputs: [story_results]
     steps:
+      # Implement one story against its generated story spec.
       - id: implement
         name: Implement Story
         type: coding
@@ -137,85 +190,109 @@ steps:
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
 
-          Story spec:
-          {{context.story_spec[map.index]}}
-
-          Acceptance criteria:
+          <acceptance_criteria>
           {{map.item.acceptance_criteria}}
+          </acceptance_criteria>
 
-          Project index:
+          <story_spec>
+          {{map.item}}
+          </story_spec>
+
+          <project_index>
           {{context.project_index}}
-        contextInputs: [project_index, stories, story_spec]
+          </project_index>
+        contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
         outputs:
           story_result:
             format: text
 
+      # Validate the story implementation before the story-level review pass.
       - id: verify-refine
         name: Validate Story
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
+        continueSession: implement
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
 
-          Requirements:
-          {{REQUIREMENTS}}
-
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Story implementation:
+          <story_result>
           {{context.implement.story_result}}
+          </story_result>
         contextInputs: [project_index]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
+        outputs:
+          findings_count:
+            format: json
+            schema:
+              type: integer
 
+      # Review the implemented story against its story-specific requirements and spec.
       - id: quick-review
         name: Quick Review Story
         type: analysis
         skill: dartclaw-review-gap
+        continueSession: verify-refine
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
 
-          Requirements:
-          {{REQUIREMENTS}}
+          <project_index>
+          {{context.project_index}}
+          </project_index>
 
-          Story spec:
-          {{context.story_spec[map.index]}}
+          <story_spec>
+          {{map.item}}
+          </story_spec>
 
-          Story implementation:
+          <story_result>
           {{context.implement.story_result}}
+          </story_result>
 
-          Validation summary:
+          <validation_summary>
           {{context.verify-refine.validation_summary}}
-        contextInputs: [project_index, story_spec]
+          </validation_summary>
+        contextInputs: [project_index]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
+        outputs:
+          quick_review_findings_count:
+            format: json
+            schema:
+              type: integer
 
+  # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
   - id: plan-review
     name: Review Full Implementation
     type: analysis
     skill: dartclaw-review-gap
-    contextInputs: [project_index, stories, story_spec, story_results]
+    contextInputs: [project_index, story_specs, story_results]
     prompt: |
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Story plan:
-      {{context.stories}}
+      <story_specs>
+      {{context.story_specs}}
+      </story_specs>
 
-      Story specs:
-      {{context.story_spec}}
-
-      Per-story results (implement / validate / quick-review for each story):
+      <story_results>
       {{context.story_results}}
+      </story_results>
     contextOutputs: [implementation_summary, remediation_plan, findings_count, plan-review.findings_count]
+    outputs:
+      findings_count:
+        format: json
+        schema:
+          type: integer
 
+  # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
@@ -223,6 +300,7 @@ steps:
     entryGate: "plan-review.findings_count > 0"
     exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
     steps:
+      # Apply the remediation plan produced by the plan-level review.
       - id: remediate
         name: Remediate Findings
         type: coding
@@ -230,82 +308,103 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Remediation plan:
+          <remediation_plan>
           {{context.remediation_plan}}
+          </remediation_plan>
 
-          Implementation summary:
+          <implementation_summary>
           {{context.implementation_summary}}
+          </implementation_summary>
         contextInputs: [project_index, remediation_plan, implementation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
+      # Re-run validation after the remediation pass to confirm the fixes hold.
       - id: re-verify-refine
         name: Re-validate After Remediation
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
+        continueSession: remediate
         prompt: |
-          Requirements:
-          {{REQUIREMENTS}}
-
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Remediation summary:
+          <remediation_summary>
           {{context.remediation_summary}}
+          </remediation_summary>
 
-          Updated diff summary:
+          <diff_summary>
           {{context.diff_summary}}
+          </diff_summary>
         contextInputs: [project_index, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
+        outputs:
+          findings_count:
+            format: json
+            schema:
+              type: integer
 
+      # Re-review the full implementation after remediation using the updated summaries and diff.
       - id: re-review
         name: Re-review After Remediation
         type: analysis
         skill: dartclaw-review-gap
+        continueSession: re-verify-refine
         prompt: |
-          Requirements:
-          {{REQUIREMENTS}}
-
-          Project index:
+          <project_index>
           {{context.project_index}}
+          </project_index>
 
-          Story plan:
-          {{context.stories}}
+          <story_specs>
+          {{context.story_specs}}
+          </story_specs>
 
-          Implementation summary:
+          <implementation_summary>
           {{context.implementation_summary}}
+          </implementation_summary>
 
-          Re-validation summary:
+          <validation_summary>
           {{context.validation_summary}}
+          </validation_summary>
 
-          Remediation summary:
+          <remediation_summary>
           {{context.remediation_summary}}
+          </remediation_summary>
 
-          Updated diff summary:
+          <diff_summary>
           {{context.diff_summary}}
-        contextInputs: [project_index, stories, implementation_summary, validation_summary, remediation_summary, diff_summary]
+          </diff_summary>
+        contextInputs: [project_index, story_specs, implementation_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [remediation_plan, findings_count, re-review.findings_count]
+        outputs:
+          findings_count:
+            format: json
+            schema:
+              type: integer
 
+  # Record the completed plan execution state back into the project state document.
   - id: update-state
     name: Update State
     type: coding
     skill: dartclaw-update-state
     project: "{{PROJECT}}"
     prompt: |
-      Project index:
+      <project_index>
       {{context.project_index}}
+      </project_index>
 
-      Requirements:
-      {{REQUIREMENTS}}
-
-      Implementation summary:
+      <implementation_summary>
       {{context.implementation_summary}}
+      </implementation_summary>
 
-      Remediation summary:
+      <remediation_summary>
       {{context.remediation_summary}}
+      </remediation_summary>
     contextInputs: [project_index, implementation_summary, remediation_summary]
     contextOutputs: [state_update_summary]

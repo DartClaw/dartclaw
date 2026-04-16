@@ -17,6 +17,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         AssetResolver,
         ArtifactCollector,
         BehaviorFileService,
+        DiffGenerator,
         HarnessPool,
         PromptScope,
         TaskCancellationSubscriber,
@@ -195,6 +196,7 @@ class CliWorkflowWiring {
       sessionsDir: config.sessionsDir,
       dataDir: dataDir,
       workspaceDir: config.workspaceDir,
+      diffGenerator: DiffGenerator(projectDir: Directory.current.path),
     );
     final workflowCliRunner = WorkflowCliRunner(
       providers: {
@@ -237,18 +239,22 @@ class CliWorkflowWiring {
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,
           model: config.workflow.defaults.workflow.model,
+          effort: config.workflow.defaults.workflow.effort,
         ),
         planner: WorkflowRoleDefault(
           provider: config.workflow.defaults.planner.provider,
           model: config.workflow.defaults.planner.model,
+          effort: config.workflow.defaults.planner.effort,
         ),
         executor: WorkflowRoleDefault(
           provider: config.workflow.defaults.executor.provider,
           model: config.workflow.defaults.executor.model,
+          effort: config.workflow.defaults.executor.effort,
         ),
         reviewer: WorkflowRoleDefault(
           provider: config.workflow.defaults.reviewer.provider,
           model: config.workflow.defaults.reviewer.model,
+          effort: config.workflow.defaults.reviewer.effort,
         ),
       ),
       turnAdapter: WorkflowTurnAdapter(

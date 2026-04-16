@@ -9,8 +9,9 @@ const reviewerRoleDefaultAlias = '@reviewer';
 class WorkflowRoleDefault {
   final String? provider;
   final String? model;
+  final String? effort;
 
-  const WorkflowRoleDefault({this.provider, this.model});
+  const WorkflowRoleDefault({this.provider, this.model, this.effort});
 }
 
 /// Runtime role defaults used when workflow YAML references `@workflow`,
@@ -43,6 +44,7 @@ class WorkflowRoleDefaults {
     return WorkflowRoleDefault(
       provider: specific.provider ?? workflow.provider,
       model: specific.model ?? workflow.model,
+      effort: specific.effort ?? workflow.effort,
     );
   }
 }
@@ -52,6 +54,7 @@ class WorkflowRoleDefaults {
 class ResolvedStepConfig {
   final String? provider;
   final String? model;
+  final String? effort;
   final int? maxTokens;
   final double? maxCostUsd;
   final int? maxRetries;
@@ -60,6 +63,7 @@ class ResolvedStepConfig {
   const ResolvedStepConfig({
     this.provider,
     this.model,
+    this.effort,
     this.maxTokens,
     this.maxCostUsd,
     this.maxRetries,
@@ -102,10 +106,12 @@ ResolvedStepConfig resolveStepConfig(
 
   final provider = _resolveAlias(step.provider ?? matched?.provider, roleDefaults, isProvider: true);
   final model = _resolveAlias(step.model ?? matched?.model, roleDefaults, isProvider: false);
+  final effort = _resolveEffort(step.effort ?? matched?.effort, step.provider ?? matched?.provider, roleDefaults);
 
   return ResolvedStepConfig(
     provider: provider,
     model: model,
+    effort: effort,
     maxTokens: step.maxTokens ?? matched?.maxTokens,
     maxCostUsd: step.maxCostUsd ?? matched?.maxCostUsd,
     maxRetries: step.maxRetries ?? matched?.maxRetries,
@@ -135,4 +141,24 @@ String? _resolveAlias(String? value, WorkflowRoleDefaults? roleDefaults, {requir
 
   final resolved = defaults.resolve(role);
   return isProvider ? resolved.provider : resolved.model;
+}
+
+/// Resolves [effort] — if null, falls back to the role default's effort when
+/// the provider/model uses a role alias.
+String? _resolveEffort(String? effort, String? providerOrModel, WorkflowRoleDefaults? roleDefaults) {
+  if (effort != null) return effort;
+  if (roleDefaults == null) return null;
+
+  // Infer the role alias from provider or model (whichever is a role alias).
+  final alias = providerOrModel;
+  if (alias == null) return null;
+  final role = switch (alias) {
+    workflowRoleDefaultAlias ||
+    plannerRoleDefaultAlias ||
+    executorRoleDefaultAlias ||
+    reviewerRoleDefaultAlias => alias,
+    _ => null,
+  };
+  if (role == null) return null;
+  return roleDefaults.resolve(role).effort;
 }

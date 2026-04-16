@@ -230,6 +230,28 @@ void main() {
         expect(engine.resolveWithMap('{{context.items[map.index]}}', ctx, mapCtx), '');
       });
 
+      test('map keyed by current item id resolves matching element', () {
+        final ctx = _ctx(
+          data: {
+            'story_spec': {'S01': 'SPEC_ALPHA', 'S02': 'SPEC_BETA'},
+          },
+        );
+        final mapCtx = _mapCtx(item: {'id': 'S02', 'title': 'Beta'}, index: 1, length: 2);
+        expect(engine.resolveWithMap('{{context.story_spec[map.index]}}', ctx, mapCtx), 'SPEC_BETA');
+      });
+
+      test('single-key map wrapping a list auto-indexes by map.index', () {
+        final ctx = _ctx(
+          data: {
+            'story_spec': {
+              'items': ['SPEC_ALPHA', 'SPEC_BETA'],
+            },
+          },
+        );
+        final mapCtx = _mapCtx(item: {'id': 'S02'}, index: 1, length: 2);
+        expect(engine.resolveWithMap('{{context.story_spec[map.index]}}', ctx, mapCtx), 'SPEC_BETA');
+      });
+
       test('out-of-bounds index resolves to empty string', () {
         final ctx = _ctx(
           data: {

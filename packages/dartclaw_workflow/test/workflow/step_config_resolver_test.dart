@@ -52,6 +52,7 @@ void main() {
       String id = 'review-code',
       String? provider,
       String? model,
+      String? effort,
       int? maxTokens,
       double? maxCostUsd,
       int? maxRetries,
@@ -63,6 +64,7 @@ void main() {
         prompts: ['p'],
         provider: provider,
         model: model,
+        effort: effort,
         maxTokens: maxTokens,
         maxCostUsd: maxCostUsd,
         maxRetries: maxRetries,
@@ -195,6 +197,54 @@ void main() {
 
       expect(resolved.provider, 'claude');
       expect(resolved.model, 'claude-opus-4');
+    });
+
+    test('effort inherited from stepDefaults', () {
+      final step = makeStep(id: 'discover-project');
+      final defaults = [const StepConfigDefault(match: 'discover*', effort: 'low')];
+      final resolved = resolveStepConfig(step, defaults);
+      expect(resolved.effort, 'low');
+    });
+
+    test('per-step effort overrides stepDefaults effort', () {
+      final step = makeStep(id: 'review-code', effort: 'high');
+      final defaults = [const StepConfigDefault(match: 'review*', effort: 'low')];
+      final resolved = resolveStepConfig(step, defaults);
+      expect(resolved.effort, 'high');
+    });
+
+    test('effort falls back to role default when provider uses role alias', () {
+      final step = makeStep(id: 'plan');
+      final defaults = [const StepConfigDefault(match: 'plan', provider: '@planner', model: '@planner')];
+      final resolved = resolveStepConfig(
+        step,
+        defaults,
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude', model: 'claude-sonnet-4', effort: 'medium'),
+          planner: WorkflowRoleDefault(model: 'claude-opus-4', effort: 'high'),
+        ),
+      );
+      expect(resolved.effort, 'high');
+    });
+
+    test('effort role default inherits from workflow when role-specific effort is null', () {
+      final step = makeStep(id: 'plan');
+      final defaults = [const StepConfigDefault(match: 'plan', provider: '@planner', model: '@planner')];
+      final resolved = resolveStepConfig(
+        step,
+        defaults,
+        roleDefaults: const WorkflowRoleDefaults(
+          workflow: WorkflowRoleDefault(provider: 'claude', model: 'claude-sonnet-4', effort: 'medium'),
+          planner: WorkflowRoleDefault(model: 'claude-opus-4'),
+        ),
+      );
+      expect(resolved.effort, 'medium');
+    });
+
+    test('effort is null when no source provides it', () {
+      final step = makeStep();
+      final resolved = resolveStepConfig(step, null);
+      expect(resolved.effort, isNull);
     });
   });
 }

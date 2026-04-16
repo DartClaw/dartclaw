@@ -149,7 +149,14 @@ class ContextExtractor {
         switch (config.format) {
           case OutputFormat.json:
             try {
-              final parsed = extractJson(rawContent);
+              var parsed = extractJson(rawContent);
+              // Unwrap: if the parsed JSON is an envelope containing a key
+              // matching this outputKey, extract just the nested value. This
+              // handles Codex-style responses that emit a flat JSON with all
+              // context keys at the top level.
+              if (parsed is Map<String, dynamic> && parsed.containsKey(outputKey) && parsed[outputKey] is Map) {
+                parsed = parsed[outputKey] as Object;
+              }
               // Soft validation if schema is present.
               _softValidate(parsed, config, step.id, outputKey);
               outputs[outputKey] = parsed; // Store as Map/List, not String.
@@ -269,12 +276,14 @@ class ContextExtractor {
       values[key] = int.tryParse(value) ?? double.tryParse(value) ?? value;
     }
 
-    return {
+    final payload = {
       'findings_count': values['findings_count'] ?? 0,
       'verdict': values['verdict'] ?? 'PASS',
       if (values.containsKey('critical_count')) 'critical_count': values['critical_count'],
       if (values.containsKey('high_count')) 'high_count': values['high_count'],
     };
+    _log.fine('Structured output for task ${task.id}: $payload');
+    return payload;
   }
 
   /// Extracts raw text content for format-aware processing.

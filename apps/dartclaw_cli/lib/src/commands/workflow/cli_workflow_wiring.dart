@@ -36,10 +36,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowSource,
         WorkflowService,
         WorkflowGitBootstrapResult,
-        WorkflowGitPromotionConflict,
-        WorkflowGitPromotionError,
-        WorkflowGitPromotionSuccess,
-        WorkflowGitPublishResult,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -282,65 +278,19 @@ class CliWorkflowWiring {
               required strategy,
               String? storyId,
             }) async {
-              try {
-                await commitWorkflowWorktreeChangesIfNeeded(
-                  projectDir: Directory.current.path,
-                  branch: branch,
-                  commitMessage: 'workflow(${storyId ?? runId}): prepare promotion',
-                );
-              } catch (error) {
-                return WorkflowGitPromotionError(error.toString());
-              }
-              final args = strategy == 'merge'
-                  ? ['merge', '--no-ff', branch, '-m', 'workflow(${storyId ?? runId}): promote']
-                  : ['merge', '--squash', branch];
-              final checkout = await Process.run('git', [
-                'checkout',
-                integrationBranch,
-              ], workingDirectory: Directory.current.path);
-              if (checkout.exitCode != 0) {
-                return WorkflowGitPromotionError((checkout.stderr as String).trim());
-              }
-              final merge = await Process.run('git', args, workingDirectory: Directory.current.path);
-              if (merge.exitCode != 0) {
-                await Process.run('git', ['merge', '--abort'], workingDirectory: Directory.current.path);
-                final conflicts = await Process.run('git', [
-                  'diff',
-                  '--name-only',
-                  '--diff-filter=U',
-                ], workingDirectory: Directory.current.path);
-                final files = (conflicts.stdout as String)
-                    .split('\n')
-                    .map((line) => line.trim())
-                    .where((line) => line.isNotEmpty)
-                    .toList();
-                return WorkflowGitPromotionConflict(
-                  conflictingFiles: files,
-                  details: (merge.stderr as String).trim().isEmpty
-                      ? (merge.stdout as String).trim()
-                      : (merge.stderr as String).trim(),
-                );
-              }
-              if (strategy != 'merge') {
-                await Process.run('git', [
-                  'commit',
-                  '-m',
-                  'workflow(${storyId ?? runId}): promote',
-                ], workingDirectory: Directory.current.path);
-              }
-              final sha = await Process.run('git', ['rev-parse', 'HEAD'], workingDirectory: Directory.current.path);
-              return WorkflowGitPromotionSuccess(commitSha: (sha.stdout as String).trim());
+              return promoteWorkflowBranchLocally(
+                projectDir: Directory.current.path,
+                runId: runId,
+                branch: branch,
+                integrationBranch: integrationBranch,
+                strategy: strategy,
+                storyId: storyId,
+              );
             },
         publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-          final push = await Process.run('git', ['push', 'origin', branch], workingDirectory: Directory.current.path);
-          if (push.exitCode != 0) {
-            return WorkflowGitPublishResult(
-              status: 'failed',
-              branch: branch,
-              remote: 'origin',
-              prUrl: '',
-              error: (push.stderr as String).trim(),
-            );
+          final result = await publishWorkflowBranchLocally(projectDir: Directory.current.path, branch: branch);
+          if (result.status != 'success') {
+            return result;
           }
           final workflowTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList()
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -354,7 +304,7 @@ class CliWorkflowWiring {
               path: branch,
             );
           }
-          return WorkflowGitPublishResult(status: 'success', branch: branch, remote: 'origin', prUrl: '');
+          return result;
         },
         cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
           if (preserveWorktrees) return;

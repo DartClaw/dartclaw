@@ -1,5 +1,14 @@
 import 'dart:io';
 
+import 'package:dartclaw_server/dartclaw_server.dart' show MergeConflict, MergeExecutor, MergeStrategy, MergeSuccess;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowGitPromotionConflict,
+        WorkflowGitPromotionError,
+        WorkflowGitPromotionResult,
+        WorkflowGitPromotionSuccess,
+        WorkflowGitPublishResult;
+
 /// Commits pending changes in the worktree that currently has [branch] checked
 /// out, if such a worktree exists and has any unstaged or untracked changes.
 Future<void> commitWorkflowWorktreeChangesIfNeeded({
@@ -38,6 +47,94 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     final detail = stderr.isNotEmpty ? stderr : stdout;
     throw StateError('Failed to commit workflow worktree changes in "$worktreePath": $detail');
   }
+}
+
+Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
+  required String projectDir,
+  required String runId,
+  required String branch,
+  required String integrationBranch,
+  required String strategy,
+  String? storyId,
+}) async {
+  try {
+    await commitWorkflowWorktreeChangesIfNeeded(
+      projectDir: projectDir,
+      branch: branch,
+      commitMessage: 'workflow(${storyId ?? runId}): prepare promotion',
+    );
+  } catch (error) {
+    return WorkflowGitPromotionError(error.toString());
+  }
+
+  final mergeExecutor = MergeExecutor(
+    projectDir: projectDir,
+    defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+  );
+  final mergeResult = await mergeExecutor.merge(
+    branch: branch,
+    baseRef: integrationBranch,
+    taskId: storyId ?? runId,
+    taskTitle: storyId == null ? 'workflow promotion' : 'promote $storyId',
+    strategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
+  );
+
+  return switch (mergeResult) {
+    MergeSuccess(:final commitSha) => WorkflowGitPromotionSuccess(commitSha: commitSha),
+    MergeConflict(:final conflictingFiles, :final details) => WorkflowGitPromotionConflict(
+      conflictingFiles: conflictingFiles,
+      details: details,
+    ),
+  };
+}
+
+Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
+  required String projectDir,
+  required String branch,
+  String remote = 'origin',
+}) async {
+  final push = await Process.run('git', ['push', remote, branch], workingDirectory: projectDir);
+  if (push.exitCode != 0) {
+    return WorkflowGitPublishResult(
+      status: 'failed',
+      branch: branch,
+      remote: remote,
+      prUrl: '',
+      error: (push.stderr as String).trim(),
+    );
+  }
+
+  final remoteRef = 'refs/heads/$branch:refs/remotes/$remote/$branch';
+  final fetch = await Process.run('git', ['fetch', '--no-tags', remote, remoteRef], workingDirectory: projectDir);
+  if (fetch.exitCode != 0) {
+    final stderr = (fetch.stderr as String).trim();
+    final stdout = (fetch.stdout as String).trim();
+    final detail = stderr.isNotEmpty ? stderr : stdout;
+    return WorkflowGitPublishResult(
+      status: 'failed',
+      branch: branch,
+      remote: remote,
+      prUrl: '',
+      error: 'Failed to refresh remote-tracking ref for "$branch": $detail',
+    );
+  }
+
+  final verify = await Process.run('git', [
+    'rev-parse',
+    '--verify',
+    'refs/remotes/$remote/$branch',
+  ], workingDirectory: projectDir);
+  if (verify.exitCode != 0) {
+    return WorkflowGitPublishResult(
+      status: 'failed',
+      branch: branch,
+      remote: remote,
+      prUrl: '',
+      error: 'Push reported success but refs/remotes/$remote/$branch is unavailable locally',
+    );
+  }
+
+  return WorkflowGitPublishResult(status: 'success', branch: branch, remote: remote, prUrl: '');
 }
 
 Future<String?> _findWorktreePathForBranch({required String projectDir, required String branch}) async {

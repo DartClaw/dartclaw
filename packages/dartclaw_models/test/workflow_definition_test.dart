@@ -68,12 +68,14 @@ void main() {
         id: 'loop-1',
         steps: ['step-a', 'step-b'],
         maxIterations: 5,
+        entryGate: 'step-a.findings_count > 0',
         exitGate: 'step-a.status == done',
       );
       final restored = WorkflowLoop.fromJson(loop.toJson());
       expect(restored.id, 'loop-1');
       expect(restored.steps, ['step-a', 'step-b']);
       expect(restored.maxIterations, 5);
+      expect(restored.entryGate, 'step-a.findings_count > 0');
       expect(restored.exitGate, 'step-a.status == done');
       expect(restored.finally_, isNull);
     });
@@ -138,19 +140,19 @@ void main() {
     test('foreach node round-trips via toJson/fromJson (S19)', () {
       const node = ForeachNode(
         stepId: 'story-pipeline',
-        childStepIds: ['implement', 'refactor-validate', 'quick-review'],
+        childStepIds: ['implement', 'verify-refine', 'quick-review'],
       );
       final json = node.toJson();
       expect(json['type'], 'foreach');
       expect(json['stepId'], 'story-pipeline');
-      expect(json['childStepIds'], ['implement', 'refactor-validate', 'quick-review']);
+      expect(json['childStepIds'], ['implement', 'verify-refine', 'quick-review']);
 
       final restored = WorkflowNode.fromJson(json);
       expect(restored, isA<ForeachNode>());
       final foreach = restored as ForeachNode;
       expect(foreach.stepId, 'story-pipeline');
-      expect(foreach.childStepIds, ['implement', 'refactor-validate', 'quick-review']);
-      expect(foreach.stepIds, ['story-pipeline', 'implement', 'refactor-validate', 'quick-review']);
+      expect(foreach.childStepIds, ['implement', 'verify-refine', 'quick-review']);
+      expect(foreach.stepIds, ['story-pipeline', 'implement', 'verify-refine', 'quick-review']);
     });
   });
 

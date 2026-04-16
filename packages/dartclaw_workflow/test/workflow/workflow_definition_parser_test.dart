@@ -59,6 +59,7 @@ loops:
     steps:
       - implement
     maxIterations: 3
+    entryGate: research.findings_count > 0
     exitGate: implement.status == done
 ''';
 
@@ -73,6 +74,7 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
+    entryGate: gap-analysis.findings_count > 0
     exitGate: re-review.status == accepted
     steps:
       - id: remediate
@@ -206,6 +208,7 @@ void main() {
       expect(def.loops[0].id, 'refine-loop');
       expect(def.loops[0].steps, ['implement']);
       expect(def.loops[0].maxIterations, 3);
+      expect(def.loops[0].entryGate, 'research.findings_count > 0');
       expect(def.loops[0].exitGate, 'implement.status == done');
     });
 
@@ -217,6 +220,7 @@ void main() {
       expect(definition.nodes.map((node) => node.runtimeType).toList(), equals([ActionNode, LoopNode, ActionNode]));
       expect((definition.nodes[1] as LoopNode).loopId, 'remediation-loop');
       expect((definition.nodes[1] as LoopNode).stepIds, equals(['remediate', 're-review']));
+      expect(definition.loops.single.entryGate, 'gap-analysis.findings_count > 0');
     });
 
     test('normalizes legacy loops by first authored loop step order', () {

@@ -216,6 +216,7 @@ class WorkflowDefinitionParser {
         id: id,
         steps: loopSteps.map((step) => step.id).toList(growable: false),
         maxIterations: maxIterations,
+        entryGate: raw['entryGate'] as String?,
         exitGate: exitGate,
         finally_: finallyStepId,
       ),
@@ -418,6 +419,7 @@ class WorkflowDefinitionParser {
       id: raw['id'] as String,
       steps: _parseStringList(raw['steps']),
       maxIterations: raw['maxIterations'] as int,
+      entryGate: raw['entryGate'] as String?,
       exitGate: (raw['exitGate'] as String?) ?? '',
       finally_: raw['finally'] as String?,
     );

@@ -131,6 +131,15 @@ Apply verdicts before scoring.
 
 Include the verdict table (Dimension / Score / Threshold / Status rows for each dimension, plus Overall PASS/FAIL) in the Executive Summary.
 
+## Structured Output
+
+- findings_count: <integer>
+- verdict: <PASS|FAIL>
+- critical_count: <integer>
+- high_count: <integer>
+
+Use the final challenged findings set for these counts. Emit the block for both inline and report-backed runs.
+
 ### 8. Report
 Write a markdown report with the following sections unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form, including the PASS/FAIL verdict and prioritized remediation guidance.
 

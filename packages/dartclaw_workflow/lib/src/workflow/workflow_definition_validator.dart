@@ -96,6 +96,7 @@ class WorkflowDefinitionValidator {
     _validateVariableReferences(definition, errors);
     _validateContextKeyConsistency(definition, errors);
     _validateGateExpressions(definition, errors);
+    _validateLoopGateExpressions(definition, errors);
     _validateLoopReferences(definition, errors);
     _validateLoopMaxIterations(definition, errors);
     _validateLoopStepOverlap(definition, errors);
@@ -656,6 +657,46 @@ class WorkflowDefinitionValidator {
               stepId: step.id,
             ),
           );
+        }
+      }
+    }
+  }
+
+  void _validateLoopGateExpressions(WorkflowDefinition definition, List<ValidationError> errors) {
+    final stepIds = definition.steps.map((s) => s.id).toSet();
+
+    for (final loop in definition.loops) {
+      final gates = {'entryGate': loop.entryGate, 'exitGate': loop.exitGate};
+      for (final gateEntry in gates.entries) {
+        final expression = gateEntry.value;
+        if (expression == null || expression.trim().isEmpty) continue;
+
+        final conditions = expression.split('&&').map((c) => c.trim());
+        for (final condition in conditions) {
+          final match = _gateConditionPattern.firstMatch(condition);
+          if (match == null) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Loop "${loop.id}" has invalid ${gateEntry.key} expression: "$condition". '
+                    'Expected: stepId.key operator value.',
+                type: ValidationErrorType.invalidGate,
+                loopId: loop.id,
+              ),
+            );
+            continue;
+          }
+
+          final referencedStepId = match.group(1)!;
+          if (!stepIds.contains(referencedStepId)) {
+            errors.add(
+              ValidationError(
+                message: 'Loop "${loop.id}" ${gateEntry.key} references non-existent step "$referencedStepId".',
+                type: ValidationErrorType.invalidReference,
+                loopId: loop.id,
+              ),
+            );
+          }
         }
       }
     }

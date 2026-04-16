@@ -442,8 +442,6 @@ void main() {
       '--body',
       'Automated e2e integration test PR — will be auto-closed.',
       '--draft',
-      '--label',
-      'workflow-test',
     ], workingDirectory: fixtureDir);
     if (result.exitCode != 0) {
       fail('Failed to create PR for branch "$branch": ${result.stderr}');
@@ -504,7 +502,7 @@ void main() {
         'spec',
         'review-spec',
         'implement',
-        'refactor-validate',
+        'verify-refine',
         'integrated-review',
         'update-state',
       ]);
@@ -583,7 +581,7 @@ void main() {
         'plan',
         'spec-plan',
         'implement',
-        'refactor-validate',
+        'verify-refine',
         'quick-review',
         'plan-review',
         'update-state',
@@ -592,16 +590,16 @@ void main() {
       // spec-plan runs once
       expect(recorder.count('spec-plan'), 1, reason: 'spec-plan should run exactly once');
 
-      // implement, refactor-validate, quick-review should run at least twice (per story)
+      // implement, verify-refine, quick-review should run at least twice (per story)
       expect(
         recorder.count('implement'),
         greaterThanOrEqualTo(2),
         reason: 'implement should run at least twice (once per story)',
       );
       expect(
-        recorder.count('refactor-validate'),
+        recorder.count('verify-refine'),
         greaterThanOrEqualTo(2),
-        reason: 'refactor-validate should run at least twice',
+        reason: 'verify-refine should run at least twice',
       );
       expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
 

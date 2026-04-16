@@ -37,7 +37,7 @@ stepDefaults:
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
-  - match: "*validate*"
+  - match: "*verify*"
     provider: "@executor"
     model: "@executor"
   - match: "*review*"
@@ -61,9 +61,7 @@ steps:
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     prompt: |
-      Purpose: discover the target project boundary and normalize project metadata for a later plan-and-implement run.
       Branch: {{BRANCH}}
-      This step is read-only discovery only. Do not implement the requirements or edit files.
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -92,10 +90,6 @@ steps:
 
       Project index:
       {{context.project_index}}
-
-      This step is read-only planning only.
-      Do not create, modify, delete, or stage files.
-      Return the plan inline in the workflow output contract only.
     contextOutputs: [stories]
     outputs:
       stories:
@@ -116,8 +110,6 @@ steps:
 
       Initial story plan:
       {{context.stories}}
-
-      This step is read-only planning and specification only.
     contextOutputs: [stories, story_spec]
     outputs:
       stories:
@@ -159,10 +151,10 @@ steps:
           story_result:
             format: text
 
-      - id: refactor-validate
+      - id: verify-refine
         name: Validate Story
         type: coding
-        skill: dartclaw-refactor
+        skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -177,11 +169,8 @@ steps:
 
           Story implementation:
           {{context.implement.story_result}}
-
-          Run build, tests, static analysis, and simplification checks for this story's implementation.
-          If the project has no runnable test surface, skip tests and say so explicitly.
         contextInputs: [project_index]
-        contextOutputs: [validation_summary, findings_count]
+        contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
 
       - id: quick-review
         name: Quick Review Story
@@ -201,19 +190,18 @@ steps:
           {{context.implement.story_result}}
 
           Validation summary:
-          {{context.refactor-validate.validation_summary}}
+          {{context.verify-refine.validation_summary}}
         contextInputs: [project_index, story_spec]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
 
   - id: plan-review
     name: Review Full Implementation
     type: analysis
-    skill: dartclaw-review
-    contextInputs: [project_index, stories, story_spec]
+    skill: dartclaw-review-gap
+    contextInputs: [project_index, stories, story_spec, story_results]
     prompt: |
       Requirements:
       {{REQUIREMENTS}}
-      Mode: gap
 
       Project index:
       {{context.project_index}}
@@ -226,17 +214,14 @@ steps:
 
       Per-story results (implement / validate / quick-review for each story):
       {{context.story_results}}
-
-      Review the full implementation across all stories.
-      Identify gaps, cross-story integration issues, and any stories that need remediation.
-      Set needs_remediation to true if remediation is required.
-    contextOutputs: [implementation_summary, remediation_plan, needs_remediation, findings_count]
+    contextOutputs: [implementation_summary, remediation_plan, findings_count, plan-review.findings_count]
 
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"
+    entryGate: "plan-review.findings_count > 0"
+    exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -253,15 +238,13 @@ steps:
 
           Implementation summary:
           {{context.implementation_summary}}
-
-          If no remediation is needed, say so plainly.
         contextInputs: [project_index, remediation_plan, implementation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
-      - id: refactor-re-validate
+      - id: re-verify-refine
         name: Re-validate After Remediation
         type: coding
-        skill: dartclaw-refactor
+        skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -276,20 +259,16 @@ steps:
 
           Updated diff summary:
           {{context.diff_summary}}
-
-          Run build, tests, static analysis, and simplification checks after remediation.
-          If the project has no runnable test surface, skip tests and say so explicitly.
         contextInputs: [project_index, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, refactor-re-validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
 
       - id: re-review
         name: Re-review After Remediation
         type: analysis
-        skill: dartclaw-review
+        skill: dartclaw-review-gap
         prompt: |
           Requirements:
           {{REQUIREMENTS}}
-          Mode: gap
 
           Project index:
           {{context.project_index}}

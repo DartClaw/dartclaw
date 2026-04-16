@@ -31,6 +31,7 @@ import 'schema_validator.dart';
 /// are set by [WorkflowExecutor] — not by this class.
 class ContextExtractor {
   static const _contextSizeWarningThreshold = 10000;
+  static const _structuredOutputHeading = '## Structured Output';
   static final _log = Logger('ContextExtractor');
 
   final WorkflowTaskService _taskService;
@@ -54,6 +55,7 @@ class ContextExtractor {
   Future<Map<String, dynamic>> extract(WorkflowStep step, Task task) async {
     final outputs = <String, dynamic>{};
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
+    final structuredOutputPayload = await _extractStructuredOutputPayload(task);
 
     // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
     if (step.extraction != null && step.contextOutputs.isNotEmpty) {
@@ -154,6 +156,11 @@ class ContextExtractor {
         continue;
       }
 
+      if (structuredOutputPayload.containsKey(outputKey)) {
+        outputs[outputKey] = structuredOutputPayload[outputKey];
+        continue;
+      }
+
       // Fall through to convention-based extraction (text format or no config).
 
       // Try first .md artifact.
@@ -195,6 +202,18 @@ class ContextExtractor {
   }
 
   dynamic _deriveFromStructuredOutputs(Map<String, dynamic> outputs, String outputKey) {
+    if (outputs.containsKey(outputKey)) {
+      return outputs[outputKey];
+    }
+
+    final lastDot = outputKey.lastIndexOf('.');
+    if (lastDot > 0) {
+      final unscopedKey = outputKey.substring(lastDot + 1);
+      if (outputs.containsKey(unscopedKey)) {
+        return outputs[unscopedKey];
+      }
+    }
+
     for (final value in outputs.values) {
       if (value is Map<String, dynamic> && value.containsKey(outputKey)) {
         return value[outputKey];
@@ -204,6 +223,43 @@ class ContextExtractor {
       }
     }
     return null;
+  }
+
+  Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {
+    final content = await _extractLastAssistantContent(task);
+    if (content == null || content.isEmpty) {
+      return const {'findings_count': 0, 'verdict': 'PASS'};
+    }
+
+    final headingIndex = content.indexOf(_structuredOutputHeading);
+    if (headingIndex < 0) {
+      return const {'findings_count': 0, 'verdict': 'PASS'};
+    }
+
+    final afterHeading = content.substring(headingIndex + _structuredOutputHeading.length);
+    final nextHeading = RegExp(r'^\s*##\s+', multiLine: true).firstMatch(afterHeading);
+    final block = (nextHeading == null ? afterHeading : afterHeading.substring(0, nextHeading.start)).trim();
+    if (block.isEmpty) {
+      return const {'findings_count': 0, 'verdict': 'PASS'};
+    }
+
+    final values = <String, dynamic>{};
+    for (final rawLine in const LineSplitter().convert(block)) {
+      final line = rawLine.trim();
+      if (line.isEmpty) continue;
+      final match = RegExp(r'^[-*]\s*([\w.-]+)\s*:\s*(.+)$').firstMatch(line);
+      if (match == null) continue;
+      final key = match.group(1)!.trim();
+      final value = match.group(2)!.trim();
+      values[key] = int.tryParse(value) ?? double.tryParse(value) ?? value;
+    }
+
+    return {
+      'findings_count': values['findings_count'] ?? 0,
+      'verdict': values['verdict'] ?? 'PASS',
+      if (values.containsKey('critical_count')) 'critical_count': values['critical_count'],
+      if (values.containsKey('high_count')) 'high_count': values['high_count'],
+    };
   }
 
   /// Extracts raw text content for format-aware processing.
@@ -224,6 +280,13 @@ class ContextExtractor {
 
     // 3. First .md artifact.
     return _extractFirstMdArtifact(task);
+  }
+
+  Future<String?> _extractLastAssistantContent(Task task) async {
+    if (task.sessionId == null) return null;
+    final messages = await _messageService.getMessagesTail(task.sessionId!, count: 50);
+    final lastAssistant = messages.where((m) => m.role == 'assistant').lastOrNull;
+    return lastAssistant?.content;
   }
 
   /// Soft-validates parsed JSON against the output config's schema.
@@ -281,14 +344,8 @@ class ContextExtractor {
 
   /// Parses the `<workflow-context>` payload from the last assistant message.
   Future<Map<String, dynamic>?> _extractWorkflowContextPayload(Task task) async {
-    if (task.sessionId == null) return null;
-
-    final messages = await _messageService.getMessagesTail(task.sessionId!, count: 50);
-    final assistants = messages.where((m) => m.role == 'assistant');
-    if (assistants.isEmpty) return null;
-    final lastAssistant = assistants.last;
-
-    final content = lastAssistant.content;
+    final content = await _extractLastAssistantContent(task);
+    if (content == null) return null;
     final match = RegExp(r'<workflow-context>\s*([\s\S]*?)\s*</workflow-context>').firstMatch(content);
     if (match == null) return null;
 

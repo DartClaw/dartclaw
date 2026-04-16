@@ -330,6 +330,44 @@ void main() {
         );
         expect(validator.validate(def).errors, isEmpty);
       });
+
+      test('loop entryGate is validated alongside exitGate', () {
+        final def = _buildDef(
+          steps: [
+            _step(id: 's1'),
+            _step(id: 's2', name: 'S2', prompt: 'p'),
+          ],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 's2.findings_count > 0',
+              exitGate: 's1.status == done',
+            ),
+          ],
+        );
+
+        expect(validator.validate(def).errors, isEmpty);
+      });
+
+      test('invalid loop entryGate produces invalidGate error', () {
+        final def = _buildDef(
+          steps: [_step(id: 's1')],
+          loops: [
+            const WorkflowLoop(
+              id: 'lp',
+              steps: ['s1'],
+              maxIterations: 3,
+              entryGate: 's1.status INVALID done',
+              exitGate: 's1.status == done',
+            ),
+          ],
+        );
+
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidGate && e.loopId == 'lp'), isTrue);
+      });
     });
 
     group('loop references', () {

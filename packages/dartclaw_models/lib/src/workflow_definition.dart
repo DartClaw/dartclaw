@@ -201,6 +201,9 @@ class WorkflowLoop {
   /// Maximum number of iterations (circuit breaker, required).
   final int maxIterations;
 
+  /// Optional condition expression for entering the loop body.
+  final String? entryGate;
+
   /// Condition expression for early termination.
   final String exitGate;
 
@@ -215,6 +218,7 @@ class WorkflowLoop {
     required this.id,
     required this.steps,
     required this.maxIterations,
+    this.entryGate,
     required this.exitGate,
     this.finally_,
   });
@@ -223,6 +227,7 @@ class WorkflowLoop {
     'id': id,
     'steps': steps.toList(),
     'maxIterations': maxIterations,
+    if (entryGate != null) 'entryGate': entryGate,
     'exitGate': exitGate,
     if (finally_ != null) 'finally': finally_,
   };
@@ -231,6 +236,7 @@ class WorkflowLoop {
     id: json['id'] as String,
     steps: (json['steps'] as List).cast<String>(),
     maxIterations: json['maxIterations'] as int,
+    entryGate: json['entryGate'] as String?,
     exitGate: json['exitGate'] as String,
     finally_: json['finally'] as String?,
   );

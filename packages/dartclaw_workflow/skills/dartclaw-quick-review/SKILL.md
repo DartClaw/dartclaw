@@ -89,3 +89,12 @@ Include relevant diffs, file excerpts, and project context inline so the sub-age
 ### 4. Evaluate and Report
 
 Review the sub-agent's findings. **Accept** valid, actionable findings. **Dismiss** findings based on context misunderstanding (explain briefly). Present accepted findings as a concise inline list. Offer to fix actionable issues. No report file, no summary preamble.
+
+## Structured Output
+
+- findings_count: <integer>
+- verdict: <PASS|FAIL>
+- critical_count: <integer>
+- high_count: <integer>
+
+Emit the block inline after the findings list. Use `PASS` when no accepted findings remain after evaluation.

@@ -890,6 +890,37 @@ class WorkflowExecutor {
       await _repository.update(run);
       onRunUpdated(run);
 
+      final entryGate = loop.entryGate?.trim();
+      if (entryGate != null && entryGate.isNotEmpty && !_gateEvaluator.evaluate(entryGate, context)) {
+        gatePassed = true;
+        _log.info("Loop '${loop.id}' skipped: entry gate failed before iteration $iteration");
+        _eventBus.fire(
+          LoopIterationCompletedEvent(
+            runId: run.id,
+            loopId: loop.id,
+            iteration: iteration,
+            maxIterations: loop.maxIterations,
+            gateResult: false,
+            timestamp: DateTime.now(),
+          ),
+        );
+        if (loop.finally_ != null) {
+          final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
+            run,
+            definition,
+            loop,
+            context,
+            onRunUpdated: onRunUpdated,
+          );
+          run = updatedRun;
+          if (finalizerMsg != null) {
+            await _pauseRun(run, finalizerMsg);
+            return true;
+          }
+        }
+        break;
+      }
+
       // Execute each loop step sequentially.
       for (var loopStepIndex = 0; loopStepIndex < loop.steps.length; loopStepIndex++) {
         final stepId = loop.steps[loopStepIndex];

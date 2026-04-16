@@ -87,6 +87,8 @@ Implementation rules:
 ### Step 4: Validate
 Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — integration, security, architectural coherence, and spec drift — that can still survive per-task Verify lines.
 
+**Workflow-step shortcut**: when this skill is invoked from a workflow step and the prompt/context clearly carries workflow orchestration metadata (for example workflow variables, `workflow_run_id`, authored step metadata, or a workflow-owned project index handoff), skip the full Step 4 validation cycle below. In that mode, keep every per-task **Verify** line from Step 3, but do not run the extra code-review / visual-validation / remediation loop because the surrounding workflow already owns those gates.
+
 #### 4a. Direct Checks
 1. **Build**: run the project's applicable build/package checks; every available build step relevant to the feature must succeed
 2. **Tests**: run the applicable test suites; all relevant tests must pass (or pre-existing failures documented)

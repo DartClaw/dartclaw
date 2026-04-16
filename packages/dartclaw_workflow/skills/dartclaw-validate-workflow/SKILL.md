@@ -1,11 +1,11 @@
 ---
-name: dartclaw-validate
+name: dartclaw-validate-workflow
 description: Validate workflow YAML definitions and packaged workflow assets.
 argument-hint: "<workflow-yaml-path>"
 user-invocable: true
 ---
 
-# DartClaw Validate
+# DartClaw Validate Workflow
 
 Validate workflow definitions and related packaged assets with the local CLI.
 

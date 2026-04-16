@@ -11,7 +11,7 @@ const dartclawSkillNames = <String>{
   'dartclaw-exec-spec',
   'dartclaw-plan',
   'dartclaw-quick-review',
-  'dartclaw-refactor',
+  'dartclaw-verify-refine',
   'dartclaw-remediate-findings',
   'dartclaw-review',
   'dartclaw-review-code',

@@ -351,6 +351,65 @@ void main() {
     expect(outputs['diff_changes'], contains('1 files changed'));
   });
 
+  test('parses structured output block values from the assistant response', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '''
+Review complete.
+
+## Structured Output
+- findings_count: 3
+- verdict: FAIL
+- critical_count: 1
+- high_count: 2
+''',
+    );
+
+    await taskService.create(
+      id: 'task-structured-1',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-structured-1', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-structured-1'))!;
+
+    final step = makeStep(
+      contextOutputs: ['findings_count', 'review-code.findings_count', 'verdict', 'critical_count', 'high_count'],
+    );
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['findings_count'], 3);
+    expect(outputs['review-code.findings_count'], 3);
+    expect(outputs['verdict'], 'FAIL');
+    expect(outputs['critical_count'], 1);
+    expect(outputs['high_count'], 2);
+  });
+
+  test('structured output defaults findings_count and verdict when block is absent', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: 'No structured section here.');
+
+    await taskService.create(
+      id: 'task-structured-2',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-structured-2', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-structured-2'))!;
+
+    final step = makeStep(contextOutputs: ['findings_count', 'verdict']);
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['findings_count'], 0);
+    expect(outputs['verdict'], 'PASS');
+  });
+
   test('derived outputs reuse fields from an earlier parsed JSON output', () async {
     final session = await sessionService.getOrCreateMain();
     await taskService.create(

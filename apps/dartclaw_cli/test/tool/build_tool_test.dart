@@ -134,7 +134,7 @@ void main() {
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-plan/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-review/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/dartclaw-quick-review/SKILL.md'));
-    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate/SKILL.md'));
+    expect(platformEntries, contains('share/dartclaw/skills/dartclaw-validate-workflow/SKILL.md'));
     expect(platformEntries, contains('share/dartclaw/skills/references/verification-patterns.md'));
     expect(platformEntries, contains('share/dartclaw/workflows/spec-and-implement.yaml'));
     expect(platformEntries, contains('share/dartclaw/workflows/plan-and-implement.yaml'));
@@ -147,7 +147,7 @@ void main() {
     expect(assetEntries, contains('skills/dartclaw-plan/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-review/SKILL.md'));
     expect(assetEntries, contains('skills/dartclaw-quick-review/SKILL.md'));
-    expect(assetEntries, contains('skills/dartclaw-validate/SKILL.md'));
+    expect(assetEntries, contains('skills/dartclaw-validate-workflow/SKILL.md'));
     expect(assetEntries, contains('skills/references/verification-patterns.md'));
     expect(assetEntries, contains('workflows/spec-and-implement.yaml'));
     expect(assetEntries, contains('workflows/plan-and-implement.yaml'));

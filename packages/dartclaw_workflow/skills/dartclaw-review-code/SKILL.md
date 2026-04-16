@@ -91,6 +91,15 @@ Generate a markdown report unless `--inline-findings` is present. When `--inline
 
 Standard report sections: Summary, CRITICAL ISSUES (title/impact/location/fix), HIGH PRIORITY (title/impact/location/recommendation), SUGGESTIONS, Cleanup Required, Compliance (guidelines/architecture/security/UI-UX), Verification Evidence (commands run/skipped with results/reasons), Next Steps.
 
+## Structured Output
+
+- findings_count: <integer>
+- verdict: <PASS|FAIL>
+- critical_count: <integer>
+- high_count: <integer>
+
+Emit this block in every inline or report-backed review result so workflow gates can evaluate the outcome reliably.
+
 **Report output conventions**: Follow `../references/report-output-conventions.md` with:
 - **Report suffix**: `code-review` / **Scope placeholder**: `feature-name`
 - **Spec-directory rule**: reviewed files correspond to a feature with an associated spec directory from the Project Document Index

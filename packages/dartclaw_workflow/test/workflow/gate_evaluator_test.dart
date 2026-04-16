@@ -75,6 +75,11 @@ void main() {
       expect(evaluator.evaluate('missing.key == value', context), isFalse);
     });
 
+    test('missing numeric context key defaults to 0', () {
+      expect(evaluator.evaluate('review.findings_count == 0', context), isTrue);
+      expect(evaluator.evaluate('review.findings_count > 0', context), isFalse);
+    });
+
     test('malformed expression returns false (fail-safe)', () {
       expect(evaluator.evaluate('not a valid gate', context), isFalse);
     });

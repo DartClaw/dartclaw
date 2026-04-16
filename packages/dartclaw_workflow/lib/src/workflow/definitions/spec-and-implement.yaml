@@ -31,13 +31,10 @@ stepDefaults:
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
-  - match: "*validate*"
+  - match: "*verify*"
     provider: "@executor"
     model: "@executor"
   - match: "*review*"
-    provider: "@reviewer"
-    model: "@reviewer"
-  - match: "gap-*"
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
@@ -58,9 +55,7 @@ steps:
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     prompt: |
-      Purpose: discover the target project boundary and normalize project metadata for a later spec-and-implement run.
       Branch: {{BRANCH}}
-      This step is read-only discovery only. Do not implement the feature or edit files.
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -94,11 +89,8 @@ steps:
   - id: review-spec
     name: Review Spec
     type: analysis
-    skill: dartclaw-review
+    skill: dartclaw-review-doc
     prompt: |
-      Run a document review against the generated specification before implementation.
-      Mode: doc
-
       Feature: {{FEATURE}}
       Branch: {{BRANCH}}
       Project index:
@@ -135,10 +127,10 @@ steps:
       diff_summary:
         format: text
 
-  - id: refactor-validate
+  - id: verify-refine
     name: Validate Implementation
     type: coding
-    skill: dartclaw-refactor
+    skill: dartclaw-verify-refine
     project: "{{PROJECT}}"
     review: never
     prompt: |
@@ -150,20 +142,14 @@ steps:
 
       Implementation diff:
       {{context.diff_summary}}
-
-      Run build, tests, static analysis, and simplification checks for the completed implementation.
-      If the project has no runnable test surface, skip tests and say so explicitly.
     contextInputs: [project_index, diff_summary, spec_document]
-    contextOutputs: [validation_summary, findings_count]
+    contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
 
   - id: integrated-review
     name: Integrated Review
     type: analysis
-    skill: dartclaw-review
+    skill: dartclaw-review-code
     prompt: |
-      Review this implementation comprehensively for correctness, security, and architecture.
-      Mode: code
-
       Project index:
       {{context.project_index}}
 
@@ -179,7 +165,7 @@ steps:
       Implementation diff:
       {{context.diff_summary}}
     contextInputs: [project_index, spec_document, validation_summary, acceptance_criteria, diff_summary]
-    contextOutputs: [review_findings]
+    contextOutputs: [review_findings, findings_count, integrated-review.findings_count]
     outputs:
       review_findings:
         format: json
@@ -189,7 +175,8 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && refactor-re-validate.findings_count == 0"
+    entryGate: "integrated-review.findings_count > 0"
+    exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -209,15 +196,13 @@ steps:
 
           Specification:
           {{context.spec_document}}
-
-          If no remediation is needed, say so plainly.
         contextInputs: [project_index, spec_document, review_findings, validation_summary]
         contextOutputs: [remediation_summary, diff_summary]
 
-      - id: refactor-re-validate
+      - id: re-verify-refine
         name: Re-validate Implementation
         type: coding
-        skill: dartclaw-refactor
+        skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -232,18 +217,14 @@ steps:
 
           Updated diff summary:
           {{context.diff_summary}}
-
-          Run build, tests, static analysis, and simplification checks after remediation.
-          If the project has no runnable test surface, skip tests and say so explicitly.
         contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, refactor-re-validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
 
       - id: re-review
         name: Re-review Gaps
         type: analysis
-        skill: dartclaw-review
+        skill: dartclaw-review-gap
         prompt: |
-          Mode: gap
           Project index:
           {{context.project_index}}
 

@@ -32,7 +32,7 @@ gitStrategy:
   cleanup: always
 
 stepDefaults:
-  - match: "*validate*"
+  - match: "*verify*"
     provider: "@executor"
     model: "@executor"
   - match: "*review*"
@@ -53,11 +53,9 @@ steps:
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     prompt: |
-      Purpose: discover the target project boundary and normalize project metadata for a later code-review run.
       Branch: {{BRANCH}}
       Base branch: {{BASE_BRANCH}}
       PR number: {{PR_NUMBER}}
-      This step is read-only discovery only. Do not remediate or edit files.
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -78,17 +76,16 @@ steps:
   - id: review-code
     name: Review Code
     type: analysis
-    skill: dartclaw-review
+    skill: dartclaw-review-code
     prompt: |
       Target: {{TARGET}}
-      Mode: code
       PR number: {{PR_NUMBER}}
       Branch: {{BRANCH}}
       Base branch: {{BASE_BRANCH}}
       Project index:
       {{context.project_index}}
     contextInputs: [project_index]
-    contextOutputs: [review_summary, findings_count]
+    contextOutputs: [review_summary, findings_count, review-code.findings_count]
     outputs:
       review_summary:
         format: json
@@ -98,7 +95,8 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 3
-    exitGate: "re-review.findings_count == 0 && refactor-validate.findings_count == 0"
+    entryGate: "review-code.findings_count > 0"
+    exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"
     steps:
       - id: remediate
         name: Remediate Findings
@@ -120,10 +118,10 @@ steps:
             format: json
             schema: remediation-result
 
-      - id: refactor-validate
+      - id: verify-refine
         name: Validate Remediation
         type: coding
-        skill: dartclaw-refactor
+        skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
         review: never
         prompt: |
@@ -139,19 +137,15 @@ steps:
           {{context.remediation_summary}}
           Updated diff summary:
           {{context.diff_summary}}
-
-          Run build, tests, static analysis, and simplification checks after remediation.
-          If the project has no runnable test surface, skip tests and say so explicitly.
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, refactor-validate.findings_count]
+        contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
 
       - id: re-review
         name: Re-review
         type: analysis
-        skill: dartclaw-review
+        skill: dartclaw-review-code
         prompt: |
           Target: {{TARGET}}
-          Mode: code
           PR number: {{PR_NUMBER}}
           Branch: {{BRANCH}}
           Base branch: {{BASE_BRANCH}}

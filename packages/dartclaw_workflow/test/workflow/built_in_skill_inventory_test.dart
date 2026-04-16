@@ -34,6 +34,7 @@ void main() {
     expect(File(p.join(skillsDir, 'dartclaw-review-gap', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-quick-review', 'SKILL.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'dartclaw-spec-plan', 'SKILL.md')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-verify-refine', 'SKILL.md')).existsSync(), isTrue);
 
     final skillDirs = Directory(skillsDir)
         .listSync()
@@ -48,7 +49,8 @@ void main() {
     expect(skillDirs, contains('dartclaw-review-gap'));
     expect(skillDirs, contains('dartclaw-quick-review'));
     expect(skillDirs, contains('dartclaw-spec-plan'));
-    expect(skillDirs, contains('dartclaw-validate'));
+    expect(skillDirs, contains('dartclaw-verify-refine'));
+    expect(skillDirs, contains('dartclaw-validate-workflow'));
 
     expect(File(p.join(skillsDir, 'references', 'verification-patterns.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'references', 'structured-output-protocols.md')).existsSync(), isTrue);

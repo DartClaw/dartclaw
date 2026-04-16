@@ -355,7 +355,7 @@ void main() {
             assistantContent: _verdictJson(findingsCount: 0, summary: 'spec is consistent'),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALIDATE_MARKER', 'findings_count': 0}),
           ),
           'integrated-review' => _StubResponse(
@@ -367,11 +367,11 @@ void main() {
               'diff_summary': 'IMPLEMENT_DIFF_MARKER',
             }),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'REVALIDATE_MARKER',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -393,7 +393,7 @@ void main() {
     expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
     expect(trace.descriptionsByStep['implement']!.single, contains('SPEC_DOC_MARKER'));
     expect(trace.descriptionsByStep['implement']!.single, contains('AC_MARKER'));
-    expect(trace.descriptionsByStep['refactor-validate']!.single, contains('IMPLEMENT_DIFF_MARKER'));
+    expect(trace.descriptionsByStep['verify-refine']!.single, contains('IMPLEMENT_DIFF_MARKER'));
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
   });
 
@@ -416,7 +416,7 @@ void main() {
           ),
           'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
           ),
           'integrated-review' => _StubResponse(
@@ -425,11 +425,11 @@ void main() {
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'VALID_AGAIN',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -450,9 +450,9 @@ void main() {
     expect(trace.tasksForStep('spec').single.projectId, isNull);
     expect(trace.tasksForStep('review-spec').single.projectId, isNull);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('remediate').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('refactor-re-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('remediate'), isEmpty);
+    expect(trace.tasksForStep('re-verify-refine'), isEmpty);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
 
@@ -475,7 +475,7 @@ void main() {
           ),
           'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
           ),
           'integrated-review' => _StubResponse(
@@ -484,11 +484,11 @@ void main() {
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'VALID_AGAIN',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -512,12 +512,12 @@ void main() {
 
     expect(trace.tasksForStep('review-spec').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
-    expect(trace.tasksForStep('re-review').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('re-review'), isEmpty);
 
     expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
-    expect(trace.tasksForStep('refactor-validate').single.configJson.containsKey('readOnly'), isFalse);
-    expect(trace.tasksForStep('remediate').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('verify-refine').single.configJson.containsKey('readOnly'), isFalse);
+    expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
   });
 
@@ -541,7 +541,7 @@ void main() {
           ),
           'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
           ),
           'integrated-review' => _StubResponse(
@@ -550,11 +550,11 @@ void main() {
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'VALID_AGAIN',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -571,7 +571,7 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch:'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
     expect(discover, isNot(contains(feature)));
   });
@@ -594,7 +594,7 @@ void main() {
   });
 
   test(
-    'spec-and-implement integration enters remediation when refactor-validate finds issues and exits after refactor-re-validation',
+    'spec-and-implement integration enters remediation when verify-refine finds issues and exits after refactor-re-validation',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
@@ -615,14 +615,14 @@ void main() {
             ),
             'review-spec' => _StubResponse(assistantContent: _verdictJson(findingsCount: 0, summary: 'spec accepted')),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
-            'refactor-validate' => _StubResponse(
+            'verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
                 'findings_count': 2,
               }),
             ),
             'integrated-review' => _StubResponse(
-              assistantContent: _verdictJson(findingsCount: 0, summary: 'implementation is otherwise sound'),
+              assistantContent: _verdictJson(findingsCount: 1, summary: 'implementation still needs validation cleanup'),
             ),
             'remediate' => _StubResponse(
               assistantContent: _contextOutput({
@@ -630,11 +630,11 @@ void main() {
                 'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
               }),
             ),
-            'refactor-re-validate' => _StubResponse(
+            're-verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'REVALIDATED_CLEAN',
                 'findings_count': 0,
-                'refactor-re-validate.findings_count': 0,
+                're-verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -654,7 +654,7 @@ void main() {
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
       expect(trace.count('remediate'), 1);
-      expect(trace.count('refactor-re-validate'), 1);
+      expect(trace.count('re-verify-refine'), 1);
       expect(trace.count('re-review'), 1);
       expect(trace.descriptionsByStep['remediate']!.single, contains('INITIAL_VALIDATE_FINDINGS'));
       expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
@@ -743,7 +743,7 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'PLAN_VALIDATE_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
               'findings_count': 0,
@@ -770,11 +770,11 @@ void main() {
               'diff_summary': 'batch clean',
             }),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'PLAN_REVALIDATED',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -793,10 +793,10 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    // spec-plan runs once; implement, refactor-validate, quick-review run per story in foreach.
+    // spec-plan runs once; implement, verify-refine, quick-review run per story in foreach.
     expect(trace.count('spec-plan'), 1);
     expect(trace.count('implement'), 2);
-    expect(trace.count('refactor-validate'), 2);
+    expect(trace.count('verify-refine'), 2);
     expect(trace.count('quick-review'), 2);
     expect(trace.count('plan-review'), 1);
 
@@ -867,7 +867,7 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
           'quick-review' => _StubResponse(
@@ -887,11 +887,11 @@ void main() {
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'PLAN_REVALIDATED',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -912,7 +912,7 @@ void main() {
     expect(trace.tasksForStep('plan').single.projectId, isNull);
     expect(trace.tasksForStep('spec-plan').single.projectId, isNull);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.projectId, isNull);
     expect(trace.tasksForStep('plan-review').single.projectId, isNull);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
@@ -977,7 +977,7 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
           ),
           'quick-review' => _StubResponse(
@@ -997,11 +997,11 @@ void main() {
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
           ),
-          'refactor-re-validate' => _StubResponse(
+          're-verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'PLAN_REVALIDATED',
               'findings_count': 0,
-              'refactor-re-validate.findings_count': 0,
+              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -1018,7 +1018,7 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch:'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
     expect(discover, isNot(contains(requirements)));
   });
@@ -1106,7 +1106,7 @@ void main() {
                 'createdAt': DateTime.now().toIso8601String(),
               },
             ),
-            'refactor-validate' => _StubResponse(
+            'verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
                 'findings_count': 1,
@@ -1132,11 +1132,11 @@ void main() {
                 'diff_summary': 'REMEDIATED_DIFF',
               }),
             ),
-            'refactor-re-validate' => _StubResponse(
+            're-verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'REVALIDATED_CLEAN',
                 'findings_count': 0,
-                'refactor-re-validate.findings_count': 0,
+                're-verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -1156,7 +1156,7 @@ void main() {
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
       expect(trace.count('remediate'), 1);
-      expect(trace.count('refactor-re-validate'), 1);
+      expect(trace.count('re-verify-refine'), 1);
       expect(trace.count('re-review'), 1);
       expect(trace.descriptionsByStep['remediate']!.single, contains('INITIAL_VALIDATE_FINDINGS'));
       expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
@@ -1199,11 +1199,11 @@ void main() {
               'diff_summary': 'No diff',
             }),
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'Validation is clean',
               'findings_count': 0,
-              'refactor-validate.findings_count': 0,
+              'verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -1221,9 +1221,9 @@ void main() {
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.projectId, isNull);
-    expect(trace.tasksForStep('remediate').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('refactor-validate').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('re-review').single.projectId, isNull);
+    expect(trace.tasksForStep('remediate'), isEmpty);
+    expect(trace.tasksForStep('verify-refine'), isEmpty);
+    expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
   test(
@@ -1264,11 +1264,11 @@ void main() {
                 'diff_summary': 'No diff',
               }),
             ),
-            'refactor-validate' => _StubResponse(
+            'verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'Validation is clean',
                 'findings_count': 0,
-                'refactor-validate.findings_count': 0,
+                'verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -1290,10 +1290,9 @@ void main() {
       expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
       expect(trace.tasksForStep('review-code').single.configJson['readOnly'], isTrue);
-      expect(trace.tasksForStep('re-review').single.configJson['readOnly'], isTrue);
-
-      expect(trace.tasksForStep('remediate').single.configJson.containsKey('readOnly'), isFalse);
-      expect(trace.tasksForStep('refactor-validate').single.configJson.containsKey('readOnly'), isFalse);
+      expect(trace.tasksForStep('re-review'), isEmpty);
+      expect(trace.tasksForStep('remediate'), isEmpty);
+      expect(trace.tasksForStep('verify-refine'), isEmpty);
     },
   );
 
@@ -1320,8 +1319,9 @@ void main() {
           ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
-              'findings_count': 0,
+              'review_summary': _verdictJson(findingsCount: 1, summary: 'Initial review finds one remediation item'),
+              'findings_count': 1,
+              'review-code.findings_count': 1,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1334,11 +1334,11 @@ void main() {
               'diff_summary': 'No diff',
             }),
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': 'Validation is clean',
               'findings_count': 0,
-              'refactor-validate.findings_count': 0,
+              'verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -1354,7 +1354,7 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Purpose: discover the target project boundary'));
+    expect(discover, contains('Branch:'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
     expect(discover, contains('Base branch: main'));
     expect(discover, contains('PR number: 42'));
@@ -1362,7 +1362,7 @@ void main() {
   });
 
   test(
-    'code-review integration keeps looping until both refactor-validate and re-review findings reach zero',
+    'code-review integration keeps looping until both verify-refine and re-review findings reach zero',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'code-review.yaml',
@@ -1411,11 +1411,11 @@ void main() {
                 'diff_summary': 'Diff summary ${queued.occurrence + 1}',
               }),
             ),
-            'refactor-validate' => _StubResponse(
+            'verify-refine' => _StubResponse(
               assistantContent: _contextOutput({
                 'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
                 'findings_count': 0,
-                'refactor-validate.findings_count': 0,
+                'verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -1444,19 +1444,19 @@ void main() {
       );
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-      expect(trace.count('refactor-validate'), 2);
+      expect(trace.count('verify-refine'), 2);
       expect(trace.count('re-review'), 2);
       expect(
         trace.queuedStepOrder.where(
-          (step) => step == 'remediate' || step == 'refactor-validate' || step == 're-review',
+          (step) => step == 'remediate' || step == 'verify-refine' || step == 're-review',
         ),
-        ['remediate', 'refactor-validate', 're-review', 'remediate', 'refactor-validate', 're-review'],
+        ['remediate', 'verify-refine', 're-review', 'remediate', 'verify-refine', 're-review'],
       );
       expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
     },
   );
 
-  test('code-review integration carries refactor-validate-only failures into the next remediation pass', () async {
+  test('code-review integration carries verify-refine-only failures into the next remediation pass', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -1479,8 +1479,9 @@ void main() {
           ),
           'review-code' => _StubResponse(
             assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
-              'findings_count': 0,
+              'review_summary': _verdictJson(findingsCount: 1, summary: 'Initial review requires one remediation pass'),
+              'findings_count': 1,
+              'review-code.findings_count': 1,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1493,11 +1494,11 @@ void main() {
               'diff_summary': 'Diff summary ${queued.occurrence + 1}',
             }),
           ),
-          'refactor-validate' => _StubResponse(
+          'verify-refine' => _StubResponse(
             assistantContent: _contextOutput({
               'validation_summary': queued.occurrence == 0 ? 'BROKEN_BUILD_MARKER' : 'Validation is now clean',
               'findings_count': queued.occurrence == 0 ? 1 : 0,
-              'refactor-validate.findings_count': queued.occurrence == 0 ? 1 : 0,
+              'verify-refine.findings_count': queued.occurrence == 0 ? 1 : 0,
             }),
           ),
           're-review' => _StubResponse(

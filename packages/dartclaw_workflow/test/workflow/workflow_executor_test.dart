@@ -66,6 +66,31 @@ steps:
     prompt: Record the final result
 ''';
 
+const _inlineEntryGateLoopYaml = '''
+name: ordered-inline-entry-gate-loop
+description: Inline loop with entry gate
+steps:
+  - id: gap-analysis
+    name: Gap Analysis
+    prompt: Analyze the implementation
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 3
+    entryGate: gap-analysis.findings_count > 0
+    exitGate: re-review.status == accepted
+    steps:
+      - id: remediate
+        name: Remediate
+        prompt: Apply fixes
+      - id: re-review
+        name: Re-review
+        prompt: Verify the fixes
+  - id: update-state
+    name: Update State
+    prompt: Record the final result
+''';
+
 void main() {
   late Directory tempDir;
   late String sessionsDir;
@@ -566,6 +591,58 @@ void main() {
 
     expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
 
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop entry gate skips the loop body when findings_count is zero', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'gap-analysis.findings_count': 0});
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'update-state']));
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('inline loop entry gate executes the loop body when findings_count is positive', () async {
+    final definition = WorkflowDefinitionParser().parse(_inlineEntryGateLoopYaml);
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'gap-analysis.findings_count': 3});
+
+    final completedStepIds = <String>[];
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      completedStepIds.add(event.stepId);
+    });
+
+    await executor.execute(run, definition, context);
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    expect(completedStepIds, equals(['gap-analysis', 'remediate', 're-review', 'update-state']));
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });

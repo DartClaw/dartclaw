@@ -73,6 +73,15 @@ Generate a markdown report using only surviving findings, unless `--inline-findi
 
 Standard report sections: Executive Summary (overall assessment, high-level findings, challenge stats, key recommendations), Scope and Context, Completeness Analysis, Clarity Issues, Technical Accuracy, Edge Cases and Risks, Architecture Assessment, Over-Engineering Analysis, Stakeholder Alignment, Prioritized Recommendations (Critical/High/Medium/Low), Readiness Assessment (Ready / Needs Minor Updates / Needs Significant Rework / Not Ready).
 
+## Structured Output
+
+- findings_count: <integer>
+- verdict: <PASS|FAIL>
+- critical_count: <integer>
+- high_count: <integer>
+
+Map the final readiness assessment to `verdict` and emit this block for every run so workflow steps can consume the review result deterministically.
+
 **Report output conventions**: Follow `../references/report-output-conventions.md` with:
 - **Report suffix**: `doc-review`
 - **Scope placeholder**: `spec-name`

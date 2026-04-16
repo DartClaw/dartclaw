@@ -29,7 +29,10 @@ class GateEvaluator {
     final key = match.group(1)!.trim();
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
-    final actual = context[key]?.toString() ?? '';
+    final rawActual = context[key]?.toString() ?? '';
+    // Treat missing/empty values as '0' when the expected value is numeric,
+    // so gates like "findings_count == 0" pass when the key was never set.
+    final actual = rawActual.isEmpty && double.tryParse(expected) != null ? '0' : rawActual;
 
     return switch (op) {
       '==' => actual == expected,

@@ -76,12 +76,7 @@ Add narrower types only when a downstream consumer needs distinct behavior.
 - If the posting command does not return a direct comment URL, resolve it immediately via follow-up GitHub lookup and print that URL before completion
 
 ## Consumption Rules
-- For GitHub issue / PR comment inputs, inspect the body for the typed envelope **before** treating the text as ordinary prose
-- If the envelope exists, validate `schema` and `artifact_type` first
-- If compatible, extract each embedded file verbatim into `.agent_temp/github-artifacts/{github-id}-{artifact_type}/`, preserving the repo-relative paths from the `### File:` headings. Use `canonical_local_primary` to choose the primary extracted file
-- If typed but incompatible with the current skill, stop and tell the user which artifact type or skill is expected
-- If the current skill requires a specific workflow artifact (plan, FIS, review report), do **not** guess from an untyped GitHub shell page or free-form issue body. Stop and ask for the typed artifact or the local file instead
-- Requirements-oriented skills may still consume untyped issues as raw requirements input when that is already part of their normal contract
+See `resolve-github-input.md` for the standard typed-envelope inspection and routing procedure used by consuming skills.
 
 ## Continuation Rules
 - An extracted `.agent_temp/github-artifacts/...` directory is a **working mirror**, not canonical state
@@ -99,7 +94,7 @@ Reusable procedure for skills that accept `<path-to-plan | --issue <number> | is
 2. **`--issue <number>` or GitHub issue URL**:
    a. Fetch the issue body and inspect the typed envelope (validate `schema` and `artifact_type`)
    b. Require `artifact_type: plan-bundle` — if incompatible, apply the calling skill's routing table
-   c. If untyped, **STOP** — the calling skill requires a typed plan artifact, not a free-form issue
+   c. If untyped, stop -- the calling skill requires a typed plan artifact, not a free-form issue
    d. Extract embedded files into `.agent_temp/github-artifacts/{github-id}-plan-bundle/`, preserving the repo-relative paths from `### File:` headings
    e. Resolve `PLAN_FILE_PATH` from `canonical_local_primary`; set `PLAN_DIR` to its parent directory
    f. Store `SOURCE_ISSUE` (issue number or URL) from the envelope's `source_issue_number` or from the input — needed by the continuation sync to know which issue to update

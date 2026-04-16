@@ -117,11 +117,7 @@ steps:
       Initial story plan:
       {{context.stories}}
 
-      Refine the story plan and produce a complete spec for each story.
-      You may reorder, split, or merge stories as needed to improve clarity and implementability.
-      Return the refined story set and per-story specs in the workflow output contract.
       This step is read-only planning and specification only.
-      Do not create, modify, delete, or stage files.
     contextOutputs: [stories, story_spec]
     outputs:
       stories:
@@ -206,10 +202,6 @@ steps:
 
           Validation summary:
           {{context.refactor-validate.validation_summary}}
-
-          Review the story implementation against its spec and acceptance criteria.
-          Focus on correctness, completeness, and obvious scope drift.
-          Return a concise findings summary.
         contextInputs: [project_index, story_spec]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
 

@@ -18,12 +18,11 @@ ADDITIONAL_CONTEXT: $ARGUMENTS
 - `--to-pr <number>` → PUBLISH_PR
 
 ## INSTRUCTIONS
-- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
 - Read-only analysis. The only file you write is the report.
 - If `--inline-findings` is present, do not write a report file. Return findings plus verdict inline to the parent skill instead.
 - Calibrate severity with `../references/review-calibration.md` and `../dartclaw-review-code/references/code-review-calibration.md`.
 - Default to workspace-wide resolution when requirements and implementation may live in different repos.
-- Delegate implementation code review to a sub-agent using `dartclaw-review-code` when available. Instruct the sub-agent to return findings inline — do **not** let it write a separate report file. This skill produces the single consolidated report.
+
 
 ## GOTCHAS
 - Reviewing the wrong implementation target
@@ -43,12 +42,7 @@ ADDITIONAL_CONTEXT: $ARGUMENTS
 #### Requirements Discovery
 When `ADDITIONAL_CONTEXT` is a directory path or a plan file, discover the full requirements baseline rather than treating the single input as the only source.
 
-**GitHub issue or URL** — fetch the body and inspect the typed envelope per `../references/github-artifact-roundtrip.md` before treating it as prose:
-- `artifact_type: plan-bundle` — extract embedded files to `.agent_temp/github-artifacts/{github-id}-plan-bundle/` and continue as a directory / plan input so sibling PRD and FIS discovery still works
-- `artifact_type: fis-bundle` — extract embedded files to `.agent_temp/github-artifacts/{github-id}-fis-bundle/` and continue as a specific FIS input
-- Any `*-review` artifact — **STOP** and exit with the correct downstream path: `dartclaw-remediate-findings`
-- Any other typed artifact — **STOP** and exit with the matching workflow skill. Do not infer compatibility from prose content
-- Untyped issue or URL — use as-is without further discovery
+**GitHub issue or URL** — follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and continue as directory/plan input), `fis-bundle` (extract and continue as specific FIS input). Route: `*-review` → `dartclaw-remediate-findings`; other typed → stop with redirect. Untyped: use as-is without further discovery.
 
 **Directory path** — search the directory (and its parent, for cases where a subdirectory like `fis/` is given) for:
 - `plan.md` — the implementation plan with story breakdown
@@ -87,10 +81,9 @@ Map the current implementation state:
 
 ### 3. Quality Review
 Review solution quality and gather evidence:
-- Run project checks that matter here: static analysis, linting, type checks, tests when applicable
-- Scan for stubs/placeholders
-- Delegate comprehensive code review to `dartclaw-review-code` sub-agent — instruct it to skip report file output and return findings inline
-- Check substance and wiring using `../references/verification-patterns.md`
+- Run project checks directly: static analysis, linting, type checks, tests when applicable
+- Scan for stubs/placeholders using `check-stubs.sh`
+- Check substance and wiring using `../references/verification-patterns.md` and `check-wiring.sh`
 
 **Gate**: Quality review complete
 
@@ -108,19 +101,16 @@ Record gaps in these categories:
 If it adds value, reflect on architectural trade-offs, simpler alternatives, process failures, and recurring knowledge gaps.
 
 ### 6. Adversarial Challenge
-Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+Only spawn the adversarial challenger when any finding is Critical OR total findings exceed 5. Otherwise apply an inline self-check: re-read each finding against the calibration examples and adjust severity. Note when the full challenge was skipped.
+
+When spawning, use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
 - **Role**: `Adversarial Challenger reviewing gap analysis findings`
-- **Shared calibration**: `../references/review-calibration.md`
-- **Skill calibration**: `../dartclaw-review-code/references/code-review-calibration.md`
+- **Shared calibration**: `../references/review-calibration.md` + `../dartclaw-review-code/references/code-review-calibration.md`
 - **Context block**: `Review target context: {implementation target paths from Step 0}`
-- **Questions**:
-  1. `Is this a real gap, or acceptable in context?`
-  2. `Is the severity justified per the calibration examples?`
-  3. `Could there be an existing mitigation the reviewer missed?`
-  4. `Would a senior engineer on this codebase flag this in review?`
+- **Questions**: (1) Real gap or acceptable in context? (2) Severity justified per calibration? (3) Existing mitigation missed? (4) Would a senior engineer flag this?
 - **Verdicts**: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`
 - **Optional extra rules**: `Normalize review-code severities as CRITICAL -> Critical, HIGH -> High, SUGGESTIONS -> Medium.`
-- **Findings payload**: `{all findings from quality review, gap analysis, and optional retrospective}`
+- **Findings payload**: all findings from quality review, gap analysis, and optional retrospective
 
 Apply verdicts before scoring.
 
@@ -139,49 +129,21 @@ Apply verdicts before scoring.
 - If all dimensions meet threshold: **PASS**
 - No conditional verdicts
 
-Include this exact summary in the Executive Summary:
-
-```markdown
-## Verdict
-
-| Dimension     | Score | Threshold | Status |
-|---------------|-------|-----------|--------|
-| Functionality | X/10  | >= 7      | PASS/FAIL |
-| Completeness  | X/10  | >= 9      | PASS/FAIL |
-| Wiring        | X/10  | >= 8      | PASS/FAIL |
-
-**Overall: PASS / FAIL**
-```
+Include the verdict table (Dimension / Score / Threshold / Status rows for each dimension, plus Overall PASS/FAIL) in the Executive Summary.
 
 ### 8. Report
 Write a markdown report with the following sections unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form, including the PASS/FAIL verdict and prioritized remediation guidance.
 
-Standard report sections:
-- **Executive Summary**: overview, verdict table, high-level findings, challenge stats
-- **Requirements Analysis**
-- **Implementation Overview**
-- **Quality Review Findings**
-- **Over-Engineering Analysis**
-- **Gap Analysis Results**
-- **Retrospective & Reflection** when used
-- **Remediation Plan**: Critical/High/Medium/Low, dependencies, sequencing, acceptance criteria
-- **Appendix** when needed
+Standard report sections: Executive Summary, Requirements Analysis, Implementation Overview, Quality Review Findings, Over-Engineering Analysis, Gap Analysis Results, Retrospective & Reflection (when used), Remediation Plan (Critical/High/Medium/Low with dependencies, sequencing, acceptance criteria), Appendix (when needed).
 
 **Report output conventions**: Follow `../references/report-output-conventions.md` with:
-- **Report suffix**: `gap-review`
-- **Scope placeholder**: `feature-name`
-- **Spec-directory rule**: the requirements baseline is a spec/FIS/plan in a spec directory, or the reviewed feature has an associated spec directory from the Project Document Index
-- **Target-directory rule**: the implementation being reviewed is localized to a specific directory, so the report belongs next to the primary implementation target
+- **Report suffix**: `gap-review` / **Scope placeholder**: `feature-name`
+- **Spec-directory rule**: requirements baseline is in a spec directory, or the feature has an associated spec directory from the Project Document Index
+- **Target-directory rule**: implementation is localized to a specific directory, so report belongs next to the primary implementation target
 
 If notable recurring traps emerge, append them to an existing learnings file.
 
 #### Publish to GitHub
-If PUBLISH_ISSUE is `true`:
-1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
-   Title template: `[Review] {scope}: Gap Analysis Report`
-2. Print the issue URL
+If PUBLISH_ISSUE is `true`: follow the GitHub publishing flow in `../references/report-output-conventions.md` with title template `[Review] {scope}: Gap Analysis Report`. Print the issue URL.
 
-If PUBLISH_PR is set:
-1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
-   Publish target: typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup before completing
-2. Print the direct comment URL
+If PUBLISH_PR is set: follow the GitHub publishing flow in `../references/report-output-conventions.md`, publishing as a typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup. Print the direct comment URL.

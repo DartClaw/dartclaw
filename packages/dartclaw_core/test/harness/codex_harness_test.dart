@@ -384,7 +384,7 @@ void main() {
         ]);
         expect(params['model'], 'gpt-5');
         expect(params['cwd'], '/tmp/workspace');
-        expect(params['sandbox'], 'workspaceWrite');
+        expect(params['sandboxPolicy'], {'type': 'workspaceWrite'});
         expect(params['approvalPolicy'], 'on-request');
 
         fake.emitTurnCompleted(inputTokens: 11, outputTokens: 22, cachedInputTokens: 7);
@@ -418,7 +418,7 @@ void main() {
 
         expect(params['model'], 'gpt-5-default');
         expect(params['cwd'], '/tmp/workspace');
-        expect(params['sandbox'], 'workspaceWrite');
+        expect(params['sandboxPolicy'], {'type': 'workspaceWrite'});
         expect(params['approvalPolicy'], 'on-request');
 
         fake.emitTurnCompleted(inputTokens: 11, outputTokens: 22, cachedInputTokens: 7);

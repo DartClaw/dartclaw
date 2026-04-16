@@ -6,31 +6,22 @@ argument-hint: "[optional focus or scope]"
 
 # Quick Review
 
-Lightweight, ad-hoc review of recent work in the current conversation. Spawns a fresh-context sub-agent to critique what was just done — catching errors, inconsistencies, and missed edge cases that in-context work tends to overlook.
-
-**For thorough reviews, start with:** `dartclaw-review`.
-
+Lightweight, ad-hoc review of recent work. Spawns a fresh-context sub-agent to catch errors, inconsistencies, and missed edge cases that in-context work overlooks. For thorough reviews, use `dartclaw-review`.
 
 ## VARIABLES
-
 FOCUS: $ARGUMENTS
 
-
 ## INSTRUCTIONS
-
-- This is a **mid-conversation checkpoint**, not a formal review. Keep it fast and focused.
-- **Read-only analysis.** Do not modify any files.
-- The sub-agent must review in a **fresh context** to avoid confirmation bias from the work just done.
-- Apply the anti-leniency principle: if the sub-agent identifies a problem, it IS a problem. Do not rationalize issues away.
-- Output findings inline in the conversation — no separate report file.
-
+- Mid-conversation checkpoint, not a formal review. Keep it fast and focused.
+- Read-only analysis. Do not modify files.
+- Sub-agent reviews in a fresh context to avoid confirmation bias.
+- Anti-leniency: if the sub-agent identifies a problem, it IS a problem. Do not rationalize issues away.
+- Output findings inline — no separate report file.
 
 ## GOTCHAS
-- Sending the sub-agent too little context (it needs to understand what was done and why)
-- Sending the sub-agent too much context (entire files when only a section changed)
-- Rationalizing away findings because "I just wrote that and it seemed fine"
-- Using this as a substitute for a proper review on significant changes
-
+- Sending too little context (sub-agent needs to understand what was done and why)
+- Sending too much context (entire files when only a section changed)
+- Rationalizing away findings; using this as a substitute for proper review on significant changes
 
 ## WORKFLOW
 
@@ -61,52 +52,40 @@ Determine what type of work was done to frame the review appropriately:
 
 ### 3. Sub-Agent Review
 
-Spawn a **single sub-agent** with the following prompt structure:
+Spawn a **single sub-agent** (`general-purpose` agent type) with the following prompt structure:
 
 ```
 You are a critical reviewer performing an adversarial review of recent changes.
-
-Your job is to find real problems — errors, inconsistencies, missed edge cases,
-contradictions with existing patterns, and gaps. You are not here to validate
-or praise the work.
+Find real problems: errors, inconsistencies, missed edge cases, contradictions, gaps.
 
 ## Anti-Leniency Rules
 - If you identify a problem, it IS a problem. Do not talk yourself out of it.
 - "Works on the happy path" is not a pass — check edge cases and error paths.
-- Do not hedge with "could be an issue" or "might cause problems" — be definitive.
-- Substance over surface: check that things are actually complete, not just present.
+- Be definitive, not hedging. Substance over surface.
 
 ## Context
-{what was done and why — brief description of the task/goal}
+{what was done and why}
 
 ## Review Lens
 {applicable lens from classification step}
 
 ## Changes to Review
-{the change set — diffs, file contents, or artifact content}
+{the change set}
 
-## Review Instructions
-1. Review the changes through the specified lens
-2. Check for internal consistency within the changes
-3. Check for consistency with the surrounding codebase/project context
-4. Identify concrete issues only — no speculative or hypothetical problems
-5. For each finding, state: what's wrong, where, and why it matters
-6. If no significant issues found, say so plainly — do not invent findings
+## Instructions
+1. Review through the specified lens
+2. Check internal consistency and consistency with surrounding codebase
+3. Concrete issues only — no speculative problems
+4. Each finding: what's wrong, where, why it matters
+5. No significant issues? Say so plainly — do not invent findings
 
-Report findings as a concise list. No preamble, no summary section, no severity table.
-Format: one finding per item, each with location and a clear statement of the problem.
+One finding per item. No preamble, no summary, no severity table.
 ```
 
-Use the `general-purpose` agent type. Provide sufficient context in the prompt for the sub-agent to do its job without needing to explore the codebase extensively — include relevant diffs, file excerpts, and project context inline.
+Include relevant diffs, file excerpts, and project context inline so the sub-agent can review without exploring the codebase.
 
 **Gate**: Sub-agent review complete
 
 ### 4. Evaluate and Report
 
-Review the sub-agent's findings. For each:
-- **Accept**: the finding is valid and actionable
-- **Dismiss**: the finding is based on a misunderstanding of the context (explain briefly why)
-
-Present accepted findings to the user as a concise inline list. If there are actionable issues, offer to fix them. If no significant issues were found, state that clearly and move on.
-
-Do not produce a report file. Do not add a summary preamble. Keep it tight.
+Review the sub-agent's findings. **Accept** valid, actionable findings. **Dismiss** findings based on context misunderstanding (explain briefly). Present accepted findings as a concise inline list. Offer to fix actionable issues. No report file, no summary preamble.

@@ -10,7 +10,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         HarnessFactoryConfig,
         KvService,
         MessageService,
-        SessionService;
+        SessionService,
+        Task;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
@@ -20,6 +21,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         PromptScope,
         TaskCancellationSubscriber,
         TaskExecutor,
+        WorktreeManager,
         TaskService,
         TurnManager,
         TurnRunner;
@@ -43,6 +45,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTurnOutcome;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SearchDbFactory, SqliteTaskRepository, SqliteWorkflowRunRepository, TaskDbFactory, openSearchDb, openTaskDb;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
 
@@ -71,6 +74,7 @@ class CliWorkflowWiring {
   late final Database searchDb;
   late final Database taskDb;
   late final TaskService taskService;
+  late final WorktreeManager worktreeManager;
   late final HarnessPool pool;
   late final TaskExecutor taskExecutor;
   late final TaskCancellationSubscriber taskCancellationSubscriber;
@@ -125,9 +129,22 @@ class CliWorkflowWiring {
     final taskRepository = SqliteTaskRepository(taskDb);
     final taskServiceInst = TaskService(taskRepository, eventBus: eventBus);
     taskService = taskServiceInst;
+    worktreeManager = WorktreeManager(
+      dataDir: dataDir,
+      baseRef: config.tasks.worktreeBaseRef,
+      staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
+      worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+    );
+    await worktreeManager.detectStaleWorktrees();
 
     // Harness: minimal config — no MCP server, no container, no guards.
     final defaultProviderId = config.agent.provider;
+    final wiringLog = Logger('CliWorkflowWiring');
+    final providerEntry = config.providers[defaultProviderId];
+    wiringLog.info(
+      'Provider "$defaultProviderId": entry=${providerEntry != null ? providerEntry.toString() : "null"}, '
+      'options=${providerEntry?.options}',
+    );
     _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _harnessConfig = HarnessConfig(
       maxTurns: config.agent.maxTurns,
@@ -188,6 +205,7 @@ class CliWorkflowWiring {
       messages: messageService,
       turns: turns,
       artifactCollector: artifactCollector,
+      worktreeManager: worktreeManager,
       kvService: kvService,
       eventBus: eventBus,
       dataDir: dataDir,
@@ -340,18 +358,7 @@ class CliWorkflowWiring {
         },
         cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
           if (preserveWorktrees) return;
-          final worktreePath = p.join(config.workspaceDir, '.dartclaw', 'worktrees', 'wf-$runId');
-          await Process.run('git', ['worktree', 'remove', worktreePath], workingDirectory: Directory.current.path);
-          await Process.run('git', [
-            'branch',
-            '--delete',
-            'dartclaw/workflow/${runId.replaceAll('-', '')}',
-          ], workingDirectory: Directory.current.path);
-          await Process.run('git', [
-            'branch',
-            '--delete',
-            'dartclaw/workflow/${runId.replaceAll('-', '')}/integration',
-          ], workingDirectory: Directory.current.path);
+          await _cleanupWorkflowGitRun(runId);
         },
         reserveTurn: turns.reserveTurn,
         reserveTurnWithWorkflowWorkspaceDir: (sessionId, workflowWorkspaceDir) => turns.reserveTurn(
@@ -408,12 +415,53 @@ class CliWorkflowWiring {
   Future<void> dispose() async {
     await workflowService.dispose();
     await taskExecutor.stop();
+    await _cleanupTrackedWorkflowGit();
     await taskCancellationSubscriber.dispose();
     await taskService.dispose();
     await pool.dispose();
     await kvService.dispose();
     searchDb.close();
     taskDb.close();
+  }
+
+  Future<void> _cleanupWorkflowGitRun(String runId) async {
+    final runTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList();
+    final cleanupPlan = _buildWorkflowCleanupPlan(runId, runTasks);
+    await _runWorkflowGitCleanupPlan(cleanupPlan);
+  }
+
+  Future<void> _cleanupTrackedWorkflowGit() async {
+    final workflowTasks = (await taskService.list()).where((task) => task.workflowRunId != null).toList();
+    if (workflowTasks.isEmpty) return;
+
+    final worktreePaths = <String>{};
+    final branches = <String>{};
+    final runIds = workflowTasks.map((task) => task.workflowRunId).whereType<String>().toSet();
+    for (final runId in runIds) {
+      final cleanupPlan = _buildWorkflowCleanupPlan(
+        runId,
+        workflowTasks.where((task) => task.workflowRunId == runId).toList(),
+      );
+      worktreePaths.addAll(cleanupPlan.worktreePaths);
+      branches.addAll(cleanupPlan.branches);
+    }
+
+    await _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches));
+  }
+
+  Future<void> _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan cleanupPlan) async {
+    for (final worktreePath in cleanupPlan.worktreePaths) {
+      await Process.run('git', [
+        'worktree',
+        'remove',
+        '--force',
+        worktreePath,
+      ], workingDirectory: Directory.current.path);
+    }
+    for (final branch in cleanupPlan.branches) {
+      if (branch.startsWith('origin/')) continue;
+      await Process.run('git', ['branch', '--delete', '--force', branch], workingDirectory: Directory.current.path);
+    }
   }
 
   /// Ensures the pool contains task runners for every [providerIds] entry.
@@ -511,6 +559,34 @@ Future<bool> _localRefExists(String workingDirectory, String ref) async {
     } catch (_) {}
   }
   return false;
+}
+
+class _WorkflowGitCleanupPlan {
+  final Set<String> worktreePaths;
+  final Set<String> branches;
+
+  const _WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+_WorkflowGitCleanupPlan _buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
+  final runToken = runId.replaceAll('-', '');
+  final worktreePaths = <String>{};
+  final branches = <String>{'dartclaw/workflow/$runToken', 'dartclaw/workflow/$runToken/integration'};
+
+  for (final task in runTasks) {
+    final worktree = task.worktreeJson;
+    if (worktree == null) continue;
+    final path = worktree['path'];
+    final branch = worktree['branch'];
+    if (path is String && path.trim().isNotEmpty) {
+      worktreePaths.add(path.trim());
+    }
+    if (branch is String && branch.trim().isNotEmpty) {
+      branches.add(branch.trim());
+    }
+  }
+
+  return _WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
 }
 
 Future<void> _ensureLocalBranch({required String projectDir, required String branch, required String baseRef}) async {

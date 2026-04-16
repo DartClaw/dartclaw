@@ -61,7 +61,7 @@ class GitNotFoundException implements Exception {
 class WorktreeManager {
   static final _log = Logger('WorktreeManager');
 
-  final String _projectDir;
+  final String? _projectDir;
   final String _baseRef;
   final int _staleTimeoutHours;
   final String _worktreesDir;
@@ -81,7 +81,7 @@ class WorktreeManager {
     String? worktreesDir,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
-  }) : _projectDir = projectDir ?? Directory.current.path,
+  }) : _projectDir = projectDir,
        _baseRef = baseRef,
        _staleTimeoutHours = staleTimeoutHours,
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
@@ -109,7 +109,7 @@ class WorktreeManager {
   Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project, bool createBranch = true}) async {
     await _ensureGitAvailable();
 
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
+    final effectiveProjectDir = project?.localPath ?? _defaultProjectDir;
     final branch = await _resolveBranchName(taskId, projectDir: effectiveProjectDir);
     final worktreePath = p.join(_worktreesDir, taskId);
 
@@ -220,7 +220,7 @@ class WorktreeManager {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = info?.branch ?? 'dartclaw/task-$taskId';
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
+    final effectiveProjectDir = project?.localPath ?? _defaultProjectDir;
 
     // Remove worktree
     final removeResult = await _runProcess('git', [
@@ -307,7 +307,9 @@ class WorktreeManager {
       'branch',
       '--list',
       branchName,
-    ], workingDirectory: projectDir ?? _projectDir);
+    ], workingDirectory: projectDir ?? _defaultProjectDir);
     return (result.stdout as String).trim().isNotEmpty;
   }
+
+  String get _defaultProjectDir => _projectDir ?? Directory.current.path;
 }

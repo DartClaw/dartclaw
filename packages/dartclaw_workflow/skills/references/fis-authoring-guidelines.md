@@ -5,22 +5,7 @@ Shared authoring guidelines for generating Feature Implementation Specifications
 
 ## FIS Authoring Principles
 
-> The FIS is an executable specification optimized for AI agents — concise, actionable, reference-heavy.
->
-> **Core Principles:**
-> 1. **Intent over Implementation**: Describe outcomes, goals and context, not exact code changes — the executing agent decides *how*
-> 2. **References over Content**: Link to docs, code (file:line), and research — don't inline them
-> 3. **Patterns by Reference**: Point to existing code patterns (file:line) rather than reproducing them
-> 4. **Decisions, not Explanations**: State the decision, not lengthy rationale
-> 5. **Information Dense**: Keywords and patterns from the codebase, minimal prose
->
-> **DON'Ts:**
-> - No code snippets longer than 5 lines — reference existing patterns instead
-> - No inline documentation excerpts — link to the source
-> - No verbose prose or explanations — be terse and actionable
-> - No repeating information available elsewhere — reference it
-> - No describing code changes or file creation steps — describe outcomes and goals
-> - No file tree listings or "Outline of New/Changed Files" — the executing agent discovers structure from the codebase
+Describe outcomes and goals, not code changes. Reference existing patterns (file:line) and docs instead of inlining them. Keep it information-dense: decisions not explanations, keywords not prose, no code snippets >5 lines, no file tree listings.
 
 
 ## Technical Research Separation
@@ -48,13 +33,7 @@ When writing the FIS, reference the technical research rather than inlining find
 
 ### Verification during execution
 
-Technical research is a **point-in-time snapshot** — codebase patterns, API behaviors, and library versions change. The executing agent MUST treat research findings as leads to verify, not facts to trust:
-- **File:line references** may be stale — verify they still exist and match the described pattern
-- **API behaviors** described in research should be confirmed against the current codebase or docs
-- **Library gotchas** may be version-specific — check the project's actual dependency versions
-- **Architecture patterns** referenced should be confirmed they still exist in the codebase
-
-A research finding that doesn't match reality is a signal to investigate, not to force-fit the research into the implementation.
+Technical research is a point-in-time snapshot. The executing agent should treat findings as leads to verify, not facts to trust -- file:line references, API behaviors, library gotchas, and architecture patterns may all be stale.
 
 
 ## Scenarios and Proof-of-Work
@@ -73,9 +52,7 @@ Scenarios are the bridge between requirements and tests. Borrowed from BDD's cor
 - **No-match cases**: Are there selectors, filters, or lookups where "nothing matches" could fall through to an unintended default? A `firstWhere` with an `orElse` fallback that silently proceeds is a bug if the intent is ignore/reject.
 - **Rejection paths**: Are there external integration points (webhooks, API calls) where unmatched/invalid input should be explicitly ignored or rejected? One scenario covering the reject/ignore path is sufficient.
 
-**Proof-of-Work principle** (after Tegmark & Omohundro's asymmetry insight — verification is cheaper than generation): every claim of completion must come with verifiable evidence. An agent that *claims* "task done" is a trust problem; an agent that produces checkable artifacts is an engineering problem. Proof takes many forms — passing tests for behavioral scenarios, green Verify-line checks for task outcomes, clean stub detection for substantive implementation, visual validation for UI, build/type/lint pass for structural correctness.
-
-**Proof is defined at spec time, executed at implementation time.** The FIS locks down what proof is required; exec-spec produces and verifies it. Every Success Criterion must have a proof path: at least one scenario (for behavioral criteria) or a task Verify line (for structural criteria). The Testing Strategy maps scenarios to task IDs so proof is produced incrementally as tasks land, not deferred to the end. A criterion with no defined proof path is a spec gap, not an implementation decision.
+**Proof-of-Work**: every Success Criterion must have a proof path -- at least one scenario (for behavioral criteria) or a task Verify line (for structural criteria). The Testing Strategy maps scenarios to task IDs so proof is produced incrementally. A criterion with no proof path is a spec gap.
 
 **Traceability**: Scenarios form a chain across the workflow. Plan stories may include **Key Scenarios** — one-line behavioral seeds (happy path, edge case, error). During spec, these seeds are elaborated into full Given/When/Then scenarios. During execution, scenarios become test cases (proof-of-work). If a plan story has Key Scenarios, every seed should map to at least one FIS scenario — don't silently drop seeds.
 
@@ -105,7 +82,7 @@ Treat this section as the "how to execute this spec safely" footer. Keep it shor
    - Strong: `Test: effectiveConcurrency(3) returns 3 when maxParallel is 5 — AND dispatch loop calls it`
    Where applicable, trace verification back to the feature's Success Criteria. Reference: `${CLAUDE_PLUGIN_ROOT}/references/verification-patterns.md` for stub-detection and wiring-check patterns.
 
-   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line MUST check the prescribed detail — not just that "output exists." The executing agent reads the full FIS, but the Verify line is still the strongest anti-drift contract between spec, implementation, and final validation. If the proof check does not name the prescribed detail, it is easy for the implementation to satisfy the task in spirit while missing the exact contract.
+   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line should check the prescribed detail -- not just that "output exists."
    - Weak: `Verify: traces list shows token breakdown` (doesn't name the columns)
    - Strong: `Verify: traces list output includes columns IN_TOKENS, OUT_TOKENS, CACHE_R, CACHE_W`
    - Weak: `Verify: pool summary displays after agent list` (doesn't specify format)
@@ -126,14 +103,14 @@ After defining individual tasks (TI01, TI02...), order them so the implementatio
 
 Put foundational tasks first, then widening tasks, then polish/integration tasks. Keep related tasks adjacent when they share context, but don't introduce separate grouping syntax unless the document genuinely needs it for reader clarity.
 
-When a later task must consume something from an earlier task (an API, a type, a component), state this explicitly in the later task's description. Don't rely on the executing agent discovering it from context. Example: if TI01 creates `effectiveConcurrency()`, TI03 should say "Dispatch loop MUST use `effectiveConcurrency()` from TI01 for concurrency cap."
+When a later task consumes something from an earlier task (an API, a type, a component), state this explicitly. Example: if TI01 creates `effectiveConcurrency()`, TI03 should say "Dispatch loop uses `effectiveConcurrency()` from TI01 for concurrency cap."
 
 
 ## Plan-Spec Alignment Check (when FIS originated from a plan story)
 
 Before finalizing, cross-check each plan acceptance criterion against the FIS:
 - For each acceptance criterion in the plan story, verify the FIS Success Criteria can deliver it
-- If any criterion cannot be fully satisfied (due to scope exclusions, architectural constraints, or "What We're NOT Doing" items), you MUST either:
+- If any criterion cannot be fully satisfied (due to scope exclusions, architectural constraints, or "What We're NOT Doing" items), either:
   (a) Expand the FIS scope to address the criterion, or
   (b) Add a scope note to the FIS explaining the narrowing (e.g., "replace-mode harnesses only; see Constraints") and flag it for the spec-plan cross-cutting review
 - Do not finalize a FIS that silently narrows a plan requirement
@@ -142,20 +119,14 @@ Before finalizing, cross-check each plan acceptance criterion against the FIS:
 ## Self-Check
 
 Quick sanity check before saving:
-- [ ] FIS follows template structure
-- [ ] All tasks are atomic and have file:line references where relevant
-- [ ] Tasks are ordered coherently, and any dependency on an earlier task is stated explicitly
-- [ ] ADR clearly states the decision
-- [ ] Scenarios cover happy path, edge cases, and at least one error case; all plan Key Scenario seeds mapped (if from a plan story)
-- [ ] Negative-path checklist applied: omitted optional inputs, no-match selectors/filters, and rejection paths for external integrations all covered by scenarios
-- [ ] Every Success Criterion has a proof path — at least one scenario (behavioral) or task Verify line (structural)
-- [ ] **Scope-consistency**: every item listed in "In Scope" is exercised by at least one scenario (for behavioral items) or task with a Verify line (for structural items) — items with no coverage are either phantom features (remove from scope) or underspecified (add a scenario or task)
-- [ ] **What We're NOT Doing** section is specific: each exclusion is intentional, justified, and does not silently narrow a Success Criterion
-- [ ] **Output format completeness**: if `--json`, structured output, or machine-readable format is a Success Criterion, at least one scenario's **Then** clause specifies the output shape (key fields, structure) — not just "returns JSON"
-- [ ] No over-specification — if a section feels padded, trim it
-- [ ] No item in "What We're NOT Doing" blocks or contradicts a Success Criterion — for each exclusion, trace the data/flag path from requirement to runtime behavior; if the exclusion blocks a necessary intermediate step, either remove the exclusion or escalate
-- [ ] No code snippets longer than 5 lines — describe outcomes and reference patterns instead
-- [ ] **Size check**: FIS is still execution-sized. As a rule of thumb, most strong specs stay in the 100-300 line range; if this draft is pushing past roughly ~400 lines or >12 tasks, split it upstream instead of asking `exec-spec` to recover downstream. Use a spec-time pivot only for standalone feature requests, not for an existing single plan story.
+- [ ] FIS follows template structure; tasks are atomic with file:line references and explicit inter-task dependencies
+- [ ] ADR states the decision clearly
+- [ ] Scenarios cover happy path, edge cases, and at least one error case; plan Key Scenario seeds mapped; negative-path checklist applied (omitted inputs, no-match, rejection paths)
+- [ ] Every Success Criterion has a proof path (scenario or Verify line); every in-scope item exercised
+- [ ] "What We're NOT Doing" is specific, justified, and does not block a Success Criterion
+- [ ] Output formats specified concretely in scenarios (key fields, structure -- not just "returns JSON")
+- [ ] No over-specification, no code snippets >5 lines
+- [ ] Size check: 100-300 lines typical; >400 lines or >12 tasks signals a split needed
 
 ### Confidence Check
 Rate your FIS 1-10 for single-pass implementation success:

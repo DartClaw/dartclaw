@@ -67,11 +67,16 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     if (settings != null) {
       for (final entry in settings.entries) {
         if (entry.value == null) continue;
-        params[switch (entry.key) {
-              'approval_policy' => 'approvalPolicy',
-              _ => entry.key,
-            }] =
-            entry.value;
+        switch (entry.key) {
+          // Per Codex app-server protocol: turn/start uses sandboxPolicy object
+          // form {type: "..."}, not flat sandbox string.
+          case 'sandbox':
+            params['sandboxPolicy'] = {'type': entry.value};
+          case 'approval_policy':
+            params['approvalPolicy'] = entry.value;
+          default:
+            params[entry.key] = entry.value;
+        }
       }
     }
     if (threadId != null) {

@@ -18,14 +18,12 @@ ARGUMENTS: $ARGUMENTS
 ```
 /refactor <description of what to improve>    # Targeted refactoring by description
 /refactor --path src/api/                     # Refactor specific path
-/refactor --path src/utils.ts                 # Refactor specific file
 /refactor                                     # Refactor recently changed code
 ```
 
 
 ## INSTRUCTIONS
 
-- **Fully** read and understand the **Workflow Rules, Guardrails and Guidelines** section in CLAUDE.md / AGENTS.md (or system prompt) before starting work
 - **Preserve exact behavior** – change only *how* the code works, never *what* it does, unless explicitly requested
 - **No scope creep** – only refactor what's specified
 - **Tests must pass** before and after refactoring
@@ -36,12 +34,7 @@ ARGUMENTS: $ARGUMENTS
 
 ### Refactoring Philosophy
 
-The purpose of refactoring is to make code easier to understand, maintain, and extend. Favor **readable, explicit code** over compact or clever solutions:
-
-- **Reduce complexity**: flatten nesting, eliminate over-abstraction, remove dead code and unused imports
-- **Improve clarity**: better naming, consolidate related logic, remove comments that describe the obvious
-- **Eliminate duplication**: extract shared logic only when it genuinely reduces maintenance burden
-- **Respect balance**: don't over-simplify – avoid combining too many concerns into single functions, don't remove helpful abstractions, don't prioritize "fewer lines" over readability, don't create overly clever solutions that are hard to debug or extend
+Favor **readable, explicit code** over compact or clever solutions. Reduce complexity (flatten nesting, remove dead code/over-abstraction), improve clarity (better naming, consolidate related logic), and eliminate duplication only when it genuinely reduces maintenance burden. Respect balance — don't combine too many concerns into single functions, don't remove helpful abstractions, and don't prioritize "fewer lines" over readability.
 
 
 ## GOTCHAS
@@ -100,10 +93,7 @@ Execute improvements from the prioritized list when the prompt calls for edits o
 - Verify each change preserves existing behavior
 - Keep individual changes small and verifiable – don't batch unrelated improvements
 
-If the prompt is validation-only or validation-first:
-- run the requested checks first
-- report passes, failures, and skips explicitly
-- only make edits when the prompt also asks for remediation or when a tiny scoped fix is clearly part of the requested pass
+If the prompt is validation-only or validation-first: run the requested checks first, report passes/failures/skips explicitly, and only make edits when the prompt also asks for remediation or a tiny scoped fix is clearly part of the requested pass.
 
 
 ### Phase 4: Verification
@@ -119,8 +109,4 @@ Run in **parallel sub-agents** _(if supported; otherwise sequentially)_:
 
 **Gate**: All tests pass, no regressions, no new lint/type errors.
 
-Include verification evidence in completion summary (as applicable):
-- **Tests**: pass/fail counts (e.g., "42/42 pass")
-- **Linting/types**: error and warning counts
-- **Build**: exit code or success/failure status
-- **Skipped checks**: what was skipped and why
+Include verification evidence in completion summary: test pass/fail counts, linting/type error and warning counts, build exit code or status, and any skipped checks with reasons.

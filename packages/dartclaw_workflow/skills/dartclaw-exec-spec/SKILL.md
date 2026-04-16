@@ -14,8 +14,7 @@ FIS_SOURCE: $ARGUMENTS
 ## INSTRUCTIONS
 
 ### Core Rules
-- **Make sure `FIS_SOURCE` is provided** – otherwise **STOP** immediately with a missing-input error that states a local FIS path or typed GitHub FIS artifact is required.
-- **Fully** read and understand the **Workflow Rules, Guardrails and Guidelines** in CLAUDE.md / AGENTS.md before starting.
+- **Make sure `FIS_SOURCE` is provided** – otherwise stop -- missing input: a local FIS path or typed GitHub FIS artifact is required.
 - **Complete Implementation**: 100% completion required — partial completion is never an acceptable outcome for this skill.
 - **FIS is source of truth** – follow it exactly
 - **Persistence required**: do not give up because the FIS is long, cross-cutting, or inconvenient; persist until the full FIS is complete or a real external blocker makes completion impossible
@@ -37,36 +36,16 @@ FIS_SOURCE: $ARGUMENTS
 **You do NOT:** delegate coding to advisory agents, batch status updates until the end, silently narrow scope, or skip final gates.
 
 ### Helper Scripts
-Available in `../scripts/`:
-- `check-stubs.sh <path>` – scan for incomplete implementation indicators
-- `check-wiring.sh <path>` – verify new/changed files are imported/referenced
-- `verify-implementation.sh <file1> [file2...]` – combined existence + substance + wiring check
+Available in `../scripts/`: `check-stubs.sh <path>` (incomplete implementation indicators), `check-wiring.sh <path>` (import/reference verification), `verify-implementation.sh <file1> [file2...]` (combined existence + substance + wiring check).
 
 ### Proactive Sub-Agents
-Spawn narrow background sub-agents when they are likely to materially improve a coding decision or to offload auxiliary context-heavy work from the main agent. Their output is advisory; the FIS remains the contract.
-
-_Typical cases when to delegate to a sub-agent:_
-- A documentation-lookup task – use for lookup unfamiliar APIs, library/framework behavior, migration details, or version-specific questions.  This is a typical example of where delegating to a sub-agent can reduce context use.
-- An architecture-focused task – use for unresolved architectural trade-offs or integration-pattern ambiguity not settled by the FIS
-- A UI/UX task – use for UI layout, interaction, accessibility, or responsive-pattern advice when the FIS needs a design contract
-- A build-troubleshooting task – use for non-trivial build failures, dependency conflicts, or cascading test failures
-- A research task – use for external best-practice research or context not available in the codebase
-- A QA or test-strategy task – use for complex test strategy or unfamiliar test-harness patterns
-
-Usage rules:
-- Prefer multiple narrow questions over one broad prompt
-- Spawn early when the need appears; do not wait until you are fully blocked
-- Continue local implementation when the sub-agent is background-able
-- If sub-agent guidance conflicts with the FIS, follow the FIS
-- Do not spawn a sub-agent for coding work you should do directly
+Spawn narrow background sub-agents for advisory work (documentation lookup, architecture questions, UI/UX advice, build troubleshooting, external research). Their output is advisory; the FIS remains the contract. Do not delegate coding work.
 
 
 ## GOTCHAS
-- **Delegating implementation to advisory sub-agents** – this recreates the context-loss and serial overhead the skill is designed to avoid
-- **Status updates dropped when context exhausted** – update FIS task checkboxes immediately during implementation; plan and FIS updates in Step 5 are GATES
-- **FIS references get stale if spec was updated** – always re-read the FIS
-- **Not signaling active-story status to the `State` document when called in a plan context** – read the location from the **Project Document Index** and set "In Progress" at start
-- **Treating spec size or difficulty as permission to narrow scope** – exec-spec executes the FIS it was given; if the spec should have been split, that is an upstream spec-quality problem, not a license to land a subset and stop
+- Delegating implementation to advisory sub-agents instead of coding directly
+- Batching status updates to the end instead of updating checkboxes immediately
+- Narrowing scope because the FIS is large -- execute it fully or escalate
 
 
 ## WORKFLOW
@@ -75,25 +54,18 @@ Usage rules:
 1. Resolve `FIS_SOURCE` to a local `FIS_FILE_PATH`:
    - local file path: use it directly
    - if the execution was started from plan context, recover any available `PLAN_FILE_PATH` and `STORY_IDS` from the local artifact set or workflow context
-   - if no local FIS path can be resolved, **STOP**
+   - if no local FIS path can be resolved, stop
 2. Recover enough local source metadata to finish the run cleanly: canonical FIS path, optional plan path, and optional story IDs
 
 **Gate**: canonical FIS path resolved and any plan/artifact metadata captured
 
 ### Step 2: Read and Prepare
-1. Read the full FIS at _`FIS_FILE_PATH`_
-2. Understand the sections that define execution: Success Criteria, Scenarios, Scope & Boundaries, Architecture Decision, Technical Overview, Implementation Plan, Testing Strategy, Validation, and Final Validation Checklist
-3. **Read Technical Research** – if the FIS references a `technical-research.md`, read it before making code changes. Treat findings as leads to verify, not facts to trust.
-4. Read the `Learnings` document (see **Project Document Index**) if it exists and is relevant
-5. Read the `Ubiquitous Language` document (see **Project Document Index**) if it exists and is relevant. Use canonical terms in code and avoid listed synonyms.
-6. Build a quick codebase overview once at the start (`tree -d`, `git ls-files | head -250`), then stop broad discovery and focus on the files/tasks the FIS actually touches
-7. If the FIS has **Scenarios** and/or **Testing Strategy**, scaffold the minimum high-signal scenario-test skeletons inline using nearby test patterns. When practical, confirm they fail before implementation. If the test harness is still unclear after one bounded pass, note the skip and continue.
-8. If the FIS has UI work and no adequate design contract is already referenced, create a short `.agent_temp/ui-spec-{feature-name}.md` covering spacing, typography, color, component patterns, and responsive breakpoints. Source from FIS → project design system → UX guidelines → reasonable defaults.
-9. **Update project state** (if the `State` document exists in the location defined by the **Project Document Index** and the FIS originated from a plan): restore story context from `STORY_IDS`. For a single-story FIS, use that story directly. For a composite/shared FIS, mark the active work as the composite/story set rather than inventing a single story ID.
-10. Initialize working notes you will maintain during the run:
-   - Per-task status
-   - `changed-files`
-   - Any `CONFUSION`, `NOTICED BUT NOT TOUCHING`, or `MISSING REQUIREMENT` items
+1. Read the full FIS. Understand Success Criteria, Scenarios, Scope, Architecture Decision, Implementation Plan, Testing Strategy, and Final Validation Checklist.
+2. Read referenced `technical-research.md`, `Learnings`, and `Ubiquitous Language` documents when they exist. Treat research as leads to verify.
+3. Build a quick codebase overview (`tree -d`, `git ls-files | head -250`), then focus on files the FIS touches.
+4. If the FIS has Scenarios/Testing Strategy, scaffold scenario-test skeletons. If UI work with no design contract, create a brief `.agent_temp/ui-spec-{feature-name}.md`.
+5. Update project state if the `State` document exists and the FIS originated from a plan.
+6. Initialize working notes: per-task status, `changed-files`, and any `CONFUSION`/`NOTICED BUT NOT TOUCHING`/`MISSING REQUIREMENT` items.
 
 ### Step 3: Implement
 Implement the FIS yourself, task by task, in the order listed.
@@ -108,11 +80,8 @@ For each task:
 7. Record the task result in your working notes
 
 Implementation rules:
-- Use the structured output protocols from `../references/structured-output-protocols.md` when needed:
-  - **CONFUSION**: the FIS is ambiguous and you cannot safely proceed
-  - **NOTICED BUT NOT TOUCHING**: you found something relevant but out of scope
-  - **MISSING REQUIREMENT**: a task assumes something absent from the codebase
-- Spawn proactive sub-agents when the need arises, but keep ownership of the code changes locally
+- Use structured output protocols from `../references/structured-output-protocols.md` when needed: **CONFUSION** (FIS is ambiguous), **NOTICED BUT NOT TOUCHING** (relevant but out of scope), **MISSING REQUIREMENT** (task assumes something absent)
+- Spawn proactive sub-agents when needed, but keep ownership of code changes locally
 - If `changed-files` becomes incomplete or ambiguous, derive it from the current worktree diff before Step 4
 
 ### Step 4: Validate
@@ -147,32 +116,15 @@ All substeps below are REQUIRED gates when Step 4 passes.
 1. Verify ALL success criteria in FIS are met
 2. Verify ALL task checkboxes marked complete; mark any missed now
 3. Verify Final Validation Checklist items satisfied
-4. **Substantive check**: `rg "TODO|FIXME|placeholder|not.implemented" <changed-files>` — must be clean
-5. **Wiring check**: each new file/component is imported or referenced by at least one other file
-6. Include verification evidence per `../references/verification-evidence.md`: **Build**, **Tests**, **Linting/types**; add **Visual validation** and **Runtime** for UI/runtime stories
-7. **Spec compliance confirmation**: verify the Step 4a spot-check passed and no required spec detail remains mismatched
+4. Collect verification evidence from Step 4a results (build, tests, linting/types; add visual validation and runtime for UI stories)
 
-#### 5b. Update FIS Status (REQUIRED GATE)
-Mark completed task, success-criteria, and Final Validation Checklist checkboxes in the FIS document. Task checkboxes should already be current from Step 3; this gate catches anything missed.
+#### 5b. Update Status and Project State (Gate)
+Update FIS checkboxes and source plan (if applicable) via `dartclaw-update-state`. For plan-originated stories, also mark the active story `Done` in the State document (see **Project Document Index**). Re-read updated artifacts to verify.
 
-#### 5c. Update Source Plan (REQUIRED GATE – if FIS from a plan)
-Use restored `PLAN_FILE_PATH` + `STORY_IDS`. Invoke the `dartclaw-update-state` skill to update the source plan: set each covered story Status to `Done`, set the FIS field path, check off acceptance criteria, and update the Story Catalog table. For composite/shared FIS, update **all** constituent stories listed in `STORY_IDS`. After ops completes, **re-read plan and FIS files** to verify updates applied (`ops` runs in fork context and modifications may not be visible in your current state).
+#### 5c. Canonical Continuation Sync _(if `FIS_SOURCE_MODE = github-artifact`)_
+The `.agent_temp/github-artifacts/...` directory is only a working mirror. If canonical local FIS/plan paths exist in the workspace, verify final updates landed there. Otherwise update the source GitHub issue to the latest typed `fis-bundle` (updated FIS, `technical-research.md`, `plan.md` when applicable, and `fis_path`/`plan_path`/`story_ids` metadata). Do not finish with the temp mirror as the only updated copy.
 
-#### 5d. Update Project State (if the `State` document exists; see **Project Document Index**)
-Follow `../references/post-completion-guide.md` (`Story Runs` → `State` Document).
-
-#### 5e. Canonical Continuation Sync _(if `FIS_SOURCE_MODE = github-artifact`)_
-The extracted `.agent_temp/github-artifacts/...` directory is only a working mirror. Before finishing:
-- If the canonical local FIS / plan paths exist in the workspace, verify all final updates landed there
-- Otherwise update the source GitHub issue to the latest typed `fis-bundle`, including:
-  - Updated FIS contents
-  - Updated `technical-research.md` when present
-  - Updated `plan.md` when this was a plan-backed FIS
-  - `fis_path`, `plan_path`, and `story_ids` metadata reflecting the final state
-
-Do not finish with the temp mirror as the only updated copy.
-
-#### 5f. Completion Report
+#### 5d. Completion Report
 Report back with:
 - Per-task status
 - Files created/modified
@@ -180,6 +132,6 @@ Report back with:
 - Any unresolved low-priority issues or `NOTICED BUT NOT TOUCHING` items
 
 ## Post-Completion
-Follow `../references/post-completion-guide.md` (`Story Runs` → `Learnings`) for `Learnings`-file updates. Do not create a new `Learnings` document from exec-spec unless one already exists in the location defined by the **Project Document Index**.
+If the `Learnings` document (see **Project Document Index**) exists, capture story-level traps, domain knowledge, procedural knowledge, and error patterns. Keep entries brief (1-2 sentences). Do not create a new `Learnings` document unless one already exists.
 
-> FIS checkbox/status updates and plan updates are handled in Step 5 – they are REQUIRED GATES, not post-completion tasks.
+> FIS checkbox/status updates and plan updates are handled in Step 5 – they are gates, not post-completion tasks.

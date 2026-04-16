@@ -1,0 +1,649 @@
+@Tags(['integration'])
+library;
+
+import 'dart:async';
+import 'dart:io';
+
+import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepCompletedEvent;
+import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show EventBus, TaskStatus, TaskStatusChangedEvent, WorkflowRunStatus, WorkflowRunStatusChangedEvent;
+import 'package:dartclaw_server/dartclaw_server.dart' show LogService, TaskService;
+import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
+import 'package:test/test.dart';
+
+// ---------------------------------------------------------------------------
+// Path resolution helpers
+// ---------------------------------------------------------------------------
+
+String _privateRepoDir() {
+  var current = Directory.current;
+  while (true) {
+    final candidates = [p.join(current.path, '..', 'dartclaw-private'), p.join(current.path, 'dartclaw-private')];
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync() &&
+          File(p.join(candidate, 'docs', 'testing', 'workflows', 'fixture.sh')).existsSync()) {
+        return Directory(candidate).resolveSymbolicLinksSync();
+      }
+    }
+    final parent = current.parent;
+    if (parent.path == current.path) {
+      throw StateError('Could not locate dartclaw-private repo');
+    }
+    current = parent;
+  }
+}
+
+String _fixtureDir(String privateRepo) =>
+    p.join(privateRepo, 'docs', 'testing', 'workflows', 'data', 'projects', 'workflow-testing');
+
+String _dataDir(String privateRepo) => p.join(privateRepo, 'docs', 'testing', 'workflows', 'data');
+
+String _fixtureSh(String privateRepo) => p.join(privateRepo, 'docs', 'testing', 'workflows', 'fixture.sh');
+
+// ---------------------------------------------------------------------------
+// Config loading — replicates run.sh path templating
+// ---------------------------------------------------------------------------
+
+DartclawConfig _loadWorkflowsConfig(String privateRepo) {
+  final dataDir = _dataDir(privateRepo);
+  final dataDirAbs = Directory(dataDir).resolveSymbolicLinksSync();
+  final workspaceDir = p.join(dataDirAbs, 'workflow-workspace');
+  final templatePath = p.join(dataDirAbs, 'dartclaw.yaml');
+
+  final templateYaml = File(templatePath).readAsStringSync();
+  final resolvedYaml = templateYaml
+      .replaceAll('__DATA_DIR__', dataDirAbs)
+      .replaceAll('__WORKFLOW_WORKSPACE_DIR__', workspaceDir);
+
+  final runtimePath = p.join(dataDirAbs, '.e2e-test.runtime.yaml');
+  File(runtimePath).writeAsStringSync(resolvedYaml);
+
+  return DartclawConfig.load(configPath: runtimePath);
+}
+
+// ---------------------------------------------------------------------------
+// Codex availability check
+// ---------------------------------------------------------------------------
+
+Future<bool> _codexAvailable() async {
+  try {
+    final result = await Process.run('codex', ['--version']);
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TI02: Step capture infrastructure
+// ---------------------------------------------------------------------------
+
+class WorkflowStepTrace {
+  final String stepKey;
+  final String taskId;
+  final String title;
+  final String description;
+  final TaskStatus terminalStatus;
+  final Map<String, dynamic> configJson;
+  final Map<String, dynamic>? worktreeJson;
+  final DateTime queuedAt;
+  final DateTime? completedAt;
+
+  WorkflowStepTrace({
+    required this.stepKey,
+    required this.taskId,
+    required this.title,
+    required this.description,
+    required this.terminalStatus,
+    required this.configJson,
+    this.worktreeJson,
+    required this.queuedAt,
+    this.completedAt,
+  });
+}
+
+class WorkflowExecutionRecorder {
+  final EventBus _eventBus;
+  final TaskService _taskService;
+  final WorkflowDefinition _definition;
+  final List<WorkflowStepTrace> traces = [];
+  final List<String> stepOrder = [];
+  final Map<String, List<String>> descriptionsByStep = {};
+
+  late final StreamSubscription<TaskStatusChangedEvent> _queuedSub;
+  late final StreamSubscription<TaskStatusChangedEvent> _terminalSub;
+
+  final _pending = <String, WorkflowStepTrace>{};
+
+  WorkflowExecutionRecorder(this._eventBus, this._taskService, this._definition);
+
+  void start() {
+    _queuedSub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await _taskService.get(e.taskId);
+      if (task == null || task.stepIndex == null) return;
+
+      final stepKey = _definition.steps[task.stepIndex!].id;
+
+      stepOrder.add(stepKey);
+      descriptionsByStep.putIfAbsent(stepKey, () => []).add(task.description);
+      _pending[task.id] = WorkflowStepTrace(
+        stepKey: stepKey,
+        taskId: task.id,
+        title: task.title,
+        description: task.description,
+        terminalStatus: TaskStatus.queued,
+        configJson: Map<String, dynamic>.from(task.configJson),
+        worktreeJson: task.worktreeJson,
+        queuedAt: DateTime.now(),
+      );
+    });
+
+    _terminalSub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus.terminal).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final pending = _pending.remove(e.taskId);
+      if (pending == null) return;
+
+      // Re-read the task to get worktreeJson (set during execution)
+      final task = await _taskService.get(e.taskId);
+      traces.add(
+        WorkflowStepTrace(
+          stepKey: pending.stepKey,
+          taskId: pending.taskId,
+          title: pending.title,
+          description: pending.description,
+          terminalStatus: e.newStatus,
+          configJson: pending.configJson,
+          worktreeJson: task?.worktreeJson ?? pending.worktreeJson,
+          queuedAt: pending.queuedAt,
+          completedAt: DateTime.now(),
+        ),
+      );
+    });
+  }
+
+  Future<void> dispose() async {
+    await _queuedSub.cancel();
+    await _terminalSub.cancel();
+  }
+
+  int count(String stepKey) => stepOrder.where((s) => s == stepKey).length;
+
+  List<WorkflowStepTrace> tracesForStep(String stepKey) => traces.where((t) => t.stepKey == stepKey).toList();
+}
+
+// ---------------------------------------------------------------------------
+// TI06: Assertion helpers
+// ---------------------------------------------------------------------------
+
+void expectStepOrder(WorkflowExecutionRecorder recorder, List<String> expectedSteps) {
+  final actual = recorder.stepOrder;
+  var expectedIdx = 0;
+  for (var i = 0; i < actual.length && expectedIdx < expectedSteps.length; i++) {
+    if (actual[i] == expectedSteps[expectedIdx]) {
+      expectedIdx++;
+    }
+  }
+  if (expectedIdx < expectedSteps.length) {
+    fail(
+      'Step ordering mismatch: expected steps ${expectedSteps.sublist(expectedIdx)} '
+      'were not found in order.\nActual step order: $actual',
+    );
+  }
+}
+
+void expectStepInputContains(WorkflowExecutionRecorder recorder, String stepKey, String expectedSubstring) {
+  final descriptions = recorder.descriptionsByStep[stepKey];
+  if (descriptions == null || descriptions.isEmpty) {
+    fail(
+      'No descriptions recorded for step "$stepKey".\nAvailable steps: ${recorder.descriptionsByStep.keys.toList()}',
+    );
+  }
+  final anyMatch = descriptions.any((d) => d.contains(expectedSubstring));
+  if (!anyMatch) {
+    final previews = descriptions.map((d) => d.length > 300 ? '${d.substring(0, 300)}...' : d).toList();
+    fail('Step "$stepKey" description does not contain "$expectedSubstring".\nPreviews: $previews');
+  }
+}
+
+void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) {
+  final stepTraces = recorder.tracesForStep(stepKey);
+  if (stepTraces.isEmpty) {
+    fail('No traces recorded for step "$stepKey"');
+  }
+  for (final trace in stepTraces) {
+    expect(trace.worktreeJson, isNotNull, reason: 'Step "$stepKey" (task ${trace.taskId}) should have worktreeJson');
+    expect(trace.worktreeJson!['path'], isNotNull, reason: 'Step "$stepKey" worktreeJson should contain a "path" key');
+  }
+}
+
+void expectPublishSuccess(Map<String, dynamic> contextJson) {
+  final contextData = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
+  expect(
+    contextData['publish.status'],
+    'success',
+    reason: 'Workflow publish should have status "success", got "${contextData['publish.status']}"',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TI05: PR cleanup helpers
+// ---------------------------------------------------------------------------
+
+Future<void> _closePr(String prUrl) async {
+  if (prUrl.isEmpty) return;
+  await Process.run('gh', ['pr', 'close', prUrl, '--delete-branch']);
+}
+
+Future<void> _closePrByBranch(String branch, String repo) async {
+  if (branch.isEmpty) return;
+  await Process.run('gh', ['pr', 'close', branch, '--repo', repo, '--delete-branch']);
+}
+
+Future<void> _pruneLocalWorkflowBranches(String projectDir) async {
+  final result = await Process.run('git', ['branch', '--list', 'dartclaw/workflow/*'], workingDirectory: projectDir);
+  if (result.exitCode != 0) return;
+  final branches = (result.stdout as String).split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+  for (final branch in branches) {
+    await Process.run('git', ['branch', '-D', branch], workingDirectory: projectDir);
+  }
+}
+
+Future<void> _deleteRemoteBranches(String projectDir) async {
+  final result = await Process.run('git', [
+    'branch',
+    '-r',
+    '--list',
+    'origin/dartclaw/workflow/*',
+  ], workingDirectory: projectDir);
+  if (result.exitCode != 0) return;
+  final branches = (result.stdout as String)
+      .split('\n')
+      .map((l) => l.trim().replaceFirst('origin/', ''))
+      .where((l) => l.isNotEmpty)
+      .toList();
+  for (final branch in branches) {
+    await Process.run('git', ['push', 'origin', '--delete', branch], workingDirectory: projectDir);
+  }
+}
+
+Future<void> _resetFixture(String fixtureSh) async {
+  final result = await Process.run('bash', [fixtureSh, 'reset']);
+  if (result.exitCode != 0) {
+    stderr.writeln('fixture.sh reset failed: ${result.stderr}');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main test group
+// ---------------------------------------------------------------------------
+
+void main() {
+  late String privateRepo;
+  late String fixtureDir;
+  late String fixtureSh;
+  late DartclawConfig config;
+  final createdPrUrls = <String>[];
+  final createdBranches = <String>[];
+
+  CliWorkflowWiring? wiring;
+  LogService? logService;
+
+  // EventBus diagnostic subscriptions — cancelled in tearDownAll.
+  final diagnosticSubs = <StreamSubscription<Object>>[];
+
+  setUpAll(() async {
+    // ── Logging ──────────────────────────────────────────────────────────
+    // Install LogService at FINE level so every _log.info / _log.fine call
+    // across WorkflowExecutor, TaskExecutor, TurnRunner, etc. is visible.
+    logService = LogService.fromConfig(level: 'FINE');
+    logService!.install();
+
+    final hasCodex = await _codexAvailable();
+    if (!hasCodex) {
+      markTestSkipped(
+        'Codex is not available — skipping e2e integration tests. '
+        'Install Codex and authenticate, or set CODEX_API_KEY.',
+      );
+      return;
+    }
+
+    privateRepo = _privateRepoDir();
+    fixtureDir = _fixtureDir(privateRepo);
+    fixtureSh = _fixtureSh(privateRepo);
+
+    if (!Directory(fixtureDir).existsSync()) {
+      markTestSkipped('workflow-testing fixture repo not found at $fixtureDir');
+      return;
+    }
+
+    config = _loadWorkflowsConfig(privateRepo);
+  });
+
+  tearDownAll(() async {
+    for (final sub in diagnosticSubs) {
+      await sub.cancel();
+    }
+    diagnosticSubs.clear();
+    await logService?.dispose();
+  });
+
+  setUp(() async {
+    createdPrUrls.clear();
+    createdBranches.clear();
+
+    final result = await Process.run('bash', [fixtureSh, 'reset']);
+    expect(result.exitCode, 0, reason: 'fixture.sh reset should succeed in setUp');
+  });
+
+  tearDown(() async {
+    // Dispose wiring first (stops harness pool, cancels tasks)
+    if (wiring != null) {
+      await wiring!.dispose();
+      wiring = null;
+    }
+
+    // Close any PRs created during the test
+    for (final url in createdPrUrls) {
+      await _closePr(url);
+    }
+    for (final branch in createdBranches) {
+      await _closePrByBranch(branch, 'tolo/dartclaw-workflow-testing');
+    }
+
+    // Clean up git state
+    await _pruneLocalWorkflowBranches(fixtureDir);
+    await _deleteRemoteBranches(fixtureDir);
+    await _resetFixture(fixtureSh);
+  });
+
+  // -------------------------------------------------------------------------
+  // Shared helper: wire up CliWorkflowWiring with in-memory SQLite
+  // -------------------------------------------------------------------------
+  Future<CliWorkflowWiring> wireUp() async {
+    final w = CliWorkflowWiring(
+      config: config,
+      dataDir: config.server.dataDir,
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    await w.wire();
+    wiring = w;
+
+    // ── EventBus diagnostics ──────────────────────────────────────────
+    // Log workflow step completions and task status transitions so the
+    // test runner output shows real-time progress beyond Logger output.
+    final diagLog = Logger('E2E.Diagnostics');
+    diagnosticSubs.add(
+      w.eventBus.on<WorkflowStepCompletedEvent>().listen((e) {
+        diagLog.info(
+          'Step completed: ${e.stepId} [${e.stepIndex + 1}/${e.totalSteps}] '
+          '${e.success ? "OK" : "FAILED"} (${e.tokenCount} tokens, task=${e.taskId})',
+        );
+      }),
+    );
+    diagnosticSubs.add(
+      w.eventBus.on<TaskStatusChangedEvent>().listen((e) {
+        diagLog.info('Task ${e.taskId}: ${e.oldStatus} → ${e.newStatus}');
+      }),
+    );
+    diagnosticSubs.add(
+      w.eventBus.on<WorkflowRunStatusChangedEvent>().listen((e) {
+        diagLog.info('Workflow ${e.runId}: ${e.oldStatus} → ${e.newStatus}');
+      }),
+    );
+
+    return w;
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared helper: await workflow completion via EventBus
+  // -------------------------------------------------------------------------
+  Future<WorkflowRunStatus> awaitWorkflowCompletion(EventBus eventBus, String runId) {
+    final completer = Completer<WorkflowRunStatus>();
+    late final StreamSubscription<WorkflowRunStatusChangedEvent> sub;
+    sub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
+      if (event.runId != runId) return;
+      if (event.newStatus.terminal) {
+        if (!completer.isCompleted) {
+          completer.complete(event.newStatus);
+        }
+        unawaited(sub.cancel());
+      }
+    });
+    // Ensure subscription is cancelled even on timeout or test failure
+    completer.future.whenComplete(() => unawaited(sub.cancel()));
+    return completer.future;
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared helper: create PR after push and track for cleanup
+  // -------------------------------------------------------------------------
+  Future<String> createPr({required String branch, required String title}) async {
+    createdBranches.add(branch);
+    final result = await Process.run('gh', [
+      'pr',
+      'create',
+      '--repo',
+      'tolo/dartclaw-workflow-testing',
+      '--head',
+      branch,
+      '--base',
+      'main',
+      '--title',
+      title,
+      '--body',
+      'Automated e2e integration test PR — will be auto-closed.',
+      '--draft',
+      '--label',
+      'workflow-test',
+    ], workingDirectory: fixtureDir);
+    if (result.exitCode != 0) {
+      fail('Failed to create PR for branch "$branch": ${result.stderr}');
+    }
+    final prUrl = (result.stdout as String).trim();
+    createdPrUrls.add(prUrl);
+    return prUrl;
+  }
+
+  // -------------------------------------------------------------------------
+  // TI03: spec-and-implement e2e
+  // -------------------------------------------------------------------------
+  test('spec-and-implement e2e with real Codex harness and git operations', () async {
+    final w = await wireUp();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    // Set CWD to fixture repo for git operations
+    final savedCwd = Directory.current;
+    Directory.current = Directory(fixtureDir);
+
+    try {
+      // Look up the built-in definition
+      final definition = w.registry.getByName('spec-and-implement')!;
+
+      // Start step recorder
+      final recorder = WorkflowExecutionRecorder(w.eventBus, w.taskService, definition);
+      recorder.start();
+
+      // Start workflow
+      final variables = {
+        'FEATURE':
+            'Create exactly one new markdown file at notes/e2e-spec-$timestamp.md '
+            'with one heading "E2E Spec Test" and one bullet "Automated test artifact" only.',
+        'PROJECT': 'workflow-testing',
+        'BRANCH': 'main',
+      };
+      final run = await w.workflowService.start(definition, variables, headless: true);
+      final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
+
+      // Wait for workflow to complete
+      final finalStatus = await completionFuture.timeout(
+        Duration(minutes: 25),
+        onTimeout: () {
+          fail('Workflow timed out after 25 minutes');
+        },
+      );
+
+      // Allow pending events to settle
+      await Future<void>.delayed(Duration(seconds: 2));
+      await recorder.dispose();
+
+      // Assert workflow completed
+      expect(finalStatus, WorkflowRunStatus.completed, reason: 'spec-and-implement should complete successfully');
+
+      // Assert step ordering (tolerates remediation loop repetitions)
+      expectStepOrder(recorder, [
+        'discover-project',
+        'spec',
+        'review-spec',
+        'implement',
+        'refactor-validate',
+        'integrated-review',
+        'update-state',
+      ]);
+
+      // Assert context handoff: discover output flows into spec
+      expectStepInputContains(recorder, 'spec', 'framework');
+
+      // Assert worktrees were recorded for coding steps
+      expectWorktreeRecorded(recorder, 'implement');
+
+      // Assert publish succeeded via workflow run context
+      final completedRun = await w.workflowService.get(run.id);
+      expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
+      expectPublishSuccess(completedRun!.contextJson);
+
+      // Verify the integration branch was pushed to origin
+      final publishBranch = _findPublishedBranch(fixtureDir, run.id);
+      expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+
+      if (publishBranch != null) {
+        // Create PR to verify the push and for the cleanup scenario
+        final prUrl = await createPr(branch: publishBranch, title: 'E2E spec-and-implement $timestamp');
+
+        // Verify PR exists
+        final prView = await Process.run('gh', ['pr', 'view', prUrl, '--json', 'url']);
+        expect(prView.exitCode, 0, reason: 'PR should exist at $prUrl');
+      }
+    } finally {
+      Directory.current = savedCwd;
+    }
+  }, timeout: Timeout(Duration(minutes: 30)));
+
+  // -------------------------------------------------------------------------
+  // TI04: plan-and-implement e2e
+  // -------------------------------------------------------------------------
+  test('plan-and-implement e2e with real Codex harness and per-story worktrees', () async {
+    final w = await wireUp();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    final savedCwd = Directory.current;
+    Directory.current = Directory(fixtureDir);
+
+    try {
+      final definition = w.registry.getByName('plan-and-implement')!;
+
+      final recorder = WorkflowExecutionRecorder(w.eventBus, w.taskService, definition);
+      recorder.start();
+
+      final variables = {
+        'REQUIREMENTS':
+            'Split the work into exactly two THIN stories. '
+            'Story 1: Create notes/e2e-plan-a-$timestamp.md with heading "Plan A" and one bullet only. '
+            'Story 2: Create notes/e2e-plan-b-$timestamp.md with heading "Plan B" and one bullet only.',
+        'PROJECT': 'workflow-testing',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      };
+      final run = await w.workflowService.start(definition, variables, headless: true);
+      final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
+
+      final finalStatus = await completionFuture.timeout(
+        Duration(minutes: 25),
+        onTimeout: () {
+          fail('Workflow timed out after 25 minutes');
+        },
+      );
+
+      await Future<void>.delayed(Duration(seconds: 2));
+      await recorder.dispose();
+
+      expect(finalStatus, WorkflowRunStatus.completed, reason: 'plan-and-implement should complete successfully');
+
+      // Assert high-level step ordering
+      expectStepOrder(recorder, [
+        'discover-project',
+        'plan',
+        'spec-plan',
+        'implement',
+        'refactor-validate',
+        'quick-review',
+        'plan-review',
+        'update-state',
+      ]);
+
+      // spec-plan runs once
+      expect(recorder.count('spec-plan'), 1, reason: 'spec-plan should run exactly once');
+
+      // implement, refactor-validate, quick-review should run at least twice (per story)
+      expect(
+        recorder.count('implement'),
+        greaterThanOrEqualTo(2),
+        reason: 'implement should run at least twice (once per story)',
+      );
+      expect(
+        recorder.count('refactor-validate'),
+        greaterThanOrEqualTo(2),
+        reason: 'refactor-validate should run at least twice',
+      );
+      expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
+
+      // plan-review runs once
+      expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
+
+      // Assert worktrees were recorded for coding steps
+      expectWorktreeRecorded(recorder, 'implement');
+
+      // Assert publish succeeded via workflow run context
+      final completedRun = await w.workflowService.get(run.id);
+      expect(completedRun, isNotNull, reason: 'Completed run should be retrievable');
+      expectPublishSuccess(completedRun!.contextJson);
+
+      // Verify integration branch was pushed
+      final publishBranch = _findPublishedBranch(fixtureDir, run.id);
+      expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
+
+      if (publishBranch != null) {
+        final prUrl = await createPr(branch: publishBranch, title: 'E2E plan-and-implement $timestamp');
+
+        // Verify PR exists
+        final prView = await Process.run('gh', ['pr', 'view', prUrl, '--json', 'url,files']);
+        expect(prView.exitCode, 0, reason: 'PR should exist at $prUrl');
+      }
+    } finally {
+      Directory.current = savedCwd;
+    }
+  }, timeout: Timeout(Duration(minutes: 30)));
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Finds the workflow integration branch that was pushed to origin.
+String? _findPublishedBranch(String projectDir, String runId) {
+  final sanitizedId = runId.replaceAll('-', '');
+  final candidates = ['dartclaw/workflow/$sanitizedId/integration', 'dartclaw/workflow/$sanitizedId'];
+  for (final branch in candidates) {
+    final result = Process.runSync('git', ['rev-parse', '--verify', 'origin/$branch'], workingDirectory: projectDir);
+    if (result.exitCode == 0) return branch;
+  }
+  return null;
+}

@@ -60,3 +60,8 @@ dev_dependencies:
   sqlite3: ^3.1.6
   test: ^1.31.0
   lints: ^6.1.0
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system

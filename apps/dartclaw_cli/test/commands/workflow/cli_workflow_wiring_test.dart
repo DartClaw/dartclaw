@@ -221,6 +221,87 @@ steps:
     expect(claudeConfigs.single.environment['ANTHROPIC_API_KEY'], 'anthropic-key');
   });
 
+  test('dispose cleans up workflow task worktrees in headless mode', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
+    final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
+
+    ProcessResult runGit(List<String> args, {String? workingDirectory}) {
+      final result = Process.runSync('git', args, workingDirectory: workingDirectory ?? repoDir.path);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed: ${result.stderr}');
+      }
+      return result;
+    }
+
+    runGit(['init', '-b', 'main']);
+    runGit(['config', 'user.name', 'Test User']);
+    runGit(['config', 'user.email', 'test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# test\n');
+    runGit(['add', 'README.md']);
+    runGit(['commit', '-m', 'initial']);
+
+    final worktreePath = p.join(workspaceDir.path, '.dartclaw', 'worktrees', 'task-1');
+    runGit(['worktree', 'add', worktreePath, '-b', 'dartclaw/task-task-1', 'main']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = repoDir;
+    CliWorkflowWiring? wiring;
+
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+      expect(wiring.worktreeManager, isNotNull);
+
+      final task = await wiring.taskService.create(
+        id: 'task-1',
+        title: 'Cleanup',
+        description: 'Cleanup worktree',
+        type: TaskType.coding,
+        workflowRunId: 'run-123',
+      );
+      await wiring.taskService.updateFields(
+        task.id,
+        worktreeJson: {
+          'path': worktreePath,
+          'branch': 'dartclaw/task-task-1',
+          'createdAt': DateTime.parse('2026-01-01T00:00:00Z').toIso8601String(),
+        },
+      );
+
+      await wiring.dispose();
+      wiring = null;
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+
+    expect(Directory(worktreePath).existsSync(), isFalse);
+    final branchResult = Process.runSync('git', [
+      'branch',
+      '--list',
+      'dartclaw/task-task-1',
+    ], workingDirectory: repoDir.path);
+    expect(branchResult.exitCode, 0);
+    expect((branchResult.stdout as String).trim(), isEmpty);
+  });
+
   test('honors a local asset root for built-in skill discovery and materialization', () async {
     final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
     final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);

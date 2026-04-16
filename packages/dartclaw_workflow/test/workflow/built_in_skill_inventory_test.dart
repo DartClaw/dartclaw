@@ -41,13 +41,14 @@ void main() {
         .map((dir) => p.basename(dir.path))
         .where((name) => name.startsWith('dartclaw-'))
         .toSet();
-    expect(skillDirs.length, 13);
+    expect(skillDirs.length, 14);
     expect(skillDirs, contains('dartclaw-review'));
     expect(skillDirs, contains('dartclaw-review-code'));
     expect(skillDirs, contains('dartclaw-review-doc'));
     expect(skillDirs, contains('dartclaw-review-gap'));
     expect(skillDirs, contains('dartclaw-quick-review'));
     expect(skillDirs, contains('dartclaw-spec-plan'));
+    expect(skillDirs, contains('dartclaw-validate'));
 
     expect(File(p.join(skillsDir, 'references', 'verification-patterns.md')).existsSync(), isTrue);
     expect(File(p.join(skillsDir, 'references', 'structured-output-protocols.md')).existsSync(), isTrue);

@@ -372,6 +372,11 @@ class TaskExecutor {
     void Function(bool)? setTaskReadOnly,
   }) async {
     var task = runningTask;
+    _log.info(
+      'Task execution start: ${task.id} "${task.title}" '
+      'type=${task.type.name}, provider=${provider ?? "default"}, '
+      'profile=${runnerProfileId ?? "none"}',
+    );
     WorktreeInfo? worktreeInfo;
     Project? project;
     Set<String>? readOnlyProjectStatusBeforeTurn;

@@ -501,6 +501,10 @@ class TurnRunner {
 
         final systemPrompt = await _buildSystemPrompt(sessionId);
         final turnCtx = _activeTurns[sessionId];
+        _log.info(
+          'Turn start: session=$sessionId, turn=$turnId, '
+          'provider=$providerId${userMessage != null ? ', prompt=$userMessage' : ''}',
+        );
         statusTickTimer = _statusTickInterval > Duration.zero
             ? Timer.periodic(_statusTickInterval, (_) {
                 _progressController.add(StatusTickProgressEvent(snapshot: buildSnapshot()));
@@ -520,6 +524,11 @@ class TurnRunner {
         final accumulated = buffer.toString();
         toolHooks.finalizePendingToolCalls();
         stopwatch.stop();
+        _log.info(
+          'Turn complete: session=$sessionId, turn=$turnId, '
+          'provider=$providerId, ${stopwatch.elapsedMilliseconds}ms, '
+          'tools=${toolHooks.toolCallCount}, text=${accumulated.length} chars',
+        );
         final cacheReadTokens = _worker.supportsCachedTokens ? (result['cache_read_tokens'] as int? ?? 0) : 0;
         final cacheWriteTokens = _worker.supportsCachedTokens ? (result['cache_write_tokens'] as int? ?? 0) : 0;
 

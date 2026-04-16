@@ -165,10 +165,36 @@ void main() {
       );
     });
 
-    test('projectDir defaults to cwd when omitted', () {
-      // Should not throw — constructor accepts optional projectDir.
-      final manager = WorktreeManager(dataDir: '/tmp/test-data');
-      expect(manager, isNotNull);
+    test('projectDir fallback uses the current cwd when create is called', () async {
+      final calls = <({List<String> arguments, String? workingDirectory})>[];
+      final manager = WorktreeManager(
+        dataDir: '/tmp/test-data',
+        processRunner: (executable, arguments, {String? workingDirectory}) async {
+          calls.add((arguments: arguments, workingDirectory: workingDirectory));
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.contains('--list')) return ProcessResult(0, 0, '', '');
+          if (arguments.first == 'branch') return ProcessResult(0, 0, '', '');
+          if (arguments.contains('worktree')) return ProcessResult(0, 0, '', '');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      final savedCwd = Directory.current;
+      final tempCwd = Directory.systemTemp.createTempSync('worktree_manager_cwd_');
+      final expectedWorkingDirectory = tempCwd.resolveSymbolicLinksSync();
+      Directory.current = tempCwd;
+
+      try {
+        await manager.create('task-1');
+      } finally {
+        Directory.current = savedCwd;
+        tempCwd.deleteSync(recursive: true);
+      }
+
+      final gitCalls = calls.where((call) => !call.arguments.contains('--version')).toList();
+      for (final call in gitCalls) {
+        expect(call.workingDirectory, expectedWorkingDirectory);
+      }
     });
 
     group('project-aware create()', () {

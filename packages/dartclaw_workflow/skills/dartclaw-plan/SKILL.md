@@ -27,16 +27,13 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 /plan docs/specs/my-feature/            # From directory with PRD or prior artifacts
 /plan @docs/requirements.md             # From requirements file
 /plan "Build a user dashboard"          # From inline description
-/plan docs/specs/my-feature/prd-draft.md # From draft PRD file
 ```
 
 
 ## INSTRUCTIONS
 
-- **Make sure `INPUT` is provided** - otherwise **STOP** immediately and ask user for input
-- **Fully** read and understand the **Workflow Rules, Guardrails and Guidelines** section in CLAUDE.md / AGENTS.md (or system prompt) before starting work, including but not limited to:
-  - **Foundational Rules and Guardrails**
-  - **Foundational Development Guidelines and Standards** (e.g. Development, Architecture, UI/UX Guidelines etc.)
+- **Make sure `INPUT` is provided** - otherwise stop and ask user for input
+- Read the Development and Architecture guidelines referenced in the project's CLAUDE.md / AGENTS.md before planning.
 - **Orchestrate, don't do everything yourself** - Delegate research, analysis, and exploration to sub-agents _(if supported by your coding agent)_ (see Workflow below)
 - **Lightweight planning** - Stories define scope, not implementation details
 - **No over-engineering** - Minimum stories to cover requirements
@@ -63,10 +60,7 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 ### 1. Input Validation & PRD Detection
 
 1. **Parse INPUT** - Determine type:
-   - **`--issue` flag present** (or INPUT refers to a GitHub issue): Extract issue number from INPUT, use `gh issue view <number>` to fetch issue details (title, body, labels, comments), then inspect the body for a typed envelope per `../references/github-artifact-roundtrip.md`.
-     - If `artifact_type: plan-bundle`, extract embedded files preserving their repo-relative paths; treat the extracted directory as `INPUT` and proceed as if the user had provided the local plan directory directly.
-     - If the issue contains another typed workflow artifact (`fis-bundle`, `triage-plan`, `triage-completion`, or any `*-review` report), **STOP** and direct the user to the matching downstream skill instead of re-planning from the artifact body.
-     - Otherwise use the issue content as requirements input. Store issue number for reference in generated plan. → proceed to Step 1b
+   - **`--issue` flag or GitHub URL**: follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and treat as local plan directory). Route: `fis-bundle` → `dartclaw-exec-spec`; `*-review` → `dartclaw-remediate-findings`; other typed → stop with redirect. Untyped issues: accept as requirements input, store issue number. → proceed to Step 1b
    - **Directory with PRD**: `INPUT` is a directory containing `prd.md` → proceed to Step 2
    - **Directory with prior artifacts**: `INPUT` is a directory containing `requirements-clarification.md` (from earlier clarification work) and/or a draft PRD (`prd-draft.md`), but no finalized `prd.md` → proceed to Step 1c
    - **File path**: Read file. If it is a prior artifact (`prd-draft.md` or `requirements-clarification.md`) → proceed to Step 1c. Otherwise → proceed to Step 1b
@@ -77,17 +71,13 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
    - Document optional assets if present (Architecture/ADRs, Design system, Wireframes)
    - **Gate**: PRD validated → skip to Step 2
 
-3. **If prior artifacts found** (directory with `requirements-clarification.md` and/or `prd-draft.md`, but no finalized `prd.md`):
-   - Read all existing artifacts in the directory
-   - Document optional assets if present (Architecture/ADRs, Design system, Wireframes)
-   - Proceed to Step 1c (PRD from Existing Artifacts)
+3. **If prior artifacts found** (directory with `requirements-clarification.md` and/or `prd-draft.md`, no `prd.md`):
+   - Read all artifacts; document optional assets (Architecture/ADRs, Design system, Wireframes) → Step 1c
 
-4. **If no PRD and no prior artifacts** (requirements source provided):
-   - Validate prerequisites: requirements should be reasonably refined (not raw ideas)
-   - If input is broad but directionally usable, infer the smallest coherent MVP, document assumptions and unresolved questions explicitly, and continue
-   - If input is too vague to identify a coherent feature boundary, **STOP** and report the minimum missing contract needed to produce a defensible PRD/plan. Mention an interactive clarification workflow as the fallback.
-   - Initial gap analysis – document what's explicitly stated, assumed/implied, and missing/unclear (functional requirements, user flows, edge cases, success criteria, business context, MVP scope)
-   - Proceed to Step 1b (Requirements Synthesis)
+4. **If no PRD and no prior artifacts** (requirements source):
+   - If broad but directional: infer smallest coherent MVP, document assumptions, continue
+   - If too vague for a coherent feature boundary: stop, report minimum missing contract, mention interactive clarification as fallback
+   - Gap analysis: what's stated, assumed, and missing (requirements, flows, edge cases, criteria, MVP scope) → Step 1b
 
 **Gate**: Input validated
 
@@ -96,33 +86,23 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 
 #### Headless Requirements Synthesis
 
-Cover the same areas as a full clarification pass, but default to synthesis rather than interview: users & personas, core workflows, data model, integrations, constraints, NFRs, and success metrics. Fill ordinary gaps using explicit assumptions grounded in the source material, codebase patterns, adjacent artifacts, and standard product conventions.
+Cover: users & personas, core workflows, data model, integrations, constraints, NFRs, success metrics. Fill gaps with explicit assumptions grounded in source material, codebase patterns, adjacent artifacts, and standard conventions. When a gap materially affects scope and evidence is weak, choose the most conservative MVP assumption; record in `prd.md` under `Constraints & Assumptions` and `Decisions Log`. Do not pause for routine clarification.
 
-When a gap materially affects scope or prioritization and the evidence is weak, choose the most conservative MVP assumption that still allows a coherent plan. Record it in `prd.md` under `Constraints & Assumptions` and in the `Decisions Log` with alternatives considered. Do not pause the run for routine clarification.
-
-If the input is so ambiguous that multiple incompatible plans are equally plausible and none can be justified from the available evidence, **STOP** and report the smallest missing decisions required. Use an interactive clarification workflow only as an explicit fallback for that case.
+If multiple incompatible plans are equally plausible with no justification from available evidence, stop and report the smallest missing decisions. Use interactive clarification only as a fallback.
 
 **Gate**: PRD is specific enough for planning; major assumptions and unresolved questions are documented explicitly
 
 
 #### Generate PRD Document
 
-Structure the PRD from the synthesized requirements and save as `OUTPUT_DIR/<feature-name>/prd.md`. Apply MoSCoW prioritization (Must/Should/Could/Won't) and P0/P1/P2 levels to features.
-
-Use the PRD template at [`templates/prd-template.md`](templates/prd-template.md) as the baseline shape. Keep the required sections, adapt optional subsections to the project, and preserve concrete decisions from discovery rather than generalizing them away.
-
-When running headlessly, do not leave important ambiguity implicit. Capture it as an explicit assumption, dependency, or deferred decision in the PRD so downstream skills inherit a usable contract.
+Save as `OUTPUT_DIR/<feature-name>/prd.md`. Apply MoSCoW + P0/P1/P2 prioritization. Use [`templates/prd-template.md`](templates/prd-template.md) as baseline; keep required sections, adapt optional ones, preserve concrete decisions. Capture ambiguity as explicit assumptions or deferred decisions so downstream skills inherit a usable contract.
 
 #### PRD Validation
-- [ ] Problem statement with measurable impact
+- [ ] Problem statement with measurable impact; success metrics are specific
 - [ ] All user stories have testable acceptance criteria
-- [ ] Success metrics are specific and measurable
-- [ ] Scope explicitly defined (in/out)
-- [ ] Every feature has defined error handling
-- [ ] Non-functional requirements have clear thresholds
-- [ ] No ambiguous terms without definitions
-- [ ] All assumptions documented
-- [ ] No conflicting requirements
+- [ ] Scope explicitly defined (in/out) with no conflicting requirements
+- [ ] Every feature has defined error handling; NFRs have clear thresholds
+- [ ] No ambiguous terms without definitions; all assumptions documented
 
 Optional: Invoke the `dartclaw-review --doc-only` skill to validate the PRD before finalizing.
 
@@ -131,27 +111,26 @@ Optional: Invoke the `dartclaw-review --doc-only` skill to validate the PRD befo
 
 ### 1c. PRD Creation from Existing Artifacts _(skip if PRD already exists or no prior artifacts found)_
 
-Use existing artifacts (`requirements-clarification.md` from earlier clarification work and/or `prd-draft.md`) as the primary basis for creating the PRD. This path avoids duplicating discovery work already completed.
+Use existing artifacts (`requirements-clarification.md` and/or `prd-draft.md`) as the primary basis. Avoids duplicating completed discovery.
 
-- Map existing content against the PRD template (see Step 1b); use [`templates/prd-template.md`](templates/prd-template.md) as the target structure and only ask focused follow-up questions for genuinely missing sections
-- If significant gaps remain, fill only the missing areas using bounded assumptions derived from the existing artifacts, codebase context, and adjacent documents. Do NOT re-ask questions already answered in the existing artifacts, and do not pause the run for routine clarification.
-- If the artifacts are too ambiguous to support any defensible PRD shape, **STOP** and report the minimum missing decisions required. Mention an interactive clarification workflow only as the fallback for that case.
-- **Extract technical details**: If the draft contains implementation-level content (architecture patterns, technology choices, API details, framework constraints, integration specifics), extract these into `{OUTPUT_DIR}/technical-research.md` rather than carrying them into the PRD. The PRD should focus on *what* to build; technical details are preserved for downstream skills.
-- Structure and generate the PRD following the same template as Step 1b. Preserve decisions, rationale, and specific details from existing artifacts – do not paraphrase or generalize away specifics.
-- Apply same Prioritization → PRD Validation steps as Step 1b.
+- Map content against [`templates/prd-template.md`](templates/prd-template.md); only ask follow-ups for genuinely missing sections
+- Fill gaps with bounded assumptions from artifacts, codebase, and adjacent docs. Do not re-ask answered questions or pause for routine clarification
+- If artifacts are too ambiguous for any defensible PRD, stop and report minimum missing decisions
+- **Extract technical details** (architecture, API details, framework constraints) into `{OUTPUT_DIR}/technical-research.md` — PRD focuses on *what* to build
+- Preserve decisions and specifics from existing artifacts. Apply same validation as Step 1b.
 
 **Gate**: PRD created → continue to Step 2
 
 
 ### 2. Requirements Analysis
 
-> **Hard gate**: Verify `prd.md` exists in OUTPUT_DIR before proceeding. If only a draft or clarification artifact exists, you skipped PRD finalization — go back to Step 1c.
+> **Hard gate**: Verify `prd.md` exists in OUTPUT_DIR. If missing, go back to Step 1c.
 
-Delegate codebase exploration to a sub-agent _(if supported)_ to keep context lean. Read the `State` document (see **Project Document Index**; default: `docs/STATE.md`) if it exists – use current phase, active stories, and blockers to inform story priorities. Reference the `Ubiquitous Language` document (see **Project Document Index**) if it exists; use canonical terms in story names and acceptance criteria.
+Delegate codebase exploration to a sub-agent to keep context lean. Read `State` and `Ubiquitous Language` documents (see **Project Document Index**) if they exist — use for story priorities and canonical terms.
 
-Synthesize into a unified understanding of: all PRD requirements and user stories, MVP scope, success criteria, prioritization (P0/P1/P2), natural implementation boundaries, feature dependencies, and complexity/risk areas.
+Synthesize: PRD requirements, MVP scope, success criteria, prioritization (P0/P1/P2), implementation boundaries, dependencies, and complexity/risk areas.
 
-**Technical research**: If codebase exploration surfaces substantial technical findings (architecture patterns, framework constraints, integration details, existing conventions) that would be useful during spec creation or execution, save them to `{OUTPUT_DIR}/technical-research.md` (append to existing content if the file was already created in Step 1c). This keeps the PRD and plan free of implementation details while preserving research for downstream skills (`dartclaw-spec`, `dartclaw-spec-plan`). Skip this if findings are minimal — not every plan needs a technical research document.
+**Technical research**: If substantial findings surface (architecture, constraints, conventions), save to `{OUTPUT_DIR}/technical-research.md` (append if created in Step 1c). Keeps PRD/plan free of implementation details. Skip if findings are minimal.
 
 **Gate**: Feature mapping complete
 
@@ -159,18 +138,7 @@ Synthesize into a unified understanding of: all PRD requirements and user storie
 ### 3. Story Breakdown
 
 #### Design Space Analysis _(if applicable)_
-
-For features with multiple design dimensions – whether architectural, UI/UX, or interaction-related – use design space decomposition _(see `../references/design-tree.md`)_ to inform story structure:
-
-1. **Identify design dimensions** from the PRD (e.g., display mode, filtering approach, auth method, data freshness)
-2. **Map dimension independence** – dimensions that can be built and tested separately are candidates for separate, parallelizable stories
-3. **Identify coupling** – dimensions with cross-consistency constraints (where options in one affect viability of options in another) should be in the same story to avoid rework
-4. **Spot foundational dimensions** – choices that other dimensions depend on belong in earlier phases (e.g., data model must precede display mode)
-5. **Flag uncertainty** – dimensions with high uncertainty or contested options may warrant a spike/research story before implementation
-
-If a design space decomposition was produced upstream (by `clarify` or `trade-off`), reference and build on it rather than re-creating it.
-
-_Skip for projects with straightforward design decisions._
+For features with multiple design dimensions, use design space decomposition (see `../references/design-tree.md`) to inform story structure — identify independent dimensions as parallelizable stories, coupled dimensions as same-story work, and foundational dimensions as early-phase prerequisites. Skip for straightforward designs.
 
 #### Story Guidelines
 
@@ -186,46 +154,13 @@ _Skip for projects with straightforward design decisions._
 - No over-granularity (combine small related items)
 
 #### Implementation Phases
-
-Organize stories into logical phases. The number and nature of phases depends on the project - adapt as needed. Common pattern:
-
-```
-Phase 1: Tracer Bullet (Sequential)
-├── Thin end-to-end slice of the most critical feature
-├── Proves architecture works across all layers
-└── Produces a demoable result
-
-Phase 2: Feature Slices (Parallel where possible)
-├── [P] Feature A – full vertical slice (data → logic → API → UI)
-├── [P] Feature B – full vertical slice
-└── Feature C (depends on A) – full vertical slice
-
-Phase 3: Hardening (Parallel)
-├── [P] Edge cases and error handling
-├── [P] Performance optimization
-├── [P] Accessibility and polish
-└── [P] Cross-feature integration
-```
+Organize stories into logical phases. Common pattern: Phase 1 (tracer bullet — thin E2E slice), Phase 2 (feature slices — parallel vertical slices), Phase 3 (hardening — edge cases, performance, polish). Adapt to the project.
 
 #### Wave Assignment
-Assign stories to execution waves within each phase:
-- **W1**: Stories with no dependencies (can start immediately)
-- **W2**: Stories dependent only on W1 completions
-- **W3+**: Continue cascading
-
-Stories in the same wave with [P] markers run in parallel.
-Wave assignments are pre-computed here so exec-plan doesn't need
-runtime dependency analysis.
+Assign stories to waves within each phase: W1 (no deps), W2 (depends on W1), W3+ (cascading). Same-wave `[P]` stories run in parallel. Pre-computed here so exec-plan skips runtime dependency analysis.
 
 #### Goal-Backward Analysis (per story)
-Before defining tasks, work backward from the desired outcome:
-1. **Observable Truth**: What must be TRUE from the user's perspective when this story is done?
-2. **Required Artifacts**: What files, routes, UI elements, data models must exist?
-3. **Wiring Connections**: How must this connect to the rest of the system? (imports, routes, API calls, DB relations)
-4. **Failure Points**: What are the most likely ways this could silently fail?
-5. **Vertical Slice Order**: What is the thinnest path through all layers that proves this story works end-to-end? This becomes the first implementation task.
-
-These feed directly into acceptance criteria – each criterion should be a verifiable observable truth.
+For each story, work backward from the user-observable outcome: what must be TRUE when done, what artifacts must exist, how they connect to the system. Derive acceptance criteria from these observable truths.
 
 #### Story Definition
 
@@ -236,14 +171,13 @@ For each story, define:
 - **FIS**: Reference to generated spec – initially `–` (updated to file path when `dartclaw-spec` creates the FIS). Multiple stories may reference the same FIS path when grouped into a composite specification by `dartclaw-spec-plan`
 - **Scope**: 2-4 sentences – what's included and excluded (no implementation approach – that's for `dartclaw-spec`)
 - **Acceptance criteria**: 3-6 testable outcomes – the first 2-3 should be must-be-TRUE observable truths from goal-backward analysis; remaining items are supplementary verification points
-- **Key Scenarios** _(optional)_: 2-3 one-line behavioral seeds — the most important happy path, edge case, and error/failure scenario. These are elaborated into full Given/When/Then scenarios in the FIS during `dartclaw-spec`. Skip for purely structural stories
+- **Key Scenarios** _(optional)_: 2-3 one-line behavioral seeds (happy path, edge case, error). Skip for structural stories
 - **Dependencies**: Other story IDs that must complete first
 - **Phase**: Which implementation phase
 - **Wave**: Execution wave within phase (W1, W2, W3...) – pre-computed during planning
 - **Parallel**: [P] if can run parallel with others in same phase
 - **Risk**: Low/Medium/High with brief note if Medium+
-- **Provenance** _(if carried forward)_: `Carried from {milestone}: {original-story-id}` — required when a story has no corresponding PRD feature
-- **Asset refs**: Relevant wireframes, ADRs, design system sections
+- **Provenance** _(if carried forward)_, **Asset refs**: Include when applicable — provenance for stories without PRD coverage, asset refs for relevant wireframes/ADRs
 
 **Do NOT include in stories** (these are deferred to `dartclaw-spec`; save to `technical-research.md` if discovered during analysis):
 - Technical approach, patterns, or library choices
@@ -258,39 +192,21 @@ For each story, define:
 
 Generate `plan.md` using the template at [`templates/plan-template.md`](templates/plan-template.md).
 
-This template defines the document's operational contract. Preserve the heading names, Story Catalog columns, and standard story metadata labels because downstream skills parse them directly. Adapt the phase names, story count, and example content to the project.
-
-**Document references header**: Include a blockquote header at the top linking to all key reference documents discovered during Input Validation (PRD, ADRs, design system, wireframes, etc.). Use relative paths. Omit entries where no document exists – only include actual references.
-
-Keep these invariants from the template:
-- Story Catalog columns remain `ID | Name | Phase | Wave | Dependencies | Parallel | Risk | Status | FIS`
-- Each story defines `**Status**`, `**FIS**`, `**Phase**`, `**Wave**`, `**Dependencies**`, `**Parallel**`, `**Risk**`, `**Scope**`, `**Acceptance Criteria**`, and `**Asset refs**`
-- `**Key Scenarios**` stays optional and seeds later FIS scenario generation
-- `**Provenance**` is required for stories with no direct PRD feature coverage
-- Composite/shared FIS mappings remain stable once assigned
+Preserve heading names, Story Catalog columns, and story metadata labels — downstream skills parse them. Adapt phase names, story count, and example content to the project. Include a blockquote header linking to key reference documents (PRD, ADRs, etc.) with relative paths; omit missing docs. Composite/shared FIS mappings remain stable once assigned.
 
 **Gate**: Plan document complete
 
-#### Initialize Project State (if the `State` document exists; see **Project Document Index**)
-If the `State` document exists (path from **Project Document Index**), update it to reflect the new plan:
-- Use `dartclaw-update-state update-state phase "Phase 1: {first_phase_name}"`
-- Use `dartclaw-update-state update-state status "On Track"`
-- Use `dartclaw-update-state update-state note "Plan created: {plan_name} ({N} stories, {M} phases)"`
-
-If the `State` document does not exist (see **Project Document Index**), do not create it – suggest it in follow-up actions instead.
+#### Initialize Project State (if `State` document exists; see **Project Document Index**)
+Update via `dartclaw-update-state`: set phase to `"Phase 1: {first_phase_name}"`, status to `"On Track"`, note to `"Plan created: {plan_name} ({N} stories, {M} phases)"`. If no State document exists, suggest creating it in follow-up actions.
 
 
 ### 5. Validation
 
 #### Self-Check
-- [ ] All PRD features have corresponding stories
-- [ ] Stories without PRD feature coverage have a **Provenance** annotation
-- [ ] Stories have clear boundaries (no overlap)
-- [ ] Dependencies accurately mapped
-- [ ] Parallel markers correctly applied
-- [ ] Wave assignments are pre-computed and consistent with dependencies
-- [ ] Risk areas identified (Risk column and Risk Summary populated)
-- [ ] No missing functionality (cross-cutting concerns like auth, logging, error pages covered)
+- [ ] All PRD features have stories; stories without PRD coverage have **Provenance**
+- [ ] Clear boundaries (no overlap), dependencies mapped, parallel markers correct
+- [ ] Wave assignments pre-computed and consistent with dependencies
+- [ ] Risk areas identified; cross-cutting concerns covered (auth, logging, errors)
 - [ ] Not over-granular (combined where sensible)
 
 Optional: Invoke the `dartclaw-review --doc-only` skill to validate the plan for requirements coverage and story scope clarity.
@@ -300,30 +216,11 @@ Optional: Invoke the `dartclaw-review --doc-only` skill to validate the plan for
 
 ## OUTPUT
 
-```
-OUTPUT_DIR/
-├── prd.md                # Product Requirements Document (if created)
-├── plan.md               # Implementation plan
-└── technical-research.md # Technical findings from codebase analysis (if substantial)
-```
-
-- If from GitHub issue: use `issue-{number}-{feature-name}/` as the output subdirectory name (e.g. `docs/specs/issue-42-user-dashboard/plan.md`). Include issue reference in the PRD and plan document headers.
-
-When complete, print the output's **relative path from the project root**. Do not use absolute paths.
+Output: `OUTPUT_DIR/` containing `prd.md` (if created), `plan.md`, and optionally `technical-research.md`. For GitHub issues: use `issue-{number}-{feature-name}/` as subdirectory. Print relative path from project root.
 
 ### Publish to GitHub _(if --to-issue)_
-If PUBLISH_ISSUE is `true`:
-1. Follow `../references/github-artifact-roundtrip.md`
-   - `artifact_type`: `plan-bundle`
-   - Title: `[Plan] {project-name}: Implementation Plan`
-   - Primary file: `plan.md`
-   - Companion files: `prd.md`; include `technical-research.md` when it exists
-   - Labels: `plan`, `andthen-artifact`
-2. Print the issue URL and the local primary path (`plan.md`)
+Follow `../references/github-artifact-roundtrip.md` with `artifact_type: plan-bundle`, primary file `plan.md`, companions `prd.md` + `technical-research.md` (if exists), labels `plan, andthen-artifact`. Print issue URL and local path.
 
 
 ## Appendix: Templates
-
-**USE THE TEMPLATES**:
-- PRD: [`templates/prd-template.md`](templates/prd-template.md)
-- Plan: [`templates/plan-template.md`](templates/plan-template.md)
+- PRD: [`templates/prd-template.md`](templates/prd-template.md) | Plan: [`templates/plan-template.md`](templates/plan-template.md)

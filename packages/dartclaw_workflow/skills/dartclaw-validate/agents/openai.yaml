@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw - Validate"
+  short_description: "Validate workflow definitions and packaged assets"
+  default_prompt: "Validate the workflow definition or packaged assets at: "
+
+policy:
+  allow_implicit_invocation: true

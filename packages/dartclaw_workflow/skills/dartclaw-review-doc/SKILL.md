@@ -17,7 +17,6 @@ SPEC_PATH_OR_FOCUS: $ARGUMENTS
 
 ## INSTRUCTIONS
 - Make sure `SPEC_PATH_OR_FOCUS` is provided; otherwise stop and ask for it.
-- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
 - Read-only review. Do not modify the reviewed document.
 - If `--inline-findings` is present, do not write a report file. Return findings inline to the parent skill instead.
 - Calibrate severity with `../references/review-calibration.md` and `../dartclaw-review-doc/references/doc-review-calibration.md`.
@@ -50,7 +49,9 @@ If the document is a FIS, verify it still follows the `dartclaw-spec` structure.
 **Gate**: Findings identified across all relevant dimensions
 
 ### 3. Adversarial Challenge
-Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+Only spawn the adversarial challenger when any finding is Critical OR total findings exceed 5. Otherwise apply an inline self-check: re-read each finding against the calibration examples and adjust severity. Note when the full challenge was skipped.
+
+When spawning, use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
 - **Role**: `Adversarial Challenger reviewing document review findings`
 - **Shared calibration**: `../references/review-calibration.md`
 - **Skill calibration**: `../dartclaw-review-doc/references/doc-review-calibration.md`
@@ -70,18 +71,7 @@ Apply verdicts before writing the final report.
 ### 4. Report
 Generate a markdown report using only surviving findings, unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form instead of writing a file.
 
-Standard report contents:
-- **Executive Summary**: overall assessment, high-level findings, challenge stats, key recommendations
-- **Scope and Context**
-- **Completeness Analysis**
-- **Clarity Issues**
-- **Technical Accuracy**
-- **Edge Cases and Risks**
-- **Architecture Assessment**
-- **Over-Engineering Analysis**
-- **Stakeholder Alignment**
-- **Prioritized Recommendations**: Critical/High/Medium/Low
-- **Readiness Assessment**: Ready / Needs Minor Updates / Needs Significant Rework / Not Ready
+Standard report sections: Executive Summary (overall assessment, high-level findings, challenge stats, key recommendations), Scope and Context, Completeness Analysis, Clarity Issues, Technical Accuracy, Edge Cases and Risks, Architecture Assessment, Over-Engineering Analysis, Stakeholder Alignment, Prioritized Recommendations (Critical/High/Medium/Low), Readiness Assessment (Ready / Needs Minor Updates / Needs Significant Rework / Not Ready).
 
 **Report output conventions**: Follow `../references/report-output-conventions.md` with:
 - **Report suffix**: `doc-review`

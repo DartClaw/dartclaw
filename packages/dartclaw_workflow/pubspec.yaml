@@ -31,6 +31,8 @@ dependencies:
   yaml: ^3.1.3
 
 dev_dependencies:
+  dartclaw_cli:
+    path: ../../apps/dartclaw_cli
   dartclaw_server:
     path: ../dartclaw_server
   dartclaw_testing:

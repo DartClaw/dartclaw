@@ -212,6 +212,30 @@ void main() {
       expect(def.loops[0].exitGate, 'implement.status == done');
     });
 
+    test('parses executionMode and structured outputMode', () {
+      const yaml = '''
+name: structured-workflow
+description: Workflow with one-shot structured output
+steps:
+  - id: review
+    name: Review
+    prompt: Review the change
+    executionMode: oneshot
+    contextOutputs:
+      - verdict
+    outputs:
+      verdict:
+        format: json
+        outputMode: structured
+        schema: verdict
+''';
+      final def = parser.parse(yaml);
+      final step = def.steps.single;
+      expect(step.executionMode, WorkflowExecutionMode.oneshot);
+      expect(step.outputs?['verdict']?.outputMode, OutputMode.structured);
+      expect(step.outputs?['verdict']?.presetName, 'verdict');
+    });
+
     test('parses inline loop authoring and preserves definition round-trip', () {
       final definition = parser.parse(_inlineLoopYaml);
       final roundTrip = WorkflowDefinition.fromJson(definition.toJson());

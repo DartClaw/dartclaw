@@ -53,6 +53,8 @@ The actual agent runtimes. DartClaw supports multiple providers (since 0.13):
 
 Each provider binary is spawned as a subprocess. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash. The `HarnessFactory` creates the appropriate harness type based on the configured provider ID.
 
+Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
+
 In a mixed deployment, the `HarnessPool` can contain workers from different providers — for example, a Claude primary harness for interactive chat and Codex workers for background tasks. See [Agents § Providers](agents.md#providers) for configuration details.
 
 ## Communication: The JSONL Control Protocol

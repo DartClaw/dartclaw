@@ -13,6 +13,7 @@ export 'task_event_recorder.dart' show TaskEventRecorder;
 export 'task_executor.dart' show TaskExecutor;
 export 'task_file_guard.dart' show TaskFileGuard;
 export 'task_notification_subscriber.dart' show TaskNotificationSubscriber;
+export 'workflow_cli_runner.dart' show WorkflowCliProviderConfig, WorkflowCliRunner, WorkflowCliTurnResult;
 export 'task_review_service.dart'
     show
         TaskReviewService,

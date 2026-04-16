@@ -16,6 +16,7 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Connected CLI workflow client**: `DartclawApiClient` now powers server-backed workflow execution, lifecycle control, SSE progress streaming, and loopback server detection
 - **Operational CLI command groups**: new `agents`, `config`, `jobs`, `projects`, `tasks`, and `traces` families, plus expanded `sessions` commands for remote inspection and lifecycle operations
 - **Workflow lifecycle CLI controls**: `workflow runs`, `workflow pause`, `workflow resume`, and `workflow cancel`
+- **Workflow one-shot CLI runner**: workflow-owned task execution can now invoke `claude -p` / `codex exec` directly for bounded workflow prompt chains while preserving DartClaw task/session bookkeeping
 - **New server read endpoints**: `GET /api/sessions/:id`, `GET /api/traces/:id`, `GET /api/scheduling/jobs`, and `GET /api/scheduling/jobs/:name`
 - **Workflow trigger surfaces**: launch forms on `/workflows`, `/workflow` chat commands in the web UI, and GitHub PR webhooks that can start the `code-review` workflow
 - **CLI operations guide**: new public guide page covering connected mode, standalone mode, server detection, and authentication behavior
@@ -25,6 +26,7 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
 - **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection
+- **Workflow structured outputs**: JSON workflow outputs can now opt into `outputMode: structured`, which uses provider-native schema constraints and stores the structured payload directly on the workflow task for extraction
 - **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
 - **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
 - **Built-in workflow skills expanded to full-capability parity**: the 8 AndThen-derived `dartclaw-*` skills (`review-code`, `review-gap`, `spec`, `plan`, `exec-spec`, `remediate-findings`, `review-doc`, `refactor`) now ship with their full adapted DartClaw methodology instead of the earlier thin stubs, and `discover-project` / `update-state` were revalidated against the S11 contract

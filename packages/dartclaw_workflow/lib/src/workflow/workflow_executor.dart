@@ -38,6 +38,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowTaskService,
         atomicWriteJson;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputMode, WorkflowExecutionMode;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -49,6 +50,7 @@ import 'json_extraction.dart';
 import 'map_context.dart';
 import 'map_step_context.dart';
 import 'prompt_augmenter.dart';
+import 'schema_presets.dart';
 import 'shell_escape.dart';
 import 'skill_prompt_builder.dart';
 import 'step_config_resolver.dart';
@@ -1344,6 +1346,7 @@ class WorkflowExecutor {
         ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
         : null;
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
+    final executionMode = _effectiveExecutionMode(step);
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
     final effectiveProvider = continuedRootStep != null
@@ -1356,11 +1359,7 @@ class WorkflowExecutor {
     // Inject per-iteration metadata for foreach child steps so downstream tracking and tests
     // can identify which story iteration this task belongs to.
     if (mapCtx != null) {
-      taskConfig = {
-        ...taskConfig,
-        '_mapIterationIndex': mapCtx.index,
-        '_mapIterationTotal': mapCtx.length,
-      };
+      taskConfig = {...taskConfig, '_mapIterationIndex': mapCtx.index, '_mapIterationTotal': mapCtx.length};
     }
 
     // continueSession: resolve root session and snapshot token baseline.
@@ -1376,6 +1375,10 @@ class WorkflowExecutor {
       }
       final baselineTokens = await _readSessionTokens(prevSessionId);
       taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
+      final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
+      if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
+        taskConfig = {...taskConfig, '_continueProviderSessionId': prevProviderSessionId};
+      }
     }
     final taskId = _uuid.v4();
 
@@ -1427,6 +1430,22 @@ class WorkflowExecutor {
             outputs: effectiveOutputs,
             contextOutputs: step.contextOutputs,
           );
+    if (executionMode == WorkflowExecutionMode.oneshot) {
+      final followUpPrompts = _buildOneShotFollowUpPrompts(
+        step,
+        context,
+        effectiveOutputs,
+        contextOutputs: step.contextOutputs,
+        mapCtx: mapCtx,
+      );
+      final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
+      taskConfig = {
+        ...taskConfig,
+        '_workflowExecutionMode': executionMode.name,
+        if (followUpPrompts.isNotEmpty) '_workflowFollowUpPrompts': followUpPrompts,
+        ...?structuredSchema == null ? null : {'_workflowStructuredSchema': structuredSchema},
+      };
+    }
 
     try {
       await _taskService.create(
@@ -1476,7 +1495,7 @@ class WorkflowExecutor {
     }
 
     // Multi-prompt: send follow-up turns in the same session.
-    if (step.isMultiPrompt) {
+    if (step.isMultiPrompt && executionMode != WorkflowExecutionMode.oneshot) {
       final followUpResult = await _executeFollowUpPrompts(run, step, finalTask, context, effectiveOutputs);
       if (followUpResult == null) return null; // Paused by budget/error.
       finalTask = followUpResult.$1;
@@ -1514,6 +1533,10 @@ class WorkflowExecutor {
           'branch/worktree_path context values will be empty',
         );
       }
+    }
+    final providerSessionId = (finalTask.configJson['_workflowProviderSessionId'] as String?)?.trim();
+    if (providerSessionId != null && providerSessionId.isNotEmpty) {
+      outputs['${step.id}.providerSessionId'] = providerSessionId;
     }
 
     return _ParallelStepResult(step: step, task: finalTask, outputs: outputs, tokenCount: tokenCount, success: true);
@@ -2152,6 +2175,68 @@ class WorkflowExecutor {
     return resolved.isEmpty ? null : resolved;
   }
 
+  WorkflowExecutionMode _effectiveExecutionMode(WorkflowStep step) {
+    return step.executionMode ?? _turnAdapter?.executionMode ?? WorkflowExecutionMode.oneshot;
+  }
+
+  String? _resolveContinueSessionRootProviderSessionId(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context,
+  ) {
+    final rootStep = _resolveContinueSessionRootStep(definition, step);
+    if (rootStep == null) return null;
+    final raw = context['${rootStep.id}.providerSessionId'];
+    return raw is String && raw.isNotEmpty ? raw : null;
+  }
+
+  List<String> _buildOneShotFollowUpPrompts(
+    WorkflowStep step,
+    WorkflowContext context,
+    Map<String, OutputConfig>? effectiveOutputs, {
+    required List<String> contextOutputs,
+    MapContext? mapCtx,
+  }) {
+    final prompts = step.prompts;
+    if (prompts == null || prompts.length < 2) return const [];
+
+    final followUps = <String>[];
+    for (var i = 1; i < prompts.length; i++) {
+      final isLast = i == prompts.length - 1;
+      final resolvedPrompt = _templateEngine.resolveWithMap(prompts[i], context, mapCtx);
+      final built = isLast
+          ? _skillPromptBuilder.build(
+              skill: null,
+              resolvedPrompt: resolvedPrompt,
+              outputs: effectiveOutputs,
+              contextOutputs: contextOutputs,
+            )
+          : resolvedPrompt;
+      followUps.add(built);
+    }
+    return followUps;
+  }
+
+  Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) {
+    final outputs = step.outputs;
+    if (outputs == null || outputs.isEmpty) return null;
+
+    final properties = <String, dynamic>{};
+    final required = <String>[];
+
+    for (final entry in outputs.entries) {
+      final config = entry.value;
+      if (config.outputMode != OutputMode.structured) continue;
+      final schema = config.inlineSchema ?? schemaPresets[config.presetName]?.schema;
+      if (schema == null) continue;
+      properties[entry.key] = schema;
+      required.add(entry.key);
+    }
+
+    if (properties.isEmpty) return null;
+    return {'type': 'object', 'additionalProperties': false, 'required': required, 'properties': properties};
+  }
+
   WorkflowStep? _resolveContinueSessionRootStep(WorkflowDefinition definition, WorkflowStep step) {
     final visited = <String>{step.id};
     var current = step;
@@ -2745,22 +2830,15 @@ class WorkflowExecutor {
         strategy!.promotion != 'none' &&
         childSteps.any((s) => s.type == 'coding');
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
-    final promotedIds = (context['_map.${controllerStep.id}.promotedIds'] as List?)?.whereType<String>().toSet() ??
-        <String>{};
+    final promotedIds =
+        (context['_map.${controllerStep.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
 
     // 7. Create MapStepContext.
     final mapCtx = MapStepContext(collection: collection, maxParallel: maxParallel, maxItems: controllerStep.maxItems);
     _restoreForeachProgress(mapCtx, resumeCursor, collectionLength: collection.length);
 
     // 8. Persist initial progress.
-    await _persistForeachProgress(
-      run,
-      controllerStep,
-      context,
-      mapCtx,
-      stepIndex: stepIndex,
-      promotedIds: promotedIds,
-    );
+    await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
 
     // 9. Bounded concurrency dispatch loop.
     final inFlight = <int, Future<void>>{};
@@ -2798,22 +2876,25 @@ class WorkflowExecutor {
         final effectiveProjectId = _resolveProjectIdWithMap(controllerStep, context, mapContext);
         mapCtx.inFlightCount++;
 
-        inFlight[iterIndex] = _dispatchForeachIteration(
-          run: run,
-          definition: definition,
-          controllerStep: controllerStep,
-          childSteps: childSteps,
-          stepIndex: stepIndex,
-          iterIndex: iterIndex,
-          mapContext: mapContext,
-          mapCtx: mapCtx,
-          context: context,
-          promotionAware: promotionAware,
-          integrationBranch: integrationBranch,
-          promotionStrategy: strategy?.promotion ?? 'merge',
-          promotedIds: promotedIds,
-          projectId: effectiveProjectId,
-        ).then((_) { inFlight.remove(iterIndex); });
+        inFlight[iterIndex] =
+            _dispatchForeachIteration(
+              run: run,
+              definition: definition,
+              controllerStep: controllerStep,
+              childSteps: childSteps,
+              stepIndex: stepIndex,
+              iterIndex: iterIndex,
+              mapContext: mapContext,
+              mapCtx: mapCtx,
+              context: context,
+              promotionAware: promotionAware,
+              integrationBranch: integrationBranch,
+              promotionStrategy: strategy?.promotion ?? 'merge',
+              promotedIds: promotedIds,
+              projectId: effectiveProjectId,
+            ).then((_) {
+              inFlight.remove(iterIndex);
+            });
       }
 
       if (inFlight.isEmpty && pending.isNotEmpty) {
@@ -3242,14 +3323,7 @@ class WorkflowExecutor {
 
     // Record successful iteration aggregate result.
     mapCtx.recordResult(iterIndex, iterResult);
-    await _persistForeachProgress(
-      run,
-      controllerStep,
-      context,
-      mapCtx,
-      stepIndex: stepIndex,
-      promotedIds: promotedIds,
-    );
+    await _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
     mapCtx.inFlightCount--;
 
     _eventBus.fire(

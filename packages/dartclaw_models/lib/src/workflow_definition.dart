@@ -17,6 +17,36 @@ enum OutputFormat {
   };
 }
 
+/// Output extraction mode for JSON workflow outputs.
+enum OutputMode {
+  /// Prompt-guided extraction using the existing heuristic parser.
+  prompt,
+
+  /// Native provider-structured output via a dedicated extraction turn.
+  structured;
+
+  static OutputMode? fromYaml(String value) => switch (value) {
+    'prompt' => prompt,
+    'structured' => structured,
+    _ => null,
+  };
+}
+
+/// Execution mode for workflow agent steps.
+enum WorkflowExecutionMode {
+  /// Native one-shot CLI execution for bounded workflow steps.
+  oneshot,
+
+  /// Existing streaming harness execution.
+  streaming;
+
+  static WorkflowExecutionMode? fromYaml(String value) => switch (value) {
+    'oneshot' => oneshot,
+    'streaming' => streaming,
+    _ => null,
+  };
+}
+
 /// Configuration for a single output key's extraction and validation.
 class OutputConfig {
   /// Output format determining extraction strategy.
@@ -38,7 +68,10 @@ class OutputConfig {
   /// - `"worktree.path"` — reads the worktree filesystem path from persisted worktree metadata
   final String? source;
 
-  const OutputConfig({this.format = OutputFormat.text, this.schema, this.source});
+  /// Extraction mode for JSON outputs.
+  final OutputMode outputMode;
+
+  const OutputConfig({this.format = OutputFormat.text, this.schema, this.source, this.outputMode = OutputMode.prompt});
 
   /// Whether this config has a schema (preset name or inline).
   bool get hasSchema => schema != null;
@@ -53,12 +86,14 @@ class OutputConfig {
     'format': format.name,
     if (schema != null) 'schema': schema,
     if (source != null) 'source': source,
+    if (outputMode != OutputMode.prompt) 'outputMode': outputMode.name,
   };
 
   factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
     format: json['format'] != null ? OutputFormat.values.byName(json['format'] as String) : OutputFormat.text,
     schema: json['schema'],
     source: json['source'] as String?,
+    outputMode: json['outputMode'] != null ? OutputMode.values.byName(json['outputMode'] as String) : OutputMode.prompt,
   );
 }
 
@@ -502,6 +537,9 @@ class WorkflowStep {
   /// S02 owns runtime execution semantics for this field.
   final String? workdir;
 
+  /// Optional per-step execution mode override.
+  final WorkflowExecutionMode? executionMode;
+
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -545,6 +583,7 @@ class WorkflowStep {
     this.continueSession,
     this.onError,
     this.workdir,
+    this.executionMode,
   });
 
   Map<String, dynamic> toJson() => {
@@ -575,6 +614,7 @@ class WorkflowStep {
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
+    if (executionMode != null) 'executionMode': executionMode!.name,
   };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) {
@@ -627,6 +667,9 @@ class WorkflowStep {
       },
       onError: json['onError'] as String?,
       workdir: json['workdir'] as String?,
+      executionMode: json['executionMode'] != null
+          ? WorkflowExecutionMode.values.byName(json['executionMode'] as String)
+          : null,
     );
   }
 }
@@ -804,8 +847,7 @@ class WorkflowDefinition {
     // not emitted as top-level nodes.
     final foreachOwnedStepIds = {
       for (final step in steps)
-        if (step.isForeachController)
-          ...step.foreachSteps!,
+        if (step.isForeachController) ...step.foreachSteps!,
     };
 
     final nodes = <WorkflowNode>[];
@@ -834,12 +876,7 @@ class WorkflowDefinition {
       }
 
       if (step.isForeachController) {
-        nodes.add(
-          ForeachNode(
-            stepId: step.id,
-            childStepIds: step.foreachSteps!.toList(growable: false),
-          ),
-        );
+        nodes.add(ForeachNode(stepId: step.id, childStepIds: step.foreachSteps!.toList(growable: false)));
         continue;
       }
 

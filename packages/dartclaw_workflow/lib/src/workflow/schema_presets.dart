@@ -27,6 +27,7 @@ const verdictPreset = SchemaPreset(
   name: 'verdict',
   schema: {
     'type': 'object',
+    'additionalProperties': false,
     'required': ['pass', 'findings_count', 'findings', 'summary'],
     'properties': {
       'pass': {'type': 'boolean'},
@@ -35,6 +36,7 @@ const verdictPreset = SchemaPreset(
         'type': 'array',
         'items': {
           'type': 'object',
+          'additionalProperties': false,
           'required': ['severity', 'location', 'description'],
           'properties': {
             'severity': {
@@ -64,33 +66,50 @@ Output the JSON directly — do not wrap in markdown code fences.''',
 const storyPlanPreset = SchemaPreset(
   name: 'story-plan',
   schema: {
-    'type': 'array',
-    'items': {
-      'type': 'object',
-      'required': ['id', 'title', 'description', 'acceptance_criteria', 'type', 'dependencies', 'key_files', 'effort'],
-      'properties': {
-        'id': {'type': 'string'},
-        'title': {'type': 'string'},
-        'description': {'type': 'string'},
-        'acceptance_criteria': {
-          'type': 'array',
-          'items': {'type': 'string'},
+    'type': 'object',
+    'additionalProperties': false,
+    'required': ['items'],
+    'properties': {
+      'items': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'additionalProperties': false,
+          'required': [
+            'id',
+            'title',
+            'description',
+            'acceptance_criteria',
+            'type',
+            'dependencies',
+            'key_files',
+            'effort',
+          ],
+          'properties': {
+            'id': {'type': 'string'},
+            'title': {'type': 'string'},
+            'description': {'type': 'string'},
+            'acceptance_criteria': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'type': {'type': 'string'},
+            'phase': {'type': 'string'},
+            'dependencies': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'key_files': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'effort': {'type': 'string'},
+          },
         },
-        'type': {'type': 'string'},
-        'phase': {'type': 'string'},
-        'dependencies': {
-          'type': 'array',
-          'items': {'type': 'string'},
-        },
-        'key_files': {
-          'type': 'array',
-          'items': {'type': 'string'},
-        },
-        'effort': {'type': 'string'},
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON array of story objects. Each story has:
+  promptFragment: '''Produce your output as a JSON object with an `items` array of story objects. Each story has:
 - id (string): Short unique identifier (e.g. "s01", "s02")
 - title (string): Concise story title
 - description (string): What this story delivers
@@ -101,13 +120,14 @@ const storyPlanPreset = SchemaPreset(
 - key_files (array of strings): Primary files affected
 - effort (string): "small", "medium", or "large"
 
-Output the JSON directly — do not wrap in markdown code fences.''',
+Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const remediationResultPreset = SchemaPreset(
   name: 'remediation-result',
   schema: {
     'type': 'object',
+    'additionalProperties': false,
     'required': ['remediation_summary', 'diff_summary'],
     'properties': {
       'remediation_summary': {'type': 'string'},
@@ -124,33 +144,43 @@ Output the JSON directly — do not wrap in markdown code fences.''',
 const fileListPreset = SchemaPreset(
   name: 'file-list',
   schema: {
-    'type': 'array',
-    'items': {
-      'type': 'object',
-      'required': ['path'],
-      'properties': {
-        'path': {'type': 'string'},
-        'reason': {'type': 'string'},
+    'type': 'object',
+    'additionalProperties': false,
+    'required': ['items'],
+    'properties': {
+      'items': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'additionalProperties': false,
+          'required': ['path'],
+          'properties': {
+            'path': {'type': 'string'},
+            'reason': {'type': 'string'},
+          },
+        },
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON array of file objects. Each has:
+  promptFragment: '''Produce your output as a JSON object with an `items` array of file objects. Each item has:
 - path (string): File path relative to project root
 - reason (string, optional): Why this file is included
 
-Output the JSON directly — do not wrap in markdown code fences.''',
+Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const checklistPreset = SchemaPreset(
   name: 'checklist',
   schema: {
     'type': 'object',
+    'additionalProperties': false,
     'required': ['items', 'all_pass'],
     'properties': {
       'items': {
         'type': 'array',
         'items': {
           'type': 'object',
+          'additionalProperties': false,
           'required': ['check', 'pass'],
           'properties': {
             'check': {'type': 'string'},

@@ -72,7 +72,18 @@ class WorkflowDefinitionValidator {
   final _engine = WorkflowTemplateEngine();
 
   /// Step types known by the engine. Any other type produces a warning.
-  static const _knownTypes = {'research', 'analysis', 'writing', 'coding', 'automation', 'custom', 'bash', 'approval', 'foreach', 'loop'};
+  static const _knownTypes = {
+    'research',
+    'analysis',
+    'writing',
+    'coding',
+    'automation',
+    'custom',
+    'bash',
+    'approval',
+    'foreach',
+    'loop',
+  };
 
   /// Optional skill registry for skill-aware validation.
   ///
@@ -103,7 +114,7 @@ class WorkflowDefinitionValidator {
     _validateLoopFinalizers(definition, errors);
     _validateStepDefaults(definition);
     _validateGitStrategy(definition, errors);
-    _validateOutputConfigs(definition, errors);
+    _validateOutputConfigs(definition, errors, warnings);
     _validateMapOverReferences(definition, errors);
     _validateMapStepConstraints(definition, errors);
     if (continuityProviders != null) {
@@ -444,7 +455,10 @@ class WorkflowDefinitionValidator {
       // and orchestrate child steps rather than issuing prompts themselves).
       final isBashOrApproval = step.type == 'bash' || step.type == 'approval';
       final isForeachOrLoop = step.type == 'foreach' || step.type == 'loop';
-      if (step.skill == null && (step.prompts == null || step.prompts!.isEmpty) && !isBashOrApproval && !isForeachOrLoop) {
+      if (step.skill == null &&
+          (step.prompts == null || step.prompts!.isEmpty) &&
+          !isBashOrApproval &&
+          !isForeachOrLoop) {
         errors.add(
           ValidationError(
             message: 'Step "${step.id}" must have at least one prompt.',
@@ -795,7 +809,11 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateOutputConfigs(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateOutputConfigs(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+    List<ValidationError> warnings,
+  ) {
     for (final step in definition.steps) {
       if (step.outputs == null) continue;
 
@@ -839,6 +857,85 @@ class WorkflowDefinitionValidator {
             );
           }
         }
+
+        if (config.outputMode == OutputMode.structured) {
+          if (config.format != OutputFormat.json) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" output "$key" uses outputMode: structured but format is '
+                    '"${config.format.name}". Structured output requires format: json.',
+                type: ValidationErrorType.contextInconsistency,
+                stepId: step.id,
+              ),
+            );
+          }
+          if (!config.hasSchema) {
+            errors.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" output "$key" uses outputMode: structured but has no schema. '
+                    'Structured output requires a schema preset or inline schema.',
+                type: ValidationErrorType.missingField,
+                stepId: step.id,
+              ),
+            );
+          }
+          final inlineSchema = config.inlineSchema;
+          if (inlineSchema != null) {
+            final violations = <String>[];
+            _collectStructuredSchemaViolations(inlineSchema, path: key, violations: violations);
+            for (final violation in violations) {
+              errors.add(
+                ValidationError(
+                  message: 'Step "${step.id}" output "$key" inline schema $violation',
+                  type: ValidationErrorType.contextInconsistency,
+                  stepId: step.id,
+                ),
+              );
+            }
+          }
+          if (step.type == 'research' && step.executionMode != WorkflowExecutionMode.streaming) {
+            warnings.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" uses outputMode: structured in a research step, which normally '
+                    'runs in the restricted profile. Restricted profiles fall back to streaming mode, '
+                    'so native structured output guarantees may not apply.',
+                type: ValidationErrorType.hybridStepConstraint,
+                stepId: step.id,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  void _collectStructuredSchemaViolations(
+    Map<String, dynamic> schema, {
+    required String path,
+    required List<String> violations,
+  }) {
+    final type = schema['type'];
+    if (type == 'object') {
+      final additionalProperties = schema['additionalProperties'];
+      if (additionalProperties != false) {
+        violations.add('at "$path" must set additionalProperties: false.');
+      }
+      final properties = schema['properties'];
+      if (properties is Map<String, dynamic>) {
+        for (final entry in properties.entries) {
+          final child = entry.value;
+          if (child is Map<String, dynamic>) {
+            _collectStructuredSchemaViolations(child, path: '$path.${entry.key}', violations: violations);
+          }
+        }
+      }
+    } else if (type == 'array') {
+      final items = schema['items'];
+      if (items is Map<String, dynamic>) {
+        _collectStructuredSchemaViolations(items, path: '$path[]', violations: violations);
       }
     }
   }

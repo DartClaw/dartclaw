@@ -3,8 +3,9 @@ import 'package:test/test.dart';
 
 void main() {
   group('SchemaPreset constants', () {
-    test('all 4 presets exist in registry', () {
+    test('all 5 presets exist in registry', () {
       expect(schemaPresets.containsKey('verdict'), true);
+      expect(schemaPresets.containsKey('remediation-result'), true);
       expect(schemaPresets.containsKey('story-plan'), true);
       expect(schemaPresets.containsKey('file-list'), true);
       expect(schemaPresets.containsKey('checklist'), true);
@@ -25,6 +26,14 @@ void main() {
     test('each preset schema has a type field', () {
       for (final preset in schemaPresets.values) {
         expect(preset.schema.containsKey('type'), true);
+      }
+    });
+
+    test('each object preset disables additional properties', () {
+      for (final preset in schemaPresets.values) {
+        if (preset.schema['type'] == 'object') {
+          expect(preset.schema['additionalProperties'], isFalse, reason: preset.name);
+        }
       }
     });
   });
@@ -58,14 +67,24 @@ void main() {
       expect(storyPlanPreset.name, 'story-plan');
     });
 
-    test('schema is an array type', () {
-      expect(storyPlanPreset.schema['type'], 'array');
+    test('schema is an object envelope type', () {
+      expect(storyPlanPreset.schema['type'], 'object');
     });
 
     test('schema item requires id, title, description', () {
-      final items = storyPlanPreset.schema['items'] as Map;
-      final required = items['required'] as List;
+      final items = (storyPlanPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
+      final required = itemSchema['required'] as List;
       expect(required, containsAll(['id', 'title', 'description']));
+    });
+
+    test('schema envelope requires items', () {
+      final required = storyPlanPreset.schema['required'] as List;
+      expect(required, contains('items'));
+    });
+
+    test('prompt fragment describes object envelope', () {
+      expect(storyPlanPreset.promptFragment, contains('JSON object with an `items` array'));
     });
 
     test('prompt fragment mentions dependencies', () {
@@ -78,14 +97,19 @@ void main() {
       expect(fileListPreset.name, 'file-list');
     });
 
-    test('schema is an array type', () {
-      expect(fileListPreset.schema['type'], 'array');
+    test('schema is an object envelope type', () {
+      expect(fileListPreset.schema['type'], 'object');
     });
 
     test('schema item requires path', () {
-      final items = fileListPreset.schema['items'] as Map;
-      final required = items['required'] as List;
+      final items = (fileListPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
+      final required = itemSchema['required'] as List;
       expect(required, contains('path'));
+    });
+
+    test('prompt fragment describes object envelope', () {
+      expect(fileListPreset.promptFragment, contains('JSON object with an `items` array'));
     });
   });
 
@@ -111,6 +135,7 @@ void main() {
   group('registry lookup', () {
     test('lookup by name returns correct preset', () {
       expect(schemaPresets['verdict'], verdictPreset);
+      expect(schemaPresets['remediation-result'], remediationResultPreset);
       expect(schemaPresets['story-plan'], storyPlanPreset);
       expect(schemaPresets['file-list'], fileListPreset);
       expect(schemaPresets['checklist'], checklistPreset);

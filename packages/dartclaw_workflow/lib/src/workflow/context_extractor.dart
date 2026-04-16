@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         OutputConfig,
         OutputFormat,
+        OutputMode,
         Task,
         WorkflowStep,
         ExtractionConfig,
@@ -120,6 +121,20 @@ class ContextExtractor {
       }
 
       if (config != null && config.format != OutputFormat.text) {
+        if (config.outputMode == OutputMode.structured) {
+          final payload = task.configJson['_workflowStructuredOutputPayload'];
+          final structuredMap = switch (payload) {
+            final Map<String, dynamic> typed => typed,
+            final Map<Object?, Object?> raw => raw.map((key, value) => MapEntry(key.toString(), value)),
+            _ => null,
+          };
+          if (structuredMap != null && structuredMap.containsKey(outputKey)) {
+            final structuredValue = structuredMap[outputKey];
+            _softValidate(structuredValue, config, step.id, outputKey);
+            outputs[outputKey] = structuredValue;
+            continue;
+          }
+        }
         // Format-aware extraction (json or lines).
         final rawContent = await _extractRawContent(step, task, outputKey);
         if (rawContent == null || rawContent.isEmpty) {

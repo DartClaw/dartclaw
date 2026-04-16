@@ -134,9 +134,7 @@ class WorkflowDefinitionParser {
         throw FormatException('Foreach "$id" step entries must be mappings${_at(sourcePath)}.');
       }
       if (_isInlineLoopStep(childRaw) || _isInlineForeachStep(childRaw)) {
-        throw FormatException(
-          'Foreach "$id" cannot contain nested loops or foreach steps${_at(sourcePath)}.',
-        );
+        throw FormatException('Foreach "$id" cannot contain nested loops or foreach steps${_at(sourcePath)}.');
       }
       childSteps.add(_parseStep(childRaw, sourcePath));
     }
@@ -318,7 +316,14 @@ class WorkflowDefinitionParser {
               : OutputFormat.text;
           final schema = _parseSchema(value['schema']);
           final outputSource = value['source'] as String?;
-          outputs[key] = OutputConfig(format: format, schema: schema, source: outputSource);
+          final outputModeRaw = (value['outputMode'] ?? value['output_mode']) as String?;
+          final outputMode = outputModeRaw != null
+              ? (OutputMode.fromYaml(outputModeRaw) ??
+                    (throw FormatException(
+                      'Step "$id" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
+                    )))
+              : OutputMode.prompt;
+          outputs[key] = OutputConfig(format: format, schema: schema, source: outputSource, outputMode: outputMode);
         } else {
           // Shorthand: `key: json` or `key: lines`
           final format = OutputFormat.fromYaml(value.toString());
@@ -364,6 +369,7 @@ class WorkflowDefinitionParser {
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
+      executionMode: _parseExecutionMode(raw['executionMode'] ?? raw['execution_mode'], id, sourcePath),
     );
   }
 
@@ -374,6 +380,15 @@ class WorkflowDefinitionParser {
     throw FormatException(
       'Step "$stepId": "continueSession" must be true or a non-empty step ID string${_at(sourcePath)}.',
     );
+  }
+
+  WorkflowExecutionMode? _parseExecutionMode(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return null;
+    if (raw is String) {
+      final parsed = WorkflowExecutionMode.fromYaml(raw.trim());
+      if (parsed != null) return parsed;
+    }
+    throw FormatException('Step "$stepId": "executionMode" must be "oneshot" or "streaming"${_at(sourcePath)}.');
   }
 
   /// Parses the `max_parallel` value from YAML.

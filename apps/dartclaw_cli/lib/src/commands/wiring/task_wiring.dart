@@ -67,16 +67,19 @@ class TaskWiring {
     required EventBus eventBus,
     required StorageWiring storage,
     ProjectWiring? project,
+    Map<String, ContainerExecutor> containerManagers = const <String, ContainerExecutor>{},
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
-       _project = project;
+       _project = project,
+       _containerManagers = containerManagers;
 
   final DartclawConfig config;
   final String _dataDir;
   final EventBus _eventBus;
   final StorageWiring _storage;
   final ProjectWiring? _project;
+  final Map<String, ContainerExecutor> _containerManagers;
 
   static final _log = Logger('TaskWiring');
 
@@ -181,6 +184,18 @@ class TaskWiring {
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
     _agentObserver = AgentObserver(pool: pool, eventBus: _eventBus);
+    final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final workflowCliRunner = WorkflowCliRunner(
+      providers: {
+        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+          providerId: WorkflowCliProviderConfig(
+            executable: _resolveWorkflowProviderExecutable(config, providerId),
+            environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
+            options: _providerOptionsForWorkflow(config, providerId),
+          ),
+      },
+      containerManagers: _containerManagers,
+    );
 
     _taskExecutor = TaskExecutor(
       tasks: _storage.taskService,
@@ -208,6 +223,7 @@ class TaskWiring {
       budgetConfig: config.tasks.budget,
       eventBus: _eventBus,
       dataDir: _dataDir,
+      workflowCliRunner: workflowCliRunner,
     );
     _taskExecutor.start();
     _log.fine('TaskExecutor started');
@@ -245,3 +261,31 @@ class TaskWiring {
     await _compactionTaskEventSubscriber.dispose();
   }
 }
+
+Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
+  final environment = Map<String, String>.from(Platform.environment)
+    ..remove('ANTHROPIC_API_KEY')
+    ..remove('OPENAI_API_KEY')
+    ..remove('CODEX_API_KEY')
+    ..remove('CLAUDE_CODE_SUBAGENT_MODEL');
+  final apiKey = registry.getApiKey(providerId);
+  if (apiKey != null) {
+    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
+      environment[envVar] = apiKey;
+    }
+  }
+  return environment;
+}
+
+String _resolveWorkflowProviderExecutable(DartclawConfig config, String providerId) {
+  final entry = config.providers[providerId];
+  if (entry != null) return entry.executable;
+  return switch (ProviderIdentity.family(providerId)) {
+    'claude' => config.server.claudeExecutable,
+    'codex' => 'codex',
+    _ => providerId,
+  };
+}
+
+Map<String, dynamic> _providerOptionsForWorkflow(DartclawConfig config, String providerId) =>
+    config.providers[providerId]?.options ?? const <String, dynamic>{};

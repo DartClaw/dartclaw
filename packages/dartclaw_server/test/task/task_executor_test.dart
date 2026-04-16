@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -70,6 +71,7 @@ void main() {
   TaskExecutor buildExecutor({
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
+    WorkflowCliRunner? workflowCliRunner,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
     final namedArgs = <Symbol, dynamic>{
@@ -85,6 +87,9 @@ void main() {
     }
     if (projectService != null) {
       namedArgs[#projectService] = projectService;
+    }
+    if (workflowCliRunner != null) {
+      namedArgs[#workflowCliRunner] = workflowCliRunner;
     }
     return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
   }
@@ -184,6 +189,71 @@ void main() {
 
     expect(worker.lastModel, 'opus');
     expect((await tasks.get('task-model'))!.status, TaskStatus.review);
+  });
+
+  test('workflow oneshot mode executes prompt chain and stores structured payload', () async {
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        final payload = args.contains('--json-schema')
+            ? jsonEncode({
+                'session_id': 'cli-session-1',
+                'structured_output': {
+                  'verdict': {
+                    'pass': true,
+                    'findings_count': 0,
+                    'findings': <Map<String, dynamic>>[],
+                    'summary': 'Clean',
+                  },
+                },
+              })
+            : jsonEncode({'session_id': 'cli-session-1', 'result': 'Working...'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot',
+      title: 'One-shot workflow step',
+      description: 'Run the workflow step.',
+      type: TaskType.analysis,
+      autoStart: true,
+      configJson: const {
+        '_workflowExecutionMode': 'oneshot',
+        '_workflowFollowUpPrompts': ['Follow up'],
+        '_workflowStructuredSchema': {
+          'type': 'object',
+          'additionalProperties': false,
+          'required': ['verdict'],
+          'properties': {
+            'verdict': {
+              'type': 'object',
+              'additionalProperties': false,
+              'required': ['pass', 'findings_count', 'findings', 'summary'],
+              'properties': {
+                'pass': {'type': 'boolean'},
+                'findings_count': {'type': 'integer'},
+                'findings': {
+                  'type': 'array',
+                  'items': {'type': 'object', 'additionalProperties': false},
+                },
+                'summary': {'type': 'string'},
+              },
+            },
+          },
+        },
+      },
+      provider: 'claude',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final updated = await tasks.get('task-oneshot');
+    expect(updated?.status, TaskStatus.review);
+    expect(updated?.configJson['_workflowProviderSessionId'], 'cli-session-1');
+    expect(updated?.configJson['_workflowStructuredOutputPayload'], isA<Map<Object?, Object?>>());
   });
 
   test('invokes auto-accept callback with the task id after completion when provided', () async {

@@ -21,6 +21,7 @@ import 'task_event_recorder.dart';
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_service.dart';
+import 'workflow_cli_runner.dart';
 import 'worktree_manager.dart';
 
 /// Executes queued tasks against the harness pool.
@@ -41,6 +42,7 @@ class TaskExecutor {
     AgentObserver? observer,
     TurnTraceService? traceService,
     TaskEventRecorder? eventRecorder,
+    WorkflowCliRunner? workflowCliRunner,
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
@@ -66,6 +68,7 @@ class TaskExecutor {
        _observer = observer,
        _traceService = traceService,
        _eventRecorder = eventRecorder,
+       _workflowCliRunner = workflowCliRunner,
        _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
        _projectService = projectService,
@@ -94,6 +97,7 @@ class TaskExecutor {
   final AgentObserver? _observer;
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
+  final WorkflowCliRunner? _workflowCliRunner;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
@@ -515,10 +519,52 @@ class TaskExecutor {
       final modelOverride = _modelOverride(task);
       final effortOverride = _effortOverride(task);
       final tokenBudget = _tokenBudget(task);
+      final projectDirForTask = (project != null && project.id != '_local') ? project.localPath : null;
 
       if (budgetWarningMessage != null) {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
+
+      final workflowExecutionMode = task.configJson['_workflowExecutionMode'] as String?;
+      if (workflowExecutionMode == 'oneshot' && _workflowCliRunner != null && runnerProfileId != 'restricted') {
+        final outcome = await _executeWorkflowOneShotTask(
+          task,
+          sessionId: session.id,
+          pendingMessage: pendingMessage,
+          provider: provider ?? task.provider ?? 'claude',
+          profileId: runnerProfileId ?? resolveProfile(task.type),
+          workingDirectory: worktreeInfo?.path ?? projectDirForTask,
+          modelOverride: modelOverride,
+          effortOverride: effortOverride,
+        );
+        _observer?.recordTurn(
+          runnerIndex,
+          inputTokens: outcome.inputTokens,
+          outputTokens: outcome.outputTokens,
+          isError: outcome.status != TurnStatus.completed,
+          turnDuration: outcome.turnDuration,
+          cacheReadTokens: outcome.cacheReadTokens,
+          cacheWriteTokens: outcome.cacheWriteTokens,
+          toolCalls: outcome.toolCalls,
+        );
+        if (outcome.status != TurnStatus.completed) {
+          await _markFailedOrRetry(task, errorSummary: outcome.errorMessage ?? 'Workflow one-shot execution failed');
+          return;
+        }
+        final refreshedTask = await _tasks.get(task.id) ?? task;
+        final artifacts = await _artifactCollector.collect(refreshedTask);
+        for (final artifact in artifacts) {
+          _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
+        }
+        final postStatus = _resolvePostCompletionStatus(task);
+        await _tasks.transition(task.id, postStatus, trigger: 'system');
+        final onAutoAccept = _onAutoAccept;
+        if (onAutoAccept != null && postStatus == TaskStatus.review && !_skipAutoAcceptForWorkflowTask(task)) {
+          await onAutoAccept(task.id);
+        }
+        return;
+      }
+
       await _messages.insertMessage(sessionId: session.id, role: 'user', content: pendingMessage);
 
       final clearedConfig = _clearPushBackComment(task.configJson);
@@ -541,8 +587,7 @@ class TaskExecutor {
           )
           .toList(growable: false);
 
-      final projectDir = (project != null && project.id != '_local') ? project.localPath : null;
-      final turnDirectory = worktreeInfo?.path ?? projectDir;
+      final turnDirectory = worktreeInfo?.path ?? projectDirForTask;
 
       // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
@@ -551,16 +596,16 @@ class TaskExecutor {
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workflowWorkspaceDir,
-          projectDir: projectDir,
+          projectDir: projectDirForTask,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
           identifierInstructions: _identifierInstructions,
         );
-      } else if (projectDir != null && workspaceDir != null) {
+      } else if (projectDirForTask != null && workspaceDir != null) {
         taskBehavior = BehaviorFileService(
           workspaceDir: workspaceDir,
-          projectDir: projectDir,
+          projectDir: projectDirForTask,
           maxMemoryBytes: _maxMemoryBytes,
           compactInstructions: _compactInstructions,
           identifierPreservation: _identifierPreservation,
@@ -745,6 +790,185 @@ class TaskExecutor {
         await Future<void>.delayed(pollInterval);
       }
     }
+  }
+
+  Future<TurnOutcome> _executeWorkflowOneShotTask(
+    Task task, {
+    required String sessionId,
+    required String pendingMessage,
+    required String provider,
+    required String profileId,
+    required String? workingDirectory,
+    required String? modelOverride,
+    required String? effortOverride,
+  }) async {
+    final runner = _workflowCliRunner;
+    if (runner == null) {
+      throw StateError('Workflow one-shot execution requested but no runner is configured');
+    }
+
+    final cwd = workingDirectory ?? Directory.current.path;
+    final followUps = switch (task.configJson['_workflowFollowUpPrompts']) {
+      final List<dynamic> values => values.map((value) => value.toString()).toList(growable: false),
+      _ => const <String>[],
+    };
+    final structuredSchema = switch (task.configJson['_workflowStructuredSchema']) {
+      final Map<String, dynamic> schema => schema,
+      final Map<Object?, Object?> schema => schema.map((key, value) => MapEntry(key.toString(), value)),
+      _ => null,
+    };
+
+    String? providerSessionId = (task.configJson['_continueProviderSessionId'] as String?)?.trim();
+    final startedAt = DateTime.now();
+    var inputTokens = 0;
+    var outputTokens = 0;
+    var cacheReadTokens = 0;
+    var cacheWriteTokens = 0;
+
+    final prompts = <String>[pendingMessage, ...followUps];
+    for (final prompt in prompts) {
+      final (budgetVerdict, budgetWarningMessage) = await _checkBudget(task, sessionId);
+      if (budgetVerdict == _BudgetVerdict.exceeded) {
+        return TurnOutcome(
+          turnId: 'workflow-oneshot-budget',
+          sessionId: sessionId,
+          status: TurnStatus.failed,
+          errorMessage: 'Workflow one-shot task exceeded its token budget',
+          completedAt: DateTime.now(),
+        );
+      }
+      if (budgetWarningMessage != null) {
+        await _messages.insertMessage(sessionId: sessionId, role: 'system', content: budgetWarningMessage);
+      }
+
+      await _messages.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
+      final turnResult = await runner.executeTurn(
+        provider: provider,
+        prompt: prompt,
+        workingDirectory: cwd,
+        profileId: profileId,
+        providerSessionId: providerSessionId,
+        model: modelOverride,
+        effort: effortOverride,
+      );
+      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
+      inputTokens += turnResult.inputTokens;
+      outputTokens += turnResult.outputTokens;
+      cacheReadTokens += turnResult.cacheReadTokens;
+      cacheWriteTokens += turnResult.cacheWriteTokens;
+      await _trackWorkflowSessionUsage(
+        sessionId,
+        provider: provider,
+        inputTokens: turnResult.inputTokens,
+        outputTokens: turnResult.outputTokens,
+        cacheReadTokens: turnResult.cacheReadTokens,
+        cacheWriteTokens: turnResult.cacheWriteTokens,
+        totalCostUsd: turnResult.totalCostUsd,
+      );
+      final assistantText = turnResult.structuredOutput != null
+          ? jsonEncode(turnResult.structuredOutput)
+          : turnResult.responseText;
+      await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: assistantText);
+    }
+
+    Map<String, dynamic>? structuredPayload;
+    if (structuredSchema != null) {
+      final extractionPrompt =
+          'Based on your work above, produce the structured output. '
+          'Output ONLY the JSON object. Do NOT use any tools.';
+      await _messages.insertMessage(sessionId: sessionId, role: 'user', content: extractionPrompt);
+      final turnResult = await runner.executeTurn(
+        provider: provider,
+        prompt: extractionPrompt,
+        workingDirectory: cwd,
+        profileId: profileId,
+        providerSessionId: providerSessionId,
+        model: modelOverride,
+        effort: effortOverride,
+        maxTurns: provider == 'claude' ? 5 : null,
+        jsonSchema: structuredSchema,
+      );
+      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
+      inputTokens += turnResult.inputTokens;
+      outputTokens += turnResult.outputTokens;
+      cacheReadTokens += turnResult.cacheReadTokens;
+      cacheWriteTokens += turnResult.cacheWriteTokens;
+      await _trackWorkflowSessionUsage(
+        sessionId,
+        provider: provider,
+        inputTokens: turnResult.inputTokens,
+        outputTokens: turnResult.outputTokens,
+        cacheReadTokens: turnResult.cacheReadTokens,
+        cacheWriteTokens: turnResult.cacheWriteTokens,
+        totalCostUsd: turnResult.totalCostUsd,
+      );
+      structuredPayload = turnResult.structuredOutput;
+      await _messages.insertMessage(
+        sessionId: sessionId,
+        role: 'assistant',
+        content: structuredPayload != null ? jsonEncode(structuredPayload) : turnResult.responseText,
+      );
+    }
+
+    final nextConfig = Map<String, dynamic>.from(task.configJson);
+    if (providerSessionId != null && providerSessionId.isNotEmpty) {
+      nextConfig['_workflowProviderSessionId'] = providerSessionId;
+    }
+    if (structuredPayload != null) {
+      nextConfig['_workflowStructuredOutputPayload'] = structuredPayload;
+    }
+    await _tasks.updateFields(task.id, configJson: nextConfig);
+
+    return TurnOutcome(
+      turnId: 'workflow-oneshot-${task.id}',
+      sessionId: sessionId,
+      status: TurnStatus.completed,
+      responseText: structuredPayload != null ? jsonEncode(structuredPayload) : null,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cacheReadTokens: cacheReadTokens,
+      cacheWriteTokens: cacheWriteTokens,
+      turnDuration: DateTime.now().difference(startedAt),
+      completedAt: DateTime.now(),
+    );
+  }
+
+  Future<void> _trackWorkflowSessionUsage(
+    String sessionId, {
+    required String provider,
+    required int inputTokens,
+    required int outputTokens,
+    required int cacheReadTokens,
+    required int cacheWriteTokens,
+    required double? totalCostUsd,
+  }) async {
+    final kv = _kv;
+    if (kv == null) return;
+
+    final key = 'session_cost:$sessionId';
+    final existing = await kv.get(key);
+    final costData = existing != null
+        ? jsonDecode(existing) as Map<String, dynamic>
+        : <String, dynamic>{
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'cache_read_tokens': 0,
+            'cache_write_tokens': 0,
+            'total_tokens': 0,
+            'estimated_cost_usd': 0.0,
+            'turn_count': 0,
+            'provider': provider,
+          };
+    costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
+    costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
+    costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
+    costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
+    costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+    costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num?)?.toDouble() ?? 0.0;
+    costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as double) + (totalCostUsd ?? 0.0);
+    costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
+    costData['provider'] = costData['provider'] ?? provider;
+    await kv.set(key, jsonEncode(costData));
   }
 
   TurnRunner? _acquirePoolRunnerForTask(Task task, String profile) {

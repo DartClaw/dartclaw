@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, OutputFormat;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, OutputFormat, OutputMode;
 
 import 'schema_presets.dart';
 
@@ -30,6 +30,7 @@ class PromptAugmenter {
       if (contextOutputs.contains(entry.key)) continue;
       final config = entry.value;
       if (config.format != OutputFormat.json) continue;
+      if (config.outputMode == OutputMode.structured) continue;
 
       String? fragment;
 
@@ -87,9 +88,7 @@ class PromptAugmenter {
       return;
     }
 
-    final schema = config.presetName != null
-        ? schemaPresets[config.presetName]?.schema
-        : config.inlineSchema;
+    final schema = config.presetName != null ? schemaPresets[config.presetName]?.schema : config.inlineSchema;
 
     if (schema == null) {
       buf.writeln('- "$key": JSON value');

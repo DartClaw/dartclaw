@@ -9,6 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         OutputConfig,
         OutputFormat,
+        OutputMode,
         SessionService,
         Task,
         TaskType,
@@ -136,7 +137,8 @@ void main() {
     await messageService.insertMessage(
       sessionId: session.id,
       role: 'assistant',
-      content: 'Done.\n\n<workflow-context>{"research_notes":"JSON extracted value","summary":"JSON summary"}</workflow-context>',
+      content:
+          'Done.\n\n<workflow-context>{"research_notes":"JSON extracted value","summary":"JSON summary"}</workflow-context>',
     );
 
     await taskService.create(
@@ -391,7 +393,11 @@ Review complete.
 
   test('structured output defaults findings_count and verdict when block is absent', () async {
     final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: 'No structured section here.');
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'No structured section here.',
+    );
 
     await taskService.create(
       id: 'task-structured-2',
@@ -408,6 +414,33 @@ Review complete.
 
     expect(outputs['findings_count'], 0);
     expect(outputs['verdict'], 'PASS');
+  });
+
+  test('structured output mode reads provider payload from task config', () async {
+    await taskService.create(
+      id: 'task-structured-config',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+      configJson: const {
+        '_workflowStructuredOutputPayload': {
+          'verdict': {'pass': true, 'findings_count': 0, 'findings': <Map<String, dynamic>>[], 'summary': 'Clean'},
+        },
+      },
+    );
+    final task = (await taskService.get('task-structured-config'))!;
+
+    final step = makeStep(
+      contextOutputs: ['verdict'],
+      outputs: const {
+        'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
+      },
+    );
+    final outputs = await extractor.extract(step, task);
+
+    expect(outputs['verdict'], isA<Map<Object?, Object?>>());
+    expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
   });
 
   test('derived outputs reuse fields from an earlier parsed JSON output', () async {

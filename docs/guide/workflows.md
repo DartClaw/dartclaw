@@ -184,6 +184,52 @@ Use multi-prompt steps to refine output format within a single step boundary —
 
 Each prompt in the list is a separate turn in the same agent session. Use this when you need the agent to produce a specific format but don't want a dedicated formatting step.
 
+### Native Structured Output and One-Shot Execution
+
+Workflow agent steps default to a one-shot execution path for bounded workflow work. Instead of replaying every workflow follow-up through the interactive streaming harness, DartClaw can invoke the provider CLI directly for each workflow prompt while still preserving the task/session lifecycle and workflow observability.
+
+Configure the workflow-wide default in config:
+
+```yaml
+workflow:
+  execution_mode: oneshot
+```
+
+Per-step overrides are available when a step must stay on the legacy streaming path:
+
+```yaml
+steps:
+  - id: research
+    name: Research
+    type: research
+    executionMode: streaming
+    prompt: Explore {{TARGET}}
+```
+
+JSON outputs now support two output modes:
+
+```yaml
+steps:
+  - id: review
+    name: Review
+    type: analysis
+    prompt: Review {{TARGET}}
+    contextOutputs: [verdict]
+    outputs:
+      verdict:
+        format: json
+        schema: verdict
+        outputMode: structured
+```
+
+Rules:
+
+- `outputMode: prompt` is the default. It keeps prompt augmentation and heuristic JSON extraction.
+- `outputMode: structured` requires `format: json` and a schema.
+- Structured extraction applies to `outputs`. `contextOutputs` still use the `<workflow-context>` contract.
+- Inline schemas used with `outputMode: structured` should set `additionalProperties: false` on every object node for Codex compatibility.
+- Research steps usually run in the restricted profile; those steps fall back to streaming execution, so native structured guarantees may not apply there.
+
 ### Parallel Steps
 
 Use `parallel: true` on contiguous steps when they are independent and can run concurrently.
@@ -644,8 +690,9 @@ Use these by name in `schema:` — the engine appends output format instructions
 | Preset | Output Shape | Use For |
 |--------|-------------|---------|
 | `verdict` | `{pass, findings_count, findings[], summary}` | Code review, QA evaluation |
-| `story-plan` | Array of `{id, title, description, acceptance_criteria, type, dependencies, key_files, effort}` | Planning steps — output consumed by map steps |
-| `file-list` | Array of `{path, reason?}` | Affected file discovery |
+| `remediation-result` | `{remediation_summary, diff_summary}` | Remediation verification and closure |
+| `story-plan` | `{items[]}` where each item is `{id, title, description, acceptance_criteria, type, dependencies, key_files, effort}` | Planning steps — output consumed by map steps |
+| `file-list` | `{items[]}` where each item is `{path, reason?}` | Affected file discovery |
 | `checklist` | `{items[], all_pass}` where items have `{check, pass, detail?}` | Verification, acceptance testing |
 
 ### Template References

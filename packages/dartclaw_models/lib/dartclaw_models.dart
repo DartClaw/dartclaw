@@ -51,11 +51,13 @@ export 'src/workflow_definition.dart'
         WorkflowLoop,
         WorkflowGitPublishStrategy,
         WorkflowGitStrategy,
+        WorkflowExecutionMode,
         StepConfigDefault,
         StepReviewMode,
         ExtractionType,
         ExtractionConfig,
         OutputFormat,
+        OutputMode,
         OutputConfig;
 export 'src/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;

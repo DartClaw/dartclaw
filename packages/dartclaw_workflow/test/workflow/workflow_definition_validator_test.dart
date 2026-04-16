@@ -1020,6 +1020,77 @@ void main() {
       );
     });
 
+    test('structured output requires json format and schema', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            contextOutputs: ['verdict'],
+            outputs: {'verdict': OutputConfig(format: OutputFormat.text, outputMode: OutputMode.structured)},
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.length, greaterThanOrEqualTo(2));
+      expect(report.errors.any((e) => e.message.contains('format: json')), isTrue);
+      expect(report.errors.any((e) => e.message.contains('has no schema')), isTrue);
+    });
+
+    test('structured inline schema requires additionalProperties false on object nodes', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review'],
+            contextOutputs: ['verdict'],
+            outputs: {
+              'verdict': OutputConfig(
+                format: OutputFormat.json,
+                outputMode: OutputMode.structured,
+                schema: {
+                  'type': 'object',
+                  'properties': {
+                    'summary': {'type': 'string'},
+                  },
+                },
+              ),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors.any((e) => e.message.contains('additionalProperties: false')), isTrue);
+    });
+
+    test('research step with structured output warns about restricted-profile fallback', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'research',
+            name: 'Research',
+            type: 'research',
+            prompts: ['Research'],
+            contextOutputs: ['verdict'],
+            outputs: {
+              'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings.any((w) => w.message.contains('restricted profile')), isTrue);
+    });
+
     test('bash step with multi-prompt list is a hard error', () {
       final def = WorkflowDefinition(
         name: 'wf',
@@ -1379,10 +1450,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(
-        errors.any((e) => e.type == ValidationErrorType.invalidReference && e.stepId == 'nonexistent'),
-        isTrue,
-      );
+      expect(errors.any((e) => e.type == ValidationErrorType.invalidReference && e.stepId == 'nonexistent'), isTrue);
     });
 
     test('foreach node with empty childStepIds produces missingField error', () {
@@ -1393,13 +1461,7 @@ void main() {
         description: 'd',
         steps: const [
           WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
-          WorkflowStep(
-            id: 'fe',
-            name: 'FE',
-            type: 'foreach',
-            mapOver: 'items',
-            foreachSteps: [],
-          ),
+          WorkflowStep(id: 'fe', name: 'FE', type: 'foreach', mapOver: 'items', foreachSteps: []),
         ],
       );
       // With empty foreachSteps, isForeachController is false, so normalization

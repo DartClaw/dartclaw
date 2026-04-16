@@ -1,5 +1,6 @@
 import 'path_utils.dart';
 import 'provider_identity.dart';
+import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionMode;
 
 /// Provider/model selection for a workflow execution role.
 class WorkflowRoleModelConfig {
@@ -68,10 +69,17 @@ class WorkflowConfig {
   /// Optional custom workflow workspace directory.
   final String? workspaceDir;
 
+  /// Default workflow execution mode for agent steps.
+  final WorkflowExecutionMode executionMode;
+
   /// Provider/model defaults for workflow roles.
   final WorkflowRoleDefaultsConfig defaults;
 
-  const WorkflowConfig({this.workspaceDir, this.defaults = const WorkflowRoleDefaultsConfig.defaults()});
+  const WorkflowConfig({
+    this.workspaceDir,
+    this.executionMode = WorkflowExecutionMode.oneshot,
+    this.defaults = const WorkflowRoleDefaultsConfig.defaults(),
+  });
 
   /// Default configuration with no custom workflow workspace override.
   const WorkflowConfig.defaults() : this();
@@ -79,13 +87,17 @@ class WorkflowConfig {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is WorkflowConfig && workspaceDir == other.workspaceDir && defaults == other.defaults;
+      other is WorkflowConfig &&
+          workspaceDir == other.workspaceDir &&
+          executionMode == other.executionMode &&
+          defaults == other.defaults;
 
   @override
-  int get hashCode => Object.hash(workspaceDir, defaults);
+  int get hashCode => Object.hash(workspaceDir, executionMode, defaults);
 
   @override
-  String toString() => 'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults)';
+  String toString() =>
+      'WorkflowConfig(workspaceDir: $workspaceDir, executionMode: $executionMode, defaults: $defaults)';
 }
 
 /// Parses the `workflow:` YAML section into a [WorkflowConfig].
@@ -104,8 +116,22 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
     warns.add('Invalid type for workflow.workspace_dir: "${workspaceDirRaw.runtimeType}" — ignoring');
   }
 
+  final executionMode = switch (workflowMap['execution_mode']) {
+    null => WorkflowExecutionMode.oneshot,
+    final String raw => WorkflowExecutionMode.fromYaml(raw.trim()) ?? WorkflowExecutionMode.oneshot,
+    final Object raw => () {
+      warns.add('Invalid type for workflow.execution_mode: "${raw.runtimeType}" — using oneshot');
+      return WorkflowExecutionMode.oneshot;
+    }(),
+  };
+  if (workflowMap['execution_mode'] is String &&
+      WorkflowExecutionMode.fromYaml((workflowMap['execution_mode'] as String).trim()) == null) {
+    warns.add('Invalid value for workflow.execution_mode: "${workflowMap['execution_mode']}" — using oneshot');
+  }
+
   return WorkflowConfig(
     workspaceDir: workspaceDir,
+    executionMode: executionMode,
     defaults: _parseWorkflowRoleDefaults(workflowMap['defaults'], warns),
   );
 }

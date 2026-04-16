@@ -20,6 +20,8 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         HarnessPool,
         PromptScope,
         TaskCancellationSubscriber,
+        WorkflowCliProviderConfig,
+        WorkflowCliRunner,
         TaskExecutor,
         WorktreeManager,
         TaskService,
@@ -194,6 +196,16 @@ class CliWorkflowWiring {
       dataDir: dataDir,
       workspaceDir: config.workspaceDir,
     );
+    final workflowCliRunner = WorkflowCliRunner(
+      providers: {
+        for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
+          providerId: WorkflowCliProviderConfig(
+            executable: _resolveProviderExecutable(config, providerId),
+            environment: _providerEnvironment(providerId, _credentialRegistry),
+            options: _providerOptions(config, providerId),
+          ),
+      },
+    );
 
     taskExecutor = TaskExecutor(
       tasks: taskService,
@@ -211,6 +223,7 @@ class CliWorkflowWiring {
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
       budgetConfig: config.tasks.budget,
+      workflowCliRunner: workflowCliRunner,
     );
     taskExecutor.start();
 
@@ -239,6 +252,7 @@ class CliWorkflowWiring {
         ),
       ),
       turnAdapter: WorkflowTurnAdapter(
+        executionMode: config.workflow.executionMode,
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');

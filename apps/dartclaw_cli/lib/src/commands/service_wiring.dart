@@ -205,7 +205,14 @@ class ServiceWiring {
     await harness.wire(serverRefGetter: () => serverRef);
 
     // 4. Tasks (pre-server) — review handler needed by ChannelWiring.
-    final task = TaskWiring(config: config, dataDir: dataDir, eventBus: eventBus, storage: storage, project: project);
+    final task = TaskWiring(
+      config: config,
+      dataDir: dataDir,
+      eventBus: eventBus,
+      storage: storage,
+      project: project,
+      containerManagers: security.containerManagers,
+    );
     await task.wirePreServer();
 
     // 5. Channels — channel manager, WhatsApp, Signal, Google Chat, space events.
@@ -369,6 +376,7 @@ class ServiceWiring {
         ),
       ),
       turnAdapter: WorkflowTurnAdapter(
+        executionMode: config.workflow.executionMode,
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');

@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowDefinition;
+import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowExecutionMode;
 
 /// Adapter for the turn execution capabilities used by workflow follow-up prompts.
 ///
@@ -137,6 +138,7 @@ class WorkflowTurnAdapter {
     required bool preserveWorktrees,
   })?
   cleanupWorkflowGit;
+  final WorkflowExecutionMode executionMode;
 
   const WorkflowTurnAdapter({
     required this.reserveTurn,
@@ -150,5 +152,6 @@ class WorkflowTurnAdapter {
     this.promoteWorkflowBranch,
     this.publishWorkflowBranch,
     this.cleanupWorkflowGit,
+    this.executionMode = WorkflowExecutionMode.oneshot,
   });
 }

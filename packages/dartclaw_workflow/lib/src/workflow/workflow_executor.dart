@@ -2390,7 +2390,20 @@ class WorkflowExecutor {
         error: "Map step '${step.id}': context key '${step.mapOver}' is null or missing",
       );
     }
-    if (rawCollection is! List) {
+    // Auto-unwrap: if the value is a Map with a single key whose value is a
+    // List, use that List (LLM output normalization).
+    final resolvedCollection = switch (rawCollection) {
+      final List<dynamic> list => list,
+      final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
+        _log.info(
+          "Map step '${step.id}': auto-unwrapped Map key '${map.keys.first}' "
+          "to List (${(map.values.first as List).length} items)",
+        );
+        return map.values.first as List<dynamic>;
+      }(),
+      _ => null,
+    };
+    if (resolvedCollection == null) {
       return _MapStepResult(
         results: const [],
         totalTokens: 0,
@@ -2400,7 +2413,7 @@ class WorkflowExecutor {
             '(got ${rawCollection.runtimeType})',
       );
     }
-    final collection = rawCollection;
+    final collection = resolvedCollection;
 
     // 2. Check maxItems.
     if (collection.length > step.maxItems) {
@@ -2769,7 +2782,21 @@ class WorkflowExecutor {
         error: "Foreach step '${controllerStep.id}': context key '${controllerStep.mapOver}' is null or missing",
       );
     }
-    if (rawCollection is! List) {
+    // Auto-unwrap: if the value is a Map containing a single key whose value
+    // is a List, use that List. LLMs sometimes wrap arrays in an object like
+    // {"stories": [{...}, {...}]} instead of returning the array directly.
+    final resolvedCollection = switch (rawCollection) {
+      final List<dynamic> list => list,
+      final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
+        _log.info(
+          "Foreach step '${controllerStep.id}': auto-unwrapped Map key '${map.keys.first}' "
+          "to List (${(map.values.first as List).length} items)",
+        );
+        return map.values.first as List<dynamic>;
+      }(),
+      _ => null,
+    };
+    if (resolvedCollection == null) {
       return _MapStepResult(
         results: const [],
         totalTokens: 0,
@@ -2779,7 +2806,7 @@ class WorkflowExecutor {
             '(got ${rawCollection.runtimeType})',
       );
     }
-    final collection = rawCollection;
+    final collection = resolvedCollection;
 
     // 2. Check maxItems.
     if (collection.length > controllerStep.maxItems) {

@@ -117,6 +117,10 @@ class WorkflowCliRunner {
         environment: providerConfig.environment,
         containerManager: profileContainer,
       );
+      // Close stdin immediately – Codex 0.120.0+ reads from stdin when a pipe
+      // is detected, even when a prompt argument is provided. Without EOF the
+      // process blocks on "Reading additional input from stdin…" indefinitely.
+      await process.stdin.close();
       final stdoutFuture = process.stdout.transform(utf8.decoder).join();
       final stderrFuture = process.stderr.transform(utf8.decoder).join();
       final exitCode = await process.exitCode;
@@ -125,9 +129,16 @@ class WorkflowCliRunner {
       stopwatch.stop();
 
       if (exitCode != 0) {
+        // For Codex --json mode, the real error is often in stdout (as JSON
+        // events like {"type":"error",...}), while stderr may only contain
+        // informational messages like "Reading additional input from stdin...".
+        final errorDetails = <String>[
+          if (stderr.trim().isNotEmpty) stderr.trim(),
+          if (stdout.trim().isNotEmpty && provider == 'codex') 'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
+        ];
         throw StateError(
           'Workflow one-shot $provider command failed with exit code $exitCode'
-          '${stderr.trim().isEmpty ? '' : ': ${stderr.trim()}'}',
+          '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
         );
       }
 
@@ -209,10 +220,8 @@ class WorkflowCliRunner {
     if (sandbox != null && sandbox.isNotEmpty) {
       args.addAll(['--sandbox', sandbox]);
     }
-    final approval = providers['codex']?.options['approval']?.toString().trim();
-    if (approval != null && approval.isNotEmpty) {
-      args.addAll(['--ask-for-approval', approval]);
-    }
+    // Codex 0.120.0+ removed --ask-for-approval; approval behavior is now
+    // controlled by --full-auto (already set above) and --sandbox.
     String? schemaPath;
     if (jsonSchema != null) {
       final hostSchemaPath = p.join(schemaDirectory, '.dartclaw-codex-schema-${_uuid.v4()}.json');

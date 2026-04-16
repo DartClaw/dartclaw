@@ -58,6 +58,15 @@ void main() {
         expect(result, contains('all_pass'));
       });
 
+      test('appends section for story-specs preset', () {
+        const prompt = 'Spec the stories';
+        final outputs = {'story_specs': const OutputConfig(format: OutputFormat.json, schema: 'story-specs')};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, contains('## Required Output Format'));
+        expect(result, contains('acceptance_criteria'));
+        expect(result, contains('spec'));
+      });
+
       test('appends section for file-list preset', () {
         const prompt = 'List files';
         final outputs = {'files': const OutputConfig(format: OutputFormat.json, schema: 'file-list')};

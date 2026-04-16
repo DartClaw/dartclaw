@@ -75,9 +75,31 @@ void main() {
       expect(claude.containerManager, same(containerManager));
       expect(claude.guardChain, same(guardChain));
       expect(claude.auditLogger, same(auditLogger));
+      expect(claude.providerOptions, isEmpty);
       expect(claude.onMemorySave, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
       expect(claude.onMemoryRead, isNotNull);
+    });
+
+    test('passes claude providerOptions through the factory config', () {
+      final factory = HarnessFactory();
+      final harness = factory.create(
+        'claude',
+        const HarnessFactoryConfig(
+          cwd: '/tmp/workspace',
+          providerOptions: {
+            'permissionMode': 'auto',
+            'sandbox': {'enabled': true},
+          },
+        ),
+      );
+
+      expect(harness, isA<ClaudeCodeHarness>());
+      final claude = harness as ClaudeCodeHarness;
+      expect(claude.providerOptions, {
+        'permissionMode': 'auto',
+        'sandbox': {'enabled': true},
+      });
     });
 
     test('creates a CodexHarness from the built-in codex provider', () {

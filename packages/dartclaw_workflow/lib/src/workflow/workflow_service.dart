@@ -46,6 +46,7 @@ class WorkflowService {
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
+  final WorkflowStepOutputTransformer? _outputTransformer;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -65,6 +66,7 @@ class WorkflowService {
     required KvService kvService,
     required String dataDir,
     WorkflowRoleDefaults? roleDefaults,
+    WorkflowStepOutputTransformer? outputTransformer,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
@@ -74,6 +76,7 @@ class WorkflowService {
        _kvService = kvService,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
+       _outputTransformer = outputTransformer,
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -536,6 +539,7 @@ class WorkflowService {
       contextExtractor: ContextExtractor(taskService: _taskService, messageService: _messageService, dataDir: _dataDir),
       messageService: _messageService,
       turnAdapter: _turnAdapter,
+      outputTransformer: _outputTransformer,
       dataDir: _dataDir,
       roleDefaults: _roleDefaults,
     );

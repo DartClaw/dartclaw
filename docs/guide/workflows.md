@@ -810,6 +810,7 @@ Use these by name in `schema:` — the engine appends output format instructions
 | `verdict` | `{pass, findings_count, findings[], summary}` | Code review, QA evaluation |
 | `remediation-result` | `{remediation_summary, diff_summary}` | Remediation verification and closure |
 | `story-plan` | `{items[]}` where each item is `{id, title, description, acceptance_criteria, type, dependencies, key_files, effort}` | Planning steps — output consumed by map steps |
+| `story-specs` | `[{id, title, description, acceptance_criteria, type, dependencies, key_files, effort, spec, ...}]` | Spec authoring steps whose output feeds story-level implement/verify/review foreach pipelines |
 | `file-list` | `{items[]}` where each item is `{path, reason?}` | Affected file discovery |
 | `checklist` | `{items[], all_pass}` where items have `{check, pass, detail?}` | Verification, acceptance testing |
 

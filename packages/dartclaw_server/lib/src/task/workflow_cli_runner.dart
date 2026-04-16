@@ -90,6 +90,10 @@ class WorkflowCliRunner {
       final builtCommand = switch (provider) {
         'claude' => _buildClaudeCommand(
           prompt: prompt,
+          options: providerConfig.options,
+          settingSourcesProject: profileContainer == null,
+          containerManager: profileContainer,
+          hostWorkingDirectory: workingDirectory,
           providerSessionId: providerSessionId,
           model: model,
           effort: effort,
@@ -150,9 +154,11 @@ class WorkflowCliRunner {
       };
     } finally {
       if (tempSchemaPath != null) {
-        await File(tempSchemaPath).delete().catchError((Object error, StackTrace stackTrace) {
+        try {
+          await File(tempSchemaPath).delete();
+        } catch (error, stackTrace) {
           _log.warning('Failed to delete temporary Codex schema file at $tempSchemaPath', error, stackTrace);
-        });
+        }
       }
     }
   }
@@ -184,22 +190,34 @@ class WorkflowCliRunner {
 
   _WorkflowCliCommand _buildClaudeCommand({
     required String prompt,
+    required Map<String, dynamic> options,
+    required bool settingSourcesProject,
+    required ContainerExecutor? containerManager,
+    required String hostWorkingDirectory,
     String? providerSessionId,
     String? model,
     String? effort,
     int? maxTurns,
     Map<String, dynamic>? jsonSchema,
   }) {
+    final permissionMode = _claudePermissionMode(options);
+    final settings = _claudeSettings(
+      options,
+      containerManager: containerManager,
+      hostWorkingDirectory: hostWorkingDirectory,
+    );
     final args = <String>[
       '-p',
       '--output-format',
       'json',
+      if (settingSourcesProject) ...['--setting-sources', 'project'],
       if (providerSessionId != null) ...['--resume', providerSessionId],
       if (maxTurns != null) ...['--max-turns', '$maxTurns'],
       if (jsonSchema != null) ...['--json-schema', jsonEncode(jsonSchema)],
       if (model != null && model.trim().isNotEmpty) ...['--model', model],
       if (effort != null && effort.trim().isNotEmpty) ...['--effort', effort],
-      '--dangerously-skip-permissions',
+      if (permissionMode != null) ...['--permission-mode', permissionMode] else '--dangerously-skip-permissions',
+      if (settings != null) ...['--settings', settings],
       prompt,
     ];
     return _WorkflowCliCommand((providers['claude']!.executable, args));
@@ -337,6 +355,147 @@ class WorkflowCliRunner {
       environment: environment,
       runInShell: false,
     );
+  }
+
+  static String? _claudePermissionMode(Map<String, dynamic> options) {
+    final raw = options['permissionMode'];
+    if (raw == null) return null;
+    if (raw is! String) {
+      throw StateError('Unsupported Claude permissionMode "${raw.runtimeType}"');
+    }
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    const nonInteractive = {
+      'bypassPermissions',
+      'dontAsk',
+    };
+    const interactive = {
+      'acceptEdits',
+      'auto',
+      'default',
+      'plan',
+    };
+    if (interactive.contains(trimmed)) {
+      throw StateError(
+        'Claude workflow one-shot mode does not support interactive permissionMode "$trimmed". '
+        'Use a noninteractive mode or the long-lived harness path instead.',
+      );
+    }
+    if (!nonInteractive.contains(trimmed)) {
+      throw StateError('Unsupported Claude permissionMode "$trimmed"');
+    }
+    return trimmed;
+  }
+
+  static String? _claudeSettings(
+    Map<String, dynamic> options, {
+    required ContainerExecutor? containerManager,
+    required String hostWorkingDirectory,
+  }) {
+    final settings = <String, dynamic>{};
+
+    final baseSettings = options['settings'];
+    switch (baseSettings) {
+      case null:
+        break;
+      case final String raw:
+        final trimmed = raw.trim();
+        if (trimmed.isEmpty) break;
+        if (!options.containsKey('sandbox') && !options.containsKey('permissions')) {
+          if (containerManager != null) {
+            try {
+              jsonDecode(trimmed);
+            } on FormatException {
+              final hostPath = p.isAbsolute(trimmed) ? trimmed : p.normalize(p.join(hostWorkingDirectory, trimmed));
+              final translated = containerManager.containerPathForHostPath(hostPath);
+              if (translated == null) {
+                throw StateError('Claude settings path is not mounted in the container: $hostPath');
+              }
+              return translated;
+            }
+          }
+          return trimmed;
+        }
+        if (options.containsKey('sandbox') || options.containsKey('permissions')) {
+          try {
+            final decoded = jsonDecode(trimmed);
+            if (decoded is Map<String, dynamic>) {
+              settings.addAll(decoded);
+              break;
+            }
+            if (decoded is Map<dynamic, dynamic>) {
+              settings.addAll(_stringifyDynamicMap(decoded));
+              break;
+            }
+            _log.warning(
+              'Claude workflow CLI options include raw "settings" plus structured "sandbox"/"permissions", '
+              'but the raw settings JSON is not an object; structured settings are ignored.',
+            );
+            return trimmed;
+          } on FormatException {
+            if (containerManager != null) {
+              final hostPath = p.isAbsolute(trimmed) ? trimmed : p.normalize(p.join(hostWorkingDirectory, trimmed));
+              final translated = containerManager.containerPathForHostPath(hostPath);
+              if (translated == null) {
+                throw StateError('Claude settings path is not mounted in the container: $hostPath');
+              }
+              return translated;
+            }
+            _log.warning(
+              'Claude workflow CLI options include settings path "$trimmed" plus structured '
+              '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
+            );
+            return trimmed;
+          }
+        }
+        return trimmed;
+      case final Map<dynamic, dynamic> rawMap:
+        settings.addAll(_stringifyDynamicMap(rawMap));
+      default:
+        _log.warning('Ignoring unsupported Claude settings option type: ${baseSettings.runtimeType}');
+    }
+
+    final sandbox = options['sandbox'];
+    if (sandbox is Map<dynamic, dynamic>) {
+      _deepMergeInto(settings, {'sandbox': _stringifyDynamicMap(sandbox)});
+    } else if (sandbox != null) {
+      _log.warning('Ignoring unsupported Claude sandbox option type: ${sandbox.runtimeType}');
+    }
+
+    final permissions = options['permissions'];
+    if (permissions is Map<dynamic, dynamic>) {
+      _deepMergeInto(settings, {'permissions': _stringifyDynamicMap(permissions)});
+    } else if (permissions != null) {
+      _log.warning('Ignoring unsupported Claude permissions option type: ${permissions.runtimeType}');
+    }
+
+    if (settings.isEmpty) return null;
+    return jsonEncode(settings);
+  }
+
+  static Map<String, dynamic> _stringifyDynamicMap(Map<dynamic, dynamic> source) {
+    return source.map((key, value) {
+      final normalizedValue = switch (value) {
+        final Map<dynamic, dynamic> nested => _stringifyDynamicMap(nested),
+        final List<dynamic> list => list
+            .map((item) => item is Map<dynamic, dynamic> ? _stringifyDynamicMap(item) : item)
+            .toList(growable: false),
+        _ => value,
+      };
+      return MapEntry(key.toString(), normalizedValue);
+    });
+  }
+
+  static void _deepMergeInto(Map<String, dynamic> target, Map<String, dynamic> overlay) {
+    for (final entry in overlay.entries) {
+      final existing = target[entry.key];
+      final incoming = entry.value;
+      if (existing is Map<String, dynamic> && incoming is Map<String, dynamic>) {
+        _deepMergeInto(existing, incoming);
+      } else {
+        target[entry.key] = incoming;
+      }
+    }
   }
 }
 

@@ -305,9 +305,5 @@ steps:
       <diff_summary>
       {{context.diff_summary}}
       </diff_summary>
-
-      <remediation_summary>
-      {{context.remediation_summary}}
-      </remediation_summary>
-    contextInputs: [project_index, spec_document, diff_summary, remediation_summary]
+    contextInputs: [project_index, spec_document, diff_summary]
     contextOutputs: [state_update_summary]

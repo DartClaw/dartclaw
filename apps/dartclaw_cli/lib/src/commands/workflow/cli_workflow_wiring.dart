@@ -37,6 +37,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRoleDefault,
         WorkflowRoleDefaults,
         WorkflowSource,
+        WorkflowStepOutputTransformer,
         WorkflowService,
         WorkflowGitBootstrapResult,
         WorkflowStartResolution,
@@ -65,6 +66,7 @@ class CliWorkflowWiring {
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
   final AssetResolver assetResolver;
+  final WorkflowStepOutputTransformer? workflowStepOutputTransformer;
 
   late final EventBus eventBus;
   late final KvService kvService;
@@ -93,6 +95,7 @@ class CliWorkflowWiring {
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
     AssetResolver? assetResolver,
+    this.workflowStepOutputTransformer,
   }) : _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -353,6 +356,7 @@ class CliWorkflowWiring {
       eventBus: eventBus,
       kvService: kvService,
       dataDir: dataDir,
+      outputTransformer: workflowStepOutputTransformer,
     );
 
     // Registry — materialize built-in workflows, then discover custom ones.

@@ -19,6 +19,7 @@ const schemaPresets = <String, SchemaPreset>{
   'verdict': verdictPreset,
   'remediation-result': remediationResultPreset,
   'story-plan': storyPlanPreset,
+  'story-specs': storySpecsPreset,
   'file-list': fileListPreset,
   'checklist': checklistPreset,
 };
@@ -139,6 +140,68 @@ const remediationResultPreset = SchemaPreset(
 - diff_summary (string): A concise summary of the resulting code diff
 
 Output the JSON directly — do not wrap in markdown code fences.''',
+);
+
+const storySpecsPreset = SchemaPreset(
+  name: 'story-specs',
+  schema: {
+    'type': 'array',
+    'items': {
+      'type': 'object',
+      'additionalProperties': false,
+      'required': [
+        'id',
+        'title',
+        'description',
+        'acceptance_criteria',
+        'type',
+        'dependencies',
+        'key_files',
+        'effort',
+        'spec',
+      ],
+      'properties': {
+        'id': {'type': 'string'},
+        'title': {'type': 'string'},
+        'description': {'type': 'string'},
+        'acceptance_criteria': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+        'type': {'type': 'string'},
+        'phase': {'type': 'string'},
+        'dependencies': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+        'key_files': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+        'effort': {'type': 'string'},
+        'spec': {'type': 'string'},
+        'story_id': {'type': 'string'},
+        'classification': {'type': 'string'},
+        'path': {'type': 'string'},
+      },
+    },
+  },
+  promptFragment: '''Produce your output as a JSON array of story spec objects. Each item has:
+- id (string): Story identifier used by downstream foreach steps
+- title (string): Concise story title
+- description (string): Story summary from the plan
+- acceptance_criteria (array of strings): Structured criteria preserved for downstream review
+- type (string): Story type such as "coding" or "analysis"
+- phase (string, optional): Grouping label
+- dependencies (array of strings): Story IDs this spec depends on
+- key_files (array of strings): Primary files affected by the story
+- effort (string): Story effort label
+- spec (string): Full story specification text used by implementation steps
+- story_id (string, optional): Legacy compatibility field if needed
+- classification (string, optional): Spec classification such as THIN, STANDARD, or COMPOSITE
+- path (string, optional): Relative path to any persisted spec artifact
+
+Return the array directly — do not wrap in markdown code fences.''',
 );
 
 const fileListPreset = SchemaPreset(

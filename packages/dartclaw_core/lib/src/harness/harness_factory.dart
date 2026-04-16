@@ -126,6 +126,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     claudeExecutable: config.executable,
     cwd: config.cwd,
     turnTimeout: config.turnTimeout,
+    providerOptions: config.providerOptions,
     onMemorySave: config.onMemorySave,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
@@ -150,4 +151,3 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     guardChain: config.guardChain,
   );
 }
-

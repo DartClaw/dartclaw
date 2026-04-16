@@ -3,10 +3,11 @@ import 'package:test/test.dart';
 
 void main() {
   group('SchemaPreset constants', () {
-    test('all 5 presets exist in registry', () {
+    test('all 6 presets exist in registry', () {
       expect(schemaPresets.containsKey('verdict'), true);
       expect(schemaPresets.containsKey('remediation-result'), true);
       expect(schemaPresets.containsKey('story-plan'), true);
+      expect(schemaPresets.containsKey('story-specs'), true);
       expect(schemaPresets.containsKey('file-list'), true);
       expect(schemaPresets.containsKey('checklist'), true);
     });
@@ -92,6 +93,40 @@ void main() {
     });
   });
 
+  group('storySpecsPreset', () {
+    test('has correct name', () {
+      expect(storySpecsPreset.name, 'story-specs');
+    });
+
+    test('schema is an array type', () {
+      expect(storySpecsPreset.schema['type'], 'array');
+    });
+
+    test('schema item requires downstream foreach fields', () {
+      final itemSchema = storySpecsPreset.schema['items'] as Map;
+      final required = itemSchema['required'] as List;
+      expect(
+        required,
+        containsAll([
+          'id',
+          'title',
+          'description',
+          'acceptance_criteria',
+          'type',
+          'dependencies',
+          'key_files',
+          'effort',
+          'spec',
+        ]),
+      );
+    });
+
+    test('prompt fragment mentions acceptance_criteria and spec', () {
+      expect(storySpecsPreset.promptFragment, contains('acceptance_criteria'));
+      expect(storySpecsPreset.promptFragment, contains('spec'));
+    });
+  });
+
   group('fileListPreset', () {
     test('has correct name', () {
       expect(fileListPreset.name, 'file-list');
@@ -137,6 +172,7 @@ void main() {
       expect(schemaPresets['verdict'], verdictPreset);
       expect(schemaPresets['remediation-result'], remediationResultPreset);
       expect(schemaPresets['story-plan'], storyPlanPreset);
+      expect(schemaPresets['story-specs'], storySpecsPreset);
       expect(schemaPresets['file-list'], fileListPreset);
       expect(schemaPresets['checklist'], checklistPreset);
     });

@@ -164,10 +164,7 @@ steps:
     outputs:
       story_specs:
         format: json
-        schema:
-          type: array
-          items:
-            type: object
+        schema: story-specs
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -402,9 +399,5 @@ steps:
       <implementation_summary>
       {{context.implementation_summary}}
       </implementation_summary>
-
-      <remediation_summary>
-      {{context.remediation_summary}}
-      </remediation_summary>
-    contextInputs: [project_index, implementation_summary, remediation_summary]
+    contextInputs: [project_index, implementation_summary]
     contextOutputs: [state_update_summary]

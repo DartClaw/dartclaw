@@ -89,12 +89,84 @@ List<dynamic> _normalizeStoryList(Object? raw) {
   };
 }
 
+void expectStorySpecShape(Object? raw) {
+  expect(raw, isA<Map<Object?, Object?>>());
+  final storySpec = raw! as Map<Object?, Object?>;
+  expect(storySpec['id'], isA<String>());
+  expect((storySpec['id'] as String).trim(), isNotEmpty);
+  expect(storySpec['title'], isA<String>());
+  expect((storySpec['title'] as String).trim(), isNotEmpty);
+  expect(storySpec['description'], isA<String>());
+  expect(storySpec['acceptance_criteria'], isA<List<Object?>>());
+  expect(storySpec['type'], isA<String>());
+  expect(storySpec['dependencies'], isA<List<Object?>>());
+  expect(storySpec['key_files'], isA<List<Object?>>());
+  expect(storySpec['effort'], isA<String>());
+  expect(storySpec['spec'], isA<String>());
+  expect((storySpec['spec'] as String).trim(), isNotEmpty);
+}
+
+void _writeMarkdownNote(String rootDir, String relativePath, String heading, String bullet) {
+  final file = File(p.join(rootDir, relativePath));
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync('# $heading\n- $bullet\n');
+}
+
+String _sanitizeFileComponent(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_');
+
+Directory _createPreservedArtifactDir(String testName) {
+  final configuredRoot = Platform.environment['DARTCLAW_STEP_LOG_DIR']?.trim();
+  final root = configuredRoot != null && configuredRoot.isNotEmpty
+      ? Directory(configuredRoot)
+      : Directory(p.join(Directory.current.path, '.dart_tool', 'dartclaw_step_logs'));
+  root.createSync(recursive: true);
+
+  final runDir = Directory(
+    p.join(root.path, '${DateTime.now().millisecondsSinceEpoch}-${_sanitizeFileComponent(testName)}'),
+  );
+  runDir.createSync(recursive: true);
+  return runDir;
+}
+
+int _requireFindingsCount(_StepExecutionResult result, String outputKey) {
+  final value = result.outputs[outputKey];
+  final count = switch (value) {
+    final int numeric => numeric,
+    _ => int.tryParse('$value'),
+  };
+  expect(count, isNotNull, reason: 'Expected $outputKey to be parseable as int. Artifact: ${result.artifactPath}');
+  return count!;
+}
+
+class _StepExecutionResult {
+  final String stepId;
+  final String stepName;
+  final String taskId;
+  final String sessionId;
+  final String prompt;
+  final String assistantContent;
+  final Map<String, dynamic> outputs;
+  final String artifactPath;
+
+  const _StepExecutionResult({
+    required this.stepId,
+    required this.stepName,
+    required this.taskId,
+    required this.sessionId,
+    required this.prompt,
+    required this.assistantContent,
+    required this.outputs,
+    required this.artifactPath,
+  });
+}
+
 void main() {
   late final String fixturesRoot;
   late final String fixtureTemplateDir;
   late final WorkflowDefinition planDefinition;
   late final WorkflowDefinition specDefinition;
   late final WorkflowCliRunner runner;
+  late final Directory artifactDir;
   late Directory tempDir;
   late String fixtureDir;
   late TaskService taskService;
@@ -103,6 +175,7 @@ void main() {
   late ContextExtractor extractor;
   final templateEngine = WorkflowTemplateEngine();
   final skillPromptBuilder = SkillPromptBuilder(augmenter: const PromptAugmenter());
+  var artifactCounter = 0;
 
   setUpAll(() async {
     fixturesRoot = _fixturesRoot();
@@ -116,6 +189,7 @@ void main() {
         'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'danger-full-access'}),
       },
     );
+    artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
   });
 
   setUp(() {
@@ -144,10 +218,11 @@ void main() {
     }
   });
 
-  Future<Map<String, dynamic>> executeStep({
+  Future<_StepExecutionResult> executeStep({
     required WorkflowStep step,
     required WorkflowContext context,
     MapContext? mapContext,
+    String? artifactLabel,
   }) async {
     final resolvedPrompt = mapContext == null
         ? templateEngine.resolve(step.prompt ?? '', context)
@@ -194,8 +269,44 @@ void main() {
     }
 
     final outputs = await extractor.extract(step, refreshedTask);
-    outputs['_assistantContent'] = assistantContent;
-    return outputs;
+    final artifactFile = File(
+      p.join(
+        artifactDir.path,
+        '${(++artifactCounter).toString().padLeft(2, '0')}-'
+        '${_sanitizeFileComponent(artifactLabel ?? step.id)}-'
+        '${_sanitizeFileComponent(step.id)}-'
+        '${task.id}.json',
+      ),
+    );
+    final artifactPayload = <String, dynamic>{
+      'stepId': step.id,
+      'stepName': step.name,
+      'taskId': task.id,
+      'sessionId': session.id,
+      'artifactLabel': artifactLabel ?? step.id,
+      'fixtureDir': fixtureDir,
+      'variables': context.variables,
+      'contextData': context.data,
+      'mapContext': mapContext == null
+          ? null
+          : {'item': mapContext.item, 'index': mapContext.index, 'length': mapContext.length},
+      'resolvedPrompt': resolvedPrompt,
+      'prompt': prompt,
+      'assistantContent': assistantContent,
+      'outputs': outputs,
+    };
+    await artifactFile.writeAsString(const JsonEncoder.withIndent('  ').convert(artifactPayload));
+
+    return _StepExecutionResult(
+      stepId: step.id,
+      stepName: step.name,
+      taskId: task.id,
+      sessionId: session.id,
+      prompt: prompt,
+      assistantContent: assistantContent,
+      outputs: outputs,
+      artifactPath: artifactFile.path,
+    );
   }
 
   void expectProjectIndexShape(Object? raw) {
@@ -232,7 +343,7 @@ void main() {
       return;
     }
 
-    final outputs = await executeStep(
+    final result = await executeStep(
       step: _stepById(specDefinition, 'discover-project'),
       context: WorkflowContext(
         variables: const {
@@ -243,7 +354,7 @@ void main() {
       ),
     );
 
-    expectProjectIndexShape(outputs['project_index']);
+    expectProjectIndexShape(result.outputs['project_index']);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('plan returns a story-plan compatible list of stories', () async {
@@ -251,7 +362,7 @@ void main() {
       return;
     }
 
-    final outputs = await executeStep(
+    final result = await executeStep(
       step: _stepById(planDefinition, 'plan'),
       context: WorkflowContext(
         variables: const {
@@ -272,141 +383,146 @@ void main() {
       ),
     );
 
-    final stories = _normalizeStoryList(outputs['stories']);
+    final stories = _normalizeStoryList(result.outputs['stories']);
     expectStoryPlanShape(stories);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
-  test('spec-plan produces indexable story specs for foreach prompts', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
+  test(
+    'spec-plan produces downstream-compatible story specs for foreach prompts',
+    () async {
+      if (!await _codexAvailable()) {
+        return;
+      }
 
-    final outputs = await executeStep(
-      step: _stepById(planDefinition, 'spec-plan'),
-      context: WorkflowContext(
-        variables: const {
-          'REQUIREMENTS': 'Add a tiny integration-tested note file and keep the implementation minimal.',
-          'PROJECT': 'workflow-testing',
-          'BRANCH': 'main',
-          'MAX_PARALLEL': '1',
-        },
-        data: {
-          'project_index': {
-            'framework': 'markdown',
-            'project_root': fixtureDir,
-            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-            'state_protocol': {'state_file': 'STATE.md'},
+      final result = await executeStep(
+        step: _stepById(planDefinition, 'spec-plan'),
+        context: WorkflowContext(
+          variables: const {
+            'REQUIREMENTS': 'Add a tiny integration-tested note file and keep the implementation minimal.',
+            'PROJECT': 'workflow-testing',
+            'BRANCH': 'main',
+            'MAX_PARALLEL': '1',
           },
-          'stories': [
-            {
-              'id': 'S01',
-              'title': 'Write note',
-              'description': 'Create the note file.',
-              'acceptance_criteria': ['One markdown note file exists'],
-              'type': 'coding',
-              'dependencies': <String>[],
-              'key_files': ['notes/isolation-test.md'],
-              'effort': 'small',
+          data: {
+            'project_index': {
+              'framework': 'markdown',
+              'project_root': fixtureDir,
+              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+              'state_protocol': {'state_file': 'STATE.md'},
             },
-            {
-              'id': 'S02',
-              'title': 'Verify note',
-              'description': 'Check the note content.',
-              'acceptance_criteria': ['The note content is verified'],
-              'type': 'analysis',
-              'dependencies': ['S01'],
-              'key_files': ['notes/isolation-test.md'],
-              'effort': 'small',
-            },
-          ],
-        },
-      ),
-    );
-
-    final stories = _normalizeStoryList(outputs['stories']);
-    expect(stories, isNotEmpty);
-    final firstStory = stories.first;
-    expect(firstStory, isA<Map<String, dynamic>>());
-
-    final resolvedStorySpec = templateEngine.resolveWithMap(
-      '{{map.item}}',
-      WorkflowContext(data: outputs, variables: const {}),
-      MapContext(item: firstStory as Object, index: 0, length: stories.length),
-    );
-    expect(resolvedStorySpec.trim(), contains('"id":"S01"'));
-  }, timeout: const Timeout(Duration(minutes: 5)));
-
-  test('integrated-review returns verdict with findings_count for a trivial markdown change', () async {
-    if (!await _codexAvailable()) {
-      return;
-    }
-
-    final outputs = await executeStep(
-      step: _stepById(specDefinition, 'integrated-review'),
-      context: WorkflowContext(
-        variables: const {
-          'FEATURE': 'Create exactly one new markdown file at notes/e2e-test.md with one heading and one bullet.',
-          'PROJECT': 'workflow-testing',
-          'BRANCH': 'main',
-        },
-        data: {
-          'project_index': {
-            'framework': 'markdown',
-            'project_root': fixtureDir,
-            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-            'state_protocol': {'state_file': 'STATE.md'},
+            'stories': [
+              {
+                'id': 'S01',
+                'title': 'Write note',
+                'description': 'Create the note file.',
+                'acceptance_criteria': ['One markdown note file exists'],
+                'type': 'coding',
+                'dependencies': <String>[],
+                'key_files': ['notes/isolation-test.md'],
+                'effort': 'small',
+              },
+              {
+                'id': 'S02',
+                'title': 'Verify note',
+                'description': 'Check the note content.',
+                'acceptance_criteria': ['The note content is verified'],
+                'type': 'analysis',
+                'dependencies': ['S01'],
+                'key_files': ['notes/isolation-test.md'],
+                'effort': 'small',
+              },
+            ],
           },
-          'spec_document':
-              '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
-          'validation_summary': 'Implementation validated. File notes/e2e-test.md exists with expected content. No issues found.',
-          'diff_summary': 'diff --git a/notes/e2e-test.md b/notes/e2e-test.md\n'
-              'new file mode 100644\n'
-              '--- /dev/null\n'
-              '+++ b/notes/e2e-test.md\n'
-              '@@ -0,0 +1,2 @@\n'
-              '+# E2E Test\n'
-              '+- Automated test artifact\n',
-          'acceptance_criteria': '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
-        },
-      ),
-    );
+        ),
+      );
 
-    // Diagnostic: dump all extracted outputs before asserting.
-    final findingsCount = outputs['findings_count'];
-    final reviewFindings = outputs['review_findings'];
-    final assistantContent = outputs['_assistantContent'] as String? ?? '';
-    final contentPreview = assistantContent.length > 3000 ? assistantContent.substring(0, 3000) : assistantContent;
+      final storySpecs = result.outputs['story_specs'];
+      expect(storySpecs, isA<List<dynamic>>());
+      final storySpecsList = storySpecs as List<dynamic>;
+      expect(storySpecsList, isNotEmpty);
+      final firstStorySpec = storySpecsList.first;
+      expectStorySpecShape(firstStorySpec);
 
-    // ignore: avoid_print
-    print('\n=== INTEGRATED-REVIEW DIAGNOSTIC ===');
-    // ignore: avoid_print
-    print('findings_count=$findingsCount (${findingsCount.runtimeType})');
-    // ignore: avoid_print
-    print('review_findings=$reviewFindings');
-    // ignore: avoid_print
-    print('All output keys: ${outputs.keys.toList()}');
-    // ignore: avoid_print
-    print('--- assistant content (first 3000 chars) ---');
-    // ignore: avoid_print
-    print(contentPreview);
-    // ignore: avoid_print
-    print('=== END DIAGNOSTIC ===\n');
+      final resolvedStorySpec = templateEngine.resolveWithMap(
+        '{{map.item}}',
+        WorkflowContext(data: result.outputs, variables: const {}),
+        MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
+      );
+      expect(resolvedStorySpec.trim(), contains('"id":"S01"'));
+      expect(resolvedStorySpec.trim(), contains('"acceptance_criteria"'));
+      expect(resolvedStorySpec.trim(), contains('"spec"'));
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
-    // The review_findings output should be extracted.
-    expect(reviewFindings, isNotNull, reason: 'review_findings should be extracted');
+  test(
+    'integrated-review returns verdict with findings_count for a trivial markdown change',
+    () async {
+      if (!await _codexAvailable()) {
+        return;
+      }
 
-    // findings_count should be present and numeric.
-    expect(findingsCount, isNotNull, reason: 'findings_count should be extracted');
-    final numericCount = findingsCount is int ? findingsCount : int.tryParse(findingsCount.toString());
-    expect(numericCount, isNotNull, reason: 'findings_count should be parseable as int, got: $findingsCount (${findingsCount.runtimeType})');
-  }, timeout: const Timeout(Duration(minutes: 5)));
+      final result = await executeStep(
+        step: _stepById(specDefinition, 'integrated-review'),
+        context: WorkflowContext(
+          variables: const {
+            'FEATURE': 'Create exactly one new markdown file at notes/e2e-test.md with one heading and one bullet.',
+            'PROJECT': 'workflow-testing',
+            'BRANCH': 'main',
+          },
+          data: {
+            'project_index': {
+              'framework': 'markdown',
+              'project_root': fixtureDir,
+              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+              'state_protocol': {'state_file': 'STATE.md'},
+            },
+            'spec_document':
+                '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
+            'validation_summary':
+                'Implementation validated. File notes/e2e-test.md exists with expected content. No issues found.',
+            'diff_summary':
+                'diff --git a/notes/e2e-test.md b/notes/e2e-test.md\n'
+                'new file mode 100644\n'
+                '--- /dev/null\n'
+                '+++ b/notes/e2e-test.md\n'
+                '@@ -0,0 +1,2 @@\n'
+                '+# E2E Test\n'
+                '+- Automated test artifact\n',
+            'acceptance_criteria':
+                '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
+          },
+        ),
+        artifactLabel: 'integrated-review-trivial-markdown-change',
+      );
+
+      final findingsCount = result.outputs['findings_count'];
+      final reviewFindings = result.outputs['review_findings'];
+
+      expect(
+        reviewFindings,
+        isNotNull,
+        reason: 'review_findings should be extracted. Artifact: ${result.artifactPath}',
+      );
+
+      final numericCount = findingsCount is int ? findingsCount : int.tryParse(findingsCount.toString());
+      expect(
+        numericCount,
+        isNotNull,
+        reason:
+            'findings_count should be parseable as int, got: $findingsCount (${findingsCount.runtimeType}). '
+            'Artifact: ${result.artifactPath}',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
   test('quick-review returns a summary and numeric findings count', () async {
     if (!await _codexAvailable()) {
       return;
     }
 
-    final outputs = await executeStep(
+    final result = await executeStep(
       step: _stepById(planDefinition, 'quick-review'),
       context: WorkflowContext(
         variables: const {
@@ -440,12 +556,185 @@ void main() {
         index: 0,
         length: 1,
       ),
+      artifactLabel: 'quick-review-single-story-clean',
     );
 
-    expect(outputs['quick_review_summary'], isA<String>());
-    expect((outputs['quick_review_summary'] as String).trim(), isNotEmpty);
-    expect(outputs['quick_review_findings_count'], isA<int>());
+    expect(result.outputs['quick_review_summary'], isA<String>());
+    expect((result.outputs['quick_review_summary'] as String).trim(), isNotEmpty);
+    expect(result.outputs['quick_review_findings_count'], isA<int>());
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('plan-review returns zero findings for a trivially clean two-story batch', () async {
+    if (!await _codexAvailable()) {
+      return;
+    }
+
+    _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
+    _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
+
+    final storySpecs = [
+      {
+        'id': 'S01',
+        'title': 'Create Alpha Note',
+        'description': 'Create the alpha note file.',
+        'acceptance_criteria': [
+          'notes/alpha.md exists',
+          'Contains heading "Alpha Note"',
+          'Contains bullet "Validated"',
+        ],
+        'type': 'coding',
+        'dependencies': <String>[],
+        'key_files': ['notes/alpha.md'],
+        'effort': 'small',
+        'spec': 'Create notes/alpha.md with heading "Alpha Note" and bullet "Validated".',
+      },
+      {
+        'id': 'S02',
+        'title': 'Create Beta Note',
+        'description': 'Create the beta note file.',
+        'acceptance_criteria': ['notes/beta.md exists', 'Contains heading "Beta Note"', 'Contains bullet "Validated"'],
+        'type': 'coding',
+        'dependencies': ['S01'],
+        'key_files': ['notes/beta.md'],
+        'effort': 'small',
+        'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
+      },
+    ];
+    final storyResults = [
+      {
+        'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
+        'verify-refine': {
+          'validation_summary':
+              'Validated notes/alpha.md. The file exists and exactly matches the story spec. No findings.',
+          'findings_count': 0,
+        },
+        'quick-review': {
+          'quick_review_summary': 'Story S01 matches its spec and acceptance criteria. No findings.',
+          'quick_review_findings_count': 0,
+        },
+      },
+      {
+        'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
+        'verify-refine': {
+          'validation_summary':
+              'Validated notes/beta.md. The file exists and exactly matches the story spec. No findings.',
+          'findings_count': 0,
+        },
+        'quick-review': {
+          'quick_review_summary': 'Story S02 matches its spec and acceptance criteria. No findings.',
+          'quick_review_findings_count': 0,
+        },
+      },
+    ];
+
+    final result = await executeStep(
+      step: _stepById(planDefinition, 'plan-review'),
+      context: WorkflowContext(
+        variables: const {
+          'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+          'PROJECT': 'workflow-testing',
+          'BRANCH': 'main',
+          'MAX_PARALLEL': '1',
+        },
+        data: {
+          'project_index': {
+            'framework': 'markdown',
+            'project_root': fixtureDir,
+            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+            'state_protocol': {'state_file': 'STATE.md'},
+          },
+          'story_specs': storySpecs,
+          'story_results': storyResults,
+        },
+      ),
+      artifactLabel: 'plan-review-clean-two-story-batch',
+    );
+
+    expect(result.outputs['implementation_summary'], isA<String>());
+    expect((result.outputs['implementation_summary'] as String).trim(), isNotEmpty);
+    expect(_requireFindingsCount(result, 'findings_count'), 0, reason: 'Artifact: ${result.artifactPath}');
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test(
+    're-review returns zero findings after a trivially clean remediation pass',
+    () async {
+      if (!await _codexAvailable()) {
+        return;
+      }
+
+      _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
+      _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
+
+      final storySpecs = [
+        {
+          'id': 'S01',
+          'title': 'Create Alpha Note',
+          'description': 'Create the alpha note file.',
+          'acceptance_criteria': [
+            'notes/alpha.md exists',
+            'Contains heading "Alpha Note"',
+            'Contains bullet "Validated"',
+          ],
+          'type': 'coding',
+          'dependencies': <String>[],
+          'key_files': ['notes/alpha.md'],
+          'effort': 'small',
+          'spec': 'Create notes/alpha.md with heading "Alpha Note" and bullet "Validated".',
+        },
+        {
+          'id': 'S02',
+          'title': 'Create Beta Note',
+          'description': 'Create the beta note file.',
+          'acceptance_criteria': [
+            'notes/beta.md exists',
+            'Contains heading "Beta Note"',
+            'Contains bullet "Validated"',
+          ],
+          'type': 'coding',
+          'dependencies': ['S01'],
+          'key_files': ['notes/beta.md'],
+          'effort': 'small',
+          'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
+        },
+      ];
+
+      final result = await executeStep(
+        step: _stepById(planDefinition, 're-review'),
+        context: WorkflowContext(
+          variables: const {
+            'REQUIREMENTS': 'Create two small markdown notes exactly as specified.',
+            'PROJECT': 'workflow-testing',
+            'BRANCH': 'main',
+            'MAX_PARALLEL': '1',
+          },
+          data: {
+            'project_index': {
+              'framework': 'markdown',
+              'project_root': fixtureDir,
+              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
+              'state_protocol': {'state_file': 'STATE.md'},
+            },
+            'story_specs': storySpecs,
+            'implementation_summary':
+                'Both planned stories were implemented exactly as specified. '
+                'Alpha and Beta note files exist with the expected heading and bullet, and the batch is otherwise clean.',
+            'validation_summary':
+                'Post-remediation validation is clean. Both note files still exist with the exact expected content, and no validation findings remain.',
+            'remediation_summary':
+                'Performed a consistency pass over the batch summary and confirmed that no code or content changes were required.',
+            'diff_summary':
+                'No file changes were necessary because the implementation already matched the story specs.',
+          },
+        ),
+        artifactLabel: 're-review-clean-remediation-pass',
+      );
+
+      expect(result.outputs['remediation_plan'], isA<String>());
+      expect((result.outputs['remediation_plan'] as String).trim(), isNotEmpty);
+      expect(_requireFindingsCount(result, 'findings_count'), 0, reason: 'Artifact: ${result.artifactPath}');
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 }
 
 void _copyDirectorySync(Directory source, Directory target) {

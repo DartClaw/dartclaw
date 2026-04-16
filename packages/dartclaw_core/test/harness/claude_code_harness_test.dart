@@ -7,10 +7,12 @@ import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
+import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show NullIoSink;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,73 @@ class _RecordingGuard extends Guard {
   }
 }
 
+class _FakeClaudeContainerExecutor implements ContainerExecutor {
+  @override
+  final String profileId = 'workspace';
+
+  @override
+  final String workingDir = '/workspace';
+
+  @override
+  final bool hasProjectMount = true;
+
+  final String hostRoot;
+  final String containerRoot;
+  late List<String> lastCommand;
+
+  _FakeClaudeContainerExecutor({
+    required this.hostRoot,
+    required this.containerRoot,
+  });
+
+  @override
+  Future<void> copyFileToContainer(String hostPath, String containerPath) async {}
+
+  @override
+  Future<void> deleteFileInContainer(String containerPath) async {}
+
+  @override
+  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
+    lastCommand = List<String>.from(command);
+    final fake = FakeProcess();
+    scheduleMicrotask(() {
+      fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+    });
+    Future.delayed(const Duration(milliseconds: 20), () {
+      fake.emitStdout(
+        jsonEncode({
+          'type': 'result',
+          'result': 'ok',
+          'cost_usd': 0.01,
+          'duration_ms': 50,
+          'duration_api_ms': 20,
+          'num_turns': 1,
+          'is_error': false,
+          'session_id': 'container-session',
+        }),
+      );
+    });
+    return fake;
+  }
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  String? containerPathForHostPath(String hostPath) {
+    final normalizedHostPath = File(hostPath).absolute.path;
+    final normalizedHostRoot = Directory(hostRoot).absolute.path;
+    if (normalizedHostPath == normalizedHostRoot) {
+      return containerRoot;
+    }
+    if (!normalizedHostPath.startsWith('$normalizedHostRoot${Platform.pathSeparator}')) {
+      return null;
+    }
+    final relative = normalizedHostPath.substring(normalizedHostRoot.length + 1).replaceAll('\\', '/');
+    return '$containerRoot/$relative';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -133,6 +202,7 @@ ClaudeCodeHarness _buildHarness({
   CommandProbe? commandProbe,
   DelayFactory? delayFactory,
   Map<String, String>? environment,
+  Map<String, dynamic>? providerOptions,
   HarnessConfig harnessConfig = const HarnessConfig(),
   Duration killGracePeriod = Duration.zero,
 }) {
@@ -142,6 +212,7 @@ ClaudeCodeHarness _buildHarness({
     commandProbe: commandProbe ?? _defaultCommandProbe,
     delayFactory: delayFactory ?? _noOpDelay,
     environment: environment ?? {'ANTHROPIC_API_KEY': 'sk-test-key'},
+    providerOptions: providerOptions,
     harnessConfig: harnessConfig,
     killGracePeriod: killGracePeriod,
   );
@@ -361,6 +432,318 @@ void main() {
         // Regular env vars should remain.
         expect(capturedEnv?['HOME'], '/home/user');
         expect(capturedEnv?['ANTHROPIC_API_KEY'], 'sk-test');
+      });
+
+      test('uses native --permission-mode when configured via provider options', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {'permissionMode': 'dontAsk'},
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(capturedArgs, containsAll(['--permission-mode', 'dontAsk']));
+        expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
+        expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
+      });
+
+      test('uses stdio permission bridge for interactive native permission modes', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {'permissionMode': 'plan'},
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(capturedArgs, containsAll(['--permission-mode', 'plan']));
+        expect(capturedArgs, containsAll(['--permission-prompt-tool', 'stdio']));
+        expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
+      });
+
+      test('throws for unsupported Claude permissionMode values', () async {
+        final h = _buildHarness(providerOptions: const {'permissionMode': 'dontask'});
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(
+          h.start(),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode'))),
+        );
+      });
+
+      test('throws for non-string Claude permissionMode values', () async {
+        final h = _buildHarness(providerOptions: const {'permissionMode': 7});
+        addTeardownAsync(() => h.dispose());
+
+        await expectLater(
+          h.start(),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Unsupported Claude permissionMode'))),
+        );
+      });
+
+      test('passes structured Claude settings via --settings JSON when configured', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {
+            'sandbox': {
+              'enabled': true,
+              'autoAllowBashIfSandboxed': true,
+              'failIfUnavailable': true,
+            },
+            'permissions': {
+              'allow': ['Bash(git *)'],
+              'deny': ['Read(./.env)'],
+            },
+          },
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final settingsIndex = capturedArgs!.indexOf('--settings');
+        expect(settingsIndex, isNonNegative);
+        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        expect(decoded['sandbox'], {
+          'enabled': true,
+          'autoAllowBashIfSandboxed': true,
+          'failIfUnavailable': true,
+        });
+        expect(decoded['permissions'], {
+          'allow': ['Bash(git *)'],
+          'deny': ['Read(./.env)'],
+        });
+      });
+
+      test('deep-merges base Claude settings with structured sandbox and permissions', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {
+            'settings': {
+              'permissions': {'defaultMode': 'plan'},
+              'sandbox': {'failIfUnavailable': true},
+            },
+            'sandbox': {
+              'enabled': true,
+            },
+            'permissions': {
+              'allow': ['Bash(git *)'],
+            },
+          },
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final settingsIndex = capturedArgs!.indexOf('--settings');
+        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        expect(decoded['permissions'], {
+          'defaultMode': 'plan',
+          'allow': ['Bash(git *)'],
+        });
+        expect(decoded['sandbox'], {
+          'failIfUnavailable': true,
+          'enabled': true,
+        });
+      });
+
+      test('merges raw JSON settings string with structured sandbox and permissions', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {
+            'settings': '{"permissions":{"defaultMode":"plan"},"sandbox":{"failIfUnavailable":true}}',
+            'sandbox': {
+              'enabled': true,
+            },
+            'permissions': {
+              'allow': ['Bash(git *)'],
+            },
+          },
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final settingsIndex = capturedArgs!.indexOf('--settings');
+        final decoded = jsonDecode(capturedArgs![settingsIndex + 1]) as Map<String, dynamic>;
+        expect(decoded['permissions'], {
+          'defaultMode': 'plan',
+          'allow': ['Bash(git *)'],
+        });
+        expect(decoded['sandbox'], {
+          'failIfUnavailable': true,
+          'enabled': true,
+        });
+      });
+
+      test('preserves path-based settings when structured overlays are also configured', () async {
+        List<String>? capturedArgs;
+
+        final h = _buildHarness(
+          providerOptions: const {
+            'settings': '/tmp/claude-settings.json',
+            'sandbox': {
+              'enabled': true,
+            },
+          },
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedArgs = args;
+            final fake = FakeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final settingsIndex = capturedArgs!.indexOf('--settings');
+        expect(capturedArgs![settingsIndex + 1], '/tmp/claude-settings.json');
+      });
+
+      test('translates path-based settings for containerized execution', () async {
+        final hostRoot = await Directory.systemTemp.createTemp('claude-settings-container');
+        addTearDown(() async {
+          if (await hostRoot.exists()) {
+            await hostRoot.delete(recursive: true);
+          }
+        });
+        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+        final settingsPath = p.join(hostRoot.path, 'claude-settings.json');
+        File(settingsPath).writeAsStringSync('{}');
+
+        final h = ClaudeCodeHarness(
+          cwd: hostRoot.path,
+          processFactory: _defaultProcessFactory,
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          providerOptions: {
+            'settings': settingsPath,
+            'sandbox': {'enabled': true},
+          },
+          containerManager: container,
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(container.lastCommand, containsAll(['--settings', '/workspace/claude-settings.json']));
+      });
+
+      test('translates plain path-based settings for containerized execution without overlays', () async {
+        final hostRoot = await Directory.systemTemp.createTemp('claude-settings-container-plain');
+        addTearDown(() async {
+          if (await hostRoot.exists()) {
+            await hostRoot.delete(recursive: true);
+          }
+        });
+        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+        final settingsPath = p.join(hostRoot.path, 'claude-settings.json');
+        File(settingsPath).writeAsStringSync('{}');
+
+        final h = ClaudeCodeHarness(
+          cwd: hostRoot.path,
+          processFactory: _defaultProcessFactory,
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          providerOptions: {
+            'settings': settingsPath,
+          },
+          containerManager: container,
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        expect(container.lastCommand, containsAll(['--settings', '/workspace/claude-settings.json']));
+      });
+
+      test('translates relative path-based settings after containerized restart for a task directory', () async {
+        final hostRoot = await Directory.systemTemp.createTemp('claude-settings-container-restart');
+        addTearDown(() async {
+          if (await hostRoot.exists()) {
+            await hostRoot.delete(recursive: true);
+          }
+        });
+        final taskDir = Directory(p.join(hostRoot.path, 'task-worktree'))..createSync(recursive: true);
+        final settingsPath = p.join(taskDir.path, '.claude', 'settings.json');
+        Directory(p.dirname(settingsPath)).createSync(recursive: true);
+        File(settingsPath).writeAsStringSync('{}');
+        final container = _FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+
+        final h = ClaudeCodeHarness(
+          cwd: hostRoot.path,
+          processFactory: _defaultProcessFactory,
+          commandProbe: _defaultCommandProbe,
+          delayFactory: _noOpDelay,
+          environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
+          providerOptions: const {
+            'settings': '.claude/settings.json',
+          },
+          containerManager: container,
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'task-session',
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          systemPrompt: 'system',
+          directory: taskDir.path,
+        ).catchError((_) => <String, dynamic>{});
+
+        expect(container.lastCommand, containsAll(['--settings', '/workspace/task-worktree/.claude/settings.json']));
       });
 
       test('restarts in the requested working directory before a task turn', () async {
@@ -620,6 +1003,47 @@ void main() {
     });
 
     group('hook callbacks', () {
+      test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
+        final stdinLines = <Map<String, dynamic>>[];
+        late CapturingFakeProcess fake;
+
+        final h = _buildHarness(
+          providerOptions: const {'permissionMode': 'dontAsk'},
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = CapturingFakeProcess(stdinLines);
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-permission',
+            'request': {
+              'subtype': 'can_use_tool',
+              'tool_use_id': 'tool-1',
+            },
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(
+          stdinLines,
+          contains(
+            containsPair(
+              'response',
+              containsPair('response', containsPair('behavior', 'deny')),
+            ),
+          ),
+        );
+      });
+
       test('PreToolUse maps Claude tool names before guard evaluation and preserves raw provider name', () async {
         final stdinLines = <Map<String, dynamic>>[];
         final guard = _RecordingGuard();

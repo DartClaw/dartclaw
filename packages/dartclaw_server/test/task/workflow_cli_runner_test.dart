@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -62,6 +63,449 @@ void main() {
       expect(arguments, contains('--json-schema'));
       expect(result.providerSessionId, 'claude-session-1');
       expect(result.structuredOutput?['verdict'], {'pass': true});
+    });
+
+    test('builds Claude one-shot args with permissionMode and structured settings', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissionMode': 'dontAsk',
+              'sandbox': {
+                'enabled': true,
+                'autoAllowBashIfSandboxed': true,
+              },
+              'permissions': {
+                'allow': ['Bash(git *)'],
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-2',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', [
+            '-lc',
+            "printf '%s' '$stdout'",
+          ]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(arguments, containsAll(['--setting-sources', 'project']));
+      expect(arguments, containsAll(['--permission-mode', 'dontAsk']));
+      expect(arguments, isNot(contains('--dangerously-skip-permissions')));
+      final settingsIndex = arguments.indexOf('--settings');
+      expect(settingsIndex, isNonNegative);
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['sandbox'], {
+        'enabled': true,
+        'autoAllowBashIfSandboxed': true,
+      });
+      expect(decoded['permissions'], {
+        'allow': ['Bash(git *)'],
+      });
+    });
+
+    test('preserves path-based Claude settings when structured overlays are also configured', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': '/tmp/claude-settings.json',
+              'sandbox': {
+                'enabled': true,
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-path',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      expect(arguments[settingsIndex + 1], '/tmp/claude-settings.json');
+    });
+
+    test('merges base Claude settings with structured sandbox and permissions', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': {
+                'permissions': {'defaultMode': 'plan'},
+                'sandbox': {'failIfUnavailable': true},
+              },
+              'sandbox': {
+                'enabled': true,
+              },
+              'permissions': {
+                'allow': ['Bash(git *)'],
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-3',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', [
+            '-lc',
+            "printf '%s' '$stdout'",
+          ]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['permissions'], {
+        'defaultMode': 'plan',
+        'allow': ['Bash(git *)'],
+      });
+      expect(decoded['sandbox'], {
+        'failIfUnavailable': true,
+        'enabled': true,
+      });
+    });
+
+    test('merges raw JSON Claude settings string with structured sandbox and permissions', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': '{"permissions":{"defaultMode":"plan"},"sandbox":{"failIfUnavailable":true}}',
+              'sandbox': {
+                'enabled': true,
+              },
+              'permissions': {
+                'allow': ['Bash(git *)'],
+              },
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-raw',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = arguments.indexOf('--settings');
+      final decoded = jsonDecode(arguments[settingsIndex + 1]) as Map<String, dynamic>;
+      expect(decoded['permissions'], {
+        'defaultMode': 'plan',
+        'allow': ['Bash(git *)'],
+      });
+      expect(decoded['sandbox'], {
+        'failIfUnavailable': true,
+        'enabled': true,
+      });
+    });
+
+    test('rejects interactive Claude permission modes in one-shot mode', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissionMode': 'plan',
+            },
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          final stdout = jsonEncode({
+            'session_id': 'claude-session-4',
+            'result': 'ok',
+          }).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await expectLater(
+        () => runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Review this',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('does not support interactive permissionMode "plan"'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects unsupported Claude permissionMode values in one-shot mode', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissionMode': 'dontask',
+            },
+          ),
+        },
+      );
+
+      await expectLater(
+        () => runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Review this',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Unsupported Claude permissionMode "dontask"'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects non-string Claude permissionMode values in one-shot mode', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'permissionMode': 7,
+            },
+          ),
+        },
+      );
+
+      await expectLater(
+        () => runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Review this',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Unsupported Claude permissionMode'),
+          ),
+        ),
+      );
+    });
+
+    test('does not force project setting sources for containerized Claude one-shot runs', () async {
+      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-container');
+      addTearDown(() async {
+        if (await workingDirectory.exists()) {
+          await workingDirectory.delete(recursive: true);
+        }
+      });
+
+      final container = _FakeContainerExecutor(
+        hostRoot: workingDirectory.path,
+        containerRoot: '/workspace',
+        stdout: jsonEncode({
+          'session_id': 'claude-session-container',
+          'result': 'ok',
+        }),
+      );
+      final runner = WorkflowCliRunner(
+        providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+        containerManagers: {'workspace': container},
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        profileId: 'workspace',
+      );
+
+      expect(container.lastCommand, isNot(contains('--setting-sources')));
+      expect(container.lastWorkingDirectory, '/workspace');
+    });
+
+    test('translates path-based Claude settings for containerized one-shot runs', () async {
+      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-container');
+      addTearDown(() async {
+        if (await workingDirectory.exists()) {
+          await workingDirectory.delete(recursive: true);
+        }
+      });
+
+      final settingsPath = p.join(workingDirectory.path, 'claude-settings.json');
+      File(settingsPath).writeAsStringSync('{}');
+
+      final container = _FakeContainerExecutor(
+        hostRoot: workingDirectory.path,
+        containerRoot: '/workspace',
+        stdout: jsonEncode({
+          'session_id': 'claude-session-settings-container',
+          'result': 'ok',
+        }),
+      );
+      final runner = WorkflowCliRunner(
+        providers: {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': settingsPath,
+              'sandbox': {'enabled': true},
+            },
+          ),
+        },
+        containerManagers: {'workspace': container},
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = container.lastCommand.indexOf('--settings');
+      expect(settingsIndex, isNonNegative);
+      expect(container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
+    });
+
+    test('translates plain path-based Claude settings for containerized one-shot runs without overlays', () async {
+      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-plain');
+      addTearDown(() async {
+        if (await workingDirectory.exists()) {
+          await workingDirectory.delete(recursive: true);
+        }
+      });
+
+      final settingsPath = p.join(workingDirectory.path, 'claude-settings.json');
+      File(settingsPath).writeAsStringSync('{}');
+
+      final container = _FakeContainerExecutor(
+        hostRoot: workingDirectory.path,
+        containerRoot: '/workspace',
+        stdout: jsonEncode({
+          'session_id': 'claude-session-settings-plain',
+          'result': 'ok',
+        }),
+      );
+      final runner = WorkflowCliRunner(
+        providers: {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': settingsPath,
+            },
+          ),
+        },
+        containerManagers: {'workspace': container},
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = container.lastCommand.indexOf('--settings');
+      expect(settingsIndex, isNonNegative);
+      expect(container.lastCommand[settingsIndex + 1], '/workspace/claude-settings.json');
+    });
+
+    test('translates relative path-based Claude settings for containerized one-shot runs', () async {
+      final workingDirectory = await Directory.systemTemp.createTemp('workflow-cli-runner-claude-settings-relative');
+      addTearDown(() async {
+        if (await workingDirectory.exists()) {
+          await workingDirectory.delete(recursive: true);
+        }
+      });
+
+      final settingsPath = p.join(workingDirectory.path, '.claude', 'settings.json');
+      Directory(p.dirname(settingsPath)).createSync(recursive: true);
+      File(settingsPath).writeAsStringSync('{}');
+
+      final container = _FakeContainerExecutor(
+        hostRoot: workingDirectory.path,
+        containerRoot: '/workspace',
+        stdout: jsonEncode({
+          'session_id': 'claude-session-settings-relative',
+          'result': 'ok',
+        }),
+      );
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(
+            executable: 'claude',
+            options: {
+              'settings': '.claude/settings.json',
+            },
+          ),
+        },
+        containerManagers: {'workspace': container},
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'Review this',
+        workingDirectory: workingDirectory.path,
+        profileId: 'workspace',
+      );
+
+      final settingsIndex = container.lastCommand.indexOf('--settings');
+      expect(settingsIndex, isNonNegative);
+      expect(container.lastCommand[settingsIndex + 1], '/workspace/.claude/settings.json');
     });
 
     test('builds Codex one-shot args and parses JSONL final message', () async {
@@ -309,10 +753,28 @@ class _FakeContainerExecutor implements ContainerExecutor {
 
   final String hostRoot;
   final String containerRoot;
+  final String stdout;
   late List<String> lastCommand;
   String? lastWorkingDirectory;
 
-  _FakeContainerExecutor({required this.hostRoot, required this.containerRoot});
+  _FakeContainerExecutor({
+    required this.hostRoot,
+    required this.containerRoot,
+    String? stdout,
+  }) : stdout =
+           stdout ??
+           '${jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'})}\n'
+               '${jsonEncode({
+                 'type': 'item.completed',
+                 'item': {
+                   'type': 'agent_message',
+                   'text': jsonEncode({
+                     'items': [
+                       {'path': 'lib/main.dart'},
+                     ],
+                   }),
+                 },
+               })}';
 
   @override
   Future<void> start() async {}
@@ -327,19 +789,10 @@ class _FakeContainerExecutor implements ContainerExecutor {
   Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
     lastCommand = List<String>.from(command);
     lastWorkingDirectory = workingDirectory;
+    final escapedStdout = stdout.replaceAll("'", "'\\''");
     return Process.start('/bin/sh', [
       '-lc',
-      "printf '%s' '${jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'}).replaceAll("'", "'\\''")}\n${jsonEncode({
-        'type': 'item.completed',
-        'item': {
-          'type': 'agent_message',
-          'text': jsonEncode({
-            'items': [
-              {'path': 'lib/main.dart'},
-            ],
-          }),
-        },
-      }).replaceAll("'", "'\\''")}'",
+      "printf '%s' '$escapedStdout'",
     ]);
   }
 

@@ -12,7 +12,7 @@ Lightweight, ad-hoc review of recent work. Spawns a fresh-context sub-agent to c
 FOCUS: $ARGUMENTS
 
 ## INSTRUCTIONS
-- Mid-conversation checkpoint, not a formal review. Keep it fast and focused.
+- This is a fast, focused checkpoint scoped to recent changes rather than a full formal pass.
 - Read-only analysis. Do not modify files.
 - Sub-agent reviews in a fresh context to avoid confirmation bias.
 - Anti-leniency: if the sub-agent identifies a problem, it IS a problem. Do not rationalize issues away.

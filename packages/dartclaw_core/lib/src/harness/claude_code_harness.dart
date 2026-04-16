@@ -30,6 +30,8 @@ List<String> _buildClaudeArgs({
   String? effort,
   String? appendSystemPrompt,
   String? mcpConfigPath,
+  String? permissionMode,
+  String? settings,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
 }) => [
@@ -41,13 +43,18 @@ List<String> _buildClaudeArgs({
   '--verbose',
   '--include-partial-messages',
   '--no-session-persistence',
-  if (skipNativePermissions) '--dangerously-skip-permissions' else ...['--permission-prompt-tool', 'stdio'],
+  if (permissionMode != null) ...['--permission-mode', permissionMode],
+  if (permissionMode == null && skipNativePermissions)
+    '--dangerously-skip-permissions'
+  else if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions)
+    ...['--permission-prompt-tool', 'stdio'],
   if (settingSourcesProject) ...['--setting-sources', 'project'],
   '--model',
   model ?? 'opus[1m]',
   if (effort != null) ...['--effort', effort],
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
+  if (settings != null) ...['--settings', settings],
 ];
 
 /// Env var forwarded from [_environment] to containerized spawns when present.
@@ -63,6 +70,7 @@ const _subagentModelEnvVar = 'CLAUDE_CODE_SUBAGENT_MODEL';
 class ClaudeCodeHarness extends BaseHarness {
   final String claudeExecutable;
   final Map<String, String> _environment;
+  final Map<String, dynamic> providerOptions;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
@@ -105,6 +113,7 @@ class ClaudeCodeHarness extends BaseHarness {
   String? _sessionId;
   Completer<Map<String, dynamic>>? _turnCompleter;
   late String _processWorkingDirectory;
+  late String _hostProcessWorkingDirectory;
   String? _processModel;
   String? _processEffort;
   int? _processMaxTurns;
@@ -123,6 +132,7 @@ class ClaudeCodeHarness extends BaseHarness {
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
     Map<String, String>? environment,
+    Map<String, dynamic>? providerOptions,
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
@@ -136,6 +146,7 @@ class ClaudeCodeHarness extends BaseHarness {
     ClaudeProtocolAdapter? protocolAdapter,
     Duration killGracePeriod = const Duration(seconds: 2),
   }) : _environment = environment ?? Platform.environment,
+       providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
        _killGracePeriod = killGracePeriod,
        super(
@@ -150,6 +161,7 @@ class ClaudeCodeHarness extends BaseHarness {
          harnessConfig: harnessConfig,
        ) {
     _processWorkingDirectory = cwd;
+    _hostProcessWorkingDirectory = cwd;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
     _processMaxTurns = harnessConfig.maxTurns;
@@ -254,6 +266,7 @@ class ClaudeCodeHarness extends BaseHarness {
     String? effort,
     int? maxTurns,
   }) async {
+    final desiredHostWorkingDirectory = _resolveHostWorkingDirectory(directory);
     final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
     final desiredModel = _resolveModel(model);
     final desiredEffort = _resolveEffort(effort);
@@ -271,11 +284,13 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     if (desiredWorkingDirectory != _processWorkingDirectory ||
+        desiredHostWorkingDirectory != _hostProcessWorkingDirectory ||
         desiredModel != _processModel ||
         desiredEffort != _processEffort ||
         desiredMaxTurns != _processMaxTurns ||
         currentState == WorkerState.stopped) {
       await _restartForExecution(
+        hostWorkingDirectory: desiredHostWorkingDirectory,
         workingDirectory: desiredWorkingDirectory,
         model: desiredModel,
         effort: desiredEffort,
@@ -426,15 +441,19 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     // Spawn claude process: containerized or direct.
+    final nativePermissionMode = _permissionModeOption();
+    final nativeSettings = _settingsOption();
     final args = _buildClaudeArgs(
       model: _processModel ?? harnessConfig.model,
       effort: _processEffort ?? harnessConfig.effort,
       appendSystemPrompt: harnessConfig.appendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
+      permissionMode: nativePermissionMode,
+      settings: nativeSettings,
       settingSourcesProject: cm == null,
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
-      skipNativePermissions: cm?.profileId != 'restricted',
+      skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
     );
     final Process process;
     if (cm != null) {
@@ -487,6 +506,13 @@ class ClaudeCodeHarness extends BaseHarness {
     return translated;
   }
 
+  String _resolveHostWorkingDirectory(String? directory) {
+    if (directory == null || directory.trim().isEmpty) {
+      return cwd;
+    }
+    return directory;
+  }
+
   String? _resolveModel(String? override) {
     final trimmed = override?.trim();
     if (trimmed != null && trimmed.isNotEmpty) return trimmed;
@@ -501,7 +527,157 @@ class ClaudeCodeHarness extends BaseHarness {
 
   int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
 
+  bool get _nativePermissionsSkipped {
+    final permissionMode = _permissionModeOption();
+    if (permissionMode != null) {
+      return permissionMode == 'bypassPermissions' || permissionMode == 'dontAsk';
+    }
+    return containerManager?.profileId != 'restricted';
+  }
+
+  String? _permissionModeOption() {
+    final raw = providerOptions['permissionMode'];
+    if (raw == null) return null;
+    if (raw is! String) {
+      throw StateError('Unsupported Claude permissionMode "${raw.runtimeType}"');
+    }
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    const allowed = {
+      'acceptEdits',
+      'auto',
+      'bypassPermissions',
+      'default',
+      'dontAsk',
+      'plan',
+    };
+    if (!allowed.contains(trimmed)) {
+      throw StateError('Unsupported Claude permissionMode "$trimmed"');
+    }
+    return trimmed;
+  }
+
+  String? _settingsOption() {
+    final settings = <String, dynamic>{};
+
+    final baseSettings = providerOptions['settings'];
+    switch (baseSettings) {
+      case null:
+        break;
+      case final String raw:
+        final trimmed = raw.trim();
+        if (trimmed.isEmpty) {
+          break;
+        }
+        if (!providerOptions.containsKey('sandbox') && !providerOptions.containsKey('permissions')) {
+          final cm = containerManager;
+          if (cm != null) {
+            try {
+              jsonDecode(trimmed);
+            } on FormatException {
+              final hostPath = p.isAbsolute(trimmed)
+                  ? trimmed
+                  : p.normalize(p.join(_hostProcessWorkingDirectory, trimmed));
+              final translated = cm.containerPathForHostPath(hostPath);
+              if (translated == null) {
+                throw StateError('Claude settings path is not mounted in the container: $hostPath');
+              }
+              return translated;
+            }
+          }
+          return trimmed;
+        }
+        if (providerOptions.containsKey('sandbox') || providerOptions.containsKey('permissions')) {
+          try {
+            final decoded = jsonDecode(trimmed);
+            if (decoded is Map<String, dynamic>) {
+              settings.addAll(decoded);
+              break;
+            }
+            if (decoded is Map<dynamic, dynamic>) {
+              settings.addAll(_stringifyDynamicMap(decoded));
+              break;
+            }
+            _log.warning(
+              'Claude provider options include raw "settings" plus structured "sandbox"/"permissions", '
+              'but the raw settings JSON is not an object; structured settings are ignored.',
+            );
+            return trimmed;
+          } on FormatException {
+            final cm = containerManager;
+            if (cm != null) {
+              final hostPath = p.isAbsolute(trimmed)
+                  ? trimmed
+                  : p.normalize(p.join(_hostProcessWorkingDirectory, trimmed));
+              final translated = cm.containerPathForHostPath(hostPath);
+              if (translated == null) {
+                throw StateError('Claude settings path is not mounted in the container: $hostPath');
+              }
+              _log.warning(
+                'Claude provider options include settings path "$trimmed" plus structured '
+                '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
+              );
+              return translated;
+            }
+            _log.warning(
+              'Claude provider options include settings path "$trimmed" plus structured '
+              '"sandbox"/"permissions"; structured settings are ignored for path-based settings.',
+            );
+            return trimmed;
+          }
+        }
+        return trimmed;
+      case final Map<dynamic, dynamic> rawMap:
+        settings.addAll(_stringifyDynamicMap(rawMap));
+      default:
+        _log.warning('Ignoring unsupported Claude settings option type: ${baseSettings.runtimeType}');
+    }
+
+    final sandbox = providerOptions['sandbox'];
+    if (sandbox is Map<dynamic, dynamic>) {
+      _deepMergeInto(settings, {'sandbox': _stringifyDynamicMap(sandbox)});
+    } else if (sandbox != null) {
+      _log.warning('Ignoring unsupported Claude sandbox option type: ${sandbox.runtimeType}');
+    }
+
+    final permissions = providerOptions['permissions'];
+    if (permissions is Map<dynamic, dynamic>) {
+      _deepMergeInto(settings, {'permissions': _stringifyDynamicMap(permissions)});
+    } else if (permissions != null) {
+      _log.warning('Ignoring unsupported Claude permissions option type: ${permissions.runtimeType}');
+    }
+
+    if (settings.isEmpty) return null;
+    return jsonEncode(settings);
+  }
+
+  static Map<String, dynamic> _stringifyDynamicMap(Map<dynamic, dynamic> source) {
+    return source.map((key, value) {
+      final normalizedValue = switch (value) {
+        final Map<dynamic, dynamic> nested => _stringifyDynamicMap(nested),
+        final List<dynamic> list => list
+            .map((item) => item is Map<dynamic, dynamic> ? _stringifyDynamicMap(item) : item)
+            .toList(growable: false),
+        _ => value,
+      };
+      return MapEntry(key.toString(), normalizedValue);
+    });
+  }
+
+  static void _deepMergeInto(Map<String, dynamic> target, Map<String, dynamic> overlay) {
+    for (final entry in overlay.entries) {
+      final existing = target[entry.key];
+      final incoming = entry.value;
+      if (existing is Map<String, dynamic> && incoming is Map<String, dynamic>) {
+        _deepMergeInto(existing, incoming);
+      } else {
+        target[entry.key] = incoming;
+      }
+    }
+  }
+
   Future<void> _restartForExecution({
+    required String hostWorkingDirectory,
     required String workingDirectory,
     required String? model,
     required String? effort,
@@ -512,6 +688,7 @@ class ClaudeCodeHarness extends BaseHarness {
         throw StateError('Cannot change working directory, model, or effort while harness is busy');
       }
       if (_processWorkingDirectory == workingDirectory &&
+          _hostProcessWorkingDirectory == hostWorkingDirectory &&
           _processModel == model &&
           _processEffort == effort &&
           _processMaxTurns == maxTurns &&
@@ -521,6 +698,9 @@ class ClaudeCodeHarness extends BaseHarness {
       final changes = <String>[];
       if (_processWorkingDirectory != workingDirectory) {
         changes.add('workingDirectory: $_processWorkingDirectory -> $workingDirectory');
+      }
+      if (_hostProcessWorkingDirectory != hostWorkingDirectory) {
+        changes.add('hostWorkingDirectory: $_hostProcessWorkingDirectory -> $hostWorkingDirectory');
       }
       if (_processModel != model) {
         changes.add('model: $_processModel -> $model');
@@ -536,6 +716,7 @@ class ClaudeCodeHarness extends BaseHarness {
       }
       await _stopInternal();
       _processWorkingDirectory = workingDirectory;
+      _hostProcessWorkingDirectory = hostWorkingDirectory;
       _processModel = model;
       _processEffort = effort;
       _processMaxTurns = maxTurns;
@@ -789,7 +970,7 @@ class ClaudeCodeHarness extends BaseHarness {
   void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
     switch (subtype) {
       case 'can_use_tool':
-        final skipNativePermissions = containerManager?.profileId != 'restricted';
+        final skipNativePermissions = _nativePermissionsSkipped;
         if (skipNativePermissions) {
           // Defensive dead code: --dangerously-skip-permissions suppresses
           // can_use_tool requests, and guard evaluation runs via PreToolUse hooks.

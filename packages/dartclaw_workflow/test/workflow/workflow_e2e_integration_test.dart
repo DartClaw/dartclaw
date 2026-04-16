@@ -2,15 +2,25 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepCompletedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show MessageService, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show EventBus, TaskStatus, TaskStatusChangedEvent, WorkflowRunStatus, WorkflowRunStatusChangedEvent;
+    show
+        EventBus,
+        TaskStatus,
+        TaskStatusChangedEvent,
+        WorkflowRunStatus,
+        WorkflowRunStatusChangedEvent,
+        WorkflowService,
+        WorkflowStepOutputTransformer;
 import 'package:dartclaw_server/dartclaw_server.dart' show LogService, TaskService;
+import 'package:dartclaw_workflow/src/workflow/context_extractor.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_context.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -41,7 +51,6 @@ String _fixturesRoot() {
 }
 
 String _e2eFixtureProfileDir(String fixturesRoot) => p.join(fixturesRoot, 'workflow-e2e-profile');
-
 
 // ---------------------------------------------------------------------------
 // Config loading — replicates run.sh path templating
@@ -76,29 +85,82 @@ Future<bool> _codexAvailable() async {
   }
 }
 
+WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
+  required String remediationPlan,
+  required String implementationSummary,
+}) {
+  var forced = false;
+  final log = Logger('E2E.ForcedRemediation');
+  return (run, definition, step, task, outputs) {
+    if (forced || definition.name != 'plan-and-implement' || step.id != 'plan-review') {
+      return outputs;
+    }
+
+    final findingsValue = outputs['findings_count'];
+    final findingsCount = switch (findingsValue) {
+      final int numeric => numeric,
+      _ => int.tryParse('$findingsValue') ?? 0,
+    };
+    if (findingsCount > 0) {
+      return outputs;
+    }
+
+    forced = true;
+    log.info(
+      'Forcing a single remediation-loop iteration for workflow ${run.id} '
+      'by overriding clean plan-review outputs',
+    );
+    return {
+      ...outputs,
+      'implementation_summary': (outputs['implementation_summary'] as String?)?.trim().isNotEmpty == true
+          ? outputs['implementation_summary']
+          : implementationSummary,
+      'remediation_plan': remediationPlan,
+      'findings_count': 1,
+      'plan-review.findings_count': 1,
+    };
+  };
+}
+
 // ---------------------------------------------------------------------------
 // TI02: Step capture infrastructure
 // ---------------------------------------------------------------------------
 
 class WorkflowStepTrace {
+  final String runId;
   final String stepKey;
+  final int occurrence;
   final String taskId;
   final String title;
   final String description;
   final TaskStatus terminalStatus;
+  final int tokenCount;
   final Map<String, dynamic> configJson;
   final Map<String, dynamic>? worktreeJson;
+  final String? sessionId;
+  final Map<String, dynamic> contextInputs;
+  final Map<String, dynamic> contextOutputs;
+  final String? lastUserMessage;
+  final String? lastAssistantMessage;
   final DateTime queuedAt;
   final DateTime? completedAt;
 
   WorkflowStepTrace({
+    required this.runId,
     required this.stepKey,
+    required this.occurrence,
     required this.taskId,
     required this.title,
     required this.description,
     required this.terminalStatus,
+    required this.tokenCount,
     required this.configJson,
     this.worktreeJson,
+    this.sessionId,
+    this.contextInputs = const {},
+    this.contextOutputs = const {},
+    this.lastUserMessage,
+    this.lastAssistantMessage,
     required this.queuedAt,
     this.completedAt,
   });
@@ -107,17 +169,37 @@ class WorkflowStepTrace {
 class WorkflowExecutionRecorder {
   final EventBus _eventBus;
   final TaskService _taskService;
+  final MessageService _messageService;
+  final WorkflowService _workflowService;
+  final ContextExtractor _contextExtractor;
   final WorkflowDefinition _definition;
+  final Directory _artifactDir;
+  final Logger _log;
   final List<WorkflowStepTrace> traces = [];
   final List<String> stepOrder = [];
   final Map<String, List<String>> descriptionsByStep = {};
+  final Map<String, int> _occurrenceByStep = {};
 
   late final StreamSubscription<TaskStatusChangedEvent> _queuedSub;
-  late final StreamSubscription<TaskStatusChangedEvent> _terminalSub;
+  late final StreamSubscription<WorkflowStepCompletedEvent> _completedSub;
 
   final _pending = <String, WorkflowStepTrace>{};
 
-  WorkflowExecutionRecorder(this._eventBus, this._taskService, this._definition);
+  WorkflowExecutionRecorder(
+    this._eventBus,
+    this._taskService,
+    this._messageService,
+    this._workflowService,
+    this._definition, {
+    required Directory artifactDir,
+    required String dataDir,
+  }) : _artifactDir = artifactDir,
+       _contextExtractor = ContextExtractor(
+         taskService: _taskService,
+         messageService: _messageService,
+         dataDir: dataDir,
+       ),
+       _log = Logger('E2E.StepArtifacts');
 
   void start() {
     _queuedSub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
@@ -125,40 +207,114 @@ class WorkflowExecutionRecorder {
     ) async {
       await Future<void>.delayed(Duration.zero);
       final task = await _taskService.get(e.taskId);
-      if (task == null || task.stepIndex == null) return;
+      if (task == null || task.stepIndex == null || task.workflowRunId == null) return;
 
-      final stepKey = _definition.steps[task.stepIndex!].id;
+      final step = _definition.steps[task.stepIndex!];
+      final stepKey = step.id;
+      final occurrence = (_occurrenceByStep[stepKey] ?? 0) + 1;
+      _occurrenceByStep[stepKey] = occurrence;
+      final run = await _workflowService.get(task.workflowRunId!);
+      final contextData = _contextData(run?.contextJson);
+      final contextInputs = <String, dynamic>{for (final key in step.contextInputs) key: contextData[key]};
 
       stepOrder.add(stepKey);
       descriptionsByStep.putIfAbsent(stepKey, () => []).add(task.description);
       _pending[task.id] = WorkflowStepTrace(
+        runId: task.workflowRunId!,
         stepKey: stepKey,
+        occurrence: occurrence,
         taskId: task.id,
         title: task.title,
         description: task.description,
         terminalStatus: TaskStatus.queued,
+        tokenCount: 0,
         configJson: Map<String, dynamic>.from(task.configJson),
         worktreeJson: task.worktreeJson,
+        contextInputs: contextInputs,
         queuedAt: DateTime.now(),
       );
     });
 
-    _terminalSub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus.terminal).listen((e) async {
+    _completedSub = _eventBus.on<WorkflowStepCompletedEvent>().listen((event) async {
       await Future<void>.delayed(Duration.zero);
-      final pending = _pending.remove(e.taskId);
+      final pending = _pending.remove(event.taskId);
       if (pending == null) return;
 
-      // Re-read the task to get worktreeJson (set during execution)
-      final task = await _taskService.get(e.taskId);
+      final task = await _taskService.get(event.taskId);
+      if (task == null) return;
+      final sessionId = task.sessionId;
+      String? lastUserMessage;
+      String? lastAssistantMessage;
+      List<Map<String, dynamic>> persistedMessages = const [];
+      if (sessionId != null && sessionId.isNotEmpty) {
+        final messages = await _messageService.getMessages(sessionId);
+        persistedMessages = messages
+            .map(
+              (message) => <String, dynamic>{
+                'cursor': message.cursor,
+                'id': message.id,
+                'role': message.role,
+                'content': message.content,
+                'metadata': message.metadata,
+                'createdAt': message.createdAt.toIso8601String(),
+              },
+            )
+            .toList(growable: false);
+        for (final message in messages.reversed) {
+          if (lastAssistantMessage == null && message.role == 'assistant') {
+            lastAssistantMessage = message.content;
+          }
+          if (lastUserMessage == null && message.role == 'user') {
+            lastUserMessage = message.content;
+          }
+          if (lastUserMessage != null && lastAssistantMessage != null) {
+            break;
+          }
+        }
+      }
+
+      Map<String, dynamic> contextOutputs = const {};
+      try {
+        contextOutputs = await _contextExtractor.extract(_definition.steps[event.stepIndex], task);
+      } catch (error, st) {
+        _log.warning('Failed to extract context outputs for ${event.stepId}', error, st);
+      }
+      final stepScopedContext = _buildStepScopedContext(
+        runContext: _contextData((await _workflowService.get(event.runId))?.contextJson),
+        stepId: event.stepId,
+      );
+
+      await _writeArtifact(
+        pending: pending,
+        task: task,
+        stepName: event.stepName,
+        terminalStatus: task.status,
+        tokenCount: event.tokenCount,
+        sessionId: sessionId,
+        contextOutputs: contextOutputs,
+        stepScopedContext: stepScopedContext,
+        lastUserMessage: lastUserMessage,
+        lastAssistantMessage: lastAssistantMessage,
+        persistedMessages: persistedMessages,
+      );
+
       traces.add(
         WorkflowStepTrace(
+          runId: pending.runId,
           stepKey: pending.stepKey,
+          occurrence: pending.occurrence,
           taskId: pending.taskId,
           title: pending.title,
           description: pending.description,
-          terminalStatus: e.newStatus,
+          terminalStatus: task.status,
+          tokenCount: event.tokenCount,
           configJson: pending.configJson,
-          worktreeJson: task?.worktreeJson ?? pending.worktreeJson,
+          worktreeJson: task.worktreeJson ?? pending.worktreeJson,
+          sessionId: sessionId,
+          contextInputs: pending.contextInputs,
+          contextOutputs: contextOutputs,
+          lastUserMessage: lastUserMessage,
+          lastAssistantMessage: lastAssistantMessage,
           queuedAt: pending.queuedAt,
           completedAt: DateTime.now(),
         ),
@@ -168,12 +324,94 @@ class WorkflowExecutionRecorder {
 
   Future<void> dispose() async {
     await _queuedSub.cancel();
-    await _terminalSub.cancel();
+    await _completedSub.cancel();
   }
 
   int count(String stepKey) => stepOrder.where((s) => s == stepKey).length;
 
   List<WorkflowStepTrace> tracesForStep(String stepKey) => traces.where((t) => t.stepKey == stepKey).toList();
+
+  Future<void> _writeArtifact({
+    required WorkflowStepTrace pending,
+    required Task task,
+    required String stepName,
+    required TaskStatus terminalStatus,
+    required int tokenCount,
+    required String? sessionId,
+    required Map<String, dynamic> contextOutputs,
+    required Map<String, dynamic> stepScopedContext,
+    required String? lastUserMessage,
+    required String? lastAssistantMessage,
+    required List<Map<String, dynamic>> persistedMessages,
+  }) async {
+    _artifactDir.createSync(recursive: true);
+    final fileName =
+        '${(traces.length + 1).toString().padLeft(2, '0')}-'
+        '${_sanitizeFileComponent(pending.stepKey)}-'
+        'occ${pending.occurrence.toString().padLeft(2, '0')}-'
+        '${pending.taskId}.json';
+    final file = File(p.join(_artifactDir.path, fileName));
+    final payload = <String, dynamic>{
+      'runId': pending.runId,
+      'stepKey': pending.stepKey,
+      'stepName': stepName,
+      'occurrence': pending.occurrence,
+      'taskId': pending.taskId,
+      'title': pending.title,
+      'description': pending.description,
+      'terminalStatus': terminalStatus.name,
+      'tokenCount': tokenCount,
+      'queuedAt': pending.queuedAt.toIso8601String(),
+      'completedAt': DateTime.now().toIso8601String(),
+      'sessionId': sessionId,
+      'provider': task.provider,
+      'providerSessionId': task.configJson['_workflowProviderSessionId'],
+      'workflowRunId': task.workflowRunId,
+      'stepIndex': task.stepIndex,
+      'configJson': pending.configJson,
+      'worktreeJson': task.worktreeJson ?? pending.worktreeJson,
+      'contextInputs': pending.contextInputs,
+      'contextOutputs': contextOutputs,
+      'stepScopedContext': stepScopedContext,
+      'lastUserMessage': lastUserMessage,
+      'lastAssistantMessage': lastAssistantMessage,
+      'messages': persistedMessages,
+    };
+    await file.writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+    _log.info('Wrote step artifact: ${file.path}');
+  }
+}
+
+String _sanitizeFileComponent(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_');
+
+Map<String, dynamic> _contextData(Map<String, dynamic>? contextJson) {
+  if (contextJson == null) return const {};
+  final context = WorkflowContext.fromJson(contextJson);
+  return Map<String, dynamic>.from(context.data);
+}
+
+Map<String, dynamic> _buildStepScopedContext({required Map<String, dynamic> runContext, required String stepId}) {
+  final result = <String, dynamic>{};
+  for (final entry in runContext.entries) {
+    if (entry.key == stepId || entry.key.startsWith('$stepId.') || entry.key.startsWith('$stepId[')) {
+      result[entry.key] = entry.value;
+    }
+  }
+  return result;
+}
+
+Directory _createPreservedArtifactDir(String testName) {
+  final configuredRoot = Platform.environment['DARTCLAW_E2E_LOG_DIR']?.trim();
+  final root = configuredRoot != null && configuredRoot.isNotEmpty
+      ? Directory(configuredRoot)
+      : Directory(p.join(Directory.current.path, '.dart_tool', 'dartclaw_e2e_logs'));
+  root.createSync(recursive: true);
+
+  final runDir = Directory(
+    p.join(root.path, '${DateTime.now().millisecondsSinceEpoch}-${_sanitizeFileComponent(testName)}'),
+  );
+  runDir.createSync(recursive: true);
+  return runDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -366,12 +604,13 @@ void main() {
   // -------------------------------------------------------------------------
   // Shared helper: wire up CliWorkflowWiring with in-memory SQLite
   // -------------------------------------------------------------------------
-  Future<CliWorkflowWiring> wireUp() async {
+  Future<CliWorkflowWiring> wireUp({WorkflowStepOutputTransformer? outputTransformer}) async {
     final w = CliWorkflowWiring(
       config: config,
       dataDir: config.server.dataDir,
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
+      workflowStepOutputTransformer: outputTransformer,
     );
     await w.wire();
     wiring = w;
@@ -459,6 +698,8 @@ void main() {
   test('spec-and-implement e2e with real Codex harness and git operations', () async {
     final w = await wireUp();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final artifactDir = _createPreservedArtifactDir('spec-and-implement-e2e');
+    Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
     // Set CWD to fixture repo for git operations
     final savedCwd = Directory.current;
@@ -469,7 +710,15 @@ void main() {
       final definition = w.registry.getByName('spec-and-implement')!;
 
       // Start step recorder
-      final recorder = WorkflowExecutionRecorder(w.eventBus, w.taskService, definition);
+      final recorder = WorkflowExecutionRecorder(
+        w.eventBus,
+        w.taskService,
+        w.messageService,
+        w.workflowService,
+        definition,
+        artifactDir: artifactDir,
+        dataDir: config.server.dataDir,
+      );
       recorder.start();
 
       // Start workflow
@@ -506,7 +755,15 @@ void main() {
       // Core pipeline steps must appear in order. When paused after remediation
       // loop exhaustion, update-state won't run.
       final expectedOrder = finalStatus == WorkflowRunStatus.completed
-          ? ['discover-project', 'spec', 'revise-spec', 'implement', 'verify-refine', 'integrated-review', 'update-state']
+          ? [
+              'discover-project',
+              'spec',
+              'revise-spec',
+              'implement',
+              'verify-refine',
+              'integrated-review',
+              'update-state',
+            ]
           : ['discover-project', 'spec', 'revise-spec', 'implement', 'verify-refine', 'integrated-review'];
       expectStepOrder(recorder, expectedOrder);
 
@@ -541,8 +798,19 @@ void main() {
   // TI04: plan-and-implement e2e
   // -------------------------------------------------------------------------
   test('plan-and-implement e2e with real Codex harness and per-story worktrees', () async {
-    final w = await wireUp();
+    final w = await wireUp(
+      outputTransformer: _forceSinglePlanReviewRemediationLoop(
+        remediationPlan:
+            'Synthetic test remediation: rerun one remediation iteration and confirm '
+            'the batch remains clean after re-validation and re-review.',
+        implementationSummary:
+            'Synthetic test summary: both story implementations merged cleanly, '
+            'but the E2E test is forcing one remediation iteration for coverage.',
+      ),
+    );
     final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final artifactDir = _createPreservedArtifactDir('plan-and-implement-e2e');
+    Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
     final savedCwd = Directory.current;
     Directory.current = Directory(fixtureDir);
@@ -550,7 +818,15 @@ void main() {
     try {
       final definition = w.registry.getByName('plan-and-implement')!;
 
-      final recorder = WorkflowExecutionRecorder(w.eventBus, w.taskService, definition);
+      final recorder = WorkflowExecutionRecorder(
+        w.eventBus,
+        w.taskService,
+        w.messageService,
+        w.workflowService,
+        definition,
+        artifactDir: artifactDir,
+        dataDir: config.server.dataDir,
+      );
       recorder.start();
 
       final variables = {
@@ -582,7 +858,8 @@ void main() {
         reason: 'plan-and-implement should complete or pause (loop exhausted)',
       );
 
-      // Assert high-level step ordering — when paused, later steps may not run.
+      // This E2E forces at least one remediation-loop iteration when plan-review
+      // would otherwise be clean, so the remediation loop should always appear.
       final coreSteps = finalStatus == WorkflowRunStatus.completed
           ? [
               'discover-project',
@@ -593,6 +870,9 @@ void main() {
               'verify-refine',
               'quick-review',
               'plan-review',
+              'remediate',
+              're-verify-refine',
+              're-review',
               'update-state',
             ]
           : [
@@ -602,6 +882,11 @@ void main() {
               'spec-plan',
               'implement',
               'verify-refine',
+              'quick-review',
+              'plan-review',
+              'remediate',
+              're-verify-refine',
+              're-review',
             ];
       expectStepOrder(recorder, coreSteps);
 
@@ -620,15 +905,16 @@ void main() {
         reason: 'verify-refine should run at least twice',
       );
 
-      // Counts that require full completion
-      if (finalStatus == WorkflowRunStatus.completed) {
-        expect(
-          recorder.count('quick-review'),
-          greaterThanOrEqualTo(2),
-          reason: 'quick-review should run at least twice',
-        );
-        expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
-      }
+      expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
+      expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
+      expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
+      expect(
+        recorder.count('re-verify-refine'),
+        greaterThanOrEqualTo(1),
+        reason: 're-verify-refine should run at least once',
+      );
+      expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
+      expectStepInputContains(recorder, 'remediate', 'Synthetic test remediation');
 
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');

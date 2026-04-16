@@ -1,4 +1,4 @@
-import 'dart:async' show Completer, StreamSubscription, TimeoutException, Timer;
+import 'dart:async' show Completer, FutureOr, StreamSubscription, TimeoutException, Timer;
 import 'dart:collection' show Queue;
 import 'dart:convert';
 import 'dart:io';
@@ -60,6 +60,15 @@ import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 import 'workflow_turn_adapter.dart';
 
+typedef WorkflowStepOutputTransformer =
+    FutureOr<Map<String, dynamic>> Function(
+      WorkflowRun run,
+      WorkflowDefinition definition,
+      WorkflowStep step,
+      Task task,
+      Map<String, dynamic> outputs,
+    );
+
 /// Result of a single step within a parallel group.
 class _ParallelStepResult {
   final WorkflowStep step;
@@ -114,6 +123,7 @@ class WorkflowExecutor {
   final SkillPromptBuilder _skillPromptBuilder;
   final MessageService? _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
+  final WorkflowStepOutputTransformer? _outputTransformer;
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
@@ -135,6 +145,7 @@ class WorkflowExecutor {
     SkillPromptBuilder? skillPromptBuilder,
     MessageService? messageService,
     WorkflowTurnAdapter? turnAdapter,
+    WorkflowStepOutputTransformer? outputTransformer,
     WorkflowRoleDefaults? roleDefaults,
     Uuid? uuid,
   }) : _taskService = taskService,
@@ -148,6 +159,7 @@ class WorkflowExecutor {
            skillPromptBuilder ?? SkillPromptBuilder(augmenter: promptAugmenter ?? const PromptAugmenter()),
        _messageService = messageService,
        _turnAdapter = turnAdapter,
+       _outputTransformer = outputTransformer,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
        _uuid = uuid ?? const Uuid();
@@ -1538,6 +1550,9 @@ class WorkflowExecutor {
     final providerSessionId = (finalTask.configJson['_workflowProviderSessionId'] as String?)?.trim();
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
       outputs['${step.id}.providerSessionId'] = providerSessionId;
+    }
+    if (_outputTransformer != null) {
+      outputs = await _outputTransformer(run, definition, step, finalTask, outputs);
     }
 
     return _ParallelStepResult(step: step, task: finalTask, outputs: outputs, tokenCount: tokenCount, success: true);

@@ -197,7 +197,7 @@ steps:
         outputs:
           story_result:
             format: text
-            description: Summary of what was implemented for this story — files changed, key decisions, and verification notes.
+            schema: story-result
 
       # Validate the story implementation before the story-level review pass.
       - id: verify-refine
@@ -223,7 +223,7 @@ steps:
         outputs:
           validation_summary:
             format: text
-            description: Summary of validation outcomes for this story (build, tests, analyzer, and any refinements applied).
+            schema: validation-summary
           findings_count:
             format: json
             schema: non-negative-integer
@@ -329,10 +329,10 @@ steps:
         outputs:
           remediation_summary:
             format: text
-            description: Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.
+            schema: remediation-summary
           diff_summary:
             format: text
-            description: Compact description of file-level changes produced by this remediation pass.
+            schema: diff-summary
 
       # Re-run validation after the remediation pass to confirm the fixes hold.
       - id: re-verify-refine
@@ -359,7 +359,7 @@ steps:
         outputs:
           validation_summary:
             format: text
-            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
+            schema: validation-summary
           findings_count:
             format: json
             schema: non-negative-integer
@@ -437,4 +437,4 @@ steps:
     outputs:
       state_update_summary:
         format: text
-        description: Summary of what was written to the project state document for this plan execution.
+        schema: state-update-summary

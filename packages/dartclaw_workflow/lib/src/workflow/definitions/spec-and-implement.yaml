@@ -136,7 +136,7 @@ steps:
     outputs:
       diff_summary:
         format: text
-        description: Compact summary of file-level changes produced by the implementation step.
+        schema: diff-summary
 
   # Validate the implementation and capture any remaining findings.
   - id: verify-refine
@@ -163,7 +163,7 @@ steps:
     outputs:
       validation_summary:
         format: text
-        description: Summary of validation outcomes (build, tests, analyzer, and any refinements applied).
+        schema: validation-summary
 
   # Run an integrated implementation review after validation to decide whether remediation is needed.
   - id: integrated-review
@@ -235,10 +235,10 @@ steps:
         outputs:
           remediation_summary:
             format: text
-            description: Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.
+            schema: remediation-summary
           diff_summary:
             format: text
-            description: Compact description of file-level changes produced by this remediation pass.
+            schema: diff-summary
 
       # Re-run validation after remediation to confirm the fixes hold.
       - id: re-verify-refine
@@ -269,7 +269,7 @@ steps:
         outputs:
           validation_summary:
             format: text
-            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
+            schema: validation-summary
           findings_count:
             format: json
             schema: non-negative-integer
@@ -344,4 +344,4 @@ steps:
     outputs:
       state_update_summary:
         format: text
-        description: Summary of what was written to the project state document for this feature.
+        schema: state-update-summary

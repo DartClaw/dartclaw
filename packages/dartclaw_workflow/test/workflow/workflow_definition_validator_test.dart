@@ -1062,6 +1062,94 @@ void main() {
       expect(report.errors.any((e) => e.message.contains('additionalProperties: false')), isTrue);
     });
 
+    WorkflowDefinition defWithOutput(OutputConfig outputConfig) => WorkflowDefinition(
+      name: 'wf',
+      description: 'd',
+      steps: [
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          type: 'coding',
+          prompts: const ['Implement'],
+          contextOutputs: const ['diff_summary'],
+          outputs: {'diff_summary': outputConfig},
+        ),
+      ],
+    );
+
+    test('inline description colliding with text-preset description emits exactly one warning', () {
+      // `diff-summary` is a text preset with a canonical description. Setting
+      // an inline description as well silently overrides it — should warn.
+      final report = validator.validate(
+        defWithOutput(
+          const OutputConfig(
+            format: OutputFormat.text,
+            schema: 'diff-summary',
+            description: 'Custom inline description overrides the preset.',
+          ),
+        ),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('diff_summary'));
+      expect(report.warnings.single.message, contains('inline description overrides the preset'));
+    });
+
+    test('preset reference without inline description does not warn', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary')),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('inline description with no preset at all does not warn', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, description: 'Freeform description, no preset.')),
+      );
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('inline description with a preset that has no description does not warn', () {
+      // `non-negative-integer` is a JSON preset with no `description` — can
+      // only be paired with `format: json`. An inline description here is
+      // an authoring choice, not a collision.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            type: 'analysis',
+            prompts: ['Review'],
+            contextOutputs: ['findings_count'],
+            outputs: {
+              'findings_count': OutputConfig(
+                format: OutputFormat.json,
+                schema: 'non-negative-integer',
+                description: 'How many things we found.',
+              ),
+            },
+          ),
+        ],
+      );
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+    });
+
+    test('whitespace-only inline description is a hard error', () {
+      final report = validator.validate(
+        defWithOutput(const OutputConfig(format: OutputFormat.text, schema: 'diff-summary', description: '   ')),
+      );
+      expect(
+        report.errors.any((e) => e.message.contains('diff_summary') && e.message.contains('blank "description"')),
+        isTrue,
+      );
+    });
+
     test('json output without schema is a hard error', () {
       final def = WorkflowDefinition(
         name: 'wf',

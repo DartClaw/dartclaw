@@ -12,17 +12,16 @@ void main() {
       expect(schemaPresets.containsKey('checklist'), true);
       expect(schemaPresets.containsKey('project-index'), true);
       expect(schemaPresets.containsKey('non-negative-integer'), true);
+      expect(schemaPresets.containsKey('diff-summary'), true);
+      expect(schemaPresets.containsKey('validation-summary'), true);
+      expect(schemaPresets.containsKey('state-update-summary'), true);
+      expect(schemaPresets.containsKey('remediation-summary'), true);
+      expect(schemaPresets.containsKey('story-result'), true);
     });
 
     test('each preset has non-empty name', () {
       for (final preset in schemaPresets.values) {
         expect(preset.name, isNotEmpty);
-      }
-    });
-
-    test('each preset has a non-empty prompt fragment', () {
-      for (final preset in schemaPresets.values) {
-        expect(preset.promptFragment, isNotEmpty);
       }
     });
 
@@ -37,6 +36,48 @@ void main() {
         if (preset.schema['type'] == 'object') {
           expect(preset.schema['additionalProperties'], isFalse, reason: preset.name);
         }
+      }
+    });
+
+    // A "text preset" is one whose schema represents a plain string value —
+    // the schema section isn't rendered for text outputs, so those presets
+    // omit promptFragment and rely on `description` instead. "JSON presets"
+    // cover object/array/integer/boolean shapes; they need promptFragment to
+    // explain the JSON shape and must NOT set description (doing so would
+    // affect every workflow using them — see _effectiveDescription).
+    test('text presets have description, no promptFragment', () {
+      for (final preset in schemaPresets.values) {
+        if (preset.schema['type'] != 'string') continue;
+        expect(
+          preset.promptFragment,
+          isNull,
+          reason: '"${preset.name}" is a text preset — promptFragment is dead code for text outputs.',
+        );
+        expect(
+          preset.description,
+          isNotNull,
+          reason: '"${preset.name}" is a text preset — description carries its canonical meaning.',
+        );
+        expect(preset.description, isNotEmpty, reason: preset.name);
+      }
+    });
+
+    test('JSON presets have promptFragment and must not set description', () {
+      for (final preset in schemaPresets.values) {
+        if (preset.schema['type'] == 'string') continue;
+        expect(
+          preset.promptFragment,
+          isNotNull,
+          reason: '"${preset.name}" is a JSON preset — promptFragment is required to explain the shape.',
+        );
+        expect(preset.promptFragment, isNotEmpty, reason: preset.name);
+        expect(
+          preset.description,
+          isNull,
+          reason:
+              '"${preset.name}" is a JSON preset — setting description would silently affect every '
+              'workflow using this preset via PromptAugmenter._effectiveDescription.',
+        );
       }
     });
   });

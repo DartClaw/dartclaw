@@ -853,6 +853,82 @@ void main() {
     expect(postMap?.worktreeJson?['branch'], integrationBranch);
   });
 
+  test('per-map-item map iteration reuses the same story worktree across coding steps', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      workflowCliRunner: _successWorkflowCliRunner(),
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const integrationBranch = 'dartclaw/workflow/run999/integration';
+    await tasks.create(
+      id: 'task-story-implement',
+      title: 'Story implement',
+      description: 'First coding step for story 0.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-999',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'per-map-item'},
+        '_mapIterationIndex': 0,
+      },
+    );
+
+    await projectExecutor.pollOnce();
+
+    final implement = await tasks.get('task-story-implement');
+    expect(worktreeManager.createCallCount, 1);
+    expect(worktreeManager.lastCreateBranch, isTrue);
+
+    await tasks.create(
+      id: 'task-story-verify',
+      title: 'Story verify',
+      description: 'Second coding step for story 0.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-999',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'per-map-item'},
+        '_mapIterationIndex': 0,
+      },
+    );
+
+    await projectExecutor.pollOnce();
+
+    final verify = await tasks.get('task-story-verify');
+    expect(worktreeManager.createCallCount, 1, reason: 'story follow-up steps should reuse the same worktree');
+    expect(verify?.worktreeJson?['path'], implement?.worktreeJson?['path']);
+    expect(verify?.worktreeJson?['branch'], implement?.worktreeJson?['branch']);
+  });
+
   test('workflow read-only tasks skip strict freshness fetch for local workflow-owned refs', () async {
     worker.responseText = 'Done.';
     final projectService = FakeProjectService(

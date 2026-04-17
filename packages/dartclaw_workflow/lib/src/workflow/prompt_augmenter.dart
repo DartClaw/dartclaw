@@ -47,8 +47,8 @@ class PromptAugmenter {
       }
 
       if (fragment != null) {
-        final desc = config.description?.trim();
-        if (desc != null && desc.isNotEmpty) {
+        final desc = effectiveDescription(config);
+        if (desc != null) {
           fragment = '"${entry.key}" — $desc\n\n$fragment';
         }
         fragments.add(fragment);
@@ -85,9 +85,8 @@ class PromptAugmenter {
   }
 
   void _writeWorkflowContextField(StringBuffer buf, String key, OutputConfig? config) {
-    final descSuffix = (config?.description != null && config!.description!.trim().isNotEmpty)
-        ? ' — ${config.description!.trim()}'
-        : '';
+    final effectiveDesc = config == null ? null : effectiveDescription(config);
+    final descSuffix = effectiveDesc != null ? ' — $effectiveDesc' : '';
 
     if (config == null || config.format == OutputFormat.text) {
       buf.writeln('- "$key": JSON string$descSuffix');
@@ -177,6 +176,25 @@ class PromptAugmenter {
         }
       }
     }
+  }
+
+  /// Returns the description to render for [config], falling back to the
+  /// preset's canonical description when the output declares a known preset
+  /// and no inline `description:` override. Returns null when neither source
+  /// provides a non-empty value.
+  ///
+  /// Exposed as a public static so peer renderers (e.g. `SkillPromptBuilder`'s
+  /// auto-framed context sections) share a single description-resolution
+  /// strategy. Keeping this in one place prevents drift between the
+  /// output-contract rendering here and the context-input rendering there.
+  static String? effectiveDescription(OutputConfig config) {
+    final inline = config.description?.trim();
+    if (inline != null && inline.isNotEmpty) return inline;
+    final presetName = config.presetName;
+    if (presetName == null) return null;
+    final presetDesc = schemaPresets[presetName]?.description?.trim();
+    if (presetDesc == null || presetDesc.isEmpty) return null;
+    return presetDesc;
   }
 
   List<String> _schemaTypes(Map<String, dynamic> schema) {

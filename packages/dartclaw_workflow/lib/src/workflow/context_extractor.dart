@@ -20,7 +20,7 @@ import 'json_extraction.dart';
 import 'schema_presets.dart';
 import 'schema_validator.dart';
 import 'workflow_output_contract.dart';
-import 'workflow_task_config_keys.dart';
+import 'workflow_task_config.dart';
 
 typedef StructuredOutputFallbackRecorder =
     void Function(
@@ -259,12 +259,7 @@ class ContextExtractor {
   }
 
   Map<String, dynamic> _extractStructuredOutputPayload(Task task) {
-    final payload = task.configJson[WorkflowTaskConfigKeys.structuredOutputPayload];
-    return switch (payload) {
-      final Map<String, dynamic> typed => typed,
-      final Map<Object?, Object?> raw => raw.map((key, value) => MapEntry(key.toString(), value)),
-      _ => const <String, dynamic>{},
-    };
+    return WorkflowTaskConfig.readStructuredOutputPayload(task.configJson) ?? const <String, dynamic>{};
   }
 
   /// Extracts raw text content for format-aware processing.
@@ -347,20 +342,34 @@ class ContextExtractor {
     return null;
   }
 
-  /// Parses the `<workflow-context>` payload from the last assistant message.
+  /// Parses the `<workflow-context>` payload from the most recent assistant
+  /// message that contains one.
+  ///
+  /// Workflow one-shot execution may append a final bare-JSON extraction turn
+  /// after an earlier assistant message already emitted the authoritative
+  /// `<workflow-context>...</workflow-context>` block. Looking only at the last
+  /// assistant message would silently drop mixed outputs such as text `prd`
+  /// plus structured `stories`.
   Future<Map<String, dynamic>?> _extractWorkflowContextPayload(Task task) async {
-    final content = await _extractLastAssistantContent(task);
-    if (content == null) return null;
-    final match = workflowContextRegExp.firstMatch(content);
-    if (match == null) return null;
+    final sessionId = task.sessionId;
+    if (sessionId == null || sessionId.isEmpty) return null;
 
-    final rawJson = match.group(1)!;
-    final decoded = jsonDecode(rawJson);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) {
-      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    final messages = await _messageService.getMessages(sessionId);
+    for (final message in messages.reversed) {
+      if (message.role != 'assistant') continue;
+      final match = workflowContextRegExp.firstMatch(message.content);
+      if (match == null) continue;
+
+      final rawJson = match.group(1)!;
+      final decoded = jsonDecode(rawJson);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+      throw const FormatException('workflow-context payload must decode to a JSON object');
     }
-    throw const FormatException('workflow-context payload must decode to a JSON object');
+
+    return null;
   }
 
   String _stringifyWorkflowValue(Object? value) {

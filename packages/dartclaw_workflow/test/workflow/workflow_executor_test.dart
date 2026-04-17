@@ -1317,6 +1317,40 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
+    test('mixed-output steps include text and json fields in the structured extraction schema', () async {
+      final mpExecutor = makeMultiPromptExecutor();
+
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Plan this'],
+            contextOutputs: ['prd', 'stories'],
+            outputs: {
+              'prd': OutputConfig(format: OutputFormat.text),
+              'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+            },
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final sub = autoAcceptQueuedTask();
+
+      await mpExecutor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final createdTask = (await taskService.list()).single;
+      final schema = Map<Object?, Object?>.from(createdTask.configJson['_workflowStructuredSchema'] as Map);
+      final properties = Map<Object?, Object?>.from(schema['properties'] as Map);
+
+      expect((schema['required'] as List<Object?>), containsAll(['prd', 'stories']));
+      expect(properties['prd'], equals({'type': 'string'}));
+      expect((properties['stories'] as Map<Object?, Object?>)['type'], equals('object'));
+    });
+
     test('without turn infrastructure, multi-prompt step still completes (graceful degradation)', () async {
       // Executor with no turnManager/messageService — no session dir needed.
       final definition = makeDefinition(

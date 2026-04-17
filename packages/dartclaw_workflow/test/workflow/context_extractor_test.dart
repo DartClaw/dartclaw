@@ -156,6 +156,43 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
+  test('uses the most recent assistant message containing workflow-context, not only the last assistant message', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content:
+          'Done.\n\n<workflow-context>{"prd":"PRD text","stories":{"items":[{"id":"S01"}]}}</workflow-context>',
+    );
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '{"stories":{"items":[{"id":"S01"}]}}',
+    );
+
+    await taskService.create(
+      id: 'task-workflow-context-history',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-workflow-context-history', sessionId: session.id);
+    final taskWithSession = (await taskService.get('task-workflow-context-history'))!;
+
+    final step = makeStep(
+      contextOutputs: ['prd', 'stories'],
+      outputs: const {
+        'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
+      },
+    );
+    final outputs = await extractor.extract(step, taskWithSession);
+
+    expect(outputs['prd'], equals('PRD text'));
+    expect(outputs['stories'], isA<Map<Object?, Object?>>());
+    expect(((outputs['stories'] as Map<Object?, Object?>)['items'] as List<Object?>), hasLength(1));
+  });
+
   test('format-aware json output stores parsed list from last assistant message', () async {
     final session = await sessionService.getOrCreateMain();
     await messageService.insertMessage(

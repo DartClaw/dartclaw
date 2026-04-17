@@ -122,10 +122,10 @@ steps:
             description: Structured outcome record for this remediation pass.
           remediation_summary:
             format: text
-            description: Short prose summary of what was remediated during this pass.
+            schema: remediation-summary
           diff_summary:
             format: text
-            description: Compact description of file-level changes produced by this remediation pass.
+            schema: diff-summary
 
       # Validate the remediation changes before re-running the code review.
       - id: verify-refine
@@ -157,7 +157,7 @@ steps:
         outputs:
           validation_summary:
             format: text
-            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
+            schema: validation-summary
           findings_count:
             format: json
             schema: non-negative-integer

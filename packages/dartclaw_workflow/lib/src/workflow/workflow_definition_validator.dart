@@ -808,6 +808,20 @@ class WorkflowDefinitionValidator {
         final key = entry.key;
         final config = entry.value;
 
+        // Non-null but whitespace-only description is always an authoring
+        // mistake — either provide content or omit the key.
+        if (config.description != null && config.description!.trim().isEmpty) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" output "$key" has a blank "description" — '
+                  'provide content or remove the key.',
+              type: ValidationErrorType.missingField,
+              stepId: step.id,
+            ),
+          );
+        }
+
         // Output key must be in contextOutputs.
         if (!step.contextOutputs.contains(key)) {
           errors.add(
@@ -821,11 +835,29 @@ class WorkflowDefinitionValidator {
 
         // Schema preset name must be known.
         if (config.presetName != null) {
-          if (!schemaPresets.containsKey(config.presetName)) {
+          final preset = schemaPresets[config.presetName];
+          if (preset == null) {
             errors.add(
               ValidationError(
                 message: 'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
                 type: ValidationErrorType.invalidReference,
+                stepId: step.id,
+              ),
+            );
+          } else if (preset.description != null &&
+              preset.description!.trim().isNotEmpty &&
+              config.description != null &&
+              config.description!.trim().isNotEmpty) {
+            // Both preset and YAML define a description — the inline one wins,
+            // defeating the point of referencing the preset. Warn the author
+            // so they can drop one or the other intentionally.
+            warnings.add(
+              ValidationError(
+                message:
+                    'Step "${step.id}" output "$key" sets both an inline "description" and '
+                    'references preset "${config.presetName}" which already provides one. '
+                    'The inline description overrides the preset — drop one to avoid drift.',
+                type: ValidationErrorType.contextInconsistency,
                 stepId: step.id,
               ),
             );

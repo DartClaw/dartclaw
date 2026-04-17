@@ -58,7 +58,7 @@ import 'step_config_resolver.dart';
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
-import 'workflow_task_config_keys.dart';
+import 'workflow_task_config.dart';
 import 'workflow_turn_adapter.dart';
 
 typedef WorkflowStepOutputTransformer =
@@ -131,6 +131,27 @@ class WorkflowExecutor {
 
   // Approval timeout timers keyed by "<runId>:<stepId>".
   final _approvalTimers = <String, Timer>{};
+
+  // Per-definition cache of input-config lookups used by
+  // `SkillPromptBuilder.formatContextSummary`. Foreach loops over many
+  // iterations would otherwise repeat identical scans.
+  //
+  // Stored on an Expando so entries are GC'd together with the
+  // definition — hot-reloaded definitions don't leak. The inner map is
+  // keyed on a null-separated join of the contextInputs list, which is
+  // equality-safe (plain `String` key, no hash collisions across
+  // distinct lists).
+  final _inputConfigCache = Expando<Map<String, Map<String, OutputConfig>>>('workflowInputConfigCache');
+
+  Map<String, OutputConfig> _inputConfigsFor(WorkflowDefinition definition, List<String> keys) {
+    if (keys.isEmpty) return const {};
+    final perDefinition = _inputConfigCache[definition] ??= <String, Map<String, OutputConfig>>{};
+    final cacheKey = keys.join('\x00');
+    return perDefinition.putIfAbsent(
+      cacheKey,
+      () => SkillPromptBuilder.collectInputConfigs(definition.steps, keys),
+    );
+  }
 
   WorkflowExecutor({
     required WorkflowTaskService taskService,
@@ -1355,7 +1376,10 @@ class WorkflowExecutor {
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
     final contextSummary = step.skill != null && resolvedFirstPrompt == null
-        ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+        ? SkillPromptBuilder.formatContextSummary(
+            {for (final key in step.contextInputs) key: context[key] ?? ''},
+            outputConfigs: _inputConfigsFor(definition, step.contextInputs),
+          )
         : null;
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
 
@@ -1388,7 +1412,8 @@ class WorkflowExecutor {
       taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
       final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
       if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
-        taskConfig = {...taskConfig, WorkflowTaskConfigKeys.continueProviderSessionId: prevProviderSessionId};
+        taskConfig = {...taskConfig};
+        WorkflowTaskConfig.writeContinueProviderSessionId(taskConfig, prevProviderSessionId);
       }
     }
     final taskId = _uuid.v4();
@@ -1449,11 +1474,13 @@ class WorkflowExecutor {
       mapCtx: mapCtx,
     );
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
-    taskConfig = {
-      ...taskConfig,
-      if (followUpPrompts.isNotEmpty) WorkflowTaskConfigKeys.followUpPrompts: followUpPrompts,
-      ...?structuredSchema == null ? null : {WorkflowTaskConfigKeys.structuredSchema: structuredSchema},
-    };
+    taskConfig = {...taskConfig};
+    if (followUpPrompts.isNotEmpty) {
+      WorkflowTaskConfig.writeFollowUpPrompts(taskConfig, followUpPrompts);
+    }
+    if (structuredSchema != null) {
+      WorkflowTaskConfig.writeStructuredSchema(taskConfig, structuredSchema);
+    }
 
     try {
       await _taskService.create(
@@ -1525,8 +1552,8 @@ class WorkflowExecutor {
         );
       }
     }
-    final providerSessionId = (finalTask.configJson[WorkflowTaskConfigKeys.providerSessionId] as String?)?.trim();
-    if (providerSessionId != null && providerSessionId.isNotEmpty) {
+    final providerSessionId = WorkflowTaskConfig.readProviderSessionId(finalTask.configJson);
+    if (providerSessionId != null) {
       outputs['${step.id}.providerSessionId'] = providerSessionId;
     }
     if (_outputTransformer != null) {
@@ -2120,8 +2147,14 @@ class WorkflowExecutor {
 
     for (final entry in outputs.entries) {
       final config = entry.value;
-      if (config.outputMode != OutputMode.structured) continue;
-      final schema = config.inlineSchema ?? schemaPresets[config.presetName]?.schema;
+      final schema = switch (config.format) {
+        OutputFormat.text => const {'type': 'string'},
+        OutputFormat.lines => const {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+        OutputFormat.json => config.inlineSchema ?? schemaPresets[config.presetName]?.schema,
+      };
       if (schema == null) continue;
       properties[entry.key] = schema;
       required.add(entry.key);
@@ -2450,7 +2483,10 @@ class WorkflowExecutor {
             ? _templateEngine.resolveWithMap(rawPrompt, context, mapContext)
             : null;
         final contextSummary = step.skill != null && resolvedPrompt == null
-            ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+            ? SkillPromptBuilder.formatContextSummary(
+                {for (final key in step.contextInputs) key: context[key] ?? ''},
+                outputConfigs: _inputConfigsFor(definition, step.contextInputs),
+              )
             : null;
         final effectiveOutputs = step.outputs;
         final iterPrompt = _skillPromptBuilder.build(

@@ -6,10 +6,19 @@ class SchemaPreset {
   /// JSON Schema definition.
   final Map<String, dynamic> schema;
 
-  /// Human-readable prompt fragment appended to step prompts.
-  final String promptFragment;
+  /// Human-readable prompt fragment appended to step prompts for JSON outputs.
+  ///
+  /// Null for presets that only apply to `format: text` outputs — those do not
+  /// render a schema section, so a prompt fragment would be dead code.
+  final String? promptFragment;
 
-  const SchemaPreset({required this.name, required this.schema, required this.promptFragment});
+  /// Optional canonical one-line description for this output. Used when a
+  /// workflow references the preset without overriding `description:` on
+  /// the output config, so common semantic fields stay consistent across
+  /// workflows.
+  final String? description;
+
+  const SchemaPreset({required this.name, required this.schema, this.promptFragment, this.description});
 }
 
 /// Built-in schema presets registry.
@@ -24,6 +33,11 @@ const schemaPresets = <String, SchemaPreset>{
   'checklist': checklistPreset,
   'project-index': projectIndexPreset,
   'non-negative-integer': nonNegativeIntegerPreset,
+  'diff-summary': diffSummaryPreset,
+  'validation-summary': validationSummaryPreset,
+  'state-update-summary': stateUpdateSummaryPreset,
+  'remediation-summary': remediationSummaryPreset,
+  'story-result': storyResultPreset,
 };
 
 const verdictPreset = SchemaPreset(
@@ -388,4 +402,44 @@ const nonNegativeIntegerPreset = SchemaPreset(
   name: 'non-negative-integer',
   schema: {'type': 'integer', 'minimum': 0},
   promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
+);
+
+/// Canonical text shape for `diff_summary` outputs across implementation,
+/// remediation, and validation steps.
+const diffSummaryPreset = SchemaPreset(
+  name: 'diff-summary',
+  schema: {'type': 'string'},
+  description: 'Compact description of file-level changes produced by this step (files touched, nature of edits).',
+);
+
+/// Canonical text shape for `validation_summary` outputs emitted by verify /
+/// re-validate steps.
+const validationSummaryPreset = SchemaPreset(
+  name: 'validation-summary',
+  schema: {'type': 'string'},
+  description: 'Summary of validation outcomes for this step (build, tests, analyzer, and any refinements applied).',
+);
+
+/// Canonical text shape for `state_update_summary` outputs emitted by the
+/// final `update-state` step of every workflow.
+const stateUpdateSummaryPreset = SchemaPreset(
+  name: 'state-update-summary',
+  schema: {'type': 'string'},
+  description: 'Summary of what was written to the project state document for this workflow execution.',
+);
+
+/// Canonical text shape for `remediation_summary` outputs emitted inside
+/// remediation loops.
+const remediationSummaryPreset = SchemaPreset(
+  name: 'remediation-summary',
+  schema: {'type': 'string'},
+  description: 'Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.',
+);
+
+/// Canonical text shape for per-story `story_result` outputs emitted inside
+/// the plan-and-implement foreach pipeline.
+const storyResultPreset = SchemaPreset(
+  name: 'story-result',
+  schema: {'type': 'string'},
+  description: 'Summary of what was implemented for this story — files changed, key decisions, and verification notes.',
 );

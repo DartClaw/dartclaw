@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfigKeys;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -419,7 +419,7 @@ class TaskExecutor {
         }
         final explicitBaseRef = _taskBaseRef(task);
         final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
-        final workflowOwnedBranchTask = _workflowOwnedBranchRunId(task) != null;
+        final workflowOwnedBranchTask = _workflowOwnedWorktreeKey(task) != null;
         final workflowOwnedLocalBaseRef = _isWorkflowOwnedLocalRef(effectiveBaseRef);
         final worktreeBaseRef = _worktreeBaseRefFor(task, project, effectiveBaseRef);
         final strictGitValidation =
@@ -454,21 +454,23 @@ class TaskExecutor {
 
       // Worktree setup for coding tasks
       if (task.type == TaskType.coding && _worktreeManager != null) {
-        final sharedRunId = _workflowOwnedBranchRunId(task);
-        if (sharedRunId != null) {
-          final existing = _workflowSharedWorktrees[sharedRunId];
+        final workflowWorktreeKey = _workflowOwnedWorktreeKey(task);
+        final workflowWorktreeTaskId = _workflowOwnedWorktreeTaskId(task);
+        final requiresStoryBranch = _workflowMapIterationOwnsBranch(task);
+        if (workflowWorktreeKey != null && workflowWorktreeTaskId != null) {
+          final existing = _workflowSharedWorktrees[workflowWorktreeKey];
           if (existing != null) {
             worktreeInfo = existing;
           } else {
             // Pass project only when it's not the implicit _local project.
             final worktreeProject = (project != null && project.id != '_local') ? project : null;
             worktreeInfo = await _worktreeManager.create(
-              'wf-$sharedRunId',
+              workflowWorktreeTaskId,
               project: worktreeProject,
               baseRef: _taskBaseRef(task),
-              createBranch: false,
+              createBranch: requiresStoryBranch,
             );
-            _workflowSharedWorktrees[sharedRunId] = worktreeInfo;
+            _workflowSharedWorktrees[workflowWorktreeKey] = worktreeInfo;
           }
         } else {
           // Pass project only when it's not the implicit _local project.
@@ -808,17 +810,10 @@ class TaskExecutor {
     }
 
     final cwd = workingDirectory ?? Directory.current.path;
-    final followUps = switch (task.configJson[WorkflowTaskConfigKeys.followUpPrompts]) {
-      final List<dynamic> values => values.map((value) => value.toString()).toList(growable: false),
-      _ => const <String>[],
-    };
-    final structuredSchema = switch (task.configJson[WorkflowTaskConfigKeys.structuredSchema]) {
-      final Map<String, dynamic> schema => schema,
-      final Map<Object?, Object?> schema => schema.map((key, value) => MapEntry(key.toString(), value)),
-      _ => null,
-    };
+    final followUps = WorkflowTaskConfig.readFollowUpPrompts(task.configJson);
+    final structuredSchema = WorkflowTaskConfig.readStructuredSchema(task.configJson);
 
-    String? providerSessionId = (task.configJson[WorkflowTaskConfigKeys.continueProviderSessionId] as String?)?.trim();
+    String? providerSessionId = WorkflowTaskConfig.readContinueProviderSessionId(task.configJson);
     final appendSystemPrompt = switch (task.configJson['appendSystemPrompt']) {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
@@ -918,10 +913,10 @@ class TaskExecutor {
 
     final nextConfig = Map<String, dynamic>.from(task.configJson);
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
-      nextConfig[WorkflowTaskConfigKeys.providerSessionId] = providerSessionId;
+      WorkflowTaskConfig.writeProviderSessionId(nextConfig, providerSessionId);
     }
     if (structuredPayload != null) {
-      nextConfig[WorkflowTaskConfigKeys.structuredOutputPayload] = structuredPayload;
+      WorkflowTaskConfig.writeStructuredOutputPayload(nextConfig, structuredPayload);
     }
     await _tasks.updateFields(task.id, configJson: nextConfig);
 
@@ -1143,7 +1138,7 @@ class TaskExecutor {
     return next;
   }
 
-  String? _workflowOwnedBranchRunId(Task task) {
+  String? _workflowOwnedWorktreeKey(Task task) {
     final workflowRunId = task.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
     final workflowGit = task.configJson['_workflowGit'];
@@ -1151,11 +1146,34 @@ class TaskExecutor {
     final strategy = workflowGit['worktree'] as String?;
     if (strategy == 'shared') return workflowRunId;
     if (strategy == 'per-map-item') {
+      final iterIndex = task.configJson['_mapIterationIndex'];
+      if (iterIndex is int) return '$workflowRunId:map:$iterIndex';
       // Post-map serial coding steps must operate on the workflow-owned integration branch.
-      final isMapIteration = task.configJson.containsKey('_mapIterationIndex');
-      if (!isMapIteration) return workflowRunId;
+      return workflowRunId;
     }
     return null;
+  }
+
+  String? _workflowOwnedWorktreeTaskId(Task task) {
+    final workflowRunId = task.workflowRunId;
+    if (workflowRunId == null || workflowRunId.isEmpty) return null;
+    final workflowGit = task.configJson['_workflowGit'];
+    if (workflowGit is! Map) return null;
+    final strategy = workflowGit['worktree'] as String?;
+    if (strategy == 'shared') return 'wf-$workflowRunId';
+    if (strategy == 'per-map-item') {
+      final iterIndex = task.configJson['_mapIterationIndex'];
+      if (iterIndex is int) return 'wf-$workflowRunId-map-$iterIndex';
+      return 'wf-$workflowRunId';
+    }
+    return null;
+  }
+
+  bool _workflowMapIterationOwnsBranch(Task task) {
+    final workflowGit = task.configJson['_workflowGit'];
+    if (workflowGit is! Map) return false;
+    if (workflowGit['worktree'] != 'per-map-item') return false;
+    return task.configJson['_mapIterationIndex'] is int;
   }
 
   List<String>? _allowedTools(Task task) {

@@ -232,7 +232,13 @@ void main() {
       skill: step.skill,
       resolvedPrompt: resolvedPrompt,
       contextSummary: step.prompt == null && step.contextInputs.isNotEmpty
-          ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
+          ? SkillPromptBuilder.formatContextSummary(
+              {for (final key in step.contextInputs) key: context[key] ?? ''},
+              outputConfigs: SkillPromptBuilder.collectInputConfigs(
+                [...planDefinition.steps, ...specDefinition.steps],
+                step.contextInputs,
+              ),
+            )
           : null,
       outputs: step.outputs,
       contextOutputs: step.contextOutputs,

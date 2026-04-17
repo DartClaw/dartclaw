@@ -11,6 +11,10 @@ class GateEvaluator {
   static final _log = Logger('GateEvaluator');
   static final _conditionPattern = RegExp(r'^(.+?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
+  /// Tracks keys that have already produced a "context." prefix warning,
+  /// so gates evaluated on every loop iteration don't spam the log.
+  final Set<String> _warnedPrefixKeys = {};
+
   /// Returns true if [expression] passes against [context], false if it fails.
   ///
   /// Malformed expressions and missing context keys return false (fail-safe).
@@ -26,7 +30,20 @@ class GateEvaluator {
       return false;
     }
 
-    final key = match.group(1)!.trim();
+    var key = match.group(1)!.trim();
+    // Gate keys are unprefixed; forgive a stray "context." prefix (as used in
+    // prompt templates) by stripping it, and nudge the author to drop it.
+    if (key.startsWith('context.')) {
+      final stripped = key.substring('context.'.length);
+      if (_warnedPrefixKeys.add(stripped)) {
+        _log.warning(
+          'Gate expression used "context.$stripped"; gate keys are bare '
+          '(unlike prompt templates). Treating as "$stripped" — please remove '
+          'the "context." prefix.',
+        );
+      }
+      key = stripped;
+    }
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
     final rawActual = context[key]?.toString() ?? '';

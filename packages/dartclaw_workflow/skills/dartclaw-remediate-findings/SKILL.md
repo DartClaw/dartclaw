@@ -29,7 +29,7 @@ REPORT_SOURCE: $ARGUMENTS
 - Fix validated findings with the smallest coherent patch set that resolves them.
 - Avoid scope creep. Do not "clean up nearby code" or rewrite nearby docs unless it is required to resolve a finding or prevent a regression.
 - Prefer explicit, local fixes over broad rewrites, reorganizations, helpers, or framework layers.
-- If external documentation is needed, use a documentation-lookup specialist when one is available.
+- If external documentation is needed, use a documentation-lookup specialist **agent** when one is available (from your installed agent set; otherwise use `general-purpose` with targeted instructions). This is NOT a `dartclaw-*` skill.
 - Invoke the `dartclaw-update-state` skill for deterministic plan/FIS/STATE updates instead of hand-editing those artifacts.
 
 
@@ -48,7 +48,7 @@ REPORT_SOURCE: $ARGUMENTS
    - Local report path or direct raw report URL: read the report content directly
    - GitHub issue URL or PR comment URL: follow `../references/resolve-github-input.md`. Compatible types: `review`, `gap-review`, `code-review`, `architecture-review`, `doc-review`, `council-review`. All others: stop with invalid-input error stating an actual review artifact is required.
 2. Extract:
-   - Review type (`review-gap`, `review-code`, `review-doc`, or other)
+   - Review type (gap-review, code-review, doc-review, or other — corresponding to the `dartclaw-review-gap`, `dartclaw-review-code`, and `dartclaw-review-doc` skills)
    - Report verdict (PASS/FAIL) when present
    - Findings, severity, remediation recommendations, and reviewed scope
    - Referenced implementation targets, requirements baseline, FIS path, `plan.md`, and story IDs when available
@@ -82,7 +82,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 - Define the smallest change set that resolves the validated findings; favor boring, readable fixes over clever abstractions
 - Choose the target artifact that owns the defect: code/config/tests for implementation, specs/plans/PRDs for requirements/design, product/user docs for explanation/usage
 - If a finding reveals an unresolved product decision or ambiguous source of truth, stop and escalate instead of forcing a speculative edit
-- Use parallel sub-agents only for independent fix groups
+- Use parallel `general-purpose` sub-agents only for independent fix groups (no `dartclaw-*` name is a valid `subagent_type` — sub-agent prompts can run `/dartclaw-*` slash commands when needed)
 
 **Gate**: Minimal remediation plan is clear and bounded
 
@@ -91,7 +91,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 
 1. Implement fixes by logical area and artifact type. Add or update tests when an implementation finding requires proof-of-work.
 2. Run targeted verification after each fix group: tests/linting/type checks/builds for implementation fixes; terminology/cross-references/linked paths/consistency for document fixes; templates/status semantics for workflow artifact fixes.
-3. Run final validation: tests/linting/builds when implementation changed, `dartclaw-quick-review` on touched scope, visual validation when UI changed.
+3. Run final validation: tests/linting/builds when implementation changed, the `dartclaw-quick-review` skill on touched scope, visual validation when UI changed.
 4. **Findings re-check**: Walk through every finding from the original report and verify resolution against the current workspace. For each finding, state one of: `RESOLVED` (with evidence), `PARTIALLY RESOLVED` (what remains), `UNRESOLVED` (why), or `DEFERRED` (intentionally left open per severity policy, with justification). This is the primary close-the-loop validation.
 5. If both implementation and document artifacts changed, verify the final state is consistent across them.
 
@@ -102,7 +102,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 
 The findings re-check and re-review results from Phase 4 are the evidence needed to update state. When all required findings are resolved and verification is clean, update state now — do not defer merely because the originating review was not re-run.
 
-If the report is tied to a story or FIS and remediation passed validation: use `dartclaw-update-state update-fis {fis_path} all` when the FIS work is substantively complete, `dartclaw-update-state update-plan {plan_path} {story_id} Done` after confirming plan acceptance criteria, and update the `State` document (see **Project Document Index**) when the story is now complete. Re-read updated artifacts to verify.
+If the report is tied to a story or FIS and remediation passed validation: invoke the `dartclaw-update-state` skill with `update-fis {fis_path} all` when the FIS work is substantively complete, then with `update-plan {plan_path} {story_id} Done` after confirming plan acceptance criteria, and update the `State` document (see **Project Document Index**) when the story is now complete. Re-read updated artifacts to verify.
 
 If the remediation only fixes document artifacts: update only the workflow artifacts justified by the document remediation. Do not mark implementation complete unless implementation acceptance criteria are also satisfied.
 

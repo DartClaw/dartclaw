@@ -96,6 +96,28 @@ void main() {
         expect(result, contains('note (string, optional)'));
       });
 
+      test('renders nullable property type lists without throwing', () {
+        const prompt = 'Describe the project layout';
+        final schema = {
+          'type': 'object',
+          'required': ['document_locations'],
+          'properties': {
+            'document_locations': {
+              'type': 'object',
+              'required': ['product'],
+              'properties': {
+                'product': {
+                  'type': ['string', 'null'],
+                },
+              },
+            },
+          },
+        };
+        final outputs = {'project_index': OutputConfig(format: OutputFormat.json, schema: schema)};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, contains('document_locations (object)'));
+      });
+
       test('generates item list from inline array schema', () {
         const prompt = 'List things';
         final schema = {

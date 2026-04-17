@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfigKeys;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -525,8 +526,7 @@ class TaskExecutor {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
 
-      final workflowExecutionMode = task.configJson['_workflowExecutionMode'] as String?;
-      if (workflowExecutionMode == 'oneshot' && _workflowCliRunner != null && runnerProfileId != 'restricted') {
+      if (task.workflowRunId != null) {
         final outcome = await _executeWorkflowOneShotTask(
           task,
           sessionId: session.id,
@@ -808,17 +808,21 @@ class TaskExecutor {
     }
 
     final cwd = workingDirectory ?? Directory.current.path;
-    final followUps = switch (task.configJson['_workflowFollowUpPrompts']) {
+    final followUps = switch (task.configJson[WorkflowTaskConfigKeys.followUpPrompts]) {
       final List<dynamic> values => values.map((value) => value.toString()).toList(growable: false),
       _ => const <String>[],
     };
-    final structuredSchema = switch (task.configJson['_workflowStructuredSchema']) {
+    final structuredSchema = switch (task.configJson[WorkflowTaskConfigKeys.structuredSchema]) {
       final Map<String, dynamic> schema => schema,
       final Map<Object?, Object?> schema => schema.map((key, value) => MapEntry(key.toString(), value)),
       _ => null,
     };
 
-    String? providerSessionId = (task.configJson['_continueProviderSessionId'] as String?)?.trim();
+    String? providerSessionId = (task.configJson[WorkflowTaskConfigKeys.continueProviderSessionId] as String?)?.trim();
+    final appendSystemPrompt = switch (task.configJson['appendSystemPrompt']) {
+      final String value when value.trim().isNotEmpty => value,
+      _ => null,
+    };
     final startedAt = DateTime.now();
     var inputTokens = 0;
     var outputTokens = 0;
@@ -850,6 +854,7 @@ class TaskExecutor {
         providerSessionId: providerSessionId,
         model: modelOverride,
         effort: effortOverride,
+        appendSystemPrompt: appendSystemPrompt,
       );
       providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
       inputTokens += turnResult.inputTokens;
@@ -887,6 +892,7 @@ class TaskExecutor {
         effort: effortOverride,
         maxTurns: provider == 'claude' ? 5 : null,
         jsonSchema: structuredSchema,
+        appendSystemPrompt: appendSystemPrompt,
       );
       providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
       inputTokens += turnResult.inputTokens;
@@ -912,10 +918,10 @@ class TaskExecutor {
 
     final nextConfig = Map<String, dynamic>.from(task.configJson);
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
-      nextConfig['_workflowProviderSessionId'] = providerSessionId;
+      nextConfig[WorkflowTaskConfigKeys.providerSessionId] = providerSessionId;
     }
     if (structuredPayload != null) {
-      nextConfig['_workflowStructuredOutputPayload'] = structuredPayload;
+      nextConfig[WorkflowTaskConfigKeys.structuredOutputPayload] = structuredPayload;
     }
     await _tasks.updateFields(task.id, configJson: nextConfig);
 
@@ -1185,9 +1191,16 @@ class TaskExecutor {
     return switch (mode) {
       'auto-accept' => TaskStatus.accepted,
       'mandatory' => TaskStatus.review,
-      'coding-only' => task.type == TaskType.coding ? TaskStatus.review : TaskStatus.accepted,
+      'coding-only' => _isCodingReviewStep(task) ? TaskStatus.review : TaskStatus.accepted,
       _ => TaskStatus.review, // null = current default (all tasks go to review)
     };
+  }
+
+  bool _isCodingReviewStep(Task task) {
+    if (task.workflowRunId == null) {
+      return task.type == TaskType.coding;
+    }
+    return task.configJson['_workflowStepType'] == 'coding';
   }
 
   String? _modelOverride(Task task) {
@@ -1273,18 +1286,34 @@ class TaskExecutor {
 
   bool _isWorkflowOwnedLocalRef(String? ref) => ref != null && ref.startsWith('dartclaw/workflow/');
 
+  String? _readOnlyCheckDir(Task task, Project project) {
+    final worktreePath = task.worktreeJson?['path'];
+    if (worktreePath is String && worktreePath.trim().isNotEmpty) {
+      return worktreePath;
+    }
+    return project.localPath;
+  }
+
   Future<Set<String>?> _captureReadOnlyProjectStatus(Task task, Project? project) async {
     if (!_isReadOnlyTask(task) || project == null) {
       return null;
     }
-    return _gitStatusEntries(project.localPath, taskId: task.id);
+    final workingDirectory = _readOnlyCheckDir(task, project);
+    if (workingDirectory == null || workingDirectory.isEmpty) {
+      return null;
+    }
+    return _gitStatusEntries(workingDirectory, taskId: task.id);
   }
 
   Future<String?> _readOnlyMutationSummary(Task task, Project? project, Set<String>? baseline) async {
     if (!_isReadOnlyTask(task) || project == null || baseline == null) {
       return null;
     }
-    final after = await _gitStatusEntries(project.localPath, taskId: task.id);
+    final workingDirectory = _readOnlyCheckDir(task, project);
+    if (workingDirectory == null || workingDirectory.isEmpty) {
+      return null;
+    }
+    final after = await _gitStatusEntries(workingDirectory, taskId: task.id);
     if (after == null) {
       return null;
     }

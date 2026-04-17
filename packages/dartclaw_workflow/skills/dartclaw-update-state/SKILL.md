@@ -11,7 +11,7 @@ Framework-aware state management for workflows. Consume a normalized project ind
 
 ## Instructions
 
-- Use the project index from `dartclaw-discover-project` when available.
+- Use the project index from the `dartclaw-discover-project` skill when available.
 - Prefer the framework-specific state protocol over ad hoc heuristics.
 - Keep changes minimal and deterministic.
 - If the project has no known state protocol, create or update a minimal `STATE.md` in the canonical location.

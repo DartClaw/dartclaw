@@ -32,21 +32,6 @@ enum OutputMode {
   };
 }
 
-/// Execution mode for workflow agent steps.
-enum WorkflowExecutionMode {
-  /// Native one-shot CLI execution for bounded workflow steps.
-  oneshot,
-
-  /// Existing streaming harness execution.
-  streaming;
-
-  static WorkflowExecutionMode? fromYaml(String value) => switch (value) {
-    'oneshot' => oneshot,
-    'streaming' => streaming,
-    _ => null,
-  };
-}
-
 /// Configuration for a single output key's extraction and validation.
 class OutputConfig {
   /// Output format determining extraction strategy.
@@ -561,9 +546,6 @@ class WorkflowStep {
   /// S02 owns runtime execution semantics for this field.
   final String? workdir;
 
-  /// Optional per-step execution mode override.
-  final WorkflowExecutionMode? executionMode;
-
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -608,7 +590,6 @@ class WorkflowStep {
     this.continueSession,
     this.onError,
     this.workdir,
-    this.executionMode,
   });
 
   Map<String, dynamic> toJson() => {
@@ -640,7 +621,6 @@ class WorkflowStep {
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
-    if (executionMode != null) 'executionMode': executionMode!.name,
   };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) {
@@ -693,9 +673,6 @@ class WorkflowStep {
       },
       onError: json['onError'] as String?,
       workdir: json['workdir'] as String?,
-      executionMode: json['executionMode'] != null
-          ? WorkflowExecutionMode.values.byName(json['executionMode'] as String)
-          : null,
     );
   }
 }
@@ -727,44 +704,27 @@ class WorkflowGitStrategy {
   /// Promotion strategy (`merge`, `rebase`, `none`).
   final String? promotion;
 
-  /// Whether a final integrated review is required.
-  final bool? finalReview;
-
   /// Publish behavior configuration.
   final WorkflowGitPublishStrategy? publish;
 
-  /// Cleanup behavior (`always`, `preserve-on-failure`, `never`).
-  final String? cleanup;
-
-  const WorkflowGitStrategy({
-    this.bootstrap,
-    this.worktree,
-    this.promotion,
-    this.finalReview,
-    this.publish,
-    this.cleanup,
-  });
+  const WorkflowGitStrategy({this.bootstrap, this.worktree, this.promotion, this.publish});
 
   Map<String, dynamic> toJson() => {
     if (bootstrap != null) 'bootstrap': bootstrap,
     if (worktree != null) 'worktree': worktree,
     if (promotion != null) 'promotion': promotion,
-    if (finalReview != null) 'finalReview': finalReview,
     if (publish != null) 'publish': publish!.toJson(),
-    if (cleanup != null) 'cleanup': cleanup,
   };
 
   factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
     bootstrap: json['bootstrap'] as bool?,
     worktree: json['worktree'] as String?,
     promotion: json['promotion'] as String?,
-    finalReview: json['finalReview'] as bool?,
     publish: switch (json['publish']) {
       Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
       Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
       _ => null,
     },
-    cleanup: json['cleanup'] as String?,
   );
 }
 

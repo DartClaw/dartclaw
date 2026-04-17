@@ -24,6 +24,7 @@ class WorkflowDefinitionParser {
       throw FormatException('Invalid YAML${_at(sourcePath)}: ${e.message}');
     }
 
+    _rejectRemovedExecutionMode(yaml, null, sourcePath);
     final parsedSteps = _parseSteps(yaml['steps'], sourcePath);
     final loops = [...parsedSteps.inlineLoops, ..._normalizeLegacyLoops(_parseLoops(yaml['loops']), parsedSteps.steps)];
     return WorkflowDefinition(
@@ -228,6 +229,7 @@ class WorkflowDefinitionParser {
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Each step must have a non-empty "id" field${_at(sourcePath)}.');
     }
+    _rejectRemovedExecutionMode(raw, id, sourcePath);
     final name = raw['name'];
     if (name == null || name is! String || name.isEmpty) {
       throw FormatException('Step "$id" must have a non-empty "name" field${_at(sourcePath)}.');
@@ -322,7 +324,7 @@ class WorkflowDefinitionParser {
                     (throw FormatException(
                       'Step "$id" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
                     )))
-              : OutputMode.prompt;
+              : (format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt);
           final description = value['description'] as String?;
           outputs[key] = OutputConfig(
             format: format,
@@ -377,7 +379,6 @@ class WorkflowDefinitionParser {
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
-      executionMode: _parseExecutionMode(raw['executionMode'] ?? raw['execution_mode'], id, sourcePath),
     );
   }
 
@@ -390,13 +391,14 @@ class WorkflowDefinitionParser {
     );
   }
 
-  WorkflowExecutionMode? _parseExecutionMode(Object? raw, String stepId, String? sourcePath) {
-    if (raw == null) return null;
-    if (raw is String) {
-      final parsed = WorkflowExecutionMode.fromYaml(raw.trim());
-      if (parsed != null) return parsed;
+  void _rejectRemovedExecutionMode(YamlMap raw, String? stepId, String? sourcePath) {
+    if (!raw.containsKey('executionMode') && !raw.containsKey('execution_mode')) {
+      return;
     }
-    throw FormatException('Step "$stepId": "executionMode" must be "oneshot" or "streaming"${_at(sourcePath)}.');
+    final prefix = stepId == null ? 'Workflow' : 'Step "$stepId"';
+    throw FormatException(
+      '$prefix: executionMode was removed in 0.16.4; workflow steps now always use one-shot execution${_at(sourcePath)}.',
+    );
   }
 
   /// Parses the `max_parallel` value from YAML.
@@ -453,6 +455,19 @@ class WorkflowDefinitionParser {
     if (raw is! YamlMap) {
       throw FormatException('Field "gitStrategy" must be a mapping${_at(sourcePath)}.');
     }
+    if (raw.containsKey('finalReview')) {
+      throw FormatException(
+        'Field "gitStrategy.finalReview" was removed: it had no runtime behavior. '
+        'Remove it from your workflow definition${_at(sourcePath)}.',
+      );
+    }
+    if (raw.containsKey('cleanup')) {
+      throw FormatException(
+        'Field "gitStrategy.cleanup" was removed: it had no runtime behavior. '
+        'Remove it from your workflow definition${_at(sourcePath)}.',
+      );
+    }
+
     final publishRaw = raw['publish'];
     WorkflowGitPublishStrategy? publish;
     if (publishRaw != null) {
@@ -466,9 +481,7 @@ class WorkflowDefinitionParser {
       bootstrap: raw['bootstrap'] as bool?,
       worktree: raw['worktree'] as String?,
       promotion: raw['promotion'] as String?,
-      finalReview: raw['finalReview'] as bool?,
       publish: publish,
-      cleanup: raw['cleanup'] as String?,
     );
   }
 

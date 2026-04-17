@@ -3,13 +3,15 @@ import 'package:test/test.dart';
 
 void main() {
   group('SchemaPreset constants', () {
-    test('all 6 presets exist in registry', () {
+    test('all presets exist in registry', () {
       expect(schemaPresets.containsKey('verdict'), true);
       expect(schemaPresets.containsKey('remediation-result'), true);
       expect(schemaPresets.containsKey('story-plan'), true);
       expect(schemaPresets.containsKey('story-specs'), true);
       expect(schemaPresets.containsKey('file-list'), true);
       expect(schemaPresets.containsKey('checklist'), true);
+      expect(schemaPresets.containsKey('project-index'), true);
+      expect(schemaPresets.containsKey('non-negative-integer'), true);
     });
 
     test('each preset has non-empty name', () {
@@ -98,12 +100,14 @@ void main() {
       expect(storySpecsPreset.name, 'story-specs');
     });
 
-    test('schema is an array type', () {
-      expect(storySpecsPreset.schema['type'], 'array');
+    test('schema is an object envelope type', () {
+      expect(storySpecsPreset.schema['type'], 'object');
+      expect(storySpecsPreset.schema['additionalProperties'], isFalse);
     });
 
     test('schema item requires downstream foreach fields', () {
-      final itemSchema = storySpecsPreset.schema['items'] as Map;
+      final items = (storySpecsPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
       final required = itemSchema['required'] as List;
       expect(
         required,
@@ -121,7 +125,13 @@ void main() {
       );
     });
 
+    test('schema envelope requires items', () {
+      final required = storySpecsPreset.schema['required'] as List;
+      expect(required, contains('items'));
+    });
+
     test('prompt fragment mentions acceptance_criteria and spec', () {
+      expect(storySpecsPreset.promptFragment, contains('JSON object with an `items` array'));
       expect(storySpecsPreset.promptFragment, contains('acceptance_criteria'));
       expect(storySpecsPreset.promptFragment, contains('spec'));
     });

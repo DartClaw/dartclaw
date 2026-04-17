@@ -489,7 +489,6 @@ class WorkflowDefinitionValidator {
 
     const worktreeValues = {'shared', 'per-task', 'per-map-item'};
     const promotionValues = {'merge', 'rebase', 'none'};
-    const cleanupValues = {'always', 'preserve-on-failure', 'never'};
 
     final worktree = strategy.worktree;
     if (worktree != null && !worktreeValues.contains(worktree)) {
@@ -510,18 +509,6 @@ class WorkflowDefinitionValidator {
           message:
               'gitStrategy.promotion must be one of ${promotionValues.join(', ')}; '
               'received "$promotion".',
-          type: ValidationErrorType.invalidReference,
-        ),
-      );
-    }
-
-    final cleanup = strategy.cleanup;
-    if (cleanup != null && !cleanupValues.contains(cleanup)) {
-      errors.add(
-        ValidationError(
-          message:
-              'gitStrategy.cleanup must be one of ${cleanupValues.join(', ')}; '
-              'received "$cleanup".',
           type: ValidationErrorType.invalidReference,
         ),
       );
@@ -858,6 +845,18 @@ class WorkflowDefinitionValidator {
           }
         }
 
+        if (config.format == OutputFormat.json && !config.hasSchema) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" output "$key": format: json requires a schema '
+                  '(preset name or inline schema).',
+              type: ValidationErrorType.missingField,
+              stepId: step.id,
+            ),
+          );
+        }
+
         if (config.outputMode == OutputMode.structured) {
           if (config.format != OutputFormat.json) {
             errors.add(
@@ -894,18 +893,6 @@ class WorkflowDefinitionValidator {
                 ),
               );
             }
-          }
-          if (step.type == 'research' && step.executionMode != WorkflowExecutionMode.streaming) {
-            warnings.add(
-              ValidationError(
-                message:
-                    'Step "${step.id}" uses outputMode: structured in a research step, which normally '
-                    'runs in the restricted profile. Restricted profiles fall back to streaming mode, '
-                    'so native structured output guarantees may not apply.',
-                type: ValidationErrorType.hybridStepConstraint,
-                stepId: step.id,
-              ),
-            );
           }
         }
       }

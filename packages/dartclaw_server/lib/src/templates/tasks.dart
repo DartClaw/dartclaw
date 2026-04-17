@@ -320,6 +320,10 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
       maxLength: 80,
     ),
     ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    StructuredOutputFallbackUsed() => truncate(
+      'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     PushBack() => truncate(details['comment']?.toString() ?? 'Push-back', 80),
     TokenUpdate() => () {
       final input = (details['inputTokens'] as num?)?.toInt() ?? 0;

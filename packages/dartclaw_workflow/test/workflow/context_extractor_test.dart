@@ -353,69 +353,6 @@ void main() {
     expect(outputs['diff_changes'], contains('1 files changed'));
   });
 
-  test('parses structured output block values from the assistant response', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: '''
-Review complete.
-
-## Structured Output
-- findings_count: 3
-- verdict: FAIL
-- critical_count: 1
-- high_count: 2
-''',
-    );
-
-    await taskService.create(
-      id: 'task-structured-1',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-structured-1', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-structured-1'))!;
-
-    final step = makeStep(
-      contextOutputs: ['findings_count', 'review-code.findings_count', 'verdict', 'critical_count', 'high_count'],
-    );
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['findings_count'], 3);
-    expect(outputs['review-code.findings_count'], 3);
-    expect(outputs['verdict'], 'FAIL');
-    expect(outputs['critical_count'], 1);
-    expect(outputs['high_count'], 2);
-  });
-
-  test('structured output defaults findings_count and verdict when block is absent', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: 'No structured section here.',
-    );
-
-    await taskService.create(
-      id: 'task-structured-2',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-structured-2', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-structured-2'))!;
-
-    final step = makeStep(contextOutputs: ['findings_count', 'verdict']);
-    final outputs = await extractor.extract(step, taskWithSession);
-
-    expect(outputs['findings_count'], 0);
-    expect(outputs['verdict'], 'PASS');
-  });
-
   test('structured output mode reads provider payload from task config', () async {
     await taskService.create(
       id: 'task-structured-config',
@@ -441,6 +378,62 @@ Review complete.
 
     expect(outputs['verdict'], isA<Map<Object?, Object?>>());
     expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
+  });
+
+  test('structured output mode records fallback and uses heuristic json when payload is missing', () async {
+    final session = await sessionService.getOrCreateMain();
+    await messageService.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
+    );
+
+    await taskService.create(
+      id: 'task-structured-fallback',
+      title: 'Test',
+      description: 'Test',
+      type: TaskType.research,
+      autoStart: true,
+    );
+    await taskService.updateFields('task-structured-fallback', sessionId: session.id);
+    final task = (await taskService.get('task-structured-fallback'))!;
+
+    final fallbackCalls = <Map<String, Object?>>[];
+    final localExtractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      structuredOutputFallbackRecorder:
+          (taskId, {required stepId, required outputKey, required failureReason, String? providerSubtype}) {
+            fallbackCalls.add({
+              'taskId': taskId,
+              'stepId': stepId,
+              'outputKey': outputKey,
+              'failureReason': failureReason,
+              'providerSubtype': providerSubtype,
+            });
+          },
+    );
+
+    final step = makeStep(
+      contextOutputs: ['verdict'],
+      outputs: const {
+        'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
+      },
+    );
+    final outputs = await localExtractor.extract(step, task);
+
+    expect(outputs['verdict'], isA<Map<Object?, Object?>>());
+    expect((outputs['verdict'] as Map<Object?, Object?>)['pass'], isTrue);
+    expect(fallbackCalls, [
+      {
+        'taskId': 'task-structured-fallback',
+        'stepId': 'step1',
+        'outputKey': 'verdict',
+        'failureReason': 'missing_payload',
+        'providerSubtype': null,
+      },
+    ]);
   });
 
   test('derived outputs reuse fields from an earlier parsed JSON output', () async {

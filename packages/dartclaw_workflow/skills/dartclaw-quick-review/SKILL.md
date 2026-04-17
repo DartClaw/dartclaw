@@ -6,7 +6,7 @@ argument-hint: "[optional focus or scope]"
 
 # Quick Review
 
-Lightweight, ad-hoc review of recent work. Spawns a fresh-context sub-agent to catch errors, inconsistencies, and missed edge cases that in-context work overlooks. For thorough reviews, use `dartclaw-review`.
+Lightweight, ad-hoc review of recent work. Spawns a fresh-context `general-purpose` sub-agent to catch errors, inconsistencies, and missed edge cases that in-context work overlooks. For thorough reviews, use the `dartclaw-review` skill.
 
 ## VARIABLES
 FOCUS: $ARGUMENTS

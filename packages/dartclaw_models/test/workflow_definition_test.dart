@@ -410,9 +410,7 @@ void main() {
           bootstrap: true,
           worktree: 'shared',
           promotion: 'merge',
-          finalReview: true,
           publish: WorkflowGitPublishStrategy(enabled: true),
-          cleanup: 'preserve-on-failure',
         ),
       );
       final json = def.toJson();
@@ -422,9 +420,7 @@ void main() {
       expect(restored.gitStrategy!.bootstrap, isTrue);
       expect(restored.gitStrategy!.worktree, 'shared');
       expect(restored.gitStrategy!.promotion, 'merge');
-      expect(restored.gitStrategy!.finalReview, isTrue);
       expect(restored.gitStrategy!.publish?.enabled, isTrue);
-      expect(restored.gitStrategy!.cleanup, 'preserve-on-failure');
     });
 
     test('normalizes action, map, parallel, and loop nodes when nodes are omitted from json', () {

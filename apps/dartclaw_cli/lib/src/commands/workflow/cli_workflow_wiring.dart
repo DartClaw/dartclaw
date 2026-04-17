@@ -21,6 +21,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         HarnessPool,
         PromptScope,
         TaskCancellationSubscriber,
+        TaskEventRecorder,
         WorkflowCliProviderConfig,
         WorkflowCliRunner,
         TaskExecutor,
@@ -44,7 +45,14 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SearchDbFactory, SqliteTaskRepository, SqliteWorkflowRunRepository, TaskDbFactory, openSearchDb, openTaskDb;
+    show
+        SearchDbFactory,
+        SqliteTaskRepository,
+        SqliteWorkflowRunRepository,
+        TaskDbFactory,
+        TaskEventService,
+        openSearchDb,
+        openTaskDb;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
@@ -129,7 +137,8 @@ class CliWorkflowWiring {
 
     // Task layer
     final taskRepository = SqliteTaskRepository(taskDb);
-    final taskServiceInst = TaskService(taskRepository, eventBus: eventBus);
+    final taskEventRecorder = TaskEventRecorder(eventService: TaskEventService(taskDb), eventBus: eventBus);
+    final taskServiceInst = TaskService(taskRepository, eventBus: eventBus, eventRecorder: taskEventRecorder);
     taskService = taskServiceInst;
     worktreeManager = WorktreeManager(
       dataDir: dataDir,
@@ -260,8 +269,8 @@ class CliWorkflowWiring {
           effort: config.workflow.defaults.reviewer.effort,
         ),
       ),
+      structuredOutputFallbackRecorder: taskEventRecorder.recordStructuredOutputFallbackUsed,
       turnAdapter: WorkflowTurnAdapter(
-        executionMode: config.workflow.executionMode,
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');

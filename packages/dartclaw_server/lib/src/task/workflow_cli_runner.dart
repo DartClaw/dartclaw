@@ -77,6 +77,7 @@ class WorkflowCliRunner {
     String? effort,
     int? maxTurns,
     Map<String, dynamic>? jsonSchema,
+    String? appendSystemPrompt,
   }) async {
     final providerConfig = providers[provider];
     if (providerConfig == null) {
@@ -99,6 +100,7 @@ class WorkflowCliRunner {
           effort: effort,
           maxTurns: maxTurns,
           jsonSchema: jsonSchema,
+          appendSystemPrompt: appendSystemPrompt,
         ),
         'codex' => _buildCodexCommand(
           prompt: prompt,
@@ -108,6 +110,7 @@ class WorkflowCliRunner {
           jsonSchema: jsonSchema,
           schemaDirectory: workingDirectory,
           containerManager: profileContainer,
+          appendSystemPrompt: appendSystemPrompt,
         ),
         _ => throw UnsupportedError('Workflow one-shot CLI is not implemented for provider "$provider"'),
       };
@@ -139,7 +142,8 @@ class WorkflowCliRunner {
         // informational messages like "Reading additional input from stdin...".
         final errorDetails = <String>[
           if (stderr.trim().isNotEmpty) stderr.trim(),
-          if (stdout.trim().isNotEmpty && provider == 'codex') 'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
+          if (stdout.trim().isNotEmpty && provider == 'codex')
+            'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
         ];
         throw StateError(
           'Workflow one-shot $provider command failed with exit code $exitCode'
@@ -199,6 +203,7 @@ class WorkflowCliRunner {
     String? effort,
     int? maxTurns,
     Map<String, dynamic>? jsonSchema,
+    String? appendSystemPrompt,
   }) {
     final permissionMode = _claudePermissionMode(options);
     final settings = _claudeSettings(
@@ -214,6 +219,10 @@ class WorkflowCliRunner {
       if (providerSessionId != null) ...['--resume', providerSessionId],
       if (maxTurns != null) ...['--max-turns', '$maxTurns'],
       if (jsonSchema != null) ...['--json-schema', jsonEncode(jsonSchema)],
+      if (appendSystemPrompt != null && appendSystemPrompt.trim().isNotEmpty) ...[
+        '--append-system-prompt',
+        appendSystemPrompt,
+      ],
       if (model != null && model.trim().isNotEmpty) ...['--model', model],
       if (effort != null && effort.trim().isNotEmpty) ...['--effort', effort],
       if (permissionMode != null) ...['--permission-mode', permissionMode] else '--dangerously-skip-permissions',
@@ -231,6 +240,7 @@ class WorkflowCliRunner {
     Map<String, dynamic>? jsonSchema,
     required String schemaDirectory,
     required ContainerExecutor? containerManager,
+    String? appendSystemPrompt,
   }) {
     final args = <String>['exec', '--json', '--full-auto', '--skip-git-repo-check'];
     if (model != null && model.trim().isNotEmpty) {
@@ -238,6 +248,9 @@ class WorkflowCliRunner {
     }
     if (effort != null && effort.trim().isNotEmpty) {
       args.addAll(['-c', 'model_reasoning_effort="$effort"']);
+    }
+    if (appendSystemPrompt != null && appendSystemPrompt.trim().isNotEmpty) {
+      args.addAll(['-c', 'developer_instructions=${jsonEncode(appendSystemPrompt)}']);
     }
     final sandbox = providers['codex']?.options['sandbox']?.toString().trim();
     if (sandbox != null && sandbox.isNotEmpty) {
@@ -365,16 +378,8 @@ class WorkflowCliRunner {
     }
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return null;
-    const nonInteractive = {
-      'bypassPermissions',
-      'dontAsk',
-    };
-    const interactive = {
-      'acceptEdits',
-      'auto',
-      'default',
-      'plan',
-    };
+    const nonInteractive = {'bypassPermissions', 'dontAsk'};
+    const interactive = {'acceptEdits', 'auto', 'default', 'plan'};
     if (interactive.contains(trimmed)) {
       throw StateError(
         'Claude workflow one-shot mode does not support interactive permissionMode "$trimmed". '
@@ -477,9 +482,8 @@ class WorkflowCliRunner {
     return source.map((key, value) {
       final normalizedValue = switch (value) {
         final Map<dynamic, dynamic> nested => _stringifyDynamicMap(nested),
-        final List<dynamic> list => list
-            .map((item) => item is Map<dynamic, dynamic> ? _stringifyDynamicMap(item) : item)
-            .toList(growable: false),
+        final List<dynamic> list =>
+          list.map((item) => item is Map<dynamic, dynamic> ? _stringifyDynamicMap(item) : item).toList(growable: false),
         _ => value,
       };
       return MapEntry(key.toString(), normalizedValue);

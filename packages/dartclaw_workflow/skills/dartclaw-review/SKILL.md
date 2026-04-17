@@ -8,7 +8,7 @@ argument-hint: "[target/files/PR/spec path] [--deep] [--code-only] [--doc-only] 
 
 Unified review entrypoint. Determine what is actually being reviewed, run the minimum correct review stack, and produce one consolidated result.
 
-Use this as the default review skill. Reach for `dartclaw-review-code`, `dartclaw-review-doc`, or `dartclaw-review-gap` only when you explicitly need that specialist path.
+Use this as the default review skill. Reach for the `dartclaw-review-code`, `dartclaw-review-doc`, or `dartclaw-review-gap` **skills** (invoked via `/dartclaw-<name>` or the Skill tool — these are skill names, not agent types) only when you explicitly need that specialist path.
 
 ## VARIABLES
 ARGUMENTS: $ARGUMENTS
@@ -25,7 +25,8 @@ ARGUMENTS: $ARGUMENTS
 - Read-only analysis. Do not modify the reviewed artifacts.
 - Default to the minimum sufficient review stack. More reviewers and more review types are only better when they improve signal.
 - Own the final synthesis. If you delegate to specialist review skills, gather their results and present one clear conclusion rather than dumping disconnected outputs.
-- Preserve clean boundaries: `review-code` for implementation, `review-doc` for requirements/design artifacts, and `review-gap` for implementation-vs-requirements comparison.
+- Preserve clean boundaries: the `dartclaw-review-code` skill for implementation, the `dartclaw-review-doc` skill for requirements/design artifacts, and the `dartclaw-review-gap` skill for implementation-vs-requirements comparison.
+- All `dartclaw-*` delegates are **skills**, not agents. Invoke them via `/dartclaw-<name>` or the Skill tool. Do not pass their names as `subagent_type` to the Task tool — no `dartclaw-*` agent types exist.
 
 ## GOTCHAS
 - Treating all review requests as code review
@@ -78,11 +79,11 @@ Routing heuristics:
 
 ### 3. Select the Review Stack
 
-Run the minimum correct stack:
-- **Code** → `dartclaw-review-code`
-- **Doc** → `dartclaw-review-doc`
-- **Gap** → `dartclaw-review-gap`
-- **Mixed** → `dartclaw-review-doc` + `dartclaw-review-code`
+Run the minimum correct stack (each entry is a **skill**, invoked via `/dartclaw-<name>` or the Skill tool):
+- **Code** → the `dartclaw-review-code` skill
+- **Doc** → the `dartclaw-review-doc` skill
+- **Gap** → the `dartclaw-review-gap` skill
+- **Mixed** → the `dartclaw-review-doc` skill + the `dartclaw-review-code` skill
 
 Mixed-mode rule: use only when there are two independent review surfaces (document readiness + implementation quality). Not a synonym for uncertainty between Doc and Gap. If the real question is requirements fit, classify as **Gap**. Once selected, keep **Mixed** through execution and final reporting.
 
@@ -92,7 +93,9 @@ When delegating: instruct specialists to return findings inline (no separate rep
 
 ### 4. Execute Delegated Reviews
 
-Run the selected specialist reviews using sub-agents when supported. Each specialist returns its domain findings: `review-code` (implementation), `review-doc` (document readiness), `review-gap` (requirements fit + verdict + remediation priorities). If a delegated review cannot run, fall back to direct analysis using the same lens and note the fallback.
+Run the selected specialist review **skills**. Each delegate is invoked via `/dartclaw-<name>` or the Skill tool. If fresh-context isolation is needed, spawn a `general-purpose` sub-agent and have its prompt run the `/dartclaw-<name>` slash command — never pass a skill name as `subagent_type`.
+
+Each specialist returns its domain findings: the `dartclaw-review-code` skill (implementation), the `dartclaw-review-doc` skill (document readiness), the `dartclaw-review-gap` skill (requirements fit + verdict + remediation priorities). If a delegated review cannot run, fall back to direct analysis using the same lens and note the fallback.
 
 **Gate**: All selected review passes complete
 
@@ -103,7 +106,7 @@ Produce one final review output. Include:
 - **Review mode used**: Code / Doc / Gap / Mixed
 - **Review stack run**
 - **Findings by severity**
-- **Gap verdict** when `review-gap` ran
+- **Gap verdict** when the `dartclaw-review-gap` skill ran
 - **Recommended next action**
 
 Output conventions:

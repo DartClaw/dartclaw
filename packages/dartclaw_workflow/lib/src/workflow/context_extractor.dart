@@ -20,6 +20,16 @@ import 'json_extraction.dart';
 import 'schema_presets.dart';
 import 'schema_validator.dart';
 import 'workflow_output_contract.dart';
+import 'workflow_task_config_keys.dart';
+
+typedef StructuredOutputFallbackRecorder =
+    void Function(
+      String taskId, {
+      required String stepId,
+      required String outputKey,
+      required String failureReason,
+      String? providerSubtype,
+    });
 
 /// Extracts context outputs from a completed task's artifacts and messages.
 ///
@@ -33,23 +43,25 @@ import 'workflow_output_contract.dart';
 /// are set by [WorkflowExecutor] — not by this class.
 class ContextExtractor {
   static const _contextSizeWarningThreshold = 10000;
-  static const _structuredOutputHeading = '## Structured Output';
   static final _log = Logger('ContextExtractor');
 
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final String _dataDir;
   final SchemaValidator _schemaValidator;
+  final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
 
   ContextExtractor({
     required WorkflowTaskService taskService,
     required MessageService messageService,
     required String dataDir,
     SchemaValidator? schemaValidator,
+    StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
   }) : _taskService = taskService,
        _messageService = messageService,
        _dataDir = dataDir,
-       _schemaValidator = schemaValidator ?? const SchemaValidator();
+       _schemaValidator = schemaValidator ?? const SchemaValidator(),
+       _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder;
 
   /// Extracts context outputs for the given [step] from the completed [task].
   ///
@@ -57,7 +69,7 @@ class ContextExtractor {
   Future<Map<String, dynamic>> extract(WorkflowStep step, Task task) async {
     final outputs = <String, dynamic>{};
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
-    final structuredOutputPayload = await _extractStructuredOutputPayload(task);
+    final structuredOutputPayload = _extractStructuredOutputPayload(task);
 
     // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
     if (step.extraction != null && step.contextOutputs.isNotEmpty) {
@@ -99,6 +111,23 @@ class ContextExtractor {
         );
       }
 
+      // Structured-mode primary: provider-enforced payload is authoritative.
+      // On miss, record the fallback event and fall through to the heuristic chain.
+      if (config != null && config.outputMode == OutputMode.structured) {
+        if (structuredOutputPayload.containsKey(outputKey)) {
+          final structuredValue = structuredOutputPayload[outputKey];
+          _softValidate(structuredValue, config, step.id, outputKey);
+          outputs[outputKey] = structuredValue;
+          continue;
+        }
+        _structuredOutputFallbackRecorder?.call(
+          task.id,
+          stepId: step.id,
+          outputKey: outputKey,
+          failureReason: 'missing_payload',
+        );
+      }
+
       if (workflowContextPayload != null && workflowContextPayload.containsKey(outputKey)) {
         final payloadValue = workflowContextPayload[outputKey];
         if (config == null || config.format == OutputFormat.text) {
@@ -122,20 +151,6 @@ class ContextExtractor {
       }
 
       if (config != null && config.format != OutputFormat.text) {
-        if (config.outputMode == OutputMode.structured) {
-          final payload = task.configJson['_workflowStructuredOutputPayload'];
-          final structuredMap = switch (payload) {
-            final Map<String, dynamic> typed => typed,
-            final Map<Object?, Object?> raw => raw.map((key, value) => MapEntry(key.toString(), value)),
-            _ => null,
-          };
-          if (structuredMap != null && structuredMap.containsKey(outputKey)) {
-            final structuredValue = structuredMap[outputKey];
-            _softValidate(structuredValue, config, step.id, outputKey);
-            outputs[outputKey] = structuredValue;
-            continue;
-          }
-        }
         // Format-aware extraction (json or lines).
         final rawContent = await _extractRawContent(step, task, outputKey);
         if (rawContent == null || rawContent.isEmpty) {
@@ -176,11 +191,6 @@ class ContextExtractor {
       final derivedValue = _deriveFromStructuredOutputs(outputs, outputKey);
       if (derivedValue != null) {
         outputs[outputKey] = derivedValue;
-        continue;
-      }
-
-      if (structuredOutputPayload.containsKey(outputKey)) {
-        outputs[outputKey] = structuredOutputPayload[outputKey];
         continue;
       }
 
@@ -248,43 +258,13 @@ class ContextExtractor {
     return null;
   }
 
-  Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {
-    final content = await _extractLastAssistantContent(task);
-    if (content == null || content.isEmpty) {
-      return const {'findings_count': 0, 'verdict': 'PASS'};
-    }
-
-    final headingIndex = content.indexOf(_structuredOutputHeading);
-    if (headingIndex < 0) {
-      return const {'findings_count': 0, 'verdict': 'PASS'};
-    }
-
-    final afterHeading = content.substring(headingIndex + _structuredOutputHeading.length);
-    final nextHeading = RegExp(r'^\s*##\s+', multiLine: true).firstMatch(afterHeading);
-    final block = (nextHeading == null ? afterHeading : afterHeading.substring(0, nextHeading.start)).trim();
-    if (block.isEmpty) {
-      return const {'findings_count': 0, 'verdict': 'PASS'};
-    }
-
-    final values = <String, dynamic>{};
-    for (final rawLine in const LineSplitter().convert(block)) {
-      final line = rawLine.trim();
-      if (line.isEmpty) continue;
-      final match = RegExp(r'^[-*]\s*([\w.-]+)\s*:\s*(.+)$').firstMatch(line);
-      if (match == null) continue;
-      final key = match.group(1)!.trim();
-      final value = match.group(2)!.trim();
-      values[key] = int.tryParse(value) ?? double.tryParse(value) ?? value;
-    }
-
-    final payload = {
-      'findings_count': values['findings_count'] ?? 0,
-      'verdict': values['verdict'] ?? 'PASS',
-      if (values.containsKey('critical_count')) 'critical_count': values['critical_count'],
-      if (values.containsKey('high_count')) 'high_count': values['high_count'],
+  Map<String, dynamic> _extractStructuredOutputPayload(Task task) {
+    final payload = task.configJson[WorkflowTaskConfigKeys.structuredOutputPayload];
+    return switch (payload) {
+      final Map<String, dynamic> typed => typed,
+      final Map<Object?, Object?> raw => raw.map((key, value) => MapEntry(key.toString(), value)),
+      _ => const <String, dynamic>{},
     };
-    _log.fine('Structured output for task ${task.id}: $payload');
-    return payload;
   }
 
   /// Extracts raw text content for format-aware processing.

@@ -6,7 +6,7 @@ argument-hint: <path-to-plan-directory> [--stories S01,S03] [--phase N] [--max-p
 # Batch-Generate Specs for Plan
 
 
-Batch-create Feature Implementation Specifications (FIS) for all stories in an implementation plan (from `dartclaw-plan`). Runs **parallel sub-agents** (one per story) in wave-ordered batches, then performs a **cross-cutting review** to catch inter-story inconsistencies.
+Batch-create Feature Implementation Specifications (FIS) for all stories in an implementation plan (typically produced by the `dartclaw-plan` skill). Runs **parallel `general-purpose` sub-agents** (one per story) in wave-ordered batches whose prompts each invoke `/dartclaw-spec`, then performs a **cross-cutting review** to catch inter-story inconsistencies. No `dartclaw-*` name is a valid `subagent_type` — the spec **skill** is invoked from inside the sub-agent prompt, not as the agent type.
 
 Can be used:
 - **Standalone** – pre-create and review all specs before execution (enables human review gate)
@@ -44,7 +44,7 @@ Make sure `PLAN_SOURCE` is provided – otherwise stop -- missing input: the pla
 - **Read project learnings** – If the `Learnings` document (see **Project Document Index**) exists, read it before starting
 
 ### Orchestrator Role
-**You are the orchestrator.** Parse the plan, classify stories, spawn parallel sub-agents for STANDARD/COMPOSITE specs, write THIN specs directly, update plan.md after each sub-wave, and run cross-cutting review. You do NOT write STANDARD or COMPOSITE specs directly, write code, or let your context fill with spec content.
+**You are the orchestrator.** Parse the plan, classify stories, spawn parallel `general-purpose` sub-agents (each prompted to run `/dartclaw-spec`) for STANDARD/COMPOSITE specs, write THIN specs directly, update plan.md after each sub-wave, and run cross-cutting review. You do NOT write STANDARD or COMPOSITE specs directly, write code, or let your context fill with spec content. Reminder: `subagent_type` is `general-purpose` for every sub-agent — `dartclaw-spec` is a **skill** invoked inside the prompt.
 
 
 ## GOTCHAS
@@ -59,7 +59,7 @@ Make sure `PLAN_SOURCE` is provided – otherwise stop -- missing input: the pla
 ### Step 1: Parse Plan
 
 1. If `PLAN_SOURCE` is `--issue` or a GitHub URL: follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle`. All others: stop with redirect to the correct downstream skill. Then apply the **Resolve Plan-Bundle Input** procedure in `../references/github-artifact-roundtrip.md` for local resolution.
-2. Read `PLAN_DIR/plan.md`. If missing, stop -- a valid plan artifact is required upstream (typically produced by `dartclaw-plan`).
+2. Read `PLAN_DIR/plan.md`. If missing, stop -- a valid plan artifact is required upstream (typically produced by the `dartclaw-plan` skill).
 3. Extract: stories (ID, name, scope, acceptance criteria, dependencies), phases, wave assignments, dependency graph
 4. Apply filters (STORY_FILTER, PHASE_FILTER); skip stories with existing FIS (check `**FIS**` field in plan.md — if file exists on disk, skip)
 5. Build wave-ordered execution plan; set MAX_PARALLEL (default 5, max 10)
@@ -71,7 +71,7 @@ Make sure `PLAN_SOURCE` is provided – otherwise stop -- missing input: the pla
 
 ### Step 1.5: Technical Research (One-Time Upfront Discovery)
 
-Before spawning any spec sub-agents, do **all discovery and research work once** via up to 4 parallel sub-agents. This eliminates redundant codebase scanning, guideline reading, and architecture analysis each spec sub-agent would otherwise do independently.
+Before spawning any spec sub-agents, do **all discovery and research work once** via up to 4 parallel `general-purpose` sub-agents (none of these are `dartclaw-*` skills — they are plain research workers). This eliminates redundant codebase scanning, guideline reading, and architecture analysis each spec sub-agent would otherwise do independently.
 
 **Sub-agent 1: Project Context** — Scan CLAUDE.md, codebase structure, conventions, `Learnings` doc, tech stack. Output: dense summary of stack, conventions, patterns, guidelines, learnings.
 
@@ -83,7 +83,7 @@ Before spawning any spec sub-agents, do **all discovery and research work once**
 
 **Consolidation**: Save to `{PLAN_DIR}/technical-research.md` with sections: Project Context, Story-Scoped File Map, Shared Architectural Decisions, External Research (or "No external research needed"). Include a verification note: "This research is a point-in-time snapshot. Verify findings against the current codebase during spec execution."
 
-If a `technical-research.md` already exists (e.g. from `dartclaw-plan`), merge new sections into it rather than overwriting — the plan-level findings may still be relevant.
+If a `technical-research.md` already exists (e.g. from the `dartclaw-plan` skill), merge new sections into it rather than overwriting — the plan-level findings may still be relevant.
 
 **Gate**: Technical research saved to `{PLAN_DIR}/technical-research.md`, covers all stories in scope
 
@@ -112,8 +112,8 @@ After the technical research, classify each story — **fully automatic**, no us
 | Classification | Spec Strategy |
 |----------------|---------------|
 | THIN | Orchestrator collects all THIN stories into one FIS — no sub-agent needed |
-| COMPOSITE | One spec sub-agent writes one FIS covering the entire group |
-| STANDARD | One spec sub-agent per story, with technical research pre-loaded |
+| COMPOSITE | One `general-purpose` spec sub-agent (prompt runs `/dartclaw-spec`) writes one FIS covering the entire group |
+| STANDARD | One `general-purpose` spec sub-agent per story (prompt runs `/dartclaw-spec`), with technical research pre-loaded |
 
 #### THIN: Collected FIS
 
@@ -142,11 +142,11 @@ Batch into sub-waves if story count exceeds MAX_PARALLEL.
 
 #### Sub-Agent Prompts
 
-Use a strong reasoning model (`model: "opus"`, `gpt-5.4`, or similar) for all spec sub-agents. Use `/dartclaw-spec` (or `$dartclaw-spec` for Codex CLI) prefix when invoking spec for individual stories outside the batch flow.
+Use a strong reasoning model (`model: "opus"`, `gpt-5.4`, or similar) for all spec sub-agents. Each sub-agent has `subagent_type: general-purpose`; its prompt runs the `dartclaw-spec` **skill** via `/dartclaw-spec` (or `$dartclaw-spec` for Codex CLI). Never set `subagent_type: dartclaw-spec` — it is not an agent type.
 
-**STANDARD sub-agent** — provide: story ID/name/scope/criteria/Key Scenarios/dependencies. References: FIS template (`../dartclaw-spec/templates/fis-template.md`), authoring guidelines (`../references/fis-authoring-guidelines.md`), technical research. Instructions: read technical research and shared decisions; check "Binding PRD Constraints" and flow applicable constraints into FIS success criteria unchanged; generate FIS that references (not inlines) technical research; run Plan-Spec Alignment Check and Self-Check; save to `{PLAN_DIR}/{story-name}.md`; report success/failure, path, confidence.
+**STANDARD sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — provide: story ID/name/scope/criteria/Key Scenarios/dependencies. References: FIS template (`../dartclaw-spec/templates/fis-template.md`), authoring guidelines (`../references/fis-authoring-guidelines.md`), technical research. Instructions: read technical research and shared decisions; check "Binding PRD Constraints" and flow applicable constraints into FIS success criteria unchanged; generate FIS that references (not inlines) technical research; run Plan-Spec Alignment Check and Self-Check; save to `{PLAN_DIR}/{story-name}.md`; report success/failure, path, confidence.
 
-**COMPOSITE sub-agent** — same references as STANDARD, but provide all constituent stories. Instructions: same as STANDARD plus generate ONE FIS covering all stories with tasks contiguous by story; run Plan-Spec Alignment Check for EACH story; save to `{PLAN_DIR}/{composite-filename}.md`.
+**COMPOSITE sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — same references as STANDARD, but provide all constituent stories. Instructions: same as STANDARD plus generate ONE FIS covering all stories with tasks contiguous by story; run Plan-Spec Alignment Check for EACH story; save to `{PLAN_DIR}/{composite-filename}.md`.
 
 #### Wait, Collect, and Update Plan
 
@@ -166,7 +166,7 @@ Step 2: all 4 sub-agents launch in parallel → update plan.md FIS fields after 
 
 > **Skip this step if `--skip-review` flag is set.**
 
-Delegate to a single opus sub-agent with all generated FIS paths and the plan. The sub-agent reads all FIS files and checks for:
+Delegate to a single opus `general-purpose` sub-agent with all generated FIS paths and the plan. The sub-agent reads all FIS files and checks for:
 
 1. **Overlapping scope** – multiple stories modifying same files or creating same abstractions
 2. **Inconsistent architectural decisions** – contradictory ADR choices

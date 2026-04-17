@@ -146,13 +146,6 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
-    'workflow.execution_mode': FieldMeta(
-      yamlPath: 'workflow.execution_mode',
-      jsonKey: 'workflow.executionMode',
-      type: ConfigFieldType.string,
-      mutability: ConfigMutability.restart,
-      nullable: false,
-    ),
     'workflow.defaults.workflow.provider': FieldMeta(
       yamlPath: 'workflow.defaults.workflow.provider',
       jsonKey: 'workflow.defaults.workflow.provider',

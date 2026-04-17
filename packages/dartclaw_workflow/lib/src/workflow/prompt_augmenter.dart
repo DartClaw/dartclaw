@@ -106,8 +106,8 @@ class PromptAugmenter {
       return;
     }
 
-    final type = schema['type'] as String?;
-    if (type == 'array') {
+    final type = _schemaTypes(schema);
+    if (type.contains('array')) {
       buf.writeln('- "$key": JSON array$descSuffix');
       final items = schema['items'] as Map<String, dynamic>?;
       if (items != null) {
@@ -117,13 +117,13 @@ class PromptAugmenter {
       return;
     }
 
-    if (type == 'object') {
+    if (type.contains('object')) {
       buf.writeln('- "$key": JSON object$descSuffix${descSuffix.isEmpty ? " with:" : ", with:"}');
       _writeProperties(buf, schema, indent: '  ');
       return;
     }
 
-    buf.writeln('- "$key": JSON $type$descSuffix');
+    buf.writeln('- "$key": JSON ${_typeLabel(type)}$descSuffix');
   }
 
   /// Generates a prompt fragment from an inline JSON Schema by walking properties.
@@ -131,14 +131,14 @@ class PromptAugmenter {
     final buf = StringBuffer();
     buf.writeln('Produce your output for "$outputKey" as JSON with this structure:');
 
-    final type = schema['type'] as String?;
-    if (type == 'array') {
+    final type = _schemaTypes(schema);
+    if (type.contains('array')) {
       buf.writeln('A JSON array where each item has:');
       final items = schema['items'] as Map<String, dynamic>?;
       if (items != null) {
         _writeProperties(buf, items, indent: '  ');
       }
-    } else if (type == 'object') {
+    } else if (type.contains('object')) {
       _writeProperties(buf, schema, indent: '');
     }
 
@@ -156,11 +156,11 @@ class PromptAugmenter {
     for (final entry in properties.entries) {
       final name = entry.key;
       final prop = entry.value as Map<String, dynamic>;
-      final propType = prop['type'] as String? ?? 'any';
+      final propType = _schemaTypes(prop);
       final isRequired = required.contains(name);
       final enumValues = prop['enum'] as List?;
 
-      var desc = '$indent- $name ($propType';
+      var desc = '$indent- $name (${_typeLabel(propType)}';
       if (!isRequired) desc += ', optional';
       desc += ')';
       if (enumValues != null) {
@@ -169,7 +169,7 @@ class PromptAugmenter {
       buf.writeln(desc);
 
       // Recurse into nested object/array items (one level only for inline).
-      if (propType == 'array') {
+      if (propType.contains('array')) {
         final items = prop['items'] as Map<String, dynamic>?;
         if (items != null && items['properties'] != null) {
           buf.writeln('$indent  Each item has:');
@@ -177,5 +177,20 @@ class PromptAugmenter {
         }
       }
     }
+  }
+
+  List<String> _schemaTypes(Map<String, dynamic> schema) {
+    final rawType = schema['type'];
+    return switch (rawType) {
+      final String type => <String>[type],
+      final List<dynamic> values => values.whereType<String>().toList(growable: false),
+      _ => const <String>[],
+    };
+  }
+
+  String _typeLabel(List<String> types) {
+    if (types.isEmpty) return 'any';
+    if (types.length == 1) return types.single;
+    return types.join(' or ');
   }
 }

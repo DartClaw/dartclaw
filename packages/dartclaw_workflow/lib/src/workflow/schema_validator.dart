@@ -15,39 +15,49 @@ class SchemaValidator {
   }
 
   void _validateValue(Object? value, Map<String, dynamic> schema, String path, List<String> warnings) {
-    final expectedType = schema['type'] as String?;
-    if (expectedType == null) return;
-
-    switch (expectedType) {
-      case 'object':
-        if (value is! Map) {
-          warnings.add('${_at(path)}Expected object, got ${value.runtimeType}');
-          return;
-        }
-        _validateObject(value.cast<String, dynamic>(), schema, path, warnings);
-      case 'array':
-        if (value is! List) {
-          warnings.add('${_at(path)}Expected array, got ${value.runtimeType}');
-          return;
-        }
-        _validateArray(value, schema, path, warnings);
-      case 'string':
-        if (value is! String) {
-          warnings.add('${_at(path)}Expected string, got ${value.runtimeType}');
-        }
-      case 'integer':
-        if (value is! int && !(value is double && value == value.toInt())) {
-          warnings.add('${_at(path)}Expected integer, got ${value.runtimeType}');
-        }
-      case 'number':
-        if (value is! num) {
-          warnings.add('${_at(path)}Expected number, got ${value.runtimeType}');
-        }
-      case 'boolean':
-        if (value is! bool) {
-          warnings.add('${_at(path)}Expected boolean, got ${value.runtimeType}');
-        }
+    final rawType = schema['type'];
+    final expectedTypes = switch (rawType) {
+      final String type => <String>[type],
+      final List<dynamic> types => types.whereType<String>().toList(growable: false),
+      _ => const <String>[],
+    };
+    if (expectedTypes.isEmpty) return;
+    if (value == null) {
+      if (expectedTypes.contains('null')) return;
+      warnings.add('${_at(path)}Expected ${expectedTypes.join(' or ')}, got null');
+      return;
     }
+
+    if (expectedTypes.contains('object')) {
+      if (value is! Map) {
+        warnings.add('${_at(path)}Expected object, got ${value.runtimeType}');
+        return;
+      }
+      _validateObject(value.cast<String, dynamic>(), schema, path, warnings);
+      return;
+    }
+    if (expectedTypes.contains('array')) {
+      if (value is! List) {
+        warnings.add('${_at(path)}Expected array, got ${value.runtimeType}');
+        return;
+      }
+      _validateArray(value, schema, path, warnings);
+      return;
+    }
+    if (expectedTypes.contains('string')) {
+      if (value is String) return;
+    }
+    if (expectedTypes.contains('integer')) {
+      if (value is int || (value is double && value == value.toInt())) return;
+    }
+    if (expectedTypes.contains('number')) {
+      if (value is num) return;
+    }
+    if (expectedTypes.contains('boolean')) {
+      if (value is bool) return;
+    }
+
+    warnings.add('${_at(path)}Expected ${expectedTypes.join(' or ')}, got ${value.runtimeType}');
   }
 
   void _validateObject(Map<String, dynamic> value, Map<String, dynamic> schema, String path, List<String> warnings) {

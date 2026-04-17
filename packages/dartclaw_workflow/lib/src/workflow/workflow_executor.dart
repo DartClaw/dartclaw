@@ -39,7 +39,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         atomicWriteJson;
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
-import 'package:dartclaw_models/dartclaw_models.dart' show OutputMode, WorkflowExecutionMode;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputMode;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -58,6 +58,7 @@ import 'step_config_resolver.dart';
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
+import 'workflow_task_config_keys.dart';
 import 'workflow_turn_adapter.dart';
 
 typedef WorkflowStepOutputTransformer =
@@ -121,7 +122,6 @@ class WorkflowExecutor {
   final ContextExtractor _contextExtractor;
   final WorkflowTemplateEngine _templateEngine;
   final SkillPromptBuilder _skillPromptBuilder;
-  final MessageService? _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final String _dataDir;
@@ -157,7 +157,6 @@ class WorkflowExecutor {
        _templateEngine = templateEngine ?? WorkflowTemplateEngine(),
        _skillPromptBuilder =
            skillPromptBuilder ?? SkillPromptBuilder(augmenter: promptAugmenter ?? const PromptAugmenter()),
-       _messageService = messageService,
        _turnAdapter = turnAdapter,
        _outputTransformer = outputTransformer,
        _dataDir = dataDir,
@@ -1359,7 +1358,6 @@ class WorkflowExecutor {
         ? SkillPromptBuilder.formatContextSummary({for (final key in step.contextInputs) key: context[key] ?? ''})
         : null;
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
-    final executionMode = _effectiveExecutionMode(step);
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
     final effectiveProvider = continuedRootStep != null
@@ -1390,7 +1388,7 @@ class WorkflowExecutor {
       taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
       final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
       if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
-        taskConfig = {...taskConfig, '_continueProviderSessionId': prevProviderSessionId};
+        taskConfig = {...taskConfig, WorkflowTaskConfigKeys.continueProviderSessionId: prevProviderSessionId};
       }
     }
     final taskId = _uuid.v4();
@@ -1443,22 +1441,19 @@ class WorkflowExecutor {
             outputs: effectiveOutputs,
             contextOutputs: step.contextOutputs,
           );
-    if (executionMode == WorkflowExecutionMode.oneshot) {
-      final followUpPrompts = _buildOneShotFollowUpPrompts(
-        step,
-        context,
-        effectiveOutputs,
-        contextOutputs: step.contextOutputs,
-        mapCtx: mapCtx,
-      );
-      final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
-      taskConfig = {
-        ...taskConfig,
-        '_workflowExecutionMode': executionMode.name,
-        if (followUpPrompts.isNotEmpty) '_workflowFollowUpPrompts': followUpPrompts,
-        ...?structuredSchema == null ? null : {'_workflowStructuredSchema': structuredSchema},
-      };
-    }
+    final followUpPrompts = _buildOneShotFollowUpPrompts(
+      step,
+      context,
+      effectiveOutputs,
+      contextOutputs: step.contextOutputs,
+      mapCtx: mapCtx,
+    );
+    final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
+    taskConfig = {
+      ...taskConfig,
+      if (followUpPrompts.isNotEmpty) WorkflowTaskConfigKeys.followUpPrompts: followUpPrompts,
+      ...?structuredSchema == null ? null : {WorkflowTaskConfigKeys.structuredSchema: structuredSchema},
+    };
 
     try {
       await _taskService.create(
@@ -1507,23 +1502,6 @@ class WorkflowExecutor {
       return _ParallelStepResult(step: step, task: finalTask, outputs: {}, tokenCount: tokenCount, success: false);
     }
 
-    // Multi-prompt: send follow-up turns in the same session.
-    if (step.isMultiPrompt && executionMode != WorkflowExecutionMode.oneshot) {
-      final followUpResult = await _executeFollowUpPrompts(run, step, finalTask, context, effectiveOutputs);
-      if (followUpResult == null) return null; // Paused by budget/error.
-      finalTask = followUpResult.$1;
-      // If a follow-up prompt failed, return failure.
-      if (finalTask.status == TaskStatus.failed || finalTask.status == TaskStatus.cancelled) {
-        return _ParallelStepResult(
-          step: step,
-          task: finalTask,
-          outputs: {},
-          tokenCount: followUpResult.$2,
-          success: false,
-        );
-      }
-    }
-
     Map<String, dynamic> outputs = {};
     int tokenCount = 0;
     try {
@@ -1547,7 +1525,7 @@ class WorkflowExecutor {
         );
       }
     }
-    final providerSessionId = (finalTask.configJson['_workflowProviderSessionId'] as String?)?.trim();
+    final providerSessionId = (finalTask.configJson[WorkflowTaskConfigKeys.providerSessionId] as String?)?.trim();
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
       outputs['${step.id}.providerSessionId'] = providerSessionId;
     }
@@ -1878,132 +1856,6 @@ class WorkflowExecutor {
     }
   }
 
-  /// Sends follow-up prompts (prompts[1..]) as continuation turns on the same session.
-  ///
-  /// Returns `(finalTask, cumulativeTokens)` on success, null if the step must be paused.
-  Future<(Task, int)?> _executeFollowUpPrompts(
-    WorkflowRun run,
-    WorkflowStep step,
-    Task task,
-    WorkflowContext context,
-    Map<String, OutputConfig>? effectiveOutputs,
-  ) async {
-    final messageService = _messageService;
-    final turnAdapter = _turnAdapter;
-    if (messageService == null || turnAdapter == null) {
-      // No turn infrastructure available — multi-prompt not supported in this configuration.
-      _log.warning(
-        "Step '${step.id}' is multi-prompt but WorkflowExecutor has no MessageService/turn adapter. "
-        'Follow-up prompts skipped.',
-      );
-      return (task, 0);
-    }
-
-    var currentTask = task;
-    var cumulativeTokens = await _readStepTokenCount(currentTask);
-    final prompts = step.prompts!;
-
-    for (var i = 1; i < prompts.length; i++) {
-      final isLast = i == prompts.length - 1;
-      final rawPrompt = prompts[i];
-
-      // Per-step budget check before each follow-up prompt.
-      if (step.maxTokens != null && cumulativeTokens >= step.maxTokens!) {
-        final msg =
-            "Step '${step.id}' budget exceeded before prompt ${i + 1}: "
-            '$cumulativeTokens / ${step.maxTokens} tokens';
-        _log.info("Workflow '${run.id}': $msg");
-        await _pauseRun(run, msg);
-        return null;
-      }
-
-      // Resolve template variables/context refs.
-      final resolvedFollowUp = _templateEngine.resolve(rawPrompt, context);
-
-      // Augment only the final prompt with schema instructions.
-      final prompt = isLast
-          ? _skillPromptBuilder.build(
-              skill: null, // skill prefix applied to first prompt only
-              resolvedPrompt: resolvedFollowUp,
-              outputs: effectiveOutputs,
-              contextOutputs: step.contextOutputs,
-            )
-          : resolvedFollowUp;
-
-      // Refresh task to get the session ID (set by TaskExecutor during first turn).
-      currentTask = await _taskService.get(currentTask.id) ?? currentTask;
-      final sessionId = currentTask.sessionId;
-      if (sessionId == null) {
-        final msg = "Step '${step.id}' has no session ID after prompt $i: cannot send follow-up";
-        _log.warning("Workflow '${run.id}': $msg");
-        await _pauseRun(run, msg);
-        return null;
-      }
-
-      // Insert user message into the session.
-      try {
-        await messageService.insertMessage(sessionId: sessionId, role: 'user', content: prompt);
-      } catch (e, st) {
-        final msg = "Step '${step.id}' failed to insert follow-up message at prompt ${i + 1}: $e";
-        _log.severe("Workflow '${run.id}': $msg", e, st);
-        await _pauseRun(run, msg);
-        return null;
-      }
-
-      // Reserve and execute the continuation turn.
-      final String turnId;
-      try {
-        final workflowWorkspaceDir = _resolveWorkflowWorkspaceDir();
-        final reserveWorkflowTurn = turnAdapter.reserveTurnWithWorkflowWorkspaceDir;
-        turnId = reserveWorkflowTurn != null
-            ? await reserveWorkflowTurn(sessionId, workflowWorkspaceDir)
-            : await turnAdapter.reserveTurn(sessionId);
-      } catch (e, st) {
-        final msg = "Step '${step.id}' failed to reserve turn for prompt ${i + 1}: $e";
-        _log.severe("Workflow '${run.id}': $msg", e, st);
-        await _pauseRun(run, msg);
-        return null;
-      }
-
-      // Fetch all session messages for the turn payload.
-      final sessionMessages = await messageService.getMessages(sessionId);
-      final turnMessages = sessionMessages
-          .map(
-            (message) => <String, dynamic>{
-              'id': message.id,
-              'sessionId': message.sessionId,
-              'role': message.role,
-              'content': message.content,
-              'cursor': message.cursor,
-              'metadata': message.metadata,
-              'createdAt': message.createdAt.toIso8601String(),
-            },
-          )
-          .toList(growable: false);
-
-      turnAdapter.executeTurn(sessionId, turnId, turnMessages, source: 'workflow', resume: true);
-      final outcome = await turnAdapter.waitForOutcome(sessionId, turnId);
-
-      if (outcome.status != 'completed') {
-        _log.info(
-          "Workflow '${run.id}': step '${step.id}' follow-up prompt ${i + 1} failed "
-          '(${outcome.status})',
-        );
-        // Return a failed task view — step fails.
-        return (currentTask.copyWith(status: TaskStatus.failed), cumulativeTokens);
-      }
-
-      // Accumulate token count after each follow-up turn.
-      cumulativeTokens = await _readStepTokenCount(currentTask);
-      _log.fine(
-        "Workflow '${run.id}': step '${step.id}' prompt ${i + 1}/${prompts.length} complete "
-        '($cumulativeTokens tokens cumulative)',
-      );
-    }
-
-    return (currentTask, cumulativeTokens);
-  }
-
   // ── Shared helpers ──────────────────────────────────────────────────────────
 
   /// Waits for a task to complete using a pre-created [completer] and [sub].
@@ -2045,9 +1897,10 @@ class WorkflowExecutor {
     if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
-    if (step.type == 'research' || step.type == 'analysis') {
+    if (const {'research', 'writing', 'analysis'}.contains(step.type)) {
       config['readOnly'] = true;
     }
+    config['_workflowStepType'] = step.type;
     final branch = context.variables['BRANCH']?.trim();
     if (branch != null && branch.isNotEmpty) {
       config['_baseRef'] = branch;
@@ -2075,15 +1928,8 @@ class WorkflowExecutor {
     return config;
   }
 
-  /// Maps a workflow step type string to [TaskType].
-  TaskType _mapStepType(String type) => switch (type) {
-    'research' => TaskType.research,
-    'analysis' => TaskType.analysis,
-    'writing' => TaskType.writing,
-    'coding' => TaskType.coding,
-    'automation' => TaskType.automation,
-    _ => TaskType.custom,
-  };
+  /// Workflow steps always execute through the coding-task path.
+  TaskType _mapStepType(String type) => TaskType.coding;
 
   /// Returns true if the workflow-level budget has been exceeded.
   bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition) {
@@ -2190,10 +2036,6 @@ class WorkflowExecutor {
     if (project == null) return null;
     final resolved = _templateEngine.resolveWithMap(project, context, mapContext).trim();
     return resolved.isEmpty ? null : resolved;
-  }
-
-  WorkflowExecutionMode _effectiveExecutionMode(WorkflowStep step) {
-    return step.executionMode ?? _turnAdapter?.executionMode ?? WorkflowExecutionMode.oneshot;
   }
 
   /// Resolves the effective provider for a continued session step.
@@ -2448,10 +2290,18 @@ class WorkflowExecutor {
       final List<dynamic> list => list,
       final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
         _log.info(
-          "Map step '${step.id}': auto-unwrapped Map key '${map.keys.first}' "
-          "to List (${(map.values.first as List).length} items)",
+          'Map step \'${step.id}\': auto-unwrapped Map key \'${map.keys.first}\' '
+          'to List (${(map.values.first as List).length} items)',
         );
         return map.values.first as List<dynamic>;
+      }(),
+      final Map<Object?, Object?> map when map.length == 1 && map.values.first is List => () {
+        final normalized = map.map((key, value) => MapEntry(key.toString(), value));
+        _log.info(
+          'Map step \'${step.id}\': auto-unwrapped Map key \'${normalized.keys.first}\' '
+          'to List (${(normalized.values.first as List).length} items)',
+        );
+        return normalized.values.first as List<dynamic>;
       }(),
       _ => null,
     };
@@ -2841,10 +2691,18 @@ class WorkflowExecutor {
       final List<dynamic> list => list,
       final Map<String, dynamic> map when map.length == 1 && map.values.first is List => () {
         _log.info(
-          "Foreach step '${controllerStep.id}': auto-unwrapped Map key '${map.keys.first}' "
-          "to List (${(map.values.first as List).length} items)",
+          'Foreach step \'${controllerStep.id}\': auto-unwrapped Map key \'${map.keys.first}\' '
+          'to List (${(map.values.first as List).length} items)',
         );
         return map.values.first as List<dynamic>;
+      }(),
+      final Map<Object?, Object?> map when map.length == 1 && map.values.first is List => () {
+        final normalized = map.map((key, value) => MapEntry(key.toString(), value));
+        _log.info(
+          'Foreach step \'${controllerStep.id}\': auto-unwrapped Map key \'${normalized.keys.first}\' '
+          'to List (${(normalized.values.first as List).length} items)',
+        );
+        return normalized.values.first as List<dynamic>;
       }(),
       _ => null,
     };

@@ -26,10 +26,8 @@ gitStrategy:
   bootstrap: false
   worktree: shared
   promotion: none
-  finalReview: true
   publish:
     enabled: false
-  cleanup: always
 
 stepDefaults:
   - match: "*verify*"
@@ -61,18 +59,8 @@ steps:
     outputs:
       project_index:
         format: json
-        schema:
-          type: object
-          required: [framework, project_root, document_locations, state_protocol]
-          properties:
-            framework:
-              type: string
-            project_root:
-              type: string
-            document_locations:
-              type: object
-            state_protocol:
-              type: object
+        schema: project-index
+        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
   # Run the initial code review and emit a structured verdict for the remediation loop.
   - id: review-code
@@ -94,6 +82,11 @@ steps:
       review_summary:
         format: json
         schema: verdict
+        description: Structured verdict and findings from the code review.
+      findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Number of findings flagged by the review; 0 means the remediation loop can exit.
 
   # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
@@ -126,6 +119,13 @@ steps:
           remediation_result:
             format: json
             schema: remediation-result
+            description: Structured outcome record for this remediation pass.
+          remediation_summary:
+            format: text
+            description: Short prose summary of what was remediated during this pass.
+          diff_summary:
+            format: text
+            description: Compact description of file-level changes produced by this remediation pass.
 
       # Validate the remediation changes before re-running the code review.
       - id: verify-refine
@@ -154,6 +154,14 @@ steps:
           </diff_summary>
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
+        outputs:
+          validation_summary:
+            format: text
+            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
+          findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of remaining issues after post-remediation validation; 0 contributes to exiting the remediation loop.
 
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
@@ -187,3 +195,8 @@ steps:
           review_summary:
             format: json
             schema: verdict
+            description: Updated structured verdict and findings from the re-review pass.
+          findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of remaining issues after this re-review; 0 contributes to exiting the remediation loop.

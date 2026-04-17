@@ -648,9 +648,7 @@ void main() {
           bootstrap: true,
           worktree: 'shared',
           promotion: 'merge',
-          finalReview: true,
           publish: WorkflowGitPublishStrategy(enabled: true),
-          cleanup: 'preserve-on-failure',
         ),
       );
       expect(validator.validate(def).errors, isEmpty);
@@ -663,18 +661,13 @@ void main() {
         steps: const [
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
-        gitStrategy: const WorkflowGitStrategy(
-          worktree: 'invalid-worktree',
-          promotion: 'invalid-promotion',
-          cleanup: 'invalid-cleanup',
-        ),
+        gitStrategy: const WorkflowGitStrategy(worktree: 'invalid-worktree', promotion: 'invalid-promotion'),
       );
 
       final errors = validator.validate(def).errors;
-      expect(errors, hasLength(3));
+      expect(errors, hasLength(2));
       expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.worktree'));
       expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.promotion'));
-      expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.cleanup'));
     });
   });
 
@@ -1069,7 +1062,7 @@ void main() {
       expect(report.errors.any((e) => e.message.contains('additionalProperties: false')), isTrue);
     });
 
-    test('research step with structured output warns about restricted-profile fallback', () {
+    test('json output without schema is a hard error', () {
       final def = WorkflowDefinition(
         name: 'wf',
         description: 'd',
@@ -1080,15 +1073,12 @@ void main() {
             type: 'research',
             prompts: ['Research'],
             contextOutputs: ['verdict'],
-            outputs: {
-              'verdict': OutputConfig(format: OutputFormat.json, outputMode: OutputMode.structured, schema: 'verdict'),
-            },
+            outputs: {'verdict': OutputConfig(format: OutputFormat.json)},
           ),
         ],
       );
       final report = validator.validate(def);
-      expect(report.errors, isEmpty);
-      expect(report.warnings.any((w) => w.message.contains('restricted profile')), isTrue);
+      expect(report.errors.any((e) => e.message.contains('format: json requires a schema')), isTrue);
     });
 
     test('bash step with multi-prompt list is a hard error', () {

@@ -380,7 +380,6 @@ class ServiceWiring {
         ),
       ),
       turnAdapter: WorkflowTurnAdapter(
-        executionMode: config.workflow.executionMode,
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');
@@ -528,6 +527,7 @@ class ServiceWiring {
         },
         availableRunnerCount: () => serverTurns.availableRunnerCount,
       ),
+      structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,

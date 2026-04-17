@@ -914,7 +914,7 @@ void main() {
         reason: 're-verify-refine should run at least once',
       );
       expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
-      expectStepInputContains(recorder, 'remediate', 'Synthetic test remediation');
+      expectStepInputContains(recorder, 'remediate', '<review_findings>');
 
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');

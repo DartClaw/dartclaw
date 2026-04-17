@@ -22,6 +22,8 @@ const schemaPresets = <String, SchemaPreset>{
   'story-specs': storySpecsPreset,
   'file-list': fileListPreset,
   'checklist': checklistPreset,
+  'project-index': projectIndexPreset,
+  'non-negative-integer': nonNegativeIntegerPreset,
 };
 
 const verdictPreset = SchemaPreset(
@@ -82,6 +84,7 @@ const storyPlanPreset = SchemaPreset(
             'description',
             'acceptance_criteria',
             'type',
+            'phase',
             'dependencies',
             'key_files',
             'effort',
@@ -95,7 +98,9 @@ const storyPlanPreset = SchemaPreset(
               'items': {'type': 'string'},
             },
             'type': {'type': 'string'},
-            'phase': {'type': 'string'},
+            'phase': {
+              'type': ['string', 'null'],
+            },
             'dependencies': {
               'type': 'array',
               'items': {'type': 'string'},
@@ -145,48 +150,67 @@ Output the JSON directly — do not wrap in markdown code fences.''',
 const storySpecsPreset = SchemaPreset(
   name: 'story-specs',
   schema: {
-    'type': 'array',
-    'items': {
-      'type': 'object',
-      'additionalProperties': false,
-      'required': [
-        'id',
-        'title',
-        'description',
-        'acceptance_criteria',
-        'type',
-        'dependencies',
-        'key_files',
-        'effort',
-        'spec',
-      ],
-      'properties': {
-        'id': {'type': 'string'},
-        'title': {'type': 'string'},
-        'description': {'type': 'string'},
-        'acceptance_criteria': {
-          'type': 'array',
-          'items': {'type': 'string'},
+    'type': 'object',
+    'additionalProperties': false,
+    'required': ['items'],
+    'properties': {
+      'items': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'additionalProperties': false,
+          'required': [
+            'id',
+            'title',
+            'description',
+            'acceptance_criteria',
+            'type',
+            'phase',
+            'dependencies',
+            'key_files',
+            'effort',
+            'spec',
+            'story_id',
+            'classification',
+            'path',
+          ],
+          'properties': {
+            'id': {'type': 'string'},
+            'title': {'type': 'string'},
+            'description': {'type': 'string'},
+            'acceptance_criteria': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'type': {'type': 'string'},
+            'phase': {
+              'type': ['string', 'null'],
+            },
+            'dependencies': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'key_files': {
+              'type': 'array',
+              'items': {'type': 'string'},
+            },
+            'effort': {'type': 'string'},
+            'spec': {'type': 'string'},
+            'story_id': {
+              'type': ['string', 'null'],
+            },
+            'classification': {
+              'type': ['string', 'null'],
+            },
+            'path': {
+              'type': ['string', 'null'],
+            },
+          },
         },
-        'type': {'type': 'string'},
-        'phase': {'type': 'string'},
-        'dependencies': {
-          'type': 'array',
-          'items': {'type': 'string'},
-        },
-        'key_files': {
-          'type': 'array',
-          'items': {'type': 'string'},
-        },
-        'effort': {'type': 'string'},
-        'spec': {'type': 'string'},
-        'story_id': {'type': 'string'},
-        'classification': {'type': 'string'},
-        'path': {'type': 'string'},
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON array of story spec objects. Each item has:
+  promptFragment: '''Produce your output as a JSON object with an `items` array of story spec objects. Each item has:
 - id (string): Story identifier used by downstream foreach steps
 - title (string): Concise story title
 - description (string): Story summary from the plan
@@ -201,7 +225,7 @@ const storySpecsPreset = SchemaPreset(
 - classification (string, optional): Spec classification such as THIN, STANDARD, or COMPOSITE
 - path (string, optional): Relative path to any persisted spec artifact
 
-Return the array directly — do not wrap in markdown code fences.''',
+Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const fileListPreset = SchemaPreset(
@@ -216,10 +240,12 @@ const fileListPreset = SchemaPreset(
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['path'],
+          'required': ['path', 'reason'],
           'properties': {
             'path': {'type': 'string'},
-            'reason': {'type': 'string'},
+            'reason': {
+              'type': ['string', 'null'],
+            },
           },
         },
       },
@@ -244,11 +270,13 @@ const checklistPreset = SchemaPreset(
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['check', 'pass'],
+          'required': ['check', 'pass', 'detail'],
           'properties': {
             'check': {'type': 'string'},
             'pass': {'type': 'boolean'},
-            'detail': {'type': 'string'},
+            'detail': {
+              'type': ['string', 'null'],
+            },
           },
         },
       },
@@ -263,4 +291,101 @@ const checklistPreset = SchemaPreset(
 - all_pass (boolean): true only if every item passed
 
 Output the JSON directly — do not wrap in markdown code fences.''',
+);
+
+/// Shape emitted by the `dartclaw-discover-project` skill and consumed as
+/// `project_index` by downstream workflow steps.
+const projectIndexPreset = SchemaPreset(
+  name: 'project-index',
+  schema: {
+    'type': 'object',
+    'additionalProperties': false,
+    'required': ['framework', 'project_root', 'document_locations', 'state_protocol'],
+    'properties': {
+      'framework': {'type': 'string'},
+      'project_root': {'type': 'string'},
+      'document_locations': {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': [
+          'product',
+          'backlog',
+          'roadmap',
+          'prd',
+          'plan',
+          'spec',
+          'state',
+          'readme',
+          'agent_rules',
+          'architecture',
+          'guide',
+        ],
+        'properties': {
+          'product': {
+            'type': ['string', 'null'],
+          },
+          'backlog': {
+            'type': ['string', 'null'],
+          },
+          'roadmap': {
+            'type': ['string', 'null'],
+          },
+          'prd': {
+            'type': ['string', 'null'],
+          },
+          'plan': {
+            'type': ['string', 'null'],
+          },
+          'spec': {
+            'type': ['string', 'null'],
+          },
+          'state': {
+            'type': ['string', 'null'],
+          },
+          'readme': {
+            'type': ['string', 'null'],
+          },
+          'agent_rules': {
+            'type': ['string', 'null'],
+          },
+          'architecture': {
+            'type': ['string', 'null'],
+          },
+          'guide': {
+            'type': ['string', 'null'],
+          },
+        },
+      },
+      'state_protocol': {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['type', 'state_file', 'format'],
+        'properties': {
+          'type': {
+            'type': ['string', 'null'],
+          },
+          'state_file': {
+            'type': ['string', 'null'],
+          },
+          'format': {
+            'type': ['string', 'null'],
+          },
+        },
+      },
+    },
+  },
+  promptFragment: '''Produce your output as a JSON object describing the project layout:
+- framework (string): Detected project framework or "none"
+- project_root (string): Absolute or repo-relative project root
+- document_locations (object): Map of document kind → path (e.g. product, plan, state)
+- state_protocol (object): How project state is tracked (e.g. state_file path, format)
+
+Output the JSON directly — do not wrap in markdown code fences.''',
+);
+
+/// Simple scalar schema for non-negative integer counters like `findings_count`.
+const nonNegativeIntegerPreset = SchemaPreset(
+  name: 'non-negative-integer',
+  schema: {'type': 'integer', 'minimum': 0},
+  promptFragment: 'Produce a non-negative integer (0 or greater). Output the number directly.',
 );

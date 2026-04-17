@@ -19,10 +19,8 @@ gitStrategy:
   bootstrap: true
   worktree: shared
   promotion: merge
-  finalReview: true
   publish:
     enabled: true
-  cleanup: preserve-on-failure
 
 stepDefaults:
   - match: "spec"
@@ -64,18 +62,8 @@ steps:
     outputs:
       project_index:
         format: json
-        schema:
-          type: object
-          required: [framework, project_root, document_locations, state_protocol]
-          properties:
-            framework:
-              type: string
-            project_root:
-              type: string
-            document_locations:
-              type: object
-            state_protocol:
-              type: object
+        schema: project-index
+        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
   # Draft the initial implementation spec from the requested feature and discovered project context.
   - id: spec
@@ -93,6 +81,10 @@ steps:
       {{context.project_index}}
       </project_index>
     contextOutputs: [spec_document]
+    outputs:
+      spec_document:
+        format: text
+        description: Full draft feature specification, including goals, constraints, design, and acceptance criteria.
 
   # Review the draft spec and emit a revised spec plus structured findings for traceability.
   - id: revise-spec
@@ -116,9 +108,13 @@ steps:
     contextInputs: [project_index, spec_document]
     contextOutputs: [spec_document, spec_review_findings]
     outputs:
+      spec_document:
+        format: text
+        description: Full revised specification after the doc review pass.
       spec_review_findings:
         format: json
         schema: verdict
+        description: Structured review findings produced while revising the specification.
 
   # Implement the feature against the revised specification.
   - id: implement
@@ -140,6 +136,7 @@ steps:
     outputs:
       diff_summary:
         format: text
+        description: Compact summary of file-level changes produced by the implementation step.
 
   # Validate the implementation and capture any remaining findings.
   - id: verify-refine
@@ -162,13 +159,17 @@ steps:
       {{context.diff_summary}}
       </diff_summary>
     contextInputs: [project_index, diff_summary, spec_document]
-    contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
+    contextOutputs: [validation_summary]
+    outputs:
+      validation_summary:
+        format: text
+        description: Summary of validation outcomes (build, tests, analyzer, and any refinements applied).
 
   # Run an integrated implementation review after validation to decide whether remediation is needed.
   - id: integrated-review
     name: Integrated Review
     type: analysis
-    skill: dartclaw-review-code
+    skill: dartclaw-review-gap
     continueSession: verify-refine
     prompt: |
       <project_index>
@@ -192,6 +193,15 @@ steps:
       review_findings:
         format: json
         schema: verdict
+        description: Summary of all issues identified during the review that require remediation. 
+      findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Number of issues flagged by the integrated review; 0 means the remediation loop can exit.
+      integrated-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Step-scoped copy of the integrated review findings count used by remediation loop gates.
 
   # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
@@ -217,15 +227,18 @@ steps:
           {{context.review_findings}}
           </review_findings>
 
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
-
           <spec_document>
           {{context.spec_document}}
           </spec_document>
-        contextInputs: [project_index, spec_document, review_findings, validation_summary]
+        contextInputs: [project_index, spec_document, review_findings]
         contextOutputs: [remediation_summary, diff_summary]
+        outputs:
+          remediation_summary:
+            format: text
+            description: Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.
+          diff_summary:
+            format: text
+            description: Compact description of file-level changes produced by this remediation pass.
 
       # Re-run validation after remediation to confirm the fixes hold.
       - id: re-verify-refine
@@ -253,12 +266,24 @@ steps:
           </diff_summary>
         contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
+        outputs:
+          validation_summary:
+            format: text
+            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
+          findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of validation findings after remediation.
+          re-verify-refine.findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Step-scoped copy of the remediation validation findings count used by loop gates.
 
       # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
         type: analysis
-        skill: dartclaw-review-gap
+        skill: dartclaw-quick-review
         continueSession: re-verify-refine
         prompt: |
           <project_index>
@@ -286,6 +311,15 @@ steps:
           review_findings:
             format: json
             schema: verdict
+            description: Summary of all issues identified during the review that require remediation. 
+          findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Number of remaining issues after this re-review; 0 contributes to exiting the remediation loop.
+          re-review.findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Step-scoped copy of the re-review findings count used by remediation loop gates.
 
   # Record the finished workflow outcome in the project state document.
   - id: update-state
@@ -307,3 +341,7 @@ steps:
       </diff_summary>
     contextInputs: [project_index, spec_document, diff_summary]
     contextOutputs: [state_update_summary]
+    outputs:
+      state_update_summary:
+        format: text
+        description: Summary of what was written to the project state document for this feature.

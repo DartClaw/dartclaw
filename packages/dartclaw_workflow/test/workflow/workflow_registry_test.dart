@@ -183,14 +183,12 @@ void main() {
       expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
       expect(specAndImplement, contains('skill: dartclaw-review-doc'));
-      expect(specAndImplement, contains('skill: dartclaw-review-code'));
       expect(specAndImplement, contains('skill: dartclaw-review-gap'));
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(planAndImplement, contains('skill: dartclaw-review-doc'));
-      expect(planAndImplement, isNot(contains('skill: dartclaw-quick-review')));
-      expect(planAndImplement, isNot(contains('quickReview')));
+      expect(planAndImplement, contains('skill: dartclaw-quick-review'));
       expect(planAndImplement, contains('skill: dartclaw-review-gap'));
       expect(planAndImplement, contains('skill: dartclaw-plan'));
       expect(planAndImplement, contains('skill: dartclaw-spec-plan'));
@@ -237,10 +235,7 @@ void main() {
 
       expect(codeReview, contains('- id: verify-refine'));
       expect(codeReview, contains('entryGate: "review-code.findings_count > 0"'));
-      expect(
-        codeReview,
-        contains('exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"'),
-      );
+      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"'));
     });
   });
 

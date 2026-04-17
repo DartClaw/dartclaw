@@ -229,25 +229,15 @@ Each prompt in the list is a separate turn in the same agent session. Use this w
 
 Workflow agent steps default to a one-shot execution path for bounded workflow work. Instead of replaying every workflow follow-up through the interactive streaming harness, DartClaw can invoke the provider CLI directly for each workflow prompt while still preserving the task/session lifecycle and workflow observability.
 
-Configure the workflow-wide default in config:
+There is no longer a workflow-level or per-step `executionMode` switch. Workflow agent steps always use the one-shot path; interactive chat/tasks still use the long-lived streaming harnesses.
 
-```yaml
-workflow:
-  execution_mode: oneshot
-```
+For workflow-authored step types:
 
-Per-step overrides are available when a step must stay on the legacy streaming path:
+- `research`, `writing`, and `analysis` steps now run with `readOnly: true`
+- the read-only check follows the provisioned workflow worktree, so file mutations fail the task even though the step still runs through the coding-task path
+- the original YAML step type is preserved as task metadata for observability and review-mode compatibility
 
-```yaml
-steps:
-  - id: research
-    name: Research
-    type: research
-    executionMode: streaming
-    prompt: Explore {{TARGET}}
-```
-
-JSON outputs now support two output modes:
+JSON outputs now support two output modes, with `format: json` + `schema` defaulting to native structured output:
 
 ```yaml
 steps:
@@ -375,10 +365,8 @@ gitStrategy:
   bootstrap: true
   worktree: per-map-item   # or shared
   promotion: merge
-  finalReview: true
   publish:
     enabled: true
-  cleanup: preserve-on-failure
 ```
 
 Key runtime behavior:
@@ -628,7 +616,6 @@ variables:
 | `outputs` | map | none | Output format configs (see below) |
 | `onError` | string | `pause` | Failure policy: `pause` (default) or `continue`. Applies to bash and agent steps |
 | `workdir` | string | workspace root | Working directory for `bash` steps. Supports template references |
-| `executionMode` (`execution_mode`) | string | workflow default | `oneshot` or `streaming` for agent execution |
 | `finally` | string | none | Finalizer step ID for loop cleanup/handoff |
 
 *`prompt` is recommended for `approval` steps so the pause shows a meaningful request. It is required for `bash` steps and required unless `skill` is present for agent steps. `foreach` and inline `loop` controllers do not carry prompts themselves; their child steps do.

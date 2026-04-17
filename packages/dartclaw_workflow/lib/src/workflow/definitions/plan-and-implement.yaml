@@ -22,10 +22,8 @@ gitStrategy:
   bootstrap: true
   worktree: per-map-item
   promotion: merge
-  finalReview: true
   publish:
     enabled: true
-  cleanup: preserve-on-failure
 
 stepDefaults:
   - match: "plan"
@@ -70,18 +68,8 @@ steps:
     outputs:
       project_index:
         format: json
-        schema:
-          type: object
-          required: [framework, project_root, document_locations, state_protocol]
-          properties:
-            framework:
-              type: string
-            project_root:
-              type: string
-            document_locations:
-              type: object
-            state_protocol:
-              type: object
+        schema: project-index
+        description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
   # Turn the requested requirements into a PRD and an initial story plan.
   - id: plan
@@ -102,9 +90,11 @@ steps:
     outputs:
       prd:
         format: text
+        description: Product requirements document drafted from the input requirements.
       stories:
         format: json
         schema: story-plan
+        description: Ordered list of stories that implement the PRD, ready for spec-plan.
 
   # Review the draft PRD and story plan and emit revised artifacts plus findings for traceability.
   - id: revise-plan
@@ -134,12 +124,15 @@ steps:
     outputs:
       prd:
         format: text
+        description: Full revised PRD after the plan-level review pass.
       stories:
         format: json
         schema: story-plan
+        description: Full revised story plan after the plan-level review pass.
       plan_review_findings:
         format: json
         schema: verdict
+        description: Structured review findings produced while revising the PRD and plan.
 
   # Generate story-level specifications and tighten the story plan before implementation starts.
   - id: spec-plan
@@ -165,6 +158,7 @@ steps:
       story_specs:
         format: json
         schema: story-specs
+        description: Per-story specifications that drive the per-story implementation loop.
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -203,6 +197,7 @@ steps:
         outputs:
           story_result:
             format: text
+            description: Summary of what was implemented for this story — files changed, key decisions, and verification notes.
 
       # Validate the story implementation before the story-level review pass.
       - id: verify-refine
@@ -224,18 +219,21 @@ steps:
           {{context.implement.story_result}}
           </story_result>
         contextInputs: [project_index]
-        contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
+        contextOutputs: [validation_summary, findings_count]
         outputs:
+          validation_summary:
+            format: text
+            description: Summary of validation outcomes for this story (build, tests, analyzer, and any refinements applied).
           findings_count:
             format: json
-            schema:
-              type: integer
+            schema: non-negative-integer
+            description: Number of remaining issues after validation; 0 means the story is clean.
 
       # Review the implemented story against its story-specific requirements and spec.
       - id: quick-review
         name: Quick Review Story
         type: analysis
-        skill: dartclaw-review-gap
+        skill: dartclaw-quick-review
         continueSession: verify-refine
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
@@ -254,15 +252,18 @@ steps:
           </story_result>
 
           <validation_summary>
-          {{context.verify-refine.validation_summary}}
+          {{context.validation_summary}}
           </validation_summary>
         contextInputs: [project_index]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
+          quick_review_summary:
+            format: text
+            description: Short assessment of whether the story implementation meets its spec and acceptance criteria.
           quick_review_findings_count:
             format: json
-            schema:
-              type: integer
+            schema: non-negative-integer
+            description: Number of issues flagged by the story-level quick review; 0 means clean.
 
   # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
   - id: plan-review
@@ -282,12 +283,19 @@ steps:
       <story_results>
       {{context.story_results}}
       </story_results>
-    contextOutputs: [implementation_summary, remediation_plan, findings_count, plan-review.findings_count]
+    contextOutputs: [review_findings, findings_count, plan-review.findings_count]
     outputs:
+      review_findings:
+        format: text
+        description: Summary of all issues identified during the review that require remediation. 
       findings_count:
         format: json
-        schema:
-          type: integer
+        schema: non-negative-integer
+        description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
+      plan-review.findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Step-scoped copy of the plan review findings count used by remediation loop gates.
 
   # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
   - id: remediation-loop
@@ -309,15 +317,22 @@ steps:
           {{context.project_index}}
           </project_index>
 
-          <remediation_plan>
-          {{context.remediation_plan}}
-          </remediation_plan>
+          <review_findings>
+          {{context.review_findings}}
+          </review_findings>
 
-          <implementation_summary>
-          {{context.implementation_summary}}
-          </implementation_summary>
-        contextInputs: [project_index, remediation_plan, implementation_summary]
+          <story_results>
+          {{context.story_results}}
+          </story_results>
+        contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
+        outputs:
+          remediation_summary:
+            format: text
+            description: Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.
+          diff_summary:
+            format: text
+            description: Compact description of file-level changes produced by this remediation pass.
 
       # Re-run validation after the remediation pass to confirm the fixes hold.
       - id: re-verify-refine
@@ -342,16 +357,23 @@ steps:
         contextInputs: [project_index, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
         outputs:
+          validation_summary:
+            format: text
+            description: Summary of validation outcomes after remediation (build, tests, analyzer, and any refinements applied).
           findings_count:
             format: json
-            schema:
-              type: integer
+            schema: non-negative-integer
+            description: Number of validation findings after the remediation pass.
+          re-verify-refine.findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Step-scoped copy of the remediation validation findings count used by loop gates.
 
       # Re-review the full implementation after remediation using the updated summaries and diff.
       - id: re-review
         name: Re-review After Remediation
         type: analysis
-        skill: dartclaw-review-gap
+        skill: dartclaw-quick-review
         continueSession: re-verify-refine
         prompt: |
           <project_index>
@@ -362,9 +384,9 @@ steps:
           {{context.story_specs}}
           </story_specs>
 
-          <implementation_summary>
-          {{context.implementation_summary}}
-          </implementation_summary>
+          <story_results>
+          {{context.story_results}}
+          </story_results>
 
           <validation_summary>
           {{context.validation_summary}}
@@ -377,13 +399,20 @@ steps:
           <diff_summary>
           {{context.diff_summary}}
           </diff_summary>
-        contextInputs: [project_index, story_specs, implementation_summary, validation_summary, remediation_summary, diff_summary]
-        contextOutputs: [remediation_plan, findings_count, re-review.findings_count]
+        contextInputs: [project_index, story_specs, story_results, validation_summary, remediation_summary, diff_summary]
+        contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:
+          review_findings:
+            format: text
+            description: Summary of all issues identified during the review that require remediation. 
           findings_count:
             format: json
-            schema:
-              type: integer
+            schema: non-negative-integer
+            description: Number of remaining plan-level issues after this re-review; 0 contributes to exiting the remediation loop.
+          re-review.findings_count:
+            format: json
+            schema: non-negative-integer
+            description: Step-scoped copy of the re-review findings count used by remediation loop gates.
 
   # Record the completed plan execution state back into the project state document.
   - id: update-state
@@ -396,8 +425,16 @@ steps:
       {{context.project_index}}
       </project_index>
 
-      <implementation_summary>
-      {{context.implementation_summary}}
-      </implementation_summary>
-    contextInputs: [project_index, implementation_summary]
+      <story_specs>
+      {{context.story_specs}}
+      </story_specs>
+
+      <story_results>
+      {{context.story_results}}
+      </story_results>
+    contextInputs: [project_index, story_specs, story_results]
     contextOutputs: [state_update_summary]
+    outputs:
+      state_update_summary:
+        format: text
+        description: Summary of what was written to the project state document for this plan execution.

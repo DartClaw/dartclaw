@@ -26,6 +26,11 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
 - **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection
+- **Workflow execution unification**: workflow-authored step types now execute through the coding-task path, preserve the original YAML type as `_workflowStepType` metadata, and express non-mutating intent through `readOnly` instead of a separate workflow streaming/restricted branch
+- **Workflow structured outputs default to native mode**: `format: json` with `schema` now resolves to provider-enforced structured output by default; explicit `outputMode: prompt` is the opt-out and heuristic JSON parsing is now a fallback path
+- **Workflow JSON schema presets hardened for Codex strict mode**: wrapped `story-specs`, `story-plan`, `file-list`, `checklist`, and `project-index` schemas now satisfy the stricter nested-object requirements used by `codex exec --output-schema`
+- **Workflow read-only enforcement follows the worktree**: read-only workflow research/writing/analysis steps now fail on file mutations inside their linked worktree instead of only checking the primary project checkout
+- **Workflow authoring surface simplified**: `executionMode` / `execution_mode` was removed from workflow YAML and validation now rejects `format: json` outputs that omit a schema
 - **Workflow structured outputs**: JSON workflow outputs can now opt into `outputMode: structured`, which uses provider-native schema constraints and stores the structured payload directly on the workflow task for extraction
 - **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
 - **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
@@ -39,6 +44,7 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Task creation guardrails**: `POST /api/tasks` continues to reject client `configJson` keys prefixed with `_`, preserving the server-owned workflow/internal namespace
 - **Standalone agent-backed workflows**: headless standalone runs now provision provider-aware task runners and inject provider credentials, so agent steps no longer queue indefinitely or lose API-key auth outside the server wiring path
 - **Codex CI auth compatibility**: `codex-exec` now treats `CODEX_API_KEY` as the primary CI env var, accepts compatible fallback key sources, updates provider-status/validation messaging accordingly, and redacts both Codex/OpenAI API-key env vars from approval payloads
+- **Codex one-shot prompt parity**: workflow one-shot execution now forwards `appendSystemPrompt` to both Claude and Codex CLI invocations
 - **Standalone approval pause messaging**: CLI guidance for approval-paused standalone runs now points operators to start `dartclaw serve` before using `workflow resume` or `workflow cancel`
 
 ---

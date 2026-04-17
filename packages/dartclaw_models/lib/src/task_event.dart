@@ -11,6 +11,7 @@ sealed class TaskEventKind {
     'statusChanged' => const StatusChanged(),
     'toolCalled' => const ToolCalled(),
     'artifactCreated' => const ArtifactCreated(),
+    'structuredOutputFallbackUsed' => const StructuredOutputFallbackUsed(),
     'pushBack' => const PushBack(),
     'tokenUpdate' => const TokenUpdate(),
     'error' => const TaskErrorEvent(),
@@ -38,6 +39,13 @@ final class ArtifactCreated extends TaskEventKind {
   @override
   String get name => 'artifactCreated';
   const ArtifactCreated();
+}
+
+/// Structured-output extraction fell back to heuristic parsing.
+final class StructuredOutputFallbackUsed extends TaskEventKind {
+  @override
+  String get name => 'structuredOutputFallbackUsed';
+  const StructuredOutputFallbackUsed();
 }
 
 /// Task was pushed back from review with feedback.
@@ -79,6 +87,7 @@ final class Compaction extends TaskEventKind {
 /// - `statusChanged`: `{oldStatus, newStatus, trigger}`
 /// - `toolCalled`: `{name, success, durationMs, ?errorType, ?context}`
 /// - `artifactCreated`: `{name, kind}`
+/// - `structuredOutputFallbackUsed`: `{stepId, outputKey, failureReason, ?providerSubtype}`
 /// - `pushBack`: `{comment}`
 /// - `tokenUpdate`: `{inputTokens, outputTokens, ?cacheReadTokens, ?cacheWriteTokens}`
 /// - `error`: `{message}`

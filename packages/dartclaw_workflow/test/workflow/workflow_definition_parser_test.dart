@@ -136,10 +136,8 @@ gitStrategy:
   bootstrap: true
   worktree: shared
   promotion: merge
-  finalReview: true
   publish:
     enabled: true
-  cleanup: preserve-on-failure
 steps:
   - id: step-1
     name: Step One
@@ -212,7 +210,7 @@ void main() {
       expect(def.loops[0].exitGate, 'implement.status == done');
     });
 
-    test('parses executionMode and structured outputMode', () {
+    test('defaults json+schema outputs to structured mode', () {
       const yaml = '''
 name: structured-workflow
 description: Workflow with one-shot structured output
@@ -220,20 +218,53 @@ steps:
   - id: review
     name: Review
     prompt: Review the change
-    executionMode: oneshot
     contextOutputs:
       - verdict
     outputs:
       verdict:
         format: json
-        outputMode: structured
         schema: verdict
 ''';
       final def = parser.parse(yaml);
       final step = def.steps.single;
-      expect(step.executionMode, WorkflowExecutionMode.oneshot);
       expect(step.outputs?['verdict']?.outputMode, OutputMode.structured);
       expect(step.outputs?['verdict']?.presetName, 'verdict');
+    });
+
+    test('rejects removed executionMode at workflow root', () {
+      const yaml = '''
+name: wf
+description: d
+executionMode: streaming
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having((error) => error.message, 'message', contains('executionMode was removed')),
+        ),
+      );
+    });
+
+    test('rejects removed executionMode on a step', () {
+      const yaml = '''
+name: wf
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    executionMode: streaming
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(
+          isA<FormatException>().having((error) => error.message, 'message', contains('executionMode was removed')),
+        ),
+      );
     });
 
     test('parses inline loop authoring and preserves definition round-trip', () {
@@ -261,10 +292,44 @@ steps:
           'bootstrap': true,
           'worktree': 'shared',
           'promotion': 'merge',
-          'finalReview': true,
           'publish': {'enabled': true},
-          'cleanup': 'preserve-on-failure',
         }),
+      );
+    });
+
+    test('rejects gitStrategy.finalReview with a clear removal message', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  bootstrap: true
+  finalReview: true
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('gitStrategy.finalReview'))),
+      );
+    });
+
+    test('rejects gitStrategy.cleanup with a clear removal message', () {
+      const yaml = '''
+name: wf
+description: d
+gitStrategy:
+  bootstrap: true
+  cleanup: preserve-on-failure
+steps:
+  - id: s
+    name: S
+    prompt: p
+''';
+      expect(
+        () => parser.parse(yaml),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('gitStrategy.cleanup'))),
       );
     });
 

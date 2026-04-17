@@ -102,5 +102,16 @@ void main() {
       // An empty condition doesn't match the regex → false.
       expect(evaluator.evaluate('', context), isFalse);
     });
+
+    test('tolerates stray "context." prefix on gate keys', () {
+      // Prompt templates require `context.` but gate keys do not. The evaluator
+      // strips a stray prefix so authors mixing the two syntaxes still succeed.
+      expect(evaluator.evaluate('context.step1.status == accepted', context), isTrue);
+      expect(evaluator.evaluate('context.step2.tokenCount < 10000', context), isTrue);
+      expect(
+        evaluator.evaluate('context.step1.status == accepted && step2.tokenCount < 10000', context),
+        isTrue,
+      );
+    });
   });
 }

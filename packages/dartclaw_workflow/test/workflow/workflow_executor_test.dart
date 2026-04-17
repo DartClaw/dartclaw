@@ -35,9 +35,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTurnOutcome,
         WorkflowStep,
         WorkflowStepCompletedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, TurnOutcome, TurnStatus;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -1247,14 +1246,7 @@ void main() {
   });
 
   group('multi-prompt execution (S02)', () {
-    // Valid UUID session IDs (required by MessageService).
-    const sessionMp = '550e8400-e29b-41d4-a716-446655440001';
-    const sessionFail = '550e8400-e29b-41d4-a716-446655440002';
-    const sessionBudget = '550e8400-e29b-41d4-a716-446655440003';
-    const sessionSingle = '550e8400-e29b-41d4-a716-446655440004';
-
-    // Creates a WorkflowExecutor with turn infrastructure wired in.
-    WorkflowExecutor makeMultiPromptExecutor(FakeTurnManager fakeTurns) {
+    WorkflowExecutor makeMultiPromptExecutor() {
       return WorkflowExecutor(
         taskService: taskService,
         eventBus: eventBus,
@@ -1268,44 +1260,18 @@ void main() {
         ),
         dataDir: tempDir.path,
         messageService: messageService,
-        turnAdapter: WorkflowTurnAdapter(
-          reserveTurn: fakeTurns.reserveTurn,
-          executeTurn: fakeTurns.executeTurn,
-          waitForOutcome: (sessionId, turnId) async {
-            final outcome = await fakeTurns.waitForOutcome(sessionId, turnId);
-            return WorkflowTurnOutcome(status: outcome.status.name);
-          },
-          availableRunnerCount: () => fakeTurns.availableRunnerCount,
-        ),
       );
     }
 
-    // Creates the session directory required by MessageService.insertMessage.
-    void createSessionDir(String sessionId) {
-      Directory(p.join(sessionsDir, sessionId)).createSync(recursive: true);
-    }
-
-    // Writes a session_cost KV entry so _readStepTokenCount returns a non-zero value.
-    Future<void> seedSessionCost(String sessionId, int totalTokens) async {
-      await kvService.set('session_cost:$sessionId', jsonEncode({'total_tokens': totalTokens}));
-    }
-
-    // Listener that accepts a task and assigns it the given sessionId.
-    StreamSubscription<TaskStatusChangedEvent> autoAcceptWithSession(String sessionId) {
+    StreamSubscription<TaskStatusChangedEvent> autoAcceptQueuedTask() {
       return eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
         await Future<void>.delayed(Duration.zero);
-        await taskService.updateFields(e.taskId, sessionId: sessionId);
         await completeTask(e.taskId);
       });
     }
 
-    test('3-prompt step: 1 task created + 2 follow-up turns on same session', () async {
-      createSessionDir(sessionMp);
-      final fakeTurns = FakeTurnManager(
-        onWaitForOutcome: (sid, turnId) async =>
-            TurnOutcome(turnId: turnId, sessionId: sid, status: TurnStatus.completed, completedAt: DateTime.now()),
-      );
-      final mpExecutor = makeMultiPromptExecutor(fakeTurns);
+    test('queues follow-up prompts in task config for one-shot execution', () async {
+      final mpExecutor = makeMultiPromptExecutor();
 
       final definition = makeDefinition(
         steps: [
@@ -1315,108 +1281,21 @@ void main() {
 
       final run = makeRun(definition);
       await repository.insert(run);
-      final sub = autoAcceptWithSession(sessionMp);
+      final sub = autoAcceptQueuedTask();
 
       await mpExecutor.execute(run, definition, WorkflowContext());
       await sub.cancel();
 
-      // 2 follow-up turns reserved (prompts 2 and 3).
-      expect(fakeTurns.reserveTurnCallCount, equals(2));
-      expect(fakeTurns.reservedTurns.map((r) => r.sessionId), everyElement(sessionMp));
-
-      // 2 follow-up turns executed, all as continuations (resume: true).
-      expect(fakeTurns.executeTurnCallCount, equals(2));
-      expect(fakeTurns.executedTurns[0].resume, isTrue);
-      expect(fakeTurns.executedTurns[1].resume, isTrue);
+      final createdTask = (await taskService.list()).single;
+      expect(createdTask.description, equals('First prompt'));
+      expect(createdTask.configJson['_workflowFollowUpPrompts'], equals(['Second prompt', 'Third prompt']));
 
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
     });
 
-    test('follow-up turn failure causes step to fail and pauses workflow', () async {
-      createSessionDir(sessionFail);
-      final fakeTurns = FakeTurnManager(
-        onWaitForOutcome: (sid, turnId) async {
-          // First follow-up (prompt 2) fails; prompt 3 is never reached.
-          return TurnOutcome(
-            turnId: turnId,
-            sessionId: sid,
-            status: TurnStatus.failed,
-            errorMessage: 'agent crashed',
-            completedAt: DateTime.now(),
-          );
-        },
-      );
-      final mpExecutor = makeMultiPromptExecutor(fakeTurns);
-
-      final definition = makeDefinition(
-        steps: [
-          const WorkflowStep(
-            id: 'step1',
-            name: 'Step 1',
-            prompts: ['Prompt one', 'Prompt two (will fail)', 'Prompt three (skipped)'],
-          ),
-        ],
-      );
-
-      final run = makeRun(definition);
-      await repository.insert(run);
-      final sub = autoAcceptWithSession(sessionFail);
-
-      await mpExecutor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      // Only 1 follow-up turn was attempted (failed immediately, prompt 3 skipped).
-      expect(fakeTurns.executeTurnCallCount, equals(1));
-
-      final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
-    });
-
-    test('step budget exceeded before follow-up pauses workflow', () async {
-      createSessionDir(sessionBudget);
-      final fakeTurns = FakeTurnManager(
-        onWaitForOutcome: (sid, turnId) async =>
-            TurnOutcome(turnId: turnId, sessionId: sid, status: TurnStatus.completed, completedAt: DateTime.now()),
-      );
-      final mpExecutor = makeMultiPromptExecutor(fakeTurns);
-
-      final definition = makeDefinition(
-        steps: [
-          const WorkflowStep(
-            id: 'step1',
-            name: 'Step 1',
-            prompts: ['First', 'Second'],
-            maxTokens: 100, // budget cap
-          ),
-        ],
-      );
-
-      final run = makeRun(definition);
-      await repository.insert(run);
-
-      // Pre-seed session tokens at or above budget so the check fails before prompt 2.
-      await seedSessionCost(sessionBudget, 100);
-
-      final sub = autoAcceptWithSession(sessionBudget);
-      await mpExecutor.execute(run, definition, WorkflowContext());
-      await sub.cancel();
-
-      // No follow-up turns attempted — budget exceeded before prompt 2.
-      expect(fakeTurns.executeTurnCallCount, equals(0));
-
-      final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
-      expect(finalRun?.errorMessage, contains('budget exceeded'));
-    });
-
     test('single-prompt step creates no follow-up turns', () async {
-      createSessionDir(sessionSingle);
-      final fakeTurns = FakeTurnManager(
-        onWaitForOutcome: (sid, turnId) async =>
-            TurnOutcome(turnId: turnId, sessionId: sid, status: TurnStatus.completed, completedAt: DateTime.now()),
-      );
-      final mpExecutor = makeMultiPromptExecutor(fakeTurns);
+      final mpExecutor = makeMultiPromptExecutor();
 
       final definition = makeDefinition(
         steps: [
@@ -1426,14 +1305,13 @@ void main() {
 
       final run = makeRun(definition);
       await repository.insert(run);
-      final sub = autoAcceptWithSession(sessionSingle);
+      final sub = autoAcceptQueuedTask();
 
       await mpExecutor.execute(run, definition, WorkflowContext());
       await sub.cancel();
 
-      // No follow-up turns.
-      expect(fakeTurns.reserveTurnCallCount, equals(0));
-      expect(fakeTurns.executeTurnCallCount, equals(0));
+      final createdTask = (await taskService.list()).single;
+      expect(createdTask.configJson.containsKey('_workflowFollowUpPrompts'), isFalse);
 
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
@@ -2472,7 +2350,7 @@ void main() {
       expect(contextData2?['fix.worktree_path'], equals(''));
     });
 
-    test('non-coding step does not inject branch/worktree_path keys', () async {
+    test('workflow research step injects branch/worktree_path keys through the coding task path', () async {
       final definition = WorkflowDefinition(
         name: 'test-wf',
         description: 'd',
@@ -2497,8 +2375,8 @@ void main() {
 
       final finalRun = await repository.getById('run-1');
       final contextData3 = finalRun?.contextJson['data'] as Map?;
-      expect(contextData3?.containsKey('research.branch'), isFalse);
-      expect(contextData3?.containsKey('research.worktree_path'), isFalse);
+      expect(contextData3?['research.branch'], equals(''));
+      expect(contextData3?['research.worktree_path'], equals(''));
     });
   });
 }

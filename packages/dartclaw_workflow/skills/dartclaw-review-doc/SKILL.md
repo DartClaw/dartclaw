@@ -10,7 +10,7 @@ argument-hint: "[document path or focus] [--inline-findings]"
 
 Thoroughly review specifications, implementation plans, PRDs, technical designs, or other requirement documents to determine whether they are complete, clear, proportionate, and ready for implementation.
 
-Most users should start with `dartclaw-review`. Use this skill directly when you already know the target is a document.
+Most users should start with the `dartclaw-review` skill. Use this skill directly when you already know the target is a document.
 
 ## VARIABLES
 SPEC_PATH_OR_FOCUS: $ARGUMENTS
@@ -44,7 +44,7 @@ Review the document through these lenses and record only issues relevant to the 
 - **Scope and architecture**: explicit in/out-of-scope boundaries, phase boundaries, architecture soundness, and signs of disproportionate complexity
 - **Stakeholder fit**: user needs, success criteria, UX/error-state coverage
 
-If the document is a FIS, verify it still follows the `dartclaw-spec` structure.
+If the document is a FIS, verify it still follows the structure produced by the `dartclaw-spec` skill.
 
 **Gate**: Findings identified across all relevant dimensions
 

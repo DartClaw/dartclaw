@@ -8,13 +8,13 @@ argument-hint: "[scope/files] [--inline-findings] [--to-issue] [--to-pr <number>
 
 Comprehensive code review covering correctness, security, architecture, maintainability, and UI/UX where relevant.
 
-Most users should start with `dartclaw-review`. Use this skill directly when you already know the target is implementation/code.
+Most users should start with the `dartclaw-review` skill. Use this skill directly when you already know the target is implementation/code.
 
 ## VARIABLES
 ARGUMENTS: $ARGUMENTS
 
 ### Optional Output Flags
-- `--inline-findings` → return findings inline and skip report-file output (for delegated use by `dartclaw-review` or other orchestration skills)
+- `--inline-findings` → return findings inline and skip report-file output (for delegated use by the `dartclaw-review` skill or other orchestration skills)
 - `--to-issue` → PUBLISH_ISSUE
 - `--to-pr <number>` → PUBLISH_PR
 
@@ -39,14 +39,14 @@ ARGUMENTS: $ARGUMENTS
 - `../scripts/run-security-scan.sh <path>`
 
 ## ORCHESTRATION
-When supported, delegate parallel reviewers for:
+When supported, delegate parallel `general-purpose` reviewer sub-agents for:
 1. Code quality
 2. Security
 3. Architecture
 4. Domain language
 5. UI/UX
 
-If sub-agents are unavailable, run the same lenses sequentially.
+Do NOT pass any `dartclaw-*` name as `subagent_type` — none of them are valid agent types. Each reviewer is a `general-purpose` sub-agent given a focused prompt for that lens. If sub-agents are unavailable, run the same lenses sequentially.
 
 ## WORKFLOW
 

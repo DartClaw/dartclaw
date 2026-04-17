@@ -97,18 +97,18 @@ Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — int
 5. **Wiring check**: `check-wiring.sh <changed-files>` — each new file referenced by at least one other
 6. **Spec compliance spot-check**: extract prescriptive details from the FIS (output format strings, column name lists, file paths for new artifacts, exact error messages, UI elements like buttons/controls) and grep/verify each against the implementation — any mismatch is a remediation input
 
-#### 4b. Code Review (mandatory sub-agent)
-Spawn `dartclaw-review-code` sub-agent for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation).
+#### 4b. Code Review (mandatory fresh-context review)
+Run the `dartclaw-review-code` **skill** for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation). Prefer to invoke it in a fresh-context sub-agent: spawn a `general-purpose` sub-agent whose prompt runs `/dartclaw-review-code`. Do not pass `dartclaw-review-code` as `subagent_type` — it is a skill, not an agent type (no `dartclaw-*` agent types exist).
 
 #### 4c. Visual Validation (if UI)
-Spawn a visual-validation specialist sub-agent _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
+Spawn a visual-validation specialist **agent** _(if an external agent set provides one; otherwise use a `general-purpose` sub-agent with the appropriate instructions)_ per any Visual Validation Workflow defined in CLAUDE.md.
 
 Steps 4b and 4c can run in parallel _(if supported)_.
 
 #### 4d. Remediation (1 pass max)
 1. **Collect failures and findings** — combine required failures from 4a with findings from 4b/4c. A failed build/test/lint/stub/wiring check is a remediation input even if review-code does not flag it separately.
 2. **Triage** — direct-check failures and CRITICAL/HIGH findings must fix; MEDIUM should fix; LOW optional (review-code mapping: CRITICAL→CRITICAL, HIGH→HIGH, SUGGESTIONS→MEDIUM)
-3. **Fix + re-check once** — fix all must-fix items directly, then re-run the failed or affected validation checks once. If remediation touched any `review-code` finding, re-run `dartclaw-review-code` on the touched scope before proceeding. If remediation touched any visual-validation finding, re-run the applicable visual validation on the touched scope before proceeding.
+3. **Fix + re-check once** — fix all must-fix items directly, then re-run the failed or affected validation checks once. If remediation touched any `review-code` finding, re-run the `dartclaw-review-code` skill on the touched scope before proceeding. If remediation touched any visual-validation finding, re-run the applicable visual validation on the touched scope before proceeding.
 4. **No second loop** — if required failures or CRITICAL/HIGH findings remain after one remediation pass, escalate to the user with a summary of unresolved issues and stop the run
 
 ### Step 5: Complete
@@ -121,7 +121,7 @@ All substeps below are REQUIRED gates when Step 4 passes.
 4. Collect verification evidence from Step 4a results (build, tests, linting/types; add visual validation and runtime for UI stories)
 
 #### 5b. Update Status and Project State (Gate)
-Update FIS checkboxes and source plan (if applicable) via `dartclaw-update-state`. For plan-originated stories, also mark the active story `Done` in the State document (see **Project Document Index**). Re-read updated artifacts to verify.
+Update FIS checkboxes and source plan (if applicable) via the `dartclaw-update-state` skill. For plan-originated stories, also mark the active story `Done` in the State document (see **Project Document Index**). Re-read updated artifacts to verify.
 
 #### 5c. Canonical Continuation Sync _(if `FIS_SOURCE_MODE = github-artifact`)_
 The `.agent_temp/github-artifacts/...` directory is only a working mirror. If canonical local FIS/plan paths exist in the workspace, verify final updates landed there. Otherwise update the source GitHub issue to the latest typed `fis-bundle` (updated FIS, `technical-research.md`, `plan.md` when applicable, and `fis_path`/`plan_path`/`story_ids` metadata). Do not finish with the temp mirror as the only updated copy.

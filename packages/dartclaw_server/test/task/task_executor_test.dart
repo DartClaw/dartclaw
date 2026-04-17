@@ -218,10 +218,11 @@ void main() {
       id: 'task-oneshot',
       title: 'One-shot workflow step',
       description: 'Run the workflow step.',
-      type: TaskType.analysis,
+      type: TaskType.coding,
       autoStart: true,
+      workflowRunId: 'wf-1',
       configJson: const {
-        '_workflowExecutionMode': 'oneshot',
+        '_workflowStepType': 'coding',
         '_workflowFollowUpPrompts': ['Follow up'],
         '_workflowStructuredSchema': {
           'type': 'object',
@@ -331,6 +332,7 @@ void main() {
       onAutoAccept: (taskId) async {
         calls.add(taskId);
       },
+      workflowCliRunner: _successWorkflowCliRunner(),
     );
     addTearDown(autoAcceptExecutor.stop);
 
@@ -875,6 +877,7 @@ void main() {
       turns: turns,
       artifactCollector: collector,
       projectService: projectService,
+      workflowCliRunner: _successWorkflowCliRunner(),
       pollInterval: const Duration(milliseconds: 10),
     );
     addTearDown(projectExecutor.stop);
@@ -1288,6 +1291,19 @@ void main() {
     expect(failed.configJson['errorSummary'], contains('Read-only task modified project files'));
     expect(failed.configJson['errorSummary'], contains('notes/leak.md'));
   });
+}
+
+WorkflowCliRunner _successWorkflowCliRunner({String sessionId = 'cli-session-success'}) {
+  return WorkflowCliRunner(
+    providers: const {
+      'claude': WorkflowCliProviderConfig(executable: 'claude'),
+      'codex': WorkflowCliProviderConfig(executable: 'codex'),
+    },
+    processStarter: (exe, args, {workingDirectory, environment}) async {
+      final payload = jsonEncode({'session_id': sessionId, 'result': 'Done.'});
+      return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+    },
+  );
 }
 
 class _FakeTaskWorker implements AgentHarness {

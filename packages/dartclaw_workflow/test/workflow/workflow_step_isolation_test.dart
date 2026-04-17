@@ -436,9 +436,7 @@ void main() {
         ),
       );
 
-      final storySpecs = result.outputs['story_specs'];
-      expect(storySpecs, isA<List<dynamic>>());
-      final storySpecsList = storySpecs as List<dynamic>;
+      final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
       expect(storySpecsList, isNotEmpty);
       final firstStorySpec = storySpecsList.first;
       expectStorySpecShape(firstStorySpec);
@@ -533,14 +531,16 @@ void main() {
         },
         data: {
           'project_index': {'framework': 'markdown', 'project_root': fixtureDir},
-          'story_specs': [
-            {
-              'id': 'S01',
-              'title': 'Create isolation review note',
-              'acceptance_criteria': ['Create the note exactly once'],
-              'spec': 'Create notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
-            },
-          ],
+          'story_specs': {
+            'items': [
+              {
+                'id': 'S01',
+                'title': 'Create isolation review note',
+                'acceptance_criteria': ['Create the note exactly once'],
+                'spec': 'Create notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
+              },
+            ],
+          },
           'implement.story_result':
               'Implemented notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
           'verify-refine.validation_summary': 'Validation passed with no automated findings.',

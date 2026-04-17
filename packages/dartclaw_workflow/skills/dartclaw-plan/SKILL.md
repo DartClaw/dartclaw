@@ -8,7 +8,7 @@ argument-hint: "[Specs directory or requirements source]"
 
 Transform requirements into lightweight implementation plan with story breakdown. If a PRD already exists, starts from that. If prior artifacts exist (e.g., `requirements-clarification.md` or a draft PRD), uses them as the basis for PRD creation without re-doing discovery. If nothing exists, performs headless requirements synthesis to create a PRD first. Use interactive clarification only when the user explicitly wants it or when the input is too ambiguous to support any defensible plan.
 
-Stories are scoped and sequenced but NOT fully specified - generate detailed specs later via `dartclaw-spec` (manual per-story flow) or `dartclaw-spec-plan` (batch generation for `exec-plan`).
+Stories are scoped and sequenced but NOT fully specified - generate detailed specs later via the `dartclaw-spec` skill (manual per-story flow) or the `dartclaw-spec-plan` skill (batch generation for `exec-plan`).
 
 **Philosophy**: Detailed specs decay quickly. This command creates just enough structure to sequence work and track progress, while deferring detailed specification to implementation time.
 
@@ -34,11 +34,11 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 
 - **Make sure `INPUT` is provided** - otherwise stop and ask user for input
 - Read the Development and Architecture guidelines referenced in the project's CLAUDE.md / AGENTS.md before planning.
-- **Orchestrate, don't do everything yourself** - Delegate research, analysis, and exploration to sub-agents _(if supported by your coding agent)_ (see Workflow below)
+- **Orchestrate, don't do everything yourself** - Delegate research, analysis, and exploration to `general-purpose` sub-agents _(if supported by your coding agent)_ (see Workflow below). Sub-agent prompts may invoke skills via slash commands (e.g. `/dartclaw-spec`); they must NOT pass `dartclaw-*` names as `subagent_type` — none of the `dartclaw-*` identifiers are valid agent types.
 - **Lightweight planning** - Stories define scope, not implementation details
 - **No over-engineering** - Minimum stories to cover requirements
 - **Progressive implementation** - Organize into logical phases (examples provided are templates, adapt to project)
-- **Deferred specification** - Detailed specs come later via `dartclaw-spec` or `dartclaw-spec-plan`
+- **Deferred specification** - Detailed specs come later via the `dartclaw-spec` skill or the `dartclaw-spec-plan` skill
 - **Headless-first planning** - Unless the user explicitly asked for interactive discovery, continue to completion without pausing for routine clarification. Make reasonable assumptions, document them explicitly, and surface unresolved questions in the output artifacts instead of blocking.
 - **Stop only on true contract failures** - Missing required input, incompatible typed artifacts, or ambiguity so severe that no defensible PRD/plan can be produced are valid stop conditions. Ordinary requirement gaps are not.
 - **Focus on "what" not "how"** - Requirements, not implementation details
@@ -46,7 +46,7 @@ OUTPUT_DIR: `INPUT` (if directory), or parent directory of `INPUT` (if file is a
 - **Document decisions** - Record rationale, trade-offs, alternatives considered
 
 ### Workflow-Step Mode
-When invoked as a workflow step (detectable via the `## Workflow Output Contract` section appended to the prompt, or a project index handoff from `dartclaw-discover-project`), return the requested artifacts inline through the workflow output contract only. If the contract requests both `prd` and `stories`, include both: `prd` as the synthesized PRD text and `stories` as the structured implementation plan. Do not write `prd.md` or `plan.md` to disk — the workflow engine captures step output through `contextOutputs`. Standalone file-writing behavior is preserved for direct invocation.
+When invoked as a workflow step (detectable via the `## Workflow Output Contract` section appended to the prompt, or a project index handoff from the `dartclaw-discover-project` skill), return the requested artifacts inline through the workflow output contract only. If the contract requests both `prd` and `stories`, include both: `prd` as the synthesized PRD text and `stories` as the structured implementation plan. Do not write `prd.md` or `plan.md` to disk — the workflow engine captures step output through `contextOutputs`. Standalone file-writing behavior is preserved for direct invocation.
 
 
 ## GOTCHAS
@@ -63,7 +63,7 @@ When invoked as a workflow step (detectable via the `## Workflow Output Contract
 ### 1. Input Validation & PRD Detection
 
 1. **Parse INPUT** - Determine type:
-   - **`--issue` flag or GitHub URL**: follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and treat as local plan directory). Route: `fis-bundle` → `dartclaw-exec-spec`; `*-review` → `dartclaw-remediate-findings`; other typed → stop with redirect. Untyped issues: accept as requirements input, store issue number. → proceed to Step 1b
+   - **`--issue` flag or GitHub URL**: follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and treat as local plan directory). Route: `fis-bundle` → invoke the `dartclaw-exec-spec` skill; `*-review` → invoke the `dartclaw-remediate-findings` skill; other typed → stop with redirect. Untyped issues: accept as requirements input, store issue number. → proceed to Step 1b
    - **Directory with PRD**: `INPUT` is a directory containing `prd.md` → proceed to Step 2
    - **Directory with prior artifacts**: `INPUT` is a directory containing `requirements-clarification.md` (from earlier clarification work) and/or a draft PRD (`prd-draft.md`), but no finalized `prd.md` → proceed to Step 1c
    - **File path**: Read file. If it is a prior artifact (`prd-draft.md` or `requirements-clarification.md`) → proceed to Step 1c. Otherwise → proceed to Step 1b
@@ -107,7 +107,7 @@ Save as `OUTPUT_DIR/<feature-name>/prd.md`. Apply MoSCoW + P0/P1/P2 prioritizati
 - [ ] Every feature has defined error handling; NFRs have clear thresholds
 - [ ] No ambiguous terms without definitions; all assumptions documented
 
-Optional: Invoke the `dartclaw-review --doc-only` skill to validate the PRD before finalizing.
+Optional: Invoke the `dartclaw-review` skill with `--doc-only` to validate the PRD before finalizing.
 
 **Gate**: PRD created → continue to Step 2
 
@@ -129,7 +129,7 @@ Use existing artifacts (`requirements-clarification.md` and/or `prd-draft.md`) a
 
 > **Hard gate**: Verify `prd.md` exists in OUTPUT_DIR. If missing, go back to Step 1c.
 
-Delegate codebase exploration to a sub-agent to keep context lean. Read `State` and `Ubiquitous Language` documents (see **Project Document Index**) if they exist — use for story priorities and canonical terms.
+Delegate codebase exploration to a `general-purpose` sub-agent to keep context lean. Read `State` and `Ubiquitous Language` documents (see **Project Document Index**) if they exist — use for story priorities and canonical terms.
 
 Synthesize: PRD requirements, MVP scope, success criteria, prioritization (P0/P1/P2), implementation boundaries, dependencies, and complexity/risk areas.
 
@@ -171,8 +171,8 @@ For each story, define:
 - **ID**: Sequential identifier (S01, S02, etc.)
 - **Name**: Brief descriptive name
 - **Status**: Tracking field – initially `Pending` (updated to `Spec Ready` / `In Progress` / `Done` during execution)
-- **FIS**: Reference to generated spec – initially `–` (updated to file path when `dartclaw-spec` creates the FIS). Multiple stories may reference the same FIS path when grouped into a composite specification by `dartclaw-spec-plan`
-- **Scope**: 2-4 sentences – what's included and excluded (no implementation approach – that's for `dartclaw-spec`)
+- **FIS**: Reference to generated spec – initially `–` (updated to file path when the `dartclaw-spec` skill creates the FIS). Multiple stories may reference the same FIS path when grouped into a composite specification by the `dartclaw-spec-plan` skill
+- **Scope**: 2-4 sentences – what's included and excluded (no implementation approach – that's for the `dartclaw-spec` skill)
 - **Acceptance criteria**: 3-6 testable outcomes – the first 2-3 should be must-be-TRUE observable truths from goal-backward analysis; remaining items are supplementary verification points
 - **Key Scenarios** _(optional)_: 2-3 one-line behavioral seeds (happy path, edge case, error). Skip for structural stories
 - **Dependencies**: Other story IDs that must complete first
@@ -182,7 +182,7 @@ For each story, define:
 - **Risk**: Low/Medium/High with brief note if Medium+
 - **Provenance** _(if carried forward)_, **Asset refs**: Include when applicable — provenance for stories without PRD coverage, asset refs for relevant wireframes/ADRs
 
-**Do NOT include in stories** (these are deferred to `dartclaw-spec`; save to `technical-research.md` if discovered during analysis):
+**Do NOT include in stories** (these are deferred to the `dartclaw-spec` skill; save to `technical-research.md` if discovered during analysis):
 - Technical approach, patterns, or library choices
 - File paths, line numbers, or code specifics
 - Implementation gotchas or constraints with workarounds
@@ -200,7 +200,7 @@ Preserve heading names, Story Catalog columns, and story metadata labels — dow
 **Gate**: Plan document complete
 
 #### Initialize Project State (if `State` document exists; see **Project Document Index**)
-Update via `dartclaw-update-state`: set phase to `"Phase 1: {first_phase_name}"`, status to `"On Track"`, note to `"Plan created: {plan_name} ({N} stories, {M} phases)"`. If no State document exists, suggest creating it in follow-up actions.
+Update via the `dartclaw-update-state` skill: set phase to `"Phase 1: {first_phase_name}"`, status to `"On Track"`, note to `"Plan created: {plan_name} ({N} stories, {M} phases)"`. If no State document exists, suggest creating it in follow-up actions.
 
 
 ### 5. Validation
@@ -212,7 +212,7 @@ Update via `dartclaw-update-state`: set phase to `"Phase 1: {first_phase_name}"`
 - [ ] Risk areas identified; cross-cutting concerns covered (auth, logging, errors)
 - [ ] Not over-granular (combined where sensible)
 
-Optional: Invoke the `dartclaw-review --doc-only` skill to validate the plan for requirements coverage and story scope clarity.
+Optional: Invoke the `dartclaw-review` skill with `--doc-only` to validate the plan for requirements coverage and story scope clarity.
 
 **Gate**: Validation complete
 

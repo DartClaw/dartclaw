@@ -7,13 +7,13 @@ argument-hint: "[Requirements baseline: plan/spec/PRD/issue/directory/URL] [--in
 
 Compare the current implementation in the workspace against requirements, then produce a remediation-focused report. The target is always the implementation, not the requirements document itself.
 
-Most users should start with `dartclaw-review`. Use this skill directly when the question is explicitly whether an implementation matches its requirements baseline.
+Most users should start with the `dartclaw-review` skill. Use this skill directly when the question is explicitly whether an implementation matches its requirements baseline.
 
 ## VARIABLES
 ADDITIONAL_CONTEXT: $ARGUMENTS
 
 ### Optional Output Flags
-- `--inline-findings` → return findings and PASS/FAIL verdict inline and skip report-file output (for delegated use by `dartclaw-review`)
+- `--inline-findings` → return findings and PASS/FAIL verdict inline and skip report-file output (for delegated use by the `dartclaw-review` skill)
 - `--to-issue` → PUBLISH_ISSUE
 - `--to-pr <number>` → PUBLISH_PR
 
@@ -42,7 +42,7 @@ ADDITIONAL_CONTEXT: $ARGUMENTS
 #### Requirements Discovery
 When `ADDITIONAL_CONTEXT` is a directory path or a plan file, discover the full requirements baseline rather than treating the single input as the only source.
 
-**GitHub issue or URL** — follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and continue as directory/plan input), `fis-bundle` (extract and continue as specific FIS input). Route: `*-review` → `dartclaw-remediate-findings`; other typed → stop with redirect. Untyped: use as-is without further discovery.
+**GitHub issue or URL** — follow `../references/resolve-github-input.md`. Compatible types: `plan-bundle` (extract and continue as directory/plan input), `fis-bundle` (extract and continue as specific FIS input). Route: `*-review` → invoke the `dartclaw-remediate-findings` skill; other typed → stop with redirect. Untyped: use as-is without further discovery.
 
 **Directory path** — search the directory (and its parent, for cases where a subdirectory like `fis/` is given) for:
 - `plan.md` — the implementation plan with story breakdown

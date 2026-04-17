@@ -1,6 +1,6 @@
 # FIS Authoring Guidelines
 
-Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by `spec` (standalone) and `spec-plan` (batch sub-agents).
+Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by the `dartclaw-spec` skill (standalone) and the `dartclaw-spec-plan` skill (batch sub-agents).
 
 
 ## FIS Authoring Principles
@@ -136,4 +136,4 @@ Rate your FIS 1-10 for single-pass implementation success:
 
 **If score <7**: Revise or ask for user clarification.
 
-**If score <7 AND FIS exceeds size thresholds**: the feature is likely too large for a single spec. Recommend `dartclaw-plan` for story decomposition before proceeding.
+**If score <7 AND FIS exceeds size thresholds**: the feature is likely too large for a single spec. Recommend the `dartclaw-plan` skill for story decomposition before proceeding.

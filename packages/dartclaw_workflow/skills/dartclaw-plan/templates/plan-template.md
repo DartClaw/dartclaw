@@ -111,10 +111,10 @@ W3: S05
 2. For each story ready to implement:
    - Run the `dartclaw-spec` skill using the story scope from this plan.
    - Update the story `**FIS**` field with the generated spec path and set `**Status**` to `Spec Ready`.
-   - Run `dartclaw-exec-spec` on the generated FIS.
+   - Run the `dartclaw-exec-spec` skill on the generated FIS.
    - When implementation starts, set `**Status**` to `In Progress`.
    - After implementation and review, check off completed acceptance criteria and set `**Status**` to `Done`.
 3. Stories marked `[P]` may run in parallel after dependencies are satisfied.
-4. After the plan is complete, run `dartclaw-review --gap-only` against `plan.md`.
+4. After the plan is complete, run the `dartclaw-review` skill with `--gap-only` against `plan.md`.
 
 > **Status tracking**: Keep the Story Catalog table and the Phase Breakdown story sections in sync. Plan-execution and state-update flows rely on these fields for progress tracking.

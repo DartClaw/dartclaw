@@ -67,8 +67,10 @@ Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
     return WorkflowGitPromotionError(error.toString());
   }
 
+  final integrationWorktreeDir =
+      await _findWorktreePathForBranch(projectDir: projectDir, branch: integrationBranch) ?? projectDir;
   final mergeExecutor = MergeExecutor(
-    projectDir: projectDir,
+    projectDir: integrationWorktreeDir,
     defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
   );
   final mergeResult = await mergeExecutor.merge(

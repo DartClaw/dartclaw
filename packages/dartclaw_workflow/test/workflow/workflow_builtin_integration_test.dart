@@ -428,11 +428,10 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(
-      trace.tasksForStep('spec').single.projectId,
-      'demo-project',
-    ); // inherits via continueSession: discover-project
-    expect(trace.tasksForStep('revise-spec').single.projectId, 'demo-project'); // inherits via continueSession: spec
+    expect(trace.tasksForStep('spec').single.projectId, isNull);
+    expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('revise-spec').single.projectId, isNull);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
@@ -974,21 +973,18 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(
-      trace.tasksForStep('plan').single.projectId,
-      'demo-project',
-    ); // inherits via continueSession: discover-project
-    expect(trace.tasksForStep('revise-plan').single.projectId, 'demo-project'); // inherits via continueSession: plan
-    expect(
-      trace.tasksForStep('spec-plan').single.projectId,
-      'demo-project',
-    ); // inherits via continueSession: revise-plan
+    expect(trace.tasksForStep('plan').single.projectId, isNull);
+    expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('revise-plan').single.projectId, isNull);
+    expect(trace.tasksForStep('spec-plan').single.projectId, isNull);
+    expect(trace.tasksForStep('spec-plan').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('spec-plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
-    expect(
-      trace.tasksForStep('quick-review').single.projectId,
-      'demo-project',
-    ); // inherits via continueSession: verify-refine
+    expect(trace.tasksForStep('quick-review').single.projectId, isNull);
+    expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, isNull);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
@@ -1367,10 +1363,9 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
-    expect(
-      trace.tasksForStep('review-code').single.projectId,
-      'demo-project',
-    ); // inherits via continueSession: discover-project
+    expect(trace.tasksForStep('review-code').single.projectId, isNull);
+    expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('verify-refine'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);

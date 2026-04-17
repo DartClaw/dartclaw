@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
 import 'package:logging/logging.dart';
@@ -35,10 +36,11 @@ class WorkflowCliTurnResult {
   final int outputTokens;
   final int cacheReadTokens;
   final int cacheWriteTokens;
+  final int newInputTokens;
   final double? totalCostUsd;
   final Duration duration;
 
-  const WorkflowCliTurnResult({
+  WorkflowCliTurnResult({
     required this.providerSessionId,
     required this.responseText,
     this.structuredOutput,
@@ -46,9 +48,10 @@ class WorkflowCliTurnResult {
     this.outputTokens = 0,
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
+    int? newInputTokens,
     this.totalCostUsd,
     this.duration = Duration.zero,
-  });
+  }) : newInputTokens = newInputTokens ?? math.max(0, inputTokens - cacheReadTokens);
 }
 
 class WorkflowCliRunner {
@@ -276,7 +279,10 @@ class WorkflowCliRunner {
       args.addAll(['resume', providerSessionId]);
     }
     args.add(prompt);
-    return _WorkflowCliCommand((providers['codex']!.executable, args), tempSchemaPath: schemaPath);
+    return _WorkflowCliCommand(
+      (providers['codex']!.executable, args),
+      tempSchemaPath: schemaPath,
+    );
   }
 
   WorkflowCliTurnResult _parseClaude(String stdout, {required Duration fallbackDuration}) {
@@ -326,10 +332,10 @@ class WorkflowCliRunner {
         case 'turn.completed':
           final usage = event['usage'];
           if (usage is Map<String, dynamic>) {
-            inputTokens += (usage['input_tokens'] as num?)?.toInt() ?? 0;
-            outputTokens += (usage['output_tokens'] as num?)?.toInt() ?? 0;
-            cacheReadTokens += (usage['cache_read_tokens'] as num?)?.toInt() ?? 0;
-            cacheWriteTokens += (usage['cache_write_tokens'] as num?)?.toInt() ?? 0;
+            inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? inputTokens;
+            outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? outputTokens;
+            cacheReadTokens = (usage['cache_read_tokens'] as num?)?.toInt() ?? cacheReadTokens;
+            cacheWriteTokens = (usage['cache_write_tokens'] as num?)?.toInt() ?? cacheWriteTokens;
           }
       }
     }

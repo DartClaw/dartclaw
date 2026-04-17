@@ -33,6 +33,7 @@ export 'src/task_event.dart'
         StatusChanged,
         ToolCalled,
         ArtifactCreated,
+        StructuredOutputInlineUsed,
         StructuredOutputFallbackUsed,
         PushBack,
         TokenUpdate,

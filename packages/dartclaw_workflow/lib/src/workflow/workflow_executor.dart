@@ -39,7 +39,6 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         atomicWriteJson;
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
-import 'package:dartclaw_models/dartclaw_models.dart' show OutputMode;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -147,10 +146,7 @@ class WorkflowExecutor {
     if (keys.isEmpty) return const {};
     final perDefinition = _inputConfigCache[definition] ??= <String, Map<String, OutputConfig>>{};
     final cacheKey = keys.join('\x00');
-    return perDefinition.putIfAbsent(
-      cacheKey,
-      () => SkillPromptBuilder.collectInputConfigs(definition.steps, keys),
-    );
+    return perDefinition.putIfAbsent(cacheKey, () => SkillPromptBuilder.collectInputConfigs(definition.steps, keys));
   }
 
   WorkflowExecutor({
@@ -1376,10 +1372,9 @@ class WorkflowExecutor {
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
     final contextSummary = step.skill != null && resolvedFirstPrompt == null
-        ? SkillPromptBuilder.formatContextSummary(
-            {for (final key in step.contextInputs) key: context[key] ?? ''},
-            outputConfigs: _inputConfigsFor(definition, step.contextInputs),
-          )
+        ? SkillPromptBuilder.formatContextSummary({
+            for (final key in step.contextInputs) key: context[key] ?? '',
+          }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
         : null;
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
 
@@ -1481,6 +1476,7 @@ class WorkflowExecutor {
     if (structuredSchema != null) {
       WorkflowTaskConfig.writeStructuredSchema(taskConfig, structuredSchema);
     }
+    WorkflowTaskConfig.writeWorkflowStepId(taskConfig, step.id);
 
     try {
       await _taskService.create(
@@ -2483,10 +2479,9 @@ class WorkflowExecutor {
             ? _templateEngine.resolveWithMap(rawPrompt, context, mapContext)
             : null;
         final contextSummary = step.skill != null && resolvedPrompt == null
-            ? SkillPromptBuilder.formatContextSummary(
-                {for (final key in step.contextInputs) key: context[key] ?? ''},
-                outputConfigs: _inputConfigsFor(definition, step.contextInputs),
-              )
+            ? SkillPromptBuilder.formatContextSummary({
+                for (final key in step.contextInputs) key: context[key] ?? '',
+              }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
             : null;
         final effectiveOutputs = step.outputs;
         final iterPrompt = _skillPromptBuilder.build(

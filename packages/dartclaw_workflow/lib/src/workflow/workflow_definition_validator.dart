@@ -801,12 +801,18 @@ class WorkflowDefinitionValidator {
     List<ValidationError> errors,
     List<ValidationError> warnings,
   ) {
+    final descriptionsByOutput = <String, List<(String, String)>>{};
+
     for (final step in definition.steps) {
       if (step.outputs == null) continue;
 
       for (final entry in step.outputs!.entries) {
         final key = entry.key;
         final config = entry.value;
+        final description = config.description?.trim();
+        if (description != null && description.isNotEmpty) {
+          descriptionsByOutput.putIfAbsent(key, () => <(String, String)>[]).add((step.id, description));
+        }
 
         // Non-null but whitespace-only description is always an authoring
         // mistake — either provide content or omit the key.
@@ -928,6 +934,20 @@ class WorkflowDefinitionValidator {
           }
         }
       }
+    }
+
+    for (final entry in descriptionsByOutput.entries) {
+      final uniqueDescriptions = entry.value.map((item) => item.$2).toSet();
+      if (uniqueDescriptions.length < 2) continue;
+      final producers = entry.value.map((item) => item.$1).join(', ');
+      warnings.add(
+        ValidationError(
+          message:
+              'Output "${entry.key}" is produced by multiple steps with different descriptions '
+              '($producers). The first producer wins in context-summary rendering.',
+          type: ValidationErrorType.contextInconsistency,
+        ),
+      );
     }
   }
 

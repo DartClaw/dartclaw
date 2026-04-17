@@ -1,4 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -139,8 +140,30 @@ void main() {
     });
 
     test('returns null when value is not a string', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.continueProviderSessionId: ['a']};
+      final cfg = <String, dynamic>{
+        WorkflowTaskConfig.continueProviderSessionId: ['a'],
+      };
       expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), isNull);
+    });
+  });
+
+  group('WorkflowTaskConfig logging', () {
+    test('readContinueProviderSessionId logs at fine on malformed shape', () async {
+      final records = <LogRecord>[];
+      final sub = Logger('WorkflowTaskConfig').onRecord.listen(records.add);
+      hierarchicalLoggingEnabled = true;
+      Logger('WorkflowTaskConfig').level = Level.FINE;
+      addTearDown(() async {
+        await sub.cancel();
+        Logger('WorkflowTaskConfig').level = null;
+      });
+
+      final cfg = <String, dynamic>{WorkflowTaskConfig.continueProviderSessionId: 42};
+      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), isNull);
+      expect(records, hasLength(1));
+      expect(records.single.level, Level.FINE);
+      expect(records.single.message, contains('unexpected shape'));
+      expect(records.single.message, contains('int'));
     });
   });
 
@@ -172,7 +195,10 @@ void main() {
 
     test('writeStructuredSchema round-trips through readStructuredSchema', () {
       final cfg = <String, dynamic>{};
-      final schema = <String, dynamic>{'type': 'object', 'required': ['x']};
+      final schema = <String, dynamic>{
+        'type': 'object',
+        'required': ['x'],
+      };
       WorkflowTaskConfig.writeStructuredSchema(cfg, schema);
       expect(WorkflowTaskConfig.readStructuredSchema(cfg), schema);
     });
@@ -181,6 +207,22 @@ void main() {
       final cfg = <String, dynamic>{};
       WorkflowTaskConfig.writeContinueProviderSessionId(cfg, 'prev-xyz');
       expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), 'prev-xyz');
+    });
+
+    test('writeWorkflowStepId round-trips through readWorkflowStepId', () {
+      final cfg = <String, dynamic>{};
+      WorkflowTaskConfig.writeWorkflowStepId(cfg, 'quick-review');
+      expect(WorkflowTaskConfig.readWorkflowStepId(cfg), 'quick-review');
+    });
+
+    test('token metric writers round-trip through their readers', () {
+      final cfg = <String, dynamic>{};
+      WorkflowTaskConfig.writeInputTokensNew(cfg, 123);
+      WorkflowTaskConfig.writeCacheReadTokens(cfg, 456);
+      WorkflowTaskConfig.writeOutputTokens(cfg, 78);
+      expect(WorkflowTaskConfig.readInputTokensNew(cfg), 123);
+      expect(WorkflowTaskConfig.readCacheReadTokens(cfg), 456);
+      expect(WorkflowTaskConfig.readOutputTokens(cfg), 78);
     });
   });
 }

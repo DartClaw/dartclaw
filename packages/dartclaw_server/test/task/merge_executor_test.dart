@@ -197,6 +197,60 @@ void main() {
       expect(gitArgs.last, 'stash pop');
     });
 
+    test('stash pop "already exists" overlap drops the stash entry', () async {
+      // Repro for the map/fan-in case: stashed untracked files collide with
+      // the merge-introduced files. `git stash pop` fails and leaves the stash
+      // in place unless we drop it.
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['rev-parse HEAD'] = pr('original-sha\n');
+      responses['rev-parse --abbrev-ref HEAD'] = pr('integration\n');
+      responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
+      responses['checkout main'] = pr('');
+      responses['merge --squash dartclaw/task-t1'] = pr('');
+      responses['commit -m task(t1): Fix bug'] = pr('');
+      responses['checkout integration'] = pr('');
+      responses['stash pop'] = pr(
+        '',
+        exitCode: 1,
+        stderr:
+            'notes/e2e-plan-a.md already exists, no checkout\n'
+            'notes/e2e-plan-b.md already exists, no checkout\n',
+      );
+      responses['stash drop'] = pr('Dropped refs/stash@{0}\n');
+
+      await executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug');
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('stash pop'));
+      expect(gitArgs, contains('stash drop'));
+      // Drop must follow pop, not precede it.
+      expect(gitArgs.indexOf('stash drop'), greaterThan(gitArgs.indexOf('stash pop')));
+    });
+
+    test('stash pop failure for unrelated reason keeps the stash entry', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['rev-parse HEAD'] = pr('original-sha\n');
+      responses['rev-parse --abbrev-ref HEAD'] = pr('main\n');
+      responses['stash --include-untracked'] = pr('Saved working directory and index state\n');
+      responses['checkout main'] = pr('');
+      responses['merge --squash dartclaw/task-t1'] = pr('');
+      responses['commit -m task(t1): Fix bug'] = pr('');
+      responses['checkout main'] = pr('');
+      responses['stash pop'] = pr(
+        '',
+        exitCode: 1,
+        stderr: 'CONFLICT (content): Merge conflict in lib/main.dart\n',
+      );
+
+      await executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug');
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('stash pop'));
+      expect(gitArgs, isNot(contains('stash drop')));
+    });
+
     test('no stash pop when there were no uncommitted changes', () async {
       executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
 

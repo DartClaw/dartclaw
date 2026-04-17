@@ -11,6 +11,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ProjectStatusChangedEvent,
         PushBack,
         StatusChanged,
+        StructuredOutputInlineUsed,
         StructuredOutputFallbackUsed,
         TaskErrorEvent,
         TaskEventCreatedEvent,
@@ -270,6 +271,10 @@ String _compactEventText(TaskEventKind kind, Map<String, dynamic> details) {
       maxLength: 80,
     ),
     ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    StructuredOutputInlineUsed() => truncate(
+      'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     StructuredOutputFallbackUsed() => truncate(
       'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
       80,

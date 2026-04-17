@@ -72,6 +72,7 @@ void main() {
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
     WorkflowCliRunner? workflowCliRunner,
+    TaskEventRecorder? eventRecorder,
     Duration pollInterval = const Duration(milliseconds: 10),
   }) {
     final namedArgs = <Symbol, dynamic>{
@@ -90,6 +91,9 @@ void main() {
     }
     if (workflowCliRunner != null) {
       namedArgs[#workflowCliRunner] = workflowCliRunner;
+    }
+    if (eventRecorder != null) {
+      namedArgs[#eventRecorder] = eventRecorder;
     }
     return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
   }
@@ -255,6 +259,196 @@ void main() {
     expect(updated?.status, TaskStatus.review);
     expect(updated?.configJson['_workflowProviderSessionId'], 'cli-session-1');
     expect(updated?.configJson['_workflowStructuredOutputPayload'], isA<Map<Object?, Object?>>());
+  });
+
+  test('workflow oneshot short-circuits extraction when inline <workflow-context> is valid', () async {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['verdict'],
+      'properties': {
+        'verdict': {
+          'type': 'object',
+          'required': ['pass'],
+          'properties': {
+            'pass': {'type': 'boolean'},
+          },
+        },
+      },
+    };
+    final inlinePayload = <String, dynamic>{
+      'verdict': {'pass': true},
+    };
+    final capturedArgs = <List<String>>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        capturedArgs.add(List<String>.from(args));
+        final payload = jsonEncode({
+          'session_id': 'cli-session-inline',
+          'result': 'Working...\n<workflow-context>\n${jsonEncode(inlinePayload)}\n</workflow-context>',
+        });
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+
+    final inlineExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(inlineExecutor.stop);
+
+    await tasks.create(
+      id: 'task-inline',
+      title: 'Inline short-circuit',
+      description: 'Main turn emits a valid workflow-context block.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'wf-inline',
+      configJson: {
+        '_workflowStepType': 'coding',
+        '_workflowStepId': 'plan',
+        '_workflowStructuredSchema': schema,
+      },
+      provider: 'claude',
+    );
+
+    await inlineExecutor.pollOnce();
+
+    expect(capturedArgs, hasLength(1), reason: 'extraction turn must be skipped when inline is valid');
+    final updated = await tasks.get('task-inline');
+    expect(updated?.configJson['_workflowStructuredOutputPayload'], inlinePayload);
+    final events = eventService.listForTask('task-inline');
+    final inlineEvents = events.where((e) => e.kind.name == 'structuredOutputInlineUsed').toList();
+    expect(inlineEvents, hasLength(1));
+    expect(inlineEvents.single.details['stepId'], 'plan');
+    expect(inlineEvents.single.details['outputKey'], 'verdict');
+    expect(events.any((e) => e.kind.name == 'structuredOutputFallbackUsed'), isFalse);
+  });
+
+  test('workflow oneshot runs extraction turn when inline <workflow-context> is missing', () async {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['verdict'],
+      'properties': {
+        'verdict': {
+          'type': 'object',
+          'required': ['pass'],
+          'properties': {
+            'pass': {'type': 'boolean'},
+          },
+        },
+      },
+    };
+    final capturedArgs = <List<String>>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        capturedArgs.add(List<String>.from(args));
+        final payload = args.contains('--json-schema')
+            ? jsonEncode({
+                'session_id': 'cli-session-extract',
+                'structured_output': {
+                  'verdict': {'pass': false},
+                },
+              })
+            : jsonEncode({'session_id': 'cli-session-extract', 'result': 'Analysis without any context block.'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final eventDb = openTaskDbInMemory();
+    addTearDown(eventDb.close);
+    final eventService = TaskEventService(eventDb);
+    final recorder = TaskEventRecorder(eventService: eventService);
+
+    final fallbackExecutor = buildExecutor(workflowCliRunner: cliRunner, eventRecorder: recorder);
+    addTearDown(fallbackExecutor.stop);
+
+    await tasks.create(
+      id: 'task-fallback',
+      title: 'Extraction fallback',
+      description: 'Main turn has no workflow-context block.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'wf-fallback',
+      configJson: {
+        '_workflowStepType': 'coding',
+        '_workflowStepId': 'plan',
+        '_workflowStructuredSchema': schema,
+      },
+      provider: 'claude',
+    );
+
+    await fallbackExecutor.pollOnce();
+
+    expect(capturedArgs, hasLength(2), reason: 'extraction turn must run when inline is missing');
+    final updated = await tasks.get('task-fallback');
+    expect(updated?.configJson['_workflowStructuredOutputPayload'], {
+      'verdict': {'pass': false},
+    });
+    final events = eventService.listForTask('task-fallback');
+    expect(events.any((e) => e.kind.name == 'structuredOutputInlineUsed'), isFalse);
+  });
+
+  test('workflow oneshot extraction turn receives appendSystemPrompt: null even when main turn received it', () async {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['verdict'],
+      'properties': {
+        'verdict': {
+          'type': 'object',
+          'required': ['pass'],
+          'properties': {
+            'pass': {'type': 'boolean'},
+          },
+        },
+      },
+    };
+    final capturedArgs = <List<String>>[];
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        capturedArgs.add(List<String>.from(args));
+        final payload = args.contains('--json-schema')
+            ? jsonEncode({
+                'session_id': 'cli-session-append',
+                'structured_output': {
+                  'verdict': {'pass': true},
+                },
+              })
+            : jsonEncode({'session_id': 'cli-session-append', 'result': 'No context block here.'});
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
+      },
+    );
+    final appendExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(appendExecutor.stop);
+
+    await tasks.create(
+      id: 'task-append',
+      title: 'Extraction hygiene',
+      description: 'appendSystemPrompt must not leak into the extraction turn.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'wf-append',
+      configJson: {
+        '_workflowStepType': 'coding',
+        '_workflowStepId': 'plan',
+        '_workflowStructuredSchema': schema,
+        'appendSystemPrompt': 'PAYLOAD',
+      },
+      provider: 'claude',
+    );
+
+    await appendExecutor.pollOnce();
+
+    expect(capturedArgs, hasLength(2));
+    final mainArgs = capturedArgs[0];
+    final extractionArgs = capturedArgs[1];
+    final mainAppendIndex = mainArgs.indexOf('--append-system-prompt');
+    expect(mainAppendIndex, isNot(-1), reason: 'main turn must forward appendSystemPrompt');
+    expect(mainArgs[mainAppendIndex + 1], 'PAYLOAD');
+    expect(extractionArgs.contains('--append-system-prompt'), isFalse,
+        reason: 'extraction turn must not carry appendSystemPrompt');
   });
 
   test('invokes auto-accept callback with the task id after completion when provided', () async {

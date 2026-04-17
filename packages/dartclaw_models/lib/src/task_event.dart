@@ -11,6 +11,7 @@ sealed class TaskEventKind {
     'statusChanged' => const StatusChanged(),
     'toolCalled' => const ToolCalled(),
     'artifactCreated' => const ArtifactCreated(),
+    'structuredOutputInlineUsed' => const StructuredOutputInlineUsed(),
     'structuredOutputFallbackUsed' => const StructuredOutputFallbackUsed(),
     'pushBack' => const PushBack(),
     'tokenUpdate' => const TokenUpdate(),
@@ -39,6 +40,13 @@ final class ArtifactCreated extends TaskEventKind {
   @override
   String get name => 'artifactCreated';
   const ArtifactCreated();
+}
+
+/// Structured output was used directly from the inline workflow-context payload.
+final class StructuredOutputInlineUsed extends TaskEventKind {
+  @override
+  String get name => 'structuredOutputInlineUsed';
+  const StructuredOutputInlineUsed();
 }
 
 /// Structured-output extraction fell back to heuristic parsing.
@@ -87,6 +95,7 @@ final class Compaction extends TaskEventKind {
 /// - `statusChanged`: `{oldStatus, newStatus, trigger}`
 /// - `toolCalled`: `{name, success, durationMs, ?errorType, ?context}`
 /// - `artifactCreated`: `{name, kind}`
+/// - `structuredOutputInlineUsed`: `{stepId, outputKey}`
 /// - `structuredOutputFallbackUsed`: `{stepId, outputKey, failureReason, ?providerSubtype}`
 /// - `pushBack`: `{comment}`
 /// - `tokenUpdate`: `{inputTokens, outputTokens, ?cacheReadTokens, ?cacheWriteTokens}`

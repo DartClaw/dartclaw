@@ -57,6 +57,11 @@ class TaskEventRecorder {
     _record(taskId, const ArtifactCreated(), {'name': name, 'kind': kind});
   }
 
+  /// Records that structured output was promoted directly from inline workflow context.
+  void recordStructuredOutputInlineUsed(String taskId, {required String stepId, required String outputKey}) {
+    _record(taskId, const StructuredOutputInlineUsed(), {'stepId': stepId, 'outputKey': outputKey});
+  }
+
   /// Records that structured-output extraction fell back to heuristic parsing.
   void recordStructuredOutputFallbackUsed(
     String taskId, {

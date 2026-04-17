@@ -76,7 +76,6 @@ steps:
     name: Plan Stories
     type: analysis
     skill: dartclaw-plan
-    continueSession: discover-project
     contextInputs: [project_index]
     prompt: |
       <REQUIREMENTS>
@@ -139,7 +138,6 @@ steps:
     name: Spec and Plan Stories
     type: analysis
     skill: dartclaw-spec-plan
-    continueSession: revise-plan
     contextInputs: [project_index, prd, stories]
     prompt: |
       <project_index>
@@ -234,7 +232,6 @@ steps:
         name: Quick Review Story
         type: analysis
         skill: dartclaw-quick-review
-        continueSession: verify-refine
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
@@ -374,7 +371,6 @@ steps:
         name: Re-review After Remediation
         type: analysis
         skill: dartclaw-quick-review
-        continueSession: re-verify-refine
         prompt: |
           <project_index>
           {{context.project_index}}

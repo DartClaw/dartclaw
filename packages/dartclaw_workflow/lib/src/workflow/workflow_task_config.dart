@@ -1,3 +1,5 @@
+import 'package:logging/logging.dart';
+
 /// Shared `task.configJson` keys and typed accessors for the workflow
 /// one-shot execution path.
 ///
@@ -31,6 +33,8 @@
 /// corrupted persistent storage — a state in which a silent skip is safer
 /// than crashing one-shot execution.
 abstract final class WorkflowTaskConfig {
+  static final _log = Logger('WorkflowTaskConfig');
+
   // ── Key constants ─────────────────────────────────────────────────────────
 
   /// Multi-prompt follow-up list queued by the executor for the one-shot runner.
@@ -49,6 +53,18 @@ abstract final class WorkflowTaskConfig {
 
   /// Prior-step provider session id forwarded via `continueSession` chaining.
   static const continueProviderSessionId = '_continueProviderSessionId';
+
+  /// Authored workflow step id for one-shot task event attribution.
+  static const workflowStepId = '_workflowStepId';
+
+  /// Per-step incremental input token count excluding prompt-cache reads.
+  static const inputTokensNew = '_workflowInputTokensNew';
+
+  /// Per-step prompt-cache reads for one-shot workflow execution.
+  static const cacheReadTokens = '_workflowCacheReadTokens';
+
+  /// Per-step output tokens for one-shot workflow execution.
+  static const outputTokens = '_workflowOutputTokens';
 
   // ── Typed readers ─────────────────────────────────────────────────────────
 
@@ -88,20 +104,28 @@ abstract final class WorkflowTaskConfig {
   /// Reads [providerSessionId] as a trimmed non-empty string, or `null` when
   /// the key is absent, not a string, or whitespace-only.
   static String? readProviderSessionId(Map<String, dynamic> cfg) {
-    final raw = cfg[providerSessionId];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
+    return _readTrimmedString(cfg, providerSessionId);
   }
 
   /// Reads [continueProviderSessionId] as a trimmed non-empty string, or
   /// `null` when the key is absent, not a string, or whitespace-only.
   static String? readContinueProviderSessionId(Map<String, dynamic> cfg) {
-    final raw = cfg[continueProviderSessionId];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
+    return _readTrimmedString(cfg, continueProviderSessionId);
   }
+
+  /// Reads [workflowStepId] as a trimmed non-empty string.
+  static String? readWorkflowStepId(Map<String, dynamic> cfg) {
+    return _readTrimmedString(cfg, workflowStepId);
+  }
+
+  /// Reads [inputTokensNew] as a non-negative integer, defaulting to `0`.
+  static int readInputTokensNew(Map<String, dynamic> cfg) => _readInt(cfg, inputTokensNew);
+
+  /// Reads [cacheReadTokens] as a non-negative integer, defaulting to `0`.
+  static int readCacheReadTokens(Map<String, dynamic> cfg) => _readInt(cfg, cacheReadTokens);
+
+  /// Reads [outputTokens] as a non-negative integer, defaulting to `0`.
+  static int readOutputTokens(Map<String, dynamic> cfg) => _readInt(cfg, outputTokens);
 
   // ── Typed writers ─────────────────────────────────────────────────────────
   // Only the keys with actual write sites get writers. Adding a writer
@@ -132,5 +156,45 @@ abstract final class WorkflowTaskConfig {
   /// prior step's provider session id into the next task.
   static void writeContinueProviderSessionId(Map<String, dynamic> cfg, String id) {
     cfg[continueProviderSessionId] = id;
+  }
+
+  /// Writes [workflowStepId]. Mirrors [readWorkflowStepId]'s contract.
+  static void writeWorkflowStepId(Map<String, dynamic> cfg, String stepId) {
+    cfg[workflowStepId] = stepId;
+  }
+
+  /// Writes [inputTokensNew]. Mirrors [readInputTokensNew]'s contract.
+  static void writeInputTokensNew(Map<String, dynamic> cfg, int value) {
+    cfg[inputTokensNew] = value;
+  }
+
+  /// Writes [cacheReadTokens]. Mirrors [readCacheReadTokens]'s contract.
+  static void writeCacheReadTokens(Map<String, dynamic> cfg, int value) {
+    cfg[cacheReadTokens] = value;
+  }
+
+  /// Writes [outputTokens]. Mirrors [readOutputTokens]'s contract.
+  static void writeOutputTokens(Map<String, dynamic> cfg, int value) {
+    cfg[outputTokens] = value;
+  }
+
+  static String? _readTrimmedString(Map<String, dynamic> cfg, String keyName) {
+    final raw = cfg[keyName];
+    if (raw == null) return null;
+    if (raw is! String) {
+      _log.fine('$keyName had unexpected shape ${raw.runtimeType}; returning null');
+      return null;
+    }
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static int _readInt(Map<String, dynamic> cfg, String keyName) {
+    final raw = cfg[keyName];
+    return switch (raw) {
+      final int value when value >= 0 => value,
+      final num value when value >= 0 => value.toInt(),
+      _ => 0,
+    };
   }
 }

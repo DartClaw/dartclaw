@@ -320,6 +320,10 @@ Map<String, dynamic> _buildCompactEventViewModel(TaskEvent event) {
       maxLength: 80,
     ),
     ArtifactCreated() => truncate(details['name']?.toString() ?? '(artifact)', 80),
+    StructuredOutputInlineUsed() => truncate(
+      'Structured inline: ${details['outputKey']?.toString() ?? '(output)'}',
+      80,
+    ),
     StructuredOutputFallbackUsed() => truncate(
       'Structured fallback: ${details['outputKey']?.toString() ?? '(output)'}',
       80,

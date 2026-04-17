@@ -138,10 +138,34 @@ class MergeExecutor {
       if (didStash) {
         final popResult = await _git(['stash', 'pop']);
         if (popResult.exitCode != 0) {
-          _log.warning('Failed to restore stash: ${_stderr(popResult)}');
+          final popStderr = _stderr(popResult);
+          if (_isUntrackedOverlap(popStderr)) {
+            // The stash contained untracked files that the completed merge
+            // already materialised in the working tree (common in map/fan-in
+            // flows where each item adds the same generated file). `git stash
+            // pop` leaves the stash entry in place on failure, so drop it
+            // explicitly to avoid stash-list pollution across sequential merges.
+            _log.info(
+              'Stashed untracked files overlap with merge result for branch $branch; '
+              'dropping stash entry. Overlap: ${popStderr.trim()}',
+            );
+            final dropResult = await _git(['stash', 'drop']);
+            if (dropResult.exitCode != 0) {
+              _log.warning('Failed to drop stash after overlap: ${_stderr(dropResult)}');
+            }
+          } else {
+            _log.warning('Failed to restore stash: $popStderr');
+          }
         }
       }
     }
+  }
+
+  /// Detects git's "already exists, no checkout" stash-pop failure mode, which
+  /// means the stashed untracked files collided with files now present in the
+  /// working tree (typically because the just-completed merge introduced them).
+  static bool _isUntrackedOverlap(String stderr) {
+    return stderr.contains('already exists, no checkout');
   }
 
   Future<MergeResult> _squashMerge(String branch, String commitMessage) async {

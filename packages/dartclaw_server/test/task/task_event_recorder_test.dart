@@ -83,6 +83,16 @@ void main() {
     expect(events[0].details['kind'], 'diff');
   });
 
+  test('recordStructuredOutputInlineUsed inserts structuredOutputInlineUsed event', () {
+    recorder.recordStructuredOutputInlineUsed('task-4a', stepId: 'plan', outputKey: 'stories');
+
+    final events = eventService.listForTask('task-4a');
+    expect(events, hasLength(1));
+    expect(events[0].kind.name, 'structuredOutputInlineUsed');
+    expect(events[0].details['stepId'], 'plan');
+    expect(events[0].details['outputKey'], 'stories');
+  });
+
   test('recordStructuredOutputFallbackUsed inserts structuredOutputFallbackUsed event', () {
     recorder.recordStructuredOutputFallbackUsed(
       'task-4b',

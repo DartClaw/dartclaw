@@ -7,13 +7,15 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show MessageService, Task, WorkflowStepCompletedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show KvService, MessageService, Task, TaskEventCreatedEvent, WorkflowStepCompletedEvent;
 import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
         TaskStatus,
         TaskStatusChangedEvent,
+        WorkflowTaskConfig,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowService,
@@ -135,6 +137,14 @@ class WorkflowStepTrace {
   final String description;
   final TaskStatus terminalStatus;
   final int tokenCount;
+  // sessionTotalTokens mirrors session_cost:<sessionId>['total_tokens'],
+  // which TaskExecutor._trackWorkflowSessionUsage writes as input + output
+  // (excludes cache-read/write). step_delta_tokens is the per-step baseline-subtracted delta.
+  final int sessionTotalTokens;
+  final int stepDeltaTokens;
+  final int inputTokensNew;
+  final int cacheReadTokens;
+  final int outputTokens;
   final Map<String, dynamic> configJson;
   final Map<String, dynamic>? worktreeJson;
   final String? sessionId;
@@ -154,6 +164,11 @@ class WorkflowStepTrace {
     required this.description,
     required this.terminalStatus,
     required this.tokenCount,
+    required this.sessionTotalTokens,
+    required this.stepDeltaTokens,
+    required this.inputTokensNew,
+    required this.cacheReadTokens,
+    required this.outputTokens,
     required this.configJson,
     this.worktreeJson,
     this.sessionId,
@@ -171,6 +186,7 @@ class WorkflowExecutionRecorder {
   final TaskService _taskService;
   final MessageService _messageService;
   final WorkflowService _workflowService;
+  final KvService _kvService;
   final ContextExtractor _contextExtractor;
   final WorkflowDefinition _definition;
   final Directory _artifactDir;
@@ -182,14 +198,23 @@ class WorkflowExecutionRecorder {
 
   late final StreamSubscription<TaskStatusChangedEvent> _queuedSub;
   late final StreamSubscription<WorkflowStepCompletedEvent> _completedSub;
+  late final StreamSubscription<TaskEventCreatedEvent> _taskEventSub;
 
   final _pending = <String, WorkflowStepTrace>{};
+
+  // Per-task accumulator for TaskEvent rows so they land in the preserved
+  // per-step artifact alongside messages. The backing task_events.db lives
+  // inside the test's temp runtime directory and gets wiped in tearDown —
+  // without this capture, post-test inspection would have to infer event
+  // kinds from transcripts (S25 TI11 follow-up).
+  final Map<String, List<Map<String, dynamic>>> _taskEventsByTaskId = {};
 
   WorkflowExecutionRecorder(
     this._eventBus,
     this._taskService,
     this._messageService,
     this._workflowService,
+    this._kvService,
     this._definition, {
     required Directory artifactDir,
     required String dataDir,
@@ -202,6 +227,15 @@ class WorkflowExecutionRecorder {
        _log = Logger('E2E.StepArtifacts');
 
   void start() {
+    _taskEventSub = _eventBus.on<TaskEventCreatedEvent>().listen((event) {
+      _taskEventsByTaskId.putIfAbsent(event.taskId, () => []).add({
+        'eventId': event.eventId,
+        'kind': event.kind,
+        'details': event.details,
+        'timestamp': event.timestamp.toIso8601String(),
+      });
+    });
+
     _queuedSub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
@@ -228,6 +262,11 @@ class WorkflowExecutionRecorder {
         description: task.description,
         terminalStatus: TaskStatus.queued,
         tokenCount: 0,
+        sessionTotalTokens: 0,
+        stepDeltaTokens: 0,
+        inputTokensNew: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
         configJson: Map<String, dynamic>.from(task.configJson),
         worktreeJson: task.worktreeJson,
         contextInputs: contextInputs,
@@ -243,6 +282,7 @@ class WorkflowExecutionRecorder {
       final task = await _taskService.get(event.taskId);
       if (task == null) return;
       final sessionId = task.sessionId;
+      final sessionCost = sessionId == null ? const <String, dynamic>{} : await _readSessionCost(sessionId);
       String? lastUserMessage;
       String? lastAssistantMessage;
       List<Map<String, dynamic>> persistedMessages = const [];
@@ -284,18 +324,26 @@ class WorkflowExecutionRecorder {
         stepId: event.stepId,
       );
 
+      final taskEvents = List<Map<String, dynamic>>.unmodifiable(_taskEventsByTaskId[task.id] ?? const []);
+
       await _writeArtifact(
         pending: pending,
         task: task,
         stepName: event.stepName,
         terminalStatus: task.status,
         tokenCount: event.tokenCount,
+        sessionTotalTokens: (sessionCost['total_tokens'] as num?)?.toInt() ?? 0,
+        stepDeltaTokens: event.tokenCount,
+        inputTokensNew: WorkflowTaskConfig.readInputTokensNew(task.configJson),
+        cacheReadTokens: WorkflowTaskConfig.readCacheReadTokens(task.configJson),
+        outputTokens: WorkflowTaskConfig.readOutputTokens(task.configJson),
         sessionId: sessionId,
         contextOutputs: contextOutputs,
         stepScopedContext: stepScopedContext,
         lastUserMessage: lastUserMessage,
         lastAssistantMessage: lastAssistantMessage,
         persistedMessages: persistedMessages,
+        taskEvents: taskEvents,
       );
 
       traces.add(
@@ -308,6 +356,11 @@ class WorkflowExecutionRecorder {
           description: pending.description,
           terminalStatus: task.status,
           tokenCount: event.tokenCount,
+          sessionTotalTokens: (sessionCost['total_tokens'] as num?)?.toInt() ?? 0,
+          stepDeltaTokens: event.tokenCount,
+          inputTokensNew: WorkflowTaskConfig.readInputTokensNew(task.configJson),
+          cacheReadTokens: WorkflowTaskConfig.readCacheReadTokens(task.configJson),
+          outputTokens: WorkflowTaskConfig.readOutputTokens(task.configJson),
           configJson: pending.configJson,
           worktreeJson: task.worktreeJson ?? pending.worktreeJson,
           sessionId: sessionId,
@@ -325,6 +378,7 @@ class WorkflowExecutionRecorder {
   Future<void> dispose() async {
     await _queuedSub.cancel();
     await _completedSub.cancel();
+    await _taskEventSub.cancel();
   }
 
   int count(String stepKey) => stepOrder.where((s) => s == stepKey).length;
@@ -337,12 +391,18 @@ class WorkflowExecutionRecorder {
     required String stepName,
     required TaskStatus terminalStatus,
     required int tokenCount,
+    required int sessionTotalTokens,
+    required int stepDeltaTokens,
+    required int inputTokensNew,
+    required int cacheReadTokens,
+    required int outputTokens,
     required String? sessionId,
     required Map<String, dynamic> contextOutputs,
     required Map<String, dynamic> stepScopedContext,
     required String? lastUserMessage,
     required String? lastAssistantMessage,
     required List<Map<String, dynamic>> persistedMessages,
+    required List<Map<String, dynamic>> taskEvents,
   }) async {
     _artifactDir.createSync(recursive: true);
     final fileName =
@@ -361,6 +421,11 @@ class WorkflowExecutionRecorder {
       'description': pending.description,
       'terminalStatus': terminalStatus.name,
       'tokenCount': tokenCount,
+      'session_total_tokens': sessionTotalTokens,
+      'step_delta_tokens': stepDeltaTokens,
+      'input_tokens_new': inputTokensNew,
+      'cache_read_tokens': cacheReadTokens,
+      'output_tokens': outputTokens,
       'queuedAt': pending.queuedAt.toIso8601String(),
       'completedAt': DateTime.now().toIso8601String(),
       'sessionId': sessionId,
@@ -376,9 +441,17 @@ class WorkflowExecutionRecorder {
       'lastUserMessage': lastUserMessage,
       'lastAssistantMessage': lastAssistantMessage,
       'messages': persistedMessages,
+      'taskEvents': taskEvents,
     };
     await file.writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
     _log.info('Wrote step artifact: ${file.path}');
+  }
+
+  Future<Map<String, dynamic>> _readSessionCost(String sessionId) async {
+    final raw = await _kvService.get('session_cost:$sessionId');
+    if (raw == null || raw.isEmpty) return const <String, dynamic>{};
+    final decoded = jsonDecode(raw);
+    return decoded is Map<String, dynamic> ? decoded : const <String, dynamic>{};
   }
 }
 
@@ -715,6 +788,7 @@ void main() {
         w.taskService,
         w.messageService,
         w.workflowService,
+        w.kvService,
         definition,
         artifactDir: artifactDir,
         dataDir: config.server.dataDir,
@@ -823,6 +897,7 @@ void main() {
         w.taskService,
         w.messageService,
         w.workflowService,
+        w.kvService,
         definition,
         artifactDir: artifactDir,
         dataDir: config.server.dataDir,

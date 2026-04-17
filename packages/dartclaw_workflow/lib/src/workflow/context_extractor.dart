@@ -282,13 +282,6 @@ class ContextExtractor {
     return _extractFirstMdArtifact(task);
   }
 
-  Future<String?> _extractLastAssistantContent(Task task) async {
-    if (task.sessionId == null) return null;
-    final messages = await _messageService.getMessagesTail(task.sessionId!, count: 50);
-    final lastAssistant = messages.where((m) => m.role == 'assistant').lastOrNull;
-    return lastAssistant?.content;
-  }
-
   /// Soft-validates parsed JSON against the output config's schema.
   ///
   /// Logs warnings but never throws.

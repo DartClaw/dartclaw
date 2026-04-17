@@ -70,7 +70,6 @@ steps:
     name: Generate Specification
     type: writing
     skill: dartclaw-spec
-    continueSession: discover-project
     contextInputs: [project_index]
     prompt: |
       <FEATURE>
@@ -170,7 +169,6 @@ steps:
     name: Integrated Review
     type: analysis
     skill: dartclaw-review-gap
-    continueSession: verify-refine
     prompt: |
       <project_index>
       {{context.project_index}}
@@ -284,7 +282,6 @@ steps:
         name: Re-review Gaps
         type: analysis
         skill: dartclaw-quick-review
-        continueSession: re-verify-refine
         prompt: |
           <project_index>
           {{context.project_index}}

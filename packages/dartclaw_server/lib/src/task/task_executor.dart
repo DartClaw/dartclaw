@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig, workflowContextRegExp;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -814,6 +814,10 @@ class TaskExecutor {
     final structuredSchema = WorkflowTaskConfig.readStructuredSchema(task.configJson);
 
     String? providerSessionId = WorkflowTaskConfig.readContinueProviderSessionId(task.configJson);
+    final workflowStepId = WorkflowTaskConfig.readWorkflowStepId(task.configJson);
+    // Reserved workflow pass-through. This key is intentionally unwritten by
+    // the workflow pipeline today, and the structured extraction turn
+    // explicitly discards it to avoid inflating extraction cost.
     final appendSystemPrompt = switch (task.configJson['appendSystemPrompt']) {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
@@ -860,6 +864,7 @@ class TaskExecutor {
         sessionId,
         provider: provider,
         inputTokens: turnResult.inputTokens,
+        newInputTokens: turnResult.newInputTokens,
         outputTokens: turnResult.outputTokens,
         cacheReadTokens: turnResult.cacheReadTokens,
         cacheWriteTokens: turnResult.cacheWriteTokens,
@@ -873,48 +878,63 @@ class TaskExecutor {
 
     Map<String, dynamic>? structuredPayload;
     if (structuredSchema != null) {
-      final extractionPrompt =
-          'Based on your work above, produce the structured output. '
-          'Output ONLY the JSON object. Do NOT use any tools.';
-      await _messages.insertMessage(sessionId: sessionId, role: 'user', content: extractionPrompt);
-      final turnResult = await runner.executeTurn(
-        provider: provider,
-        prompt: extractionPrompt,
-        workingDirectory: cwd,
-        profileId: profileId,
-        providerSessionId: providerSessionId,
-        model: modelOverride,
-        effort: effortOverride,
-        maxTurns: provider == 'claude' ? 5 : null,
-        jsonSchema: structuredSchema,
-        appendSystemPrompt: appendSystemPrompt,
-      );
-      providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
-      inputTokens += turnResult.inputTokens;
-      outputTokens += turnResult.outputTokens;
-      cacheReadTokens += turnResult.cacheReadTokens;
-      cacheWriteTokens += turnResult.cacheWriteTokens;
-      await _trackWorkflowSessionUsage(
-        sessionId,
-        provider: provider,
-        inputTokens: turnResult.inputTokens,
-        outputTokens: turnResult.outputTokens,
-        cacheReadTokens: turnResult.cacheReadTokens,
-        cacheWriteTokens: turnResult.cacheWriteTokens,
-        totalCostUsd: turnResult.totalCostUsd,
-      );
-      structuredPayload = turnResult.structuredOutput;
-      await _messages.insertMessage(
-        sessionId: sessionId,
-        role: 'assistant',
-        content: structuredPayload != null ? jsonEncode(structuredPayload) : turnResult.responseText,
-      );
+      structuredPayload = await _tryExtractInlineStructuredPayload(sessionId, structuredSchema);
+      if (structuredPayload != null) {
+        final outputKey = _structuredOutputKey(structuredSchema);
+        if (workflowStepId != null && outputKey != null) {
+          _eventRecorder?.recordStructuredOutputInlineUsed(task.id, stepId: workflowStepId, outputKey: outputKey);
+        }
+      } else {
+        final extractionPrompt =
+            'Based on your work above, produce the structured output. '
+            'Output ONLY the JSON object. Do NOT use any tools.';
+        await _messages.insertMessage(sessionId: sessionId, role: 'user', content: extractionPrompt);
+        final turnResult = await runner.executeTurn(
+          provider: provider,
+          prompt: extractionPrompt,
+          workingDirectory: cwd,
+          profileId: profileId,
+          providerSessionId: providerSessionId,
+          model: modelOverride,
+          effort: effortOverride,
+          maxTurns: provider == 'claude' ? 5 : null,
+          jsonSchema: structuredSchema,
+          appendSystemPrompt: null,
+        );
+        providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
+        inputTokens += turnResult.inputTokens;
+        outputTokens += turnResult.outputTokens;
+        cacheReadTokens += turnResult.cacheReadTokens;
+        cacheWriteTokens += turnResult.cacheWriteTokens;
+        await _trackWorkflowSessionUsage(
+          sessionId,
+          provider: provider,
+          inputTokens: turnResult.inputTokens,
+          newInputTokens: turnResult.newInputTokens,
+          outputTokens: turnResult.outputTokens,
+          cacheReadTokens: turnResult.cacheReadTokens,
+          cacheWriteTokens: turnResult.cacheWriteTokens,
+          totalCostUsd: turnResult.totalCostUsd,
+        );
+        structuredPayload = turnResult.structuredOutput;
+        await _messages.insertMessage(
+          sessionId: sessionId,
+          role: 'assistant',
+          content: structuredPayload != null ? jsonEncode(structuredPayload) : turnResult.responseText,
+        );
+      }
     }
 
     final nextConfig = Map<String, dynamic>.from(task.configJson);
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
       WorkflowTaskConfig.writeProviderSessionId(nextConfig, providerSessionId);
     }
+    WorkflowTaskConfig.writeInputTokensNew(
+      nextConfig,
+      cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+    );
+    WorkflowTaskConfig.writeCacheReadTokens(nextConfig, cacheReadTokens);
+    WorkflowTaskConfig.writeOutputTokens(nextConfig, outputTokens);
     if (structuredPayload != null) {
       WorkflowTaskConfig.writeStructuredOutputPayload(nextConfig, structuredPayload);
     }
@@ -938,6 +958,7 @@ class TaskExecutor {
     String sessionId, {
     required String provider,
     required int inputTokens,
+    required int newInputTokens,
     required int outputTokens,
     required int cacheReadTokens,
     required int cacheWriteTokens,
@@ -952,6 +973,7 @@ class TaskExecutor {
         ? jsonDecode(existing) as Map<String, dynamic>
         : <String, dynamic>{
             'input_tokens': 0,
+            'new_input_tokens': 0,
             'output_tokens': 0,
             'cache_read_tokens': 0,
             'cache_write_tokens': 0,
@@ -961,6 +983,7 @@ class TaskExecutor {
             'provider': provider,
           };
     costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
+    costData['new_input_tokens'] = ((costData['new_input_tokens'] as num?)?.toInt() ?? 0) + newInputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
     costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
@@ -970,6 +993,43 @@ class TaskExecutor {
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
     costData['provider'] = costData['provider'] ?? provider;
     await kv.set(key, jsonEncode(costData));
+  }
+
+  Future<Map<String, dynamic>?> _tryExtractInlineStructuredPayload(
+    String sessionId,
+    Map<String, dynamic> structuredSchema,
+  ) async {
+    final messages = await _messages.getMessagesTail(sessionId, count: 50);
+    final assistantMessages = messages.where((message) => message.role == 'assistant').toList(growable: false);
+    if (assistantMessages.isEmpty) return null;
+
+    final content = assistantMessages.last.content;
+    final match = workflowContextRegExp.firstMatch(content);
+    if (match == null) return null;
+
+    final rawJson = match.group(1);
+    if (rawJson == null) return null;
+    final decoded = jsonDecode(rawJson);
+    if (decoded is! Map) return null;
+
+    final payload = decoded.map((key, value) => MapEntry(key.toString(), value));
+    final requiredKeys = _requiredTopLevelKeys(structuredSchema);
+    if (requiredKeys.any((key) => !payload.containsKey(key))) {
+      return null;
+    }
+    return payload;
+  }
+
+  List<String> _requiredTopLevelKeys(Map<String, dynamic> schema) {
+    final raw = schema['required'];
+    if (raw is! List) return const <String>[];
+    return raw.map((value) => value.toString()).toList(growable: false);
+  }
+
+  String? _structuredOutputKey(Map<String, dynamic> schema) {
+    final raw = schema['properties'];
+    if (raw is! Map || raw.isEmpty) return null;
+    return raw.keys.first.toString();
   }
 
   TurnRunner? _acquirePoolRunnerForTask(Task task, String profile) {

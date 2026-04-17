@@ -515,6 +515,41 @@ void main() {
       expect(arguments, contains('--output-schema'));
       expect(result.providerSessionId, 'codex-thread-1');
       expect(result.structuredOutput?['items'], isA<List<dynamic>>());
+      expect(result.inputTokens, 20);
+      expect(result.cacheReadTokens, 4);
+      expect(result.newInputTokens, 16);
+    });
+
+    test('Codex turn.completed uses assignment semantics for cumulative usage', () async {
+      final stdout = [
+        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-2'}),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {'input_tokens': 119659, 'output_tokens': 1900, 'cache_read_tokens': 115000},
+        }),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {'input_tokens': 121000, 'output_tokens': 2000, 'cache_read_tokens': 116000},
+        }),
+      ].join('\n');
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
+        },
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'List changed files',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(result.inputTokens, 121000);
+      expect(result.outputTokens, 2000);
+      expect(result.cacheReadTokens, 116000);
+      expect(result.newInputTokens, 5000);
     });
 
     test('forwards appendSystemPrompt to Codex via developer_instructions override', () async {

@@ -67,7 +67,6 @@ steps:
     name: Review Code
     type: analysis
     skill: dartclaw-review-code
-    continueSession: discover-project
     prompt: |
       Target: {{TARGET}}
       PR number: {{PR_NUMBER}}
@@ -168,7 +167,6 @@ steps:
         name: Re-review
         type: analysis
         skill: dartclaw-review-code
-        continueSession: verify-refine
         prompt: |
           Target: {{TARGET}}
           PR number: {{PR_NUMBER}}

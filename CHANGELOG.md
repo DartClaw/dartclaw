@@ -32,6 +32,9 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Workflow read-only enforcement follows the worktree**: read-only workflow research/writing/analysis steps now fail on file mutations inside their linked worktree instead of only checking the primary project checkout
 - **Workflow authoring surface simplified**: `executionMode` / `execution_mode` was removed from workflow YAML and validation now rejects `format: json` outputs that omit a schema
 - **Workflow structured outputs**: JSON workflow outputs can now opt into `outputMode: structured`, which uses provider-native schema constraints and stores the structured payload directly on the workflow task for extraction
+- **Workflow structured-output happy path is now inline-first**: when a structured-output step already emits a valid `<workflow-context>` payload, DartClaw promotes that inline JSON directly and skips the extra extraction turn; provider-native schema extraction remains the fallback
+- **Built-in workflow continuation chains were tightened**: nine low-value `continueSession` edges across `plan-and-implement`, `spec-and-implement`, and `code-review` now start fresh sessions because their review-style inputs are already carried by `contextInputs`
+- **Breaking**: `WorkflowTaskConfigKeys` was renamed to `WorkflowTaskConfig`
 - **Standalone workflow CI ergonomics**: `workflow run --standalone --json` now emits structured lifecycle events in-process, and the standalone workflow guides now document CI usage, approval-step limitations, and explicit `codex-exec` sandbox configuration
 - **Codex auth guidance**: public docs now distinguish persistent `codex` auth from `codex-exec` CI usage and recommend `CODEX_API_KEY` for non-interactive `codex exec` flows while keeping `OPENAI_API_KEY` compatibility visible for the broader Codex provider family
 - **Built-in workflow skills expanded to full-capability parity**: the 8 AndThen-derived `dartclaw-*` skills (`review-code`, `review-gap`, `spec`, `plan`, `exec-spec`, `remediate-findings`, `review-doc`, `refactor`) now ship with their full adapted DartClaw methodology instead of the earlier thin stubs, and `discover-project` / `update-state` were revalidated against the S11 contract
@@ -45,7 +48,9 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Standalone agent-backed workflows**: headless standalone runs now provision provider-aware task runners and inject provider credentials, so agent steps no longer queue indefinitely or lose API-key auth outside the server wiring path
 - **Codex CI auth compatibility**: `codex-exec` now treats `CODEX_API_KEY` as the primary CI env var, accepts compatible fallback key sources, updates provider-status/validation messaging accordingly, and redacts both Codex/OpenAI API-key env vars from approval payloads
 - **Codex one-shot prompt parity**: workflow one-shot execution now forwards `appendSystemPrompt` to both Claude and Codex CLI invocations
+- **Codex workflow token accounting**: one-shot workflow usage now treats Codex `turn.completed` token counts as cumulative-per-invocation values instead of summing them, and persists `new_input_tokens` alongside cache-read and output metrics
 - **Standalone approval pause messaging**: CLI guidance for approval-paused standalone runs now points operators to start `dartclaw serve` before using `workflow resume` or `workflow cancel`
+- **Map/fan-in merge hygiene**: `MergeExecutor` now recognises `git stash pop`'s "already exists, no checkout" overlap (caused by stashed untracked files colliding with files introduced by the merge) and drops the stash entry instead of leaving it behind, keeping the stash list clean across sequential fan-in merges
 
 ---
 

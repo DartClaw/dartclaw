@@ -291,6 +291,57 @@ void main() {
       });
     });
 
+    test('warns when duplicate output names use different descriptions', () {
+      final def = _buildDef(
+        steps: [
+          WorkflowStep(
+            id: 'a',
+            name: 'A',
+            prompts: const ['p'],
+            contextOutputs: const ['x'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from A')},
+          ),
+          WorkflowStep(
+            id: 'b',
+            name: 'B',
+            prompts: const ['p'],
+            contextOutputs: const ['x'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text, description: 'from B')},
+          ),
+        ],
+      );
+
+      final report = validator.validate(def);
+      expect(report.warnings, isNotEmpty);
+      expect(report.warnings.single.message, contains('"x"'));
+      expect(report.warnings.single.message, contains('a'));
+      expect(report.warnings.single.message, contains('b'));
+    });
+
+    test('does not warn when duplicate output descriptions are absent', () {
+      final def = _buildDef(
+        steps: [
+          WorkflowStep(
+            id: 'a',
+            name: 'A',
+            prompts: const ['p'],
+            contextOutputs: const ['x'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text)},
+          ),
+          WorkflowStep(
+            id: 'b',
+            name: 'B',
+            prompts: const ['p'],
+            contextOutputs: const ['x'],
+            outputs: const {'x': OutputConfig(format: OutputFormat.text)},
+          ),
+        ],
+      );
+
+      final report = validator.validate(def);
+      expect(report.warnings, isEmpty);
+    });
+
     group('gate expressions', () {
       test('valid gate expression produces no error', () {
         final def = _buildDef(

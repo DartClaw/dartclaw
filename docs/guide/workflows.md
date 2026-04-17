@@ -148,7 +148,7 @@ The runtime also writes metadata keys automatically:
 - `<stepId>.tokenCount`
 - step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
 
-Agent steps with `contextOutputs` receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys.
+Agent steps with `contextOutputs` receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys. For `outputMode: structured`, DartClaw now treats that inline payload as the happy path: if the last assistant message already contains valid JSON with the required top-level keys, the executor promotes it directly and skips the extra extraction turn. Provider-native schema extraction remains as the fallback when the inline payload is missing or malformed.
 
 ### Step 5: Narrow to Determinism
 
@@ -258,6 +258,7 @@ Rules:
 - `outputMode: prompt` is the default. It keeps prompt augmentation and heuristic JSON extraction.
 - `outputMode: structured` requires `format: json` and a schema.
 - Structured extraction applies to `outputs`. `contextOutputs` still use the `<workflow-context>` contract.
+- Structured outputs now use an inline-first path: a valid inline `<workflow-context>` payload short-circuits the extra extraction turn; provider-native schema extraction runs only when the inline payload is missing or malformed.
 - Inline schemas used with `outputMode: structured` should set `additionalProperties: false` on every object node for Codex compatibility.
 - Research steps usually run in the restricted profile; those steps fall back to streaming execution, so native structured guarantees may not apply there.
 
@@ -716,6 +717,7 @@ Constraints:
 - `continueSession` is not valid on `parallel: true` steps. Continuation requires a deterministic execution order.
 - Loop-boundary crossings are invalid. `continueSession` chains must stay linear or remain within the same loop.
 - Provider support is validated up front. If the selected provider does not support continuity, the definition is rejected before execution.
+- Built-in workflows now avoid `continueSession` on review/gap-analysis steps whose inputs are already re-rendered explicitly via `contextInputs`. Use continuation for true refinement chains or same-worktree validation follow-ups, not as a default on every downstream step.
 
 The most common downstream use is pairing `continueSession` with explicit worktree outputs:
 

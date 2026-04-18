@@ -1,0 +1,7 @@
+interface:
+  display_name: "DartClaw PRD"
+  short_description: "Draft a PRD from requirements or prior artifacts"
+  default_prompt: "Use $dartclaw-prd to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
+
+policy:
+  allow_implicit_invocation: true

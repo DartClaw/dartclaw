@@ -49,7 +49,7 @@ You are the orchestrator: parse input, delegate codebase analysis and research t
 
 ### 0. Parse Input & Get Requirements
 
-**If `--issue` flag or GitHub URL present**: follow `../references/resolve-github-input.md`. Compatible types: _(none -- this skill creates specs from requirements, not from existing artifacts)_. Route: `fis-bundle` → invoke the `dartclaw-exec-spec` skill; `plan-bundle` → invoke the `dartclaw-spec-plan` skill or use `story {id} of plan.md`; `*-review` → invoke the `dartclaw-remediate-findings` skill; other typed → stop with redirect. Untyped issues: accept as feature request, store issue number for reference.
+**If `--issue` flag or GitHub URL present**: follow `../references/resolve-github-input.md`. Compatible types: _(none -- this skill creates specs from requirements, not from existing artifacts)_. Route: `fis-bundle` → invoke the `dartclaw-exec-spec` skill; `plan-bundle` → invoke the `dartclaw-plan` skill (for regeneration / resume) or use `story {id} of plan.md`; `*-review` → invoke the `dartclaw-remediate-findings` skill; other typed → stop with redirect. Untyped issues: accept as feature request, store issue number for reference.
 
 **If ARGUMENTS is a directory with `requirements-clarification.md`** (from earlier clarification work): read it; use clarified scope, functional requirements, edge cases, success criteria, design decisions, wireframes, and any explicit non-goals / deferred items as the feature request. Skip or reduce research phases because the discovery work already happened. Only do codebase research and any external/API research the requirements reference but haven't investigated.
 
@@ -74,7 +74,7 @@ Fully understand the feature request. Identify any ambiguities. Delegate researc
 
 **Save research findings** (if substantial) to `technical-research.md` in the FIS output directory — a companion document that keeps the FIS lean and reviewable. The FIS references this document; the executing agent reads it alongside the FIS for implementation context. See the [Technical Research Separation](../references/fis-authoring-guidelines.md#technical-research-separation) guidelines for what belongs in the research doc vs the FIS. Skip this if findings are minimal — not every spec needs a technical research document.
 
-If an existing `technical-research.md` already exists (e.g. from the `dartclaw-spec-plan` or `dartclaw-plan` skill), append story-specific findings under a `## {Story Name}` heading rather than overwriting.
+If an existing `technical-research.md` already exists (e.g. from the `dartclaw-plan` skill), append story-specific findings under a `## {Story Name}` heading rather than overwriting.
 
 Only stop for ambiguity when it blocks a defensible specification. In that case, return the minimum missing decisions required rather than pausing for routine clarification.
 

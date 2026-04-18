@@ -16,7 +16,7 @@ Wrap the GitHub issue body or PR comment in a typed envelope, then embed the art
 ```yaml
 schema: andthen/github-artifact-v1
 artifact_type: plan-bundle
-source_skill: dartclaw-plan  # name of the originating skill (e.g. dartclaw-plan, dartclaw-spec, dartclaw-review-gap)
+source_skill: dartclaw-plan  # name of the originating skill (e.g. dartclaw-prd, dartclaw-plan, dartclaw-spec, dartclaw-review-gap)
 canonical_local_primary: docs/specs/my-feature/plan.md
 canonical_local_companions:
   - docs/specs/my-feature/prd.md

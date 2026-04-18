@@ -938,9 +938,9 @@ void main() {
       final coreSteps = finalStatus == WorkflowRunStatus.completed
           ? [
               'discover-project',
+              'prd',
+              'review-prd',
               'plan',
-              'revise-plan',
-              'spec-plan',
               'implement',
               'verify-refine',
               'quick-review',
@@ -952,9 +952,9 @@ void main() {
             ]
           : [
               'discover-project',
+              'prd',
+              'review-prd',
               'plan',
-              'revise-plan',
-              'spec-plan',
               'implement',
               'verify-refine',
               'quick-review',
@@ -965,8 +965,10 @@ void main() {
             ];
       expectStepOrder(recorder, coreSteps);
 
-      // spec-plan runs once
-      expect(recorder.count('spec-plan'), 1, reason: 'spec-plan should run exactly once');
+      // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
+      expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
+      expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
+      expect(recorder.count('review-prd'), 1, reason: 'review-prd should run exactly once');
 
       // implement, verify-refine should run at least twice (per story) — regardless of final status
       expect(

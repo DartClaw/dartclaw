@@ -10,6 +10,7 @@ const dartclawSkillNames = <String>{
   'dartclaw-discover-project',
   'dartclaw-exec-spec',
   'dartclaw-plan',
+  'dartclaw-prd',
   'dartclaw-quick-review',
   'dartclaw-verify-refine',
   'dartclaw-remediate-findings',
@@ -18,7 +19,6 @@ const dartclawSkillNames = <String>{
   'dartclaw-review-doc',
   'dartclaw-review-gap',
   'dartclaw-spec',
-  'dartclaw-spec-plan',
   'dartclaw-update-state',
 };
 

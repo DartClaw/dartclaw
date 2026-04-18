@@ -17,12 +17,12 @@ Standard procedure for skills that accept `--issue <number>`, a GitHub issue URL
 
 Each skill using this procedure defines inline:
 
-All names below name **skills** (invoke via slash commands like `/dartclaw-spec-plan`); none are valid `subagent_type` values.
+All names below name **skills** (invoke via slash commands like `/dartclaw-plan` or `/dartclaw-spec`); none are valid `subagent_type` values.
 
 ```
 Compatible types: [list]
 Routing for incompatible types:
-  plan-bundle     → dartclaw-spec-plan skill / dartclaw-exec-plan skill
+  plan-bundle     → dartclaw-plan skill (regeneration / resume) or workflow-engine invocation (plan-and-implement)
   fis-bundle      → dartclaw-exec-spec skill / dartclaw-review skill
   *-review        → dartclaw-remediate-findings skill
   triage-plan     → dartclaw-exec-spec skill (triage)

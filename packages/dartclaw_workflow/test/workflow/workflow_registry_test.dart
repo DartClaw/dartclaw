@@ -191,7 +191,8 @@ void main() {
       expect(planAndImplement, contains('skill: dartclaw-quick-review'));
       expect(planAndImplement, contains('skill: dartclaw-review-gap'));
       expect(planAndImplement, contains('skill: dartclaw-plan'));
-      expect(planAndImplement, contains('skill: dartclaw-spec-plan'));
+      expect(planAndImplement, contains('skill: dartclaw-prd'));
+      expect(planAndImplement, isNot(contains('skill: dartclaw-spec-plan')));
 
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));

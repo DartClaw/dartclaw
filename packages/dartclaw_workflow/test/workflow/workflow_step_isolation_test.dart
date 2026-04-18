@@ -363,7 +363,7 @@ void main() {
     expectProjectIndexShape(result.outputs['project_index']);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
-  test('plan returns a story-plan compatible list of stories', () async {
+  test('plan emits story-plan stories and story-specs in a single pass from the reviewed PRD', () async {
     if (!await _codexAvailable()) {
       return;
     }
@@ -385,79 +385,34 @@ void main() {
             'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
             'state_protocol': {'state_file': 'STATE.md'},
           },
+          'prd':
+              '# Product Requirements Document\n\n'
+              '## Executive Summary\n\n'
+              'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
+              '## User Stories\n\n'
+              '- US01: Author a single markdown note file.\n'
+              '- US02: Validate that the note content matches expectations.\n',
         },
       ),
     );
 
     final stories = _normalizeStoryList(result.outputs['stories']);
     expectStoryPlanShape(stories);
+
+    final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
+    expect(storySpecsList, isNotEmpty);
+    final firstStorySpec = storySpecsList.first;
+    expectStorySpecShape(firstStorySpec);
+
+    final resolvedStorySpec = templateEngine.resolveWithMap(
+      '{{map.item}}',
+      WorkflowContext(data: result.outputs, variables: const {}),
+      MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
+    );
+    expect(resolvedStorySpec.trim(), contains('"id"'));
+    expect(resolvedStorySpec.trim(), contains('"acceptance_criteria"'));
+    expect(resolvedStorySpec.trim(), contains('"spec"'));
   }, timeout: const Timeout(Duration(minutes: 5)));
-
-  test(
-    'spec-plan produces downstream-compatible story specs for foreach prompts',
-    () async {
-      if (!await _codexAvailable()) {
-        return;
-      }
-
-      final result = await executeStep(
-        step: _stepById(planDefinition, 'spec-plan'),
-        context: WorkflowContext(
-          variables: const {
-            'REQUIREMENTS': 'Add a tiny integration-tested note file and keep the implementation minimal.',
-            'PROJECT': 'workflow-testing',
-            'BRANCH': 'main',
-            'MAX_PARALLEL': '1',
-          },
-          data: {
-            'project_index': {
-              'framework': 'markdown',
-              'project_root': fixtureDir,
-              'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-              'state_protocol': {'state_file': 'STATE.md'},
-            },
-            'stories': [
-              {
-                'id': 'S01',
-                'title': 'Write note',
-                'description': 'Create the note file.',
-                'acceptance_criteria': ['One markdown note file exists'],
-                'type': 'coding',
-                'dependencies': <String>[],
-                'key_files': ['notes/isolation-test.md'],
-                'effort': 'small',
-              },
-              {
-                'id': 'S02',
-                'title': 'Verify note',
-                'description': 'Check the note content.',
-                'acceptance_criteria': ['The note content is verified'],
-                'type': 'analysis',
-                'dependencies': ['S01'],
-                'key_files': ['notes/isolation-test.md'],
-                'effort': 'small',
-              },
-            ],
-          },
-        ),
-      );
-
-      final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
-      expect(storySpecsList, isNotEmpty);
-      final firstStorySpec = storySpecsList.first;
-      expectStorySpecShape(firstStorySpec);
-
-      final resolvedStorySpec = templateEngine.resolveWithMap(
-        '{{map.item}}',
-        WorkflowContext(data: result.outputs, variables: const {}),
-        MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
-      );
-      expect(resolvedStorySpec.trim(), contains('"id":"S01"'));
-      expect(resolvedStorySpec.trim(), contains('"acceptance_criteria"'));
-      expect(resolvedStorySpec.trim(), contains('"spec"'));
-    },
-    timeout: const Timeout(Duration(minutes: 5)),
-  );
 
   test(
     'integrated-review returns verdict with findings_count for a trivial markdown change',

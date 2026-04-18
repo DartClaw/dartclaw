@@ -650,7 +650,7 @@ void main() {
     },
   );
 
-  test('plan-and-implement integration runs per-story foreach pipeline after spec-plan', () async {
+  test('plan-and-implement integration runs per-story foreach pipeline after merged plan step', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
       variables: {
@@ -670,73 +670,47 @@ void main() {
               'marker': 'PLAN_DISCOVER_MARKER',
             }),
           ),
-          'plan' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': '# PRD\n\nPRD_MARKER_PLAN_PIPELINE',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Story One',
-                    'description': 'First integration story',
-                    'acceptance_criteria': ['first passes'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
-                  },
-                  {
-                    'id': 'S02',
-                    'title': 'Story Two',
-                    'description': 'Second integration story',
-                    'acceptance_criteria': ['second passes'],
-                    'type': 'coding',
-                    'dependencies': ['S01'],
-                    'key_files': ['lib/b.dart'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-            }),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({'prd': '# PRD\n\nPRD_MARKER_PLAN_PIPELINE'}),
           ),
-          'revise-plan' => _StubResponse(
+          'review-prd' => _StubResponse(
             assistantContent: _contextOutput({
               'prd': '# Revised PRD\n\nPRD_MARKER_REVISED_PLAN_PIPELINE',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Story One',
-                    'description': 'First integration story',
-                    'acceptance_criteria': ['first passes'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
-                  },
-                  {
-                    'id': 'S02',
-                    'title': 'Story Two',
-                    'description': 'Second integration story',
-                    'acceptance_criteria': ['second passes'],
-                    'type': 'coding',
-                    'dependencies': ['S01'],
-                    'key_files': ['lib/b.dart'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-              'plan_review_findings': {
+              'prd_review_findings': {
                 'pass': true,
                 'findings_count': 0,
                 'findings': <Object>[],
-                'summary': 'Plan and PRD are consistent.',
+                'summary': 'PRD is consistent.',
               },
             }),
           ),
-          // spec-plan runs once (not per-story) and hands the detailed execution specs to foreach.
-          'spec-plan' => _StubResponse(
+          // The merged plan step now emits stories + story_specs in one pass.
+          'plan' => _StubResponse(
             assistantContent: _contextOutput({
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'description': 'First integration story',
+                    'acceptance_criteria': ['first passes'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'description': 'Second integration story',
+                    'acceptance_criteria': ['second passes'],
+                    'type': 'coding',
+                    'dependencies': ['S01'],
+                    'key_files': ['lib/b.dart'],
+                    'effort': 'small',
+                  },
+                ],
+              },
               'story_specs': {
                 'items': [
                   {
@@ -825,11 +799,12 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    // spec-plan runs once; implement, verify-refine, quick-review run per story in foreach.
-    expect(trace.count('revise-plan'), 1);
-    expect(trace.descriptionsByStep['revise-plan']!.single, contains('PRD_MARKER_PLAN_PIPELINE'));
-    expect(trace.count('spec-plan'), 1);
-    expect(trace.descriptionsByStep['spec-plan']!.single, contains('PRD_MARKER_REVISED_PLAN_PIPELINE'));
+    // prd + review-prd run once each; merged plan emits stories + story_specs once; foreach runs per story.
+    expect(trace.count('prd'), 1);
+    expect(trace.count('review-prd'), 1);
+    expect(trace.descriptionsByStep['review-prd']!.single, contains('PRD_MARKER_PLAN_PIPELINE'));
+    expect(trace.count('plan'), 1);
+    expect(trace.descriptionsByStep['plan']!.single, contains('PRD_MARKER_REVISED_PLAN_PIPELINE'));
     expect(trace.count('implement'), 2);
     expect(trace.count('verify-refine'), 2);
     expect(trace.count('quick-review'), 2);
@@ -863,52 +838,36 @@ void main() {
               'state_protocol': {'state_file': 'docs/STATE.md'},
             }),
           ),
-          'plan' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': '# PRD\n\nPROJECT_BOUND_PRD',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Project Bound Story',
-                    'description': 'Verify project propagation',
-                    'acceptance_criteria': ['all coding steps use the workflow project'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-            }),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({'prd': '# PRD\n\nPROJECT_BOUND_PRD'}),
           ),
-          'revise-plan' => _StubResponse(
+          'review-prd' => _StubResponse(
             assistantContent: _contextOutput({
               'prd': '# Revised PRD\n\nPROJECT_BOUND_PRD_REVISED',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Project Bound Story',
-                    'description': 'Verify project propagation',
-                    'acceptance_criteria': ['all coding steps use the workflow project'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['lib/a.dart'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-              'plan_review_findings': {
+              'prd_review_findings': {
                 'pass': true,
                 'findings_count': 0,
                 'findings': <Object>[],
-                'summary': 'Project-bound plan is clean.',
+                'summary': 'PRD is clean.',
               },
             }),
           ),
-          'spec-plan' => _StubResponse(
+          'plan' => _StubResponse(
             assistantContent: _contextOutput({
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Project Bound Story',
+                    'description': 'Verify project propagation',
+                    'acceptance_criteria': ['all coding steps use the workflow project'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['lib/a.dart'],
+                    'effort': 'small',
+                  },
+                ],
+              },
               'story_specs': {
                 'items': [
                   {
@@ -973,13 +932,13 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.tasksForStep('discover-project').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('prd').single.projectId, isNull);
+    expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
+    expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('review-prd').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('revise-plan').single.projectId, isNull);
-    expect(trace.tasksForStep('spec-plan').single.projectId, isNull);
-    expect(trace.tasksForStep('spec-plan').single.configJson.containsKey('_continueSessionId'), isFalse);
-    expect(trace.tasksForStep('spec-plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.projectId, isNull);
@@ -1009,52 +968,36 @@ void main() {
               'state_protocol': {'type': 'none'},
             }),
           ),
-          'plan' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Minimal Story',
-                    'description': 'Verify discover prompt scope',
-                    'acceptance_criteria': ['discover prompt stays narrow'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['README.md'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-            }),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'}),
           ),
-          'revise-plan' => _StubResponse(
+          'review-prd' => _StubResponse(
             assistantContent: _contextOutput({
               'prd': '# Revised PRD\n\nDISCOVERY_SCOPE_PRD_REVISED',
-              'stories': {
-                'items': [
-                  {
-                    'id': 'S01',
-                    'title': 'Minimal Story',
-                    'description': 'Verify discover prompt scope',
-                    'acceptance_criteria': ['discover prompt stays narrow'],
-                    'type': 'coding',
-                    'dependencies': <String>[],
-                    'key_files': ['README.md'],
-                    'effort': 'small',
-                  },
-                ],
-              },
-              'plan_review_findings': {
+              'prd_review_findings': {
                 'pass': true,
                 'findings_count': 0,
                 'findings': <Object>[],
-                'summary': 'Discovery-scope plan is clean.',
+                'summary': 'PRD is clean.',
               },
             }),
           ),
-          'spec-plan' => _StubResponse(
+          'plan' => _StubResponse(
             assistantContent: _contextOutput({
+              'stories': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Minimal Story',
+                    'description': 'Verify discover prompt scope',
+                    'acceptance_criteria': ['discover prompt stays narrow'],
+                    'type': 'coding',
+                    'dependencies': <String>[],
+                    'key_files': ['README.md'],
+                    'effort': 'small',
+                  },
+                ],
+              },
               'story_specs': {
                 'items': [
                   {
@@ -1145,72 +1088,46 @@ void main() {
                 'marker': 'PLAN_DISCOVER_LOOP',
               }),
             ),
-            'plan' => _StubResponse(
-              assistantContent: _contextOutput({
-                'prd': '# PRD\n\nREMEDIATION_LOOP_PRD',
-                'stories': {
-                  'items': [
-                    {
-                      'id': 'S01',
-                      'title': 'Loop Story Alpha',
-                      'description': 'First story for remediation loop',
-                      'acceptance_criteria': ['alpha passes'],
-                      'type': 'coding',
-                      'dependencies': <String>[],
-                      'key_files': ['lib/a.dart'],
-                      'effort': 'small',
-                    },
-                    {
-                      'id': 'S02',
-                      'title': 'Loop Story Beta',
-                      'description': 'Second story for remediation loop',
-                      'acceptance_criteria': ['beta passes'],
-                      'type': 'coding',
-                      'dependencies': ['S01'],
-                      'key_files': ['lib/b.dart'],
-                      'effort': 'small',
-                    },
-                  ],
-                },
-              }),
+            'prd' => _StubResponse(
+              assistantContent: _contextOutput({'prd': '# PRD\n\nREMEDIATION_LOOP_PRD'}),
             ),
-            'revise-plan' => _StubResponse(
+            'review-prd' => _StubResponse(
               assistantContent: _contextOutput({
                 'prd': '# Revised PRD\n\nREMEDIATION_LOOP_PRD_REVISED',
-                'stories': {
-                  'items': [
-                    {
-                      'id': 'S01',
-                      'title': 'Loop Story Alpha',
-                      'description': 'First story for remediation loop',
-                      'acceptance_criteria': ['alpha passes'],
-                      'type': 'coding',
-                      'dependencies': <String>[],
-                      'key_files': ['lib/a.dart'],
-                      'effort': 'small',
-                    },
-                    {
-                      'id': 'S02',
-                      'title': 'Loop Story Beta',
-                      'description': 'Second story for remediation loop',
-                      'acceptance_criteria': ['beta passes'],
-                      'type': 'coding',
-                      'dependencies': ['S01'],
-                      'key_files': ['lib/b.dart'],
-                      'effort': 'small',
-                    },
-                  ],
-                },
-                'plan_review_findings': {
+                'prd_review_findings': {
                   'pass': true,
                   'findings_count': 0,
                   'findings': <Object>[],
-                  'summary': 'Remediation-loop plan is clean.',
+                  'summary': 'PRD is clean.',
                 },
               }),
             ),
-            'spec-plan' => _StubResponse(
+            'plan' => _StubResponse(
               assistantContent: _contextOutput({
+                'stories': {
+                  'items': [
+                    {
+                      'id': 'S01',
+                      'title': 'Loop Story Alpha',
+                      'description': 'First story for remediation loop',
+                      'acceptance_criteria': ['alpha passes'],
+                      'type': 'coding',
+                      'dependencies': <String>[],
+                      'key_files': ['lib/a.dart'],
+                      'effort': 'small',
+                    },
+                    {
+                      'id': 'S02',
+                      'title': 'Loop Story Beta',
+                      'description': 'Second story for remediation loop',
+                      'acceptance_criteria': ['beta passes'],
+                      'type': 'coding',
+                      'dependencies': ['S01'],
+                      'key_files': ['lib/b.dart'],
+                      'effort': 'small',
+                    },
+                  ],
+                },
                 'story_specs': {
                   'items': [
                     {

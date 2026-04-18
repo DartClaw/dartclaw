@@ -455,21 +455,24 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline that discovers the project, plans stories, writes full story specs, runs a per-story `foreach` pipeline (`implement -> verify-refine -> quick-review`) under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings.
+Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a PRD review (`review-prd` via `dartclaw-review-doc`), and a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings. Step sequence: `discover-project -> prd -> review-prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
 
 Notable patterns:
+- **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
+- **PRD-scoped pre-planning review**: `review-prd` consumes only the draft PRD and emits `prd + prd_review_findings`; it does not reshape downstream planning outputs.
+- **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` and `{{context.verify-refine.validation_summary}}` within the same story iteration.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
-- **Bounded remediation**: the batch now follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
+- **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
 
 Role usage:
 - `@workflow`: `discover-project`
-- `@planner`: `plan`, `spec-plan`
+- `@planner`: `prd`, `plan`
 - `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
-- `@reviewer`: `quick-review`, `plan-review`, `re-review`
+- `@reviewer`: `review-prd`, `quick-review`, `plan-review`, `re-review`
 
 ### `spec-and-implement` — Single-Feature Pipeline
 
@@ -527,7 +530,7 @@ The workflow engine now ships 14 built-in `dartclaw-*` skills:
 - `dartclaw-review-gap`
 - `dartclaw-quick-review`
 - `dartclaw-spec`
-- `dartclaw-spec-plan`
+- `dartclaw-prd`
 - `dartclaw-plan`
 - `dartclaw-exec-spec`
 - `dartclaw-remediate-findings`

@@ -1,6 +1,6 @@
 # FIS Authoring Guidelines
 
-Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by the `dartclaw-spec` skill (standalone) and the `dartclaw-spec-plan` skill (batch sub-agents).
+Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by the `dartclaw-spec` skill (standalone) and the `dartclaw-plan` skill (batch FIS generation).
 
 
 ## FIS Authoring Principles
@@ -112,7 +112,7 @@ Before finalizing, cross-check each plan acceptance criterion against the FIS:
 - For each acceptance criterion in the plan story, verify the FIS Success Criteria can deliver it
 - If any criterion cannot be fully satisfied (due to scope exclusions, architectural constraints, or "What We're NOT Doing" items), either:
   (a) Expand the FIS scope to address the criterion, or
-  (b) Add a scope note to the FIS explaining the narrowing (e.g., "replace-mode harnesses only; see Constraints") and flag it for the spec-plan cross-cutting review
+  (b) Add a scope note to the FIS explaining the narrowing (e.g., "replace-mode harnesses only; see Constraints") and flag it for the `dartclaw-plan` cross-cutting review pass
 - Do not finalize a FIS that silently narrows a plan requirement
 
 

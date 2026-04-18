@@ -1,6 +1,6 @@
 name: plan-and-implement
 description: >-
-  Multi-story pipeline — discover the project, plan stories, spec-plan the full story set,
+  Multi-story pipeline — discover the project, draft and review a PRD, plan and spec all stories in one pass,
   implement + validate + review each story, iterate plan-level remediation, and update state.
 variables:
   REQUIREMENTS:
@@ -26,13 +26,13 @@ gitStrategy:
     enabled: true
 
 stepDefaults:
-  - match: "plan"
+  # Patterns without `*` are matched by literal equality (step_config_resolver),
+  # so `prd` here does NOT catch `review-prd` — the `*review*` match below owns it.
+  # Do NOT promote to `prd*` without also moving it below the `*review*` entry.
+  - match: "prd"
     provider: "@planner"
     model: "@planner"
-  - match: "revise-plan"
-    provider: "@reviewer"
-    model: "@reviewer"
-  - match: "spec*"
+  - match: "plan"
     provider: "@planner"
     model: "@planner"
   - match: "implement*"
@@ -71,11 +71,11 @@ steps:
         schema: project-index
         description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
-  # Turn the requested requirements into a PRD and an initial story plan.
-  - id: plan
-    name: Plan Stories
+  # Synthesize a PRD from the input requirements. Stops at the PRD altitude — no story breakdown, no specs.
+  - id: prd
+    name: Draft PRD
     type: analysis
-    skill: dartclaw-plan
+    skill: dartclaw-prd
     contextInputs: [project_index]
     prompt: |
       <REQUIREMENTS>
@@ -85,28 +85,25 @@ steps:
       <project_index>
       {{context.project_index}}
       </project_index>
-    contextOutputs: [prd, stories]
+    contextOutputs: [prd]
     outputs:
       prd:
         format: text
         description: Product requirements document drafted from the input requirements.
-      stories:
-        format: json
-        schema: story-plan
-        description: Ordered list of stories that implement the PRD, ready for spec-plan.
 
-  # Review the draft PRD and story plan and emit revised artifacts plus findings for traceability.
-  - id: revise-plan
-    name: Revise Plan
+  # Review the draft PRD and minimally revise it where findings require — PRD only, no downstream planning yet.
+  - id: review-prd
+    name: Review PRD
     type: analysis
     skill: dartclaw-review-doc
-    continueSession: plan
-    contextInputs: [project_index, prd, stories]
+    continueSession: prd
+    contextInputs: [project_index, prd]
     prompt: |
-      Review the PRD and story plan for clarity, completeness, correctness, sequencing, and implementability.
-      Revise both artifacts to address any actionable findings you identify.
+      Review the PRD for clarity, completeness, correctness, and implementability.
+      Revise the PRD to address any actionable findings you identify.
       Preserve the existing intent when the review is already clean; only make minimal cleanup edits in that case.
-      Return the full revised PRD, the full revised story plan, and the plan review findings for traceability.
+      Do **not** produce or revise a story plan, story specs, or any downstream planning artifacts here — this review is scoped strictly to the PRD.
+      Return the full revised PRD and the PRD review findings for traceability.
 
       <project_index>
       {{context.project_index}}
@@ -115,30 +112,22 @@ steps:
       <prd>
       {{context.prd}}
       </prd>
-
-      <stories>
-      {{context.stories}}
-      </stories>
-    contextOutputs: [prd, stories, plan_review_findings]
+    contextOutputs: [prd, prd_review_findings]
     outputs:
       prd:
         format: text
-        description: Full revised PRD after the plan-level review pass.
-      stories:
-        format: json
-        schema: story-plan
-        description: Full revised story plan after the plan-level review pass.
-      plan_review_findings:
+        description: Product requirements document drafted from the input requirements.
+      prd_review_findings:
         format: json
         schema: verdict
-        description: Structured review findings produced while revising the PRD and plan.
+        description: Structured review findings produced while revising the PRD.
 
-  # Generate story-level specifications and tighten the story plan before implementation starts.
-  - id: spec-plan
-    name: Spec and Plan Stories
+  # Plan stories and generate per-story specifications in a single pass from the reviewed PRD.
+  - id: plan
+    name: Plan Stories and Specs
     type: analysis
-    skill: dartclaw-spec-plan
-    contextInputs: [project_index, prd, stories]
+    skill: dartclaw-plan
+    contextInputs: [project_index, prd]
     prompt: |
       <project_index>
       {{context.project_index}}
@@ -147,16 +136,16 @@ steps:
       <prd>
       {{context.prd}}
       </prd>
-
-      <stories>
-      {{context.stories}}
-      </stories>
-    contextOutputs: [story_specs]
+    contextOutputs: [stories, story_specs]
     outputs:
+      stories:
+        format: json
+        schema: story-plan
+        description: Ordered list of stories that implement the PRD, ready for per-story execution.
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story specifications that drive the per-story implementation loop.
+        description: Per-story specifications that drive the per-story implementation loop, emitted alongside stories in the same pass.
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -284,7 +273,7 @@ steps:
     outputs:
       review_findings:
         format: text
-        description: Summary of all issues identified during the review that require remediation. 
+        description: Summary of all issues identified during the review that require remediation.
       findings_count:
         format: json
         schema: non-negative-integer
@@ -400,7 +389,7 @@ steps:
         outputs:
           review_findings:
             format: text
-            description: Summary of all issues identified during the review that require remediation. 
+            description: Summary of all issues identified during the review that require remediation.
           findings_count:
             format: json
             schema: non-negative-integer

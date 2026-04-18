@@ -276,6 +276,65 @@ class WorktreeManager {
   /// Returns worktree info for a task, or null if no worktree exists.
   WorktreeInfo? getWorktreeInfo(String taskId) => _worktrees[taskId];
 
+  /// Applies an `externalArtifactMount` instruction to a worktree that has
+  /// already been created.
+  ///
+  /// Two modes are supported:
+  ///
+  /// - `per-story-copy` (default, least-privilege): copy exactly one file from
+  ///   the [fromProjectDir]'s workspace at [relativeSourcePath] into the
+  ///   [worktree] at the same relative path. Parent directories are created
+  ///   as needed. The file is the only content sourced from `fromProject` —
+  ///   no sibling stories' artifacts are reachable from inside the worktree.
+  ///
+  /// - `bind-mount`: currently unsupported at the library level (requires
+  ///   platform-specific mount privileges). Throws [WorktreeException] when
+  ///   invoked with this mode so callers fall back to per-story-copy or
+  ///   surface the limitation.
+  ///
+  /// Returns the absolute path of the file written inside the worktree on
+  /// success. Safe to call multiple times — a second call with identical
+  /// content is a no-op; a call with different content overwrites.
+  Future<String> applyExternalArtifactMount({
+    required WorktreeInfo worktree,
+    required String fromProjectDir,
+    required String relativeSourcePath,
+    String mode = 'per-story-copy',
+  }) async {
+    if (mode == 'bind-mount') {
+      throw const WorktreeException(
+        'externalArtifactMount mode "bind-mount" is not supported by '
+        'WorktreeManager on this platform; use mode: "per-story-copy" instead '
+        'or implement a platform-specific mount provider.',
+      );
+    }
+    if (mode != 'per-story-copy') {
+      throw WorktreeException(
+        'externalArtifactMount: unknown mode "$mode" (expected "per-story-copy" or "bind-mount")',
+      );
+    }
+    final normalized = p.normalize(relativeSourcePath);
+    if (normalized.startsWith('..') || p.isAbsolute(normalized)) {
+      throw WorktreeException(
+        'externalArtifactMount: source path "$relativeSourcePath" must be a '
+        'workspace-relative path that stays inside fromProject',
+      );
+    }
+    final sourceFile = File(p.join(fromProjectDir, normalized));
+    if (!sourceFile.existsSync()) {
+      throw WorktreeException(
+        'externalArtifactMount: source file missing — $fromProjectDir/$normalized',
+      );
+    }
+    final targetFile = File(p.join(worktree.path, normalized));
+    await targetFile.parent.create(recursive: true);
+    await sourceFile.copy(targetFile.path);
+    _log.info(
+      'externalArtifactMount: copied $normalized from $fromProjectDir into worktree ${worktree.path}',
+    );
+    return targetFile.path;
+  }
+
   Future<void> _ensureGitAvailable() async {
     if (_gitAvailable == true) return;
     if (_gitAvailable == false) throw GitNotFoundException();

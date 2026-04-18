@@ -352,3 +352,31 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
       'total: $totalIterations, ok: $successCount, fail: $failureCount, '
       'cancelled: $cancelledCount, tokens: $totalTokens)';
 }
+
+/// Fired when a workflow step is skipped because its [entryGate] expression
+/// evaluated false.
+///
+/// The cursor advances past the step without pausing the run.
+final class StepSkippedEvent extends WorkflowLifecycleEvent {
+  @override
+  final String runId;
+
+  /// Identifier of the skipped step.
+  final String stepId;
+
+  /// The entryGate expression that evaluated false.
+  final String reason;
+
+  @override
+  final DateTime timestamp;
+
+  StepSkippedEvent({
+    required this.runId,
+    required this.stepId,
+    required this.reason,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'StepSkippedEvent(run: $runId, step: $stepId, reason: "$reason")';
+}

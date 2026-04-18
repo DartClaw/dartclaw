@@ -478,4 +478,91 @@ void main() {
       expect(ex.toString(), equals('WorktreeException: Simple error'));
     });
   });
+
+  group('applyExternalArtifactMount (per-story-copy)', () {
+    late Directory tmpDir;
+    late String fromProjectDir;
+    late String worktreeDir;
+
+    setUp(() {
+      tmpDir = Directory.systemTemp.createTempSync('mount_test_');
+      fromProjectDir = p.join(tmpDir.path, 'fromProject');
+      worktreeDir = p.join(tmpDir.path, 'worktree');
+      Directory(p.join(fromProjectDir, 'docs/specs/0.16.5/fis')).createSync(recursive: true);
+      Directory(worktreeDir).createSync();
+      File(p.join(fromProjectDir, 'docs/specs/0.16.5/fis/s13-helpers.md')).writeAsStringSync('# S13 FIS');
+      File(p.join(fromProjectDir, 'docs/specs/0.16.5/fis/s14-other.md')).writeAsStringSync('# S14 FIS');
+    });
+
+    tearDown(() {
+      if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+    });
+
+    test('copies exactly the named source file into the worktree at the same relative path', () async {
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      final target = await wm.applyExternalArtifactMount(
+        worktree: wt,
+        fromProjectDir: fromProjectDir,
+        relativeSourcePath: 'docs/specs/0.16.5/fis/s13-helpers.md',
+      );
+      expect(target, equals(p.join(worktreeDir, 'docs/specs/0.16.5/fis/s13-helpers.md')));
+      expect(File(target).readAsStringSync(), equals('# S13 FIS'));
+      // Sibling FIS not copied — least privilege.
+      expect(File(p.join(worktreeDir, 'docs/specs/0.16.5/fis/s14-other.md')).existsSync(), isFalse);
+    });
+
+    test('rejects paths that escape the fromProject root', () async {
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      await expectLater(
+        wm.applyExternalArtifactMount(
+          worktree: wt,
+          fromProjectDir: fromProjectDir,
+          relativeSourcePath: '../escape.md',
+        ),
+        throwsA(isA<WorktreeException>()),
+      );
+    });
+
+    test('rejects absolute source paths', () async {
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      await expectLater(
+        wm.applyExternalArtifactMount(
+          worktree: wt,
+          fromProjectDir: fromProjectDir,
+          relativeSourcePath: '/etc/passwd',
+        ),
+        throwsA(isA<WorktreeException>()),
+      );
+    });
+
+    test('raises WorktreeException when source file is missing', () async {
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      await expectLater(
+        wm.applyExternalArtifactMount(
+          worktree: wt,
+          fromProjectDir: fromProjectDir,
+          relativeSourcePath: 'docs/specs/0.16.5/fis/s99-missing.md',
+        ),
+        throwsA(isA<WorktreeException>()),
+      );
+    });
+
+    test('bind-mount mode raises until a platform provider is implemented', () async {
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      await expectLater(
+        wm.applyExternalArtifactMount(
+          worktree: wt,
+          fromProjectDir: fromProjectDir,
+          relativeSourcePath: 'docs/specs/0.16.5/fis/s13-helpers.md',
+          mode: 'bind-mount',
+        ),
+        throwsA(isA<WorktreeException>()),
+      );
+    });
+  });
 }

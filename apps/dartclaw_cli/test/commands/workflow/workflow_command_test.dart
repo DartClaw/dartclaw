@@ -22,6 +22,10 @@ void main() {
       expect(command.subcommands.containsKey('list'), isTrue);
     });
 
+    test('has show subcommand', () {
+      expect(command.subcommands.containsKey('show'), isTrue);
+    });
+
     test('has run subcommand', () {
       expect(command.subcommands.containsKey('run'), isTrue);
     });
@@ -53,7 +57,7 @@ void main() {
     test('workflow --help shows all workflow subcommands', () {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
       expect(runner.commands.containsKey('workflow'), isTrue);
-      expect(command.subcommands.length, 8);
+      expect(command.subcommands.length, 9);
     });
   });
 }

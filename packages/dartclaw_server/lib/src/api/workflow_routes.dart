@@ -19,7 +19,13 @@ import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowSummary, WorkflowDefinitionSource, WorkflowService, stepStatusFromTask;
+    show
+        SkillRegistry,
+        WorkflowDefinitionResolver,
+        WorkflowDefinitionSource,
+        WorkflowService,
+        WorkflowSummary,
+        stepStatusFromTask;
 
 import '../task/task_service.dart';
 import 'api_helpers.dart';
@@ -36,8 +42,10 @@ Router workflowRoutes(
   TaskService tasks,
   WorkflowDefinitionSource definitions, {
   EventBus? eventBus,
+  SkillRegistry? skillRegistry,
 }) {
   final router = Router();
+  final resolver = WorkflowDefinitionResolver(skillRegistry: skillRegistry);
 
   // POST /api/workflows/run
   router.post('/api/workflows/run', (Request request) async {
@@ -162,13 +170,39 @@ Router workflowRoutes(
   });
 
   // GET /api/workflows/definitions/<name>
+  // Query params:
+  //   resolve=true         → returns YAML with stepDefaults/skill-defaults merged
+  //   step=<id>            → (with resolve=true) slices to a single resolved step
   router.get('/api/workflows/definitions/<name>', (Request request, String name) async {
     try {
       final def = definitions.getByName(name);
       if (def == null) {
         return errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $name');
       }
-      return jsonResponse(200, _definitionDetail(def));
+
+      final params = request.url.queryParameters;
+      final shouldResolve = params['resolve'] == 'true';
+      if (!shouldResolve) {
+        return jsonResponse(200, _definitionDetail(def));
+      }
+
+      final resolved = resolver.resolve(def);
+      final stepId = params['step'];
+      if (stepId != null && stepId.isNotEmpty) {
+        final slice = resolver.sliceStep(resolved, stepId);
+        if (slice == null) {
+          return errorResponse(404, 'STEP_NOT_FOUND', 'Step "$stepId" not found in workflow "$name"');
+        }
+        return Response.ok(
+          resolver.emitYaml(slice),
+          headers: {'content-type': 'application/yaml; charset=utf-8'},
+        );
+      }
+
+      return Response.ok(
+        resolver.emitYaml(resolved),
+        headers: {'content-type': 'application/yaml; charset=utf-8'},
+      );
     } catch (e, st) {
       _log.severe('Failed to get workflow definition $name', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow definition');

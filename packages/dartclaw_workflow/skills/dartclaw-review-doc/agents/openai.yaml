@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Review Doc"
-  short_description: "Review a spec, plan, or PRD"
-  default_prompt: "Use $dartclaw-review-doc to review the provided document for clarity, completeness, and technical accuracy."
-
-policy:
-  allow_implicit_invocation: true

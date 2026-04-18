@@ -21,6 +21,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowExecutionCursorNodeType,
         ParallelGroupNode,
         ParallelGroupCompletedEvent,
+        StepSkippedEvent,
         Task,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -28,6 +29,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowApprovalRequestedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowDefinition,
+        WorkflowGitArtifactsStrategy,
         WorkflowNode,
         WorkflowLoop,
         WorkflowRun,
@@ -53,6 +55,7 @@ import 'prompt_augmenter.dart';
 import 'schema_presets.dart';
 import 'shell_escape.dart';
 import 'skill_prompt_builder.dart';
+import 'skill_registry.dart';
 import 'step_config_resolver.dart';
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
@@ -123,6 +126,7 @@ class WorkflowExecutor {
   final SkillPromptBuilder _skillPromptBuilder;
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
+  final SkillRegistry? _skillRegistry;
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
@@ -149,6 +153,211 @@ class WorkflowExecutor {
     return perDefinition.putIfAbsent(cacheKey, () => SkillPromptBuilder.collectInputConfigs(definition.steps, keys));
   }
 
+  /// Returns the `workflow.default_prompt` declared in the step's skill
+  /// frontmatter, or null when no registry is wired, the step has no skill,
+  /// or the skill declares no default.
+  String? _skillDefaultPromptFor(WorkflowStep step) {
+    final skill = step.skill;
+    if (skill == null) return null;
+    return _skillRegistry?.getByName(skill)?.defaultPrompt;
+  }
+
+  /// Returns the effective `outputs:` for a step, shallow-merging the skill's
+  /// `workflow.default_outputs` (keys only in the skill default are added;
+  /// keys on the step win).
+  Map<String, OutputConfig>? _effectiveOutputsFor(WorkflowStep step) {
+    final explicit = step.outputs;
+    final skill = step.skill;
+    if (skill == null || _skillRegistry == null) return explicit;
+    final defaults = _skillRegistry.getByName(skill)?.defaultOutputs;
+    if (defaults == null || defaults.isEmpty) return explicit;
+    if (explicit == null || explicit.isEmpty) return defaults;
+    return {...defaults, ...explicit};
+  }
+
+  /// Resolved values for a step's contextInputs keyed by input key.
+  /// Missing context entries render as `''` so the auto-frame pass can drop
+  /// an `_(empty)_` placeholder per the shared convention.
+  Map<String, Object?> _resolvedInputValuesFor(WorkflowStep step, WorkflowContext context) {
+    if (step.contextInputs.isEmpty) return const {};
+    return {for (final key in step.contextInputs) key: context[key] ?? ''};
+  }
+
+  /// Fallback git identity for auto-commit in environments without a
+  /// configured `user.name` / `user.email`. Applied only to the artifact-commit
+  /// hook; does not affect user-authored commits.
+  static const _artifactCommitAuthorName = 'DartClaw Workflow';
+  static const _artifactCommitAuthorEmail = 'workflow@dartclaw.local';
+
+  /// Skills whose outputs are considered artifact files on disk.
+  static const _artifactProducingSkills = <String>{
+    'dartclaw-prd',
+    'dartclaw-plan',
+    'dartclaw-spec',
+    'dartclaw-remediate-findings',
+  };
+
+  /// True when a workflow contains at least one artifact-producing step —
+  /// controls the default value of `gitStrategy.artifacts.commit`.
+  bool _workflowHasArtifactProducer(WorkflowDefinition definition) {
+    for (final step in definition.steps) {
+      if (step.skill != null && _artifactProducingSkills.contains(step.skill)) return true;
+      final outputs = step.outputs;
+      if (outputs == null) continue;
+      for (final cfg in outputs.values) {
+        if (cfg.format == OutputFormat.path) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Resolves the effective workflow-branch target directory for artifact
+  /// commits. Falls back in this order: `gitStrategy.artifacts.project` →
+  /// `step.project` → workflow-level `{{PROJECT}}` variable → null.
+  ///
+  /// Project directories are resolved by the standard DartClaw convention:
+  /// `<dataDir>/projects/<projectId>/`. Returns a `(projectId, dir, exists)`
+  /// triple so callers can log the resolved path even when the directory is
+  /// missing — makes misconfigured `artifacts.project` templates debuggable.
+  _ResolvedArtifactProject? _resolveArtifactCommitProject(
+    WorkflowStep step,
+    WorkflowContext context,
+    WorkflowGitArtifactsStrategy strategy,
+  ) {
+    String? resolve(String? template) {
+      if (template == null) return null;
+      final rendered = _templateEngine.resolve(template, context).trim();
+      return rendered.isEmpty ? null : rendered;
+    }
+
+    final projectId =
+        resolve(strategy.project) ?? resolve(step.project) ?? resolve('{{PROJECT}}');
+    if (projectId == null) return null;
+    final dir = p.join(_dataDir, 'projects', projectId);
+    return _ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
+  }
+
+  /// Commits any artifact-path outputs the just-completed [step] produced to
+  /// the workflow branch in the configured project's working tree, so that
+  /// later per-map-item worktrees branching from the workflow branch inherit
+  /// them.
+  ///
+  /// Silent no-op when:
+  /// - `gitStrategy.artifacts.commit` effectively resolves to false;
+  /// - the step's contextOutputs contain no path-shaped values;
+  /// - no staged changes exist after `git add` (files were already committed).
+  ///
+  /// Failures are logged and swallowed — artifact commit is advisory for the
+  /// workflow; downstream worktrees may still see the files via the workspace
+  /// if using shared-mode worktrees.
+  Future<void> _maybeCommitArtifacts({
+    required WorkflowRun run,
+    required WorkflowDefinition definition,
+    required WorkflowStep step,
+    required WorkflowContext context,
+  }) async {
+    final artifacts = definition.gitStrategy?.artifacts;
+    final hasProducer = _workflowHasArtifactProducer(definition);
+    final shouldCommit = artifacts?.commit ?? hasProducer;
+    if (!shouldCommit) return;
+    if (artifacts == null && !hasProducer) return;
+
+    // Collect produced artifact paths from this step's context outputs.
+    final outputs = step.outputs;
+    if (outputs == null) return;
+    final producedPaths = <String>[];
+    for (final outKey in step.contextOutputs) {
+      final cfg = outputs[outKey];
+      if (cfg == null || cfg.format != OutputFormat.path) continue;
+      final value = context[outKey]?.toString().trim() ?? '';
+      if (value.isEmpty || value == 'null') continue;
+      producedPaths.add(value);
+    }
+    if (producedPaths.isEmpty) return;
+
+    // Resolve the project working directory for the commit.
+    final resolved = _resolveArtifactCommitProject(
+      step,
+      context,
+      artifacts ?? const WorkflowGitArtifactsStrategy(),
+    );
+    if (resolved == null) {
+      _log.warning(
+        "artifact-commit: step '${step.id}' produced paths but no project id "
+        'could be resolved (checked gitStrategy.artifacts.project, step.project, '
+        'and the {{PROJECT}} workflow variable)',
+      );
+      return;
+    }
+    if (!resolved.exists) {
+      _log.warning(
+        "artifact-commit: step '${step.id}' resolved project '${resolved.projectId}' "
+        "but directory '${resolved.dir}' does not exist — skipping commit",
+      );
+      return;
+    }
+    final projectDir = resolved.dir;
+
+    final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
+    final resolvedMessage = _templateEngine
+        .resolve(messageTemplate.replaceAll('{{runId}}', run.id), context)
+        .trim();
+    final commitMessage = resolvedMessage.isEmpty ? 'chore(workflow): artifacts for run ${run.id}' : resolvedMessage;
+
+    try {
+      final addResult = await Process.run('git', ['add', '--', ...producedPaths], workingDirectory: projectDir);
+      if (addResult.exitCode != 0) {
+        _log.warning("artifact-commit: git add failed in '$projectDir': ${addResult.stderr}");
+        return;
+      }
+      final stagedResult = await Process.run(
+        'git',
+        ['diff', '--cached', '--name-only'],
+        workingDirectory: projectDir,
+      );
+      final staged = (stagedResult.stdout as String).trim();
+      if (staged.isEmpty) {
+        _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
+        return;
+      }
+      final commitResult = await Process.run(
+        'git',
+        [
+          '-c', 'user.name=$_artifactCommitAuthorName',
+          '-c', 'user.email=$_artifactCommitAuthorEmail',
+          'commit', '-m', commitMessage,
+        ],
+        workingDirectory: projectDir,
+      );
+      if (commitResult.exitCode != 0) {
+        _log.warning("artifact-commit: git commit failed in '$projectDir': ${commitResult.stderr}");
+        return;
+      }
+      _log.info(
+        "artifact-commit: committed ${producedPaths.length} file(s) in '$projectDir' "
+        "after step '${step.id}' with message '$commitMessage'",
+      );
+    } catch (e) {
+      _log.warning("artifact-commit: unexpected error for step '${step.id}' in '$projectDir': $e");
+    }
+  }
+
+  /// Returns `true` when [step].entryGate is set and evaluates false — the
+  /// caller should skip the step (advance cursor, do not pause). Fires a
+  /// [StepSkippedEvent] as a side effect. Unlike [WorkflowStep.gate], entryGate
+  /// does not pause the run on false; it is a clean skip.
+  bool _shouldSkipDueToEntryGate(WorkflowStep step, WorkflowContext context, String runId) {
+    final expr = step.entryGate;
+    if (expr == null || expr.trim().isEmpty) return false;
+    final passes = _gateEvaluator.evaluate(expr, context);
+    if (passes) return false;
+    _log.info("Workflow '$runId': step '${step.id}' skipped: entryGate='$expr' evaluated false");
+    _eventBus.fire(
+      StepSkippedEvent(runId: runId, stepId: step.id, reason: expr, timestamp: DateTime.now()),
+    );
+    return true;
+  }
+
   WorkflowExecutor({
     required WorkflowTaskService taskService,
     required EventBus eventBus,
@@ -164,6 +373,7 @@ class WorkflowExecutor {
     WorkflowTurnAdapter? turnAdapter,
     WorkflowStepOutputTransformer? outputTransformer,
     WorkflowRoleDefaults? roleDefaults,
+    SkillRegistry? skillRegistry,
     Uuid? uuid,
   }) : _taskService = taskService,
        _eventBus = eventBus,
@@ -176,6 +386,7 @@ class WorkflowExecutor {
            skillPromptBuilder ?? SkillPromptBuilder(augmenter: promptAugmenter ?? const PromptAugmenter()),
        _turnAdapter = turnAdapter,
        _outputTransformer = outputTransformer,
+       _skillRegistry = skillRegistry,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
        _uuid = uuid ?? const Uuid();
@@ -272,6 +483,11 @@ class WorkflowExecutor {
           if (step == null || stepIndex == null) {
             await _pauseRun(run, 'Normalized map node references missing step "$stepId".');
             return;
+          }
+
+          if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+            nodeIndex++;
+            continue;
           }
 
           if (step.gate != null) {
@@ -377,7 +593,7 @@ class WorkflowExecutor {
               ? Set<String>.from(failedStepIdsRaw.cast<String>())
               : <String>{};
           final isParallelResume = resumeFailedIds.isNotEmpty;
-          final group = isParallelResume
+          var group = isParallelResume
               ? fullGroup.where((step) => resumeFailedIds.contains(step.id)).toList()
               : fullGroup;
 
@@ -389,6 +605,16 @@ class WorkflowExecutor {
             );
           }
 
+          // Drop any parallel-group steps whose entryGate evaluates false.
+          // They are skipped individually; the rest of the group proceeds.
+          group = [
+            for (final groupStep in group)
+              if (!_shouldSkipDueToEntryGate(groupStep, context, run.id)) groupStep,
+          ];
+          if (group.isEmpty) {
+            nodeIndex++;
+            continue;
+          }
           for (final groupStep in group) {
             if (groupStep.gate != null) {
               final gatePasses = _gateEvaluator.evaluate(groupStep.gate!, context);
@@ -582,6 +808,11 @@ class WorkflowExecutor {
             return;
           }
 
+          if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+            nodeIndex++;
+            continue;
+          }
+
           if (step.gate != null) {
             final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
             if (!gatePasses) {
@@ -729,6 +960,8 @@ class WorkflowExecutor {
               timestamp: DateTime.now(),
             ),
           );
+
+          await _maybeCommitArtifacts(run: run, definition: definition, step: step, context: context);
 
           nodeIndex++;
       }
@@ -978,6 +1211,10 @@ class WorkflowExecutor {
             "Step '${step.id}' has parallel:true but is inside loop '${loop.id}' — "
             'executing sequentially (parallel flag ignored in loops)',
           );
+        }
+
+        if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+          continue;
         }
 
         // Gate check on individual loop step.
@@ -1367,7 +1604,7 @@ class WorkflowExecutor {
 
     // Augment only the LAST prompt with schema instructions.
     // resolveWithMap handles {{map.*}} references (null mapCtx falls back to resolve).
-    final effectiveOutputs = step.outputs;
+    final effectiveOutputs = _effectiveOutputsFor(step);
     final resolvedFirstPrompt = step.prompts != null
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
@@ -1376,6 +1613,9 @@ class WorkflowExecutor {
             for (final key in step.contextInputs) key: context[key] ?? '',
           }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
         : null;
+    final skillDefaultPrompt = _skillDefaultPromptFor(step);
+    final resolvedInputValues = _resolvedInputValuesFor(step, context);
+    final variableNames = definition.variables.keys.toList(growable: false);
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
@@ -1390,6 +1630,28 @@ class WorkflowExecutor {
     // can identify which story iteration this task belongs to.
     if (mapCtx != null) {
       taskConfig = {...taskConfig, '_mapIterationIndex': mapCtx.index, '_mapIterationTotal': mapCtx.length};
+
+      // Resolve workflow externalArtifactMount for this iteration so the
+      // task-side worktree manager can apply a per-story file copy before
+      // the agent turn starts.
+      final mount = definition.gitStrategy?.externalArtifactMount;
+      if (mount != null) {
+        final resolvedSource = mount.source == null
+            ? null
+            : _templateEngine.resolveWithMap(mount.source!, context, mapCtx).trim();
+        final fromProjectId = _templateEngine.resolve(mount.fromProject, context).trim();
+        if (fromProjectId.isNotEmpty) {
+          final fromProjectDir = p.join(_dataDir, 'projects', fromProjectId);
+          final mountJson = <String, Object?>{
+            'mode': mount.mode,
+            'fromProjectDir': fromProjectDir,
+            if (resolvedSource != null && resolvedSource.isNotEmpty) 'source': resolvedSource,
+            if (mount.fromPath != null) 'fromPath': mount.fromPath,
+            if (mount.toPath != null) 'toPath': mount.toPath,
+          };
+          taskConfig = {...taskConfig, '_workflow.externalArtifactMount': mountJson};
+        }
+      }
     }
 
     // continueSession: resolve root session and snapshot token baseline.
@@ -1453,6 +1715,12 @@ class WorkflowExecutor {
             resolvedPrompt: resolvedFirstPrompt,
             contextSummary: contextSummary,
             contextOutputs: step.contextOutputs,
+            skillDefaultPrompt: skillDefaultPrompt,
+            autoFrameContext: step.autoFrameContext,
+            contextInputs: step.contextInputs,
+            variables: variableNames,
+            resolvedInputValues: resolvedInputValues,
+            templatePrompt: step.prompts?.first,
           )
         : _skillPromptBuilder.build(
             skill: step.skill,
@@ -1460,6 +1728,12 @@ class WorkflowExecutor {
             contextSummary: contextSummary,
             outputs: effectiveOutputs,
             contextOutputs: step.contextOutputs,
+            skillDefaultPrompt: skillDefaultPrompt,
+            autoFrameContext: step.autoFrameContext,
+            contextInputs: step.contextInputs,
+            variables: variableNames,
+            resolvedInputValues: resolvedInputValues,
+            templatePrompt: step.prompts?.first,
           );
     final followUpPrompts = _buildOneShotFollowUpPrompts(
       step,
@@ -1468,6 +1742,9 @@ class WorkflowExecutor {
       contextOutputs: step.contextOutputs,
       mapCtx: mapCtx,
     );
+    // Note: auto-framing intentionally does not run on follow-up prompts;
+    // the continuation shares the conversation's existing context and the
+    // contract was already rendered on the first prompt.
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
     taskConfig = {...taskConfig};
     if (followUpPrompts.isNotEmpty) {
@@ -1528,7 +1805,7 @@ class WorkflowExecutor {
     Map<String, dynamic> outputs = {};
     int tokenCount = 0;
     try {
-      outputs = await _contextExtractor.extract(step, finalTask);
+      outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: effectiveOutputs);
     } catch (e, st) {
       _log.warning("Context extraction failed for step '${step.id}'", e, st);
     }
@@ -1731,6 +2008,7 @@ class WorkflowExecutor {
         case OutputFormat.lines:
           outputs[outputKey] = extractLines(stdout);
         case OutputFormat.text:
+        case OutputFormat.path:
           outputs[outputKey] = stdout;
       }
     }
@@ -2135,7 +2413,7 @@ class WorkflowExecutor {
   }
 
   Map<String, dynamic>? _buildStructuredOutputEnvelopeSchema(WorkflowStep step) {
-    final outputs = step.outputs;
+    final outputs = _effectiveOutputsFor(step);
     if (outputs == null || outputs.isEmpty) return null;
 
     final properties = <String, dynamic>{};
@@ -2144,7 +2422,7 @@ class WorkflowExecutor {
     for (final entry in outputs.entries) {
       final config = entry.value;
       final schema = switch (config.format) {
-        OutputFormat.text => const {'type': 'string'},
+        OutputFormat.text || OutputFormat.path => const {'type': 'string'},
         OutputFormat.lines => const {
           'type': 'array',
           'items': {'type': 'string'},
@@ -2483,13 +2761,22 @@ class WorkflowExecutor {
                 for (final key in step.contextInputs) key: context[key] ?? '',
               }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
             : null;
-        final effectiveOutputs = step.outputs;
+        final effectiveOutputs = _effectiveOutputsFor(step);
+        final skillDefaultPrompt = _skillDefaultPromptFor(step);
+        final resolvedInputValues = _resolvedInputValuesFor(step, context);
+        final variableNames = definition.variables.keys.toList(growable: false);
         final iterPrompt = _skillPromptBuilder.build(
           skill: step.skill,
           resolvedPrompt: resolvedPrompt,
           contextSummary: contextSummary,
           outputs: effectiveOutputs,
           contextOutputs: step.contextOutputs,
+          skillDefaultPrompt: skillDefaultPrompt,
+          autoFrameContext: step.autoFrameContext,
+          contextInputs: step.contextInputs,
+          variables: variableNames,
+          resolvedInputValues: resolvedInputValues,
+          templatePrompt: rawPrompt,
         );
         final taskConfig = _buildStepConfig(run, definition, step, resolved, context);
         final iterTitle = '${definition.name} — ${step.name} (${iterIndex + 1}/${collection.length})';
@@ -2971,6 +3258,10 @@ class WorkflowExecutor {
     for (var childIndex = 0; childIndex < childSteps.length; childIndex++) {
       final childStep = childSteps[childIndex];
       final childStepIndex = definition.steps.indexOf(childStep);
+
+      if (_shouldSkipDueToEntryGate(childStep, iterContext, run.id)) {
+        continue;
+      }
 
       final result = await _executeStep(
         run,
@@ -3559,7 +3850,7 @@ class WorkflowExecutor {
       }
 
       try {
-        outputs = await _contextExtractor.extract(step, finalTask);
+        outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: _effectiveOutputsFor(step));
       } catch (e, st) {
         _log.warning(
           "Workflow '${run.id}': context extraction failed for map step '${step.id}' "
@@ -3852,4 +4143,11 @@ class WorkflowExecutor {
       _log.warning("Workflow '${run.id}' cleanup callback failed: $e", e, st);
     }
   }
+}
+
+class _ResolvedArtifactProject {
+  final String projectId;
+  final String dir;
+  final bool exists;
+  const _ResolvedArtifactProject({required this.projectId, required this.dir, required this.exists});
 }

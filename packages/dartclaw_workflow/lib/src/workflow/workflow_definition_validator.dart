@@ -69,6 +69,20 @@ class ValidationReport {
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
   static final _gateConditionPattern = RegExp(r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
+  // `entryGate` supports both bare-key and dotted `stepId.key` forms
+  // (e.g. `active_prd != null` or `review-prd.findings_count > 0`), mirroring
+  // how `GateEvaluator` reads values out of context. The key segment pattern
+  // intentionally rejects multi-dotted forms (`a.b.c`) because the runtime
+  // evaluator does not resolve nested paths — a gate written that way would
+  // always read as null at runtime.
+  static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
+
+  /// Skills that produce artifact files under `context.docs_project_index.artifact_locations.*`.
+  static const _artifactProducingSkills = {
+    'dartclaw-prd',
+    'dartclaw-plan',
+    'dartclaw-spec',
+  };
   final _engine = WorkflowTemplateEngine();
 
   /// Step types known by the engine. Any other type produces a warning.
@@ -113,7 +127,8 @@ class WorkflowDefinitionValidator {
     _validateLoopStepOverlap(definition, errors);
     _validateLoopFinalizers(definition, errors);
     _validateStepDefaults(definition);
-    _validateGitStrategy(definition, errors);
+    _validateGitStrategy(definition, errors, warnings);
+    _validateStepEntryGates(definition, errors);
     _validateOutputConfigs(definition, errors, warnings);
     _validateMapOverReferences(definition, errors);
     _validateMapStepConstraints(definition, errors);
@@ -483,7 +498,11 @@ class WorkflowDefinitionValidator {
     }
   }
 
-  void _validateGitStrategy(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateGitStrategy(
+    WorkflowDefinition definition,
+    List<ValidationError> errors,
+    List<ValidationError> warnings,
+  ) {
     final strategy = definition.gitStrategy;
     if (strategy == null) return;
 
@@ -512,6 +531,119 @@ class WorkflowDefinitionValidator {
           type: ValidationErrorType.invalidReference,
         ),
       );
+    }
+
+    // Artifact-producing step detection — a step is artifact-producing if its
+    // skill is on the known artifact-producer list, or if its contextOutputs
+    // reference `artifact_locations.*` / a path-shaped artifact output.
+    final hasArtifactProducer = definition.steps.any((step) {
+      if (step.skill != null && _artifactProducingSkills.contains(step.skill)) return true;
+      return step.contextOutputs.any(
+        (k) => k == 'prd' || k == 'plan' || k == 'story_spec' || k == 'story_specs' || k == 'technical_research',
+      );
+    });
+
+    final artifacts = strategy.artifacts;
+    // gitStrategy.artifacts.commit defaulting truth table:
+    //   - ≥1 artifact-producing step → default commit=true; commit=false with
+    //     worktree=per-map-item is a hard error; commit=false with shared is
+    //     allowed but warned.
+    //   - No artifact-producing step → default commit=false; any explicit
+    //     value is accepted silently.
+    if (hasArtifactProducer) {
+      final commitExplicit = artifacts?.commit;
+      if (commitExplicit == false && worktree == 'per-map-item') {
+        errors.add(
+          ValidationError(
+            message:
+                'gitStrategy.artifacts.commit: false is incompatible with '
+                'gitStrategy.worktree: per-map-item when the workflow contains '
+                'artifact-producing steps — worktrees cannot inherit uncommitted '
+                'generated artifacts. Set artifacts.commit: true or change the '
+                'worktree strategy.',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      } else if (commitExplicit == false && worktree == 'shared') {
+        warnings.add(
+          ValidationError(
+            message:
+                'gitStrategy.artifacts.commit: false with worktree: shared is '
+                'allowed but uncommitted artifacts will not persist beyond the '
+                'workflow branch trace; consider enabling commit.',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+    }
+
+    final mount = strategy.externalArtifactMount;
+    if (mount != null) {
+      const allowedModes = {'per-story-copy', 'bind-mount'};
+      if (!allowedModes.contains(mount.mode)) {
+        errors.add(
+          ValidationError(
+            message:
+                'gitStrategy.externalArtifactMount.mode must be one of '
+                '${allowedModes.join(', ')}; received "${mount.mode}".',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+      if (mount.mode == 'per-story-copy' && (mount.source == null || mount.source!.trim().isEmpty)) {
+        errors.add(
+          ValidationError(
+            message:
+                'gitStrategy.externalArtifactMount.source is required when mode '
+                'is "per-story-copy" (a template resolved per map iteration, '
+                'e.g. "{{map.item.spec_path}}").',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+      if (mount.mode == 'bind-mount') {
+        if (mount.fromPath == null || mount.fromPath!.trim().isEmpty) {
+          errors.add(
+            ValidationError(
+              message:
+                  'gitStrategy.externalArtifactMount.fromPath is required when '
+                  'mode is "bind-mount".',
+              type: ValidationErrorType.invalidReference,
+            ),
+          );
+        }
+        warnings.add(
+          ValidationError(
+            message:
+                'gitStrategy.externalArtifactMount.mode: "bind-mount" broadens '
+                'the sandbox scope of each per-story worktree beyond its own '
+                'FIS. Ensure the profile README justifies this opt-in.',
+            type: ValidationErrorType.invalidReference,
+          ),
+        );
+      }
+    }
+  }
+
+  void _validateStepEntryGates(WorkflowDefinition definition, List<ValidationError> errors) {
+    for (final step in definition.steps) {
+      final expression = step.entryGate;
+      if (expression == null || expression.trim().isEmpty) continue;
+      final conditions = expression.split('&&').map((c) => c.trim());
+      for (final condition in conditions) {
+        if (!_entryGateConditionPattern.hasMatch(condition)) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" has invalid entryGate expression: "$condition". '
+                  'Expected: "<key> <operator> <value>" (e.g. '
+                  '"prd_source == synthesized" or "review.findings_count > 0").',
+              type: ValidationErrorType.invalidGate,
+              stepId: step.id,
+            ),
+          );
+        }
+      }
     }
   }
 

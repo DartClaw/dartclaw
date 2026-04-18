@@ -479,6 +479,27 @@ class TaskExecutor {
         }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
+
+        // Apply workflow externalArtifactMount (per-story file copy) when the
+        // enclosing workflow resolved a source file for this map iteration.
+        final mountJson = task.configJson['_workflow.externalArtifactMount'];
+        if (mountJson is Map) {
+          final fromProjectDir = mountJson['fromProjectDir'] as String?;
+          final relativeSource = mountJson['source'] as String?;
+          final mountMode = (mountJson['mode'] as String?) ?? 'per-story-copy';
+          if (fromProjectDir != null && relativeSource != null && fromProjectDir.isNotEmpty && relativeSource.isNotEmpty) {
+            try {
+              await _worktreeManager.applyExternalArtifactMount(
+                worktree: worktreeInfo,
+                fromProjectDir: fromProjectDir,
+                relativeSourcePath: relativeSource,
+                mode: mountMode,
+              );
+            } on WorktreeException catch (e) {
+              _log.warning('externalArtifactMount failed for task ${task.id}: $e');
+            }
+          }
+        }
       }
 
       // continueSession: reuse the root session from the preceding agent step.

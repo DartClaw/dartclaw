@@ -24,6 +24,14 @@ gitStrategy:
   promotion: merge
   publish:
     enabled: true
+  # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
+  # branch so per-map-item worktrees inherit them when created. Required when
+  # artifact-producing steps (dartclaw-prd / dartclaw-plan / dartclaw-spec)
+  # are combined with worktree: per-map-item.
+  artifacts:
+    commit: true
+    commitMessage: "chore(workflow): artifacts for run {{runId}}"
+    project: "{{PROJECT}}"
 
 stepDefaults:
   # Patterns without `*` are matched by literal equality (step_config_resolver),
@@ -71,12 +79,15 @@ steps:
         schema: project-index
         description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
-  # Synthesize a PRD from the input requirements. Stops at the PRD altitude — no story breakdown, no specs.
+  # Synthesize a PRD from the input requirements, or reuse an existing one at
+  # context.project_index.active_prd. Writes prd.md to disk and emits the path
+  # + a source tag — never emits the PRD body inline.
   - id: prd
     name: Draft PRD
     type: analysis
     skill: dartclaw-prd
     contextInputs: [project_index]
+    allowedTools: [shell, file_read, file_write]
     prompt: |
       <REQUIREMENTS>
       {{REQUIREMENTS}}
@@ -85,67 +96,105 @@ steps:
       <project_index>
       {{context.project_index}}
       </project_index>
-    contextOutputs: [prd]
+    contextOutputs: [prd, prd_source]
     outputs:
       prd:
+        format: path
+        description: Workspace-relative path to prd.md on disk (either reused or freshly synthesized).
+      prd_source:
         format: text
-        description: Product requirements document drafted from the input requirements.
+        description: "'existing' when reused from context.project_index.active_prd, 'synthesized' when this step wrote a new file."
 
-  # Review the draft PRD and minimally revise it where findings require — PRD only, no downstream planning yet.
+  # Review the PRD on disk via file_read. Read-only — never mutates the file.
+  # Skipped when the upstream prd step reused an existing PRD (prd_source ==
+  # existing); revision, if needed, is a separate downstream remediation step.
   - id: review-prd
     name: Review PRD
     type: analysis
     skill: dartclaw-review-doc
+    entryGate: "prd_source == synthesized"
     continueSession: prd
     contextInputs: [project_index, prd]
+    allowedTools: [file_read]
     prompt: |
-      Review the PRD for clarity, completeness, correctness, and implementability.
-      Revise the PRD to address any actionable findings you identify.
-      Preserve the existing intent when the review is already clean; only make minimal cleanup edits in that case.
-      Do **not** produce or revise a story plan, story specs, or any downstream planning artifacts here — this review is scoped strictly to the PRD.
-      Return the full revised PRD and the PRD review findings for traceability.
+      Read the PRD from disk at the workspace-relative path `{{context.prd}}`
+      via `file_read` and review it for clarity, completeness, correctness, and
+      implementability. Return structured findings only — **do not mutate the
+      PRD file on disk**. If findings_count > 0 a downstream remediation step
+      will apply the fixes.
 
       <project_index>
       {{context.project_index}}
       </project_index>
 
-      <prd>
+      <prd_path>
       {{context.prd}}
-      </prd>
-    contextOutputs: [prd, prd_review_findings]
+      </prd_path>
+    contextOutputs: [prd, prd_review_findings, findings_count]
     outputs:
       prd:
-        format: text
-        description: Product requirements document drafted from the input requirements.
+        format: path
+        description: Pass-through of the PRD file path — unchanged from input (review is read-only).
       prd_review_findings:
         format: json
         schema: verdict
-        description: Structured review findings produced while revising the PRD.
+        description: Structured review findings against the on-disk PRD.
+      findings_count:
+        format: json
+        schema: non-negative-integer
+        description: Count of actionable review findings; 0 means the PRD is clean.
 
-  # Plan stories and generate per-story specifications in a single pass from the reviewed PRD.
+  # Plan stories and per-story FIS files from the reviewed PRD path. Reuses
+  # context.project_index.active_plan when it exists; otherwise synthesizes.
+  # Writes plan.md, optional technical-research.md, and per-story FIS files;
+  # emits file paths + structured records, never inline artifact bodies.
   - id: plan
     name: Plan Stories and Specs
     type: analysis
     skill: dartclaw-plan
-    contextInputs: [project_index, prd]
+    contextInputs: [project_index, prd, prd_review_findings]
+    allowedTools: [shell, file_read, file_write]
     prompt: |
+      Read the reviewed PRD from the workspace-relative path `{{context.prd}}`
+      via `file_read`. Incorporate the review findings below into the planning
+      pass so the resulting stories address the review points. Write plan.md to
+      `context.project_index.artifact_locations.plan` and per-story FIS files
+      under `context.project_index.artifact_locations.fis_dir`. Emit structured
+      per-story records with a `spec_path` field pointing at each FIS on disk.
+
       <project_index>
       {{context.project_index}}
       </project_index>
 
-      <prd>
+      <prd_path>
       {{context.prd}}
-      </prd>
-    contextOutputs: [stories, story_specs]
+      </prd_path>
+
+      <prd_review_findings>
+      {{context.prd_review_findings}}
+      </prd_review_findings>
+    contextOutputs: [stories, story_specs, plan, plan_source, prd, technical_research]
     outputs:
       stories:
         format: json
         schema: story-plan
-        description: Ordered list of stories that implement the PRD, ready for per-story execution.
+        description: Ordered list of stories parsed from the Story Catalog in plan.md.
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story specifications that drive the per-story implementation loop, emitted alongside stories in the same pass.
+        description: Per-story structured records (id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files). spec_path is the workspace-relative FIS file path.
+      plan:
+        format: path
+        description: Workspace-relative path to plan.md on disk.
+      plan_source:
+        format: text
+        description: "'existing' when reused from context.project_index.active_plan, 'synthesized' when this step wrote a new file."
+      prd:
+        format: path
+        description: Pass-through of the PRD file path — unchanged (plan does not rewrite the PRD).
+      technical_research:
+        format: path
+        description: Workspace-relative path to technical-research.md when one was written (null otherwise).
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -158,12 +207,17 @@ steps:
     contextOutputs: [story_results]
     steps:
       # Implement one story against its generated story spec.
+      # The FIS body is read from disk via file_read — per-story worktrees
+      # inherit the committed FIS files from the workflow branch, or receive
+      # a per-story copy when gitStrategy.worktree.externalArtifactMount is
+      # configured.
       - id: implement
         name: Implement Story
         type: coding
         skill: dartclaw-exec-spec
         project: "{{PROJECT}}"
         review: always
+        allowedTools: [shell, file_read, file_write]
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
@@ -172,9 +226,13 @@ steps:
           {{map.item.acceptance_criteria}}
           </acceptance_criteria>
 
-          <story_spec>
+          Read the FIS body from disk at the workspace-relative path
+          `{{map.item.spec_path}}` via `file_read`. Do not rely on inline FIS
+          content in this prompt — the authoritative spec is the file.
+
+          <story_record>
           {{map.item}}
-          </story_spec>
+          </story_record>
 
           <project_index>
           {{context.project_index}}
@@ -221,17 +279,22 @@ steps:
         name: Quick Review Story
         type: analysis
         skill: dartclaw-quick-review
+        allowedTools: [file_read]
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
+
+          Read the story's FIS from disk via `file_read` at
+          `{{map.item.spec_path}}` when you need the full acceptance criteria
+          or task detail.
 
           <project_index>
           {{context.project_index}}
           </project_index>
 
-          <story_spec>
+          <story_record>
           {{map.item}}
-          </story_spec>
+          </story_record>
 
           <story_result>
           {{context.implement.story_result}}
@@ -252,15 +315,28 @@ steps:
             description: Number of issues flagged by the story-level quick review; 0 means clean.
 
   # Review the batch outcome across all stories and decide whether plan-level remediation is needed.
+  # Skipped when the upstream plan step reused an existing plan (plan_source == existing);
+  # if the pre-existing plan's stories need gap review, run this workflow's
+  # remediation loop on that artifact instead.
   - id: plan-review
     name: Review Full Implementation
     type: analysis
     skill: dartclaw-review-gap
-    contextInputs: [project_index, story_specs, story_results]
+    entryGate: "plan_source == synthesized"
+    contextInputs: [project_index, story_specs, story_results, plan]
+    allowedTools: [file_read]
     prompt: |
+      Read the plan from disk via `file_read` at `{{context.plan}}` — each
+      story's FIS lives under the directory referenced by
+      `context.project_index.artifact_locations.fis_dir`.
+
       <project_index>
       {{context.project_index}}
       </project_index>
+
+      <plan_path>
+      {{context.plan}}
+      </plan_path>
 
       <story_specs>
       {{context.story_specs}}

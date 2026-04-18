@@ -364,6 +364,7 @@ class WorkflowDefinitionParser {
       review: review,
       parallel: (raw['parallel'] as bool?) ?? false,
       gate: raw['gate'] as String?,
+      entryGate: raw['entryGate'] as String?,
       contextInputs: _parseStringList(raw['contextInputs']),
       contextOutputs: _parseStringList(raw['contextOutputs']),
       extraction: extraction,
@@ -379,6 +380,15 @@ class WorkflowDefinitionParser {
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
+      autoFrameContext: _parseAutoFrameContext(raw['auto_frame_context'] ?? raw['autoFrameContext'], id, sourcePath),
+    );
+  }
+
+  bool _parseAutoFrameContext(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return true;
+    if (raw is bool) return raw;
+    throw FormatException(
+      'Step "$stepId": "auto_frame_context" must be a boolean (true or false)${_at(sourcePath)}.',
     );
   }
 
@@ -477,11 +487,57 @@ class WorkflowDefinitionParser {
       publish = WorkflowGitPublishStrategy(enabled: publishRaw['enabled'] as bool?);
     }
 
+    final artifactsRaw = raw['artifacts'];
+    WorkflowGitArtifactsStrategy? artifacts;
+    if (artifactsRaw != null) {
+      if (artifactsRaw is! YamlMap) {
+        throw FormatException('Field "gitStrategy.artifacts" must be a mapping${_at(sourcePath)}.');
+      }
+      artifacts = WorkflowGitArtifactsStrategy(
+        commit: artifactsRaw['commit'] as bool?,
+        commitMessage: (artifactsRaw['commitMessage'] ?? artifactsRaw['commit_message']) as String?,
+        project: artifactsRaw['project'] as String?,
+      );
+    }
+
+    final mountRaw = raw['externalArtifactMount'] ?? raw['external_artifact_mount'];
+    WorkflowGitExternalArtifactMount? externalArtifactMount;
+    if (mountRaw != null) {
+      if (mountRaw is! YamlMap) {
+        throw FormatException(
+          'Field "gitStrategy.externalArtifactMount" must be a mapping${_at(sourcePath)}.',
+        );
+      }
+      final fromProject = mountRaw['fromProject'] ?? mountRaw['from_project'];
+      if (fromProject is! String || fromProject.trim().isEmpty) {
+        throw FormatException(
+          'Field "gitStrategy.externalArtifactMount.fromProject" is required${_at(sourcePath)}.',
+        );
+      }
+      final mode = (mountRaw['mode'] as String?) ?? 'per-story-copy';
+      if (mode != 'per-story-copy' && mode != 'bind-mount') {
+        throw FormatException(
+          'Field "gitStrategy.externalArtifactMount.mode" must be "per-story-copy" or '
+          '"bind-mount" (got "$mode")${_at(sourcePath)}.',
+        );
+      }
+      externalArtifactMount = WorkflowGitExternalArtifactMount(
+        mode: mode,
+        fromProject: fromProject,
+        source: mountRaw['source'] as String?,
+        fromPath: (mountRaw['fromPath'] ?? mountRaw['from_path']) as String?,
+        toPath: (mountRaw['toPath'] ?? mountRaw['to_path']) as String?,
+        readonly: mountRaw['readonly'] as bool?,
+      );
+    }
+
     return WorkflowGitStrategy(
       bootstrap: raw['bootstrap'] as bool?,
       worktree: raw['worktree'] as String?,
       promotion: raw['promotion'] as String?,
       publish: publish,
+      artifacts: artifacts,
+      externalArtifactMount: externalArtifactMount,
     );
   }
 

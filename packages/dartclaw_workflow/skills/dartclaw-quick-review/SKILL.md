@@ -2,6 +2,16 @@
 description: Quick in-conversation review of recent changes using a fresh-context sub-agent for adversarial critique. Use mid-conversation to sanity-check work before moving on. Trigger on 'quick review this', 'sanity-check this', 'give this a quick pass'.
 user-invocable: true
 argument-hint: "[optional focus or scope]"
+workflow:
+  default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes."
+  default_outputs:
+    quick_review_summary:
+      format: text
+      description: Short assessment of whether the implementation meets its spec and acceptance criteria.
+    quick_review_findings_count:
+      format: json
+      schema: non-negative-integer
+      description: Number of issues flagged by the quick review; 0 means clean.
 ---
 
 # Quick Review

@@ -1,6 +1,8 @@
 ---
 description: Use when the user wants to generate a new spec or FIS before implementation for a feature or plan story. Do not use when the user wants to execute or implement an existing spec or FIS. Creates an execution-sized FIS by default, or pivots to a small plan bundle with multiple FIS files when one spec would be too large. Trigger on 'create a spec for this', 'create a FIS for this', 'write a spec', 'write a FIS', 'specify this feature'.
 argument-hint: <description> | @<requirements-file> | story <story-id> of <path-to-plan.md>
+workflow:
+  default_prompt: "Use $dartclaw-spec to generate an execution-sized FIS from the provided feature or story."
 ---
 
 # Generate Feature Implementation Specification
@@ -128,6 +130,17 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 - Save `plan.md` + one child FIS per story in the output directory (stable names like `s01-{story-name}.md`)
 - Use `../dartclaw-plan/templates/plan-template.md`; update each story's FIS path and set `Status: Spec Ready`
 - Downstream path is the plan-execution workflow. Do not use for `story {story_id} of plan.md` input.
+
+## Workflow Output Contract _(consumed by the workflow engine only)_
+
+When this skill runs as a workflow step it honors the same **single-mode file-based** contract as `dartclaw-prd` and `dartclaw-plan`: always write the FIS to disk at the canonical location, always emit the path. Never emit FIS body inline.
+
+Canonical outputs:
+
+- `story_spec` (format: `path`) — workspace-relative path to the generated FIS file on disk
+
+When the oversize-pivot triggers (producing a small plan bundle instead of a single FIS), emit `plan` (path) + `story_specs` (structured array of per-story records, each with `spec_path`) following the same shape as `dartclaw-plan` — see that skill's Workflow Output Contract for the record shape. Never emit a bare path array for `story_specs`; downstream map-iteration prompts depend on `map.item.title` / `map.item.id` / `map.item.acceptance_criteria` on each record.
+
 
 ### Publish to GitHub _(if --to-issue)_
 Follow `../references/github-artifact-roundtrip.md`:

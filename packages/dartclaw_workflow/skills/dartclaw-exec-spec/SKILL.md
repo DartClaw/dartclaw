@@ -1,6 +1,8 @@
 ---
 description: Use when the user wants to execute or implement an existing spec or FIS. Implements code from a Feature Implementation Specification. Trigger on 'execute this spec', 'execute this FIS', 'implement this spec', 'implement this FIS', 'build from spec'.
 argument-hint: <path-to-fis>
+workflow:
+  default_prompt: "Use $dartclaw-exec-spec to execute the provided local FIS with full verification and status gates."
 ---
 
 # Execute Feature Implementation Specification

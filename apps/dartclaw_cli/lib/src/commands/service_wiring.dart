@@ -159,6 +159,18 @@ class ServiceWiring {
       sourceDir: builtInSkillsSourceDir,
     );
 
+    // Skill registry — discover Agent Skills from 7 prioritized sources.
+    // Built here (before WorkflowService / task executor) so downstream
+    // services that need the registry (workflow executor skill defaults,
+    // MCP/SSE handlers, etc.) can reference the same instance.
+    final skillRegistry = SkillRegistryImpl();
+    skillRegistry.discover(
+      projectDirs: projectDirs,
+      workspaceDir: config.workspaceDir,
+      dataDir: dataDir,
+      builtInSkillsDir: builtInSkillsSourceDir,
+    );
+
     // 1. Storage — databases, sessions, messages, memory, KV, QMD.
     final storage = StorageWiring(
       config: config,
@@ -528,20 +540,12 @@ class ServiceWiring {
         availableRunnerCount: () => serverTurns.availableRunnerCount,
       ),
       structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
+      skillRegistry: skillRegistry,
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,
     );
     await workflowService.recoverIncompleteRuns();
-
-    // Skill registry — discover Agent Skills from 7 prioritized sources.
-    final skillRegistry = SkillRegistryImpl();
-    skillRegistry.discover(
-      projectDirs: projectDirs,
-      workspaceDir: config.workspaceDir,
-      dataDir: dataDir,
-      builtInSkillsDir: builtInSkillsSourceDir,
-    );
 
     // Workflow registry — materialize built-in workflows, then discover custom ones
     // from workspace and per-project directories.

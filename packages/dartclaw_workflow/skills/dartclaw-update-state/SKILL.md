@@ -3,6 +3,12 @@ name: dartclaw-update-state
 description: Update project state using the framework-aware state protocol discovered earlier.
 argument-hint: "<project-index | state instruction>"
 user-invocable: true
+workflow:
+  default_prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
+  default_outputs:
+    state_update_summary:
+      format: text
+      schema: state-update-summary
 ---
 
 # DartClaw Update State

@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Plan"
-  short_description: "Create an implementation plan with FIS specs for every story"
-  default_prompt: "Use $dartclaw-plan to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run $dartclaw-prd first if one is missing. Plan directory: "
-
-policy:
-  allow_implicit_invocation: true

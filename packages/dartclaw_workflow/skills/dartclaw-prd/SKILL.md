@@ -3,6 +3,8 @@ name: dartclaw-prd
 description: Use when the user wants a PRD synthesized from requirements, a draft PRD, or a requirements-clarification artifact. Produces `prd.md` in a discoverable feature directory, ready to feed the `dartclaw-plan` skill. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
 argument-hint: "[Specs directory, requirements source, file, URL, or --issue <n>]"
 user-invocable: true
+workflow:
+  default_prompt: "Use $dartclaw-prd to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
 ---
 
 # Create PRD
@@ -60,18 +62,26 @@ The output location depends on the shape of `INPUT`:
 | `--issue <number>` | Create `<output-dir>/issue-{number}-{feature-name}/prd.md` |
 
 
-### Dual-Mode Contract (Critical)
+### Single-Mode File-Based Contract (Critical)
 
-This is the same seam today's `dartclaw-plan` encodes — both skills must honor it identically so the workflow engine can compose them.
+Whether invoked standalone or as a workflow step, this skill **always writes `prd.md` to disk** at the canonical location and **always emits the file path** via `contextOutputs` (when running as a workflow step). Never emit the PRD body inline. Workflow steps downstream read the file via `file_read`.
 
 - **Standalone** (direct CLI / `/dartclaw-prd <args>`): write `prd.md` to disk per the output-path semantics above; print the final path.
-- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): return the synthesized PRD text via the `prd` key in `contextOutputs`; do **not** write `prd.md` to disk — the workflow engine captures step output through its contract.
+- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write `prd.md` to `context.docs_project_index.artifact_locations.prd`, then emit that path via `contextOutputs.prd` and emit `prd_source ∈ {existing, synthesized}` via `contextOutputs.prd_source`.
+
+#### Read-Existing Detection
+
+Before synthesis, when running as a workflow step, inspect `context.docs_project_index.active_prd`:
+
+- If `active_prd` is non-null **and the file exists**: skip synthesis entirely. Emit `prd: <active_prd path>` and `prd_source: "existing"`. Do not rewrite the file.
+- Otherwise: synthesize into `context.docs_project_index.artifact_locations.prd`, emit that path, and emit `prd_source: "synthesized"`.
 
 
 ## GOTCHAS
 - Drifting into planning or story breakdown — that's the `dartclaw-plan` skill's altitude; this skill stops at the PRD boundary.
 - Skipping prior artifacts and re-doing discovery when `requirements-clarification.md` or `prd-draft.md` exist — wastes effort and risks contradicting completed decisions.
-- Writing `prd.md` to disk while in Workflow-Step Mode — breaks the workflow engine's output capture and double-writes artifacts.
+- Emitting the PRD body inline via `contextOutputs` — removed in 0.16.4. Workflow-Step Mode is file-based only: write the file, emit the path.
+- Re-synthesizing when `active_prd` already exists — skip synthesis and emit the existing path with `prd_source: "existing"`.
 - Pausing for interactive clarification on routine gaps — document assumptions in the PRD instead.
 
 
@@ -121,8 +131,7 @@ Self-check:
 - [ ] Scope explicitly defined (in/out) with no conflicting requirements
 - [ ] Every feature has defined error handling; NFRs have clear thresholds
 - [ ] No ambiguous terms without definitions; all assumptions documented
-
-Optional: invoke the `dartclaw-review` skill with `--doc-only` (or `--mode doc`) to validate the PRD before finalizing.
+- [ ] **Problem-solution fit (bidirectional)**: every pain or desired outcome named on the **problem side** — in `Problem Definition` and in the "so that..." clauses of `Functional Requirements > User Stories` — has at least one feature, acceptance criterion, or metric on the **solution side** (a row in `Functional Requirements > Feature Specifications`, an item in `Executive Summary > Success Metrics`, a `Non-Functional Requirements` threshold, or a `Scope > In Scope` capability) that signals it's resolved; and every solution-side item traces back to such a pain or outcome. Fix: unaddressed problem → add a feature/metric or drop the problem element; orphan solution → drop it or amend `Problem Definition` / user-story rationale to justify (solutionism smell).
 
 **Gate**: Validation complete
 
@@ -131,16 +140,17 @@ Optional: invoke the `dartclaw-review` skill with `--doc-only` (or `--mode doc`)
 
 **Standalone**: write `prd.md` to `OUTPUT_DIR` per the Output-Path Semantics table. Print the relative path from project root.
 
-**Workflow-Step Mode**: return the PRD text via the `prd` key in `contextOutputs`. Do not write to disk.
+**Workflow-Step Mode**: if `active_prd` is non-null and exists on disk, emit `prd: <active_prd path>` + `prd_source: "existing"` and stop. Otherwise write `prd.md` to `context.docs_project_index.artifact_locations.prd` and emit `prd: <that path>` + `prd_source: "synthesized"`.
 
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_
 
 When this skill runs as a workflow step, its canonical outputs are:
 
-- `prd` (format: `text`) — the synthesized PRD content
+- `prd` (format: `path`) — workspace-relative path to `prd.md` on disk
+- `prd_source` (format: `text`) — `"existing"` when a pre-existing PRD was reused, `"synthesized"` when the skill wrote a new file
 
-Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step.
+Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step. Never emit the PRD body inline — workflow steps downstream read the file via `file_read`.
 
 
 ### Publish to GitHub _(if --to-issue)_

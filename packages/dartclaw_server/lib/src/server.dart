@@ -847,7 +847,13 @@ class DartclawServer {
     final ts = _taskService;
     final ds = _workflowDefinitionSource;
     if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus);
+      final workflowRouter = workflowRoutes(
+        wf,
+        ts,
+        ds,
+        eventBus: _eventBus,
+        skillRegistry: _skillRegistry,
+      );
       router.mount('/', workflowRouter.call);
     }
     final skills = _skillRegistry;

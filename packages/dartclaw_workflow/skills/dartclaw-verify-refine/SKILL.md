@@ -1,6 +1,16 @@
 ---
 description: Verify the current implementation first, apply light cleanup only when the gates pass, then re-verify. Trigger on 'verify this', 'refine this safely', 'validate and clean up this code'.
 argument-hint: <scope/description> | --path <dir/file>
+workflow:
+  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify."
+  default_outputs:
+    validation_summary:
+      format: text
+      schema: validation-summary
+    findings_count:
+      format: json
+      schema: non-negative-integer
+      description: Number of remaining issues after validation; 0 means clean.
 ---
 
 # Verify Then Refine

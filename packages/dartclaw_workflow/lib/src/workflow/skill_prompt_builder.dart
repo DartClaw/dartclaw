@@ -28,11 +28,19 @@ class SkillPromptBuilder {
   ///
   /// [skill] is the skill name (null for non-skill steps).
   /// [resolvedPrompt] is the template-resolved prompt. When null **or
-  /// empty**, the builder falls back to [contextSummary] (for skill
-  /// steps) or to an empty prompt (for non-skill steps — the validator
-  /// rejects this combination upstream).
+  /// empty**, the builder falls back to [skillDefaultPrompt] (injected so
+  /// Case 1 applies), then to [contextSummary] (for skill steps), then to
+  /// an empty prompt (for non-skill steps — the validator rejects this
+  /// combination upstream).
   /// [contextSummary] provides pre-rendered context sections when prompt
   /// is absent — produced by [formatContextSummary].
+  /// [skillDefaultPrompt] is the skill's `workflow.default_prompt` from its
+  /// SKILL.md frontmatter — used as the base prompt when a skill step omits
+  /// its own `prompt:`.
+  /// [autoFrameContext], [contextInputs], [variables], [resolvedInputValues],
+  /// and [templatePrompt] drive the auto-framing pass (appends
+  /// `<key>\n{value}\n</key>` blocks for context/variable keys that the
+  /// author has not already referenced). See [appendAutoFramedContext].
   /// [outputs] and [contextOutputs] are forwarded to [PromptAugmenter].
   String build({
     required String? skill,
@@ -40,14 +48,32 @@ class SkillPromptBuilder {
     String? contextSummary,
     Map<String, OutputConfig>? outputs,
     List<String> contextOutputs = const [],
+    String? skillDefaultPrompt,
+    bool autoFrameContext = true,
+    List<String> contextInputs = const [],
+    List<String> variables = const [],
+    Map<String, Object?> resolvedInputValues = const {},
+    String? templatePrompt,
   }) {
+    // Step 1: fall back to the skill's frontmatter `default_prompt` when the
+    // step declared no prompt of its own. Injecting here keeps Case 1 as the
+    // canonical skill+prompt path; Case 2 (context summary) remains as the
+    // tertiary fallback for skills that don't carry a default.
+    var effectiveResolvedPrompt = resolvedPrompt;
+    if (skill != null &&
+        (effectiveResolvedPrompt == null || effectiveResolvedPrompt.isEmpty) &&
+        skillDefaultPrompt != null &&
+        skillDefaultPrompt.isNotEmpty) {
+      effectiveResolvedPrompt = skillDefaultPrompt;
+    }
+
     final String prompt;
 
     if (skill != null) {
       final skillLine = "Use the '$skill' skill.";
-      if (resolvedPrompt != null && resolvedPrompt.isNotEmpty) {
+      if (effectiveResolvedPrompt != null && effectiveResolvedPrompt.isNotEmpty) {
         // Case 1: skill + prompt.
-        prompt = '$skillLine\n\n$resolvedPrompt';
+        prompt = '$skillLine\n\n$effectiveResolvedPrompt';
       } else if (contextSummary != null && contextSummary.isNotEmpty) {
         // Case 2: skill + no prompt — framed context sections stand alone.
         // Sections carry their own `##` headers, so no literal "Context:"
@@ -60,12 +86,113 @@ class SkillPromptBuilder {
     } else {
       // Case 3: no skill + prompt (passthrough).
       // Case 4 (no skill + no prompt) is rejected by validator.
-      prompt = resolvedPrompt ?? '';
+      prompt = effectiveResolvedPrompt ?? '';
     }
 
-    // Append schema-driven output format section via PromptAugmenter (S01).
-    return _augmenter.augment(prompt, outputs: outputs, contextOutputs: contextOutputs);
+    // Step 2: auto-frame any unreferenced contextInputs/variables so the
+    // agent always receives the declared state, even when the authored
+    // template body is pure prose.
+    final framed = autoFrameContext
+        ? appendAutoFramedContext(
+            prompt,
+            contextInputs: contextInputs,
+            variables: variables,
+            resolvedValues: resolvedInputValues,
+            templatePrompt: templatePrompt,
+          )
+        : prompt;
+
+    // Step 3: append schema-driven output format section via PromptAugmenter.
+    return _augmenter.augment(framed, outputs: outputs, contextOutputs: contextOutputs);
   }
+
+  /// Appends XML-framed `<tagName>value</tagName>` blocks for each context
+  /// input and workflow-level variable that is not already referenced in the
+  /// prompt body.
+  ///
+  /// Detection rules (either suppresses auto-injection for the key):
+  /// - **Tag detection** — `<tagName` appears anywhere in [prompt]
+  ///   (case-sensitive, prefix-only so XML attributes don't defeat it).
+  /// - **Reference detection** — `{{context.key}}` / `{{context.tagName}}`
+  ///   or `{{KEY}}` / `{{tagName}}` appears in [templatePrompt]
+  ///   (pre-substitution form).
+  ///
+  /// Tag names normalize `.` → `_` so dotted context keys like
+  /// `plan-review.findings_count` render as
+  /// `<plan-review_findings_count>…</plan-review_findings_count>`.
+  ///
+  /// Empty/null resolved values render as `_(empty)_` — matching the
+  /// convention used by [formatContextSummary] — so the agent sees that
+  /// the contract was honoured but the producer returned nothing.
+  ///
+  /// [contextInputs] are processed before [variables]; each key is visited
+  /// at most once across both lists.
+  static String appendAutoFramedContext(
+    String prompt, {
+    List<String> contextInputs = const [],
+    List<String> variables = const [],
+    Map<String, Object?> resolvedValues = const {},
+    String? templatePrompt,
+  }) {
+    if (contextInputs.isEmpty && variables.isEmpty) return prompt;
+
+    final buf = StringBuffer(prompt);
+    final seen = <String>{};
+
+    void maybeAppend(String key, {required bool isContextInput}) {
+      if (key.isEmpty) return;
+      if (!seen.add(key)) return;
+
+      final tagName = key.replaceAll('.', '_');
+
+      // Detection A: tag already present — require a proper tag boundary
+      // (`>`, whitespace, or `/>` for self-closing) so `<prd>` doesn't
+      // suppress auto-injection when the prompt mentions `<prdfoo>` or
+      // `<prd-review>` elsewhere.
+      if (_tagBoundaryRegExp(tagName).hasMatch(prompt)) return;
+
+      // Detection B: template references the value inline. Uses a
+      // whitespace-tolerant regex so `{{ context.key }}` (with spaces)
+      // matches the same as `{{context.key}}` — matching the template
+      // engine's own tolerance. Both the raw key and the tag-normalized
+      // form are accepted so authors who pre-normalized the name also
+      // suppress auto-injection.
+      if (templatePrompt != null) {
+        final keys = key == tagName ? <String>[key] : <String>[key, tagName];
+        for (final candidate in keys) {
+          final pattern = isContextInput ? 'context.$candidate' : candidate;
+          if (_templateReferenceRegExp(pattern).hasMatch(templatePrompt)) {
+            return;
+          }
+        }
+      }
+
+      final raw = resolvedValues[key]?.toString() ?? '';
+      final rendered = raw.isEmpty ? '_(empty)_' : raw;
+      buf.write('\n\n<$tagName>\n$rendered\n</$tagName>');
+    }
+
+    for (final key in contextInputs) {
+      maybeAppend(key, isContextInput: true);
+    }
+    for (final key in variables) {
+      maybeAppend(key, isContextInput: false);
+    }
+
+    return buf.toString();
+  }
+
+  /// Regex matching `<tag>`, `<tag ...>`, or `<tag/>` with a proper tag
+  /// boundary so prefix collisions (`<prdfoo>` when looking for `<prd>`)
+  /// don't accidentally suppress auto-injection. Case-sensitive — matches
+  /// the FIS Detection A contract.
+  static RegExp _tagBoundaryRegExp(String tagName) =>
+      RegExp('<${RegExp.escape(tagName)}(?:[\\s/>])');
+
+  /// Regex matching `{{ name }}` with optional internal whitespace, matching
+  /// the workflow template engine's tolerance.
+  static RegExp _templateReferenceRegExp(String name) =>
+      RegExp('\\{\\{\\s*${RegExp.escape(name)}\\s*\\}\\}');
 
   /// Renders resolved context inputs as markdown sections.
   ///

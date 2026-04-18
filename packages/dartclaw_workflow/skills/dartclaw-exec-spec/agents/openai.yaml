@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Exec Spec"
-  short_description: "Execute a local FIS directly"
-  default_prompt: "Use $dartclaw-exec-spec to execute the provided local FIS with full verification and status gates."
-
-policy:
-  allow_implicit_invocation: true

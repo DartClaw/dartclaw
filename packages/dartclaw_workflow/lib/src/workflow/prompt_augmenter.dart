@@ -93,6 +93,11 @@ class PromptAugmenter {
       return;
     }
 
+    if (config.format == OutputFormat.path) {
+      buf.writeln('- "$key": workspace-relative file path string$descSuffix');
+      return;
+    }
+
     if (config.format == OutputFormat.lines) {
       buf.writeln('- "$key": JSON array of strings$descSuffix');
       return;

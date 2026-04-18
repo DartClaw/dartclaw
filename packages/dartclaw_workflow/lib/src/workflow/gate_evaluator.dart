@@ -47,6 +47,23 @@ class GateEvaluator {
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
     final rawActual = context[key]?.toString() ?? '';
+
+    // Null-literal handling for equality: missing keys and empty values are
+    // considered null; the literal string "null" also matches null. Equality
+    // semantics are evaluated before the numeric-empty-→-0 fallback so that
+    // `x == null` and `x != null` behave consistently regardless of whether
+    // the key was ever set.
+    if ((op == '==' || op == '!=') && expected == 'null') {
+      final isNull = rawActual.isEmpty || rawActual == 'null';
+      final result = op == '==' ? isNull : !isNull;
+      _log.fine('Gate condition: $key $op null → actual="$rawActual", result=$result');
+      return result;
+    }
+    // When the *actual* value is the literal "null" but expected is a
+    // non-"null" string, `!=` should be true and `==` false — matches user
+    // intuition for gates like `source != synthesized` when `source` is null.
+    // Nothing special to do: string comparison already handles this case.
+
     // Treat missing/empty values as '0' when the expected value is numeric,
     // so gates like "findings_count == 0" pass when the key was never set.
     final actual = rawActual.isEmpty && double.tryParse(expected) != null ? '0' : rawActual;

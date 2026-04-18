@@ -1495,5 +1495,74 @@ steps:
       expect(foreachNode.stepId, 'fe');
       expect(foreachNode.childStepIds, ['c1', 'c2']);
     });
+
+    test('parses entryGate on any step', () {
+      const yaml = '''
+name: gated
+description: step-level entryGate
+steps:
+  - id: prd
+    name: PRD
+    prompt: Produce PRD
+    contextOutputs: [prd, prd_source]
+  - id: review-prd
+    name: Review PRD
+    prompt: Review
+    entryGate: "prd_source == synthesized"
+    contextInputs: [prd]
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].entryGate, isNull);
+      expect(def.steps[1].entryGate, 'prd_source == synthesized');
+      final restored = WorkflowDefinition.fromJson(def.toJson());
+      expect(restored.steps[1].entryGate, 'prd_source == synthesized');
+    });
+
+    test('parses gitStrategy.artifacts + externalArtifactMount', () {
+      const yaml = '''
+name: with-artifacts
+description: artifact block
+gitStrategy:
+  bootstrap: true
+  worktree: per-map-item
+  artifacts:
+    commit: true
+    commitMessage: "chore(workflow): artifacts for run {{runId}}"
+    project: "{{DOC_PROJECT}}"
+  externalArtifactMount:
+    mode: per-story-copy
+    fromProject: "{{DOC_PROJECT}}"
+    source: "{{map.item.spec_path}}"
+steps:
+  - id: s1
+    name: S1
+    prompt: hi
+''';
+      final def = parser.parse(yaml);
+      final artifacts = def.gitStrategy!.artifacts!;
+      expect(artifacts.commit, isTrue);
+      expect(artifacts.commitMessage, 'chore(workflow): artifacts for run {{runId}}');
+      expect(artifacts.project, '{{DOC_PROJECT}}');
+      final mount = def.gitStrategy!.externalArtifactMount!;
+      expect(mount.mode, 'per-story-copy');
+      expect(mount.fromProject, '{{DOC_PROJECT}}');
+      expect(mount.source, '{{map.item.spec_path}}');
+    });
+
+    test('rejects unknown externalArtifactMount mode', () {
+      const yaml = '''
+name: bad-mount
+description: invalid mode
+gitStrategy:
+  externalArtifactMount:
+    mode: symlink
+    fromProject: OTHER
+steps:
+  - id: s
+    name: S
+    prompt: hi
+''';
+      expect(() => parser.parse(yaml), throwsA(isA<FormatException>()));
+    });
   });
 }

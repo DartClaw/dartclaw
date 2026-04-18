@@ -2,6 +2,17 @@
 description: Perform implementation-focused review covering code quality, security, architecture, and UI/UX. Use when you explicitly want code review rather than the general `review` router. Trigger on 'review this code', 'review this PR', 'audit these changes'.
 user-invocable: true
 argument-hint: "[scope/files] [--inline-findings] [--to-issue] [--to-pr <number>]"
+workflow:
+  default_prompt: "Use $dartclaw-review-code to review the provided implementation scope for correctness, architecture, and security."
+  default_outputs:
+    review_summary:
+      format: json
+      schema: verdict
+      description: Structured verdict and findings from the code review.
+    findings_count:
+      format: json
+      schema: non-negative-integer
+      description: Number of findings flagged by the review; 0 means the remediation loop can exit.
 ---
 
 # Code Review Skill

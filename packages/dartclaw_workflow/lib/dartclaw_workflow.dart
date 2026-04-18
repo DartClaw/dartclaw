@@ -45,6 +45,7 @@ export 'src/workflow/skill_registry_impl.dart';
 export 'src/workflow/step_config_resolver.dart';
 export 'src/workflow/workflow_context.dart';
 export 'src/workflow/workflow_definition_parser.dart';
+export 'src/workflow/workflow_definition_resolver.dart';
 export 'src/workflow/workflow_definition_source.dart';
 export 'src/workflow/workflow_definition_validator.dart';
 export 'src/workflow/workflow_executor.dart';

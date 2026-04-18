@@ -116,13 +116,30 @@ Before finalizing, cross-check each plan acceptance criterion against the FIS:
 - Do not finalize a FIS that silently narrows a plan requirement
 
 
+## Reverse Coverage Check (phantom-scope guard) — applies to all FIS
+
+Forward coverage (above) catches plan criteria the FIS misses. Reverse coverage catches the opposite: FIS work no upstream asked for.
+
+> Distinct from the Self-Check's in-scope coverage check below (internal: In Scope → coverage within the FIS). Reverse Coverage is external: Success Criterion → upstream source.
+
+For each FIS Success Criterion, name the plan acceptance criterion, PRD outcome, or (standalone) feature-request element it serves. Any unnamed criterion is **phantom scope**.
+
+**Resolution depends on mode:**
+
+- **Batch sub-agent mode** (from the `dartclaw-plan` skill) — binary: either (a) remove the criterion, or (b) return a `PHANTOM_SCOPE` entry in your completion summary so the orchestrator can escalate at the cross-cutting review. Do not rationalize by adding scope notes. Do not edit `plan.md` or `prd.md`. Note: sub-agents only see plan-level sources, so a criterion legitimately sourced from the PRD may appear phantom — report it anyway and let the orchestrator filter against `prd.md`.
+- **Standalone mode**: (a) remove, or (b) raise with the user and — on approval — add a scope note documenting the proposed addition for plan/PRD amendment.
+- **Standalone with no plan or PRD at all**: accept the criterion only if it traces to a user- or business-observable outcome in the feature request. "Uses X library", "refactors Y" are phantom scope absent a user-facing reason.
+
+Do not finalize a FIS with Success Criteria the upstream contract doesn't justify.
+
+
 ## Self-Check
 
 Quick sanity check before saving:
 - [ ] FIS follows template structure; tasks are atomic with file:line references and explicit inter-task dependencies
 - [ ] ADR states the decision clearly
 - [ ] Scenarios cover happy path, edge cases, and at least one error case; plan Key Scenario seeds mapped; negative-path checklist applied (omitted inputs, no-match, rejection paths)
-- [ ] Every Success Criterion has a proof path (scenario or Verify line); every in-scope item exercised
+- [ ] Every Success Criterion has a proof path (scenario or Verify line); every in-scope item exercised (internal coverage — paired with the Reverse Coverage Check above for external upstream sourcing)
 - [ ] "What We're NOT Doing" is specific, justified, and does not block a Success Criterion
 - [ ] Output formats specified concretely in scenarios (key fields, structure -- not just "returns JSON")
 - [ ] No over-specification, no code snippets >5 lines

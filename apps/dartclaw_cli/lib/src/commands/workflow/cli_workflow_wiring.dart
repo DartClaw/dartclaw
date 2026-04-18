@@ -126,6 +126,16 @@ class CliWorkflowWiring {
       sourceDir: builtInSkillsSourceDir,
     );
 
+    // Skill registry — discovered before the workflow service so the
+    // executor can honor skill-declared default_prompt/default_outputs.
+    skillRegistry = SkillRegistryImpl();
+    skillRegistry.discover(
+      projectDirs: projectDirs,
+      workspaceDir: config.workspaceDir,
+      dataDir: dataDir,
+      builtInSkillsDir: builtInSkillsSourceDir,
+    );
+
     // Storage layer
     searchDb = _searchDbFactory(config.searchDbPath);
     taskDb = _taskDbFactory(config.tasksDbPath);
@@ -270,6 +280,7 @@ class CliWorkflowWiring {
         ),
       ),
       structuredOutputFallbackRecorder: taskEventRecorder.recordStructuredOutputFallbackUsed,
+      skillRegistry: skillRegistry,
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
@@ -369,13 +380,6 @@ class CliWorkflowWiring {
     );
 
     // Registry — materialize built-in workflows, then discover custom ones.
-    skillRegistry = SkillRegistryImpl();
-    skillRegistry.discover(
-      projectDirs: projectDirs,
-      workspaceDir: config.workspaceDir,
-      dataDir: dataDir,
-      builtInSkillsDir: builtInSkillsSourceDir,
-    );
     final continuityProviders = pool.runners
         .where((r) => r.harness.supportsSessionContinuity)
         .map((r) => r.providerId)

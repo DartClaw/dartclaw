@@ -368,6 +368,14 @@ gitStrategy:
   promotion: merge
   publish:
     enabled: true
+  artifacts:
+    commit: true                                    # default true if ≥1 artifact-producing step
+    commitMessage: "chore(workflow): artifacts for run {{runId}}"
+    project: "{{PROJECT}}"
+  externalArtifactMount:                            # optional — two-repo profiles only
+    mode: per-story-copy
+    fromProject: "{{DOC_PROJECT}}"
+    source: "{{map.item.spec_path}}"
 ```
 
 Key runtime behavior:
@@ -379,6 +387,32 @@ Key runtime behavior:
 - Promotion conflicts pause with a `promotion-conflict` reason and preserve worktrees for manual conflict resolution + `workflow resume`.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
 - For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
+
+#### File-Based Artifact Contract
+
+Artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) always write their artifact to disk at the canonical `artifact_locations.*` path and emit the workspace-relative path via `contextOutputs` — never inline content. Workflow steps downstream read the file via `file_read`. This is the same single-mode contract AndThen uses; it lets sub-agents that create artifacts in parallel see each others' files through the filesystem rather than inline serialization.
+
+`dartclaw-prd` and `dartclaw-plan` additionally support **read-existing**: when `context.project_index.active_prd` / `active_plan` references a file that exists, the skill reuses it and emits `prd_source` / `plan_source` as `"existing"` instead of re-synthesizing. This unlocks re-running a workflow against committed artifacts without re-spending tokens.
+
+#### Artifact Auto-Commit
+
+`gitStrategy.artifacts.commit` enables an automatic `git add && git commit` on the workflow branch for every path-shaped output a step produces. The commit fires after the producing step completes and **before** any downstream map/foreach step creates per-map-item worktrees, so the worktrees inherit the files through the normal `git worktree add` path.
+
+Defaulting truth table:
+
+| Workflow contents | `worktree` | Default `commit` | `commit: false` allowed? |
+|---|---|---|---|
+| ≥1 artifact-producing step | `per-map-item` | `true` | **No** — validator error |
+| ≥1 artifact-producing step | `shared` | `true` | Warning only |
+| ≥1 artifact-producing step | `none` / absent | `true` | Yes |
+| No artifact-producing step | any | `false` | Yes (no-op) |
+
+#### Cross-Clone FIS Visibility
+
+Split-repo profiles declare `gitStrategy.externalArtifactMount` to propagate artifacts from a planning repo (e.g. a private docs repo) into per-map-item worktrees of a code repo:
+
+- `mode: per-story-copy` (default, least-privilege): each worktree receives only the single FIS file its story owns, copied at the same relative path used in `fromProject`. `file_read({{map.item.spec_path}})` resolves identically in both workspaces.
+- `mode: bind-mount` (opt-in, requires README justification): bind-mounts the whole FIS directory read-only — every worktree can read every sibling's FIS. Useful for cross-story references but broadens the sandbox.
 
 ### Inline Loops
 
@@ -418,6 +452,78 @@ Add `skill:` when a step should lean on a native Claude Code skill or another in
 - If the step has no prompt, the workflow engine can still build a valid instruction from the resolved context.
 - Skill references are validated before execution.
 
+#### Skill Frontmatter `workflow:` Block
+
+A skill's `SKILL.md` may declare a neutral `workflow:` block in its YAML frontmatter. The engine uses these values as defaults whenever a workflow step references the skill and omits its own `prompt:` / `outputs:`:
+
+```yaml
+---
+name: dartclaw-verify-refine
+description: Verify the current implementation first, apply light cleanup only when the gates pass, then re-verify.
+workflow:
+  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify."
+  default_outputs:
+    validation_summary:
+      format: text
+      schema: validation-summary
+    findings_count:
+      format: json
+      schema: non-negative-integer
+      description: Number of remaining issues after validation; 0 means clean.
+---
+```
+
+A workflow step can now be as thin as:
+
+```yaml
+- id: verify-refine
+  name: Validate
+  type: coding
+  skill: dartclaw-verify-refine
+  contextInputs: [project_index, story_result]
+  contextOutputs: [validation_summary, findings_count]
+```
+
+The engine fills in `prompt` from `default_prompt` and `outputs` from `default_outputs`; the step still wins wherever it declares an explicit field. Authors are never forced to use defaults — declaring `prompt:` or `outputs:` on the step keeps the existing behavior.
+
+#### Auto-Framed Context Inputs
+
+After template substitution and before the schema-driven output contract is appended, the engine auto-appends `<key>\n{resolved value}\n</key>` blocks for every step `contextInputs` entry and workflow-level `variables:` entry that the authored prompt does **not** already reference. Detection rules:
+
+- **Tag detection** — if the prompt already contains `<key` (any attribute), the key is left alone.
+- **Reference detection** — if the template prompt contains `{{context.key}}` or `{{KEY}}`, the key is left alone.
+- Tag names normalize `.` → `_`, so a dotted context key like `plan-review.findings_count` becomes `<plan-review_findings_count>…</plan-review_findings_count>`. An author using the normalized form in the prompt body also suppresses injection.
+
+Before (hand-wrapped):
+
+```yaml
+prompt: |
+  Review the plan.
+
+  <project_index>
+  {{context.project_index}}
+  </project_index>
+
+  <plan>
+  {{context.plan}}
+  </plan>
+```
+
+After (let the engine frame):
+
+```yaml
+prompt: "Review the plan."
+contextInputs: [project_index, plan]
+```
+
+To opt a single step out:
+
+```yaml
+- id: custom-step
+  auto_frame_context: false
+  prompt: "…"
+```
+
 ### Exit Gates and Finalizers
 
 Loops use `exitGate` to decide when to stop and `finally` to run a closing step after the loop ends.
@@ -425,6 +531,21 @@ Loops use `exitGate` to decide when to stop and `finally` to run a closing step 
 - `exitGate` uses the same simple comparison syntax as other gate expressions.
 - `maxIterations` is always a hard circuit breaker.
 - `finally` is useful for cleanup, summary, or handoff steps that must run once regardless of loop outcome.
+
+### Step-Level `entryGate` (Skip When False)
+
+Any step — not just loop bodies — can declare an `entryGate`. When the expression evaluates false the executor **skips** the step (fires a `StepSkippedEvent`, advances the cursor) and continues without pausing the run. This is distinct from `gate:` which pauses the run on false, awaiting operator review.
+
+```yaml
+- id: review-prd
+  skill: dartclaw-review-doc
+  entryGate: "prd_source == synthesized"   # skip when upstream reused an existing PRD
+  ...
+```
+
+Gate syntax accepts both bare-key (`prd_source == synthesized`) and dotted-output (`review-prd.findings_count > 0`) references, chained with `&&`. Null-literal comparisons are supported: missing keys and empty values are considered null, so `active_prd != null` evaluates true only when an actual path string is present.
+
+Typical uses: reuse-existing branches (skip a review step when the upstream artifact was reused), conditional remediation (only run when findings > 0), and feature-flagged steps.
 
 ### Step Defaults
 
@@ -439,6 +560,19 @@ stepDefaults:
 ```
 
 The first match wins. Explicit per-step values still override defaults.
+
+### Inspecting Resolved Workflows
+
+`dartclaw workflow show <name>` prints the raw authored YAML (JSON envelope). Add `--resolved` to emit the fully merged form — `stepDefaults` already applied to each step, skill `default_prompt` / `default_outputs` injected where the step omitted them, and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
+
+```bash
+dartclaw workflow show plan-and-implement --resolved
+dartclaw workflow show plan-and-implement --resolved --step review-prd
+dartclaw workflow show plan-and-implement --resolved --json        # JSON envelope for scripting
+dartclaw workflow show plan-and-implement --standalone              # bypass the server
+```
+
+Use this whenever a step behaves differently than the authored YAML suggests: the resolved form is the source of truth for what the engine actually runs after defaults and skill-level injections are applied.
 
 ---
 
@@ -459,7 +593,7 @@ Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
-- **PRD-scoped pre-planning review**: `review-prd` consumes only the draft PRD and emits `prd + prd_review_findings`; it does not reshape downstream planning outputs.
+- **PRD-scoped pre-planning review**: `review-prd` runs in a fresh session so it reads the PRD as an independent critic, minimally revises the document to address findings, and emits a revised `prd`; it does not reshape downstream planning outputs.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` and `{{context.verify-refine.validation_summary}}` within the same story iteration.

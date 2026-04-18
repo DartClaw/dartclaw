@@ -80,6 +80,94 @@ void main() {
       expect(result, startsWith('Analyze this.'));
       expect(result, contains('## Required Output Format'));
     });
+
+    test('skill + no prompt + skillDefaultPrompt -> skill line + default prompt', () {
+      final result = builder.build(
+        skill: 'dartclaw-verify-refine',
+        skillDefaultPrompt: 'Verify and refine the implementation.',
+      );
+      expect(result, "Use the 'dartclaw-verify-refine' skill.\n\nVerify and refine the implementation.");
+    });
+
+    test('skill + explicit prompt overrides skillDefaultPrompt', () {
+      final result = builder.build(
+        skill: 'dartclaw-verify-refine',
+        resolvedPrompt: 'Custom prompt.',
+        skillDefaultPrompt: 'Default prompt that should NOT appear.',
+      );
+      expect(result, contains('Custom prompt.'));
+      expect(result, isNot(contains('Default prompt that should NOT appear.')));
+    });
+  });
+
+  group('SkillPromptBuilder.appendAutoFramedContext', () {
+    test('appends XML-framed blocks for each context input when absent', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        'Do X',
+        contextInputs: const ['project_index', 'prd'],
+        resolvedValues: const {'project_index': 'A', 'prd': 'B'},
+      );
+      expect(result, 'Do X\n\n<project_index>\nA\n</project_index>\n\n<prd>\nB\n</prd>');
+    });
+
+    test('skips keys that the prompt already contains as literal tags', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        '<prd>inline</prd> Do X',
+        contextInputs: const ['project_index', 'prd'],
+        resolvedValues: const {'project_index': 'A', 'prd': 'B'},
+      );
+      expect(result.contains('<project_index>\nA\n</project_index>'), isTrue);
+      expect(result.contains('<prd>\nB\n</prd>'), isFalse);
+    });
+
+    test('skips keys the template references via {{context.key}}', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        'Build using A',
+        contextInputs: const ['project_index', 'prd'],
+        resolvedValues: const {'project_index': 'A', 'prd': 'B'},
+        templatePrompt: 'Build using {{ context.prd }}',
+      );
+      expect(result.contains('<project_index>\nA\n</project_index>'), isTrue);
+      expect(result.contains('<prd>\n'), isFalse);
+    });
+
+    test('dotted keys normalize dots to underscores in the tag name', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        'Do X',
+        contextInputs: const ['plan-review.findings_count'],
+        resolvedValues: const {'plan-review.findings_count': '7'},
+      );
+      expect(result, contains('<plan-review_findings_count>\n7\n</plan-review_findings_count>'));
+    });
+
+    test('tag-boundary detection: prefix-only match does NOT suppress', () {
+      // Regression for the too-loose detection: a `<prdfoo>` substring
+      // must not suppress auto-injection when the key is `prd`.
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        '<prdfoo>unrelated</prdfoo>',
+        contextInputs: const ['prd'],
+        resolvedValues: const {'prd': 'B'},
+      );
+      expect(result, contains('<prd>\nB\n</prd>'));
+    });
+
+    test('tag-boundary detection: tag with attribute DOES suppress', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        '<prd lang="en">inline</prd>',
+        contextInputs: const ['prd'],
+        resolvedValues: const {'prd': 'B'},
+      );
+      expect(result, isNot(contains('<prd>\nB\n</prd>')));
+    });
+
+    test('empty resolved value renders as _(empty)_', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        'Do X',
+        contextInputs: const ['prd'],
+        resolvedValues: const {'prd': ''},
+      );
+      expect(result, contains('<prd>\n_(empty)_\n</prd>'));
+    });
   });
 
   group('SkillPromptBuilder.formatContextSummary', () {

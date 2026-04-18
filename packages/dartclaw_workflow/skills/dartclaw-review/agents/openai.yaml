@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Review"
-  short_description: "Route to the right review path"
-  default_prompt: "Use $dartclaw-review to review the provided target and route to the appropriate specialist review path."
-
-policy:
-  allow_implicit_invocation: true

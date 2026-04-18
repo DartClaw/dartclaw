@@ -1,6 +1,16 @@
 ---
 description: "Use when you explicitly want requirements-vs-implementation review rather than the general `review` router: compare the current implementation against a spec, PRD, or plan and produce remediation guidance. Trigger on 'gap analysis', 'review against the spec', 'compare implementation to the plan', 'compare implementation to the PRD'."
 argument-hint: "[Requirements baseline: plan/spec/PRD/issue/directory/URL] [--inline-findings] [--to-issue] [--to-pr <number>]"
+workflow:
+  default_prompt: "Use $dartclaw-review-gap to compare the current implementation against the provided requirements baseline."
+  default_outputs:
+    review_findings:
+      format: text
+      description: Summary of all issues identified during the review that require remediation.
+    findings_count:
+      format: json
+      schema: non-negative-integer
+      description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
 ---
 
 # Gap Analysis

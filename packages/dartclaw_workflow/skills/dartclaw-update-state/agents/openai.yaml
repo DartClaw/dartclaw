@@ -1,8 +1,0 @@
-interface:
-  display_name: "DartClaw - Update State"
-  short_description: "Update framework-aware project state"
-  default_prompt: "Update the project's state using the discovered protocol. Project index or state instruction: "
-
-policy:
-  allow_implicit_invocation: true
-

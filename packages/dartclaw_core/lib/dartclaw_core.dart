@@ -165,6 +165,7 @@ export 'src/events/dartclaw_event.dart'
         LoopIterationCompletedEvent,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
+        StepSkippedEvent,
         ParallelGroupCompletedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowApprovalResolvedEvent,

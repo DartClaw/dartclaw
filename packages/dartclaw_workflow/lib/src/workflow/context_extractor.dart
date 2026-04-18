@@ -66,8 +66,18 @@ class ContextExtractor {
   /// Extracts context outputs for the given [step] from the completed [task].
   ///
   /// Returns a map of output key → extracted value.
-  Future<Map<String, dynamic>> extract(WorkflowStep step, Task task) async {
+  ///
+  /// [effectiveOutputs] lets the caller supply a precomputed `outputs:` map
+  /// (e.g. the step's explicit config shallow-merged over the skill's
+  /// `workflow.default_outputs`). When null, the extractor falls back to
+  /// `step.outputs`.
+  Future<Map<String, dynamic>> extract(
+    WorkflowStep step,
+    Task task, {
+    Map<String, OutputConfig>? effectiveOutputs,
+  }) async {
     final outputs = <String, dynamic>{};
+    final configs = effectiveOutputs ?? step.outputs;
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
     final structuredOutputPayload = _extractStructuredOutputPayload(task);
 
@@ -84,7 +94,7 @@ class ContextExtractor {
       if (outputs.containsKey(outputKey)) continue;
 
       // Determine output config for this key.
-      final config = step.outputs?[outputKey];
+      final config = configs?[outputKey];
 
       // source: worktree.* — read directly from persisted task.worktreeJson.
       if (config?.source != null) {
@@ -144,13 +154,14 @@ class ContextExtractor {
                 _ => extractLines(_stringifyWorkflowValue(payloadValue)),
               };
             case OutputFormat.text:
+            case OutputFormat.path:
               outputs[outputKey] = _stringifyWorkflowValue(payloadValue);
           }
         }
         continue;
       }
 
-      if (config != null && config.format != OutputFormat.text) {
+      if (config != null && config.format != OutputFormat.text && config.format != OutputFormat.path) {
         // Format-aware extraction (json or lines).
         final rawContent = await _extractRawContent(step, task, outputKey);
         if (rawContent == null || rawContent.isEmpty) {
@@ -183,6 +194,7 @@ class ContextExtractor {
           case OutputFormat.lines:
             outputs[outputKey] = extractLines(rawContent);
           case OutputFormat.text:
+          case OutputFormat.path:
             break; // Unreachable — guarded above.
         }
         continue;

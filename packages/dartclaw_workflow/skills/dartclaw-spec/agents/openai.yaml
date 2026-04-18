@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Spec"
-  short_description: "Generate an execution-sized FIS"
-  default_prompt: "Use $dartclaw-spec to generate an execution-sized FIS from the provided feature or story."
-
-policy:
-  allow_implicit_invocation: true

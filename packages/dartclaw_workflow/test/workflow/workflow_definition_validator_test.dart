@@ -1623,5 +1623,147 @@ void main() {
         reason: 'foreach is a known type and should not trigger unknown-type warning',
       );
     });
+
+    group('step entryGate validation', () {
+      test('accepts bare-key and stepId.key forms', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'prd', name: 'PRD', prompts: ['p'], contextOutputs: ['prd', 'prd_source']),
+            WorkflowStep(
+              id: 'review-prd',
+              name: 'Review',
+              prompts: ['r'],
+              entryGate: 'prd_source == synthesized',
+              contextInputs: ['prd'],
+            ),
+            WorkflowStep(
+              id: 'plan',
+              name: 'Plan',
+              prompts: ['p'],
+              entryGate: 'review-prd.findings_count > 0',
+              contextInputs: ['prd'],
+            ),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.type == ValidationErrorType.invalidGate),
+          isFalse,
+        );
+      });
+
+      test('rejects malformed entryGate expression', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+            WorkflowStep(id: 's2', name: 'S2', prompts: ['p'], entryGate: 'not a valid gate'),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.type == ValidationErrorType.invalidGate && e.stepId == 's2'),
+          isTrue,
+        );
+      });
+    });
+
+    group('gitStrategy.artifacts validation', () {
+      test('per-map-item + artifact producer + commit: false raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: 'per-map-item',
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')),
+          isTrue,
+        );
+      });
+
+      test('shared + artifact producer + commit: false issues warning not error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: 'shared',
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit')), isFalse);
+        expect(
+          report.warnings.any((w) => w.message.contains('worktree: shared')),
+          isTrue,
+        );
+      });
+
+      test('no artifact producer + per-map-item accepted', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(worktree: 'per-map-item'),
+          steps: const [
+            WorkflowStep(id: 'only', name: 'Only', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('artifacts.commit')),
+          isFalse,
+        );
+      });
+
+      test('externalArtifactMount per-story-copy without source raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            externalArtifactMount: WorkflowGitExternalArtifactMount(
+              mode: 'per-story-copy',
+              fromProject: 'DOC',
+            ),
+          ),
+          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('externalArtifactMount.source')),
+          isTrue,
+        );
+      });
+
+      test('externalArtifactMount bind-mount without fromPath raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            externalArtifactMount: WorkflowGitExternalArtifactMount(
+              mode: 'bind-mount',
+              fromProject: 'DOC',
+            ),
+          ),
+          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('externalArtifactMount.fromPath')),
+          isTrue,
+        );
+      });
+    });
   });
 }

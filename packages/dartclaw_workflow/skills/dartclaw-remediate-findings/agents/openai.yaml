@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Remediate Findings"
-  short_description: "Fix validated review findings"
-  default_prompt: "Use $dartclaw-remediate-findings to address the findings in the provided review report with minimal safe changes."
-
-policy:
-  allow_implicit_invocation: true

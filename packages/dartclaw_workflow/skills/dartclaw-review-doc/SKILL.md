@@ -4,6 +4,8 @@ context: fork
 agent: general-purpose
 user-invocable: true
 argument-hint: "[document path or focus] [--inline-findings]"
+workflow:
+  default_prompt: "Use $dartclaw-review-doc to review the provided document for clarity, completeness, and technical accuracy."
 ---
 
 # Review Spec, Plan, Requirements, or Other Documents

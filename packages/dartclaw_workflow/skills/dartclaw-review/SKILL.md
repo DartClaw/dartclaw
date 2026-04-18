@@ -2,6 +2,8 @@
 description: Unified review entrypoint that inspects the current changes or given input, then routes to code review, document review, or gap analysis and produces one consolidated result. Trigger on 'review this', 'review these changes', 'review this PR', 'audit this', 'does this match the spec'.
 user-invocable: true
 argument-hint: "[target/files/PR/spec path] [--deep] [--code-only] [--doc-only] [--gap-only] [--to-issue] [--to-pr <number>]"
+workflow:
+  default_prompt: "Use $dartclaw-review to review the provided target and route to the appropriate specialist review path."
 ---
 
 # Review

@@ -1,6 +1,8 @@
 ---
 description: Use when the user wants an implementation plan with FIS specs for every story. Produces `plan.md`, per-story FIS files, and `technical-research.md` — one bundle, one pass. Requires a PRD (`prd.md`) in the input directory — redirect to the `dartclaw-prd` skill if one is missing. Trigger on 'create a plan', 'break this into stories', 'plan this feature', 'spec all stories', 'create FIS for every story'.
 argument-hint: <path-to-feature-directory-with-prd.md> [--stories S01,S03] [--phase N] [--max-parallel N] [--skip-review] [--skip-specs]
+workflow:
+  default_prompt: "Use $dartclaw-plan to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run $dartclaw-prd first if one is missing. Plan directory: "
 ---
 
 # Create Implementation Plan with FIS for Every Story
@@ -53,12 +55,40 @@ PLAN_SOURCE: $ARGUMENTS
 - **Headless-first planning**: continue to completion without pausing for routine clarification unless the user explicitly asked for interactive mode.
 
 
-### Dual-Mode Contract (Critical)
+### Single-Mode File-Based Contract (Critical)
 
-Honor the same detection seam the `dartclaw-prd` skill uses — the workflow engine composes the two by it.
+Both standalone and Workflow-Step Mode **always write** `plan.md`, `technical-research.md` (optional), and per-story FIS files to disk at the canonical locations and **always emit paths** — never inline content. This is the same contract the `dartclaw-prd` and `dartclaw-spec` skills honor.
 
-- **Standalone** (direct CLI / `/dartclaw-plan <args>`): write the full bundle to disk per the Output section — `plan.md`, `technical-research.md` (if `--skip-specs` is not set), and all FIS files. Print relative paths.
-- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt): return `stories` and `story_specs` via `contextOutputs` in a single pass; do **not** write any files to disk — the workflow engine captures step output through its contract. Workflow-Step Mode runs the same internal pipeline (requirements analysis → story breakdown → technical research → classification → parallel FIS drafting → cross-cutting review) but emits its artifacts inline instead of as files.
+- **Standalone** (direct CLI / `/dartclaw-plan <args>`): write the full bundle to disk per the Output section. Print relative paths.
+- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write the same files at `context.docs_project_index.artifact_locations.plan` / `fis_dir/`, parse the resulting Story Catalog into the `stories` structured schema, and emit paths + structured records via `contextOutputs` (see Workflow Output Contract below). Do not emit plan body or FIS bodies inline.
+
+#### Read-Existing Detection (Plan + Per-Row FIS)
+
+Before running the internal pipeline, when running as a workflow step:
+
+1. Inspect `context.docs_project_index.active_plan`. If non-null and the file exists, parse its Story Catalog directly into `stories`, set `plan: <active_plan>` and `plan_source: "existing"`. Otherwise run the usual requirements-analysis → story-breakdown pipeline and write `plan.md` to `artifact_locations.plan` with `plan_source: "synthesized"`.
+2. For every story in the catalog, check the row's `**FIS**` column:
+   - If the column references an existing file under `artifact_locations.fis_dir`, **skip** the parallel sub-agent FIS generation for that story and populate its `story_specs[i].spec_path` with the existing path.
+   - If the column is null or points at a missing file, dispatch the parallel sub-agent pipeline (one sub-agent per story) to write the FIS to `<artifact_locations.fis_dir>/<story-name>.md` and populate `story_specs[i].spec_path` with the newly-written path.
+3. Sub-agents spawned by this skill already follow the file-based contract (write files, return paths); confirm that behavior in the sub-agent prompts.
+
+#### `story_specs` Shape (Critical)
+
+`story_specs` is an array of **structured per-story records**, not bare paths. Each record carries at minimum:
+
+```yaml
+story_specs:
+  - id: "S13"
+    title: "Pre-Decomposition DRY Helpers"
+    spec_path: "docs/specs/0.16.5/fis/s13-s14-pre-decomposition-helpers.md"
+    acceptance_criteria: ["…", "…"]
+    phase: "D: Helpers"
+    wave: "W3"
+    dependencies: []
+    key_files: ["…"]
+```
+
+This preserves the `map.item.title` / `map.item.id` / `map.item.acceptance_criteria` conventions downstream steps already depend on, and adds `map.item.spec_path` — the new field `dartclaw-exec-spec` uses with `file_read` to load the FIS body. Never replace the record with a bare path; never inline FIS content into the record.
 
 
 ## GOTCHAS
@@ -178,8 +208,6 @@ Preserve heading names, Story Catalog columns, and story metadata labels — dow
 - [ ] Risk areas identified; cross-cutting concerns covered (auth, logging, errors)
 - [ ] Not over-granular (combined where sensible)
 
-Optional: invoke the `dartclaw-review` skill with `--doc-only` (or `--mode doc`) to validate the plan for requirements coverage and story scope clarity.
-
 #### Initialize Project State (if `State` document exists; see **Project Document Index**)
 Update via the `dartclaw-update-state` skill: set phase to `"Phase 1: {first_phase_name}"`, status to `"On Track"`, note to `"Plan created: {plan_name} ({N} stories, {M} phases)"`.
 
@@ -244,9 +272,9 @@ Batch into sub-waves if story count exceeds MAX_PARALLEL.
 
 Use a strong reasoning model for all spec sub-agents. Each sub-agent has `subagent_type: general-purpose`; its prompt runs the `dartclaw-spec` **skill** via `/dartclaw-spec` (or `$dartclaw-spec` for Codex CLI). Never set `subagent_type: dartclaw-spec` — it is not an agent type.
 
-**STANDARD sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — provide: story ID/name/scope/criteria/Key Scenarios/dependencies. References: FIS template (`../dartclaw-spec/templates/fis-template.md`), authoring guidelines (`../references/fis-authoring-guidelines.md`), technical research. Instructions: read technical research and shared decisions; check "Binding PRD Constraints" and flow applicable constraints into FIS success criteria unchanged; generate FIS that references (not inlines) technical research; run Plan-Spec Alignment Check and Self-Check; save to `{PLAN_SOURCE}/fis/s{NN}-{story-name}.md`; report success/failure, path, confidence.
+**STANDARD sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — provide: story ID/name/scope/criteria/Key Scenarios/dependencies. References: FIS template (`../dartclaw-spec/templates/fis-template.md`), authoring guidelines (`../references/fis-authoring-guidelines.md`), technical research. Instructions: read technical research and shared decisions; check "Binding PRD Constraints" and flow applicable constraints into FIS success criteria unchanged; generate FIS that references (not inlines) technical research; run Plan-Spec Alignment Check, Reverse Coverage Check (plan-level only — no `prd.md` in context; PRD-level runs in Step 8), and Self-Check; save to `{PLAN_SOURCE}/fis/s{NN}-{story-name}.md`; report success/failure, path, confidence, and any `PHANTOM_SCOPE` findings.
 
-**COMPOSITE sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — same references as STANDARD, but provide all constituent stories. Instructions: same as STANDARD plus generate ONE FIS covering all stories with tasks contiguous by story; run Plan-Spec Alignment Check for EACH story; save to `{PLAN_SOURCE}/fis/{composite-filename}.md`.
+**COMPOSITE sub-agent** (`general-purpose` agent type, prompt runs `/dartclaw-spec`) — same references as STANDARD, but provide all constituent stories. Instructions: same as STANDARD plus generate ONE FIS covering all stories with tasks contiguous by story; run Plan-Spec Alignment Check for EACH story; run Reverse Coverage Check across the combined Success Criteria (plan-level only); save to `{PLAN_SOURCE}/fis/{composite-filename}.md`; report any `PHANTOM_SCOPE` findings.
 
 #### Wait, Collect, and Update Plan
 
@@ -275,15 +303,22 @@ Delegate to a single strong-reasoning `general-purpose` sub-agent with all gener
 7. **Plan-vs-FIS alignment** — every plan criterion covered by FIS; flag silently narrowed criteria
 8. **Intra-story scope contradictions** — "What We're NOT Doing" items that block a success criterion
 9. **Scenario gaps** — Key Scenario seeds not mapped to FIS scenarios; cross-story scenario deps
-10. **PRD-FIS traceability** — verify every PRD requirement has a corresponding FIS scenario; flag silent contradictions
+10. **PRD-FIS traceability** — verify every PRD feature requirement's acceptance criteria has at least one corresponding FIS scenario; flag silent contradictions or silent narrowing
+11. **Scenario chain connectivity** — for each multi-step flow in the PRD (`User Flows` preferred; fall back to sequenced User Stories), verify FIS scenarios chain cleanly: each leg's **Then** outputs must satisfy the next leg's **Given**. Distinct from #10 — catches orphan outputs and unsourced inputs between adjacent scenarios. List scenarios in flow order and name the handoff artifact (state, record, event, UI element) between each pair; flag any gap. Example: flow "upload file → see result" — Story A ends at "job enqueued", Story B starts at "job completes", but no scenario produces the user-visible result state.
 
 Output per finding: severity, stories affected, description, recommendation, FIS sections to update. Summary: findings by severity, readiness (READY/NEEDS FIXES/BLOCKED), FIS files needing updates.
 
-If CRITICAL or HIGH issues are found, fix inter-story inconsistencies directly: overlapping scope → clarify ownership; inconsistent ADRs → align on prevalent choice; missing seams → add outputs to producing story; naming → standardize; duplicates → consolidate into earliest story. Re-read changed FIS to confirm.
+If CRITICAL or HIGH issues are found, fix inter-story inconsistencies directly: overlapping scope → clarify ownership; inconsistent ADRs → align on prevalent choice; missing seams → add outputs to producing story; naming → standardize; duplicates → consolidate into earliest story.
+
+**Broken scenario chains (#11)** — pick one: add the missing scenario to the FIS whose story naturally owns that leg; if no story owns it, add a new story (re-enter story breakdown for Phase/Wave/Dependencies/Risk, update the Story Catalog, re-run technical research if needed, then generate its FIS); if the gap is a missing PRD decision, treat as a contract failure — **Standalone**: pause for user input; **Workflow-Step Mode**: flag BLOCKED and return to the workflow engine. Do not invent the answer.
+
+**Phantom-scope findings** (from sub-agent `PHANTOM_SCOPE` return summaries): sub-agents only saw plan-level sources, so first re-check each finding against `prd.md` — criteria that trace to a PRD outcome are **not** phantom scope (suppress). For confirmed phantom scope: remove the unsourced Success Criterion, or amend plan/PRD to justify it. Treat confirmed phantom scope as MEDIUM severity by default; upgrade to HIGH when it drives significant implementation work or introduces new dependencies.
+
+Re-read changed FIS files and re-walk affected PRD flows to confirm.
 
 **Standalone**: present report + proposed fixes, ask confirmation before applying. **Workflow-Step Mode**: apply fixes automatically, report back.
 
-**Gate**: All CRITICAL and HIGH issues resolved, FIS files updated
+**Gate**: All CRITICAL/HIGH issues and confirmed phantom scope resolved, FIS files updated
 
 
 ### 9. Canonical Continuation Sync _(if `PLAN_SOURCE_MODE = github-artifact`)_
@@ -299,17 +334,22 @@ Plan + Spec Complete — plan.md + 5 FIS files (8 stories): 1 thin (3), 2 compos
 Specced: 8/10 (2 skipped via --stories) | Review: 1 HIGH, 2 MEDIUM (fixed) | Ready for execution.
 ```
 
-**Workflow-Step Mode**: return `stories` and `story_specs` via `contextOutputs` (see Workflow Output Contract below). Do not write to disk.
+**Workflow-Step Mode**: write `plan.md` (and `technical-research.md` + the per-story FIS files) to the workspace at the canonical paths, parse the resulting Story Catalog into `stories` + `story_specs`, and emit the paths + structured records via `contextOutputs` (see Workflow Output Contract below). Always write files; never emit artifact bodies inline.
 
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_
 
 When this skill runs as a workflow step, its canonical outputs are:
 
-- `stories` (format: `json`, schema: `story-plan`) — the structured story list, one entry per planned story
-- `story_specs` (format: `json`, schema: `story-specs`) — the per-story specifications that drive the per-story implementation loop
+- `plan` (format: `path`) — workspace-relative path to `plan.md` on disk
+- `plan_source` (format: `text`) — `"existing"` when the skill reused a pre-existing plan, `"synthesized"` when it wrote a new one
+- `stories` (format: `json`, schema: `story-plan`) — the structured story list parsed from `plan.md`
+- `story_specs` (format: `json`, schema: `story-specs`) — per-story **structured records** including `{id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files}` (see the `story_specs` Shape section above) — each record's `spec_path` points at the FIS file on disk
+- `technical_research` (format: `path`, optional) — workspace-relative path to `technical-research.md` on disk, when one was written
 
-Both are emitted in a single pass from the same internal pipeline. Do not emit `prd` from this skill — the reviewed PRD is an upstream step's output and flows into this step via `contextInputs`.
+`story_specs` is **not** a bare path array: downstream map-iteration prompts depend on `map.item.title`, `map.item.id`, `map.item.acceptance_criteria`; `map.item.spec_path` is the **added** field for file resolution, never a replacement.
+
+Do not emit `prd` from this skill — the reviewed PRD path flows in via `contextInputs` and is passed through unchanged. Never emit `plan.md`, FIS content, or `technical-research.md` body inline — the files on disk are the source of truth.
 
 
 ### Publish to GitHub _(if --to-issue)_

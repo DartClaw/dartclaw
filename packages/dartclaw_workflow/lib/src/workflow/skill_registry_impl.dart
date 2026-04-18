@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SkillInfo, SkillSource;
+import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, SkillInfo, SkillSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -209,7 +209,9 @@ class SkillRegistryImpl implements SkillRegistry {
   /// Parses YAML frontmatter from a SKILL.md file or in-memory content.
   ///
   /// Frontmatter is delimited by `---` lines at the start of the file.
-  /// Extracts `name` and `description` fields per Agent Skills spec.
+  /// Extracts `name` and `description` fields per Agent Skills spec plus the
+  /// optional `workflow:` block carrying `default_prompt` and `default_outputs`
+  /// (DartClaw extension — third-party skills without the block are unaffected).
   /// Falls back to directory name for `name` if missing.
   SkillInfo? _parseFrontmatterContent(
     String content,
@@ -221,6 +223,8 @@ class SkillRegistryImpl implements SkillRegistry {
     try {
       String? name;
       String description = '';
+      String? defaultPrompt;
+      Map<String, OutputConfig>? defaultOutputs;
 
       if (content.startsWith('---')) {
         final endIndex = content.indexOf('\n---', 3);
@@ -230,6 +234,12 @@ class SkillRegistryImpl implements SkillRegistry {
           if (yaml is YamlMap) {
             name = yaml['name'] as String?;
             description = (yaml['description'] as String?) ?? '';
+            final workflowBlock = yaml['workflow'];
+            if (workflowBlock is YamlMap) {
+              (defaultPrompt, defaultOutputs) = _parseWorkflowFrontmatterBlock(workflowBlock, skillPath);
+            } else if (workflowBlock != null) {
+              _log.warning('SKILL.md `workflow:` block is not a map in $skillPath; ignoring');
+            }
           }
         }
       }
@@ -243,11 +253,72 @@ class SkillRegistryImpl implements SkillRegistry {
         source: source,
         path: skillPath,
         nativeHarnesses: harnesses,
+        defaultPrompt: defaultPrompt,
+        defaultOutputs: defaultOutputs,
       );
     } catch (e) {
       _log.warning('Failed to parse SKILL.md in $skillPath: $e');
       return null;
     }
+  }
+
+  /// Parses the optional `workflow:` frontmatter block.
+  ///
+  /// Returns `(defaultPrompt, defaultOutputs)`. Malformed entries are logged at
+  /// warning level and yield null for that field so skill discovery keeps
+  /// working for minimally-declared third-party skills.
+  (String?, Map<String, OutputConfig>?) _parseWorkflowFrontmatterBlock(YamlMap block, String skillPath) {
+    String? defaultPrompt;
+    Map<String, OutputConfig>? defaultOutputs;
+
+    final rawPrompt = block['default_prompt'];
+    if (rawPrompt is String) {
+      defaultPrompt = rawPrompt;
+    } else if (rawPrompt != null) {
+      _log.warning('SKILL.md `workflow.default_prompt` is not a string in $skillPath; ignoring');
+    }
+
+    final rawOutputs = block['default_outputs'];
+    if (rawOutputs is YamlMap) {
+      final parsed = <String, OutputConfig>{};
+      for (final entry in rawOutputs.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        if (key is! String) {
+          _log.warning('SKILL.md `workflow.default_outputs` has non-string key in $skillPath; skipping');
+          continue;
+        }
+        if (value is! YamlMap) {
+          _log.warning('SKILL.md `workflow.default_outputs.$key` is not a map in $skillPath; skipping');
+          continue;
+        }
+        try {
+          parsed[key] = OutputConfig.fromJson(_yamlToDart(value) as Map<String, dynamic>);
+        } catch (e) {
+          _log.warning('SKILL.md `workflow.default_outputs.$key` is invalid in $skillPath: $e');
+        }
+      }
+      if (parsed.isNotEmpty) defaultOutputs = parsed;
+    } else if (rawOutputs != null) {
+      _log.warning('SKILL.md `workflow.default_outputs` is not a map in $skillPath; ignoring');
+    }
+
+    return (defaultPrompt, defaultOutputs);
+  }
+
+  /// Recursively converts YAML-native nodes to plain Dart types so they plug
+  /// into `OutputConfig.fromJson` (which expects `Map<String, dynamic>` /
+  /// `List<dynamic>` rather than `YamlMap` / `YamlList`).
+  Object? _yamlToDart(Object? node) {
+    if (node is YamlMap) {
+      return <String, dynamic>{
+        for (final entry in node.entries) entry.key.toString(): _yamlToDart(entry.value),
+      };
+    }
+    if (node is YamlList) {
+      return [for (final item in node) _yamlToDart(item)];
+    }
+    return node;
   }
 
   // ── SkillRegistry interface ──────────────────────────────────────────────

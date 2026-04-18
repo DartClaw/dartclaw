@@ -3,6 +3,8 @@ name: dartclaw-validate-workflow
 description: Validate workflow YAML definitions and packaged workflow assets.
 argument-hint: "<workflow-yaml-path>"
 user-invocable: true
+workflow:
+  default_prompt: "Use $dartclaw-validate-workflow to validate the workflow definition or packaged assets at: "
 ---
 
 # DartClaw Validate Workflow

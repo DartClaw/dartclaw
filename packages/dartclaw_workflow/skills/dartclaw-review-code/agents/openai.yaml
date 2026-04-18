@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Review Code"
-  short_description: "Perform implementation-focused review"
-  default_prompt: "Use $dartclaw-review-code to review the provided implementation scope for correctness, architecture, and security."
-
-policy:
-  allow_implicit_invocation: true

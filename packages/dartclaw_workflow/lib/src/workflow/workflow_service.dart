@@ -26,6 +26,7 @@ import 'package:uuid/uuid.dart';
 import 'workflow_context.dart';
 import 'context_extractor.dart';
 import 'gate_evaluator.dart';
+import 'skill_registry.dart';
 import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
 import 'workflow_turn_adapter.dart';
@@ -48,6 +49,7 @@ class WorkflowService {
   final WorkflowRoleDefaults _roleDefaults;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
+  final SkillRegistry? _skillRegistry;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -69,6 +71,7 @@ class WorkflowService {
     WorkflowRoleDefaults? roleDefaults,
     WorkflowStepOutputTransformer? outputTransformer,
     StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
+    SkillRegistry? skillRegistry,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
@@ -80,6 +83,7 @@ class WorkflowService {
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
        _outputTransformer = outputTransformer,
        _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder,
+       _skillRegistry = skillRegistry,
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -550,6 +554,7 @@ class WorkflowService {
       outputTransformer: _outputTransformer,
       dataDir: _dataDir,
       roleDefaults: _roleDefaults,
+      skillRegistry: _skillRegistry,
     );
 
     Future<void> executeFn() async {

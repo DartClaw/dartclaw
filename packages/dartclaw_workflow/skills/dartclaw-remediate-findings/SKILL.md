@@ -2,6 +2,8 @@
 description: Use when the user wants review findings or review comments addressed. Implements actionable findings from a review report with minimal, guideline-aligned fixes across code, specs, plans, PRDs, and documentation, then re-validates the result and updates plan/FIS status. Trigger on 'address these review findings', 'fix review comments', 'remediate findings'.
 user-invocable: true
 argument-hint: <review-report-path | report URL>
+workflow:
+  default_prompt: "Use $dartclaw-remediate-findings to address the findings in the provided review report with minimal safe changes."
 ---
 
 # Remediate Findings

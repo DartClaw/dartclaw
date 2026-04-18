@@ -7,12 +7,19 @@ enum OutputFormat {
   json,
 
   /// Split output into list of trimmed non-empty lines.
-  lines;
+  lines,
+
+  /// Workspace-relative file path produced on disk by an artifact-producing
+  /// step (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`). Treated as text
+  /// at runtime; the distinct format surfaces intent in the workflow contract
+  /// and lets the engine recognise artifact-producing outputs.
+  path;
 
   static OutputFormat? fromYaml(String value) => switch (value) {
     'text' => text,
     'json' => json,
     'lines' => lines,
+    'path' => path,
     _ => null,
   };
 }
@@ -463,7 +470,19 @@ class WorkflowStep {
   final bool parallel;
 
   /// Optional gate expression that must be satisfied before this step runs.
+  ///
+  /// When the gate evaluates false the executor pauses the run awaiting operator
+  /// review. Use [entryGate] instead when the desired behavior is to skip the
+  /// step and continue.
   final String? gate;
+
+  /// Optional entry-gate expression evaluated before [gate].
+  ///
+  /// When [entryGate] evaluates false the step is skipped (a `StepSkippedEvent`
+  /// fires, the cursor advances, and the run continues). Mirrors the loop-level
+  /// [WorkflowLoop.entryGate] semantic. `null` means "no entry gate — proceed to
+  /// [gate] check".
+  final String? entryGate;
 
   /// Context keys this step reads from.
   final List<String> contextInputs;
@@ -546,6 +565,12 @@ class WorkflowStep {
   /// S02 owns runtime execution semantics for this field.
   final String? workdir;
 
+  /// Whether the engine auto-frames unreferenced `contextInputs` and
+  /// workflow-level `variables` onto the step prompt as `<key>...</key>`
+  /// blocks. Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`)
+  /// when the step's prompt body intentionally omits some declared context.
+  final bool autoFrameContext;
+
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -575,6 +600,7 @@ class WorkflowStep {
     this.review = StepReviewMode.codingOnly,
     this.parallel = false,
     this.gate,
+    this.entryGate,
     this.contextInputs = const [],
     this.contextOutputs = const [],
     this.extraction,
@@ -590,6 +616,7 @@ class WorkflowStep {
     this.continueSession,
     this.onError,
     this.workdir,
+    this.autoFrameContext = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -606,6 +633,7 @@ class WorkflowStep {
     if (effort != null) 'effort': effort,
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (gate != null) 'gate': gate,
+    if (entryGate != null) 'entryGate': entryGate,
     'contextInputs': contextInputs.toList(),
     'contextOutputs': contextOutputs.toList(),
     if (extraction != null) 'extraction': extraction!.toJson(),
@@ -621,6 +649,7 @@ class WorkflowStep {
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
+    if (!autoFrameContext) 'autoFrameContext': false,
   };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) {
@@ -650,6 +679,7 @@ class WorkflowStep {
           : StepReviewMode.codingOnly,
       parallel: (json['parallel'] as bool?) ?? false,
       gate: json['gate'] as String?,
+      entryGate: json['entryGate'] as String?,
       contextInputs: (json['contextInputs'] as List?)?.cast<String>() ?? const [],
       contextOutputs: (json['contextOutputs'] as List?)?.cast<String>() ?? const [],
       extraction: json['extraction'] != null
@@ -673,8 +703,113 @@ class WorkflowStep {
       },
       onError: json['onError'] as String?,
       workdir: json['workdir'] as String?,
+      autoFrameContext: (json['autoFrameContext'] as bool?) ?? true,
     );
   }
+}
+
+/// Artifact auto-commit configuration nested under [WorkflowGitStrategy].
+///
+/// When [commit] is true the workflow engine commits any files produced by
+/// artifact-producing steps (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`,
+/// or any step writing under `context.docs_project_index.artifact_locations.*`)
+/// to the workflow branch before per-map-item worktrees are dispatched, so the
+/// worktrees inherit the committed files via standard `git checkout`.
+class WorkflowGitArtifactsStrategy {
+  /// Whether artifact auto-commit is enabled for this workflow.
+  ///
+  /// `null` triggers default resolution at validate/execute time:
+  /// defaults to `true` iff the workflow declares ≥1 artifact-producing step,
+  /// else `false`.
+  final bool? commit;
+
+  /// Commit message template applied when the hook fires.
+  ///
+  /// Supports `{{runId}}` and workflow-level variable substitution.
+  final String? commitMessage;
+
+  /// Project identifier whose working tree receives the commits.
+  ///
+  /// Supports `{{VARIABLE}}` templating. When null the workflow's primary
+  /// project (`{{PROJECT}}`) is used.
+  final String? project;
+
+  const WorkflowGitArtifactsStrategy({this.commit, this.commitMessage, this.project});
+
+  Map<String, dynamic> toJson() => {
+    if (commit != null) 'commit': commit,
+    if (commitMessage != null) 'commitMessage': commitMessage,
+    if (project != null) 'project': project,
+  };
+
+  factory WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitArtifactsStrategy(
+    commit: json['commit'] as bool?,
+    commitMessage: json['commitMessage'] as String?,
+    project: json['project'] as String?,
+  );
+}
+
+/// Cross-clone external artifact mount configuration nested under
+/// [WorkflowGitStrategy].worktree.
+///
+/// Two modes:
+/// - `per-story-copy` (default, least-privilege): on per-map-item worktree
+///   creation the engine resolves [source] against the current `map.item.*`
+///   fields, copies exactly that file from [fromProject]'s working tree into
+///   the worktree at the same relative path. Each worktree receives only the
+///   file its story owns.
+/// - `bind-mount` (opt-in): the engine bind-mounts the directory
+///   `<dataDir>/projects/<fromProject>/<fromPath>` read-only into every
+///   per-story worktree at [toPath]. Intended for debugging / cross-story
+///   reference scenarios and must be justified in the profile README.
+class WorkflowGitExternalArtifactMount {
+  /// Mount mode — `per-story-copy` (default) or `bind-mount`.
+  final String mode;
+
+  /// External project id to pull artifacts from.
+  final String fromProject;
+
+  /// (`per-story-copy` only) Template resolved against the current map item to
+  /// a workspace-relative path inside [fromProject]. Example:
+  /// `"{{map.item.spec_path}}"`.
+  final String? source;
+
+  /// (`bind-mount` only) Directory to mount (relative to [fromProject] root).
+  final String? fromPath;
+
+  /// (`bind-mount` only) Mount target path inside the per-story worktree.
+  final String? toPath;
+
+  /// (`bind-mount` only) Whether the mount is read-only. Defaults to true.
+  final bool? readonly;
+
+  const WorkflowGitExternalArtifactMount({
+    this.mode = 'per-story-copy',
+    required this.fromProject,
+    this.source,
+    this.fromPath,
+    this.toPath,
+    this.readonly,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'mode': mode,
+    'fromProject': fromProject,
+    if (source != null) 'source': source,
+    if (fromPath != null) 'fromPath': fromPath,
+    if (toPath != null) 'toPath': toPath,
+    if (readonly != null) 'readonly': readonly,
+  };
+
+  factory WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic> json) =>
+      WorkflowGitExternalArtifactMount(
+        mode: (json['mode'] as String?) ?? 'per-story-copy',
+        fromProject: json['fromProject'] as String,
+        source: json['source'] as String?,
+        fromPath: json['fromPath'] as String?,
+        toPath: json['toPath'] as String?,
+        readonly: json['readonly'] as bool?,
+      );
 }
 
 /// Publish strategy configuration nested under [WorkflowGitStrategy].
@@ -707,13 +842,28 @@ class WorkflowGitStrategy {
   /// Publish behavior configuration.
   final WorkflowGitPublishStrategy? publish;
 
-  const WorkflowGitStrategy({this.bootstrap, this.worktree, this.promotion, this.publish});
+  /// Artifact auto-commit configuration (null = default truth-table resolution).
+  final WorkflowGitArtifactsStrategy? artifacts;
+
+  /// Optional cross-clone external artifact mount (two-repo profiles).
+  final WorkflowGitExternalArtifactMount? externalArtifactMount;
+
+  const WorkflowGitStrategy({
+    this.bootstrap,
+    this.worktree,
+    this.promotion,
+    this.publish,
+    this.artifacts,
+    this.externalArtifactMount,
+  });
 
   Map<String, dynamic> toJson() => {
     if (bootstrap != null) 'bootstrap': bootstrap,
     if (worktree != null) 'worktree': worktree,
     if (promotion != null) 'promotion': promotion,
     if (publish != null) 'publish': publish!.toJson(),
+    if (artifacts != null) 'artifacts': artifacts!.toJson(),
+    if (externalArtifactMount != null) 'externalArtifactMount': externalArtifactMount!.toJson(),
   };
 
   factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
@@ -723,6 +873,16 @@ class WorkflowGitStrategy {
     publish: switch (json['publish']) {
       Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
       Map<Object?, Object?> publish => WorkflowGitPublishStrategy.fromJson(Map<String, dynamic>.from(publish)),
+      _ => null,
+    },
+    artifacts: switch (json['artifacts']) {
+      Map<String, dynamic> artifacts => WorkflowGitArtifactsStrategy.fromJson(artifacts),
+      Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
+      _ => null,
+    },
+    externalArtifactMount: switch (json['externalArtifactMount']) {
+      Map<String, dynamic> mount => WorkflowGitExternalArtifactMount.fromJson(mount),
+      Map<Object?, Object?> mount => WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic>.from(mount)),
       _ => null,
     },
   );

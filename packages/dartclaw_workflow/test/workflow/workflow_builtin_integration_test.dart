@@ -671,22 +671,28 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({'prd': '# PRD\n\nPRD_MARKER_PLAN_PIPELINE'}),
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/test/prd.md',
+              'prd_source': 'synthesized',
+            }),
           ),
           'review-prd' => _StubResponse(
             assistantContent: _contextOutput({
-              'prd': '# Revised PRD\n\nPRD_MARKER_REVISED_PLAN_PIPELINE',
+              'prd': 'docs/specs/test/prd.md',
               'prd_review_findings': {
                 'pass': true,
                 'findings_count': 0,
                 'findings': <Object>[],
-                'summary': 'PRD is consistent.',
+                'summary': 'PRD_MARKER_PLAN_PIPELINE PRD_MARKER_REVISED_PLAN_PIPELINE PRD is consistent.',
               },
+              'findings_count': 0,
             }),
           ),
           // The merged plan step now emits stories + story_specs in one pass.
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
+              'plan': 'docs/specs/test/plan.md',
+              'plan_source': 'synthesized',
               'stories': {
                 'items': [
                   {
@@ -802,9 +808,12 @@ void main() {
     // prd + review-prd run once each; merged plan emits stories + story_specs once; foreach runs per story.
     expect(trace.count('prd'), 1);
     expect(trace.count('review-prd'), 1);
-    expect(trace.descriptionsByStep['review-prd']!.single, contains('PRD_MARKER_PLAN_PIPELINE'));
+    // Under the S28 file-based contract, `{{context.prd}}` resolves to a path,
+    // not inline content; the review step reads the file via file_read.
+    expect(trace.descriptionsByStep['review-prd']!.single, contains('docs/specs/test/prd.md'));
     expect(trace.count('plan'), 1);
-    expect(trace.descriptionsByStep['plan']!.single, contains('PRD_MARKER_REVISED_PLAN_PIPELINE'));
+    // The reviewed PRD path is passed through to the plan step unchanged.
+    expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/test/prd.md'));
     expect(trace.count('implement'), 2);
     expect(trace.count('verify-refine'), 2);
     expect(trace.count('quick-review'), 2);
@@ -839,21 +848,27 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({'prd': '# PRD\n\nPROJECT_BOUND_PRD'}),
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/project-bound/prd.md',
+              'prd_source': 'synthesized',
+            }),
           ),
           'review-prd' => _StubResponse(
             assistantContent: _contextOutput({
-              'prd': '# Revised PRD\n\nPROJECT_BOUND_PRD_REVISED',
+              'prd': 'docs/specs/project-bound/prd.md',
               'prd_review_findings': {
                 'pass': true,
                 'findings_count': 0,
                 'findings': <Object>[],
                 'summary': 'PRD is clean.',
               },
+              'findings_count': 0,
             }),
           ),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
+              'plan': 'docs/specs/project-bound/plan.md',
+              'plan_source': 'synthesized',
               'stories': {
                 'items': [
                   {
@@ -1089,21 +1104,27 @@ void main() {
               }),
             ),
             'prd' => _StubResponse(
-              assistantContent: _contextOutput({'prd': '# PRD\n\nREMEDIATION_LOOP_PRD'}),
+              assistantContent: _contextOutput({
+                'prd': 'docs/specs/loop/prd.md',
+                'prd_source': 'synthesized',
+              }),
             ),
             'review-prd' => _StubResponse(
               assistantContent: _contextOutput({
-                'prd': '# Revised PRD\n\nREMEDIATION_LOOP_PRD_REVISED',
+                'prd': 'docs/specs/loop/prd.md',
                 'prd_review_findings': {
                   'pass': true,
                   'findings_count': 0,
                   'findings': <Object>[],
                   'summary': 'PRD is clean.',
                 },
+                'findings_count': 0,
               }),
             ),
             'plan' => _StubResponse(
               assistantContent: _contextOutput({
+                'plan': 'docs/specs/loop/plan.md',
+                'plan_source': 'synthesized',
                 'stories': {
                   'items': [
                     {

@@ -113,5 +113,47 @@ void main() {
         isTrue,
       );
     });
+
+    group('null-literal equality', () {
+      test('missing key == null evaluates true', () {
+        expect(evaluator.evaluate('active_prd == null', context), isTrue);
+      });
+
+      test('missing key != null evaluates false', () {
+        expect(evaluator.evaluate('active_prd != null', context), isFalse);
+      });
+
+      test('empty-string value == null evaluates true', () {
+        final ctx = WorkflowContext(data: {'active_prd': ''});
+        expect(evaluator.evaluate('active_prd == null', ctx), isTrue);
+        expect(evaluator.evaluate('active_prd != null', ctx), isFalse);
+      });
+
+      test('non-empty, non-"null" value != null evaluates true', () {
+        final ctx = WorkflowContext(data: {'active_prd': 'docs/specs/0.16.5/prd.md'});
+        expect(evaluator.evaluate('active_prd != null', ctx), isTrue);
+        expect(evaluator.evaluate('active_prd == null', ctx), isFalse);
+      });
+
+      test('literal "null" string value == null evaluates true', () {
+        final ctx = WorkflowContext(data: {'active_prd': 'null'});
+        expect(evaluator.evaluate('active_prd == null', ctx), isTrue);
+        expect(evaluator.evaluate('active_prd != null', ctx), isFalse);
+      });
+
+      test('numeric gate with missing key still uses empty→0 fallback', () {
+        // Ensures null-literal logic did not regress numeric semantics.
+        expect(evaluator.evaluate('x > 0', context), isFalse);
+        expect(evaluator.evaluate('x == 0', context), isTrue);
+      });
+
+      test('null-literal equality composes with && like other conditions', () {
+        final ctx = WorkflowContext(data: {'prd_source': 'synthesized', 'findings_count': '3'});
+        expect(
+          evaluator.evaluate('prd_source == synthesized && findings_count > 0 && active_plan == null', ctx),
+          isTrue,
+        );
+      });
+    });
   });
 }

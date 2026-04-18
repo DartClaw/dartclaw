@@ -1,7 +1,0 @@
-interface:
-  display_name: "DartClaw Verify Refine"
-  short_description: "Verify first, then apply light cleanup"
-  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify."
-
-policy:
-  allow_implicit_invocation: true

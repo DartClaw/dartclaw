@@ -3,6 +3,8 @@ name: dartclaw-discover-project
 description: Detect the project's SDD framework, normalize document locations, and emit the state protocol for downstream workflow steps.
 argument-hint: "[project-root]"
 user-invocable: true
+workflow:
+  default_prompt: "Detect the project's SDD framework, normalize the document index, and return the state protocol. Project root: "
 ---
 
 # DartClaw Discover Project
@@ -33,7 +35,36 @@ Return a compact structure with these keys:
 - `detected_markers`
 - `document_locations`
 - `state_protocol`
+- `active_milestone` — current milestone identifier (e.g. `"0.16.5"`), or `null`
+- `active_prd` — workspace-relative PRD path for the active milestone, or `null`
+- `active_plan` — workspace-relative plan path for the active milestone, or `null`
+- `artifact_locations` — canonical artifact-write paths, always emitted as a mapping
 - `notes`
+
+### Active Milestone and Artifact Locations
+
+Downstream artifact-producing skills (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-spec`) read these
+keys to decide whether to reuse existing artifacts or synthesize new ones, and where to write them.
+
+Resolution order for `active_milestone` (first match wins):
+
+1. A `MILESTONE` hint supplied in the invocation prompt or workflow variables.
+2. A current-version marker in the framework's `State` document (e.g., AndThen's `docs/STATE.md` "Phase: 0.16.x" line).
+3. The semver-highest directory under the framework's specs location that contains a `plan.md`
+   (or the framework-equivalent plan file — see `references/framework-markers.md`).
+
+When `active_milestone` is resolvable but the referenced artifact file is missing, emit the path the
+file should have (so that downstream synthesizers can write there) and emit `active_prd` / `active_plan`
+as `null` to signal that the file does not yet exist.
+
+`artifact_locations` always carries three keys, each as a workspace-relative path string or `null`:
+
+- `prd`
+- `plan`
+- `fis_dir` — directory that per-story FIS files live under
+
+For frameworks without a natural per-story FIS directory (e.g. `none`), emit `fis_dir: null`.
+See `references/framework-markers.md` for the per-framework convention table.
 
 ### Normalized Document Locations
 

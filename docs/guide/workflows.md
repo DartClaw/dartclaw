@@ -486,6 +486,8 @@ A workflow step can now be as thin as:
 
 The engine fills in `prompt` from `default_prompt` and `outputs` from `default_outputs`; the step still wins wherever it declares an explicit field. Authors are never forced to use defaults — declaring `prompt:` or `outputs:` on the step keeps the existing behavior.
 
+For DartClaw's built-in skill bundle, this is now the preferred authoring style: keep the durable intent in the skill's `workflow.default_prompt`, then let workflow steps stay thin and declare a step-level `prompt:` only when they carry unique, step-scoped information that the skill default and auto-framed context cannot express on their own.
+
 #### Auto-Framed Context Inputs
 
 After template substitution and before the schema-driven output contract is appended, the engine auto-appends `<key>\n{resolved value}\n</key>` blocks for every step `contextInputs` entry and workflow-level `variables:` entry that the authored prompt does **not** already reference. Detection rules:
@@ -584,7 +586,7 @@ Pipeline that starts with `discover-project`, writes or reuses a spec with `dart
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
-- **Thin skill wrappers**: skill-backed steps pass only workflow-specific inputs; methodology lives in the `dartclaw-*` skills and structured output contracts come from step schemas.
+- **Thin skill wrappers**: skill-backed steps pass only workflow-specific inputs; methodology lives in the `dartclaw-*` skills and structured output contracts come from step schemas. After S30, the shipped built-ins deliberately omit redundant boilerplate `prompt:` blocks and rely on skill defaults + auto-framed inputs for generic instructions.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 
 ### `plan-and-implement` — Story Fan-Out
@@ -610,7 +612,7 @@ Role usage:
 
 ### `spec-and-implement` — Single-Feature Pipeline
 
-Single-feature pipeline that discovers the project, writes a specification, reviews that spec in-flow, implements it, validates it, runs integrated review plus a gap-analysis/remediation loop, and updates state.
+Single-feature pipeline that discovers the project, writes a specification, implements it, validates it, runs integrated gap review plus a remediation loop, and updates state.
 
 Role usage:
 - `@workflow`: `discover-project`

@@ -51,10 +51,6 @@ steps:
     skill: dartclaw-discover-project
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
-    prompt: |
-      Branch: {{BRANCH}}
-      Base branch: {{BASE_BRANCH}}
-      PR number: {{PR_NUMBER}}
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -67,11 +63,6 @@ steps:
     name: Review Code
     type: analysis
     skill: dartclaw-review-code
-    prompt: |
-      Target: {{TARGET}}
-      PR number: {{PR_NUMBER}}
-      Branch: {{BRANCH}}
-      Base branch: {{BASE_BRANCH}}
     contextInputs: [project_index]
     contextOutputs: [review_summary, findings_count, review-code.findings_count]
     outputs:
@@ -99,9 +90,6 @@ steps:
         skill: dartclaw-remediate-findings
         project: "{{PROJECT}}"
         review: always
-        prompt: |
-          Apply the review summary in the discovered project context and use
-          the latest validation summary as the remediation baseline.
         contextInputs: [project_index, review_summary, validation_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
@@ -124,13 +112,6 @@ steps:
         project: "{{PROJECT}}"
         review: never
         continueSession: remediate
-        prompt: |
-          Target: {{TARGET}}
-          PR number: {{PR_NUMBER}}
-          Branch: {{BRANCH}}
-          Base branch: {{BASE_BRANCH}}
-          Re-run validation in the discovered project context using the latest
-          review summary, remediation summary, and diff summary.
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
         outputs:
@@ -147,13 +128,6 @@ steps:
         name: Re-review
         type: analysis
         skill: dartclaw-review-code
-        prompt: |
-          Target: {{TARGET}}
-          PR number: {{PR_NUMBER}}
-          Branch: {{BRANCH}}
-          Base branch: {{BASE_BRANCH}}
-          Re-review in the discovered project context using the latest review
-          summary, validation summary, remediation summary, and diff summary.
         contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, findings_count, re-review.findings_count]
         outputs:

@@ -1,8 +1,8 @@
 ---
 description: Use when the user wants to execute or implement an existing spec or FIS. Implements code from a Feature Implementation Specification. Trigger on 'execute this spec', 'execute this FIS', 'implement this spec', 'implement this FIS', 'build from spec'.
-argument-hint: <path-to-fis>
+argument-hint: <path-to-fis | --issue <number> | issue URL>
 workflow:
-  default_prompt: "Use $dartclaw-exec-spec to execute the provided local FIS with full verification and status gates."
+  default_prompt: "Use $dartclaw-exec-spec to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts."
 ---
 
 # Execute Feature Implementation Specification
@@ -12,15 +12,14 @@ Execute a fully-defined FIS document as the **executor**. Implement the FIS dire
 ## VARIABLES
 FIS_SOURCE: $ARGUMENTS
 
-
 ## INSTRUCTIONS
 
 ### Core Rules
-- **Make sure `FIS_SOURCE` is provided** – otherwise stop -- missing input: a local FIS path or typed GitHub FIS artifact is required.
-- **Complete Implementation**: 100% completion required — partial completion is never an acceptable outcome for this skill.
-- **FIS is source of truth** – follow it exactly
-- **Persistence required**: do not give up because the FIS is long, cross-cutting, or inconvenient; persist until the full FIS is complete or a real external blocker makes completion impossible
-- **Direct execution**: implement the code yourself. Sub-agents are for advisory work, fresh-context review, and validation — not for delegating the implementation
+- Require `FIS_SOURCE`. Stop if missing.
+- **Complete implementation** — 100% completion required; partial completion is not acceptable.
+- **FIS is source of truth** — follow it exactly.
+- Persist until the full FIS is complete or a real external blocker makes completion impossible.
+- **Direct execution** — implement the code yourself. Sub-agents are for advisory work, review, and validation only.
 - If you catch yourself rationalizing away test scaffolding, verification gates, or status updates, load `../references/anti-rationalization.md`.
 
 ### Executor Role
@@ -35,39 +34,73 @@ FIS_SOURCE: $ARGUMENTS
 - Run validation, triage findings, and fix must-fix issues directly in one remediation pass
 - Ensure all status updates and gates complete before finishing
 
-**You do NOT:** delegate coding to advisory agents, batch status updates until the end, silently narrow scope, or skip final gates.
+Do not: delegate coding to advisory agents, batch status updates until the end, silently narrow scope, or skip final gates.
 
 ### Helper Scripts
-Available in `../scripts/`: `check-stubs.sh <path>` (incomplete implementation indicators), `check-wiring.sh <path>` (import/reference verification), `verify-implementation.sh <file1> [file2...]` (combined existence + substance + wiring check).
+Available in `../scripts/`:
+- `check-stubs.sh <path>` – scan for incomplete implementation indicators
+- `check-wiring.sh <path>` – verify new/changed files are imported/referenced
+- `verify-implementation.sh <file1> [file2...]` – combined existence + substance + wiring check
 
 ### Proactive Sub-Agents
-Spawn narrow background sub-agents for advisory work (documentation lookup, architecture questions, UI/UX advice, build troubleshooting, external research). Their output is advisory; the FIS remains the contract. Do not delegate coding work.
+Spawn narrow background sub-agents when they materially improve a coding decision and you can keep implementing while they run. Their output is advisory; the FIS remains the contract.
 
+These are **agents** (valid `subagent_type` values for the Task tool):
+
+- the `dartclaw-documentation-lookup` agent – use for unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. This is the required path for documentation lookup; run it as a separate background sub-task.
+- the `dartclaw-solution-architect` agent – use for unresolved architectural trade-offs or integration-pattern ambiguity not settled by the FIS
+- the `dartclaw-ui-ux-designer` agent – use for UI layout, interaction, accessibility, or responsive-pattern advice when the FIS needs a design contract
+- the `dartclaw-build-troubleshooter` agent – use for non-trivial build failures, dependency conflicts, or cascading test failures
+- the `dartclaw-research-specialist` agent – use for external best-practice research or context not available in the codebase
+- the `dartclaw-qa-test-engineer` agent – use for complex test strategy or unfamiliar test-harness patterns
+
+Usage rules:
+- Prefer multiple narrow questions over one broad prompt
+- Spawn early when the need appears; do not wait until you are fully blocked
+- Continue local implementation when the sub-agent is background-able
+- If sub-agent guidance conflicts with the FIS, follow the FIS
+- Do not spawn a sub-agent for coding work you should do directly
 
 ## GOTCHAS
-- Delegating implementation to advisory sub-agents instead of coding directly
-- Batching status updates to the end instead of updating checkboxes immediately
-- Narrowing scope because the FIS is large -- execute it fully or escalate
-
+- **Delegating implementation to advisory sub-agents** – recreates the context-loss and serial overhead the skill is designed to avoid
+- **Status updates dropped when context exhausted** – update FIS task checkboxes immediately; plan and FIS updates in Step 5 are gates
+- **FIS references get stale if spec was updated** – always re-read the FIS
+- **Not signaling active-story status to the `State` document when called in a plan context** – read the location from the **Project Document Index** and set "In Progress" at start
+- **Treating spec size or difficulty as permission to narrow scope** – exec-spec executes the FIS it was given; if the spec should have been split, that is an upstream spec-quality problem, not a license to land a subset and stop
 
 ## WORKFLOW
 
 ### Step 1: Resolve FIS Source
 1. Resolve `FIS_SOURCE` to a local `FIS_FILE_PATH`:
-   - local file path: use it directly
-   - if the execution was started from plan context, recover any available `PLAN_FILE_PATH` and `STORY_IDS` from the local artifact set or workflow context
-   - if no local FIS path can be resolved, stop
-2. Recover enough local source metadata to finish the run cleanly: canonical FIS path, optional plan path, and optional story IDs
+   - Local file path: use it directly
+   - `--issue <number>` or GitHub issue URL: follow `../references/resolve-github-input.md`.
+     Compatible types: `fis-bundle` — extract and set `FIS_FILE_PATH` from `canonical_local_primary`. Redirects: `plan-bundle` → the `plan-and-implement` / `dartclaw-plan` skill; `triage-plan` / `triage-completion` / any `*-review` → stop with matching downstream skill. Untyped: stop — the `dartclaw-exec-spec` skill requires a local FIS path or a typed GitHub FIS artifact.
+   - If `canonical_local_primary` is missing, ambiguous, or does not match an extracted file, stop.
+   - Recover metadata from the envelope:
+     - `FIS_CANONICAL_PATH` = `fis_path` when present, otherwise `canonical_local_primary`
+     - `PLAN_FILE_PATH` = `plan_path` when present; if it refers to an embedded companion file, use the extracted copy
+     - `STORY_IDS` = `story_ids`
+   - If the envelope says the FIS originated from a plan (`plan_path` present) but omits `story_ids`, stop — plan-backed FIS execution needs that context for plan/state updates.
+   - If `plan_path` is present but no embedded or local `PLAN_FILE_PATH` can actually be resolved, stop — plan-backed FIS execution cannot update source plan state without the plan file.
+   - Otherwise set `FIS_SOURCE_MODE = github-artifact`
+2. Recover enough source metadata to finish the run cleanly: `FIS_SOURCE_MODE`, `FIS_CANONICAL_PATH`, optional `PLAN_FILE_PATH`, and optional `STORY_IDS`
 
 **Gate**: canonical FIS path resolved and any plan/artifact metadata captured
 
 ### Step 2: Read and Prepare
-1. Read the full FIS. Understand Success Criteria, Scenarios, Scope, Architecture Decision, Implementation Plan, Testing Strategy, and Final Validation Checklist.
-2. Read referenced `technical-research.md`, `Learnings`, and `Ubiquitous Language` documents when they exist. Treat research as leads to verify.
-3. Build a quick codebase overview (`tree -d`, `git ls-files | head -250`), then focus on files the FIS touches.
-4. If the FIS has Scenarios/Testing Strategy, scaffold scenario-test skeletons. If UI work with no design contract, create a brief `.agent_temp/ui-spec-{feature-name}.md`.
-5. Update project state if the `State` document exists and the FIS originated from a plan.
-6. Initialize working notes: per-task status, `changed-files`, and any `CONFUSION`/`NOTICED BUT NOT TOUCHING`/`MISSING REQUIREMENT` items.
+1. Read the full FIS at _`FIS_FILE_PATH`_
+2. Understand the sections that define execution: Success Criteria, Scenarios, Scope & Boundaries, Architecture Decision, Technical Overview, Implementation Plan, Testing Strategy, Validation, and Final Validation Checklist
+3. **Read Technical Research** – if the FIS references a `.technical-research.md`, read it before making code changes. Treat findings as leads to verify, not facts to trust.
+4. Read the `Learnings` document (see **Project Document Index**) if it exists and is relevant
+5. Read the `Ubiquitous Language` document (see **Project Document Index**) if it exists and is relevant. Use canonical terms in code and avoid listed synonyms.
+6. Build a quick codebase overview once at the start (`tree -d`, `git ls-files | head -250`), then stop broad discovery and focus on the files/tasks the FIS actually touches
+7. If the FIS has **Scenarios** and/or **Testing Strategy**, scaffold the minimum high-signal scenario-test skeletons inline using nearby test patterns. When practical, confirm they fail before implementation. If the test harness is still unclear after one bounded pass, note the skip and continue.
+8. If the FIS has UI work and no adequate design contract is already referenced, create a short `.agent_temp/ui-spec-{feature-name}.md` covering spacing, typography, color, component patterns, and responsive breakpoints. Source from FIS → project design system → UX guidelines → reasonable defaults.
+9. **Update project state** (if the `State` document exists in the location defined by the **Project Document Index** and the FIS originated from a plan): restore story context from `STORY_IDS`. For a single-story FIS, use that story directly. For a composite/shared FIS, mark the active work as the composite/story set rather than inventing a single story ID.
+10. Initialize working notes you will maintain during the run:
+   - Per-task status
+   - `changed-files`
+   - Any `CONFUSION`, `NOTICED BUT NOT TOUCHING`, or `MISSING REQUIREMENT` items
 
 ### Step 3: Implement
 Implement the FIS yourself, task by task, in the order listed.
@@ -82,14 +115,15 @@ For each task:
 7. Record the task result in your working notes
 
 Implementation rules:
-- Use structured output protocols from `../references/structured-output-protocols.md` when needed: **CONFUSION** (FIS is ambiguous), **NOTICED BUT NOT TOUCHING** (relevant but out of scope), **MISSING REQUIREMENT** (task assumes something absent)
-- Spawn proactive sub-agents when needed, but keep ownership of code changes locally
+- Use the structured output protocols from `../references/structured-output-protocols.md` when needed:
+  - **CONFUSION**: the FIS is ambiguous and you cannot safely proceed
+  - **NOTICED BUT NOT TOUCHING**: you found something relevant but out of scope
+  - **MISSING REQUIREMENT**: a task assumes something absent from the codebase
+- Spawn proactive sub-agents when the need arises, but keep ownership of the code changes locally
 - If `changed-files` becomes incomplete or ambiguous, derive it from the current worktree diff before Step 4
 
 ### Step 4: Validate
 Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — integration, security, architectural coherence, and spec drift — that can still survive per-task Verify lines.
-
-**Workflow-step shortcut**: when this skill is invoked from a workflow step and the prompt/context clearly carries workflow orchestration metadata (for example workflow variables, `workflow_run_id`, authored step metadata, or a workflow-owned project index handoff), skip the full Step 4 validation cycle below. In that mode, keep every per-task **Verify** line from Step 3, but do not run the extra code-review / visual-validation / remediation loop because the surrounding workflow already owns those gates.
 
 #### 4a. Direct Checks
 1. **Build**: run the project's applicable build/package checks; every available build step relevant to the feature must succeed
@@ -100,10 +134,10 @@ Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — int
 6. **Spec compliance spot-check**: extract prescriptive details from the FIS (output format strings, column name lists, file paths for new artifacts, exact error messages, UI elements like buttons/controls) and grep/verify each against the implementation — any mismatch is a remediation input
 
 #### 4b. Code Review (mandatory fresh-context review)
-Run the `dartclaw-review-code` **skill** for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation). Prefer to invoke it in a fresh-context sub-agent: spawn a `general-purpose` sub-agent whose prompt runs `/dartclaw-review-code`. Do not pass `dartclaw-review-code` as `subagent_type` — it is a skill, not an agent type (no `dartclaw-*` agent types exist).
+Run the `dartclaw-review-code` **skill** for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation). Prefer to invoke it in a fresh-context sub-agent: spawn a `general-purpose` sub-agent whose prompt runs `/dartclaw-review-code`. Do not pass `dartclaw-review-code` as `subagent_type` — it is a skill, not an agent type.
 
 #### 4c. Visual Validation (if UI)
-Spawn a visual-validation specialist **agent** _(if an external agent set provides one; otherwise use a `general-purpose` sub-agent with the appropriate instructions)_ per any Visual Validation Workflow defined in CLAUDE.md.
+Spawn the `dartclaw-visual-validation-specialist` **agent** (a real `subagent_type` for the Task tool — unlike the `dartclaw-review-code` skill in 4b) _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
 
 Steps 4b and 4c can run in parallel _(if supported)_.
 
@@ -114,28 +148,24 @@ Steps 4b and 4c can run in parallel _(if supported)_.
 4. **No second loop** — if required failures or CRITICAL/HIGH findings remain after one remediation pass, escalate to the user with a summary of unresolved issues and stop the run
 
 ### Step 5: Complete
-All substeps below are REQUIRED gates when Step 4 passes.
+All substeps below are gates — complete them before finishing.
 
-#### 5a. Verify Implementation
-1. Verify ALL success criteria in FIS are met
-2. Verify ALL task checkboxes marked complete; mark any missed now
+#### 5a. Verify Completion
+Lightweight gate – uses Step 4a results, does not re-run checks:
+1. Verify all success criteria met
+2. Verify all task checkboxes marked (catch any missed from Step 3)
 3. Verify Final Validation Checklist items satisfied
-4. Collect verification evidence from Step 4a results (build, tests, linting/types; add visual validation and runtime for UI stories)
+4. Collect verification evidence from Step 4a: **Build** (exit code/status), **Tests** (pass/fail counts), **Linting/types** (error/warning counts); add **Visual validation** and **Runtime** for UI/runtime stories
 
-#### 5b. Update Status and Project State (Gate)
-Update FIS checkboxes and source plan (if applicable) via the `dartclaw-update-state` skill. For plan-originated stories, also mark the active story `Done` in the State document (see **Project Document Index**). Re-read updated artifacts to verify.
+#### 5b. Update FIS, Source Plan, and Project State
+Update FIS status, source plan (if applicable), and project state via the `dartclaw-update-state` skill. For plan-backed FIS: set each covered story Status to `Done`, set FIS field path, check off acceptance criteria, and mark the story `Done` in the `State` document (see **Project Document Index**) with a short completion note. For composite/shared FIS, update all constituent stories in `STORY_IDS`. Re-read to verify updates applied.
 
-#### 5c. Canonical Continuation Sync _(if `FIS_SOURCE_MODE = github-artifact`)_
-The `.agent_temp/github-artifacts/...` directory is only a working mirror. If canonical local FIS/plan paths exist in the workspace, verify final updates landed there. Otherwise update the source GitHub issue to the latest typed `fis-bundle` (updated FIS, `technical-research.md`, `plan.md` when applicable, and `fis_path`/`plan_path`/`story_ids` metadata). Do not finish with the temp mirror as the only updated copy.
+If `FIS_SOURCE_MODE = github-artifact`, apply the continuation sync from `../references/github-artifact-roundtrip.md` before finishing.
 
-#### 5d. Completion Report
-Report back with:
-- Per-task status
-- Files created/modified
-- Verification evidence
-- Any unresolved low-priority issues or `NOTICED BUT NOT TOUCHING` items
+#### 5c. Completion Report
+Report: per-task status, files created/modified, verification evidence, any unresolved low-priority issues or `NOTICED BUT NOT TOUCHING` items.
 
 ## Post-Completion
-If the `Learnings` document (see **Project Document Index**) exists, capture story-level traps, domain knowledge, procedural knowledge, and error patterns. Keep entries brief (1-2 sentences). Do not create a new `Learnings` document unless one already exists.
+If the `Learnings` document (see **Project Document Index**) exists, capture story-level traps, domain knowledge, procedural knowledge, and error patterns. Organize by topic, not chronology. Keep entries brief (1-2 sentences). Do not create a new `Learnings` document unless one already exists.
 
-> FIS checkbox/status updates and plan updates are handled in Step 5 – they are gates, not post-completion tasks.
+> FIS checkbox/status updates and plan updates are handled in Step 5 — they are gates, not post-completion tasks.

@@ -30,7 +30,8 @@ ARGUMENTS: $ARGUMENTS
 - `--to-pr <number>` → PUBLISH_PR
 
 ## INSTRUCTIONS
-- Analysis only. Do not modify code.
+- Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
+- Read-only analysis. Do not modify code.
 - If `--inline-findings` is present, do not write a report file. Return findings inline to the parent skill instead.
 - Calibrate severity with `../references/review-calibration.md` and `references/code-review-calibration.md`.
 - Read project learnings if they exist.
@@ -50,14 +51,14 @@ ARGUMENTS: $ARGUMENTS
 - `../scripts/run-security-scan.sh <path>`
 
 ## ORCHESTRATION
-When supported, delegate parallel `general-purpose` reviewer sub-agents for:
+When supported, delegate parallel reviewers for:
 1. Code quality
 2. Security
 3. Architecture
 4. Domain language
 5. UI/UX
 
-Do NOT pass any `dartclaw-*` name as `subagent_type` — none of them are valid agent types. Each reviewer is a `general-purpose` sub-agent given a focused prompt for that lens. If sub-agents are unavailable, run the same lenses sequentially.
+If sub-agents are unavailable, run the same lenses sequentially.
 
 ## WORKFLOW
 
@@ -80,11 +81,11 @@ Select the applicable checklist(s):
 
 | Checklist | Standard | Apply when... |
 |-----------|----------|---------------|
-| [SECURITY-CHECKLIST-WEB.md](checklists/SECURITY-CHECKLIST-WEB.md) | OWASP Top 10:2025 | Web apps, server-rendered pages, general backends |
-| [SECURITY-CHECKLIST-API.md](checklists/SECURITY-CHECKLIST-API.md) | OWASP API Security Top 10:2023 | REST, GraphQL, gRPC, microservices, HTTP-exposed code |
-| [SECURITY-CHECKLIST-LLM.md](checklists/SECURITY-CHECKLIST-LLM.md) | OWASP LLM Top 10:2025 | LLM, RAG, agentic, AI-generated-output systems |
+| [SECURITY-CHECKLIST-WEB.md](checklists/SECURITY-CHECKLIST-WEB.md) | OWASP Top 10:2025 | Web applications, server-rendered pages, or any general-purpose backend |
+| [SECURITY-CHECKLIST-API.md](checklists/SECURITY-CHECKLIST-API.md) | OWASP API Security Top 10:2023 | REST, GraphQL, gRPC, microservices, or other HTTP-exposed code |
+| [SECURITY-CHECKLIST-LLM.md](checklists/SECURITY-CHECKLIST-LLM.md) | OWASP LLM Top 10:2025 | LLM, RAG, agentic, or AI-generated-output systems |
 | [SECURITY-CHECKLIST-MOBILE.md](checklists/SECURITY-CHECKLIST-MOBILE.md) | OWASP Mobile Top 10:2024 | Native or cross-platform mobile apps |
-| [SECURITY-CHECKLIST-CICD.md](checklists/SECURITY-CHECKLIST-CICD.md) | OWASP CI/CD Risks | Pipelines, IaC, deployment, build scripts, supply chain |
+| [SECURITY-CHECKLIST-CICD.md](checklists/SECURITY-CHECKLIST-CICD.md) | OWASP CI/CD Risks | Pipelines, IaC, deployment workflows, build scripts, supply chain changes |
 
 Assess input validation, injection risks, authz/authn, crypto, secret handling, API security, and supply-chain integrity. Run available security tooling such as Semgrep when possible.
 
@@ -100,7 +101,57 @@ Also flag obsolete files, unmotivated complexity, and cleanup candidates.
 
 Generate a markdown report unless `--inline-findings` is present. When `--inline-findings` is present, return the same content inline in concise structured form instead of writing a file.
 
-Standard report sections: Summary, CRITICAL ISSUES (title/impact/location/fix), HIGH PRIORITY (title/impact/location/recommendation), SUGGESTIONS, Cleanup Required, Compliance (guidelines/architecture/security/UI-UX), Verification Evidence (commands run/skipped with results/reasons), Next Steps.
+Standard report format:
+
+```markdown
+# Review Report - [Date]
+
+## Summary
+[2-3 sentence overview]
+
+## CRITICAL ISSUES
+[Title, impact, location, fix required]
+
+## HIGH PRIORITY
+[Title, impact, location, recommendation]
+
+## SUGGESTIONS
+[Brief list]
+
+## Cleanup Required
+- [Obsolete or temporary files]
+- [Dead code]
+
+## Compliance
+- Guidelines adherence: [Assessment]
+- Architecture patterns: [Assessment]
+- Security best practices: [Assessment]
+- [UI/UX if applicable]: [Assessment]
+
+## Verification Evidence
+- Commands run: [with result]
+- Commands skipped/unavailable: [with reason]
+
+## Next Steps
+1. [Prioritized action items]
+```
+
+**Report output conventions**: Follow `../references/report-output-conventions.md` with:
+- **Report suffix**: `code-review`
+- **Scope placeholder**: `feature-name`
+- **Spec-directory rule**: the files being reviewed correspond to a feature that has an associated spec directory from the Project Document Index
+- **Target-directory rule**: the review target is a specific file or localized directory, so the report belongs next to the primary review target
+
+### Publish to GitHub
+If PUBLISH_ISSUE is `true`:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Title template: `[Code Review] {scope}: Review Report`
+2. Print the issue URL
+
+If PUBLISH_PR is set:
+1. Follow the optional GitHub publishing flow in `../references/report-output-conventions.md`
+   Publish target: typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup before completing
+2. Print the direct comment URL
 
 ## Structured Output
 
@@ -108,15 +159,3 @@ Standard report sections: Summary, CRITICAL ISSUES (title/impact/location/fix), 
 - verdict: <PASS|FAIL>
 - critical_count: <integer>
 - high_count: <integer>
-
-Emit this block in every inline or report-backed review result so workflow gates can evaluate the outcome reliably.
-
-**Report output conventions**: Follow `../references/report-output-conventions.md` with:
-- **Report suffix**: `code-review` / **Scope placeholder**: `feature-name`
-- **Spec-directory rule**: reviewed files correspond to a feature with an associated spec directory from the Project Document Index
-- **Target-directory rule**: review target is a specific file or localized directory, so report belongs next to the primary target
-
-### Publish to GitHub
-If PUBLISH_ISSUE is `true`: follow the GitHub publishing flow in `../references/report-output-conventions.md` with title template `[Code Review] {scope}: Review Report`. Print the issue URL.
-
-If PUBLISH_PR is set: follow the GitHub publishing flow in `../references/report-output-conventions.md`, publishing as a typed PR comment. If the posting command does not return a direct comment URL, resolve it via follow-up GitHub lookup. Print the direct comment URL.

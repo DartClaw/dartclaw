@@ -1,8 +1,16 @@
 ---
-description: Use when the user wants an implementation plan with FIS specs for every story. Produces `plan.md`, per-story FIS files, and `technical-research.md` — one bundle, one pass. Requires a PRD (`prd.md`) in the input directory — redirect to the `dartclaw-prd` skill if one is missing. Trigger on 'create a plan', 'break this into stories', 'plan this feature', 'spec all stories', 'create FIS for every story'.
+description: Use when the user wants an implementation plan with FIS specs for every story. DartClaw merges the upstream plan + spec-plan flow into this single skill so one plan step can emit both `plan.md` and `story_specs`. Produces `plan.md`, per-story FIS files, and `technical-research.md` — one bundle, one pass. Requires a PRD (`prd.md`) in the input directory — redirect to the `dartclaw-prd` skill if one is missing. Trigger on 'create a plan', 'break this into stories', 'plan this feature', 'spec all stories', 'create FIS for every story'.
 argument-hint: <path-to-feature-directory-with-prd.md> [--stories S01,S03] [--phase N] [--max-parallel N] [--skip-review] [--skip-specs]
 workflow:
-  default_prompt: "Use $dartclaw-plan to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run $dartclaw-prd first if one is missing. Plan directory: "
+  default_prompt: "Use $dartclaw-plan to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run $dartclaw-prd first if one is missing."
+  default_outputs:
+    story_specs:
+      format: json
+      schema: story-specs
+      description: Structured per-story records including `id`, `title`, `spec_path`, acceptance criteria, phase, wave, dependencies, and key files.
+    plan_source:
+      format: text
+      description: "`existing` when an on-disk `plan.md` was reused, `synthesized` when this skill wrote a new plan."
 ---
 
 # Create Implementation Plan with FIS for Every Story

@@ -561,8 +561,8 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Branch:'));
-    expect(discover, contains('Branch: feature/discovery-baseline'));
+    expect(discover, contains('<BRANCH>'));
+    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
     expect(discover, contains(feature));
   });
 
@@ -1029,8 +1029,8 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Branch:'));
-    expect(discover, contains('Branch: feature/discovery-baseline'));
+    expect(discover, contains('<BRANCH>'));
+    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
     expect(discover, contains(requirements));
   });
 
@@ -1378,10 +1378,10 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('Branch:'));
-    expect(discover, contains('Branch: feature/discovery-baseline'));
-    expect(discover, contains('Base branch: main'));
-    expect(discover, contains('PR number: 42'));
+    expect(discover, contains('<BRANCH>'));
+    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
+    expect(discover, contains('<BASE_BRANCH>\nmain\n</BASE_BRANCH>'));
+    expect(discover, contains('<PR_NUMBER>\n42\n</PR_NUMBER>'));
     expect(discover, contains(target));
   });
 

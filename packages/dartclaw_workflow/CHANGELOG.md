@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+- **Changed**: DartClaw's AndThen-derived skill bundle was re-synced against upstream `andthen 0.12.1`. The shipped `dartclaw-spec`, `dartclaw-exec-spec`, review skills, and related support files now track upstream much more closely again, with only the documented DartClaw overlays applied on top (skill-name rewrites, workflow frontmatter, and user-invocable review surfaces).
+- **Changed**: `dartclaw-plan` continues to absorb the upstream plan + spec-plan flow into one DartClaw skill, and `dartclaw-prd` now explicitly documents that it remains a DartClaw-authored PRD-only slice rather than a verbatim upstream extraction.
+- **Changed**: shipped `plan-and-implement.yaml`, `spec-and-implement.yaml`, and `code-review.yaml` now lean on skill `workflow.default_prompt` + auto-framed workflow variables/context for generic instructions. Redundant step-level `prompt:` blocks were removed where they only repeated boilerplate or restated context already available to the engine.
+- **Changed**: the `plain`, `visual`, and `workflows-dartclaw` testing-profile workflow definitions were updated in lockstep with the shipped prompt simplifications, preserving profile-specific divergence only where that profile carries extra repository/worktree semantics.
+
 ## 0.13.0
 
 - **Changed (breaking)**: shipped `plan-and-implement.yaml` and its mirror profiles now use a single-step PRD contract. The `review-prd` step is removed; `plan` has no custom prompt and consumes only `project_index` + `prd`. `prd_source` remains as observability metadata.

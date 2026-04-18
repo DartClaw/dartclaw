@@ -67,8 +67,6 @@ steps:
     skill: dartclaw-discover-project
     project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
-    prompt: |
-      Branch: {{BRANCH}}
     contextOutputs: [project_index]
     outputs:
       project_index:
@@ -85,8 +83,6 @@ steps:
     skill: dartclaw-prd
     contextInputs: [project_index]
     allowedTools: [shell, file_read, file_write]
-    prompt: |
-      Synthesize or reuse the PRD in the discovered project context.
     contextOutputs: [prd, prd_source]
     outputs:
       prd:
@@ -246,14 +242,6 @@ steps:
     entryGate: "plan_source == synthesized"
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
-    prompt: |
-      Read the plan from disk via `file_read` at `{{context.plan}}` — each
-      story's FIS lives under the directory referenced by
-      `context.project_index.artifact_locations.fis_dir`.
-
-      <plan_path>
-      {{context.plan}}
-      </plan_path>
     contextOutputs: [review_findings, findings_count, plan-review.findings_count]
     outputs:
       review_findings:
@@ -283,9 +271,6 @@ steps:
         skill: dartclaw-remediate-findings
         project: "{{PROJECT}}"
         review: always
-        prompt: |
-          Apply the review findings against the workflow's accumulated story
-          results in the discovered project context.
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
@@ -304,9 +289,6 @@ steps:
         project: "{{PROJECT}}"
         review: never
         continueSession: remediate
-        prompt: |
-          Re-run validation for the remediation pass in the discovered project
-          context.
         contextInputs: [project_index, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
         outputs:
@@ -327,9 +309,6 @@ steps:
         name: Re-review After Remediation
         type: analysis
         skill: dartclaw-quick-review
-        prompt: |
-          Re-review the remediated implementation against the discovered
-          project context and accumulated workflow outputs.
         contextInputs: [project_index, story_specs, story_results, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:

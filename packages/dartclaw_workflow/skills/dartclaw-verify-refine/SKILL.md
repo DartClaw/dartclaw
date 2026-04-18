@@ -2,7 +2,7 @@
 description: Verify the current implementation first, apply light cleanup only when the gates pass, then re-verify. Trigger on 'verify this', 'refine this safely', 'validate and clean up this code'.
 argument-hint: <scope/description> | --path <dir/file>
 workflow:
-  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify."
+  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify. When the requirements baseline is provided as a workspace path such as `spec_path`, read the authoritative file from disk with file_read before judging coverage."
   default_outputs:
     validation_summary:
       format: text

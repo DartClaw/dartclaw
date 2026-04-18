@@ -1,10 +1,17 @@
 ---
 name: dartclaw-prd
-description: Use when the user wants a PRD synthesized from requirements, a draft PRD, or a requirements-clarification artifact. Produces `prd.md` in a discoverable feature directory, ready to feed the `dartclaw-plan` skill. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
+description: Use when the user wants a PRD synthesized from requirements, a draft PRD, or a requirements-clarification artifact. This DartClaw-authored skill has no direct upstream counterpart because extracting the PRD-only slice from the upstream plan skill would require substantive rewriting. Produces `prd.md` in a discoverable feature directory, ready to feed the `dartclaw-plan` skill. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
 argument-hint: "[Specs directory, requirements source, file, URL, or --issue <n>]"
 user-invocable: true
 workflow:
   default_prompt: "Use $dartclaw-prd to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
+  default_outputs:
+    prd:
+      format: path
+      description: Workspace-relative path to `prd.md` on disk.
+    prd_source:
+      format: text
+      description: "`existing` when a pre-existing PRD was reused, `synthesized` when this skill wrote a new `prd.md`."
 ---
 
 # Create PRD

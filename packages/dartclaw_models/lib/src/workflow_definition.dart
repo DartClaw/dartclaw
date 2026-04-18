@@ -825,6 +825,40 @@ class WorkflowGitPublishStrategy {
       WorkflowGitPublishStrategy(enabled: json['enabled'] as bool?);
 }
 
+/// Worktree strategy configuration nested under [WorkflowGitStrategy].
+class WorkflowGitWorktreeStrategy {
+  /// Worktree mode (`shared`, `per-task`, `per-map-item`).
+  final String? mode;
+
+  /// Optional cross-clone external artifact mount (two-repo profiles).
+  final WorkflowGitExternalArtifactMount? externalArtifactMount;
+
+  const WorkflowGitWorktreeStrategy({this.mode, this.externalArtifactMount});
+
+  Object? toJsonValue() {
+    if (mode != null && externalArtifactMount == null) return mode;
+    if (mode == null && externalArtifactMount == null) return null;
+    return {
+      if (mode != null) 'mode': mode,
+      if (externalArtifactMount != null) 'externalArtifactMount': externalArtifactMount!.toJson(),
+    };
+  }
+
+  factory WorkflowGitWorktreeStrategy.fromJson(Object? json) => switch (json) {
+    String mode => WorkflowGitWorktreeStrategy(mode: mode),
+    Map<String, dynamic> map => WorkflowGitWorktreeStrategy(
+      mode: map['mode'] as String?,
+      externalArtifactMount: switch (map['externalArtifactMount']) {
+        Map<String, dynamic> mount => WorkflowGitExternalArtifactMount.fromJson(mount),
+        Map<Object?, Object?> mount => WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic>.from(mount)),
+        _ => null,
+      },
+    ),
+    Map<Object?, Object?> map => WorkflowGitWorktreeStrategy.fromJson(Map<String, dynamic>.from(map)),
+    _ => const WorkflowGitWorktreeStrategy(),
+  };
+}
+
 /// Reusable workflow-level git behavior strategy surface.
 ///
 /// This shape is intentionally declarative for S16b. Runtime enforcement is
@@ -833,8 +867,9 @@ class WorkflowGitStrategy {
   /// Whether workflow startup should bootstrap a workflow-owned feature branch.
   final bool? bootstrap;
 
-  /// Worktree strategy (`shared`, `per-task`, `per-map-item`).
-  final String? worktree;
+  /// Worktree strategy (`shared`, `per-task`, `per-map-item`) plus nested
+  /// worktree-only settings.
+  final WorkflowGitWorktreeStrategy? worktree;
 
   /// Promotion strategy (`merge`, `rebase`, `none`).
   final String? promotion;
@@ -845,8 +880,16 @@ class WorkflowGitStrategy {
   /// Artifact auto-commit configuration (null = default truth-table resolution).
   final WorkflowGitArtifactsStrategy? artifacts;
 
-  /// Optional cross-clone external artifact mount (two-repo profiles).
-  final WorkflowGitExternalArtifactMount? externalArtifactMount;
+  /// True when the definition authored `gitStrategy.externalArtifactMount`
+  /// at the deprecated flat level. Parser-only metadata so the validator can
+  /// emit a migration hint while still hydrating the nested runtime surface.
+  final bool legacyExternalArtifactMountLocation;
+
+  /// Convenience projection of the configured worktree mode.
+  String? get worktreeMode => worktree?.mode;
+
+  /// Convenience projection of the nested external artifact mount.
+  WorkflowGitExternalArtifactMount? get externalArtifactMount => worktree?.externalArtifactMount;
 
   const WorkflowGitStrategy({
     this.bootstrap,
@@ -854,21 +897,23 @@ class WorkflowGitStrategy {
     this.promotion,
     this.publish,
     this.artifacts,
-    this.externalArtifactMount,
+    this.legacyExternalArtifactMountLocation = false,
   });
 
   Map<String, dynamic> toJson() => {
     if (bootstrap != null) 'bootstrap': bootstrap,
-    if (worktree != null) 'worktree': worktree,
+    if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
     if (publish != null) 'publish': publish!.toJson(),
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
-    if (externalArtifactMount != null) 'externalArtifactMount': externalArtifactMount!.toJson(),
   };
 
   factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitStrategy(
     bootstrap: json['bootstrap'] as bool?,
-    worktree: json['worktree'] as String?,
+    worktree: switch (json['worktree']) {
+      null => null,
+      final value => WorkflowGitWorktreeStrategy.fromJson(value),
+    },
     promotion: json['promotion'] as String?,
     publish: switch (json['publish']) {
       Map<String, dynamic> publish => WorkflowGitPublishStrategy.fromJson(publish),
@@ -880,11 +925,7 @@ class WorkflowGitStrategy {
       Map<Object?, Object?> artifacts => WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic>.from(artifacts)),
       _ => null,
     },
-    externalArtifactMount: switch (json['externalArtifactMount']) {
-      Map<String, dynamic> mount => WorkflowGitExternalArtifactMount.fromJson(mount),
-      Map<Object?, Object?> mount => WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic>.from(mount)),
-      _ => null,
-    },
+    legacyExternalArtifactMountLocation: json['legacyExternalArtifactMountLocation'] == true,
   );
 }
 

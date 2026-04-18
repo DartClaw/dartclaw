@@ -317,11 +317,10 @@ void main() {
               'marker': 'DISCOVER_MARKER',
             }),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'spec_document': 'SPEC_DOC_MARKER'})),
-          'revise-spec' => _StubResponse(
+          'spec' => _StubResponse(
             assistantContent: _contextOutput({
-              'spec_document': 'REVISED_SPEC_DOC_MARKER',
-              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec is consistent')),
+              'spec_path': 'docs/specs/test/spec.md',
+              'spec_source': 'synthesized',
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
@@ -365,8 +364,7 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
-    expect(trace.descriptionsByStep['revise-spec']!.single, contains('SPEC_DOC_MARKER'));
-    expect(trace.descriptionsByStep['implement']!.single, contains('REVISED_SPEC_DOC_MARKER'));
+    expect(trace.descriptionsByStep['implement']!.single, contains('docs/specs/test/spec.md'));
     expect(trace.descriptionsByStep['verify-refine']!.single, contains('IMPLEMENT_DIFF_MARKER'));
     expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
   });
@@ -385,11 +383,10 @@ void main() {
               'state_protocol': {'state_file': 'docs/STATE.md'},
             }),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'})),
-          'revise-spec' => _StubResponse(
+          'spec' => _StubResponse(
             assistantContent: _contextOutput({
-              'spec_document': 'REVISED_SPEC_DOC',
-              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+              'spec_path': 'docs/specs/test/spec.md',
+              'spec_source': 'synthesized',
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
@@ -431,7 +428,6 @@ void main() {
     expect(trace.tasksForStep('spec').single.projectId, isNull);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('revise-spec').single.projectId, isNull);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
@@ -453,11 +449,10 @@ void main() {
               'state_protocol': {'state_file': 'docs/STATE.md'},
             }),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'})),
-          'revise-spec' => _StubResponse(
+          'spec' => _StubResponse(
             assistantContent: _contextOutput({
-              'spec_document': 'REVISED_SPEC_DOC',
-              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+              'spec_path': 'docs/specs/test/spec.md',
+              'spec_source': 'synthesized',
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
@@ -500,7 +495,6 @@ void main() {
     expect(discover.configJson['readOnly'], isTrue);
     expect(discover.configJson['allowedTools'], ['shell', 'file_read']);
 
-    expect(trace.tasksForStep('revise-spec').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('re-review'), isEmpty);
 
@@ -526,11 +520,10 @@ void main() {
               'state_protocol': {'type': 'none'},
             }),
           ),
-          'spec' => _StubResponse(assistantContent: _contextOutput({'spec_document': 'SPEC_DOC'})),
-          'revise-spec' => _StubResponse(
+          'spec' => _StubResponse(
             assistantContent: _contextOutput({
-              'spec_document': 'REVISED_SPEC_DOC',
-              'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+              'spec_path': 'docs/specs/test/spec.md',
+              'spec_source': 'synthesized',
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
@@ -570,7 +563,7 @@ void main() {
     final discover = trace.tasksForStep('discover-project').single.description;
     expect(discover, contains('Branch:'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
-    expect(discover, isNot(contains(feature)));
+    expect(discover, contains(feature));
   });
 
   test(
@@ -590,11 +583,10 @@ void main() {
                 'marker': 'DISCOVER_LOOP_MARKER',
               }),
             ),
-            'spec' => _StubResponse(assistantContent: _contextOutput({'spec_document': 'SPEC_LOOP_DOC'})),
-            'revise-spec' => _StubResponse(
+            'spec' => _StubResponse(
               assistantContent: _contextOutput({
-                'spec_document': 'SPEC_LOOP_DOC_REVISED',
-                'spec_review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'spec accepted')),
+                'spec_path': 'docs/specs/test/spec-loop.md',
+                'spec_source': 'synthesized',
               }),
             ),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
@@ -676,18 +668,6 @@ void main() {
               'prd_source': 'synthesized',
             }),
           ),
-          'review-prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': 'docs/specs/test/prd.md',
-              'prd_review_findings': {
-                'pass': true,
-                'findings_count': 0,
-                'findings': <Object>[],
-                'summary': 'PRD_MARKER_PLAN_PIPELINE PRD_MARKER_REVISED_PLAN_PIPELINE PRD is consistent.',
-              },
-              'findings_count': 0,
-            }),
-          ),
           // The merged plan step now emits stories + story_specs in one pass.
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
@@ -728,7 +708,7 @@ void main() {
                     'dependencies': <String>[],
                     'key_files': ['lib/a.dart'],
                     'effort': 'small',
-                    'spec': 'STORY_SPEC_ALPHA',
+                    'spec_path': 'docs/specs/test/fis/s01-story-one.md',
                   },
                   {
                     'id': 'S02',
@@ -739,7 +719,7 @@ void main() {
                     'dependencies': ['S01'],
                     'key_files': ['lib/b.dart'],
                     'effort': 'small',
-                    'spec': 'STORY_SPEC_BETA',
+                    'spec_path': 'docs/specs/test/fis/s02-story-two.md',
                   },
                 ],
               },
@@ -805,14 +785,11 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    // prd + review-prd run once each; merged plan emits stories + story_specs once; foreach runs per story.
+    // prd runs once; merged plan emits stories + story_specs once; foreach runs per story.
     expect(trace.count('prd'), 1);
-    expect(trace.count('review-prd'), 1);
-    // Under the S28 file-based contract, `{{context.prd}}` resolves to a path,
-    // not inline content; the review step reads the file via file_read.
-    expect(trace.descriptionsByStep['review-prd']!.single, contains('docs/specs/test/prd.md'));
+    expect(trace.count('review-prd'), 0);
     expect(trace.count('plan'), 1);
-    // The reviewed PRD path is passed through to the plan step unchanged.
+    // The PRD path is passed through to the plan step unchanged.
     expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/test/prd.md'));
     expect(trace.count('implement'), 2);
     expect(trace.count('verify-refine'), 2);
@@ -853,18 +830,6 @@ void main() {
               'prd_source': 'synthesized',
             }),
           ),
-          'review-prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': 'docs/specs/project-bound/prd.md',
-              'prd_review_findings': {
-                'pass': true,
-                'findings_count': 0,
-                'findings': <Object>[],
-                'summary': 'PRD is clean.',
-              },
-              'findings_count': 0,
-            }),
-          ),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
               'plan': 'docs/specs/project-bound/plan.md',
@@ -894,7 +859,7 @@ void main() {
                     'dependencies': <String>[],
                     'key_files': ['lib/a.dart'],
                     'effort': 'small',
-                    'spec': 'PROJECT_BOUND_SPEC',
+                    'spec_path': 'docs/specs/project-bound/fis/s01-project-bound-story.md',
                   },
                 ],
               },
@@ -950,7 +915,6 @@ void main() {
     expect(trace.tasksForStep('prd').single.projectId, isNull);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('review-prd').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
@@ -986,17 +950,6 @@ void main() {
           'prd' => _StubResponse(
             assistantContent: _contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'}),
           ),
-          'review-prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': '# Revised PRD\n\nDISCOVERY_SCOPE_PRD_REVISED',
-              'prd_review_findings': {
-                'pass': true,
-                'findings_count': 0,
-                'findings': <Object>[],
-                'summary': 'PRD is clean.',
-              },
-            }),
-          ),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
               'stories': {
@@ -1024,7 +977,7 @@ void main() {
                     'dependencies': <String>[],
                     'key_files': ['README.md'],
                     'effort': 'small',
-                    'spec': 'STORY_SPEC',
+                    'spec_path': 'docs/specs/discovery/fis/s01-minimal-story.md',
                   },
                 ],
               },
@@ -1078,7 +1031,7 @@ void main() {
     final discover = trace.tasksForStep('discover-project').single.description;
     expect(discover, contains('Branch:'));
     expect(discover, contains('Branch: feature/discovery-baseline'));
-    expect(discover, isNot(contains(requirements)));
+    expect(discover, contains(requirements));
   });
 
   test(
@@ -1107,18 +1060,6 @@ void main() {
               assistantContent: _contextOutput({
                 'prd': 'docs/specs/loop/prd.md',
                 'prd_source': 'synthesized',
-              }),
-            ),
-            'review-prd' => _StubResponse(
-              assistantContent: _contextOutput({
-                'prd': 'docs/specs/loop/prd.md',
-                'prd_review_findings': {
-                  'pass': true,
-                  'findings_count': 0,
-                  'findings': <Object>[],
-                  'summary': 'PRD is clean.',
-                },
-                'findings_count': 0,
               }),
             ),
             'plan' => _StubResponse(
@@ -1160,7 +1101,7 @@ void main() {
                       'dependencies': <String>[],
                       'key_files': ['lib/a.dart'],
                       'effort': 'small',
-                      'spec': 'LOOP_SPEC_ALPHA',
+                      'spec_path': 'docs/specs/loop/fis/s01-loop-alpha.md',
                     },
                     {
                       'id': 'S02',
@@ -1171,7 +1112,7 @@ void main() {
                       'dependencies': ['S01'],
                       'key_files': ['lib/b.dart'],
                       'effort': 'small',
-                      'spec': 'LOOP_SPEC_BETA',
+                      'spec_path': 'docs/specs/loop/fis/s02-loop-beta.md',
                     },
                   ],
                 },
@@ -1441,7 +1382,7 @@ void main() {
     expect(discover, contains('Branch: feature/discovery-baseline'));
     expect(discover, contains('Base branch: main'));
     expect(discover, contains('PR number: 42'));
-    expect(discover, isNot(contains(target)));
+    expect(discover, contains(target));
   });
 
   test('code-review integration keeps looping until both verify-refine and re-review findings reach zero', () async {

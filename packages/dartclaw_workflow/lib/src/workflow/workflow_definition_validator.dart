@@ -128,6 +128,7 @@ class WorkflowDefinitionValidator {
     _validateLoopFinalizers(definition, errors);
     _validateStepDefaults(definition);
     _validateGitStrategy(definition, errors, warnings);
+    _validateStepDefaultsOrdering(definition, warnings);
     _validateStepEntryGates(definition, errors);
     _validateOutputConfigs(definition, errors, warnings);
     _validateMapOverReferences(definition, errors);
@@ -509,7 +510,7 @@ class WorkflowDefinitionValidator {
     const worktreeValues = {'shared', 'per-task', 'per-map-item'};
     const promotionValues = {'merge', 'rebase', 'none'};
 
-    final worktree = strategy.worktree;
+    final worktree = strategy.worktreeMode;
     if (worktree != null && !worktreeValues.contains(worktree)) {
       errors.add(
         ValidationError(
@@ -539,7 +540,13 @@ class WorkflowDefinitionValidator {
     final hasArtifactProducer = definition.steps.any((step) {
       if (step.skill != null && _artifactProducingSkills.contains(step.skill)) return true;
       return step.contextOutputs.any(
-        (k) => k == 'prd' || k == 'plan' || k == 'story_spec' || k == 'story_specs' || k == 'technical_research',
+        (k) =>
+            k == 'prd' ||
+            k == 'plan' ||
+            k == 'story_spec' ||
+            k == 'spec_path' ||
+            k == 'story_specs' ||
+            k == 'technical_research',
       );
     });
 
@@ -575,6 +582,18 @@ class WorkflowDefinitionValidator {
           ),
         );
       }
+    }
+
+    if (strategy.legacyExternalArtifactMountLocation) {
+      errors.add(
+        ValidationError(
+          message:
+              'gitStrategy.externalArtifactMount was moved to '
+              'gitStrategy.worktree.externalArtifactMount. Update the workflow '
+              'to nest the block under gitStrategy.worktree.',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
     }
 
     final mount = strategy.externalArtifactMount;
@@ -623,6 +642,60 @@ class WorkflowDefinitionValidator {
         );
       }
     }
+  }
+
+  void _validateStepDefaultsOrdering(WorkflowDefinition definition, List<ValidationError> warnings) {
+    final defaults = definition.stepDefaults;
+    if (defaults == null || defaults.length < 2) return;
+
+    final seen = <String>{};
+    for (final step in definition.steps) {
+      final matches = <String>[];
+      for (var i = 0; i < defaults.length; i++) {
+        final current = defaults[i];
+        if (current.match == '*') continue; // intentional catch-all; too noisy to warn on
+
+        if (globMatchStepId(current.match, step.id)) {
+          matches.add(current.match);
+          continue;
+        }
+
+        final isLiteral = !current.match.contains('*');
+        if (!isLiteral || !_literalTokenMatch(current.match, step.id)) continue;
+
+        for (var j = i + 1; j < defaults.length; j++) {
+          final later = defaults[j];
+          if (later.match == '*') continue;
+          if (globMatchStepId(later.match, step.id)) {
+            matches.add(current.match);
+            matches.add(later.match);
+            break;
+          }
+        }
+      }
+      if (matches.length < 2) continue;
+
+      final key = '${step.id}\x00${matches.join("\x00")}';
+      if (!seen.add(key)) continue;
+      warnings.add(
+        ValidationError(
+          message:
+              'Info: stepDefaults ordering is load-bearing for step "${step.id}" — '
+              'multiple patterns match (${matches.join(', ')}). The first match '
+              'wins, so reordering or glob widening can change which provider/model applies.',
+          type: ValidationErrorType.invalidReference,
+          stepId: step.id,
+        ),
+      );
+    }
+  }
+
+  bool _literalTokenMatch(String literal, String stepId) {
+    if (literal.isEmpty) return false;
+    return stepId.endsWith('-$literal') ||
+        stepId.contains('-$literal-') ||
+        stepId.endsWith('_$literal') ||
+        stepId.contains('_${literal}_');
   }
 
   void _validateStepEntryGates(WorkflowDefinition definition, List<ValidationError> errors) {

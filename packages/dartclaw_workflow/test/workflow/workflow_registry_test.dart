@@ -182,12 +182,13 @@ void main() {
       expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
       expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
-      expect(specAndImplement, contains('skill: dartclaw-review-doc'));
+      expect(specAndImplement, isNot(contains('review-spec')));
+      expect(specAndImplement, contains('spec_path'));
       expect(specAndImplement, contains('skill: dartclaw-review-gap'));
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(planAndImplement, contains('skill: dartclaw-review-doc'));
+      expect(planAndImplement, isNot(contains('review-prd')));
       expect(planAndImplement, contains('skill: dartclaw-quick-review'));
       expect(planAndImplement, contains('skill: dartclaw-review-gap'));
       expect(planAndImplement, contains('skill: dartclaw-plan'));

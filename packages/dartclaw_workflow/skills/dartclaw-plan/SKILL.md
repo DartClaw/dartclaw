@@ -57,20 +57,22 @@ PLAN_SOURCE: $ARGUMENTS
 
 ### Single-Mode File-Based Contract (Critical)
 
-Both standalone and Workflow-Step Mode **always write** `plan.md`, `technical-research.md` (optional), and per-story FIS files to disk at the canonical locations and **always emit paths** — never inline content. This is the same contract the `dartclaw-prd` and `dartclaw-spec` skills honor.
+Both standalone and workflow-driven execution **always write** `plan.md`, `technical-research.md` (optional), and per-story FIS files to disk at the canonical locations and **always emit paths** — never inline content. This is the same contract the `dartclaw-prd` and `dartclaw-spec` skills honor.
 
 - **Standalone** (direct CLI / `/dartclaw-plan <args>`): write the full bundle to disk per the Output section. Print relative paths.
-- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write the same files at `context.docs_project_index.artifact_locations.plan` / `fis_dir/`, parse the resulting Story Catalog into the `stories` structured schema, and emit paths + structured records via `contextOutputs` (see Workflow Output Contract below). Do not emit plan body or FIS bodies inline.
+- **Workflow invocation** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write the same files at the canonical project-index plan / `fis_dir` locations, parse the resulting Story Catalog into the `stories` structured schema, and emit paths + structured records via `contextOutputs` (see Workflow Output Contract below). Do not emit plan body or FIS bodies inline.
 
 #### Read-Existing Detection (Plan + Per-Row FIS)
 
-Before running the internal pipeline, when running as a workflow step:
+Before running the internal pipeline during a workflow invocation:
 
 1. Inspect `context.docs_project_index.active_plan`. If non-null and the file exists, parse its Story Catalog directly into `stories`, set `plan: <active_plan>` and `plan_source: "existing"`. Otherwise run the usual requirements-analysis → story-breakdown pipeline and write `plan.md` to `artifact_locations.plan` with `plan_source: "synthesized"`.
 2. For every story in the catalog, check the row's `**FIS**` column:
    - If the column references an existing file under `artifact_locations.fis_dir`, **skip** the parallel sub-agent FIS generation for that story and populate its `story_specs[i].spec_path` with the existing path.
-   - If the column is null or points at a missing file, dispatch the parallel sub-agent pipeline (one sub-agent per story) to write the FIS to `<artifact_locations.fis_dir>/<story-name>.md` and populate `story_specs[i].spec_path` with the newly-written path.
+   - If the column is null or points at a missing file, dispatch the parallel sub-agent pipeline (one sub-agent per story) to write the FIS to `<artifact_locations.fis_dir>/<story-name>.md` and populate `story_specs[i].spec_path` with the newly-written path. When a stale FIS column points at a missing file and the new FIS lands at a different path, overwrite the column entry with the newly-written path so `plan.md` stays authoritative and resumable.
 3. Sub-agents spawned by this skill already follow the file-based contract (write files, return paths); confirm that behavior in the sub-agent prompts.
+
+If `context.docs_project_index.artifact_locations.plan` or `artifact_locations.fis_dir` is null, infer `docs/specs/<feature-name>/plan.md` and `docs/specs/<feature-name>/fis/` from `REQUIREMENTS`, log the inferred locations in the run trace, populate `artifact_locations.plan` / `artifact_locations.fis_dir` for downstream reads, then continue with the same file-based contract.
 
 #### `story_specs` Shape (Critical)
 
@@ -310,13 +312,13 @@ Output per finding: severity, stories affected, description, recommendation, FIS
 
 If CRITICAL or HIGH issues are found, fix inter-story inconsistencies directly: overlapping scope → clarify ownership; inconsistent ADRs → align on prevalent choice; missing seams → add outputs to producing story; naming → standardize; duplicates → consolidate into earliest story.
 
-**Broken scenario chains (#11)** — pick one: add the missing scenario to the FIS whose story naturally owns that leg; if no story owns it, add a new story (re-enter story breakdown for Phase/Wave/Dependencies/Risk, update the Story Catalog, re-run technical research if needed, then generate its FIS); if the gap is a missing PRD decision, treat as a contract failure — **Standalone**: pause for user input; **Workflow-Step Mode**: flag BLOCKED and return to the workflow engine. Do not invent the answer.
+**Broken scenario chains (#11)** — pick one: add the missing scenario to the FIS whose story naturally owns that leg; if no story owns it, add a new story (re-enter story breakdown for Phase/Wave/Dependencies/Risk, update the Story Catalog, re-run technical research if needed, then generate its FIS); if the gap is a missing PRD decision, treat as a contract failure — **Standalone**: pause for user input; **Workflow invocation**: flag BLOCKED and return to the workflow engine. Do not invent the answer.
 
 **Phantom-scope findings** (from sub-agent `PHANTOM_SCOPE` return summaries): sub-agents only saw plan-level sources, so first re-check each finding against `prd.md` — criteria that trace to a PRD outcome are **not** phantom scope (suppress). For confirmed phantom scope: remove the unsourced Success Criterion, or amend plan/PRD to justify it. Treat confirmed phantom scope as MEDIUM severity by default; upgrade to HIGH when it drives significant implementation work or introduces new dependencies.
 
 Re-read changed FIS files and re-walk affected PRD flows to confirm.
 
-**Standalone**: present report + proposed fixes, ask confirmation before applying. **Workflow-Step Mode**: apply fixes automatically, report back.
+**Standalone**: present report + proposed fixes, ask confirmation before applying. **Workflow invocation**: apply fixes automatically, report back.
 
 **Gate**: All CRITICAL/HIGH issues and confirmed phantom scope resolved, FIS files updated
 
@@ -334,7 +336,7 @@ Plan + Spec Complete — plan.md + 5 FIS files (8 stories): 1 thin (3), 2 compos
 Specced: 8/10 (2 skipped via --stories) | Review: 1 HIGH, 2 MEDIUM (fixed) | Ready for execution.
 ```
 
-**Workflow-Step Mode**: write `plan.md` (and `technical-research.md` + the per-story FIS files) to the workspace at the canonical paths, parse the resulting Story Catalog into `stories` + `story_specs`, and emit the paths + structured records via `contextOutputs` (see Workflow Output Contract below). Always write files; never emit artifact bodies inline.
+**Workflow invocation**: write `plan.md` (and `technical-research.md` + the per-story FIS files) to the workspace at the canonical paths, parse the resulting Story Catalog into `stories` + `story_specs`, and emit the paths + structured records via `contextOutputs` (see Workflow Output Contract below). Always write files; never emit artifact bodies inline.
 
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_

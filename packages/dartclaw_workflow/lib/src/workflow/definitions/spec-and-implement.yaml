@@ -1,8 +1,8 @@
 name: spec-and-implement
 description: >-
   Full feature pipeline — discover the project, write a specification,
-  review and remediate it, implement it with exec-spec, run integrated review,
-  and update state in authored order.
+  implement it with exec-spec, run integrated review, and update state in
+  authored order.
 variables:
   FEATURE:
     required: true
@@ -26,9 +26,6 @@ stepDefaults:
   - match: "spec"
     provider: "@planner"
     model: "@planner"
-  - match: "revise-spec"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -72,50 +69,18 @@ steps:
     skill: dartclaw-spec
     contextInputs: [project_index]
     prompt: |
-      <FEATURE>
-      {{FEATURE}}
-      </FEATURE>
-
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-    contextOutputs: [spec_document]
+      Generate or reuse the feature specification in the discovered project
+      context.
+    contextOutputs: [spec_path, spec_source]
     outputs:
-      spec_document:
+      spec_path:
+        format: path
+        description: Workspace-relative path to the generated FIS on disk.
+      spec_source:
         format: text
-        description: Full draft feature specification, including goals, constraints, design, and acceptance criteria.
+        description: "'existing' when the skill reused a spec, 'synthesized' when it wrote a new one."
 
-  # Review the draft spec and emit a revised spec plus structured findings for traceability.
-  - id: revise-spec
-    name: Revise Spec
-    type: analysis
-    skill: dartclaw-review-doc
-    continueSession: spec
-    prompt: |
-      Review the specification for clarity, completeness, correctness, and implementability.
-      Revise it to address any actionable findings you identify.
-      Preserve the existing intent when the review is already clean; only make minimal cleanup edits in that case.
-      Return the full revised specification and the spec review findings for traceability.
-
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <spec_document>
-      {{context.spec_document}}
-      </spec_document>
-    contextInputs: [project_index, spec_document]
-    contextOutputs: [spec_document, spec_review_findings]
-    outputs:
-      spec_document:
-        format: text
-        description: Full revised specification after the doc review pass.
-      spec_review_findings:
-        format: json
-        schema: verdict
-        description: Structured review findings produced while revising the specification.
-
-  # Implement the feature against the revised specification.
+  # Implement the feature against the on-disk specification.
   - id: implement
     name: Implement
     type: coding
@@ -123,14 +88,10 @@ steps:
     project: "{{PROJECT}}"
     review: always
     prompt: |
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <spec_document>
-      {{context.spec_document}}
-      </spec_document>
-    contextInputs: [project_index, spec_document]
+      Read the specification from disk at `{{context.spec_path}}` via
+      `file_read`. Do not rely on inline spec content in this prompt — the
+      authoritative FIS is the file.
+    contextInputs: [project_index, spec_path]
     contextOutputs: [diff_summary]
     outputs:
       diff_summary:
@@ -146,18 +107,9 @@ steps:
     review: never
     continueSession: implement
     prompt: |
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <spec_document>
-      {{context.spec_document}}
-      </spec_document>
-
-      <diff_summary>
-      {{context.diff_summary}}
-      </diff_summary>
-    contextInputs: [project_index, diff_summary, spec_document]
+      Read the specification from disk at `{{context.spec_path}}` via
+      `file_read` when you need the full acceptance criteria or task detail.
+    contextInputs: [project_index, diff_summary, spec_path]
     contextOutputs: [validation_summary]
     outputs:
       validation_summary:
@@ -170,22 +122,9 @@ steps:
     type: analysis
     skill: dartclaw-review-gap
     prompt: |
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <spec_document>
-      {{context.spec_document}}
-      </spec_document>
-
-      <validation_summary>
-      {{context.validation_summary}}
-      </validation_summary>
-
-      <diff_summary>
-      {{context.diff_summary}}
-      </diff_summary>
-    contextInputs: [project_index, spec_document, validation_summary, diff_summary]
+      Read the specification from disk at `{{context.spec_path}}` via
+      `file_read` when you need the full acceptance criteria or task detail.
+    contextInputs: [project_index, spec_path, validation_summary, diff_summary]
     contextOutputs: [review_findings, findings_count, integrated-review.findings_count]
     outputs:
       review_findings:
@@ -217,18 +156,10 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <review_findings>
-          {{context.review_findings}}
-          </review_findings>
-
-          <spec_document>
-          {{context.spec_document}}
-          </spec_document>
-        contextInputs: [project_index, spec_document, review_findings]
+          Read the specification from disk at `{{context.spec_path}}` via
+          `file_read` when you need the full acceptance criteria or task
+          detail.
+        contextInputs: [project_index, spec_path, review_findings]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
           remediation_summary:
@@ -247,22 +178,10 @@ steps:
         review: never
         continueSession: remediate
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <spec_document>
-          {{context.spec_document}}
-          </spec_document>
-
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
-        contextInputs: [project_index, spec_document, remediation_summary, diff_summary]
+          Read the specification from disk at `{{context.spec_path}}` via
+          `file_read` when you need the full acceptance criteria or task
+          detail.
+        contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
         outputs:
           validation_summary:
@@ -283,26 +202,10 @@ steps:
         type: analysis
         skill: dartclaw-quick-review
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <spec_document>
-          {{context.spec_document}}
-          </spec_document>
-
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
-
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
-        contextInputs: [project_index, spec_document, validation_summary, remediation_summary, diff_summary]
+          Read the specification from disk at `{{context.spec_path}}` via
+          `file_read` when you need the full acceptance criteria or task
+          detail.
+        contextInputs: [project_index, spec_path, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:
           review_findings:
@@ -324,19 +227,7 @@ steps:
     type: coding
     skill: dartclaw-update-state
     project: "{{PROJECT}}"
-    prompt: |
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <spec_document>
-      {{context.spec_document}}
-      </spec_document>
-
-      <diff_summary>
-      {{context.diff_summary}}
-      </diff_summary>
-    contextInputs: [project_index, spec_document, diff_summary]
+    contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [state_update_summary]
     outputs:
       state_update_summary:

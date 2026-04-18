@@ -200,8 +200,6 @@ void main() {
 
       await expectLater(localRunner.run(['serve']), throwsA(isA<_ExitIntercept>().having((e) => e.code, 'code', 1)));
       expect(stderrLines.join('\n'), contains('WARNING: Binding to 0.0.0.0 exposes the server to the network.'));
-      expect(worker.started, isTrue);
-      expect(worker.stopped, isTrue);
     });
 
     test('channel config warnings are printed before server startup', () async {

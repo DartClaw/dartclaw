@@ -129,17 +129,15 @@ steps:
   - id: spec
     name: Write Spec
     contextInputs: [project_index]
-    prompt: |
-      Use this project index:
-      {{context.project_index}}
-    contextOutputs: [spec_document]
+    prompt: Write the feature spec using the discovered project context.
+    contextOutputs: [spec_path, spec_source]
 ```
 
 Important details:
 
 - `contextInputs` is the dependency contract. It does not automatically inject values into a normal prompt. Use `{{context.key}}` in authored prompts when you want the value rendered explicitly.
 - Skill-only steps are the exception: when a step has `skill:` but no prompt, the engine builds a compact context summary from the declared `contextInputs`.
-- Repeating a key in a later step's `contextOutputs` is valid when that step intentionally replaces the canonical value. For example, a `revise-spec` step can output `spec_document` again so downstream steps see the revised document.
+- Repeating a key in a later step's `contextOutputs` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
 - Many built-ins also emit step-scoped aliases such as `verify-refine.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps.
 
 The runtime also writes metadata keys automatically:
@@ -364,7 +362,13 @@ Workflows can now own git promotion/publish semantics directly through `gitStrat
 ```yaml
 gitStrategy:
   bootstrap: true
-  worktree: per-map-item   # or shared
+  worktree:
+    mode: per-map-item     # or shared / per-task
+    # optional — two-repo profiles only
+    externalArtifactMount:
+      mode: per-story-copy
+      fromProject: "{{DOC_PROJECT}}"
+      source: "{{map.item.spec_path}}"
   promotion: merge
   publish:
     enabled: true
@@ -372,10 +376,6 @@ gitStrategy:
     commit: true                                    # default true if ≥1 artifact-producing step
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
     project: "{{PROJECT}}"
-  externalArtifactMount:                            # optional — two-repo profiles only
-    mode: per-story-copy
-    fromProject: "{{DOC_PROJECT}}"
-    source: "{{map.item.spec_path}}"
 ```
 
 Key runtime behavior:
@@ -409,7 +409,7 @@ Defaulting truth table:
 
 #### Cross-Clone FIS Visibility
 
-Split-repo profiles declare `gitStrategy.externalArtifactMount` to propagate artifacts from a planning repo (e.g. a private docs repo) into per-map-item worktrees of a code repo:
+Split-repo profiles declare `gitStrategy.worktree.externalArtifactMount` to propagate artifacts from a planning repo (e.g. a private docs repo) into per-map-item worktrees of a code repo:
 
 - `mode: per-story-copy` (default, least-privilege): each worktree receives only the single FIS file its story owns, copied at the same relative path used in `fromProject`. `file_read({{map.item.spec_path}})` resolves identically in both workspaces.
 - `mode: bind-mount` (opt-in, requires README justification): bind-mounts the whole FIS directory read-only — every worktree can read every sibling's FIS. Useful for cross-story references but broadens the sandbox.
@@ -537,13 +537,13 @@ Loops use `exitGate` to decide when to stop and `finally` to run a closing step 
 Any step — not just loop bodies — can declare an `entryGate`. When the expression evaluates false the executor **skips** the step (fires a `StepSkippedEvent`, advances the cursor) and continues without pausing the run. This is distinct from `gate:` which pauses the run on false, awaiting operator review.
 
 ```yaml
-- id: review-prd
-  skill: dartclaw-review-doc
-  entryGate: "prd_source == synthesized"   # skip when upstream reused an existing PRD
+- id: plan-review
+  skill: dartclaw-review-gap
+  entryGate: "plan_source == synthesized"   # skip when upstream reused an existing plan
   ...
 ```
 
-Gate syntax accepts both bare-key (`prd_source == synthesized`) and dotted-output (`review-prd.findings_count > 0`) references, chained with `&&`. Null-literal comparisons are supported: missing keys and empty values are considered null, so `active_prd != null` evaluates true only when an actual path string is present.
+Gate syntax accepts both bare-key (`prd_source == synthesized`) and dotted-output (`plan-review.findings_count > 0`) references, chained with `&&`. Null-literal comparisons are supported: missing keys and empty values are considered null, so `active_prd != null` evaluates true only when an actual path string is present.
 
 Typical uses: reuse-existing branches (skip a review step when the upstream artifact was reused), conditional remediation (only run when findings > 0), and feature-flagged steps.
 
@@ -563,12 +563,12 @@ The first match wins. Explicit per-step values still override defaults.
 
 ### Inspecting Resolved Workflows
 
-`dartclaw workflow show <name>` prints the raw authored YAML (JSON envelope). Add `--resolved` to emit the fully merged form — `stepDefaults` already applied to each step, skill `default_prompt` / `default_outputs` injected where the step omitted them, and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
+`dartclaw workflow show <name>` prints the raw authored YAML. Add `--resolved` to emit the fully merged form — `stepDefaults` already applied to each step, skill `default_prompt` / `default_outputs` injected where the step omitted them, and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
 
 ```bash
 dartclaw workflow show plan-and-implement --resolved
-dartclaw workflow show plan-and-implement --resolved --step review-prd
-dartclaw workflow show plan-and-implement --resolved --json        # JSON envelope for scripting
+dartclaw workflow show plan-and-implement --resolved --step plan-review
+dartclaw workflow show plan-and-implement --resolved --json        # JSON wrapper for scripting
 dartclaw workflow show plan-and-implement --standalone              # bypass the server
 ```
 
@@ -580,7 +580,7 @@ Use this whenever a step behaves differently than the authored YAML suggests: th
 
 ### `spec-and-implement` — Feature Pipeline
 
-Pipeline that starts with `discover-project`, writes a spec with `dartclaw-spec`, reviews that spec with `dartclaw-review-doc`, implements via `dartclaw-exec-spec`, validates via the `verify-refine` step using `dartclaw-verify-refine`, runs an integrated `dartclaw-review-code`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
+Pipeline that starts with `discover-project`, writes or reuses a spec with `dartclaw-spec`, implements via `dartclaw-exec-spec`, validates via the `verify-refine` step using `dartclaw-verify-refine`, runs an integrated `dartclaw-review-code`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
@@ -589,11 +589,11 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a PRD review (`review-prd` via `dartclaw-review-doc`), and a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings. Step sequence: `discover-project -> prd -> review-prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
+Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
-- **PRD-scoped pre-planning review**: `review-prd` runs in a fresh session so it reads the PRD as an independent critic, minimally revises the document to address findings, and emits a revised `prd`; it does not reshape downstream planning outputs.
+- **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` and `{{context.verify-refine.validation_summary}}` within the same story iteration.
@@ -606,7 +606,7 @@ Role usage:
 - `@workflow`: `discover-project`
 - `@planner`: `prd`, `plan`
 - `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
-- `@reviewer`: `review-prd`, `quick-review`, `plan-review`, `re-review`
+- `@reviewer`: `quick-review`, `plan-review`, `re-review`
 
 ### `spec-and-implement` — Single-Feature Pipeline
 
@@ -616,7 +616,7 @@ Role usage:
 - `@workflow`: `discover-project`
 - `@planner`: `spec`
 - `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
-- `@reviewer`: `review-spec`, `integrated-review`, `re-review`
+- `@reviewer`: `integrated-review`, `re-review`
 
 ### `code-review` — Review And Remediate Loop
 

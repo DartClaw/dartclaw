@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0
+
+- **Changed (breaking)**: shipped `plan-and-implement.yaml` and its mirror profiles now use a single-step PRD contract. The `review-prd` step is removed; `plan` has no custom prompt and consumes only `project_index` + `prd`. `prd_source` remains as observability metadata.
+- **Changed (breaking)**: shipped `spec-and-implement.yaml` and its mirror profiles now use a single-step spec contract. The `review-spec` / `revise-spec` step is removed; `spec` emits `spec_path` + `spec_source`; `implement` and downstream validation/review steps read the FIS from disk via `file_read({{context.spec_path}})`.
+- **Changed (breaking)**: `dartclaw-prd`, `dartclaw-plan`, and `dartclaw-spec` now document a single-mode contract only. They always write artifacts to disk and emit paths; the old dual-mode / inline-emission wording is gone. `dartclaw-prd` and `dartclaw-plan` now document greenfield fallback when `artifact_locations.*` is null, and `dartclaw-plan` explicitly overwrites stale Story Catalog FIS paths with the newly written path.
+- **Changed**: `dartclaw workflow show <name>` now prints authored YAML in both connected and standalone modes. Raw mode starts with `name:` instead of returning a JSON detail envelope; `--resolved` still emits merged YAML and now preserves step `entryGate`.
+- **Changed**: workflow auto-framing now includes workflow variables when they have a bound or default value, so prompts without an explicit `{{VAR}}` reference still receive `<VAR>...</VAR>` blocks.
+- **Changed**: `gitStrategy.externalArtifactMount` is now modeled and authored at `gitStrategy.worktree.externalArtifactMount`. Flat-level declarations produce a migration error pointing at the nested path. The `workflows-dartclaw` profile YAML and docs were updated accordingly.
+- **Changed**: `WorkflowDefinitionValidator` now emits a non-fatal ordering note when multiple `stepDefaults` patterns match the same step, and `WorktreeManager.applyExternalArtifactMount()` logs a warning before overwriting a pre-existing target file with different content.
+
 ## 0.12.0
 
 - **Changed (breaking)**: dual-mode skill contract collapsed to single-mode file-based. `dartclaw-prd`, `dartclaw-plan`, and `dartclaw-spec` always write artifacts to disk at the canonical `artifact_locations.*` paths and always emit paths via `contextOutputs` — the inline-emission branches are removed from each SKILL.md. Workflow steps downstream read the files via `file_read`. `dartclaw-prd` / `dartclaw-plan` additionally gain a read-existing detection branch: when `context.project_index.active_prd` / `active_plan` references an existing file, they reuse it and emit `prd_source` / `plan_source` as `"existing"` instead of re-synthesizing.

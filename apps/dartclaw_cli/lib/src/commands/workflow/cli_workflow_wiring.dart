@@ -90,6 +90,7 @@ class CliWorkflowWiring {
   late final SkillRegistryImpl skillRegistry;
   late final WorkflowRegistry registry;
   late final WorkflowService workflowService;
+  late final WorkflowCliRunner workflowCliRunner;
   late final BehaviorFileService behavior;
 
   late final CredentialRegistry _credentialRegistry;
@@ -220,7 +221,7 @@ class CliWorkflowWiring {
       workspaceDir: config.workspaceDir,
       diffGenerator: DiffGenerator(projectDir: Directory.current.path),
     );
-    final workflowCliRunner = WorkflowCliRunner(
+    workflowCliRunner = WorkflowCliRunner(
       providers: {
         for (final providerId in <String>{config.agent.provider, ...config.providers.entries.keys})
           providerId: WorkflowCliProviderConfig(
@@ -458,9 +459,25 @@ class CliWorkflowWiring {
   Future<void> ensureTaskRunnersForProviders(Set<String> providerIds) async {
     for (final providerId in providerIds) {
       if (pool.hasTaskRunnerForProvider(providerId)) {
+        workflowCliRunner.providers.putIfAbsent(
+          providerId,
+          () => WorkflowCliProviderConfig(
+            executable: _resolveProviderExecutable(config, providerId),
+            environment: _providerEnvironment(providerId, _credentialRegistry),
+            options: _providerOptions(config, providerId),
+          ),
+        );
         continue;
       }
       pool.addRunner(await _buildTaskRunner(providerId));
+      workflowCliRunner.providers.putIfAbsent(
+        providerId,
+        () => WorkflowCliProviderConfig(
+          executable: _resolveProviderExecutable(config, providerId),
+          environment: _providerEnvironment(providerId, _credentialRegistry),
+          options: _providerOptions(config, providerId),
+        ),
+      );
     }
   }
 

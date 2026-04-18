@@ -6,7 +6,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SkillRegistryImpl, WorkflowDefinition, WorkflowDefinitionResolver;
+    show SkillRegistryImpl, WorkflowDefinitionParser, WorkflowDefinitionResolver;
 import 'package:path/path.dart' as p;
 
 import '../workflow_skill_materializer.dart' show WorkflowSkillMaterializer;
@@ -15,6 +15,7 @@ import '../../dartclaw_api_client.dart';
 import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
+import '../workflow_materializer.dart' show WorkflowMaterializer;
 
 /// Prints a workflow definition. Raw by default; `--resolved` merges
 /// `stepDefaults`, skill defaults (`default_prompt`, `default_outputs`), and
@@ -28,6 +29,7 @@ class WorkflowShowCommand extends Command<void> {
   final DartclawConfig? _config;
   final AssetResolver _assetResolver;
   final DartclawApiClient? _apiClient;
+  final void Function(String) _write;
   final WriteLine _writeLine;
   final ExitFn _exitFn;
 
@@ -35,11 +37,13 @@ class WorkflowShowCommand extends Command<void> {
     DartclawConfig? config,
     AssetResolver? assetResolver,
     DartclawApiClient? apiClient,
+    void Function(String)? write,
     WriteLine? writeLine,
     ExitFn? exitFn,
   }) : _config = config,
        _assetResolver = assetResolver ?? AssetResolver(),
        _apiClient = apiClient,
+       _write = write ?? stdout.write,
        _writeLine = writeLine ?? stdout.writeln,
        _exitFn = exitFn ?? exit {
     argParser
@@ -80,9 +84,8 @@ class WorkflowShowCommand extends Command<void> {
     final apiClient = _resolveApiClient();
     try {
       if (!resolved) {
-        // Raw form is served as JSON — mirror the existing definition route's shape.
-        final detail = await apiClient.getObject('/api/workflows/definitions/$workflowName');
-        _writeLine(const JsonEncoder.withIndent('  ').convert(detail));
+        final body = await apiClient.getText('/api/workflows/definitions/$workflowName');
+        _emit(body, asJson: asJson);
         return;
       }
 
@@ -110,15 +113,27 @@ class WorkflowShowCommand extends Command<void> {
   }) async {
     final config = _config ?? loadCliConfig(configPath: _globalOptionString(globalResults, 'config'));
     final registry = await buildWorkflowRegistry(config, assetResolver: _assetResolver);
-    final definition = registry.getByName(name);
+    var definition = registry.getByName(name);
+    var authoredYaml = registry.authoredYaml(name);
+
+    if (definition == null || authoredYaml == null) {
+      final sourceDir = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir(assetResolver: _assetResolver);
+      if (sourceDir != null) {
+        final file = File(p.join(sourceDir, '$name.yaml'));
+        if (file.existsSync()) {
+          authoredYaml = file.readAsStringSync();
+          definition ??= WorkflowDefinitionParser().parse(authoredYaml, sourcePath: file.path);
+        }
+      }
+    }
+
     if (definition == null) {
       _writeLine('Workflow not found: $name');
       _exitFn(1);
     }
 
     if (!resolved) {
-      final body = const JsonEncoder.withIndent('  ').convert(_rawDefinitionJson(definition));
-      _emit(body, asJson: asJson, rawIsJson: true);
+      _emit(authoredYaml ?? WorkflowDefinitionResolver().emitYaml(definition), asJson: asJson);
       return;
     }
 
@@ -148,31 +163,12 @@ class WorkflowShowCommand extends Command<void> {
     _emit(resolver.emitYaml(resolvedDef), asJson: asJson);
   }
 
-  Map<String, dynamic> _rawDefinitionJson(WorkflowDefinition def) {
-    // Matches the shape returned by the server's raw definitions route so the
-    // standalone fallback output is interchangeable with the connected path.
-    return {
-      'name': def.name,
-      'description': def.description,
-      'stepCount': def.steps.length,
-      'variables': {
-        for (final entry in def.variables.entries)
-          entry.key: {
-            'required': entry.value.required,
-            if (entry.value.description.isNotEmpty) 'description': entry.value.description,
-            if (entry.value.defaultValue != null) 'default': entry.value.defaultValue,
-          },
-      },
-      'steps': def.steps.map((s) => s.toJson()).toList(),
-    };
-  }
-
-  void _emit(String body, {required bool asJson, bool rawIsJson = false}) {
-    if (asJson && !rawIsJson) {
-      _writeLine(const JsonEncoder.withIndent('  ').convert({'yaml': body}));
+  void _emit(String body, {required bool asJson}) {
+    if (asJson) {
+      _writeLine('{"yaml":${jsonEncode(body)}}');
     } else {
-      stdout.write(body);
-      if (!body.endsWith('\n')) stdout.writeln();
+      _write(body);
+      if (!body.endsWith('\n')) _write('\n');
     }
   }
 

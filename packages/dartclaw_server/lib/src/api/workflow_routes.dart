@@ -183,7 +183,11 @@ Router workflowRoutes(
       final params = request.url.queryParameters;
       final shouldResolve = params['resolve'] == 'true';
       if (!shouldResolve) {
-        return jsonResponse(200, _definitionDetail(def));
+        final authored = definitions.authoredYaml(name) ?? resolver.emitYaml(def);
+        return Response.ok(
+          authored,
+          headers: {'content-type': 'application/yaml; charset=utf-8'},
+        );
       }
 
       final resolved = resolver.resolve(def);
@@ -467,12 +471,6 @@ Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {
   },
   'hasLoops': s.hasLoops,
   'maxTokens': s.maxTokens,
-};
-
-Map<String, dynamic> _definitionDetail(WorkflowDefinition def) => {
-  ...def.toJson(),
-  'stepCount': def.steps.length,
-  'hasLoops': def.loops.isNotEmpty,
 };
 
 /// Per-run SSE handler — streams workflow lifecycle and child task status events.

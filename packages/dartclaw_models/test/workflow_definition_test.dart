@@ -408,7 +408,7 @@ void main() {
         ],
         gitStrategy: WorkflowGitStrategy(
           bootstrap: true,
-          worktree: 'shared',
+          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: true),
         ),
@@ -418,7 +418,7 @@ void main() {
       final restored = WorkflowDefinition.fromJson(json);
       expect(restored.gitStrategy, isNotNull);
       expect(restored.gitStrategy!.bootstrap, isTrue);
-      expect(restored.gitStrategy!.worktree, 'shared');
+      expect(restored.gitStrategy!.worktreeMode, 'shared');
       expect(restored.gitStrategy!.promotion, 'merge');
       expect(restored.gitStrategy!.publish?.enabled, isTrue);
     });

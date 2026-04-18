@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/src/task/worktree_manager.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -563,6 +564,29 @@ void main() {
         ),
         throwsA(isA<WorktreeException>()),
       );
+    });
+
+    test('warns and overwrites when target already exists with different content', () async {
+      final records = <LogRecord>[];
+      final sub = Logger('WorktreeManager').onRecord.listen(records.add);
+      final wm = WorktreeManager(dataDir: tmpDir.path);
+      final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
+      final existingTarget = File(p.join(worktreeDir, 'docs/specs/0.16.5/fis/s13-helpers.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('decoy');
+
+      final target = await wm.applyExternalArtifactMount(
+        worktree: wt,
+        fromProjectDir: fromProjectDir,
+        relativeSourcePath: 'docs/specs/0.16.5/fis/s13-helpers.md',
+      );
+
+      await sub.cancel();
+
+      expect(target, existingTarget.path);
+      expect(existingTarget.readAsStringSync(), equals('# S13 FIS'));
+      expect(records.any((record) => record.level == Level.WARNING), isTrue);
+      expect(records.any((record) => record.message.contains('different content')), isTrue);
     });
   });
 }

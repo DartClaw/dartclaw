@@ -15,6 +15,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitBootstrapResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
+        WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowRunStatus,
@@ -110,7 +111,7 @@ void main() {
         description: 'Workflow-owned map tasks should unblock from review.',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
-          worktree: 'per-map-item',
+          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: false),
         ),
@@ -434,7 +435,7 @@ void main() {
         description: 'Unknown dependency validation',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
-          worktree: 'per-map-item',
+          worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: false),
         ),

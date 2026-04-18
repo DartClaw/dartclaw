@@ -175,12 +175,37 @@ class WorkflowExecutor {
     return {...defaults, ...explicit};
   }
 
-  /// Resolved values for a step's contextInputs keyed by input key.
-  /// Missing context entries render as `''` so the auto-frame pass can drop
-  /// an `_(empty)_` placeholder per the shared convention.
-  Map<String, Object?> _resolvedInputValuesFor(WorkflowStep step, WorkflowContext context) {
-    if (step.contextInputs.isEmpty) return const {};
-    return {for (final key in step.contextInputs) key: context[key] ?? ''};
+  /// Resolved values for a step's contextInputs plus workflow variables used
+  /// by auto-framing.
+  ///
+  /// Context inputs render missing entries as `''` so the auto-frame pass can
+  /// drop an `_(empty)_` placeholder per the shared convention. Workflow
+  /// variables only participate when they have a bound or default value —
+  /// null-valued variables are intentionally omitted so they do not render as
+  /// `_(empty)_`.
+  Map<String, Object?> _resolvedInputValuesFor(
+    WorkflowStep step,
+    WorkflowDefinition definition,
+    WorkflowContext context,
+  ) {
+    final values = <String, Object?>{
+      for (final key in step.contextInputs) key: context[key] ?? '',
+    };
+    for (final entry in definition.variables.entries) {
+      if (values.containsKey(entry.key)) continue;
+      final resolved = context.variable(entry.key) ?? entry.value.defaultValue;
+      if (resolved != null) values[entry.key] = resolved;
+    }
+    return values;
+  }
+
+  List<String> _autoFrameVariableNames(WorkflowDefinition definition, WorkflowContext context) {
+    final names = <String>[];
+    for (final entry in definition.variables.entries) {
+      final resolved = context.variable(entry.key) ?? entry.value.defaultValue;
+      if (resolved != null) names.add(entry.key);
+    }
+    return names;
   }
 
   /// Fallback git identity for auto-commit in environments without a
@@ -1614,8 +1639,8 @@ class WorkflowExecutor {
           }, outputConfigs: _inputConfigsFor(definition, step.contextInputs))
         : null;
     final skillDefaultPrompt = _skillDefaultPromptFor(step);
-    final resolvedInputValues = _resolvedInputValuesFor(step, context);
-    final variableNames = definition.variables.keys.toList(growable: false);
+    final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
+    final variableNames = _autoFrameVariableNames(definition, context);
     var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
@@ -2214,7 +2239,7 @@ class WorkflowExecutor {
     if (strategy != null) {
       config['_workflowGit'] = {
         'runId': run.id,
-        'worktree': strategy.worktree,
+        'worktree': strategy.worktreeMode,
         'bootstrap': strategy.bootstrap,
         'promotion': strategy.promotion,
       };
@@ -2658,7 +2683,7 @@ class WorkflowExecutor {
     final depGraph = DependencyGraph(collection);
     final strategy = definition.gitStrategy;
     final promotionAware =
-        strategy?.worktree == 'per-map-item' &&
+        strategy?.worktreeMode == 'per-map-item' &&
         strategy?.promotion != null &&
         strategy!.promotion != 'none' &&
         step.type == 'coding';
@@ -2763,8 +2788,8 @@ class WorkflowExecutor {
             : null;
         final effectiveOutputs = _effectiveOutputsFor(step);
         final skillDefaultPrompt = _skillDefaultPromptFor(step);
-        final resolvedInputValues = _resolvedInputValuesFor(step, context);
-        final variableNames = definition.variables.keys.toList(growable: false);
+        final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
+        final variableNames = _autoFrameVariableNames(definition, context);
         final iterPrompt = _skillPromptBuilder.build(
           skill: step.skill,
           resolvedPrompt: resolvedPrompt,
@@ -3080,7 +3105,7 @@ class WorkflowExecutor {
     // 6. gitStrategy context.
     final strategy = definition.gitStrategy;
     final promotionAware =
-        strategy?.worktree == 'per-map-item' &&
+        strategy?.worktreeMode == 'per-map-item' &&
         strategy?.promotion != null &&
         strategy!.promotion != 'none' &&
         childSteps.any((s) => s.type == 'coding');
@@ -3996,7 +4021,7 @@ class WorkflowExecutor {
         runId: run.id,
         projectId: projectId,
         baseRef: baseRef,
-        perMapItem: strategy.worktree == 'per-map-item',
+        perMapItem: strategy.worktreeMode == 'per-map-item',
       );
       context['_workflow.git.integration_branch'] = result.integrationBranch;
       if (result.note != null && result.note!.isNotEmpty) {

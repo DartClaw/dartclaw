@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -21,16 +21,6 @@ HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   final factory = HarnessFactory();
   factory.register('claude', (_) => builder());
   return factory;
-}
-
-Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Duration(seconds: 5)}) async {
-  final deadline = DateTime.now().add(timeout);
-  while (!predicate()) {
-    if (DateTime.now().isAfter(deadline)) {
-      throw TimeoutException('Condition not met within $timeout');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-  }
 }
 
 void main() {
@@ -88,7 +78,7 @@ steps:
       expect(output.last, contains('"newStatus":"completed"'));
     });
 
-    test('standalone run provisions explicit provider task runners before starting the workflow', () async {
+    test('standalone run provisions explicit provider runners and CLI configs before starting the workflow', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
@@ -119,28 +109,24 @@ steps:
           createdHarnesses.putIfAbsent('codex', () => <FakeAgentHarness>[]).add(harness);
           return harness;
         });
-      final output = <String>[];
-      final command = WorkflowRunCommand(
+      final wiring = CliWorkflowWiring(
         config: config,
+        dataDir: config.server.dataDir,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
-        stdoutLine: output.add,
-        stderrLine: output.add,
-        exitFn: _fakeExit,
       );
-      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+      await wiring.wire();
+      addTearDown(wiring.dispose);
 
-      final future = runner.run(['run', 'agent-demo', '--standalone', '--json']);
-      await _waitFor(() => (createdHarnesses['claude']?.any((harness) => harness.turnCallCount > 0) ?? false));
-      final activeHarness = createdHarnesses['claude']!.firstWhere((harness) => harness.turnCallCount > 0);
-      activeHarness.completeSuccess({'stop_reason': 'completed', 'input_tokens': 3, 'output_tokens': 5});
+      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isFalse);
+      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isFalse);
 
-      await expectLater(() => future, throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 0)));
+      await wiring.ensureTaskRunnersForProviders({'claude'});
 
-      expect(output.any((line) => line.contains('"type":"task_status_changed"')), isTrue);
-      expect(output.any((line) => line.contains('"type":"workflow_step_completed"')), isTrue);
-      expect(createdHarnesses['codex']!.every((harness) => harness.turnCallCount == 0), isTrue);
+      expect(wiring.pool.hasTaskRunnerForProvider('claude'), isTrue);
+      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
+      expect(createdHarnesses['claude'], isNotEmpty);
     });
   });
 }

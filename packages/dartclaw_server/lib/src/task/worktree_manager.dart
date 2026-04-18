@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show Project;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -328,6 +329,17 @@ class WorktreeManager {
     }
     final targetFile = File(p.join(worktree.path, normalized));
     await targetFile.parent.create(recursive: true);
+    if (targetFile.existsSync()) {
+      final existingHash = sha256.convert(targetFile.readAsBytesSync()).toString();
+      final sourceHash = sha256.convert(sourceFile.readAsBytesSync()).toString();
+      if (existingHash != sourceHash) {
+        _log.warning(
+          'externalArtifactMount target already exists with different content: '
+          '${targetFile.path} (existing ${existingHash.substring(0, 8)}, '
+          'incoming ${sourceHash.substring(0, 8)}). Overwriting.',
+        );
+      }
+    }
     await sourceFile.copy(targetFile.path);
     _log.info(
       'externalArtifactMount: copied $normalized from $fromProjectDir into worktree ${worktree.path}',

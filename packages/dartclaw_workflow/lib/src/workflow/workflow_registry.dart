@@ -4,6 +4,7 @@ import 'package:dartclaw_models/dartclaw_models.dart' show WorkflowDefinition;
 import 'package:logging/logging.dart';
 
 import 'workflow_definition_source.dart';
+import 'workflow_definition_resolver.dart';
 import 'workflow_definition_parser.dart';
 import 'skill_registry.dart';
 import 'workflow_definition_validator.dart' show ValidationReport, WorkflowDefinitionValidator;
@@ -38,6 +39,8 @@ class _RegisteredWorkflow {
 /// workflows with the same name as a materialized workflow are logged and
 /// skipped.
 class WorkflowRegistry implements WorkflowDefinitionSource {
+  static const _resolver = WorkflowDefinitionResolver();
+
   final WorkflowDefinitionParser _parser;
   final WorkflowDefinitionValidator _validator;
   final Set<String>? _continuityProviders;
@@ -139,6 +142,18 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
 
   @override
   WorkflowDefinition? getByName(String name) => _definitions[name]?.definition;
+
+  @override
+  String? authoredYaml(String name) {
+    final registered = _definitions[name];
+    if (registered == null) return null;
+    final sourcePath = registered.sourcePath;
+    if (sourcePath != null) {
+      final file = File(sourcePath);
+      if (file.existsSync()) return file.readAsStringSync();
+    }
+    return _resolver.emitYaml(registered.definition);
+  }
 
   @override
   List<WorkflowSummary> listSummaries() =>

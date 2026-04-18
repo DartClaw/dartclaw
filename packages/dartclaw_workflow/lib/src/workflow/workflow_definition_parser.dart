@@ -500,44 +500,83 @@ class WorkflowDefinitionParser {
       );
     }
 
-    final mountRaw = raw['externalArtifactMount'] ?? raw['external_artifact_mount'];
-    WorkflowGitExternalArtifactMount? externalArtifactMount;
-    if (mountRaw != null) {
-      if (mountRaw is! YamlMap) {
-        throw FormatException(
-          'Field "gitStrategy.externalArtifactMount" must be a mapping${_at(sourcePath)}.',
+    final worktreeRaw = raw['worktree'];
+    WorkflowGitWorktreeStrategy? worktree;
+    WorkflowGitExternalArtifactMount? nestedMount;
+    if (worktreeRaw != null) {
+      if (worktreeRaw is String) {
+        worktree = WorkflowGitWorktreeStrategy(mode: worktreeRaw);
+      } else if (worktreeRaw is YamlMap) {
+        nestedMount = _parseExternalArtifactMount(
+          worktreeRaw['externalArtifactMount'] ?? worktreeRaw['external_artifact_mount'],
+          sourcePath,
+          'gitStrategy.worktree.externalArtifactMount',
         );
-      }
-      final fromProject = mountRaw['fromProject'] ?? mountRaw['from_project'];
-      if (fromProject is! String || fromProject.trim().isEmpty) {
-        throw FormatException(
-          'Field "gitStrategy.externalArtifactMount.fromProject" is required${_at(sourcePath)}.',
+        worktree = WorkflowGitWorktreeStrategy(
+          mode: worktreeRaw['mode'] as String?,
+          externalArtifactMount: nestedMount,
         );
+      } else {
+        throw FormatException('Field "gitStrategy.worktree" must be a string or mapping${_at(sourcePath)}.');
       }
-      final mode = (mountRaw['mode'] as String?) ?? 'per-story-copy';
-      if (mode != 'per-story-copy' && mode != 'bind-mount') {
-        throw FormatException(
-          'Field "gitStrategy.externalArtifactMount.mode" must be "per-story-copy" or '
-          '"bind-mount" (got "$mode")${_at(sourcePath)}.',
-        );
-      }
-      externalArtifactMount = WorkflowGitExternalArtifactMount(
-        mode: mode,
-        fromProject: fromProject,
-        source: mountRaw['source'] as String?,
-        fromPath: (mountRaw['fromPath'] ?? mountRaw['from_path']) as String?,
-        toPath: (mountRaw['toPath'] ?? mountRaw['to_path']) as String?,
-        readonly: mountRaw['readonly'] as bool?,
+    }
+
+    final flatMountRaw = raw['externalArtifactMount'] ?? raw['external_artifact_mount'];
+    if (flatMountRaw != null && nestedMount != null) {
+      throw FormatException(
+        'Field "gitStrategy.externalArtifactMount" was moved to '
+        '"gitStrategy.worktree.externalArtifactMount"; remove the deprecated '
+        'flat-level declaration${_at(sourcePath)}.',
       );
+    }
+    final flatMount = _parseExternalArtifactMount(
+      flatMountRaw,
+      sourcePath,
+      'gitStrategy.externalArtifactMount',
+    );
+    final legacyExternalArtifactMountLocation = flatMount != null;
+    worktree ??= WorkflowGitWorktreeStrategy();
+    if (flatMount != null) {
+      worktree = WorkflowGitWorktreeStrategy(mode: worktree.mode, externalArtifactMount: flatMount);
     }
 
     return WorkflowGitStrategy(
       bootstrap: raw['bootstrap'] as bool?,
-      worktree: raw['worktree'] as String?,
+      worktree: worktree,
       promotion: raw['promotion'] as String?,
       publish: publish,
       artifacts: artifacts,
-      externalArtifactMount: externalArtifactMount,
+      legacyExternalArtifactMountLocation: legacyExternalArtifactMountLocation,
+    );
+  }
+
+  WorkflowGitExternalArtifactMount? _parseExternalArtifactMount(
+    Object? raw,
+    String? sourcePath,
+    String fieldPath,
+  ) {
+    if (raw == null) return null;
+    if (raw is! YamlMap) {
+      throw FormatException('Field "$fieldPath" must be a mapping${_at(sourcePath)}.');
+    }
+    final fromProject = raw['fromProject'] ?? raw['from_project'];
+    if (fromProject is! String || fromProject.trim().isEmpty) {
+      throw FormatException('Field "$fieldPath.fromProject" is required${_at(sourcePath)}.');
+    }
+    final mode = (raw['mode'] as String?) ?? 'per-story-copy';
+    if (mode != 'per-story-copy' && mode != 'bind-mount') {
+      throw FormatException(
+        'Field "$fieldPath.mode" must be "per-story-copy" or '
+        '"bind-mount" (got "$mode")${_at(sourcePath)}.',
+      );
+    }
+    return WorkflowGitExternalArtifactMount(
+      mode: mode,
+      fromProject: fromProject,
+      source: raw['source'] as String?,
+      fromPath: (raw['fromPath'] ?? raw['from_path']) as String?,
+      toPath: (raw['toPath'] ?? raw['to_path']) as String?,
+      readonly: raw['readonly'] as bool?,
     );
   }
 

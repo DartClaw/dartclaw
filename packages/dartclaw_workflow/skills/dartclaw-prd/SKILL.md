@@ -64,23 +64,25 @@ The output location depends on the shape of `INPUT`:
 
 ### Single-Mode File-Based Contract (Critical)
 
-Whether invoked standalone or as a workflow step, this skill **always writes `prd.md` to disk** at the canonical location and **always emits the file path** via `contextOutputs` (when running as a workflow step). Never emit the PRD body inline. Workflow steps downstream read the file via `file_read`.
+This skill **always writes `prd.md` to disk** at the canonical location and, when invoked by a workflow, **always emits the file path** via `contextOutputs`. Never emit the PRD body inline. Downstream workflow steps read the file via `file_read`.
 
 - **Standalone** (direct CLI / `/dartclaw-prd <args>`): write `prd.md` to disk per the output-path semantics above; print the final path.
-- **Workflow-Step Mode** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write `prd.md` to `context.docs_project_index.artifact_locations.prd`, then emit that path via `contextOutputs.prd` and emit `prd_source ∈ {existing, synthesized}` via `contextOutputs.prd_source`.
+- **Workflow invocation** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write `prd.md` to the canonical project-index location, then emit that path via `contextOutputs.prd` and emit `prd_source ∈ {existing, synthesized}` via `contextOutputs.prd_source`.
 
 #### Read-Existing Detection
 
-Before synthesis, when running as a workflow step, inspect `context.docs_project_index.active_prd`:
+Before synthesis during a workflow invocation, inspect `context.docs_project_index.active_prd`:
 
 - If `active_prd` is non-null **and the file exists**: skip synthesis entirely. Emit `prd: <active_prd path>` and `prd_source: "existing"`. Do not rewrite the file.
-- Otherwise: synthesize into `context.docs_project_index.artifact_locations.prd`, emit that path, and emit `prd_source: "synthesized"`.
+- Otherwise:
+  - If `context.docs_project_index.artifact_locations.prd` is non-null, synthesize there and emit `prd_source: "synthesized"`.
+  - If `artifact_locations.prd` is null, infer `docs/specs/<feature-name>/prd.md` from `REQUIREMENTS`, log the inferred location in the run trace, populate `artifact_locations.prd` for downstream reads, then synthesize there and emit `prd_source: "synthesized"`.
 
 
 ## GOTCHAS
 - Drifting into planning or story breakdown — that's the `dartclaw-plan` skill's altitude; this skill stops at the PRD boundary.
 - Skipping prior artifacts and re-doing discovery when `requirements-clarification.md` or `prd-draft.md` exist — wastes effort and risks contradicting completed decisions.
-- Emitting the PRD body inline via `contextOutputs` — removed in 0.16.4. Workflow-Step Mode is file-based only: write the file, emit the path.
+- Emitting the PRD body inline via `contextOutputs` — removed in 0.16.4. Workflow invocation is file-based only: write the file, emit the path.
 - Re-synthesizing when `active_prd` already exists — skip synthesis and emit the existing path with `prd_source: "existing"`.
 - Pausing for interactive clarification on routine gaps — document assumptions in the PRD instead.
 
@@ -140,7 +142,7 @@ Self-check:
 
 **Standalone**: write `prd.md` to `OUTPUT_DIR` per the Output-Path Semantics table. Print the relative path from project root.
 
-**Workflow-Step Mode**: if `active_prd` is non-null and exists on disk, emit `prd: <active_prd path>` + `prd_source: "existing"` and stop. Otherwise write `prd.md` to `context.docs_project_index.artifact_locations.prd` and emit `prd: <that path>` + `prd_source: "synthesized"`.
+**Workflow invocation**: if `active_prd` is non-null and exists on disk, emit `prd: <active_prd path>` + `prd_source: "existing"` and stop. Otherwise write `prd.md` to the canonical project-index path (using the inferred fallback path when `artifact_locations.prd` is null) and emit `prd: <that path>` + `prd_source: "synthesized"`.
 
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_

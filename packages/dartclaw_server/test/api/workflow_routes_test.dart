@@ -649,67 +649,29 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
 
   group('GET /api/workflows/definitions/<name>', () {
-    test('returns full definition for known name', () async {
+    test('returns authored YAML for known name', () async {
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
       );
 
       expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      expect(body['name'], 'spec-and-implement');
-      expect(body['description'], isNotEmpty);
-      expect(body['stepCount'], 3);
-      expect(body['hasLoops'], false);
+      expect(response.headers['content-type'], contains('application/yaml'));
+      final body = await response.readAsString();
+      expect(body, startsWith('name: spec-and-implement'));
+      expect(body, contains('description:'));
+      expect(body, contains('steps:'));
     });
 
-    test('detail includes steps array with id, name, type', () async {
+    test('authored YAML includes variables and step prompts', () async {
       final response = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
       );
 
       expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final steps = body['steps'] as List<dynamic>;
-      expect(steps, hasLength(3));
-      final first = steps.first as Map<String, dynamic>;
-      expect(first['id'], 'research');
-      expect(first['name'], isNotEmpty);
-      expect(first['type'], isNotNull);
-    });
-
-    test('detail includes full step payload, including prompts', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final steps = body['steps'] as List<dynamic>;
-      final first = steps.first as Map<String, dynamic>;
-      expect(first['prompts'], isA<List<dynamic>>());
-      expect((first['prompts'] as List<dynamic>).first, contains('Research'));
-    });
-
-    test('detail includes variables with required flag', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      final variables = body['variables'] as Map<String, dynamic>;
-      expect(variables['FEATURE']['required'], true);
-      expect(variables['PROJECT']['required'], false);
-    });
-
-    test('detail includes loops array', () async {
-      final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
-      );
-
-      expect(response.statusCode, 200);
-      final body = decodeObject(await response.readAsString());
-      expect(body['loops'], isA<List<dynamic>>());
+      final body = await response.readAsString();
+      expect(body, contains('variables:'));
+      expect(body, contains('FEATURE:'));
+      expect(body, contains('prompt:'));
     });
 
     test('returns 404 for unknown definition name', () async {
@@ -721,7 +683,7 @@ void main() {
       expect(await errorCode(response), 'DEFINITION_NOT_FOUND');
     });
 
-    test('summary listing omits steps array while detail includes it', () async {
+    test('summary listing stays JSON while detail returns YAML', () async {
       final summaryResponse = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
       final detailResponse = await handler(
         Request('GET', Uri.parse('http://localhost/api/workflows/definitions/spec-and-implement')),
@@ -734,8 +696,8 @@ void main() {
       final summaryEntry = summaryList.first as Map<String, dynamic>;
       expect(summaryEntry.containsKey('steps'), isFalse);
 
-      final detail = decodeObject(await detailResponse.readAsString());
-      expect(detail.containsKey('steps'), isTrue);
+      final detail = await detailResponse.readAsString();
+      expect(detail, startsWith('name: spec-and-implement'));
     });
   });
 

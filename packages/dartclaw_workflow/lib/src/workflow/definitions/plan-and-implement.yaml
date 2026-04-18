@@ -1,6 +1,6 @@
 name: plan-and-implement
 description: >-
-  Multi-story pipeline — discover the project, draft and review a PRD, plan and spec all stories in one pass,
+  Multi-story pipeline — discover the project, draft a PRD, plan and spec all stories in one pass,
   implement + validate + review each story, iterate plan-level remediation, and update state.
 variables:
   REQUIREMENTS:
@@ -34,9 +34,6 @@ gitStrategy:
     project: "{{PROJECT}}"
 
 stepDefaults:
-  # Patterns without `*` are matched by literal equality (step_config_resolver),
-  # so `prd` here does NOT catch `review-prd` — the `*review*` match below owns it.
-  # Do NOT promote to `prd*` without also moving it below the `*review*` entry.
   - match: "prd"
     provider: "@planner"
     model: "@planner"
@@ -89,13 +86,7 @@ steps:
     contextInputs: [project_index]
     allowedTools: [shell, file_read, file_write]
     prompt: |
-      <REQUIREMENTS>
-      {{REQUIREMENTS}}
-      </REQUIREMENTS>
-
-      <project_index>
-      {{context.project_index}}
-      </project_index>
+      Synthesize or reuse the PRD in the discovered project context.
     contextOutputs: [prd, prd_source]
     outputs:
       prd:
@@ -105,45 +96,6 @@ steps:
         format: text
         description: "'existing' when reused from context.project_index.active_prd, 'synthesized' when this step wrote a new file."
 
-  # Review the PRD on disk via file_read. Read-only — never mutates the file.
-  # Skipped when the upstream prd step reused an existing PRD (prd_source ==
-  # existing); revision, if needed, is a separate downstream remediation step.
-  - id: review-prd
-    name: Review PRD
-    type: analysis
-    skill: dartclaw-review-doc
-    entryGate: "prd_source == synthesized"
-    continueSession: prd
-    contextInputs: [project_index, prd]
-    allowedTools: [file_read]
-    prompt: |
-      Read the PRD from disk at the workspace-relative path `{{context.prd}}`
-      via `file_read` and review it for clarity, completeness, correctness, and
-      implementability. Return structured findings only — **do not mutate the
-      PRD file on disk**. If findings_count > 0 a downstream remediation step
-      will apply the fixes.
-
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <prd_path>
-      {{context.prd}}
-      </prd_path>
-    contextOutputs: [prd, prd_review_findings, findings_count]
-    outputs:
-      prd:
-        format: path
-        description: Pass-through of the PRD file path — unchanged from input (review is read-only).
-      prd_review_findings:
-        format: json
-        schema: verdict
-        description: Structured review findings against the on-disk PRD.
-      findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Count of actionable review findings; 0 means the PRD is clean.
-
   # Plan stories and per-story FIS files from the reviewed PRD path. Reuses
   # context.project_index.active_plan when it exists; otherwise synthesizes.
   # Writes plan.md, optional technical-research.md, and per-story FIS files;
@@ -152,27 +104,8 @@ steps:
     name: Plan Stories and Specs
     type: analysis
     skill: dartclaw-plan
-    contextInputs: [project_index, prd, prd_review_findings]
+    contextInputs: [project_index, prd]
     allowedTools: [shell, file_read, file_write]
-    prompt: |
-      Read the reviewed PRD from the workspace-relative path `{{context.prd}}`
-      via `file_read`. Incorporate the review findings below into the planning
-      pass so the resulting stories address the review points. Write plan.md to
-      `context.project_index.artifact_locations.plan` and per-story FIS files
-      under `context.project_index.artifact_locations.fis_dir`. Emit structured
-      per-story records with a `spec_path` field pointing at each FIS on disk.
-
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <prd_path>
-      {{context.prd}}
-      </prd_path>
-
-      <prd_review_findings>
-      {{context.prd_review_findings}}
-      </prd_review_findings>
     contextOutputs: [stories, story_specs, plan, plan_source, prd, technical_research]
     outputs:
       stories:
@@ -233,10 +166,6 @@ steps:
           <story_record>
           {{map.item}}
           </story_record>
-
-          <project_index>
-          {{context.project_index}}
-          </project_index>
         contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
         outputs:
@@ -255,10 +184,6 @@ steps:
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
           {{map.item.title}} ({{map.item.id}})
-
-          <project_index>
-          {{context.project_index}}
-          </project_index>
 
           <story_result>
           {{context.implement.story_result}}
@@ -287,10 +212,6 @@ steps:
           Read the story's FIS from disk via `file_read` at
           `{{map.item.spec_path}}` when you need the full acceptance criteria
           or task detail.
-
-          <project_index>
-          {{context.project_index}}
-          </project_index>
 
           <story_record>
           {{map.item}}
@@ -330,21 +251,9 @@ steps:
       story's FIS lives under the directory referenced by
       `context.project_index.artifact_locations.fis_dir`.
 
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
       <plan_path>
       {{context.plan}}
       </plan_path>
-
-      <story_specs>
-      {{context.story_specs}}
-      </story_specs>
-
-      <story_results>
-      {{context.story_results}}
-      </story_results>
     contextOutputs: [review_findings, findings_count, plan-review.findings_count]
     outputs:
       review_findings:
@@ -375,17 +284,8 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <review_findings>
-          {{context.review_findings}}
-          </review_findings>
-
-          <story_results>
-          {{context.story_results}}
-          </story_results>
+          Apply the review findings against the workflow's accumulated story
+          results in the discovered project context.
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
@@ -405,17 +305,8 @@ steps:
         review: never
         continueSession: remediate
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
+          Re-run validation for the remediation pass in the discovered project
+          context.
         contextInputs: [project_index, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
         outputs:
@@ -437,29 +328,8 @@ steps:
         type: analysis
         skill: dartclaw-quick-review
         prompt: |
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-
-          <story_specs>
-          {{context.story_specs}}
-          </story_specs>
-
-          <story_results>
-          {{context.story_results}}
-          </story_results>
-
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
-
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
+          Re-review the remediated implementation against the discovered
+          project context and accumulated workflow outputs.
         contextInputs: [project_index, story_specs, story_results, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_findings, findings_count, re-review.findings_count]
         outputs:
@@ -481,18 +351,6 @@ steps:
     type: coding
     skill: dartclaw-update-state
     project: "{{PROJECT}}"
-    prompt: |
-      <project_index>
-      {{context.project_index}}
-      </project_index>
-
-      <story_specs>
-      {{context.story_specs}}
-      </story_specs>
-
-      <story_results>
-      {{context.story_results}}
-      </story_results>
     contextInputs: [project_index, story_specs, story_results]
     contextOutputs: [state_update_summary]
     outputs:

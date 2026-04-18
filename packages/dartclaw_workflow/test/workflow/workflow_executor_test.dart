@@ -29,6 +29,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowGitPublishResult,
         WorkflowGitPublishStrategy,
+        WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
         WorkflowExecutor,
         WorkflowTurnAdapter,
@@ -219,7 +220,7 @@ void main() {
       description: 'Workflow-owned git tasks should unblock from review.',
       gitStrategy: const WorkflowGitStrategy(
         bootstrap: true,
-        worktree: 'per-map-item',
+        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
         promotion: 'merge',
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),

@@ -121,6 +121,7 @@ class WorkflowDefinitionResolver {
       review: step.review,
       parallel: step.parallel,
       gate: step.gate,
+      entryGate: step.entryGate,
       contextInputs: step.contextInputs,
       contextOutputs: step.contextOutputs,
       extraction: step.extraction,

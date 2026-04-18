@@ -168,6 +168,15 @@ void main() {
       );
       expect(result, contains('<prd>\n_(empty)_\n</prd>'));
     });
+
+    test('workflow variables auto-frame when a bound value is provided', () {
+      final result = SkillPromptBuilder.appendAutoFramedContext(
+        'Do X',
+        variables: const ['REQUIREMENTS'],
+        resolvedValues: const {'REQUIREMENTS': 'Build dashboard'},
+      );
+      expect(result, contains('<REQUIREMENTS>\nBuild dashboard\n</REQUIREMENTS>'));
+    });
   });
 
   group('SkillPromptBuilder.formatContextSummary', () {

@@ -697,7 +697,7 @@ void main() {
         ],
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
-          worktree: 'shared',
+          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
           promotion: 'merge',
           publish: WorkflowGitPublishStrategy(enabled: true),
         ),
@@ -712,7 +712,10 @@ void main() {
         steps: const [
           WorkflowStep(id: 's', name: 'S', prompts: ['p']),
         ],
-        gitStrategy: const WorkflowGitStrategy(worktree: 'invalid-worktree', promotion: 'invalid-promotion'),
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: 'invalid-worktree'),
+          promotion: 'invalid-promotion',
+        ),
       );
 
       final errors = validator.validate(def).errors;
@@ -1677,7 +1680,7 @@ void main() {
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: 'per-map-item',
+            worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
@@ -1696,7 +1699,7 @@ void main() {
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            worktree: 'shared',
+            worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
             artifacts: WorkflowGitArtifactsStrategy(commit: false),
           ),
           steps: const [
@@ -1715,7 +1718,7 @@ void main() {
         final def = WorkflowDefinition(
           name: 'wf',
           description: 'd',
-          gitStrategy: const WorkflowGitStrategy(worktree: 'per-map-item'),
+          gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item')),
           steps: const [
             WorkflowStep(id: 'only', name: 'Only', prompts: ['p']),
           ],
@@ -1732,9 +1735,12 @@ void main() {
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            externalArtifactMount: WorkflowGitExternalArtifactMount(
-              mode: 'per-story-copy',
-              fromProject: 'DOC',
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: 'per-story-copy',
+                fromProject: 'DOC',
+              ),
             ),
           ),
           steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
@@ -1751,9 +1757,12 @@ void main() {
           name: 'wf',
           description: 'd',
           gitStrategy: const WorkflowGitStrategy(
-            externalArtifactMount: WorkflowGitExternalArtifactMount(
-              mode: 'bind-mount',
-              fromProject: 'DOC',
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: 'bind-mount',
+                fromProject: 'DOC',
+              ),
             ),
           ),
           steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
@@ -1761,6 +1770,54 @@ void main() {
         final report = validator.validate(def);
         expect(
           report.errors.any((e) => e.message.contains('externalArtifactMount.fromPath')),
+          isTrue,
+        );
+      });
+
+      test('flat-level externalArtifactMount emits migration error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(
+              mode: 'per-map-item',
+              externalArtifactMount: WorkflowGitExternalArtifactMount(
+                mode: 'per-story-copy',
+                fromProject: 'DOC',
+                source: '{{map.item.spec_path}}',
+              ),
+            ),
+            legacyExternalArtifactMountLocation: true,
+          ),
+          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')),
+          isTrue,
+        );
+      });
+
+      test('stepDefaults ordering note is emitted when multiple patterns match a step', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          stepDefaults: const [
+            StepConfigDefault(match: 'prd', provider: '@planner'),
+            StepConfigDefault(match: '*review*', provider: '@reviewer'),
+            StepConfigDefault(match: '*', provider: '@workflow'),
+          ],
+          steps: const [
+            WorkflowStep(id: 'review-prd', name: 'Review PRD', prompts: ['p']),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(
+          report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')),
+          isTrue,
+        );
+        expect(
+          report.warnings.any((w) => w.message.contains('review-prd')),
           isTrue,
         );
       });

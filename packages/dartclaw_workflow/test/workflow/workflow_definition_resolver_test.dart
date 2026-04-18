@@ -18,9 +18,9 @@ void main() {
     test('applies stepDefaults pattern to steps without explicit provider/model', () async {
       final def = await parser.parseFile(builtInWorkflowPath('plan-and-implement.yaml'));
       final resolved = resolver.resolve(def);
-      final reviewPrd = resolved.steps.firstWhere((s) => s.id == 'review-prd');
-      expect(reviewPrd.provider, '@reviewer');
-      expect(reviewPrd.model, '@reviewer');
+      final plan = resolved.steps.firstWhere((s) => s.id == 'plan');
+      expect(plan.provider, '@planner');
+      expect(plan.model, '@planner');
       // Explicit role aliases are preserved — the resolver applies `stepDefaults`
       // patterns but leaves role aliases to runtime resolution.
       expect(resolved.stepDefaults, isNull,
@@ -50,12 +50,34 @@ void main() {
     test('sliceStep emits a single-step document that parses cleanly', () async {
       final def = await parser.parseFile(builtInWorkflowPath('plan-and-implement.yaml'));
       final resolved = resolver.resolve(def);
-      final slice = resolver.sliceStep(resolved, 'review-prd');
+      final slice = resolver.sliceStep(resolved, 'plan');
       expect(slice, isNotNull);
       final yaml = resolver.emitYaml(slice!);
-      final reparsed = parser.parse(yaml, sourcePath: 'slice:review-prd');
+      final reparsed = parser.parse(yaml, sourcePath: 'slice:plan');
       expect(reparsed.steps.length, 1);
-      expect(reparsed.steps.first.id, 'review-prd');
+      expect(reparsed.steps.first.id, 'plan');
+    });
+
+    test('preserves entryGate through resolution and round-trip emission', () {
+      final def = WorkflowDefinition(
+        name: 'entry-gate-demo',
+        description: 'test',
+        steps: const [
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            type: 'analysis',
+            prompts: ['Review'],
+            entryGate: 'prd_source == synthesized',
+          ),
+        ],
+      );
+
+      final resolved = resolver.resolve(def);
+      expect(resolved.steps.first.entryGate, 'prd_source == synthesized');
+
+      final reparsed = parser.parse(resolver.emitYaml(resolved), sourcePath: 'resolved:entry-gate-demo');
+      expect(reparsed.steps.first.entryGate, 'prd_source == synthesized');
     });
 
     test('variable substitution replaces {{VAR}} but leaves {{context.*}} alone', () {

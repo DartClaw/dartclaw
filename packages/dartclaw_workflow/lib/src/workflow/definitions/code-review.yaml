@@ -72,9 +72,6 @@ steps:
       PR number: {{PR_NUMBER}}
       Branch: {{BRANCH}}
       Base branch: {{BASE_BRANCH}}
-      <project_index>
-      {{context.project_index}}
-      </project_index>
     contextInputs: [project_index]
     contextOutputs: [review_summary, findings_count, review-code.findings_count]
     outputs:
@@ -103,15 +100,8 @@ steps:
         project: "{{PROJECT}}"
         review: always
         prompt: |
-          <review_summary>
-          {{context.review_summary}}
-          </review_summary>
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
-          <project_index>
-          {{context.project_index}}
-          </project_index>
+          Apply the review summary in the discovered project context and use
+          the latest validation summary as the remediation baseline.
         contextInputs: [project_index, review_summary, validation_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
@@ -139,18 +129,8 @@ steps:
           PR number: {{PR_NUMBER}}
           Branch: {{BRANCH}}
           Base branch: {{BASE_BRANCH}}
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-          <review_summary>
-          {{context.review_summary}}
-          </review_summary>
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
+          Re-run validation in the discovered project context using the latest
+          review summary, remediation summary, and diff summary.
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
         outputs:
@@ -172,21 +152,8 @@ steps:
           PR number: {{PR_NUMBER}}
           Branch: {{BRANCH}}
           Base branch: {{BASE_BRANCH}}
-          <project_index>
-          {{context.project_index}}
-          </project_index>
-          <review_summary>
-          {{context.review_summary}}
-          </review_summary>
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
-          <remediation_summary>
-          {{context.remediation_summary}}
-          </remediation_summary>
-          <diff_summary>
-          {{context.diff_summary}}
-          </diff_summary>
+          Re-review in the discovered project context using the latest review
+          summary, validation summary, remediation summary, and diff summary.
         contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, findings_count, re-review.findings_count]
         outputs:

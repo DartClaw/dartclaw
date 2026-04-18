@@ -133,11 +133,12 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_
 
-When this skill runs as a workflow step it honors the same **single-mode file-based** contract as `dartclaw-prd` and `dartclaw-plan`: always write the FIS to disk at the canonical location, always emit the path. Never emit FIS body inline.
+When this skill runs inside a workflow it honors the same **single-mode file-based** contract as `dartclaw-prd` and `dartclaw-plan`: always write the FIS to disk at the canonical location, always emit the path. Never emit FIS body inline.
 
 Canonical outputs:
 
-- `story_spec` (format: `path`) — workspace-relative path to the generated FIS file on disk
+- `spec_path` (format: `path`) — workspace-relative path to the generated FIS file on disk
+- `spec_source` (format: `text`) — `"existing"` when a pre-existing spec was reused, `"synthesized"` when the skill wrote a new one
 
 When the oversize-pivot triggers (producing a small plan bundle instead of a single FIS), emit `plan` (path) + `story_specs` (structured array of per-story records, each with `spec_path`) following the same shape as `dartclaw-plan` — see that skill's Workflow Output Contract for the record shape. Never emit a bare path array for `story_specs`; downstream map-iteration prompts depend on `map.item.title` / `map.item.id` / `map.item.acceptance_criteria` on each record.
 

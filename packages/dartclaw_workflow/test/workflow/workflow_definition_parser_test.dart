@@ -134,7 +134,8 @@ name: git-strategy-workflow
 description: Workflow with reusable git strategy
 gitStrategy:
   bootstrap: true
-  worktree: shared
+  worktree:
+    mode: shared
   promotion: merge
   publish:
     enabled: true
@@ -1524,15 +1525,16 @@ name: with-artifacts
 description: artifact block
 gitStrategy:
   bootstrap: true
-  worktree: per-map-item
+  worktree:
+    mode: per-map-item
+    externalArtifactMount:
+      mode: per-story-copy
+      fromProject: "{{DOC_PROJECT}}"
+      source: "{{map.item.spec_path}}"
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
     project: "{{DOC_PROJECT}}"
-  externalArtifactMount:
-    mode: per-story-copy
-    fromProject: "{{DOC_PROJECT}}"
-    source: "{{map.item.spec_path}}"
 steps:
   - id: s1
     name: S1
@@ -1554,9 +1556,10 @@ steps:
 name: bad-mount
 description: invalid mode
 gitStrategy:
-  externalArtifactMount:
-    mode: symlink
-    fromProject: OTHER
+  worktree:
+    externalArtifactMount:
+      mode: symlink
+      fromProject: OTHER
 steps:
   - id: s
     name: S

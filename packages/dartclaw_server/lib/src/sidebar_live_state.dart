@@ -8,7 +8,9 @@ import 'templates/sidebar.dart' show SidebarActiveTask, SidebarActiveWorkflow;
 
 Future<List<SidebarActiveTask>> buildActiveSidebarTasks(TaskService tasks) async {
   final runningTasks = await tasks.list(status: TaskStatus.running);
-  final reviewTasks = await tasks.list(status: TaskStatus.review);
+  final reviewTasks = (await tasks.list(
+    status: TaskStatus.review,
+  )).where((task) => !task.isWorkflowOwnedGitTask).toList();
 
   runningTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));
   reviewTasks.sort((a, b) => _compareNullableDateTimeAsc(a.startedAt, b.startedAt));

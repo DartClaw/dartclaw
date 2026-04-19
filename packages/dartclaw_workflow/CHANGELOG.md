@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+
+- **Changed**: workflow-spawned tasks now auto-advance by default. Omitted `review:` and `review: coding-only` now map to task `reviewMode: auto-accept`; only explicit `review: always` keeps a workflow step parked in review for human intervention.
+- **Changed**: omitted `gitStrategy.promotion` is now inferred from the resolved worktree mode instead of being repeated in every shipped workflow. Isolated per-map-item scopes still default to merge promotion; inline/shared scopes default to no promotion.
+- **Changed**: `gitStrategy.worktree` now accepts `auto` and `inline`. Omitted or authored `auto` resolves to `per-map-item` only when a map/foreach scope runs with `max_parallel > 1`, otherwise it resolves to `inline`. Shipped `plan-and-implement.yaml` and its mirrors now use `worktree: auto`.
+- **Changed**: shipped `plan-and-implement.yaml`, `spec-and-implement.yaml`, and `code-review.yaml` plus the profile mirrors drop redundant `review:` and `promotion:` boilerplate where the engine now infers the same behavior.
+- Migration: external workflows that intentionally need a human checkpoint on a coding step must now say `review: always` explicitly. External workflows that previously copied `promotion: merge` or `worktree: per-map-item` purely to preserve the shipped defaults can remove those fields or switch to `worktree: auto`.
+
 ## 0.14.0
 
 - **Changed**: DartClaw's AndThen-derived skill bundle was re-synced against upstream `andthen 0.12.1`. The shipped `dartclaw-spec`, `dartclaw-exec-spec`, review skills, and related support files now track upstream much more closely again, with only the documented DartClaw overlays applied on top (skill-name rewrites, workflow frontmatter, and user-invocable review surfaces).

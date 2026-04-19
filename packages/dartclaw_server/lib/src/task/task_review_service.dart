@@ -215,7 +215,7 @@ class TaskReviewService {
         );
       }
 
-      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null) {
+      if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && !task.isWorkflowOwnedGitTask) {
         final isProjectBacked = taskTargetsExternalProject(task);
 
         if (isProjectBacked) {
@@ -284,10 +284,12 @@ class TaskReviewService {
       }
 
       // Project-backed accepts already cleaned up in _handleProjectAccept.
-      final isProjectBackedAccept = targetStatus == TaskStatus.accepted && taskTargetsExternalProject(task);
+      final isProjectBackedAccept =
+          targetStatus == TaskStatus.accepted && taskTargetsExternalProject(task) && !task.isWorkflowOwnedGitTask;
       if (!isProjectBackedAccept &&
           (targetStatus == TaskStatus.accepted || targetStatus == TaskStatus.rejected) &&
-          task.worktreeJson != null) {
+          task.worktreeJson != null &&
+          !(targetStatus == TaskStatus.accepted && task.isWorkflowOwnedGitTask)) {
         final cleanupProject = await _cleanupProjectForTask(task);
         await _cleanupWorktree(taskId, project: cleanupProject);
       }

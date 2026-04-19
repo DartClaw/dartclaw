@@ -25,7 +25,6 @@ variables:
 gitStrategy:
   bootstrap: false
   worktree: shared
-  promotion: none
   publish:
     enabled: false
 
@@ -89,7 +88,6 @@ steps:
         type: coding
         skill: dartclaw-remediate-findings
         project: "{{PROJECT}}"
-        review: always
         contextInputs: [project_index, review_summary, validation_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
@@ -110,7 +108,6 @@ steps:
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
-        review: never
         continueSession: remediate
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]

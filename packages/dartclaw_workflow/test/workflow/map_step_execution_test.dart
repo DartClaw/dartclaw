@@ -105,10 +105,10 @@ void main() {
   }
 
   group('core map execution', () {
-    test('workflow-owned map coding task can complete from review state', () async {
+    test('workflow-owned map coding task auto-advances on accepted terminal status', () async {
       final definition = WorkflowDefinition(
-        name: 'map-review-ready',
-        description: 'Workflow-owned map tasks should unblock from review.',
+        name: 'map-auto-accept',
+        description: 'Workflow-owned map tasks should unblock on accepted.',
         gitStrategy: const WorkflowGitStrategy(
           bootstrap: true,
           worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -197,7 +197,7 @@ void main() {
         } on StateError {
           // Already running.
         }
-        await taskService.transition(task.id, TaskStatus.review, trigger: 'test');
+        await taskService.transition(task.id, TaskStatus.accepted, trigger: 'test');
       });
 
       await runtimeExecutor.execute(run, definition, context);
@@ -246,6 +246,126 @@ void main() {
       await sub.cancel();
 
       expect(taskIds.length, equals(3), reason: '3 tasks should be created, one per item');
+    });
+
+    test('worktree auto resolves to inline for serial map execution', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-inline-auto',
+        description: 'Map auto worktree serial resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 1,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'inline');
+    });
+
+    test('worktree auto resolves to per-map-item for parallel map execution', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-per-item-auto',
+        description: 'Map auto worktree parallel resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 2,
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'per-map-item');
+    });
+
+    test('worktree auto resolves to per-map-item for unlimited map execution', () async {
+      final definition = WorkflowDefinition(
+        name: 'map-unlimited-auto',
+        description: 'Map auto worktree unlimited resolution',
+        gitStrategy: const WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            type: 'coding',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'stories',
+            maxParallel: 'unlimited',
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = ['story-1'];
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          modeCompleter.complete(workflowGit?['worktree'] as String?);
+        }
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(await modeCompleter.future, 'per-map-item');
     });
 
     test('results collected in index order (not completion order)', () async {
@@ -1311,7 +1431,11 @@ void main() {
         stepIndex: 1, // index of the foreach controller in the step list
         totalItems: 3,
         completedIndices: [0],
-        resultSlots: [{'child': {}}, null, null],
+        resultSlots: [
+          {'child': {}},
+          null,
+          null,
+        ],
       );
       final seededRun = run.copyWith(
         executionCursor: foreachCursor,
@@ -1337,12 +1461,7 @@ void main() {
       });
 
       // Resume: the executor should skip iteration 0 and run iterations 1 and 2.
-      await executor.execute(
-        seededRun,
-        definition,
-        context,
-        startCursor: foreachCursor,
-      );
+      await executor.execute(seededRun, definition, context, startCursor: foreachCursor);
       await sub.cancel();
 
       // Only 2 tasks (for iterations 1 and 2), not 3.

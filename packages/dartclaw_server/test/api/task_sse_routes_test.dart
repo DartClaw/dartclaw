@@ -75,6 +75,31 @@ void main() {
     expect(frame, contains('"reviewCount":1'));
   });
 
+  test('initial frame excludes workflow-owned review tasks from the default review count', () async {
+    await tasks.create(
+      id: 'task-workflow-review',
+      title: 'Workflow review task',
+      description: 'Workflow-owned review artifact',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: 'run-123',
+      configJson: const {
+        '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
+      },
+    );
+    await tasks.transition('task-workflow-review', TaskStatus.running);
+    await tasks.transition('task-workflow-review', TaskStatus.review);
+
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/events')));
+    final iterator = StreamIterator(response.read().transform(utf8.decoder));
+    addTearDown(iterator.cancel);
+
+    final payload = await nextFramePayload(iterator);
+    expect(payload['type'], 'connected');
+    expect(payload['reviewCount'], 0);
+    expect(payload['activeTasks'], isEmpty);
+  });
+
   test('sidebar-state endpoint returns review count and active tasks as json', () async {
     await tasks.create(
       id: 'task-running',

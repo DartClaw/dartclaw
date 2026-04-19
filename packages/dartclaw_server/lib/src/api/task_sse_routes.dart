@@ -13,6 +13,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         StatusChanged,
         StructuredOutputInlineUsed,
         StructuredOutputFallbackUsed,
+        Task,
         TaskErrorEvent,
         TaskEventCreatedEvent,
         TaskEventKind,
@@ -55,9 +56,11 @@ Router taskSseRoutes(
   WorkflowService? workflows,
 }) {
   final router = Router();
+  Future<List<Task>> visibleReviewTasks() async =>
+      (await tasks.list(status: TaskStatus.review)).where((task) => !task.isWorkflowOwnedGitTask).toList();
 
   router.get('/api/tasks/sidebar-state', (Request request) async {
-    final reviewTasks = await tasks.list(status: TaskStatus.review);
+    final reviewTasks = await visibleReviewTasks();
     final payload = <String, dynamic>{
       'reviewCount': reviewTasks.length,
       'activeTasks': (await buildActiveSidebarTasks(tasks)).map(sidebarActiveTaskToJson).toList(),
@@ -75,7 +78,7 @@ Router taskSseRoutes(
     final controller = StreamController<List<int>>();
 
     // Send initial connected message with current review count and agent snapshot.
-    final reviewTasks = await tasks.list(status: TaskStatus.review);
+    final reviewTasks = await visibleReviewTasks();
     final connectedPayload = <String, dynamic>{
       'type': 'connected',
       'reviewCount': reviewTasks.length,
@@ -108,7 +111,7 @@ Router taskSseRoutes(
 
     // Subscribe to task status change events.
     final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
-      final reviewCount = (await tasks.list(status: TaskStatus.review)).length;
+      final reviewCount = (await visibleReviewTasks()).length;
       final activeTasks = (await buildActiveSidebarTasks(tasks)).map(sidebarActiveTaskToJson).toList();
       final payload = <String, dynamic>{
         'type': 'task_status_changed',

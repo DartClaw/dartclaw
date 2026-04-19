@@ -16,6 +16,20 @@ import '../web_utils.dart';
 
 final _log = Logger('TasksPage');
 
+List<Task> _filterReviewQueueTasks(List<Task> tasks, {required bool includeWorkflowOwned}) {
+  if (includeWorkflowOwned) return tasks;
+  return tasks.where((task) => task.status != TaskStatus.review || !task.isWorkflowOwnedGitTask).toList();
+}
+
+String _tasksListHref({String? status, String? type, required bool includeWorkflowOwned}) {
+  final params = <String, String>{};
+  if (status != null && status.isNotEmpty) params['status'] = status;
+  if (type != null && type.isNotEmpty) params['type'] = type;
+  if (includeWorkflowOwned) params['include'] = 'workflow';
+  final query = Uri(queryParameters: params.isEmpty ? null : params).query;
+  return query.isEmpty ? '/tasks' : '/tasks?$query';
+}
+
 class TasksPage extends DashboardPage {
   @override
   String get route => '/tasks';
@@ -44,12 +58,14 @@ class TasksPage extends DashboardPage {
     final params = request.url.queryParameters;
     final statusFilter = TaskStatus.values.asNameMap()[params['status']];
     final typeFilter = TaskType.values.asNameMap()[params['type']];
+    final includeWorkflowOwned = params['include'] == 'workflow';
     final defaultProvider = ProviderIdentity.normalize(context.config?.agent.provider);
 
     final taskService = context.taskService;
     List<Task> tasks;
     if (taskService != null) {
       tasks = await taskService.list(status: statusFilter, type: typeFilter);
+      tasks = _filterReviewQueueTasks(tasks, includeWorkflowOwned: includeWorkflowOwned);
     } else {
       tasks = [];
     }
@@ -83,12 +99,21 @@ class TasksPage extends DashboardPage {
     // Count review tasks for badge (always unfiltered).
     int reviewCount;
     if (taskService != null && statusFilter != TaskStatus.review) {
-      reviewCount = (await taskService.list(status: TaskStatus.review)).length;
+      reviewCount = _filterReviewQueueTasks(
+        await taskService.list(status: TaskStatus.review),
+        includeWorkflowOwned: false,
+      ).length;
     } else if (statusFilter == TaskStatus.review) {
       reviewCount = tasks.length;
     } else {
       reviewCount = 0;
     }
+
+    final workflowReviewToggleHref = _tasksListHref(
+      status: params['status'],
+      type: params['type'],
+      includeWorkflowOwned: !includeWorkflowOwned,
+    );
 
     // Agent observer data for agent pool section.
     final observer = context.agentObserver;
@@ -126,6 +151,9 @@ class TasksPage extends DashboardPage {
       projectOptions: projectOptions,
       progressTracker: context.progressTracker,
       taskEventService: context.taskEventService,
+      showWorkflowReviewToggle: statusFilter == TaskStatus.review,
+      includeWorkflowOwned: includeWorkflowOwned,
+      workflowReviewToggleHref: workflowReviewToggleHref,
     );
 
     return Response.ok(page, headers: htmlHeaders);

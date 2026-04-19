@@ -117,6 +117,7 @@ class TaskExecutor {
   Future<bool>? _inFlightPoll;
   bool _isSpawning = false;
   final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
+  final Set<String> _workflowInlineBranchKeys = <String>{};
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
 
   void start() {
@@ -452,8 +453,19 @@ class TaskExecutor {
 
       readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
 
+      final usesInlineWorkflowCheckout = _workflowUsesInlineProjectCheckout(task);
+      if (task.type == TaskType.coding && usesInlineWorkflowCheckout && project != null) {
+        final inlineBaseRef = _taskBaseRef(task);
+        if (inlineBaseRef != null && inlineBaseRef.isNotEmpty) {
+          final prepared = await _ensureInlineWorkflowBranchCheckedOut(task, project, inlineBaseRef);
+          if (!prepared) {
+            return;
+          }
+        }
+      }
+
       // Worktree setup for coding tasks
-      if (task.type == TaskType.coding && _worktreeManager != null) {
+      if (task.type == TaskType.coding && _worktreeManager != null && !usesInlineWorkflowCheckout) {
         final workflowWorktreeKey = _workflowOwnedWorktreeKey(task);
         final workflowWorktreeTaskId = _workflowOwnedWorktreeTaskId(task);
         final requiresStoryBranch = _workflowMapIterationOwnsBranch(task);
@@ -1222,9 +1234,7 @@ class TaskExecutor {
   String? _workflowOwnedWorktreeKey(Task task) {
     final workflowRunId = task.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
-    final workflowGit = task.configJson['_workflowGit'];
-    if (workflowGit is! Map) return null;
-    final strategy = workflowGit['worktree'] as String?;
+    final strategy = _workflowGitWorktreeMode(task);
     if (strategy == 'shared') return workflowRunId;
     if (strategy == 'per-map-item') {
       final iterIndex = task.configJson['_mapIterationIndex'];
@@ -1238,9 +1248,7 @@ class TaskExecutor {
   String? _workflowOwnedWorktreeTaskId(Task task) {
     final workflowRunId = task.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
-    final workflowGit = task.configJson['_workflowGit'];
-    if (workflowGit is! Map) return null;
-    final strategy = workflowGit['worktree'] as String?;
+    final strategy = _workflowGitWorktreeMode(task);
     if (strategy == 'shared') return 'wf-$workflowRunId';
     if (strategy == 'per-map-item') {
       final iterIndex = task.configJson['_mapIterationIndex'];
@@ -1251,10 +1259,62 @@ class TaskExecutor {
   }
 
   bool _workflowMapIterationOwnsBranch(Task task) {
-    final workflowGit = task.configJson['_workflowGit'];
-    if (workflowGit is! Map) return false;
-    if (workflowGit['worktree'] != 'per-map-item') return false;
+    if (_workflowGitWorktreeMode(task) != 'per-map-item') return false;
     return task.configJson['_mapIterationIndex'] is int;
+  }
+
+  String? _workflowGitWorktreeMode(Task task) {
+    final workflowGit = task.configJson['_workflowGit'];
+    if (workflowGit is! Map) return null;
+    final raw = workflowGit['worktree'];
+    return raw is String ? raw.trim() : null;
+  }
+
+  bool _workflowUsesInlineProjectCheckout(Task task) => _workflowGitWorktreeMode(task) == 'inline';
+
+  Future<bool> _ensureInlineWorkflowBranchCheckedOut(Task task, Project project, String branch) async {
+    final key = '${project.id}:$branch';
+    final currentHead = await _currentSymbolicHead(project.localPath);
+    if (currentHead == branch) {
+      _workflowInlineBranchKeys.add(key);
+      return true;
+    }
+
+    final status = await Process.run('git', ['status', '--porcelain'], workingDirectory: project.localPath);
+    if (status.exitCode != 0) {
+      await _markFailedOrRetry(
+        task,
+        errorSummary: 'Failed to inspect project "${project.name}" before inline workflow checkout.',
+        retryable: false,
+      );
+      return false;
+    }
+    if ((status.stdout as String).trim().isNotEmpty && !_workflowInlineBranchKeys.contains(key)) {
+      await _markFailedOrRetry(
+        task,
+        errorSummary:
+            'Workflow inline mode requires a clean checkout before switching project "${project.name}" '
+            'to branch "$branch".',
+        retryable: false,
+      );
+      return false;
+    }
+
+    final checkout = await Process.run('git', ['checkout', branch], workingDirectory: project.localPath);
+    if (checkout.exitCode != 0) {
+      final stderr = (checkout.stderr as String).trim();
+      final stdout = (checkout.stdout as String).trim();
+      final detail = stderr.isNotEmpty ? stderr : stdout;
+      await _markFailedOrRetry(
+        task,
+        errorSummary: 'Failed to switch project "${project.name}" to workflow branch "$branch": $detail',
+        retryable: false,
+      );
+      return false;
+    }
+
+    _workflowInlineBranchKeys.add(key);
+    return true;
   }
 
   List<String>? _allowedTools(Task task) {
@@ -1271,7 +1331,7 @@ class TaskExecutor {
   bool _isReadOnlyTask(Task task) => task.configJson['readOnly'] == true;
 
   bool _skipAutoAcceptForWorkflowTask(Task task) =>
-      task.workflowRunId != null && task.configJson['_workflowGit'] is Map;
+      task.isWorkflowOwnedGitTask;
 
   String? _reviewMode(Task task) {
     final raw = task.configJson['reviewMode'];

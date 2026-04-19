@@ -102,6 +102,50 @@ void main() {
     });
   });
 
+  group('WorkflowGitStrategy', () {
+    test('round-trips with gitStrategy (S16b)', () {
+      const def = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: WorkflowGitStrategy(
+          bootstrap: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
+          promotion: 'merge',
+          publish: WorkflowGitPublishStrategy(enabled: true),
+        ),
+      );
+      final json = def.toJson();
+      expect(json.containsKey('gitStrategy'), true);
+      final restored = WorkflowDefinition.fromJson(json);
+      expect(restored.gitStrategy, isNotNull);
+      expect(restored.gitStrategy!.bootstrap, isTrue);
+      expect(restored.gitStrategy!.worktreeMode, 'shared');
+      expect(restored.gitStrategy!.promotion, 'merge');
+      expect(restored.gitStrategy!.publish?.enabled, isTrue);
+    });
+
+    test('effectiveWorktreeMode resolves auto and explicit modes', () {
+      const autoStrategy = WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'auto'));
+      const sharedStrategy = WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'shared'));
+      const perMapItemStrategy = WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'));
+
+      expect(autoStrategy.effectiveWorktreeMode(maxParallel: 3, isMap: true), 'per-map-item');
+      expect(autoStrategy.effectiveWorktreeMode(maxParallel: 1, isMap: true), 'inline');
+      expect(autoStrategy.effectiveWorktreeMode(maxParallel: null, isMap: true), 'per-map-item');
+      expect(autoStrategy.effectiveWorktreeMode(maxParallel: null, isMap: false), 'inline');
+      expect(
+        const WorkflowGitStrategy().effectiveWorktreeMode(maxParallel: 2, isMap: true),
+        'per-map-item',
+        reason: 'omitted worktree config should behave like auto',
+      );
+      expect(sharedStrategy.effectiveWorktreeMode(maxParallel: 3, isMap: true), 'shared');
+      expect(perMapItemStrategy.effectiveWorktreeMode(maxParallel: 1, isMap: true), 'per-map-item');
+    });
+  });
+
   group('WorkflowNode', () {
     test('action node round-trips via toJson/fromJson', () {
       const node = ActionNode(stepId: 'step-1');
@@ -138,10 +182,7 @@ void main() {
     });
 
     test('foreach node round-trips via toJson/fromJson (S19)', () {
-      const node = ForeachNode(
-        stepId: 'story-pipeline',
-        childStepIds: ['implement', 'verify-refine', 'quick-review'],
-      );
+      const node = ForeachNode(stepId: 'story-pipeline', childStepIds: ['implement', 'verify-refine', 'quick-review']);
       final json = node.toJson();
       expect(json['type'], 'foreach');
       expect(json['stepId'], 'story-pipeline');
@@ -399,30 +440,6 @@ void main() {
       expect(restored.stepDefaults![1].provider, 'claude');
     });
 
-    test('round-trips with gitStrategy (S16b)', () {
-      const def = WorkflowDefinition(
-        name: 'wf',
-        description: 'desc',
-        steps: [
-          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
-        ],
-        gitStrategy: WorkflowGitStrategy(
-          bootstrap: true,
-          worktree: WorkflowGitWorktreeStrategy(mode: 'shared'),
-          promotion: 'merge',
-          publish: WorkflowGitPublishStrategy(enabled: true),
-        ),
-      );
-      final json = def.toJson();
-      expect(json.containsKey('gitStrategy'), true);
-      final restored = WorkflowDefinition.fromJson(json);
-      expect(restored.gitStrategy, isNotNull);
-      expect(restored.gitStrategy!.bootstrap, isTrue);
-      expect(restored.gitStrategy!.worktreeMode, 'shared');
-      expect(restored.gitStrategy!.promotion, 'merge');
-      expect(restored.gitStrategy!.publish?.enabled, isTrue);
-    });
-
     test('normalizes action, map, parallel, and loop nodes when nodes are omitted from json', () {
       const def = WorkflowDefinition(
         name: 'normalized',
@@ -477,20 +494,14 @@ void main() {
         ],
       );
 
-      expect(
-        def.nodes.map((n) => n.runtimeType).toList(),
-        equals([ActionNode, ForeachNode, ActionNode]),
-      );
+      expect(def.nodes.map((n) => n.runtimeType).toList(), equals([ActionNode, ForeachNode, ActionNode]));
       final foreachNode = def.nodes[1] as ForeachNode;
       expect(foreachNode.stepId, 'story-pipeline');
       expect(foreachNode.childStepIds, ['implement', 'validate', 'review']);
 
       // Round-trip preserves foreach normalization.
       final restored = WorkflowDefinition.fromJson(def.toJson());
-      expect(
-        restored.nodes.map((n) => n.runtimeType).toList(),
-        equals([ActionNode, ForeachNode, ActionNode]),
-      );
+      expect(restored.nodes.map((n) => n.runtimeType).toList(), equals([ActionNode, ForeachNode, ActionNode]));
       final restoredForeach = restored.nodes[1] as ForeachNode;
       expect(restoredForeach.stepId, 'story-pipeline');
       expect(restoredForeach.childStepIds, ['implement', 'validate', 'review']);

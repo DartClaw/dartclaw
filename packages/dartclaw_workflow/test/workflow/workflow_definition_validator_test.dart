@@ -723,6 +723,20 @@ void main() {
       expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.worktree'));
       expect(errors.map((e) => e.message).join('\n'), contains('gitStrategy.promotion'));
     });
+
+    test('auto and inline worktree values are accepted', () {
+      for (final worktreeMode in ['auto', 'inline']) {
+        final def = WorkflowDefinition(
+          name: 'wf-$worktreeMode',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
+          gitStrategy: WorkflowGitStrategy(worktree: WorkflowGitWorktreeStrategy(mode: worktreeMode)),
+        );
+        expect(validator.validate(def).errors, isEmpty, reason: 'worktree mode "$worktreeMode" should validate');
+      }
+    });
   });
 
   group('skill validation (S04)', () {
@@ -1651,10 +1665,7 @@ void main() {
           ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.type == ValidationErrorType.invalidGate),
-          isFalse,
-        );
+        expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate), isFalse);
       });
 
       test('rejects malformed entryGate expression', () {
@@ -1667,10 +1678,7 @@ void main() {
           ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.type == ValidationErrorType.invalidGate && e.stepId == 's2'),
-          isTrue,
-        );
+        expect(report.errors.any((e) => e.type == ValidationErrorType.invalidGate && e.stepId == 's2'), isTrue);
       });
     });
 
@@ -1688,10 +1696,41 @@ void main() {
           ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')),
-          isTrue,
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isTrue);
+      });
+
+      test('auto + map step maxParallel > 1 + artifact producer + commit: false raises error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 2),
+          ],
         );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isTrue);
+      });
+
+      test('auto + map step maxParallel 1 + artifact producer + commit: false does not raise per-map-item error', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          gitStrategy: const WorkflowGitStrategy(
+            worktree: WorkflowGitWorktreeStrategy(mode: 'auto'),
+            artifacts: WorkflowGitArtifactsStrategy(commit: false),
+          ),
+          steps: const [
+            WorkflowStep(id: 'plan', name: 'Plan', skill: 'dartclaw-plan', contextOutputs: ['plan']),
+            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], mapOver: 'stories', maxParallel: 1),
+          ],
+        );
+        final report = validator.validate(def);
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit: false is incompatible')), isFalse);
       });
 
       test('shared + artifact producer + commit: false issues warning not error', () {
@@ -1708,10 +1747,7 @@ void main() {
         );
         final report = validator.validate(def);
         expect(report.errors.any((e) => e.message.contains('artifacts.commit')), isFalse);
-        expect(
-          report.warnings.any((w) => w.message.contains('worktree: shared')),
-          isTrue,
-        );
+        expect(report.warnings.any((w) => w.message.contains('worktree: shared')), isTrue);
       });
 
       test('no artifact producer + per-map-item accepted', () {
@@ -1724,10 +1760,7 @@ void main() {
           ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.message.contains('artifacts.commit')),
-          isFalse,
-        );
+        expect(report.errors.any((e) => e.message.contains('artifacts.commit')), isFalse);
       });
 
       test('externalArtifactMount per-story-copy without source raises error', () {
@@ -1737,19 +1770,15 @@ void main() {
           gitStrategy: const WorkflowGitStrategy(
             worktree: WorkflowGitWorktreeStrategy(
               mode: 'per-map-item',
-              externalArtifactMount: WorkflowGitExternalArtifactMount(
-                mode: 'per-story-copy',
-                fromProject: 'DOC',
-              ),
+              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'per-story-copy', fromProject: 'DOC'),
             ),
           ),
-          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.message.contains('externalArtifactMount.source')),
-          isTrue,
-        );
+        expect(report.errors.any((e) => e.message.contains('externalArtifactMount.source')), isTrue);
       });
 
       test('externalArtifactMount bind-mount without fromPath raises error', () {
@@ -1759,19 +1788,15 @@ void main() {
           gitStrategy: const WorkflowGitStrategy(
             worktree: WorkflowGitWorktreeStrategy(
               mode: 'per-map-item',
-              externalArtifactMount: WorkflowGitExternalArtifactMount(
-                mode: 'bind-mount',
-                fromProject: 'DOC',
-              ),
+              externalArtifactMount: WorkflowGitExternalArtifactMount(mode: 'bind-mount', fromProject: 'DOC'),
             ),
           ),
-          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.message.contains('externalArtifactMount.fromPath')),
-          isTrue,
-        );
+        expect(report.errors.any((e) => e.message.contains('externalArtifactMount.fromPath')), isTrue);
       });
 
       test('flat-level externalArtifactMount emits migration error', () {
@@ -1789,13 +1814,12 @@ void main() {
             ),
             legacyExternalArtifactMountLocation: true,
           ),
-          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
         );
         final report = validator.validate(def);
-        expect(
-          report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')),
-          isTrue,
-        );
+        expect(report.errors.any((e) => e.message.contains('gitStrategy.worktree.externalArtifactMount')), isTrue);
       });
 
       test('stepDefaults ordering note is emitted when multiple patterns match a step', () {
@@ -1812,14 +1836,8 @@ void main() {
           ],
         );
         final report = validator.validate(def);
-        expect(
-          report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')),
-          isTrue,
-        );
-        expect(
-          report.warnings.any((w) => w.message.contains('review-prd')),
-          isTrue,
-        );
+        expect(report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')), isTrue);
+        expect(report.warnings.any((w) => w.message.contains('review-prd')), isTrue);
       });
     });
   });

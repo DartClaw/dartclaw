@@ -31,6 +31,9 @@ String tasksPageTemplate({
   List<Map<String, String>> projectOptions = const [],
   TaskProgressTracker? progressTracker,
   TaskEventService? taskEventService,
+  bool showWorkflowReviewToggle = false,
+  bool includeWorkflowOwned = false,
+  String workflowReviewToggleHref = '/tasks?status=review&include=workflow',
 }) {
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
   final topbar = pageTopbarTemplate(title: 'Tasks');
@@ -200,6 +203,9 @@ String tasksPageTemplate({
     'typeOptions': typeOptions,
     'reviewCount': reviewCount,
     'hasReviewBadge': reviewCount > 0,
+    'showWorkflowReviewToggle': showWorkflowReviewToggle,
+    'includeWorkflowOwned': includeWorkflowOwned,
+    'workflowReviewToggleHref': workflowReviewToggleHref,
     'newTaskDialogHtml': newTaskFormDialogHtml(goalOptions: goalOptions, projectOptions: projectOptions),
     'hasAgentPool': hasAgentPool,
     'isSingleRunner': isSingleRunner,

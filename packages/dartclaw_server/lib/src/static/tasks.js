@@ -433,7 +433,9 @@
   function applyTaskFilters() {
     const status = document.getElementById('task-status-filter');
     const type = document.getElementById('task-type-filter');
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(window.location.search);
+    params.delete('status');
+    params.delete('type');
     if (status && status.value) params.set('status', status.value);
     if (type && type.value) params.set('type', type.value);
     const qs = params.toString();

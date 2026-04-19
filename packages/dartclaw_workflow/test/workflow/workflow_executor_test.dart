@@ -15,6 +15,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputFormat,
         SessionService,
         StepConfigDefault,
+        StepReviewMode,
         Task,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -27,6 +28,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowDefinitionParser,
+        WorkflowGitBootstrapResult,
+        WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowGitPublishStrategy,
         WorkflowGitWorktreeStrategy,
@@ -214,10 +217,10 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('workflow-owned git coding task can complete from review state', () async {
+  test('workflow-owned git coding task auto-advances on accepted terminal status', () async {
     final definition = WorkflowDefinition(
-      name: 'workflow-git-review',
-      description: 'Workflow-owned git tasks should unblock from review.',
+      name: 'workflow-git-auto-accept',
+      description: 'Workflow-owned git tasks should advance on accepted.',
       gitStrategy: const WorkflowGitStrategy(
         bootstrap: true,
         worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
@@ -225,13 +228,154 @@ void main() {
         publish: WorkflowGitPublishStrategy(enabled: false),
       ),
       steps: const [
-        WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', prompts: ['Implement the story']),
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          type: 'coding',
+          project: 'my-project',
+          prompts: ['Implement the story'],
+        ),
       ],
     );
 
     final run = makeRun(definition);
     await repository.insert(run);
-    final context = WorkflowContext();
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
+    final promotionCalls = <Map<String, String?>>[];
+
+    final runtimeExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+      ),
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              promotionCalls.add({
+                'runId': runId,
+                'projectId': projectId,
+                'branch': branch,
+                'integrationBranch': integrationBranch,
+                'strategy': strategy,
+                'storyId': storyId,
+              });
+              return const WorkflowGitPromotionSuccess(commitSha: 'abc123');
+            },
+      ),
+    );
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      await taskService.updateFields(
+        e.taskId,
+        worktreeJson: {
+          'path': p.join(tempDir.path, 'worktrees', e.taskId),
+          'branch': 'story-branch',
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+      );
+      try {
+        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+      } on StateError {
+        // Already running.
+      }
+      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+    });
+
+    await runtimeExecutor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalTask = (await taskService.list()).single;
+    final finalRun = await repository.getById('run-1');
+    expect(finalTask.status, equals(TaskStatus.accepted));
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(promotionCalls, [
+      {
+        'runId': 'run-1',
+        'projectId': 'my-project',
+        'branch': 'story-branch',
+        'integrationBranch': 'dartclaw/integration/test',
+        'strategy': 'merge',
+        'storyId': null,
+      },
+    ]);
+  });
+
+  test('explicit review: always keeps workflow waiting until a later accept', () async {
+    final definition = WorkflowDefinition(
+      name: 'workflow-git-review-gate',
+      description: 'Explicit review mode should still park for human review.',
+      gitStrategy: const WorkflowGitStrategy(
+        bootstrap: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+        promotion: 'merge',
+        publish: WorkflowGitPublishStrategy(enabled: false),
+      ),
+      steps: const [
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          type: 'coding',
+          project: 'my-project',
+          review: StepReviewMode.always,
+          prompts: ['Implement the story'],
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
+    final reviewReached = Completer<void>();
+    final allowAccept = Completer<void>();
+    final runtimeExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+      ),
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionSuccess(commitSha: 'gate123'),
+      ),
+    );
 
     final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       await Future<void>.delayed(Duration.zero);
@@ -249,14 +393,25 @@ void main() {
         // Already running.
       }
       await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
+      if (!reviewReached.isCompleted) {
+        reviewReached.complete();
+      }
+      await allowAccept.future;
+      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
     });
 
-    await executor.execute(run, definition, context);
+    final executeFuture = runtimeExecutor.execute(run, definition, context);
+    await reviewReached.future;
+    await Future<void>.delayed(Duration.zero);
+    expect((await repository.getById('run-1'))?.status, equals(WorkflowRunStatus.running));
+
+    allowAccept.complete();
+    await executeFuture;
     await sub.cancel();
 
     final finalTask = (await taskService.list()).single;
     final finalRun = await repository.getById('run-1');
-    expect(finalTask.status, equals(TaskStatus.review));
+    expect(finalTask.status, equals(TaskStatus.accepted));
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
@@ -308,6 +463,110 @@ void main() {
     expect(capturedDescriptions.length, equals(2));
     // Step 2 description should contain the extracted content from step 1.
     expect(capturedDescriptions[1], contains('Key findings about the topic.'));
+  });
+
+  test('loop-body workflow-owned git coding task promotes after accepted completion', () async {
+    final definition = WorkflowDefinition(
+      name: 'loop-workflow-git-auto-accept',
+      description: 'Loop-owned git tasks should promote after accepted completion.',
+      gitStrategy: const WorkflowGitStrategy(
+        bootstrap: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: 'per-task'),
+        publish: WorkflowGitPublishStrategy(enabled: false),
+      ),
+      steps: const [
+        WorkflowStep(id: 'implement', name: 'Implement', type: 'coding', project: 'my-project', prompts: ['Implement']),
+      ],
+      loops: const [
+        WorkflowLoop(
+          id: 'remediate-loop',
+          steps: ['implement'],
+          maxIterations: 1,
+          exitGate: 'implement.status == accepted',
+        ),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'implement.status': 'pending'}, variables: const {'PROJECT': 'my-project'});
+    final promotionCalls = <Map<String, String?>>[];
+
+    final runtimeExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+      ),
+      dataDir: tempDir.path,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
+            const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test'),
+        promoteWorkflowBranch:
+            ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async {
+              promotionCalls.add({
+                'runId': runId,
+                'projectId': projectId,
+                'branch': branch,
+                'integrationBranch': integrationBranch,
+                'strategy': strategy,
+                'storyId': storyId,
+              });
+              return const WorkflowGitPromotionSuccess(commitSha: 'loop123');
+            },
+      ),
+    );
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      await taskService.updateFields(
+        e.taskId,
+        worktreeJson: {
+          'path': p.join(tempDir.path, 'worktrees', e.taskId),
+          'branch': 'loop-branch',
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+      );
+      try {
+        await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+      } on StateError {
+        // Already running.
+      }
+      await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+    });
+
+    await runtimeExecutor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalTask = (await taskService.list()).single;
+    final finalRun = await repository.getById('run-1');
+    expect(finalTask.status, equals(TaskStatus.accepted));
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(promotionCalls, [
+      {
+        'runId': 'run-1',
+        'projectId': 'my-project',
+        'branch': 'loop-branch',
+        'integrationBranch': 'dartclaw/integration/test',
+        'strategy': 'merge',
+        'storyId': null,
+      },
+    ]);
   });
 
   test('failed first-prompt steps still persist token usage before pause', () async {
@@ -566,6 +825,86 @@ void main() {
 
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('workflow task config maps default and explicit review modes', () async {
+    Future<String?> captureReviewMode(WorkflowStep step, {TaskStatus completionStatus = TaskStatus.accepted}) async {
+      final definition = WorkflowDefinition(
+        name: 'review-mode-${step.id}',
+        description: 'Review mode capture',
+        steps: [step],
+      );
+      final run = makeRun(definition).copyWith(id: 'run-${step.id}');
+      await repository.insert(run);
+      final context = WorkflowContext();
+      final modeCompleter = Completer<String?>();
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null && !modeCompleter.isCompleted) {
+          modeCompleter.complete(task.configJson['reviewMode'] as String?);
+        }
+        try {
+          await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
+        } on StateError {
+          // Already running.
+        }
+        if (completionStatus == TaskStatus.accepted) {
+          await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
+        } else {
+          await taskService.transition(e.taskId, completionStatus, trigger: 'test');
+        }
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+      return modeCompleter.future;
+    }
+
+    expect(
+      await captureReviewMode(
+        const WorkflowStep(id: 'default-step', name: 'Default Step', type: 'coding', prompts: ['Implement']),
+      ),
+      'auto-accept',
+    );
+    expect(
+      await captureReviewMode(
+        const WorkflowStep(
+          id: 'coding-only-step',
+          name: 'Coding Only Step',
+          type: 'coding',
+          review: StepReviewMode.codingOnly,
+          prompts: ['Implement'],
+        ),
+      ),
+      'auto-accept',
+    );
+    expect(
+      await captureReviewMode(
+        const WorkflowStep(
+          id: 'review-step',
+          name: 'Review Step',
+          type: 'coding',
+          review: StepReviewMode.always,
+          prompts: ['Implement'],
+        ),
+      ),
+      'mandatory',
+    );
+    expect(
+      await captureReviewMode(
+        const WorkflowStep(
+          id: 'never-step',
+          name: 'Never Step',
+          type: 'coding',
+          review: StepReviewMode.never,
+          prompts: ['Implement'],
+        ),
+      ),
+      'auto-accept',
+    );
   });
 
   test('inline loop executes in authored order before following sibling steps', () async {

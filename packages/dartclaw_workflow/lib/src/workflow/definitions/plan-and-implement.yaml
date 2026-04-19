@@ -20,14 +20,13 @@ variables:
 
 gitStrategy:
   bootstrap: true
-  worktree: per-map-item
-  promotion: merge
+  worktree: auto
   publish:
     enabled: true
   # Auto-commit generated artifacts (PRD, plan, per-story FIS) on the workflow
-  # branch so per-map-item worktrees inherit them when created. Required when
-  # artifact-producing steps (dartclaw-prd / dartclaw-plan / dartclaw-spec)
-  # are combined with worktree: per-map-item.
+  # branch so parallel per-story worktrees inherit them when created. Required
+  # when artifact-producing steps (dartclaw-prd / dartclaw-plan /
+  # dartclaw-spec) run under worktree: auto with max_parallel > 1.
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
@@ -145,7 +144,6 @@ steps:
         type: coding
         skill: dartclaw-exec-spec
         project: "{{PROJECT}}"
-        review: always
         allowedTools: [shell, file_read, file_write]
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
@@ -175,7 +173,6 @@ steps:
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
-        review: never
         continueSession: implement
         prompt: |
           Story {{map.display_index}} of {{map.length}}:
@@ -270,7 +267,6 @@ steps:
         type: coding
         skill: dartclaw-remediate-findings
         project: "{{PROJECT}}"
-        review: always
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
@@ -287,7 +283,6 @@ steps:
         type: coding
         skill: dartclaw-verify-refine
         project: "{{PROJECT}}"
-        review: never
         continueSession: remediate
         contextInputs: [project_index, remediation_summary, diff_summary]
         contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]

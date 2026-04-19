@@ -30,6 +30,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowBudgetWarningEvent,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
+        WorkflowGitStrategy,
         WorkflowNode,
         WorkflowLoop,
         WorkflowRun,
@@ -188,9 +189,7 @@ class WorkflowExecutor {
     WorkflowDefinition definition,
     WorkflowContext context,
   ) {
-    final values = <String, Object?>{
-      for (final key in step.contextInputs) key: context[key] ?? '',
-    };
+    final values = <String, Object?>{for (final key in step.contextInputs) key: context[key] ?? ''};
     for (final entry in definition.variables.entries) {
       if (values.containsKey(entry.key)) continue;
       final resolved = context.variable(entry.key) ?? entry.value.defaultValue;
@@ -255,8 +254,7 @@ class WorkflowExecutor {
       return rendered.isEmpty ? null : rendered;
     }
 
-    final projectId =
-        resolve(strategy.project) ?? resolve(step.project) ?? resolve('{{PROJECT}}');
+    final projectId = resolve(strategy.project) ?? resolve(step.project) ?? resolve('{{PROJECT}}');
     if (projectId == null) return null;
     final dir = p.join(_dataDir, 'projects', projectId);
     return _ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
@@ -301,11 +299,7 @@ class WorkflowExecutor {
     if (producedPaths.isEmpty) return;
 
     // Resolve the project working directory for the commit.
-    final resolved = _resolveArtifactCommitProject(
-      step,
-      context,
-      artifacts ?? const WorkflowGitArtifactsStrategy(),
-    );
+    final resolved = _resolveArtifactCommitProject(step, context, artifacts ?? const WorkflowGitArtifactsStrategy());
     if (resolved == null) {
       _log.warning(
         "artifact-commit: step '${step.id}' produced paths but no project id "
@@ -324,9 +318,7 @@ class WorkflowExecutor {
     final projectDir = resolved.dir;
 
     final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
-    final resolvedMessage = _templateEngine
-        .resolve(messageTemplate.replaceAll('{{runId}}', run.id), context)
-        .trim();
+    final resolvedMessage = _templateEngine.resolve(messageTemplate.replaceAll('{{runId}}', run.id), context).trim();
     final commitMessage = resolvedMessage.isEmpty ? 'chore(workflow): artifacts for run ${run.id}' : resolvedMessage;
 
     try {
@@ -335,25 +327,21 @@ class WorkflowExecutor {
         _log.warning("artifact-commit: git add failed in '$projectDir': ${addResult.stderr}");
         return;
       }
-      final stagedResult = await Process.run(
-        'git',
-        ['diff', '--cached', '--name-only'],
-        workingDirectory: projectDir,
-      );
+      final stagedResult = await Process.run('git', ['diff', '--cached', '--name-only'], workingDirectory: projectDir);
       final staged = (stagedResult.stdout as String).trim();
       if (staged.isEmpty) {
         _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
         return;
       }
-      final commitResult = await Process.run(
-        'git',
-        [
-          '-c', 'user.name=$_artifactCommitAuthorName',
-          '-c', 'user.email=$_artifactCommitAuthorEmail',
-          'commit', '-m', commitMessage,
-        ],
-        workingDirectory: projectDir,
-      );
+      final commitResult = await Process.run('git', [
+        '-c',
+        'user.name=$_artifactCommitAuthorName',
+        '-c',
+        'user.email=$_artifactCommitAuthorEmail',
+        'commit',
+        '-m',
+        commitMessage,
+      ], workingDirectory: projectDir);
       if (commitResult.exitCode != 0) {
         _log.warning("artifact-commit: git commit failed in '$projectDir': ${commitResult.stderr}");
         return;
@@ -377,9 +365,7 @@ class WorkflowExecutor {
     final passes = _gateEvaluator.evaluate(expr, context);
     if (passes) return false;
     _log.info("Workflow '$runId': step '${step.id}' skipped: entryGate='$expr' evaluated false");
-    _eventBus.fire(
-      StepSkippedEvent(runId: runId, stepId: step.id, reason: expr, timestamp: DateTime.now()),
-    );
+    _eventBus.fire(StepSkippedEvent(runId: runId, stepId: step.id, reason: expr, timestamp: DateTime.now()));
     return true;
   }
 
@@ -858,7 +844,19 @@ class WorkflowExecutor {
             return;
           }
 
-          final result = await _executeStep(run, definition, step, context, stepIndex: stepIndex);
+          final followingActionSteps = nodes
+              .skip(nodeIndex + 1)
+              .whereType<ActionNode>()
+              .map((candidate) => stepById[candidate.stepId])
+              .nonNulls;
+          final result = await _executeStep(
+            run,
+            definition,
+            step,
+            context,
+            stepIndex: stepIndex,
+            promoteAfterSuccess: _isLastBranchTouchingStepInScope(definition, step, followingActionSteps),
+          );
           if (result == null) return;
 
           if (isCancelled?.call() ?? false) {
@@ -1296,6 +1294,13 @@ class WorkflowExecutor {
           stepIndex: stepIndex,
           loopId: loop.id,
           loopIteration: iteration,
+          promoteAfterSuccess: _isLastBranchTouchingStepInScope(
+            definition,
+            step,
+            loop.steps
+                .skip(loopStepIndex + 1)
+                .map((id) => definition.steps.firstWhere((candidate) => candidate.id == id)),
+          ),
         );
         if (result == null) return true; // Task creation failed — already paused.
 
@@ -1612,6 +1617,8 @@ class WorkflowExecutor {
     String? loopId,
     int? loopIteration,
     MapContext? mapCtx,
+    int? enclosingMaxParallel,
+    bool promoteAfterSuccess = false,
   }) async {
     // Dispatch bash steps to the zero-task host executor.
     if (step.type == 'bash') {
@@ -1641,7 +1648,22 @@ class WorkflowExecutor {
     final skillDefaultPrompt = _skillDefaultPromptFor(step);
     final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
     final variableNames = _autoFrameVariableNames(definition, context);
-    var taskConfig = _buildStepConfig(run, definition, step, resolved, context);
+    final resolvedWorktreeMode = _resolvedWorktreeModeForScope(
+      definition,
+      step,
+      context,
+      enclosingMaxParallel: enclosingMaxParallel,
+    );
+    final effectivePromotion = _effectivePromotion(definition.gitStrategy, resolvedWorktreeMode: resolvedWorktreeMode);
+    var taskConfig = _buildStepConfig(
+      run,
+      definition,
+      step,
+      resolved,
+      context,
+      resolvedWorktreeMode: resolvedWorktreeMode,
+      effectivePromotion: effectivePromotion,
+    );
 
     final continuedRootStep = step.continueSession != null ? _resolveContinueSessionRootStep(definition, step) : null;
     final effectiveProvider = continuedRootStep != null
@@ -1717,13 +1739,6 @@ class WorkflowExecutor {
         if (!completer.isCompleted) {
           final t = await _taskService.get(taskId);
           if (t != null) completer.complete(t);
-        }
-      } else if (event.newStatus == TaskStatus.review) {
-        final t = await _taskService.get(taskId);
-        if (!completer.isCompleted && t != null && _isWorkflowOwnedReviewReadyTask(t)) {
-          // Workflow-owned git tasks intentionally stay in review so the workflow
-          // can promote/publish their branch without task-level merge cleanup.
-          completer.complete(t);
         }
       }
     });
@@ -1856,6 +1871,28 @@ class WorkflowExecutor {
     }
     if (_outputTransformer != null) {
       outputs = await _outputTransformer(run, definition, step, finalTask, outputs);
+    }
+
+    if (promoteAfterSuccess) {
+      final promotionFailure = await _promoteWorkflowTask(
+        run: run,
+        step: step,
+        task: finalTask,
+        context: context,
+        outputs: outputs,
+        projectId: effectiveProjectId,
+        promotionStrategy: effectivePromotion,
+      );
+      if (promotionFailure != null) {
+        return _ParallelStepResult(
+          step: step,
+          task: finalTask,
+          outputs: outputs,
+          tokenCount: tokenCount,
+          success: false,
+          error: promotionFailure,
+        );
+      }
     }
 
     return _ParallelStepResult(step: step, task: finalTask, outputs: outputs, tokenCount: tokenCount, success: true);
@@ -2206,17 +2243,16 @@ class WorkflowExecutor {
     }
   }
 
-  bool _isWorkflowOwnedReviewReadyTask(Task task) =>
-      task.status == TaskStatus.review && task.workflowRunId != null && task.configJson['_workflowGit'] is Map;
-
   /// Builds configJson for a task from a workflow step and its resolved config.
   Map<String, dynamic> _buildStepConfig(
     WorkflowRun run,
     WorkflowDefinition definition,
     WorkflowStep step,
     ResolvedStepConfig resolved,
-    WorkflowContext context,
-  ) {
+    WorkflowContext context, {
+    required String resolvedWorktreeMode,
+    required String effectivePromotion,
+  }) {
     final config = <String, dynamic>{};
     if (resolved.model != null) config['model'] = resolved.model;
     if (resolved.effort != null) config['effort'] = resolved.effort;
@@ -2239,19 +2275,153 @@ class WorkflowExecutor {
     if (strategy != null) {
       config['_workflowGit'] = {
         'runId': run.id,
-        'worktree': strategy.worktreeMode,
+        'worktree': resolvedWorktreeMode,
         'bootstrap': strategy.bootstrap,
-        'promotion': strategy.promotion,
+        'promotion': effectivePromotion,
       };
     }
     config['_workflowWorkspaceDir'] = _resolveWorkflowWorkspaceDir();
     config['reviewMode'] = switch (step.review.name) {
       'never' => 'auto-accept',
       'always' => 'mandatory',
-      'codingOnly' => 'coding-only',
-      _ => 'coding-only',
+      'codingOnly' => 'auto-accept',
+      _ => 'auto-accept',
     };
     return config;
+  }
+
+  String _resolvedWorktreeModeForScope(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context, {
+    int? enclosingMaxParallel,
+  }) {
+    final strategy = definition.gitStrategy;
+    if (strategy == null) return 'inline';
+    final isMapScope = step.mapOver != null || enclosingMaxParallel != null;
+    final maxParallel = isMapScope
+        ? (enclosingMaxParallel ?? _resolveMaxParallel(step.maxParallel, context, step.id))
+        : null;
+    return strategy.effectiveWorktreeMode(maxParallel: maxParallel, isMap: isMapScope);
+  }
+
+  String _effectivePromotion(WorkflowGitStrategy? strategy, {required String resolvedWorktreeMode}) {
+    final explicit = strategy?.promotion?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+    return switch (resolvedWorktreeMode) {
+      'per-map-item' || 'per-task' => 'merge',
+      _ => 'none',
+    };
+  }
+
+  bool _isLastBranchTouchingStepInScope(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    Iterable<WorkflowStep> followingScopeSteps,
+  ) {
+    if (step.type != 'coding') return false;
+    final currentRootId = _continueSessionRootStepId(definition, step);
+    for (final candidate in followingScopeSteps) {
+      if (candidate.type != 'coding') continue;
+      if (_continueSessionRootStepId(definition, candidate) == currentRootId) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  String _continueSessionRootStepId(WorkflowDefinition definition, WorkflowStep step) =>
+      _resolveContinueSessionRootStep(definition, step)?.id ?? step.id;
+
+  Future<String?> _promoteWorkflowTask({
+    required WorkflowRun run,
+    required WorkflowStep step,
+    required Task task,
+    required WorkflowContext context,
+    required Map<String, dynamic> outputs,
+    required String? projectId,
+    required String promotionStrategy,
+  }) async {
+    if (task.type != TaskType.coding || promotionStrategy == 'none') {
+      return null;
+    }
+
+    final promote = _turnAdapter?.promoteWorkflowBranch;
+    if (promote == null) {
+      outputs['${step.id}.promotion'] = 'failed';
+      return 'promotion failed: host promotion callback is not configured';
+    }
+
+    final promotionProjectId = projectId?.trim();
+    if (promotionProjectId == null || promotionProjectId.isEmpty) {
+      outputs['${step.id}.promotion'] = 'failed';
+      return 'promotion failed: step has no project binding';
+    }
+
+    final branch = (task.worktreeJson?['branch'] as String?)?.trim();
+    if (branch == null || branch.isEmpty) {
+      outputs['${step.id}.promotion'] = 'failed';
+      return 'promotion failed: task worktree branch is unavailable';
+    }
+
+    final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
+    if (integrationBranch == null || integrationBranch.isEmpty) {
+      outputs['${step.id}.promotion'] = 'failed';
+      return 'promotion failed: integration branch is not initialized';
+    }
+
+    final promotionResult = await promote(
+      runId: run.id,
+      projectId: promotionProjectId,
+      branch: branch,
+      integrationBranch: integrationBranch,
+      strategy: promotionStrategy,
+    );
+
+    switch (promotionResult) {
+      case WorkflowGitPromotionSuccess(:final commitSha):
+        outputs['${step.id}.promotion'] = 'success';
+        outputs['${step.id}.promotion_sha'] = commitSha;
+        return null;
+      case WorkflowGitPromotionConflict(:final conflictingFiles, :final details):
+        outputs['${step.id}.promotion'] = 'conflict';
+        outputs['${step.id}.promotion_details'] = details;
+        final summary = conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ');
+        return 'promotion-conflict: $summary';
+      case WorkflowGitPromotionError(:final message):
+        outputs['${step.id}.promotion'] = 'failed';
+        return 'promotion failed: $message';
+    }
+  }
+
+  bool _isPromotionAwareScope(
+    WorkflowGitStrategy? strategy, {
+    required String resolvedWorktreeMode,
+    required bool hasCodingSteps,
+  }) {
+    if (!hasCodingSteps) return false;
+    return resolvedWorktreeMode == 'per-map-item' &&
+        _effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode) != 'none';
+  }
+
+  bool _requiresPerMapItemBootstrap(WorkflowDefinition definition, WorkflowContext context) {
+    final strategy = definition.gitStrategy;
+    if (strategy == null) return false;
+    for (final step in definition.steps.where((candidate) => candidate.mapOver != null)) {
+      int? maxParallel;
+      try {
+        maxParallel = _resolveMaxParallel(step.maxParallel, context, step.id);
+      } on ArgumentError {
+        maxParallel = 2;
+      }
+      final resolvedMode = strategy.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true);
+      if (resolvedMode == 'per-map-item') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Workflow steps always execute through the coding-task path.
@@ -2682,11 +2852,13 @@ class WorkflowExecutor {
     // 5. Validate dependencies (detect cycles before any dispatch).
     final depGraph = DependencyGraph(collection);
     final strategy = definition.gitStrategy;
-    final promotionAware =
-        strategy?.worktreeMode == 'per-map-item' &&
-        strategy?.promotion != null &&
-        strategy!.promotion != 'none' &&
-        step.type == 'coding';
+    final resolvedWorktreeMode = strategy?.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true) ?? 'inline';
+    final promotionStrategy = _effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode);
+    final promotionAware = _isPromotionAwareScope(
+      strategy,
+      resolvedWorktreeMode: resolvedWorktreeMode,
+      hasCodingSteps: step.type == 'coding',
+    );
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds = (context['_map.${step.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
     if (depGraph.hasDependencies) {
@@ -2803,7 +2975,15 @@ class WorkflowExecutor {
           resolvedInputValues: resolvedInputValues,
           templatePrompt: rawPrompt,
         );
-        final taskConfig = _buildStepConfig(run, definition, step, resolved, context);
+        final taskConfig = _buildStepConfig(
+          run,
+          definition,
+          step,
+          resolved,
+          context,
+          resolvedWorktreeMode: resolvedWorktreeMode,
+          effectivePromotion: promotionStrategy,
+        );
         final iterTitle = '${definition.name} — ${step.name} (${iterIndex + 1}/${collection.length})';
 
         // Dispatch: create the task and await its completion in a detached future.
@@ -2826,7 +3006,7 @@ class WorkflowExecutor {
               context: context,
               promotionAware: promotionAware,
               integrationBranch: integrationBranch,
-              promotionStrategy: strategy?.promotion ?? 'merge',
+              promotionStrategy: promotionStrategy,
               promotedIds: promotedIds,
             ).then((_) {
               inFlight.remove(iterIndex);
@@ -3104,11 +3284,13 @@ class WorkflowExecutor {
 
     // 6. gitStrategy context.
     final strategy = definition.gitStrategy;
-    final promotionAware =
-        strategy?.worktreeMode == 'per-map-item' &&
-        strategy?.promotion != null &&
-        strategy!.promotion != 'none' &&
-        childSteps.any((s) => s.type == 'coding');
+    final resolvedWorktreeMode = strategy?.effectiveWorktreeMode(maxParallel: maxParallel, isMap: true) ?? 'inline';
+    final promotionStrategy = _effectivePromotion(strategy, resolvedWorktreeMode: resolvedWorktreeMode);
+    final promotionAware = _isPromotionAwareScope(
+      strategy,
+      resolvedWorktreeMode: resolvedWorktreeMode,
+      hasCodingSteps: childSteps.any((s) => s.type == 'coding'),
+    );
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds =
         (context['_map.${controllerStep.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
@@ -3169,9 +3351,10 @@ class WorkflowExecutor {
               context: context,
               promotionAware: promotionAware,
               integrationBranch: integrationBranch,
-              promotionStrategy: strategy?.promotion ?? 'merge',
+              promotionStrategy: promotionStrategy,
               promotedIds: promotedIds,
               projectId: effectiveProjectId,
+              controllerMaxParallel: maxParallel,
             ).then((_) {
               inFlight.remove(iterIndex);
             });
@@ -3266,6 +3449,7 @@ class WorkflowExecutor {
     required String promotionStrategy,
     required Set<String> promotedIds,
     required String? projectId,
+    required int? controllerMaxParallel,
   }) async {
     // Build per-iteration context overlay: starts with global context data + map variables.
     // Child steps can see each other's outputs within the iteration via this overlay.
@@ -3295,6 +3479,7 @@ class WorkflowExecutor {
         iterContext,
         stepIndex: childStepIndex,
         mapCtx: mapContext,
+        enclosingMaxParallel: controllerMaxParallel,
       );
 
       if (result == null) {
@@ -3737,11 +3922,6 @@ class WorkflowExecutor {
           final t = await _taskService.get(taskId);
           if (t != null) completer.complete(t);
         }
-      } else if (event.newStatus == TaskStatus.review) {
-        final t = await _taskService.get(taskId);
-        if (!completer.isCompleted && t != null && _isWorkflowOwnedReviewReadyTask(t)) {
-          completer.complete(t);
-        }
       }
     });
 
@@ -4021,7 +4201,7 @@ class WorkflowExecutor {
         runId: run.id,
         projectId: projectId,
         baseRef: baseRef,
-        perMapItem: strategy.worktreeMode == 'per-map-item',
+        perMapItem: _requiresPerMapItemBootstrap(definition, context),
       );
       context['_workflow.git.integration_branch'] = result.integrationBranch;
       if (result.note != null && result.note!.isNotEmpty) {

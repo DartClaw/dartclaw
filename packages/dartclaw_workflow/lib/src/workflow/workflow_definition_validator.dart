@@ -78,11 +78,7 @@ class WorkflowDefinitionValidator {
   static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
   /// Skills that produce artifact files under `context.docs_project_index.artifact_locations.*`.
-  static const _artifactProducingSkills = {
-    'dartclaw-prd',
-    'dartclaw-plan',
-    'dartclaw-spec',
-  };
+  static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
   final _engine = WorkflowTemplateEngine();
 
   /// Step types known by the engine. Any other type produces a warning.
@@ -507,7 +503,7 @@ class WorkflowDefinitionValidator {
     final strategy = definition.gitStrategy;
     if (strategy == null) return;
 
-    const worktreeValues = {'shared', 'per-task', 'per-map-item'};
+    const worktreeValues = {'shared', 'per-task', 'per-map-item', 'inline', 'auto'};
     const promotionValues = {'merge', 'rebase', 'none'};
 
     final worktree = strategy.worktreeMode;
@@ -559,7 +555,8 @@ class WorkflowDefinitionValidator {
     //     value is accepted silently.
     if (hasArtifactProducer) {
       final commitExplicit = artifacts?.commit;
-      if (commitExplicit == false && worktree == 'per-map-item') {
+      final resolvedArtifactWorktreeMode = _resolvedWorktreeModeForValidation(definition, strategy);
+      if (commitExplicit == false && resolvedArtifactWorktreeMode == 'per-map-item') {
         errors.add(
           ValidationError(
             message:
@@ -571,7 +568,7 @@ class WorkflowDefinitionValidator {
             type: ValidationErrorType.invalidReference,
           ),
         );
-      } else if (commitExplicit == false && worktree == 'shared') {
+      } else if (commitExplicit == false && resolvedArtifactWorktreeMode == 'shared') {
         warnings.add(
           ValidationError(
             message:
@@ -642,6 +639,39 @@ class WorkflowDefinitionValidator {
         );
       }
     }
+  }
+
+  String _resolvedWorktreeModeForValidation(WorkflowDefinition definition, WorkflowGitStrategy strategy) {
+    final authored = strategy.worktreeMode?.trim();
+    if (authored != null && authored.isNotEmpty && authored != 'auto') {
+      return authored;
+    }
+
+    final mapLikeSteps = definition.steps.where((step) => step.mapOver != null);
+    if (mapLikeSteps.isEmpty) {
+      return strategy.effectiveWorktreeMode(maxParallel: 1, isMap: false);
+    }
+
+    for (final step in mapLikeSteps) {
+      final maxParallel = _staticMaxParallel(step.maxParallel);
+      if (maxParallel == null || maxParallel > 1) {
+        return strategy.effectiveWorktreeMode(maxParallel: 2, isMap: true);
+      }
+    }
+
+    return strategy.effectiveWorktreeMode(maxParallel: 1, isMap: true);
+  }
+
+  int? _staticMaxParallel(Object? value) {
+    if (value == null) return 1;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return 1;
+      return int.tryParse(trimmed);
+    }
+    return null;
   }
 
   void _validateStepDefaultsOrdering(WorkflowDefinition definition, List<ValidationError> warnings) {

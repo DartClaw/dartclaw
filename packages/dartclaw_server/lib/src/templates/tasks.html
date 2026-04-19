@@ -18,6 +18,12 @@
         <button class="btn btn-primary" type="button" data-task-dialog-open>New Task</button>
       </div>
 
+      <div tl:if="${showWorkflowReviewToggle}" class="task-filter-hint">
+        <a class="btn btn-secondary btn-sm"
+           tl:attr="href=${workflowReviewToggleHref}"
+           tl:text="${includeWorkflowOwned} ? 'Hide workflow artifacts' : 'Show workflow artifacts'">Show workflow artifacts</a>
+      </div>
+
       <div tl:if="${agentOverviewHtml}" tl:utext="${agentOverviewHtml}">agent overview</div>
 
       <div tl:if="${hasTasks}">

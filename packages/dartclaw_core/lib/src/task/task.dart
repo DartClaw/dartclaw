@@ -258,6 +258,10 @@ class Task {
     maxRetries: (json['maxRetries'] as int?) ?? 0,
     retryCount: (json['retryCount'] as int?) ?? 0,
   );
+
+  /// True when this task belongs to a workflow-owned git scope rather than a
+  /// standalone task review/merge flow.
+  bool get isWorkflowOwnedGitTask => workflowRunId != null && configJson['_workflowGit'] is Map;
 }
 
 const _sentinel = Object();

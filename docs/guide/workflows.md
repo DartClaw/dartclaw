@@ -77,7 +77,7 @@ Insert gate expressions where human checkpoints add value — after implementati
     name: Remediate Findings
     type: coding
     project: "{{PROJECT}}"
-    review: always       # requires human accept/reject before continuing
+    review: always       # opt in only when you intentionally want a human stop
     gate: "review.status == accepted"   # only runs if review was accepted
     prompt: |
       Fix the issues identified in this review:
@@ -363,13 +363,12 @@ Workflows can now own git promotion/publish semantics directly through `gitStrat
 gitStrategy:
   bootstrap: true
   worktree:
-    mode: per-map-item     # or shared / per-task
+    mode: auto             # or shared / per-task / per-map-item
     # optional — two-repo profiles only
     externalArtifactMount:
       mode: per-story-copy
       fromProject: "{{DOC_PROJECT}}"
       source: "{{map.item.spec_path}}"
-  promotion: merge
   publish:
     enabled: true
   artifacts:
@@ -381,6 +380,9 @@ gitStrategy:
 Key runtime behavior:
 
 - `bootstrap: true` initializes a workflow-owned integration branch from `BRANCH` (or project default branch).
+- Omitted `review:` now auto-accepts workflow-owned steps by default; use `review: always` only when you really want a human checkpoint.
+- `worktree: auto` resolves to `per-map-item` only when the enclosing map/foreach actually runs with `max_parallel > 1`; otherwise it resolves to `inline`.
+- Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
 - Promotion-aware maps validate dependency IDs before dispatch; unknown IDs fail fast.
@@ -404,7 +406,7 @@ Defaulting truth table:
 |---|---|---|---|
 | ≥1 artifact-producing step | `per-map-item` | `true` | **No** — validator error |
 | ≥1 artifact-producing step | `shared` | `true` | Warning only |
-| ≥1 artifact-producing step | `none` / absent | `true` | Yes |
+| ≥1 artifact-producing step | `inline` / absent | `true` | Yes |
 | No artifact-producing step | any | `false` | Yes (no-op) |
 
 #### Cross-Clone FIS Visibility
@@ -591,7 +593,7 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under per-map-item git isolation/promotion, reviews the aggregated batch, and enters remediation only when the plan-level review reports remaining findings. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
+Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.

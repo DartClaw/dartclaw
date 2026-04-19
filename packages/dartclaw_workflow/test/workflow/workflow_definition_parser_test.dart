@@ -145,6 +145,24 @@ steps:
     prompt: Do something
 ''';
 
+const _autoWorktreeYaml = '''
+name: auto-worktree-workflow
+description: Workflow with auto worktree mode
+gitStrategy:
+  bootstrap: true
+  worktree: auto
+steps:
+  - id: stories
+    name: Stories
+    prompt: Produce stories
+    contextOutputs: [items]
+  - id: implement
+    name: Implement
+    prompt: Implement {{map.item}}
+    mapOver: items
+    max_parallel: 2
+''';
+
 void main() {
   late WorkflowDefinitionParser parser;
 
@@ -230,6 +248,11 @@ steps:
       final step = def.steps.single;
       expect(step.outputs?['verdict']?.outputMode, OutputMode.structured);
       expect(step.outputs?['verdict']?.presetName, 'verdict');
+    });
+
+    test('parses gitStrategy.worktree: auto', () {
+      final def = parser.parse(_autoWorktreeYaml);
+      expect(def.gitStrategy?.worktreeMode, 'auto');
     });
 
     test('rejects removed executionMode at workflow root', () {

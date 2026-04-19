@@ -305,11 +305,7 @@ void main() {
       type: TaskType.coding,
       autoStart: true,
       workflowRunId: 'wf-inline',
-      configJson: {
-        '_workflowStepType': 'coding',
-        '_workflowStepId': 'plan',
-        '_workflowStructuredSchema': schema,
-      },
+      configJson: {'_workflowStepType': 'coding', '_workflowStepId': 'plan', '_workflowStructuredSchema': schema},
       provider: 'claude',
     );
 
@@ -371,11 +367,7 @@ void main() {
       type: TaskType.coding,
       autoStart: true,
       workflowRunId: 'wf-fallback',
-      configJson: {
-        '_workflowStepType': 'coding',
-        '_workflowStepId': 'plan',
-        '_workflowStructuredSchema': schema,
-      },
+      configJson: {'_workflowStepType': 'coding', '_workflowStepId': 'plan', '_workflowStructuredSchema': schema},
       provider: 'claude',
     );
 
@@ -447,8 +439,11 @@ void main() {
     final mainAppendIndex = mainArgs.indexOf('--append-system-prompt');
     expect(mainAppendIndex, isNot(-1), reason: 'main turn must forward appendSystemPrompt');
     expect(mainArgs[mainAppendIndex + 1], 'PAYLOAD');
-    expect(extractionArgs.contains('--append-system-prompt'), isFalse,
-        reason: 'extraction turn must not carry appendSystemPrompt');
+    expect(
+      extractionArgs.contains('--append-system-prompt'),
+      isFalse,
+      reason: 'extraction turn must not carry appendSystemPrompt',
+    );
   });
 
   test('invokes auto-accept callback with the task id after completion when provided', () async {
@@ -978,6 +973,88 @@ void main() {
     expect(worktreeManager.createCallCount, 1, reason: 'shared workflow must reuse the same workflow worktree');
     expect(second?.worktreeJson?['path'], first?.worktreeJson?['path']);
     expect(second?.worktreeJson?['branch'], integrationBranch);
+  });
+
+  test('inline workflow coding tasks reuse the project checkout without creating a worktree', () async {
+    worker.responseText = 'Done.';
+
+    final localRepo = Directory.systemTemp.createTempSync('task_executor_inline_repo_');
+    addTearDown(() {
+      if (localRepo.existsSync()) localRepo.deleteSync(recursive: true);
+    });
+    await Process.run('git', ['init'], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', '-b', 'main'], workingDirectory: localRepo.path);
+    File(p.join(localRepo.path, 'README.md')).writeAsStringSync('inline');
+    await Process.run('git', ['add', '.'], workingDirectory: localRepo.path);
+    await Process.run(
+      'git',
+      ['commit', '-m', 'init', '--no-gpg-sign'],
+      workingDirectory: localRepo.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Test',
+        'GIT_AUTHOR_EMAIL': 'test@test.com',
+        'GIT_COMMITTER_NAME': 'Test',
+        'GIT_COMMITTER_EMAIL': 'test@test.com',
+      },
+    );
+    const integrationBranch = 'dartclaw/workflow/runinline';
+    await Process.run('git', ['checkout', '-b', integrationBranch], workingDirectory: localRepo.path);
+    await Process.run('git', ['checkout', 'main'], workingDirectory: localRepo.path);
+
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: '',
+          localPath: localRepo.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-inline-workflow',
+      title: 'Inline workflow step',
+      description: 'Should run on the workflow branch without a separate worktree.',
+      type: TaskType.coding,
+      autoStart: true,
+      projectId: 'my-app',
+      workflowRunId: 'run-inline',
+      configJson: const {
+        '_baseRef': integrationBranch,
+        '_workflowGit': {'worktree': 'inline'},
+      },
+    );
+
+    await projectExecutor.pollOnce();
+
+    final task = await tasks.get('task-inline-workflow');
+    final head = await Process.run('git', [
+      'symbolic-ref',
+      '--quiet',
+      '--short',
+      'HEAD',
+    ], workingDirectory: localRepo.path);
+    expect(worktreeManager.createCallCount, 0);
+    expect(task?.worktreeJson, isNull);
+    expect((head.stdout as String).trim(), integrationBranch);
   });
 
   test('per-map-item post-map coding step attaches to integration branch, map iteration does not', () async {

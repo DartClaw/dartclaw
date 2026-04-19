@@ -23,8 +23,11 @@ void main() {
       expect(plan.model, '@planner');
       // Explicit role aliases are preserved — the resolver applies `stepDefaults`
       // patterns but leaves role aliases to runtime resolution.
-      expect(resolved.stepDefaults, isNull,
-          reason: 'resolved definition drops stepDefaults (already merged into each step)');
+      expect(
+        resolved.stepDefaults,
+        isNull,
+        reason: 'resolved definition drops stepDefaults (already merged into each step)',
+      );
     });
 
     test('round-trips the three built-in workflows through emitYaml → parser', () async {
@@ -34,16 +37,15 @@ void main() {
         final yaml = resolver.emitYaml(resolved);
         // Parse the resolved YAML and assert step ids, count, and provider merges match.
         final reparsed = parser.parse(yaml, sourcePath: 'resolved:$name');
-        expect(reparsed.steps.map((s) => s.id).toList(), resolved.steps.map((s) => s.id).toList(),
-            reason: 'step ids must match after round-trip for $name');
+        expect(
+          reparsed.steps.map((s) => s.id).toList(),
+          resolved.steps.map((s) => s.id).toList(),
+          reason: 'step ids must match after round-trip for $name',
+        );
         expect(reparsed.steps.length, resolved.steps.length);
         // Validate structurally to ensure the emitted YAML is still a valid workflow.
         final report = validator.validate(reparsed);
-        expect(
-          report.errors,
-          isEmpty,
-          reason: 'resolved $name emits YAML that fails validation: ${report.errors}',
-        );
+        expect(report.errors, isEmpty, reason: 'resolved $name emits YAML that fails validation: ${report.errors}');
       }
     });
 
@@ -80,31 +82,45 @@ void main() {
       expect(reparsed.steps.first.entryGate, 'prd_source == synthesized');
     });
 
+    test('round-trips worktree: auto through emitYaml and parser', () {
+      const def = WorkflowDefinition(
+        name: 'auto-worktree-demo',
+        description: 'test',
+        steps: [
+          WorkflowStep(id: 'stories', name: 'Stories', prompts: ['Produce stories'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{map.item}}'],
+            mapOver: 'items',
+            maxParallel: 2,
+          ),
+        ],
+        gitStrategy: WorkflowGitStrategy(bootstrap: true, worktree: WorkflowGitWorktreeStrategy(mode: 'auto')),
+      );
+
+      final yaml = resolver.emitYaml(resolver.resolve(def));
+      final reparsed = parser.parse(yaml, sourcePath: 'resolved:auto-worktree-demo');
+      expect(reparsed.gitStrategy?.worktreeMode, 'auto');
+    });
+
     test('variable substitution replaces {{VAR}} but leaves {{context.*}} alone', () {
       final def = WorkflowDefinition(
         name: 'var-demo',
         description: 'test',
-        variables: {
-          'REQUIREMENTS': const WorkflowVariable(required: true),
-        },
+        variables: {'REQUIREMENTS': const WorkflowVariable(required: true)},
         steps: [
           const WorkflowStep(
             id: 'step-1',
             name: 'Example',
             type: 'analysis',
-            prompts: [
-              'Build {{REQUIREMENTS}} using {{context.prior_step.output}}.',
-            ],
+            prompts: ['Build {{REQUIREMENTS}} using {{context.prior_step.output}}.'],
             contextOutputs: ['result'],
           ),
         ],
       );
-      final resolved =
-          resolver.resolve(def, variableBindings: {'REQUIREMENTS': 'a new API endpoint'});
-      expect(
-        resolved.steps.first.prompts!.first,
-        'Build a new API endpoint using {{context.prior_step.output}}.',
-      );
+      final resolved = resolver.resolve(def, variableBindings: {'REQUIREMENTS': 'a new API endpoint'});
+      expect(resolved.steps.first.prompts!.first, 'Build a new API endpoint using {{context.prior_step.output}}.');
     });
   });
 }

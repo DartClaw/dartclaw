@@ -109,7 +109,9 @@ enum StepReviewMode {
   /// Step always enters review status.
   always,
 
-  /// Only coding steps enter review (default).
+  /// Workflow-authored default. The generic meaning is "review coding work",
+  /// but the workflow executor now maps omitted/codingOnly steps to
+  /// auto-accept unless the YAML explicitly opts into `always`.
   codingOnly,
 
   /// Step auto-accepts on completion.
@@ -801,15 +803,14 @@ class WorkflowGitExternalArtifactMount {
     if (readonly != null) 'readonly': readonly,
   };
 
-  factory WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic> json) =>
-      WorkflowGitExternalArtifactMount(
-        mode: (json['mode'] as String?) ?? 'per-story-copy',
-        fromProject: json['fromProject'] as String,
-        source: json['source'] as String?,
-        fromPath: json['fromPath'] as String?,
-        toPath: json['toPath'] as String?,
-        readonly: json['readonly'] as bool?,
-      );
+  factory WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic> json) => WorkflowGitExternalArtifactMount(
+    mode: (json['mode'] as String?) ?? 'per-story-copy',
+    fromProject: json['fromProject'] as String,
+    source: json['source'] as String?,
+    fromPath: json['fromPath'] as String?,
+    toPath: json['toPath'] as String?,
+    readonly: json['readonly'] as bool?,
+  );
 }
 
 /// Publish strategy configuration nested under [WorkflowGitStrategy].
@@ -827,7 +828,7 @@ class WorkflowGitPublishStrategy {
 
 /// Worktree strategy configuration nested under [WorkflowGitStrategy].
 class WorkflowGitWorktreeStrategy {
-  /// Worktree mode (`shared`, `per-task`, `per-map-item`).
+  /// Worktree mode (`shared`, `per-task`, `per-map-item`, `inline`, `auto`).
   final String? mode;
 
   /// Optional cross-clone external artifact mount (two-repo profiles).
@@ -867,8 +868,8 @@ class WorkflowGitStrategy {
   /// Whether workflow startup should bootstrap a workflow-owned feature branch.
   final bool? bootstrap;
 
-  /// Worktree strategy (`shared`, `per-task`, `per-map-item`) plus nested
-  /// worktree-only settings.
+  /// Worktree strategy (`shared`, `per-task`, `per-map-item`, `inline`,
+  /// `auto`) plus nested worktree-only settings.
   final WorkflowGitWorktreeStrategy? worktree;
 
   /// Promotion strategy (`merge`, `rebase`, `none`).
@@ -890,6 +891,25 @@ class WorkflowGitStrategy {
 
   /// Convenience projection of the nested external artifact mount.
   WorkflowGitExternalArtifactMount? get externalArtifactMount => worktree?.externalArtifactMount;
+
+  /// Resolves the authored worktree mode to the runtime mode for a specific
+  /// scope. Omitted worktree config is treated as `auto`.
+  ///
+  /// `auto` resolves to `per-map-item` only for map/foreach scopes whose
+  /// effective `maxParallel` is greater than 1. Runtime callers also pass
+  /// `null` for the `"unlimited"` path, which is treated as parallel fan-out.
+  /// All other `auto` cases resolve to `inline`.
+  String effectiveWorktreeMode({required int? maxParallel, required bool isMap}) {
+    final authored = worktreeMode?.trim();
+    if (authored == null || authored.isEmpty || authored == 'auto') {
+      if (isMap && maxParallel == null) {
+        return 'per-map-item';
+      }
+      final effectiveMaxParallel = maxParallel ?? 1;
+      return isMap && effectiveMaxParallel > 1 ? 'per-map-item' : 'inline';
+    }
+    return authored;
+  }
 
   const WorkflowGitStrategy({
     this.bootstrap,

@@ -261,6 +261,43 @@ void main() {
       expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
     });
 
+    test('accepting workflow-owned git review tasks skips merge and cleanup', () async {
+      await tasks.create(
+        id: 'task-workflow-review',
+        title: 'Workflow review task',
+        description: 'Workflow review task',
+        type: TaskType.coding,
+        autoStart: true,
+        workflowRunId: 'run-123',
+        now: DateTime.parse('2026-03-13T10:00:00Z'),
+        configJson: const {
+          '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
+        },
+      );
+      await tasks.transition('task-workflow-review', TaskStatus.running, now: DateTime.parse('2026-03-13T10:05:00Z'));
+      await tasks.transition('task-workflow-review', TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
+      await tasks.updateFields(
+        'task-workflow-review',
+        worktreeJson: const {
+          'path': '/tmp/worktree',
+          'branch': 'dartclaw/workflow/run123/story',
+          'createdAt': '2026-03-13T10:00:00.000Z',
+        },
+      );
+      final mergeExecutor = _RecordingMergeExecutor(
+        result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-workflow-review): accept'),
+      );
+      final worktreeManager = _RecordingWorktreeManager();
+      final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
+
+      final result = await service.review('task-workflow-review', 'accept');
+
+      expect(result, const TypeMatcher<ReviewSuccess>());
+      expect((await tasks.get('task-workflow-review'))!.status, TaskStatus.accepted);
+      expect(mergeExecutor.callCount, 0);
+      expect(worktreeManager.cleanedTaskIds, isEmpty);
+    });
+
     test('returns merge conflict and persists conflict artifacts', () async {
       final tempDir = await Directory.systemTemp.createTemp('dartclaw_task_review_conflict_');
       addTearDown(() async {

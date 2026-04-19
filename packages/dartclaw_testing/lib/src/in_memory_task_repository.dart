@@ -133,6 +133,7 @@ class InMemoryTaskRepository implements TaskRepository {
       sessionId: task.sessionId,
       configJson: task.configJson,
       worktreeJson: task.worktreeJson,
+      agentExecutionId: task.agentExecutionId,
       projectId: task.projectId ?? current.projectId,
     );
     return true;

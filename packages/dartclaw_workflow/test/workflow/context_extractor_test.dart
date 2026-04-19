@@ -17,15 +17,19 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ContextExtractor;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryWorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show AgentExecution, WorkflowStepExecution;
 
 void main() {
   late Directory tempDir;
   late String sessionsDir;
   late TaskService taskService;
+  late SqliteAgentExecutionRepository agentExecutions;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late MessageService messageService;
   late SessionService sessionService;
   late ContextExtractor extractor;
@@ -35,10 +39,22 @@ void main() {
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    taskService = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    final db = sqlite3.openInMemory();
+    agentExecutions = SqliteAgentExecutionRepository(db);
+    taskService = TaskService(
+      SqliteTaskRepository(db),
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+    );
+    workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
-    extractor = ContextExtractor(taskService: taskService, messageService: messageService, dataDir: tempDir.path);
+    extractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowStepExecutionRepository: workflowStepExecutions,
+    );
   });
 
   tearDown(() async {
@@ -391,17 +407,26 @@ void main() {
   });
 
   test('structured output mode reads provider payload from task config', () async {
+    await agentExecutions.create(const AgentExecution(id: 'ae-task-structured-config'));
     await taskService.create(
       id: 'task-structured-config',
       title: 'Test',
       description: 'Test',
       type: TaskType.research,
       autoStart: true,
-      configJson: const {
-        '_workflowStructuredOutputPayload': {
-          'verdict': {'pass': true, 'findings_count': 0, 'findings': <Map<String, dynamic>>[], 'summary': 'Clean'},
-        },
-      },
+      agentExecutionId: 'ae-task-structured-config',
+      workflowRunId: 'wf-structured-config',
+    );
+    await workflowStepExecutions.create(
+      const WorkflowStepExecution(
+        taskId: 'task-structured-config',
+        agentExecutionId: 'ae-task-structured-config',
+        workflowRunId: 'wf-structured-config',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson:
+            '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
+      ),
     );
     final task = (await taskService.get('task-structured-config'))!;
 

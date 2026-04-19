@@ -1,7 +1,7 @@
 name: dartclaw_storage
 description: SQLite-backed memory storage, search index, and pruning services for DartClaw agents.
 publish_to: none
-version: 0.9.0
+version: 0.10.0
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_storage
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues

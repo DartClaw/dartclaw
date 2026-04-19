@@ -19,7 +19,12 @@ void main() {
   late Handler handler;
 
   setUp(() {
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+    final db = openTaskDbInMemory();
+    tasks = TaskService(
+      SqliteTaskRepository(db),
+      agentExecutionRepository: SqliteAgentExecutionRepository(db),
+      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+    );
     handler = taskRoutes(tasks).call;
   });
 
@@ -39,7 +44,10 @@ void main() {
 
     expect(response.statusCode, 201);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
-    expect(body['provider'], 'codex');
+    // Per S35, provider is canonical on the nested AgentExecution object rather
+    // than a top-level Task field.
+    final agentExecution = body['agentExecution'] as Map<String, dynamic>?;
+    expect(agentExecution?['provider'], 'codex');
 
     final stored = await tasks.get(body['id'] as String);
     expect(stored?.provider, 'codex');

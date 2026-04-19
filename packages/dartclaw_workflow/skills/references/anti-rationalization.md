@@ -14,6 +14,7 @@ Keep this as a **shared reference**, not duplicated inside every skill. Link it 
 | "I know this API from memory." | Confidence decays more slowly than accuracy. Framework patterns, signatures, and best practices change. Verify before baking stale patterns into code. |
 | "This failing check is probably unrelated." | Stop-the-line applies. Pushing past a failing test or build makes every later result less trustworthy. |
 | "I'll update status/docs/checklists at the end." | Deferred bookkeeping drifts from reality. The source of truth is most reliable when updated immediately at the gate where work is verified. |
+| "I'll report this as complete with a caveat about what's broken." | Reporting a non-green tree, half-applied migration, or unresolved failure is not completion — it shifts the work onto the user. Finish it, or surface a real external blocker per `execution-discipline.md`. Broken is not Done. |
 
 ## Use It For
 

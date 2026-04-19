@@ -1,16 +1,17 @@
 # FIS Authoring Guidelines
 
-Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by the `dartclaw-spec` skill (standalone) and the `dartclaw-plan` skill (batch FIS generation).
+Shared authoring guidelines for generating Feature Implementation Specifications (FIS). Referenced by `spec` (standalone) and `plan` (batch FIS generation).
 
 
 ## FIS Authoring Principles
 
-Describe outcomes and goals, not code changes. Reference existing patterns (file:line) and docs instead of inlining them. Keep it information-dense: decisions not explanations, keywords not prose, no code snippets >5 lines, no file tree listings.
+> FIS is an executable spec: intent over implementation, references over content, decisions not explanations.
+> No code snippets >5 lines, no inline docs, no verbose prose, no file trees — reference existing patterns and describe outcomes.
 
 
 ## Technical Research Separation
 
-Technical research that supports the FIS but doesn't require intent review belongs in a **Technical Research** companion document (`technical-research.md`) stored alongside the FIS. This keeps the FIS reviewable for intent correctness while preserving implementation-enabling details for the executing agent.
+Technical research that supports the FIS but doesn't require intent review belongs in a **Technical Research** companion document (`.technical-research.md`) stored alongside the FIS. This keeps the FIS reviewable for intent correctness while preserving implementation-enabling details for the executing agent.
 
 ### What stays in the FIS (needs human intent review)
 - Success criteria, scenarios, scope decisions
@@ -29,32 +30,32 @@ Technical research that supports the FIS but doesn't require intent review belon
 
 **Guiding principle**: If a reviewer needs to validate *"are we building the right thing?"* → FIS. If the detail helps the executing agent *"build the thing right"* → Technical Research.
 
-When writing the FIS, reference the technical research rather than inlining findings. Example: `See [Technical Research](./technical-research.md#architecture-analysis) for detailed trade-off analysis`.
+When writing the FIS, reference the technical research rather than inlining findings. Example: `See [Technical Research](./.technical-research.md#architecture-analysis) for detailed trade-off analysis`.
 
 ### Verification during execution
 
-Technical research is a point-in-time snapshot. The executing agent should treat findings as leads to verify, not facts to trust -- file:line references, API behaviors, library gotchas, and architecture patterns may all be stale.
+Technical research is a **point-in-time snapshot** — codebase patterns, API behaviors, and library versions change. The executing agent MUST treat research findings as leads to verify, not facts to trust:
+- **File:line references** may be stale — verify they still exist and match the described pattern
+- **API behaviors** described in research should be confirmed against the current codebase or docs
+- **Library gotchas** may be version-specific — check the project's actual dependency versions
+- **Architecture patterns** referenced should be confirmed they still exist in the codebase
+
+A research finding that doesn't match reality is a signal to investigate, not to force-fit the research into the implementation.
 
 
 ## Scenarios and Proof-of-Work
 
-Scenarios are the bridge between requirements and tests. Borrowed from BDD's core insight: a well-written scenario IS both the requirement and the test specification — no translation gap, no drift between "what we want" and "how we verify it."
+Each scenario: one behavior, concrete Given/When/Then using actual codebase identifiers. Cover happy path first, then edge cases, then at least one error case. 3-7 scenarios is the sweet spot. If you can't write the **Then** clause, surface it as ambiguity.
 
-**Writing effective scenarios:**
-- Each scenario should illustrate one behavior concretely. The **Given** makes preconditions explicit (what must already be true), the **When** names the trigger (what happens), and the **Then** states observable outcomes (what must be true after).
-- Use actual codebase identifiers (method names, event names, status values, domain terms) — not abstract descriptions. This is ubiquitous language in action.
-- Cover the happy path first, then edge cases (boundaries, empty states, concurrent access), then at least one error/failure case. 3-7 scenarios is the sweet spot.
-- If you can't write the **Then** clause, you don't understand the requirement yet — surface this as ambiguity rather than inventing an answer.
+**Negative-path checklist** — after drafting scenarios, review for these three categories. Add one scenario per uncovered category (the riskiest gap), not one per parameter. The 3-7 target still applies.
 
-**Negative-path checklist** — after drafting scenarios, review for these three categories of missing coverage. Don't add a scenario per parameter — look for the *riskiest* gap in each category and add one scenario if the category is completely uncovered. The 3-7 scenario target still applies.
+- **Omitted optional inputs**: null/absent case producing a fragile default (empty string instead of null, zero instead of absent)?
+- **No-match cases**: selectors, filters, or lookups where "nothing matches" falls through to an unintended default?
+- **Rejection paths**: external integration points where unmatched/invalid input should be explicitly ignored or rejected?
 
-- **Omitted optional inputs**: Are there optional parameters where the null/absent case could produce a fragile default (empty string instead of null, zero instead of absent)? One scenario covering the most representative omitted-input case is sufficient.
-- **No-match cases**: Are there selectors, filters, or lookups where "nothing matches" could fall through to an unintended default? A `firstWhere` with an `orElse` fallback that silently proceeds is a bug if the intent is ignore/reject.
-- **Rejection paths**: Are there external integration points (webhooks, API calls) where unmatched/invalid input should be explicitly ignored or rejected? One scenario covering the reject/ignore path is sufficient.
+**Proof-of-Work**: Every Success Criterion must have a proof path — at least one scenario (behavioral) or task Verify line (structural). The FIS locks down what proof is required; exec-spec produces and verifies it. Testing Strategy maps scenarios to task IDs so proof is produced incrementally, not deferred.
 
-**Proof-of-Work**: every Success Criterion must have a proof path -- at least one scenario (for behavioral criteria) or a task Verify line (for structural criteria). The Testing Strategy maps scenarios to task IDs so proof is produced incrementally. A criterion with no proof path is a spec gap.
-
-**Traceability**: Scenarios form a chain across the workflow. Plan stories may include **Key Scenarios** — one-line behavioral seeds (happy path, edge case, error). During spec, these seeds are elaborated into full Given/When/Then scenarios. During execution, scenarios become test cases (proof-of-work). If a plan story has Key Scenarios, every seed should map to at least one FIS scenario — don't silently drop seeds.
+**Traceability**: Plan stories may include **Key Scenarios** (one-line behavioral seeds). During spec, seeds are elaborated into full scenarios. Every plan Key Scenario seed must map to at least one FIS scenario — don't silently drop seeds.
 
 ## Execution Contract
 
@@ -76,17 +77,14 @@ Treat this section as the "how to execute this spec safely" footer. Keep it shor
 3. Each task: atomic, self-contained, with file:line references to patterns to follow. Order tasks so later tasks can build on earlier ones without hidden dependencies (see Task Ordering below)
 4. Reference patterns, don't reproduce them
 5. Each task must include a **`Verify:`** line — a concrete, observable check proving the outcome. **Verify lines must assert the described behavior, not just build success.** At least one assertion per task should fail if the outcome is not achieved:
-   - Weak: `dart analyze clean` (proves compilation, not behavior)
    - Weak: `tests pass` (proves existing tests work, not that new behavior exists)
-   - Strong: `Integration test: follow-up turn receives resume: true at harness boundary`
    - Strong: `Test: effectiveConcurrency(3) returns 3 when maxParallel is 5 — AND dispatch loop calls it`
-   Where applicable, trace verification back to the feature's Success Criteria. Reference: `${CLAUDE_PLUGIN_ROOT}/references/verification-patterns.md` for stub-detection and wiring-check patterns.
 
-   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line should check the prescribed detail -- not just that "output exists."
+   Where applicable, trace verification back to the feature's Success Criteria. Reference: `../references/verification-patterns.md` for stub-detection and wiring-check patterns.
+
+   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line MUST check the prescribed detail — not just that "output exists." If the proof check does not name the prescribed detail, it is easy for the implementation to satisfy the task in spirit while missing the exact contract.
    - Weak: `Verify: traces list shows token breakdown` (doesn't name the columns)
    - Strong: `Verify: traces list output includes columns IN_TOKENS, OUT_TOKENS, CACHE_R, CACHE_W`
-   - Weak: `Verify: pool summary displays after agent list` (doesn't specify format)
-   - Strong: `Verify: pool summary matches format "Pool: N runners, N active, N available"`
    - Weak: `Verify: config class exists in config package`
    - Strong: `Verify: GitHubWebhookConfig exists at packages/dartclaw_config/lib/src/github_config.dart`
 
@@ -103,16 +101,16 @@ After defining individual tasks (TI01, TI02...), order them so the implementatio
 
 Put foundational tasks first, then widening tasks, then polish/integration tasks. Keep related tasks adjacent when they share context, but don't introduce separate grouping syntax unless the document genuinely needs it for reader clarity.
 
-When a later task consumes something from an earlier task (an API, a type, a component), state this explicitly. Example: if TI01 creates `effectiveConcurrency()`, TI03 should say "Dispatch loop uses `effectiveConcurrency()` from TI01 for concurrency cap."
+When a later task must consume something from an earlier task (an API, a type, a component), state this explicitly in the later task's description. Don't rely on the executing agent discovering it from context. Example: if TI01 creates `effectiveConcurrency()`, TI03 should say "Dispatch loop MUST use `effectiveConcurrency()` from TI01 for concurrency cap."
 
 
 ## Plan-Spec Alignment Check (when FIS originated from a plan story)
 
 Before finalizing, cross-check each plan acceptance criterion against the FIS:
 - For each acceptance criterion in the plan story, verify the FIS Success Criteria can deliver it
-- If any criterion cannot be fully satisfied (due to scope exclusions, architectural constraints, or "What We're NOT Doing" items), either:
+- If any criterion cannot be fully satisfied (due to scope exclusions, architectural constraints, or "What We're NOT Doing" items), you MUST either:
   (a) Expand the FIS scope to address the criterion, or
-  (b) Add a scope note to the FIS explaining the narrowing (e.g., "replace-mode harnesses only; see Constraints") and flag it for the `dartclaw-plan` cross-cutting review pass
+  (b) Add a scope note to the FIS explaining the narrowing (e.g., "replace-mode harnesses only; see Constraints") and flag it for the `dartclaw-plan` cross-cutting review
 - Do not finalize a FIS that silently narrows a plan requirement
 
 
@@ -120,7 +118,7 @@ Before finalizing, cross-check each plan acceptance criterion against the FIS:
 
 Forward coverage (above) catches plan criteria the FIS misses. Reverse coverage catches the opposite: FIS work no upstream asked for.
 
-> Distinct from the Self-Check's in-scope coverage check below (internal: In Scope → coverage within the FIS). Reverse Coverage is external: Success Criterion → upstream source.
+> Distinct from Self-Check's **Scope-consistency** (internal: In Scope → coverage within the FIS). Reverse Coverage is external: Success Criterion → upstream source.
 
 For each FIS Success Criterion, name the plan acceptance criterion, PRD outcome, or (standalone) feature-request element it serves. Any unnamed criterion is **phantom scope**.
 
@@ -136,14 +134,15 @@ Do not finalize a FIS with Success Criteria the upstream contract doesn't justif
 ## Self-Check
 
 Quick sanity check before saving:
-- [ ] FIS follows template structure; tasks are atomic with file:line references and explicit inter-task dependencies
-- [ ] ADR states the decision clearly
-- [ ] Scenarios cover happy path, edge cases, and at least one error case; plan Key Scenario seeds mapped; negative-path checklist applied (omitted inputs, no-match, rejection paths)
-- [ ] Every Success Criterion has a proof path (scenario or Verify line); every in-scope item exercised (internal coverage — paired with the Reverse Coverage Check above for external upstream sourcing)
-- [ ] "What We're NOT Doing" is specific, justified, and does not block a Success Criterion
-- [ ] Output formats specified concretely in scenarios (key fields, structure -- not just "returns JSON")
-- [ ] No over-specification, no code snippets >5 lines
-- [ ] Size check: 100-300 lines typical; >400 lines or >12 tasks signals a split needed
+- [ ] FIS follows template structure; ADR clearly states the decision
+- [ ] All tasks are atomic, ordered coherently, with file:line references and explicit cross-task dependencies
+- [ ] Scenarios cover happy path, edge cases, and at least one error case; negative-path checklist applied; all plan Key Scenario seeds mapped (if from a plan story)
+- [ ] Every Success Criterion has a proof path — at least one scenario (behavioral) or task Verify line (structural)
+- [ ] **Scope-consistency** (internal coverage; paired with the Reverse Coverage Check above for external upstream sourcing): every "In Scope" item is exercised by a scenario or task Verify line; items with no coverage are phantom features (remove) or underspecified (add coverage)
+- [ ] **What We're NOT Doing** is specific, intentional, and no exclusion blocks or contradicts a Success Criterion
+- [ ] **Output format completeness**: if structured output is a Success Criterion, at least one scenario **Then** clause specifies the output shape — not just "returns JSON"
+- [ ] No over-specification, no code snippets >5 lines — describe outcomes and reference patterns
+- [ ] **Size check**: 100-300 lines is the sweet spot; >400 lines or >12 tasks means split upstream. Spec-time pivot only for standalone requests, not existing plan stories.
 
 ### Confidence Check
 Rate your FIS 1-10 for single-pass implementation success:

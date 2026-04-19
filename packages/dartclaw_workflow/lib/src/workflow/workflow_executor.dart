@@ -6,7 +6,10 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         ActionNode,
+        AgentExecution,
+        AgentExecutionRepository,
         EventBus,
+        ExecutionRepositoryTransactor,
         KvService,
         LoopNode,
         LoopIterationCompletedEvent,
@@ -23,6 +26,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ParallelGroupCompletedEvent,
         StepSkippedEvent,
         Task,
+        TaskRepository,
         TaskStatus,
         TaskStatusChangedEvent,
         TaskType,
@@ -38,6 +42,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent,
+        WorkflowStepExecution,
+        WorkflowStepExecutionRepository,
         WorkflowTaskService,
         atomicWriteJson;
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
@@ -128,6 +134,10 @@ class WorkflowExecutor {
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
   final SkillRegistry? _skillRegistry;
+  final TaskRepository? _taskRepository;
+  final AgentExecutionRepository? _agentExecutionRepository;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final ExecutionRepositoryTransactor? _executionTransactor;
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
@@ -385,6 +395,10 @@ class WorkflowExecutor {
     WorkflowStepOutputTransformer? outputTransformer,
     WorkflowRoleDefaults? roleDefaults,
     SkillRegistry? skillRegistry,
+    TaskRepository? taskRepository,
+    AgentExecutionRepository? agentExecutionRepository,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    ExecutionRepositoryTransactor? executionTransactor,
     Uuid? uuid,
   }) : _taskService = taskService,
        _eventBus = eventBus,
@@ -398,6 +412,10 @@ class WorkflowExecutor {
        _turnAdapter = turnAdapter,
        _outputTransformer = outputTransformer,
        _skillRegistry = skillRegistry,
+       _taskRepository = taskRepository,
+       _agentExecutionRepository = agentExecutionRepository,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _executionTransactor = executionTransactor,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
        _uuid = uuid ?? const Uuid();
@@ -1716,8 +1734,7 @@ class WorkflowExecutor {
       taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
       final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
       if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
-        taskConfig = {...taskConfig};
-        WorkflowTaskConfig.writeContinueProviderSessionId(taskConfig, prevProviderSessionId);
+        taskConfig = {...taskConfig, '_continueProviderSessionId': prevProviderSessionId};
       }
     }
     final taskId = _uuid.v4();
@@ -1788,28 +1805,26 @@ class WorkflowExecutor {
     final structuredSchema = _buildStructuredOutputEnvelopeSchema(step);
     taskConfig = {...taskConfig};
     if (followUpPrompts.isNotEmpty) {
-      WorkflowTaskConfig.writeFollowUpPrompts(taskConfig, followUpPrompts);
+      taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;
     }
     if (structuredSchema != null) {
-      WorkflowTaskConfig.writeStructuredSchema(taskConfig, structuredSchema);
+      taskConfig['_workflowStructuredSchema'] = structuredSchema;
     }
-    WorkflowTaskConfig.writeWorkflowStepId(taskConfig, step.id);
 
     try {
-      await _taskService.create(
-        id: taskId,
+      await _createWorkflowTaskTriple(
+        taskId: taskId,
+        run: run,
+        step: step,
+        stepIndex: stepIndex,
         title: title,
         description: firstTaskPrompt,
         type: _mapStepType(step.type),
-        autoStart: true,
         provider: effectiveProvider,
         projectId: effectiveProjectId,
         maxTokens: resolved.maxTokens,
         maxRetries: resolved.maxRetries ?? 0,
-        workflowRunId: run.id,
-        stepIndex: stepIndex,
-        configJson: taskConfig,
-        trigger: 'workflow',
+        taskConfig: taskConfig,
       );
     } catch (e, st) {
       await sub.cancel();
@@ -1823,11 +1838,17 @@ class WorkflowExecutor {
 
     late Task finalTask;
     try {
-      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub);
+      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub, runId: run.id);
     } on TimeoutException {
       final msg = 'Step "${step.name}" timed out after ${step.timeoutSeconds}s';
       _log.warning("Workflow '${run.id}': $msg");
       await _pauseRun(run, msg);
+      return null;
+    } on StateError catch (e) {
+      // Run transitioned away from `running` (e.g. pause/cancel) while we were
+      // waiting for the step task to complete — the status change already took
+      // effect on the run; just bail out without re-pausing.
+      _log.info("Workflow '${run.id}': step '${step.name}' wait aborted: ${e.message}");
       return null;
     } catch (e, st) {
       final msg = "Step '${step.name}' wait failed: $e";
@@ -1865,7 +1886,10 @@ class WorkflowExecutor {
         );
       }
     }
-    final providerSessionId = WorkflowTaskConfig.readProviderSessionId(finalTask.configJson);
+    final providerSessionId =
+        _workflowStepExecutionRepository == null
+            ? null
+            : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
     if (providerSessionId != null) {
       outputs['${step.id}.providerSessionId'] = providerSessionId;
     }
@@ -2221,13 +2245,207 @@ class WorkflowExecutor {
 
   // ── Shared helpers ──────────────────────────────────────────────────────────
 
+  Future<void> _createWorkflowTaskTriple({
+    required String taskId,
+    required WorkflowRun run,
+    required WorkflowStep step,
+    required int stepIndex,
+    required String title,
+    required String description,
+    required TaskType type,
+    required String? provider,
+    required String? projectId,
+    required int? maxTokens,
+    required int maxRetries,
+    required Map<String, dynamic> taskConfig,
+  }) async {
+    final taskRepository = _taskRepository;
+    final agentExecutionRepository = _agentExecutionRepository;
+    final workflowStepExecutionRepository = _workflowStepExecutionRepository;
+    final executionTransactor = _executionTransactor;
+    if (taskRepository == null ||
+        agentExecutionRepository == null ||
+        workflowStepExecutionRepository == null ||
+        executionTransactor == null) {
+      throw StateError(
+        'Workflow task spawn requires AgentExecution + WorkflowStepExecution persistence. '
+        'Wire taskRepository, agentExecutionRepository, workflowStepExecutionRepository, and '
+        'executionTransactor into WorkflowExecutor before executing workflows.',
+      );
+    }
+
+    final timestamp = DateTime.now();
+    final agentExecutionId = _uuid.v4();
+    final agentExecution = AgentExecution(
+      id: agentExecutionId,
+      provider: _trimmedString(provider),
+      model: _trimmedString(taskConfig['model']),
+      workspaceDir: _resolveWorkflowWorkspaceDir(),
+      budgetTokens: maxTokens,
+    );
+    final workflowStepExecution = _buildWorkflowStepExecutionFromConfig(
+      taskId: taskId,
+      agentExecutionId: agentExecutionId,
+      runId: run.id,
+      stepIndex: stepIndex,
+      step: step,
+      taskConfig: taskConfig,
+    );
+    final sanitizedTaskConfig = _stripWorkflowStepConfig(taskConfig);
+    final queuedTask = Task(
+      id: taskId,
+      title: title,
+      description: description,
+      type: type,
+      status: TaskStatus.queued,
+      configJson: sanitizedTaskConfig,
+      createdAt: timestamp,
+      startedAt: null,
+      completedAt: null,
+      provider: provider,
+      agentExecutionId: agentExecutionId,
+      agentExecution: agentExecution,
+      projectId: projectId?.trim().isEmpty ?? true ? null : projectId?.trim(),
+      maxTokens: maxTokens != null && maxTokens > 0 ? maxTokens : null,
+      workflowRunId: run.id,
+      stepIndex: stepIndex,
+      workflowStepExecution: workflowStepExecution,
+      maxRetries: maxRetries > 0 ? maxRetries : 0,
+    );
+
+    await executionTransactor.transaction(() async {
+      await agentExecutionRepository.create(agentExecution);
+      await taskRepository.insert(queuedTask);
+      await workflowStepExecutionRepository.create(workflowStepExecution);
+    });
+
+    _eventBus.fire(
+      TaskStatusChangedEvent(
+        taskId: taskId,
+        oldStatus: TaskStatus.draft,
+        newStatus: TaskStatus.queued,
+        trigger: 'workflow',
+        timestamp: timestamp,
+      ),
+    );
+  }
+
+  WorkflowStepExecution _buildWorkflowStepExecutionFromConfig({
+    required String taskId,
+    required String agentExecutionId,
+    required String runId,
+    required int stepIndex,
+    required WorkflowStep step,
+    required Map<String, dynamic> taskConfig,
+  }) {
+    final tokenBreakdown = _buildTokenBreakdownJson(taskConfig);
+    return WorkflowStepExecution(
+      taskId: taskId,
+      agentExecutionId: agentExecutionId,
+      workflowRunId: runId,
+      stepIndex: stepIndex,
+      stepId: step.id,
+      stepType: _trimmedString(taskConfig['_workflowStepType']) ?? step.type,
+      gitJson: _encodeJsonString(taskConfig['_workflowGit']),
+      providerSessionId: _trimmedString(taskConfig['_continueProviderSessionId']),
+      structuredSchemaJson: _encodeJsonString(taskConfig['_workflowStructuredSchema']),
+      structuredOutputJson: _encodeJsonString(taskConfig['_workflowStructuredOutputPayload']),
+      followUpPromptsJson: _encodeJsonString(taskConfig['_workflowFollowUpPrompts']),
+      externalArtifactMount: _encodeJsonString(taskConfig['_workflow.externalArtifactMount']),
+      mapIterationIndex: _intOrNull(taskConfig['_mapIterationIndex']),
+      mapIterationTotal: _intOrNull(taskConfig['_mapIterationTotal']),
+      stepTokenBreakdownJson: tokenBreakdown,
+    );
+  }
+
+  Map<String, dynamic> _stripWorkflowStepConfig(Map<String, dynamic> taskConfig) {
+    final sanitized = Map<String, dynamic>.from(taskConfig);
+    for (final key in const <String>{
+      '_workflowStepType',
+      '_workflowGit',
+      '_workflowWorkspaceDir',
+      '_workflow.externalArtifactMount',
+      '_workflowFollowUpPrompts',
+      '_workflowStructuredSchema',
+      '_workflowProviderSessionId',
+      '_workflowStructuredOutputPayload',
+      '_workflowStepId',
+      '_workflowInputTokensNew',
+      '_workflowCacheReadTokens',
+      '_workflowOutputTokens',
+      '_continueProviderSessionId',
+      '_mapIterationIndex',
+      '_mapIterationTotal',
+      '_mapStepId',
+      // S34: model is canonical on AgentExecution; must not persist in Task.configJson.
+      'model',
+    }) {
+      sanitized.remove(key);
+    }
+    return sanitized;
+  }
+
+  String? _buildTokenBreakdownJson(Map<String, dynamic> taskConfig) {
+    final inputTokensNew = _intOrNull(taskConfig['_workflowInputTokensNew']);
+    final cacheReadTokens = _intOrNull(taskConfig['_workflowCacheReadTokens']);
+    final outputTokens = _intOrNull(taskConfig['_workflowOutputTokens']);
+    if (inputTokensNew == null && cacheReadTokens == null && outputTokens == null) {
+      return null;
+    }
+    return jsonEncode({
+      ...?switch (inputTokensNew) { final value? => {'inputTokensNew': value}, null => null },
+      ...?switch (cacheReadTokens) { final value? => {'cacheReadTokens': value}, null => null },
+      ...?switch (outputTokens) { final value? => {'outputTokens': value}, null => null },
+    });
+  }
+
+  String? _encodeJsonString(Object? value) => value == null ? null : jsonEncode(value);
+
+  String? _trimmedString(Object? value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  int? _intOrNull(Object? value) {
+    return switch (value) {
+      final int intValue => intValue,
+      final num numValue => numValue.toInt(),
+      _ => null,
+    };
+  }
+
   /// Waits for a task to complete using a pre-created [completer] and [sub].
   Future<Task> _waitForTaskCompletion(
     String taskId,
     WorkflowStep step,
     Completer<Task> completer,
-    StreamSubscription<TaskStatusChangedEvent> sub,
-  ) async {
+    StreamSubscription<TaskStatusChangedEvent> sub, {
+    String? runId,
+  }) async {
+    // Wake the wait if the owning workflow run transitions away from `running`
+    // (e.g. `WorkflowService.pause(runId)` → `WorkflowRunStatusChangedEvent`).
+    // Without this, a step blocked on a task that never completes would hold
+    // the executor indefinitely, and pause/cancel would observe no effect.
+    StreamSubscription<WorkflowRunStatusChangedEvent>? runSub;
+    if (runId != null) {
+      runSub = _eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
+        if (event.newStatus != WorkflowRunStatus.running && !completer.isCompleted) {
+          completer.completeError(
+            StateError('Workflow run "$runId" transitioned to ${event.newStatus.name} while step "${step.name}" awaited task $taskId'),
+          );
+        }
+      });
+      // Close the race: if pause fired before we subscribed, the broadcast
+      // stream dropped the event. Re-check current state from the repository
+      // and abort if the run is no longer running.
+      final currentRun = await _repository.getById(runId);
+      if (currentRun != null && currentRun.status != WorkflowRunStatus.running && !completer.isCompleted) {
+        completer.completeError(
+          StateError('Workflow run "$runId" is ${currentRun.status.name}; step "${step.name}" wait aborted before task $taskId completed'),
+        );
+      }
+    }
     try {
       if (step.timeoutSeconds != null) {
         return await completer.future.timeout(
@@ -2240,6 +2458,7 @@ class WorkflowExecutor {
       }
     } finally {
       await sub.cancel();
+      await runSub?.cancel();
     }
   }
 
@@ -3932,20 +4151,19 @@ class WorkflowExecutor {
         '_mapIterationIndex': iterIndex,
         '_mapIterationTotal': mapCtx.collection.length,
       };
-      await _taskService.create(
-        id: taskId,
+      await _createWorkflowTaskTriple(
+        taskId: taskId,
+        run: run,
+        step: step,
+        stepIndex: stepIndex,
         title: iterTitle,
         description: iterPrompt,
         type: _mapStepType(step.type),
-        autoStart: true,
         provider: resolved.provider,
         projectId: projectId,
         maxTokens: resolved.maxTokens,
         maxRetries: resolved.maxRetries ?? 0,
-        workflowRunId: run.id,
-        stepIndex: stepIndex,
-        configJson: mapTaskConfig,
-        trigger: 'workflow',
+        taskConfig: mapTaskConfig,
       );
     } catch (e, st) {
       await sub.cancel();
@@ -3976,7 +4194,7 @@ class WorkflowExecutor {
 
     late Task finalTask;
     try {
-      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub);
+      finalTask = await _waitForTaskCompletion(taskId, step, completer, sub, runId: run.id);
     } on TimeoutException {
       _log.warning(
         "Workflow '${run.id}': map step '${step.id}' iteration $iterIndex "

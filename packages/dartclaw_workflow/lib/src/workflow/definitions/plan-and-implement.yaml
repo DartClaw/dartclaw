@@ -235,7 +235,7 @@ steps:
   - id: plan-review
     name: Review Full Implementation
     type: analysis
-    skill: dartclaw-review-gap
+    skill: dartclaw-review
     entryGate: "plan_source == synthesized"
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]

@@ -52,6 +52,57 @@ void main() {
           tempDir.deleteSync(recursive: true);
         }
       });
+
+      test('migrates legacy task tables that predate agent_execution_id', () async {
+        final legacyDb = sqlite3.openInMemory();
+        legacyDb.execute('PRAGMA foreign_keys = ON');
+        legacyDb.execute('''
+          CREATE TABLE tasks (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            version INTEGER,
+            goal_id TEXT,
+            acceptance_criteria TEXT,
+            session_id TEXT,
+            provider TEXT,
+            config_json TEXT NOT NULL,
+            worktree_json TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            created_by TEXT,
+            max_tokens INTEGER
+          )
+        ''');
+        legacyDb.execute('''
+          INSERT INTO tasks (
+            id, title, description, type, status, version, goal_id, acceptance_criteria,
+            session_id, provider, config_json, worktree_json, created_at, started_at,
+            completed_at, created_by, max_tokens
+          ) VALUES (
+            'task-1', 'Legacy task', 'Legacy description', 'coding', 'review', 1, NULL, NULL,
+            'sess-1', 'codex', '{"priority":"high","model":"gpt-5.4"}', NULL,
+            '2026-03-10T10:00:00Z', '2026-03-10T10:01:00Z', NULL, 'operator', 50000
+          )
+        ''');
+
+        final legacyRepository = SqliteTaskRepository(legacyDb);
+        final loaded = await legacyRepository.getById('task-1');
+
+        expect(loaded, isNotNull);
+        expect(loaded?.sessionId, 'sess-1');
+        expect(loaded?.provider, 'codex');
+        expect(loaded?.model, 'gpt-5.4');
+        expect(loaded?.maxTokens, 50000);
+
+        final columns = legacyDb.select('PRAGMA table_info(tasks)').map((row) => row['name'] as String).toSet();
+        expect(columns, contains('agent_execution_id'));
+
+        await legacyRepository.dispose();
+      });
     });
 
     group('tasks', () {

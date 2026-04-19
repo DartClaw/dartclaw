@@ -3,6 +3,7 @@ import 'package:dartclaw_models/dartclaw_models.dart' show ProjectStatus, Workfl
 import '../task/task_status.dart';
 
 part 'advisor_events.dart';
+part 'agent_execution_events.dart';
 part 'agent_events.dart';
 part 'auth_events.dart';
 part 'compaction_events.dart';

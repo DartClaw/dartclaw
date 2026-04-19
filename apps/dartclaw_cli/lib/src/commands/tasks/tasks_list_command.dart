@@ -50,16 +50,32 @@ class TasksListCommand extends Command<void> {
         return;
       }
       _writeLine(
-        '  ${'ID'.padRight(8)}  ${'TITLE'.padRight(28)}  ${'TYPE'.padRight(12)}  ${'STATUS'.padRight(16)}  PROJECT',
+        '  ${'ID'.padRight(8)}  ${'TITLE'.padRight(28)}  ${'STATUS'.padRight(16)}  ${'EXECUTION'.padRight(24)}  PROJECT',
       );
       for (final raw in visible) {
         final task = Map<String, dynamic>.from(raw as Map);
+        final execution = task['agentExecution'] is Map
+            ? Map<String, dynamic>.from(task['agentExecution'] as Map)
+            : const <String, dynamic>{};
+        final workflowStep = task['workflowStepExecution'] is Map
+            ? Map<String, dynamic>.from(task['workflowStepExecution'] as Map)
+            : const <String, dynamic>{};
         final id = truncate(task['id']?.toString() ?? '', 8).padRight(8);
         final title = truncate(task['title']?.toString() ?? '', 28).padRight(28);
-        final type = (task['type']?.toString() ?? '').padRight(12);
         final status = (task['status']?.toString() ?? '').padRight(16);
+        final provider = execution['provider']?.toString();
+        final model = execution['model']?.toString();
+        final stepId = workflowStep['stepId']?.toString();
+        final executionSummary = truncate(
+          [
+            if (provider != null && provider.isNotEmpty) provider,
+            if (model != null && model.isNotEmpty) model,
+            if (stepId != null && stepId.isNotEmpty) 'step:$stepId',
+          ].join(' · '),
+          24,
+        ).padRight(24);
         final project = task['projectId']?.toString() ?? '—';
-        _writeLine('  $id  $title  $type  $status  $project');
+        _writeLine('  $id  $title  $status  $executionSummary  $project');
       }
     } on DartclawApiException catch (error) {
       _writeLine(error.message);

@@ -1,7 +1,7 @@
 ---
 description: Use when the user wants review findings or review comments addressed. Implements actionable findings from a review report with minimal, guideline-aligned fixes across code, specs, plans, PRDs, and documentation, then re-validates the result and updates plan/FIS status. Trigger on 'address these review findings', 'fix review comments', 'remediate findings'.
-argument-hint: <review-report-path | report URL | GitHub issue/comment URL>
 user-invocable: true
+argument-hint: <review-report-path | report URL | GitHub issue/comment URL>
 workflow:
   default_prompt: "Use $dartclaw-remediate-findings to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
 ---
@@ -10,19 +10,11 @@ workflow:
 
 Implement validated findings from a review report. The goal is to clear real issues with the smallest safe change set across implementation and document artifacts, avoid over-engineering, re-run the right verification, and update workflow state when the reviewed work is now complete.
 
+
 ## VARIABLES
 
 REPORT_SOURCE: $ARGUMENTS
 
-## USAGE
-
-```bash
-/remediate-findings docs/specs/feature/feature-gap-review-codex-2026-04-10.md
-/remediate-findings https://example.com/reviews/feature-gap-review.md
-/remediate-findings https://github.com/org/repo/wiki/feature-gap-review
-/remediate-findings https://github.com/org/repo/issues/123
-/remediate-findings https://github.com/org/repo/pull/456#issuecomment-789
-```
 
 ## INSTRUCTIONS
 
@@ -31,8 +23,9 @@ REPORT_SOURCE: $ARGUMENTS
 - Fix validated findings with the smallest coherent patch set that resolves them.
 - Avoid scope creep. Do not "clean up nearby code" or rewrite nearby docs unless it is required to resolve a finding or prevent a regression.
 - Prefer explicit, local fixes over broad rewrites, reorganizations, helpers, or framework layers.
-- If external documentation is needed, use the `dartclaw-documentation-lookup` agent.
+- If external documentation is needed, use the `documentation-lookup` sub-agent.
 - Invoke the `dartclaw-update-state` skill for deterministic plan/FIS/STATE updates instead of hand-editing those artifacts.
+
 
 ## GOTCHAS
 
@@ -43,6 +36,7 @@ REPORT_SOURCE: $ARGUMENTS
 - Editing the wrong artifact when the real issue belongs in a spec, plan, PRD, or user-facing document
 - Forcing a speculative doc rewrite when the real issue is an unresolved product or requirements decision that needs escalation
 
+
 ## WORKFLOW
 
 ### Phase 1: Resolve Report and Targets
@@ -52,7 +46,7 @@ REPORT_SOURCE: $ARGUMENTS
    - GitHub issue URL or PR comment URL: follow `../references/resolve-github-input.md`.
      Compatible types: `review`, `gap-review`, `code-review`, `architecture-review`, `doc-review`, `council-review` — extract the embedded primary report and any companion files; use the typed metadata to recover `report_path`, `plan_path`, `fis_path`, `story_ids`, `requirements_baseline`, and `implementation_targets`. Redirects: any non-review typed artifact → stop with invalid-input error. Untyped: fall through to step 3 validation below.
 2. Extract:
-   - Review type (`review-gap`, `review-code`, `review-doc`, or other)
+   - Review mode (`gap`, `code`, `doc`, `mixed`, or other; legacy `*-review` `artifact_type` values map to the corresponding modes with the `-review` suffix stripped, e.g. `gap-review` → `gap`)
    - Report verdict (PASS/FAIL) when present
    - Findings, severity, remediation recommendations, and reviewed scope
    - Referenced implementation targets, requirements baseline, FIS path, `plan.md`, and story IDs when available
@@ -60,6 +54,7 @@ REPORT_SOURCE: $ARGUMENTS
 4. If the report has no actionable findings, stop and return that there are no actionable findings.
 
 **Gate**: Actionable findings and the remediation target are explicit
+
 
 ### Phase 2: Re-Validate Findings
 
@@ -78,6 +73,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 
 **Gate**: Remediation scope is bounded to currently valid findings
 
+
 ### Phase 3: Plan Minimal Remediation
 
 - Group findings by affected area to minimize conflicts and repeated verification
@@ -88,6 +84,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 - Use parallel sub-agents only for independent fix groups
 
 **Gate**: Minimal remediation plan is clear and bounded
+
 
 ### Phase 4: Implement and Re-Validate
 
@@ -103,6 +100,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 7. If Critical/High findings remain after one remediation pass, escalate to the user rather than looping.
 
 **Gate**: Every Critical/High finding is RESOLVED with evidence, Medium/Low findings are RESOLVED or DEFERRED with justification, quick-review on touched scope is clean, no new regressions
+
 
 ### Phase 5: Update Workflow State
 
@@ -123,6 +121,7 @@ If the report is a full-plan or workspace-wide review:
 - Do not mark individual stories done unless their acceptance criteria are clearly satisfied
 
 **Gate**: Status artifacts reflect the validated post-remediation state
+
 
 ## COMPLETION
 

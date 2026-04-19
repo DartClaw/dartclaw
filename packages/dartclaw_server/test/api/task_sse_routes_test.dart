@@ -75,6 +75,32 @@ void main() {
     expect(frame, contains('"reviewCount":1'));
   });
 
+  test('agent execution SSE stream emits status change payloads', () async {
+    final response = await handler(Request('GET', Uri.parse('http://localhost/api/agent-executions/events')));
+    final iterator = StreamIterator(response.read().transform(utf8.decoder));
+    addTearDown(iterator.cancel);
+
+    final connectedPayload = await nextFramePayload(iterator);
+    expect(connectedPayload['type'], 'connected');
+
+    eventBus.fire(
+      AgentExecutionStatusChangedEvent(
+        agentExecutionId: 'ae-1',
+        oldStatus: 'running',
+        newStatus: 'completed',
+        trigger: 'system',
+        timestamp: DateTime.parse('2026-03-10T10:15:00Z'),
+      ),
+    );
+
+    final payload = await nextFramePayload(iterator);
+    expect(payload['type'], 'agent_execution_status_changed');
+    expect(payload['agentExecutionId'], 'ae-1');
+    expect(payload['oldStatus'], 'running');
+    expect(payload['newStatus'], 'completed');
+    expect(payload['timestamp'], '2026-03-10T10:15:00.000Z');
+  });
+
   test('initial frame excludes workflow-owned review tasks from the default review count', () async {
     await tasks.create(
       id: 'task-workflow-review',
@@ -251,6 +277,7 @@ void main() {
     final frame = iterator.current;
     expect(frame, contains('"type":"task_status_changed"'));
     expect(frame, contains('"taskId":"task-1"'));
+    expect(frame, contains('"timestamp":"2026-03-10T10:15:00.000Z"'));
     expect(frame, contains('"reviewCount":1'));
   });
 

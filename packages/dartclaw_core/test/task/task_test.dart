@@ -77,6 +77,21 @@ void main() {
         expect(updated.startedAt, isNull);
         expect(updated.completedAt, isNull);
       });
+
+      test('copyWith-derived legacy agent execution ids use the task id', () {
+        final task = Task(
+          id: 'task-99',
+          title: 'Minimal task',
+          description: 'Describe the work',
+          type: TaskType.coding,
+          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+        );
+
+        final updated = task.copyWith(sessionId: 'session-1');
+
+        expect(updated.agentExecutionId, 'legacy-ae:task-99');
+        expect(updated.sessionId, 'session-1');
+      });
     });
 
     group('transition', () {
@@ -232,7 +247,7 @@ void main() {
 
         expect(json.containsKey('goalId'), isFalse);
         expect(json.containsKey('acceptanceCriteria'), isFalse);
-        expect(json.containsKey('sessionId'), isFalse);
+        expect(json.containsKey('agentExecution'), isFalse);
         expect(json.containsKey('worktreeJson'), isFalse);
         expect(json.containsKey('startedAt'), isFalse);
         expect(json.containsKey('completedAt'), isFalse);
@@ -367,7 +382,40 @@ void main() {
       });
 
       group('workflowRunId and stepIndex', () {
-        test('toJson includes workflowRunId and stepIndex when set', () {
+        test('toJson nests workflowStepExecution when hydrated', () {
+          final task = Task(
+            id: 'task-1',
+            title: 'T',
+            description: 'D',
+            type: TaskType.coding,
+            createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+            workflowStepExecution: const WorkflowStepExecution(
+              taskId: 'task-1',
+              agentExecutionId: 'ae-1',
+              workflowRunId: 'run-42',
+              stepIndex: 2,
+              stepId: 'implement',
+              stepType: 'coding',
+            ),
+          );
+          final json = task.toJson();
+          expect(
+            json['workflowStepExecution'],
+            containsPair('workflowRunId', 'run-42'),
+          );
+          expect(
+            json['workflowStepExecution'],
+            containsPair('stepIndex', 2),
+          );
+        });
+
+        test('toJson omits workflowStepExecution when not hydrated', () {
+          final task = createTask();
+          final json = task.toJson();
+          expect(json.containsKey('workflowStepExecution'), isFalse);
+        });
+
+        test('toJson omits workflowStepExecution when only bare workflowRunId/stepIndex are passed', () {
           final task = Task(
             id: 'task-1',
             title: 'T',
@@ -378,15 +426,11 @@ void main() {
             stepIndex: 2,
           );
           final json = task.toJson();
-          expect(json['workflowRunId'], 'run-42');
-          expect(json['stepIndex'], 2);
-        });
-
-        test('toJson omits workflowRunId and stepIndex when null', () {
-          final task = createTask();
-          final json = task.toJson();
-          expect(json.containsKey('workflowRunId'), isFalse);
-          expect(json.containsKey('stepIndex'), isFalse);
+          expect(
+            json.containsKey('workflowStepExecution'),
+            isFalse,
+            reason: 'Task.toJson must not fabricate workflowStepExecution from legacy flat fields',
+          );
         });
 
         test('fromJson parses workflowRunId and stepIndex', () {
@@ -398,8 +442,14 @@ void main() {
             'status': 'draft',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
-            'workflowRunId': 'run-42',
-            'stepIndex': 3,
+            'workflowStepExecution': {
+              'taskId': 'task-1',
+              'agentExecutionId': 'ae-1',
+              'workflowRunId': 'run-42',
+              'stepIndex': 3,
+              'stepId': 'implement',
+              'stepType': 'coding',
+            },
           });
           expect(task.workflowRunId, 'run-42');
           expect(task.stepIndex, 3);
@@ -455,6 +505,122 @@ void main() {
           expect(updated.workflowRunId, 'run-1');
           expect(updated.stepIndex, 2);
         });
+      });
+
+      test('toJson nests hydrated agent execution and workflow step execution', () {
+        final task = Task(
+          id: 'task-1',
+          title: 'T',
+          description: 'D',
+          type: TaskType.coding,
+          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+          sessionId: 'sess-1',
+          provider: 'codex',
+          model: 'gpt-5.4',
+          maxTokens: 50000,
+          workflowStepExecution: const WorkflowStepExecution(
+            taskId: 'task-1',
+            agentExecutionId: 'ae-1',
+            workflowRunId: 'run-1',
+            stepIndex: 4,
+            stepId: 'implement',
+            stepType: 'coding',
+          ),
+        );
+
+        final json = task.toJson();
+
+        expect(json.containsKey('sessionId'), isFalse);
+        expect(json.containsKey('provider'), isFalse);
+        expect(json.containsKey('maxTokens'), isFalse);
+        expect(json.containsKey('workflowRunId'), isFalse);
+        expect(json.containsKey('stepIndex'), isFalse);
+        expect(json['agentExecution'], containsPair('sessionId', 'sess-1'));
+        expect(json['agentExecution'], containsPair('provider', 'codex'));
+        expect(json['agentExecution'], containsPair('model', 'gpt-5.4'));
+        expect(json['agentExecution'], containsPair('budgetTokens', 50000));
+        expect(json['workflowStepExecution'], containsPair('workflowRunId', 'run-1'));
+        expect(json['workflowStepExecution'], containsPair('stepIndex', 4));
+        expect(json['workflowStepExecution'], containsPair('stepId', 'implement'));
+      });
+
+      test('toJson does not synthesize workflowStepExecution from bare flat fields', () {
+        final task = Task(
+          id: 'task-1',
+          title: 'T',
+          description: 'D',
+          type: TaskType.coding,
+          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+          workflowRunId: 'run-1',
+          stepIndex: 4,
+        );
+
+        final json = task.toJson();
+
+        expect(
+          json.containsKey('workflowStepExecution'),
+          isFalse,
+          reason: 'workflowStepExecution must be emitted only from hydrated WSE, never fabricated from legacy flat fields',
+        );
+      });
+
+      test('fromJson parses nested agent execution and workflow step execution', () {
+        final task = Task.fromJson({
+          'id': 'task-1',
+          'title': 'T',
+          'description': 'D',
+          'type': 'coding',
+          'status': 'draft',
+          'configJson': const {},
+          'createdAt': '2026-03-10T10:00:00Z',
+          'agentExecution': {
+            'id': 'ae-1',
+            'sessionId': 'sess-1',
+            'provider': 'codex',
+            'model': 'gpt-5.4',
+            'budgetTokens': 50000,
+          },
+          'workflowStepExecution': {
+            'taskId': 'task-1',
+            'agentExecutionId': 'ae-1',
+            'workflowRunId': 'run-1',
+            'stepIndex': 2,
+            'stepId': 'implement',
+            'stepType': 'coding',
+          },
+        });
+
+        expect(task.sessionId, 'sess-1');
+        expect(task.provider, 'codex');
+        expect(task.model, 'gpt-5.4');
+        expect(task.maxTokens, 50000);
+        expect(task.workflowRunId, 'run-1');
+        expect(task.stepIndex, 2);
+        expect(task.agentExecution?.id, 'ae-1');
+        expect(task.workflowStepExecution?.stepId, 'implement');
+      });
+
+      test('fromJson ignores legacy flattened task execution fields', () {
+        final task = Task.fromJson({
+          'id': 'task-1',
+          'title': 'Legacy',
+          'description': 'Legacy shape',
+          'type': 'coding',
+          'status': 'draft',
+          'configJson': const {},
+          'createdAt': '2026-03-10T10:00:00Z',
+          'sessionId': 'legacy-session',
+          'provider': 'codex',
+          'maxTokens': 50000,
+          'workflowRunId': 'run-legacy',
+          'stepIndex': 1,
+        });
+
+        expect(task.sessionId, isNull);
+        expect(task.provider, isNull);
+        expect(task.maxTokens, isNull);
+        expect(task.workflowRunId, isNull);
+        expect(task.stepIndex, isNull);
       });
     });
   });

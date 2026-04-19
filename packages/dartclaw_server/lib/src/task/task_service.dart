@@ -1,7 +1,10 @@
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        AgentExecution,
+        AgentExecutionRepository,
         ArtifactKind,
         EventBus,
+        ExecutionRepositoryTransactor,
         Task,
         TaskArtifact,
         TaskRepository,
@@ -31,12 +34,21 @@ class VersionConflictException implements Exception {
 /// Business logic layer for task CRUD and lifecycle operations.
 class TaskService implements WorkflowTaskService {
   final TaskRepository _repo;
+  final AgentExecutionRepository? _agentExecutionRepository;
+  final ExecutionRepositoryTransactor? _executionTransactor;
   final EventBus? _eventBus;
   final TaskEventRecorder? _eventRecorder;
 
-  TaskService(this._repo, {EventBus? eventBus, TaskEventRecorder? eventRecorder})
-    : _eventBus = eventBus,
-      _eventRecorder = eventRecorder;
+  TaskService(
+    this._repo, {
+    AgentExecutionRepository? agentExecutionRepository,
+    ExecutionRepositoryTransactor? executionTransactor,
+    EventBus? eventBus,
+    TaskEventRecorder? eventRecorder,
+  }) : _agentExecutionRepository = agentExecutionRepository,
+       _executionTransactor = executionTransactor,
+       _eventBus = eventBus,
+       _eventRecorder = eventRecorder;
 
   /// Creates a new task.
   ///
@@ -53,6 +65,7 @@ class TaskService implements WorkflowTaskService {
     String? acceptanceCriteria,
     String? createdBy,
     String? provider,
+    String? agentExecutionId,
     String? projectId,
     int? maxTokens,
     String? workflowRunId,
@@ -63,11 +76,29 @@ class TaskService implements WorkflowTaskService {
     String trigger = 'system',
   }) async {
     final timestamp = now ?? DateTime.now();
-    final persistedProvider =
-        provider ??
-        ((configJson['provider'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (configJson['provider'] as String).trim());
+    final persistedProvider = _trimmedOrNull(
+      provider ??
+          ((configJson['provider'] as String?)?.trim().isEmpty ?? true ? null : configJson['provider'] as String?),
+    );
+    final persistedModel = _trimmedOrNull(configJson['model'] as String?);
+    final normalizedMaxTokens = maxTokens != null && maxTokens > 0 ? maxTokens : null;
+    final sanitizedConfig = Map<String, dynamic>.from(configJson)..remove('model');
+    final persistedAgentExecutionId = agentExecutionId?.trim().isEmpty ?? true ? null : agentExecutionId?.trim();
+    final agentExecutionRepository = _agentExecutionRepository;
+    final createdExecution =
+        (persistedAgentExecutionId == null || await _shouldCreateAgentExecution(persistedAgentExecutionId))
+        ? AgentExecution(
+            id: persistedAgentExecutionId ?? 'ae-$id',
+            provider: persistedProvider,
+            model: persistedModel,
+            budgetTokens: normalizedMaxTokens,
+          )
+        : null;
+    final linkedExecution =
+        createdExecution == null && persistedAgentExecutionId != null && agentExecutionRepository != null
+        ? await agentExecutionRepository.get(persistedAgentExecutionId)
+        : null;
+    final effectiveExecution = createdExecution ?? linkedExecution;
     var task = Task(
       id: id,
       title: title,
@@ -75,12 +106,15 @@ class TaskService implements WorkflowTaskService {
       type: type,
       goalId: goalId,
       acceptanceCriteria: acceptanceCriteria,
-      configJson: configJson,
+      configJson: sanitizedConfig,
       createdAt: timestamp,
       createdBy: createdBy,
-      provider: persistedProvider,
+      provider: effectiveExecution == null ? persistedProvider : null,
+      model: effectiveExecution == null ? persistedModel : null,
+      agentExecutionId: persistedAgentExecutionId ?? effectiveExecution?.id,
+      agentExecution: effectiveExecution,
       projectId: projectId?.trim().isEmpty ?? true ? null : projectId?.trim(),
-      maxTokens: maxTokens != null && maxTokens > 0 ? maxTokens : null,
+      maxTokens: effectiveExecution == null ? normalizedMaxTokens : null,
       workflowRunId: workflowRunId?.trim().isEmpty ?? true ? null : workflowRunId?.trim(),
       stepIndex: stepIndex,
       maxRetries: maxRetries > 0 ? maxRetries : 0,
@@ -88,7 +122,19 @@ class TaskService implements WorkflowTaskService {
     if (autoStart) {
       task = task.transition(TaskStatus.queued, now: timestamp);
     }
-    await _repo.insert(task);
+    final agentExecutions = agentExecutionRepository;
+    final transactor = _executionTransactor;
+    if (createdExecution != null && agentExecutions != null && transactor != null) {
+      await transactor.transaction(() async {
+        await agentExecutions.create(createdExecution);
+        await _repo.insert(task);
+      });
+    } else if (createdExecution != null && agentExecutions != null) {
+      await agentExecutions.create(createdExecution);
+      await _repo.insert(task);
+    } else {
+      await _repo.insert(task);
+    }
     if (autoStart) {
       _fireEvent(
         TaskStatusChangedEvent(
@@ -135,14 +181,23 @@ class TaskService implements WorkflowTaskService {
   }) async {
     final task = await _requireTask(taskId);
     final oldStatus = task.status;
+    final timestamp = now ?? DateTime.now();
     final transitioned = task.transition(newStatus, now: now);
+    final nextExecution = _nextAgentExecutionForTransition(task, transitioned);
     final persistedTransition = task.copyWith(
       status: transitioned.status,
       configJson: configJson ?? transitioned.configJson,
       startedAt: transitioned.startedAt,
       completedAt: transitioned.completedAt,
+      agentExecution: nextExecution,
     );
-    final updated = await _repo.updateIfStatus(persistedTransition, expectedStatus: task.status);
+    final updated = await _persistTransition(
+      original: task,
+      transitioned: persistedTransition,
+      nextExecution: nextExecution,
+      trigger: trigger,
+      timestamp: timestamp,
+    );
     if (!updated) {
       final current = await _repo.getById(taskId);
       if (current == null) {
@@ -159,7 +214,7 @@ class TaskService implements WorkflowTaskService {
         oldStatus: oldStatus,
         newStatus: newStatus,
         trigger: trigger,
-        timestamp: now ?? DateTime.now(),
+        timestamp: timestamp,
       ),
     );
     _eventRecorder?.recordStatusChanged(taskId, oldStatus: oldStatus, newStatus: newStatus, trigger: trigger);
@@ -192,19 +247,59 @@ class TaskService implements WorkflowTaskService {
     }
 
     final resolvedSessionId = identical(sessionId, _sentinel) ? task.sessionId : sessionId as String?;
+    final currentExecution = task.agentExecution;
+    final fallbackExecutionId = task.agentExecutionId ?? 'legacy-ae:${task.id}';
+    final nextExecution = identical(sessionId, _sentinel)
+        ? currentExecution
+        : currentExecution?.copyWith(sessionId: resolvedSessionId) ??
+            (resolvedSessionId == null ? null : AgentExecution(id: fallbackExecutionId, sessionId: resolvedSessionId));
 
     final updated = task.copyWith(
       title: title,
       description: description,
       acceptanceCriteria: acceptanceCriteria ?? task.acceptanceCriteria,
       configJson: configJson ?? task.configJson,
-      sessionId: resolvedSessionId,
       worktreeJson: worktreeJson ?? task.worktreeJson,
+      sessionId: resolvedSessionId,
+      agentExecutionId: nextExecution?.id ?? task.agentExecutionId,
+      agentExecution: nextExecution,
       projectId: projectId ?? task.projectId,
       retryCount: retryCount,
     );
 
-    final persisted = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);
+    final agentExecutionChanged = nextExecution != currentExecution;
+    final agentExecutionRepository = _agentExecutionRepository;
+    final transactor = _executionTransactor;
+    bool persisted;
+    if (agentExecutionChanged && nextExecution != null && agentExecutionRepository != null && transactor != null) {
+      try {
+        await transactor.transaction(() async {
+          final mutableFieldsUpdated = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);
+          if (!mutableFieldsUpdated) {
+            throw const _TaskTransitionConflict();
+          }
+          final existing = await agentExecutionRepository.get(nextExecution.id);
+          if (existing == null) {
+            await agentExecutionRepository.create(nextExecution);
+          } else {
+            await agentExecutionRepository.update(nextExecution, trigger: 'system');
+          }
+        });
+        persisted = true;
+      } on _TaskTransitionConflict {
+        persisted = false;
+      }
+    } else {
+      persisted = await _repo.updateMutableFieldsIfStatus(updated, expectedStatus: task.status);
+      if (persisted && agentExecutionChanged && nextExecution != null && agentExecutionRepository != null) {
+        final existing = await agentExecutionRepository.get(nextExecution.id);
+        if (existing == null) {
+          await agentExecutionRepository.create(nextExecution);
+        } else {
+          await agentExecutionRepository.update(nextExecution, trigger: 'system');
+        }
+      }
+    }
     if (!persisted) {
       final current = await _repo.getById(taskId);
       if (current == null) {
@@ -278,6 +373,87 @@ class TaskService implements WorkflowTaskService {
     _eventBus?.fire(event);
   }
 
+  AgentExecution? _nextAgentExecutionForTransition(Task current, Task transitioned) {
+    final execution = current.agentExecution;
+    if (execution == null) {
+      return current.agentExecution;
+    }
+
+    var nextExecution = execution;
+    if (transitioned.startedAt != execution.startedAt && transitioned.startedAt != null) {
+      nextExecution = nextExecution.copyWith(startedAt: transitioned.startedAt);
+    }
+    if (transitioned.completedAt != execution.completedAt) {
+      nextExecution = nextExecution.copyWith(completedAt: transitioned.completedAt);
+    }
+    return nextExecution;
+  }
+
+  Future<bool> _persistTransition({
+    required Task original,
+    required Task transitioned,
+    required AgentExecution? nextExecution,
+    required String trigger,
+    required DateTime timestamp,
+  }) async {
+    final execution = original.agentExecution;
+    final repository = _agentExecutionRepository;
+    if (execution == null || repository == null || nextExecution == null) {
+      return _repo.updateIfStatus(transitioned, expectedStatus: original.status);
+    }
+
+    if (nextExecution == execution) {
+      return _repo.updateIfStatus(transitioned, expectedStatus: original.status);
+    }
+
+    final transactor = _executionTransactor;
+    if (transactor != null) {
+      try {
+        await transactor.transaction(() async {
+          final updated = await _repo.updateIfStatus(transitioned, expectedStatus: original.status);
+          if (!updated) {
+            throw const _TaskTransitionConflict();
+          }
+          final existing = await repository.get(nextExecution.id);
+          if (existing == null) {
+            await repository.create(nextExecution);
+          } else {
+            await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
+          }
+        });
+        return true;
+      } on _TaskTransitionConflict {
+        return false;
+      }
+    }
+
+    final updated = await _repo.updateIfStatus(transitioned, expectedStatus: original.status);
+    if (!updated) {
+      return false;
+    }
+    final existing = await repository.get(nextExecution.id);
+    if (existing == null) {
+      await repository.create(nextExecution);
+    } else {
+      await repository.update(nextExecution, trigger: trigger, timestamp: timestamp);
+    }
+    return true;
+  }
+
+  String? _trimmedOrNull(String? value) {
+    if (value == null) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<bool> _shouldCreateAgentExecution(String? agentExecutionId) async {
+    final repository = _agentExecutionRepository;
+    if (agentExecutionId == null || repository == null) {
+      return agentExecutionId == null;
+    }
+    return await repository.get(agentExecutionId) == null;
+  }
+
   void _fireReviewReadyEvent(String taskId) {
     final eventBus = _eventBus;
     if (eventBus == null) return;
@@ -300,4 +476,8 @@ class TaskService implements WorkflowTaskService {
           // Best-effort: failure to list artifacts should not prevent the review ready notification.
         });
   }
+}
+
+final class _TaskTransitionConflict implements Exception {
+  const _TaskTransitionConflict();
 }

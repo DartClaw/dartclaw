@@ -1,228 +1,111 @@
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
-import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('WorkflowTaskConfig.readFollowUpPrompts', () {
-    test('returns strings as-is', () {
-      final cfg = <String, dynamic>{
-        WorkflowTaskConfig.followUpPrompts: ['a', 'b', 'c'],
-      };
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), ['a', 'b', 'c']);
-    });
+  late InMemoryWorkflowStepExecutionRepository repository;
+  late Task task;
+  late WorkflowStepExecution baseExecution;
 
-    test('coerces non-string entries via toString', () {
-      final cfg = <String, dynamic>{
-        WorkflowTaskConfig.followUpPrompts: [1, 2.5, true],
-      };
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), ['1', '2.5', 'true']);
-    });
-
-    test('coerces null entries to literal "null"', () {
-      // Documents existing semantics — `values.map((v) => v.toString())`
-      // yields the literal string "null" for null entries. Pinned so a future
-      // refactor adding `.where((v) => v != null)` would surface here.
-      final cfg = <String, dynamic>{
-        WorkflowTaskConfig.followUpPrompts: [null, 'b'],
-      };
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), ['null', 'b']);
-    });
-
-    test('returns empty list when key absent', () {
-      expect(WorkflowTaskConfig.readFollowUpPrompts({}), isEmpty);
-    });
-
-    test('returns empty list when value is not a list', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.followUpPrompts: 'not a list'};
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), isEmpty);
-    });
-
-    test('returns empty list when value is null', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.followUpPrompts: null};
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), isEmpty);
-    });
+  setUp(() {
+    repository = InMemoryWorkflowStepExecutionRepository();
+    task = Task(
+      id: 'task-1',
+      title: 'Workflow task',
+      description: 'desc',
+      type: TaskType.coding,
+      createdAt: DateTime(2026),
+      workflowRunId: 'run-1',
+      stepIndex: 0,
+    );
+    baseExecution = const WorkflowStepExecution(
+      taskId: 'task-1',
+      agentExecutionId: 'ae-1',
+      workflowRunId: 'run-1',
+      stepIndex: 0,
+      stepId: 'step-1',
+    );
   });
 
-  group('WorkflowTaskConfig.readStructuredSchema', () {
-    test('returns typed Map<String, dynamic> as-is', () {
-      final schema = <String, dynamic>{'type': 'object'};
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredSchema: schema};
-      expect(WorkflowTaskConfig.readStructuredSchema(cfg), schema);
+  group('WorkflowTaskConfig reads', () {
+    test('returns defaults when no WSE row exists', () async {
+      expect(await WorkflowTaskConfig.readFollowUpPrompts(task, repository), isEmpty);
+      expect(await WorkflowTaskConfig.readStructuredSchema(task, repository), isNull);
+      expect(await WorkflowTaskConfig.readStructuredOutputPayload(task, repository), isNull);
+      expect(await WorkflowTaskConfig.readProviderSessionId(task, repository), isNull);
+      expect(await WorkflowTaskConfig.readContinueProviderSessionId(task, repository), isNull);
+      expect(await WorkflowTaskConfig.readWorkflowStepId(task, repository), isNull);
+      expect(await WorkflowTaskConfig.readInputTokensNew(task, repository), 0);
+      expect(await WorkflowTaskConfig.readCacheReadTokens(task, repository), 0);
+      expect(await WorkflowTaskConfig.readOutputTokens(task, repository), 0);
     });
 
-    test('coerces Map<Object?, Object?> to Map<String, dynamic>', () {
-      final raw = <Object?, Object?>{'type': 'object', 'count': 3};
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredSchema: raw};
-      final result = WorkflowTaskConfig.readStructuredSchema(cfg);
-      expect(result, isA<Map<String, dynamic>>());
-      expect(result, {'type': 'object', 'count': 3});
-    });
+    test('reads structured values from WSE storage', () async {
+      await repository.create(
+        baseExecution.copyWith(
+          providerSessionId: '  sess-123  ',
+          structuredSchemaJson: '{"type":"object","required":["answer"]}',
+          structuredOutputJson: '{"answer":"ok"}',
+          followUpPromptsJson: '["a",1,null]',
+          stepTokenBreakdownJson: '{"inputTokensNew":12,"cacheReadTokens":4,"outputTokens":8}',
+        ),
+      );
 
-    test('returns null when key absent', () {
-      expect(WorkflowTaskConfig.readStructuredSchema({}), isNull);
-    });
-
-    test('returns null when value is not a map', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredSchema: 'not a map'};
-      expect(WorkflowTaskConfig.readStructuredSchema(cfg), isNull);
-    });
-
-    test('returns null when value is null', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredSchema: null};
-      expect(WorkflowTaskConfig.readStructuredSchema(cfg), isNull);
-    });
-  });
-
-  group('WorkflowTaskConfig.readStructuredOutputPayload', () {
-    test('returns typed Map<String, dynamic> as-is', () {
-      final payload = <String, dynamic>{'result': 'ok'};
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredOutputPayload: payload};
-      expect(WorkflowTaskConfig.readStructuredOutputPayload(cfg), payload);
-    });
-
-    test('coerces Map<Object?, Object?> to Map<String, dynamic>', () {
-      final raw = <Object?, Object?>{'result': 'ok', 'count': 1};
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredOutputPayload: raw};
-      final result = WorkflowTaskConfig.readStructuredOutputPayload(cfg);
-      expect(result, isA<Map<String, dynamic>>());
-      expect(result, {'result': 'ok', 'count': 1});
-    });
-
-    test('returns null when key absent', () {
-      expect(WorkflowTaskConfig.readStructuredOutputPayload({}), isNull);
-    });
-
-    test('returns null when value is not a map', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.structuredOutputPayload: 42};
-      expect(WorkflowTaskConfig.readStructuredOutputPayload(cfg), isNull);
-    });
-  });
-
-  group('WorkflowTaskConfig.readProviderSessionId', () {
-    test('returns trimmed string when present and non-empty', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.providerSessionId: '  sess-123  '};
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), 'sess-123');
-    });
-
-    test('returns null for whitespace-only string', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.providerSessionId: '   '};
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), isNull);
-    });
-
-    test('returns null when key absent', () {
-      expect(WorkflowTaskConfig.readProviderSessionId({}), isNull);
-    });
-
-    test('returns null when value is not a string', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.providerSessionId: 42};
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), isNull);
-    });
-
-    test('returns null when value is null', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.providerSessionId: null};
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), isNull);
-    });
-  });
-
-  group('WorkflowTaskConfig.readContinueProviderSessionId', () {
-    test('returns trimmed string when present and non-empty', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.continueProviderSessionId: '  prev-456  '};
-      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), 'prev-456');
-    });
-
-    test('returns null for whitespace-only string', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.continueProviderSessionId: ''};
-      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), isNull);
-    });
-
-    test('returns null when key absent', () {
-      expect(WorkflowTaskConfig.readContinueProviderSessionId({}), isNull);
-    });
-
-    test('returns null when value is not a string', () {
-      final cfg = <String, dynamic>{
-        WorkflowTaskConfig.continueProviderSessionId: ['a'],
-      };
-      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), isNull);
-    });
-  });
-
-  group('WorkflowTaskConfig logging', () {
-    test('readContinueProviderSessionId logs at fine on malformed shape', () async {
-      final records = <LogRecord>[];
-      final sub = Logger('WorkflowTaskConfig').onRecord.listen(records.add);
-      hierarchicalLoggingEnabled = true;
-      Logger('WorkflowTaskConfig').level = Level.FINE;
-      addTearDown(() async {
-        await sub.cancel();
-        Logger('WorkflowTaskConfig').level = null;
-      });
-
-      final cfg = <String, dynamic>{WorkflowTaskConfig.continueProviderSessionId: 42};
-      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), isNull);
-      expect(records, hasLength(1));
-      expect(records.single.level, Level.FINE);
-      expect(records.single.message, contains('unexpected shape'));
-      expect(records.single.message, contains('int'));
-    });
-  });
-
-  group('WorkflowTaskConfig writers (round-trip)', () {
-    test('writeProviderSessionId round-trips through readProviderSessionId', () {
-      final cfg = <String, dynamic>{};
-      WorkflowTaskConfig.writeProviderSessionId(cfg, 'sess-abc');
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), 'sess-abc');
-    });
-
-    test('writeStructuredOutputPayload round-trips through readStructuredOutputPayload', () {
-      final cfg = <String, dynamic>{};
-      final payload = <String, dynamic>{'key': 'value', 'n': 7};
-      WorkflowTaskConfig.writeStructuredOutputPayload(cfg, payload);
-      expect(WorkflowTaskConfig.readStructuredOutputPayload(cfg), payload);
-    });
-
-    test('writeProviderSessionId overwrites existing value', () {
-      final cfg = <String, dynamic>{WorkflowTaskConfig.providerSessionId: 'old'};
-      WorkflowTaskConfig.writeProviderSessionId(cfg, 'new');
-      expect(WorkflowTaskConfig.readProviderSessionId(cfg), 'new');
-    });
-
-    test('writeFollowUpPrompts round-trips through readFollowUpPrompts', () {
-      final cfg = <String, dynamic>{};
-      WorkflowTaskConfig.writeFollowUpPrompts(cfg, ['p1', 'p2']);
-      expect(WorkflowTaskConfig.readFollowUpPrompts(cfg), ['p1', 'p2']);
-    });
-
-    test('writeStructuredSchema round-trips through readStructuredSchema', () {
-      final cfg = <String, dynamic>{};
-      final schema = <String, dynamic>{
+      expect(await WorkflowTaskConfig.readFollowUpPrompts(task, repository), ['a', '1', 'null']);
+      expect(await WorkflowTaskConfig.readStructuredSchema(task, repository), {
         'type': 'object',
-        'required': ['x'],
-      };
-      WorkflowTaskConfig.writeStructuredSchema(cfg, schema);
-      expect(WorkflowTaskConfig.readStructuredSchema(cfg), schema);
+        'required': ['answer'],
+      });
+      expect(await WorkflowTaskConfig.readStructuredOutputPayload(task, repository), {'answer': 'ok'});
+      expect(await WorkflowTaskConfig.readProviderSessionId(task, repository), 'sess-123');
+      expect(await WorkflowTaskConfig.readContinueProviderSessionId(task, repository), 'sess-123');
+      expect(await WorkflowTaskConfig.readWorkflowStepId(task, repository), 'step-1');
+      expect(await WorkflowTaskConfig.readInputTokensNew(task, repository), 12);
+      expect(await WorkflowTaskConfig.readCacheReadTokens(task, repository), 4);
+      expect(await WorkflowTaskConfig.readOutputTokens(task, repository), 8);
+    });
+  });
+
+  group('WorkflowTaskConfig writes', () {
+    test('updates repository-backed workflow metadata', () async {
+      await repository.create(baseExecution);
+
+      await WorkflowTaskConfig.writeFollowUpPrompts(task, repository, ['p1', 'p2']);
+      await WorkflowTaskConfig.writeStructuredSchema(task, repository, {
+        'type': 'object',
+        'required': ['answer'],
+      });
+      await WorkflowTaskConfig.writeProviderSessionId(task, repository, 'sess-abc');
+      await WorkflowTaskConfig.writeStructuredOutputPayload(task, repository, {'answer': 42});
+      await WorkflowTaskConfig.writeTokenBreakdown(
+        task,
+        repository,
+        inputTokensNew: 10,
+        cacheReadTokens: 3,
+        outputTokens: 7,
+      );
+
+      final stored = await repository.getByTaskId(task.id);
+      expect(stored, isNotNull);
+      expect(stored!.followUpPrompts, ['p1', 'p2']);
+      expect(stored.structuredSchema, {
+        'type': 'object',
+        'required': ['answer'],
+      });
+      expect(stored.providerSessionId, 'sess-abc');
+      expect(stored.structuredOutput, {'answer': 42});
+      expect(stored.stepTokenBreakdown, {
+        'inputTokensNew': 10,
+        'cacheReadTokens': 3,
+        'outputTokens': 7,
+      });
     });
 
-    test('writeContinueProviderSessionId round-trips through readContinueProviderSessionId', () {
-      final cfg = <String, dynamic>{};
-      WorkflowTaskConfig.writeContinueProviderSessionId(cfg, 'prev-xyz');
-      expect(WorkflowTaskConfig.readContinueProviderSessionId(cfg), 'prev-xyz');
-    });
-
-    test('writeWorkflowStepId round-trips through readWorkflowStepId', () {
-      final cfg = <String, dynamic>{};
-      WorkflowTaskConfig.writeWorkflowStepId(cfg, 'quick-review');
-      expect(WorkflowTaskConfig.readWorkflowStepId(cfg), 'quick-review');
-    });
-
-    test('token metric writers round-trip through their readers', () {
-      final cfg = <String, dynamic>{};
-      WorkflowTaskConfig.writeInputTokensNew(cfg, 123);
-      WorkflowTaskConfig.writeCacheReadTokens(cfg, 456);
-      WorkflowTaskConfig.writeOutputTokens(cfg, 78);
-      expect(WorkflowTaskConfig.readInputTokensNew(cfg), 123);
-      expect(WorkflowTaskConfig.readCacheReadTokens(cfg), 456);
-      expect(WorkflowTaskConfig.readOutputTokens(cfg), 78);
+    test('throws when writing without an existing WSE row', () async {
+      expect(
+        () => WorkflowTaskConfig.writeProviderSessionId(task, repository, 'sess'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

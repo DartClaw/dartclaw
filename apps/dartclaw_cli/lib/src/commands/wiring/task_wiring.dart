@@ -208,6 +208,7 @@ class TaskWiring {
       taskFileGuard: _taskFileGuard,
       observer: _agentObserver,
       eventRecorder: _storage.taskEventRecorder,
+      workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        AgentExecutionStatusChangedEvent,
         AgentStateChangedEvent,
         ArtifactCreated,
         Compaction,
@@ -119,6 +120,7 @@ Router taskSseRoutes(
         'oldStatus': event.oldStatus.name,
         'newStatus': event.newStatus.name,
         'trigger': event.trigger,
+        'timestamp': event.timestamp.toIso8601String(),
         'reviewCount': reviewCount,
         'activeTasks': activeTasks,
         if (workflows != null)
@@ -256,6 +258,31 @@ Router taskSseRoutes(
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
       },
+    );
+  });
+
+  router.get('/api/agent-executions/events', (Request request) async {
+    final controller = StreamController<List<int>>();
+    controller.add(utf8.encode('data: ${jsonEncode({'type': 'connected'})}\n\n'));
+
+    final executionSub = eventBus.on<AgentExecutionStatusChangedEvent>().listen((event) {
+      final data = jsonEncode({
+        'type': 'agent_execution_status_changed',
+        'agentExecutionId': event.agentExecutionId,
+        'oldStatus': event.oldStatus,
+        'newStatus': event.newStatus,
+        'timestamp': event.timestamp.toIso8601String(),
+      });
+      if (!controller.isClosed) {
+        controller.add(utf8.encode('data: $data\n\n'));
+      }
+    });
+
+    controller.onCancel = () => executionSub.cancel();
+
+    return Response.ok(
+      controller.stream,
+      headers: {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive'},
     );
   });
 

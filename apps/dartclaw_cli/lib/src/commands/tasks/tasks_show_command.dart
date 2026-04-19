@@ -33,6 +33,12 @@ class TasksShowCommand extends Command<void> {
     final apiClient = resolveCliApiClient(globalResults: globalResults, apiClient: _apiClient, config: _config);
     try {
       final task = await apiClient.getObject('/api/tasks/$taskId');
+      final execution = task['agentExecution'] is Map<String, dynamic>
+          ? task['agentExecution'] as Map<String, dynamic>
+          : const <String, dynamic>{};
+      final workflowStep = task['workflowStepExecution'] is Map<String, dynamic>
+          ? task['workflowStepExecution'] as Map<String, dynamic>
+          : const <String, dynamic>{};
       if (argResults!['json'] as bool) {
         writePrettyJson(_writeLine, task);
         return;
@@ -43,7 +49,14 @@ class TasksShowCommand extends Command<void> {
       _writeLine('  Type:       ${task['type']}');
       _writeLine('  Status:     ${task['status']}');
       _writeLine('  Project:    ${task['projectId'] ?? '—'}');
-      _writeLine('  Provider:   ${task['provider'] ?? '—'}');
+      _writeLine('  Provider:   ${execution['provider'] ?? '—'}');
+      _writeLine('  Model:      ${execution['model'] ?? '—'}');
+      _writeLine('  Session:    ${execution['sessionId'] ?? '—'}');
+      _writeLine('  Budget:     ${execution['budgetTokens'] ?? '—'}');
+      if (workflowStep.isNotEmpty) {
+        _writeLine('  Workflow:   ${workflowStep['workflowRunId'] ?? '—'}');
+        _writeLine('  Step:       ${workflowStep['stepId'] ?? '—'} (#${workflowStep['stepIndex'] ?? '—'})');
+      }
       _writeLine('  Created:    ${formatDateTime(task['createdAt'])}');
     } on DartclawApiException catch (error) {
       _writeLine(error.message);

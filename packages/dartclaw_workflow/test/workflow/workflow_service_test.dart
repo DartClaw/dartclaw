@@ -46,7 +46,16 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    final taskRepository = SqliteTaskRepository(db);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
@@ -58,6 +67,10 @@ void main() {
       eventBus: eventBus,
       kvService: kvService,
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionRepositoryTransactor: executionTransactor,
     );
   });
 

@@ -61,7 +61,7 @@ steps:
   - id: review-code
     name: Review Code
     type: analysis
-    skill: dartclaw-review-code
+    skill: dartclaw-review
     contextInputs: [project_index]
     contextOutputs: [review_summary, findings_count, review-code.findings_count]
     outputs:
@@ -124,7 +124,7 @@ steps:
       - id: re-review
         name: Re-review
         type: analysis
-        skill: dartclaw-review-code
+        skill: dartclaw-review
         contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, findings_count, re-review.findings_count]
         outputs:

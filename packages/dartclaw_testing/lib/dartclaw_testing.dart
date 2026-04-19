@@ -6,6 +6,8 @@ library;
 
 export 'package:dartclaw_core/dartclaw_core.dart'
     show
+        AgentExecution,
+        AgentExecutionRepository,
         AgentHarness,
         BridgeEvent,
         Channel,
@@ -14,6 +16,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         ChannelType,
         DartclawEvent,
         EventBus,
+        ExecutionRepositoryTransactor,
         PromptStrategy,
         ProjectService,
         SessionKey,
@@ -23,6 +26,8 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         TaskRepository,
         TaskStatus,
         TaskType,
+        WorkflowStepExecution,
+        WorkflowStepExecutionRepository,
         WorkerState;
 export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
@@ -54,8 +59,11 @@ export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;
 export 'src/flush_async.dart' show flushAsync;
+export 'src/in_memory_agent_execution_repository.dart' show InMemoryAgentExecutionRepository;
+export 'src/in_memory_execution_repository_transactor.dart' show InMemoryExecutionRepositoryTransactor;
 export 'src/in_memory_session_service.dart' show InMemorySessionService;
 export 'src/in_memory_task_repository.dart' show InMemoryTaskRepository;
+export 'src/in_memory_workflow_step_execution_repository.dart' show InMemoryWorkflowStepExecutionRepository;
 export 'src/null_io_sink.dart' show NullIoSink;
 export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;

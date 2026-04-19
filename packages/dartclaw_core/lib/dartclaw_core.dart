@@ -116,6 +116,13 @@ export 'src/agents/session_delegate.dart' show SessionDelegate;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 export 'src/agents/subagent_limits.dart' show SubagentLimits;
 
+// Execution
+export 'src/execution/agent_execution.dart' show AgentExecution;
+export 'src/execution/agent_execution_repository.dart' show AgentExecutionRepository;
+export 'src/execution/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
+export 'src/execution/workflow_step_execution.dart' show WorkflowStepExecution;
+export 'src/execution/workflow_step_execution_repository.dart' show WorkflowStepExecutionRepository;
+
 // Tasks
 export 'src/task/goal.dart' show Goal;
 export 'src/task/goal_repository.dart' show GoalRepository;
@@ -145,6 +152,8 @@ export 'src/events/dartclaw_event.dart'
         SessionCreatedEvent,
         SessionEndedEvent,
         SessionErrorEvent,
+        AgentExecutionEvent,
+        AgentExecutionStatusChangedEvent,
         TaskLifecycleEvent,
         TaskStatusChangedEvent,
         TaskReviewReadyEvent,

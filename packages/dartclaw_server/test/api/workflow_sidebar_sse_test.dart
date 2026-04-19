@@ -34,7 +34,16 @@ void main() {
     workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(taskDb), eventBus: eventBus);
+    final taskRepository = SqliteTaskRepository(taskDb);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+    tasks = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionTransactor,
+      eventBus: eventBus,
+    );
 
     final workflowRepo = SqliteWorkflowRunRepository(workflowDb);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
@@ -46,6 +55,10 @@ void main() {
       eventBus: eventBus,
       kvService: kv,
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionRepositoryTransactor: executionTransactor,
     );
   });
 

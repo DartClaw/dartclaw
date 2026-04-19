@@ -97,10 +97,15 @@ steps:
 void main() {
   late Directory tempDir;
   late String sessionsDir;
+  late Database db;
+  late SqliteTaskRepository taskRepository;
   late TaskService taskService;
   late MessageService messageService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
+  late SqliteAgentExecutionRepository agentExecutionRepository;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
   late EventBus eventBus;
   late WorkflowExecutor executor;
 
@@ -109,9 +114,18 @@ void main() {
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    final db = sqlite3.openInMemory();
+    db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    taskRepository = SqliteTaskRepository(db);
+    agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
@@ -126,8 +140,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
     );
   });
 
@@ -136,7 +155,66 @@ void main() {
     await messageService.dispose();
     await kvService.dispose();
     await eventBus.dispose();
+    db.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
+  test('workflow execution fails fast when AE/WSE persistence is not wired', () async {
+    // Synthesize an executor deliberately missing the AE/WSE/triple infrastructure.
+    final bareExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+      ),
+      dataDir: tempDir.path,
+    );
+
+    final definition = WorkflowDefinition(
+      name: 'wf',
+      description: 'desc',
+      steps: const [
+        WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+      ],
+    );
+    final now = DateTime.now();
+    final run = WorkflowRun(
+      id: 'run-fail-fast',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: now,
+      updatedAt: now,
+      currentStepIndex: 0,
+      definitionJson: definition.toJson(),
+    );
+    await repository.insert(run);
+
+    Object? captured;
+    try {
+      await bareExecutor.execute(run, definition, WorkflowContext());
+    } catch (err) {
+      captured = err;
+    }
+    // Either the executor surfaces the StateError directly, or it pauses the
+    // run with the same message captured as the failure. Both are acceptable
+    // shapes of "fail fast"; what must NOT happen is a silent success that
+    // bypasses AE/WSE persistence.
+    if (captured == null) {
+      final finalRun = await repository.getById('run-fail-fast');
+      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.errorMessage, contains('AgentExecution + WorkflowStepExecution persistence'));
+    } else {
+      expect(captured, isA<StateError>());
+      expect(
+        (captured as StateError).message,
+        contains('AgentExecution + WorkflowStepExecution persistence'),
+      );
+    }
   });
 
   WorkflowRun makeRun(WorkflowDefinition definition, {int stepIndex = 0}) {
@@ -253,8 +331,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -357,8 +440,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -502,8 +590,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -652,12 +745,10 @@ void main() {
     final context = WorkflowContext();
 
     String? capturedDescription;
-    Map<String, dynamic>? capturedConfigJson;
     final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       await Future<void>.delayed(Duration.zero);
       final task = await taskService.get(e.taskId);
       capturedDescription = task?.description;
-      capturedConfigJson = task?.configJson;
       await completeTask(e.taskId);
     });
 
@@ -666,7 +757,10 @@ void main() {
 
     final workflowWorkspaceDir = p.join(tempDir.path, 'workflow-workspace');
     expect(capturedDescription, contains('Write the specification.'));
-    expect(capturedConfigJson?['_workflowWorkspaceDir'], workflowWorkspaceDir);
+    expect(
+      (await agentExecutionRepository.get((await taskService.list()).single.agentExecutionId!))?.workspaceDir,
+      workflowWorkspaceDir,
+    );
     expect(File(p.join(workflowWorkspaceDir, 'AGENTS.md')).existsSync(), isTrue);
   });
 
@@ -681,8 +775,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -1597,9 +1696,14 @@ void main() {
           taskService: taskService,
           messageService: messageService,
           dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
         ),
         dataDir: tempDir.path,
         messageService: messageService,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
       );
     }
 
@@ -1628,7 +1732,10 @@ void main() {
 
       final createdTask = (await taskService.list()).single;
       expect(createdTask.description, equals('First prompt'));
-      expect(createdTask.configJson['_workflowFollowUpPrompts'], equals(['Second prompt', 'Third prompt']));
+      expect(
+        (await workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts,
+        equals(['Second prompt', 'Third prompt']),
+      );
 
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
@@ -1651,10 +1758,90 @@ void main() {
       await sub.cancel();
 
       final createdTask = (await taskService.list()).single;
-      expect(createdTask.configJson.containsKey('_workflowFollowUpPrompts'), isFalse);
+      expect((await workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts, isEmpty);
 
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('workflow-spawned agent execution stays unstarted while the task is queued', () async {
+      final mpExecutor = makeMultiPromptExecutor();
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Just one']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      late final StreamSubscription<TaskStatusChangedEvent> sub;
+      sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        expect(task?.agentExecution?.startedAt, isNull);
+        await completeTask(e.taskId);
+      });
+
+      await mpExecutor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+    });
+
+    test('workflow-spawned task leaves provider unset when no override is requested', () async {
+      final mpExecutor = makeMultiPromptExecutor();
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Just one']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      late final StreamSubscription<TaskStatusChangedEvent> sub;
+      sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        expect(task?.provider, isNull);
+        await completeTask(e.taskId);
+      });
+
+      await mpExecutor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+    });
+
+    test('completed workflow run preserves AE/WSE row-count invariants', () async {
+      final mpExecutor = makeMultiPromptExecutor();
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Just one']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final sub = autoAcceptQueuedTask();
+
+      await mpExecutor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final taskCount = (db.select('SELECT COUNT(*) AS c FROM tasks').first['c'] as int?) ?? 0;
+      final tasksWithoutAe =
+          (db.select('SELECT COUNT(*) AS c FROM tasks WHERE agent_execution_id IS NULL').first['c'] as int?) ?? 0;
+      final workflowStepCount =
+          (db.select('SELECT COUNT(*) AS c FROM workflow_step_executions').first['c'] as int?) ?? 0;
+      final joinedWorkflowStepCount =
+          (db.select(
+                'SELECT COUNT(*) AS c FROM tasks t '
+                'JOIN workflow_step_executions wse ON wse.task_id = t.id',
+              ).first['c'] as int?) ??
+          0;
+      final agentExecutionCount =
+          (db.select('SELECT COUNT(*) AS c FROM agent_executions').first['c'] as int?) ?? 0;
+
+      expect(taskCount, 1);
+      expect(tasksWithoutAe, 0);
+      expect(workflowStepCount, taskCount);
+      expect(joinedWorkflowStepCount, taskCount);
+      expect(agentExecutionCount, greaterThanOrEqualTo(taskCount));
     });
 
     test('mixed-output steps include text and json fields in the structured extraction schema', () async {
@@ -1683,7 +1870,9 @@ void main() {
       await sub.cancel();
 
       final createdTask = (await taskService.list()).single;
-      final schema = Map<Object?, Object?>.from(createdTask.configJson['_workflowStructuredSchema'] as Map);
+      final schema = Map<Object?, Object?>.from(
+        (await workflowStepExecutionRepository.getByTaskId(createdTask.id))!.structuredSchema!,
+      );
       final properties = Map<Object?, Object?>.from(schema['properties'] as Map);
 
       expect((schema['required'] as List<Object?>), containsAll(['prd', 'stories']));
@@ -1764,12 +1953,14 @@ void main() {
       final context = WorkflowContext();
 
       Map<String, dynamic>? capturedConfig;
+      String? capturedModel;
       final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
         final task = await taskService.get(e.taskId);
         capturedConfig = task?.configJson;
+        capturedModel = task?.model;
         await completeS03Task(e.taskId);
       });
 
@@ -1777,7 +1968,8 @@ void main() {
       await sub.cancel();
 
       expect(capturedConfig, isNotNull);
-      expect(capturedConfig!['model'], equals('claude-opus-4'));
+      expect(capturedModel, equals('claude-opus-4'));
+      expect(capturedConfig!.containsKey('model'), isFalse);
     });
 
     test('per-step explicit provider overrides stepDefaults provider', () async {
@@ -1828,19 +2020,22 @@ void main() {
       final context = WorkflowContext();
 
       Map<String, dynamic>? capturedConfig;
+      String? capturedModel;
       final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
         final task = await taskService.get(e.taskId);
         capturedConfig = task?.configJson;
+        capturedModel = task?.model;
         await completeS03Task(e.taskId);
       });
 
       await executor.execute(run, definition, context);
       await sub.cancel();
 
-      expect(capturedConfig!['model'], equals('opus'));
+      expect(capturedModel, equals('opus'));
+      expect(capturedConfig!.containsKey('model'), isFalse);
     });
 
     test('no matching default: step uses own config only', () async {
@@ -1902,6 +2097,42 @@ void main() {
       expect(taskCount, equals(1));
       final finalRun = await repository.getById('run-s03');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    });
+
+    test('workflow-spawned task carries no _workflow* or model keys in configJson', () async {
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: const [
+          WorkflowStep(id: 'review-code', name: 'Review Code', prompts: ['p']),
+        ],
+        stepDefaults: const [StepConfigDefault(match: 'review*', model: 'claude-opus-4')],
+      );
+
+      final run = makeS03Run(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      Map<String, dynamic>? capturedConfig;
+      String? capturedAeModel;
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        capturedConfig = task?.configJson;
+        capturedAeModel = task?.agentExecution?.model;
+        await completeS03Task(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await sub.cancel();
+
+      expect(capturedConfig, isNotNull);
+      expect(capturedAeModel, equals('claude-opus-4'));
+      expect(capturedConfig!.containsKey('model'), isFalse);
+      final leakedWorkflowKeys = capturedConfig!.keys.where((k) => k.startsWith('_workflow')).toList();
+      expect(leakedWorkflowKeys, isEmpty, reason: 'Task.configJson must not carry _workflow* keys post-S33/S34');
     });
   });
 

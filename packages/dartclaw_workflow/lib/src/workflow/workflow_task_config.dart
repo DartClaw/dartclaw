@@ -1,199 +1,158 @@
-import 'package:logging/logging.dart';
+import 'dart:convert';
 
-/// Shared `task.configJson` keys and typed accessors for the workflow
-/// one-shot execution path.
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepExecution, WorkflowStepExecutionRepository;
+
+/// Typed accessors for workflow-owned task execution metadata.
 ///
-/// The `WorkflowExecutor` and `TaskExecutor` (in `dartclaw_server`) communicate
-/// across package boundaries via these task config entries. Centralising both
-/// the **names** and the **shape contract** here prevents silent breakage from
-/// typos or asymmetric coercion: every cross-package read goes through a
-/// `read*` method, and every cross-package write goes through a `write*`
-/// method. Type drift between writer and reader becomes impossible.
-///
-/// **Scope**: only keys that cross the `dartclaw_workflow ↔ dartclaw_server`
-/// package boundary belong here. Keys used solely within `WorkflowExecutor`
-/// (e.g. `_continueSessionId`, `_sessionBaselineTokens`, `_workflowGit`,
-/// `_workflowWorkspaceDir`, `_mapIterationIndex`) intentionally remain string
-/// literals — migrating them here would bloat the contract without improving
-/// safety. New cross-package keys MUST be added as constants in this class
-/// with matching `read*` (and `write*` if there is an actual write site)
-/// accessors.
-///
-/// Writer helpers are added only when a real write call site exists; do not
-/// pre-add writer stubs for read-only keys (dead-code avoidance is the point
-/// of this class).
-///
-/// **Reader robustness**: all `read*` accessors are defensive — they return
-/// `null` (or an empty collection) when the underlying value is missing,
-/// `null`, or the wrong shape. They never throw. Earlier inline call sites
-/// used `as String?` casts that would throw on malformed `task.configJson`
-/// payloads; the accessors swallow such cases silently because the only
-/// writers are funnelled through the `write*` helpers (which are
-/// compile-time type-checked), so a malformed value can only originate from
-/// corrupted persistent storage — a state in which a silent skip is safer
-/// than crashing one-shot execution.
+/// The `dartclaw_workflow` and `dartclaw_server` packages now communicate
+/// workflow-only execution state through `WorkflowStepExecution` rows instead
+/// of `_workflow*` entries in `Task.configJson`. Generic task settings such as
+/// `model`, `allowedTools`, or `reviewMode` remain on the task; workflow-only
+/// one-shot/session/git metadata lives behind this repository-backed seam.
 abstract final class WorkflowTaskConfig {
-  static final _log = Logger('WorkflowTaskConfig');
+  /// Returns the workflow step execution for [task], or null when this is not
+  /// a workflow-spawned task with side-table metadata.
+  static Future<WorkflowStepExecution?> read(Task task, WorkflowStepExecutionRepository repo) => repo.getByTaskId(task.id);
 
-  // ── Key constants ─────────────────────────────────────────────────────────
-
-  /// Multi-prompt follow-up list queued by the executor for the one-shot runner.
-  static const followUpPrompts = '_workflowFollowUpPrompts';
-
-  /// JSON schema for the structured output extraction turn.
-  static const structuredSchema = '_workflowStructuredSchema';
-
-  /// Provider-side session id (Claude `session_id` / Codex `thread_id`)
-  /// captured from the one-shot runner and re-read by the executor.
-  static const providerSessionId = '_workflowProviderSessionId';
-
-  /// Parsed structured-output payload from the extraction turn. Consumed by
-  /// `ContextExtractor` to bypass heuristic extraction.
-  static const structuredOutputPayload = '_workflowStructuredOutputPayload';
-
-  /// Prior-step provider session id forwarded via `continueSession` chaining.
-  static const continueProviderSessionId = '_continueProviderSessionId';
-
-  /// Authored workflow step id for one-shot task event attribution.
-  static const workflowStepId = '_workflowStepId';
-
-  /// Per-step incremental input token count excluding prompt-cache reads.
-  static const inputTokensNew = '_workflowInputTokensNew';
-
-  /// Per-step prompt-cache reads for one-shot workflow execution.
-  static const cacheReadTokens = '_workflowCacheReadTokens';
-
-  /// Per-step output tokens for one-shot workflow execution.
-  static const outputTokens = '_workflowOutputTokens';
-
-  // ── Typed readers ─────────────────────────────────────────────────────────
-
-  /// Reads [followUpPrompts] as a `List<String>`. Coerces non-string entries
-  /// via `toString()`. Returns an empty const list when the key is absent or
-  /// the value is not a list.
-  static List<String> readFollowUpPrompts(Map<String, dynamic> cfg) {
-    return switch (cfg[followUpPrompts]) {
-      final List<dynamic> values => values.map((v) => v.toString()).toList(growable: false),
-      _ => const <String>[],
-    };
+  /// Reads workflow follow-up prompts for one-shot execution.
+  static Future<List<String>> readFollowUpPrompts(Task task, WorkflowStepExecutionRepository repo) async {
+    final wse = await repo.getByTaskId(task.id);
+    return wse?.followUpPrompts ?? const <String>[];
   }
 
-  /// Reads [structuredSchema] as `Map<String, dynamic>?`. Accepts both typed
-  /// and raw map shapes (YAML deserialisation may produce
-  /// `Map<Object?, Object?>`). Returns `null` when the key is absent or the
-  /// value is not a map.
-  static Map<String, dynamic>? readStructuredSchema(Map<String, dynamic> cfg) {
-    return switch (cfg[structuredSchema]) {
-      final Map<String, dynamic> s => s,
-      final Map<Object?, Object?> s => s.map((k, v) => MapEntry(k.toString(), v)),
-      _ => null,
-    };
+  /// Reads the structured-output schema for the task, when present.
+  static Future<Map<String, dynamic>?> readStructuredSchema(Task task, WorkflowStepExecutionRepository repo) async {
+    final wse = await repo.getByTaskId(task.id);
+    return wse?.structuredSchema;
   }
 
-  /// Reads [structuredOutputPayload] as `Map<String, dynamic>?`. Accepts both
-  /// typed and raw map shapes. Returns `null` when the key is absent or the
-  /// value is not a map.
-  static Map<String, dynamic>? readStructuredOutputPayload(Map<String, dynamic> cfg) {
-    return switch (cfg[structuredOutputPayload]) {
-      final Map<String, dynamic> p => p,
-      final Map<Object?, Object?> p => p.map((k, v) => MapEntry(k.toString(), v)),
-      _ => null,
-    };
+  /// Reads the structured-output payload for the task, when present.
+  static Future<Map<String, dynamic>?> readStructuredOutputPayload(
+    Task task,
+    WorkflowStepExecutionRepository repo,
+  ) async {
+    final wse = await repo.getByTaskId(task.id);
+    return wse?.structuredOutput;
   }
 
-  /// Reads [providerSessionId] as a trimmed non-empty string, or `null` when
-  /// the key is absent, not a string, or whitespace-only.
-  static String? readProviderSessionId(Map<String, dynamic> cfg) {
-    return _readTrimmedString(cfg, providerSessionId);
+  /// Reads the provider-side session id captured for the task.
+  static Future<String?> readProviderSessionId(Task task, WorkflowStepExecutionRepository repo) async {
+    final wse = await repo.getByTaskId(task.id);
+    return _trimmedOrNull(wse?.providerSessionId);
   }
 
-  /// Reads [continueProviderSessionId] as a trimmed non-empty string, or
-  /// `null` when the key is absent, not a string, or whitespace-only.
-  static String? readContinueProviderSessionId(Map<String, dynamic> cfg) {
-    return _readTrimmedString(cfg, continueProviderSessionId);
+  /// Reads the authored workflow step id for task-side reporting.
+  static Future<String?> readWorkflowStepId(Task task, WorkflowStepExecutionRepository repo) async {
+    final wse = await repo.getByTaskId(task.id);
+    return _trimmedOrNull(wse?.stepId);
   }
 
-  /// Reads [workflowStepId] as a trimmed non-empty string.
-  static String? readWorkflowStepId(Map<String, dynamic> cfg) {
-    return _readTrimmedString(cfg, workflowStepId);
+  /// Reads the provider session id from a previously completed root step.
+  static Future<String?> readContinueProviderSessionId(Task task, WorkflowStepExecutionRepository repo) =>
+      readProviderSessionId(task, repo);
+
+  /// Reads the new-input token count excluding cache reads.
+  static Future<int> readInputTokensNew(Task task, WorkflowStepExecutionRepository repo) async {
+    final breakdown = (await repo.getByTaskId(task.id))?.stepTokenBreakdown;
+    return _readInt(breakdown, 'inputTokensNew');
   }
 
-  /// Reads [inputTokensNew] as a non-negative integer, defaulting to `0`.
-  static int readInputTokensNew(Map<String, dynamic> cfg) => _readInt(cfg, inputTokensNew);
-
-  /// Reads [cacheReadTokens] as a non-negative integer, defaulting to `0`.
-  static int readCacheReadTokens(Map<String, dynamic> cfg) => _readInt(cfg, cacheReadTokens);
-
-  /// Reads [outputTokens] as a non-negative integer, defaulting to `0`.
-  static int readOutputTokens(Map<String, dynamic> cfg) => _readInt(cfg, outputTokens);
-
-  // ── Typed writers ─────────────────────────────────────────────────────────
-  // Only the keys with actual write sites get writers. Adding a writer
-  // without a caller is exactly the dead stub this class exists to prevent.
-
-  /// Writes [followUpPrompts]. Mirrors [readFollowUpPrompts]'s contract.
-  static void writeFollowUpPrompts(Map<String, dynamic> cfg, List<String> prompts) {
-    cfg[followUpPrompts] = prompts;
+  /// Reads the cache-read token count.
+  static Future<int> readCacheReadTokens(Task task, WorkflowStepExecutionRepository repo) async {
+    final breakdown = (await repo.getByTaskId(task.id))?.stepTokenBreakdown;
+    return _readInt(breakdown, 'cacheReadTokens');
   }
 
-  /// Writes [structuredSchema]. Mirrors [readStructuredSchema]'s contract.
-  static void writeStructuredSchema(Map<String, dynamic> cfg, Map<String, dynamic> schema) {
-    cfg[structuredSchema] = schema;
+  /// Reads the output token count.
+  static Future<int> readOutputTokens(Task task, WorkflowStepExecutionRepository repo) async {
+    final breakdown = (await repo.getByTaskId(task.id))?.stepTokenBreakdown;
+    return _readInt(breakdown, 'outputTokens');
   }
 
-  /// Writes [providerSessionId]. Mirrors [readProviderSessionId]'s contract.
-  static void writeProviderSessionId(Map<String, dynamic> cfg, String id) {
-    cfg[providerSessionId] = id;
+  /// Persists workflow follow-up prompts for one-shot execution.
+  static Future<void> writeFollowUpPrompts(
+    Task task,
+    WorkflowStepExecutionRepository repo,
+    List<String> prompts,
+  ) async {
+    await _update(repo, task.id, (wse) => wse.copyWith(followUpPromptsJson: jsonEncode(prompts)));
   }
 
-  /// Writes [structuredOutputPayload]. Mirrors
-  /// [readStructuredOutputPayload]'s contract.
-  static void writeStructuredOutputPayload(Map<String, dynamic> cfg, Map<String, dynamic> payload) {
-    cfg[structuredOutputPayload] = payload;
+  /// Persists the structured-output schema for the task.
+  static Future<void> writeStructuredSchema(
+    Task task,
+    WorkflowStepExecutionRepository repo,
+    Map<String, dynamic> schema,
+  ) async {
+    await _update(repo, task.id, (wse) => wse.copyWith(structuredSchemaJson: jsonEncode(schema)));
   }
 
-  /// Writes [continueProviderSessionId]. Used by the executor when chaining a
-  /// prior step's provider session id into the next task.
-  static void writeContinueProviderSessionId(Map<String, dynamic> cfg, String id) {
-    cfg[continueProviderSessionId] = id;
+  /// Persists the provider-side session id for the task.
+  static Future<void> writeProviderSessionId(Task task, WorkflowStepExecutionRepository repo, String id) async {
+    await _update(repo, task.id, (wse) => wse.copyWith(providerSessionId: _trimmedOrNull(id)));
   }
 
-  /// Writes [workflowStepId]. Mirrors [readWorkflowStepId]'s contract.
-  static void writeWorkflowStepId(Map<String, dynamic> cfg, String stepId) {
-    cfg[workflowStepId] = stepId;
+  /// Persists the structured-output payload for the task.
+  static Future<void> writeStructuredOutputPayload(
+    Task task,
+    WorkflowStepExecutionRepository repo,
+    Map<String, dynamic> payload,
+  ) async {
+    await _update(repo, task.id, (wse) => wse.copyWith(structuredOutputJson: jsonEncode(payload)));
   }
 
-  /// Writes [inputTokensNew]. Mirrors [readInputTokensNew]'s contract.
-  static void writeInputTokensNew(Map<String, dynamic> cfg, int value) {
-    cfg[inputTokensNew] = value;
+  /// Persists the provider session id on the workflow step row to support
+  /// `continueSession` chains.
+  static Future<void> writeContinueProviderSessionId(
+    Task task,
+    WorkflowStepExecutionRepository repo,
+    String id,
+  ) => writeProviderSessionId(task, repo, id);
+
+  /// Persists per-step token breakdown.
+  static Future<void> writeTokenBreakdown(
+    Task task,
+    WorkflowStepExecutionRepository repo, {
+    required int inputTokensNew,
+    required int cacheReadTokens,
+    required int outputTokens,
+  }) async {
+    await _update(
+      repo,
+      task.id,
+      (wse) => wse.copyWith(
+        stepTokenBreakdownJson: jsonEncode({
+          'inputTokensNew': inputTokensNew,
+          'cacheReadTokens': cacheReadTokens,
+          'outputTokens': outputTokens,
+        }),
+      ),
+    );
   }
 
-  /// Writes [cacheReadTokens]. Mirrors [readCacheReadTokens]'s contract.
-  static void writeCacheReadTokens(Map<String, dynamic> cfg, int value) {
-    cfg[cacheReadTokens] = value;
-  }
-
-  /// Writes [outputTokens]. Mirrors [readOutputTokens]'s contract.
-  static void writeOutputTokens(Map<String, dynamic> cfg, int value) {
-    cfg[outputTokens] = value;
-  }
-
-  static String? _readTrimmedString(Map<String, dynamic> cfg, String keyName) {
-    final raw = cfg[keyName];
-    if (raw == null) return null;
-    if (raw is! String) {
-      _log.fine('$keyName had unexpected shape ${raw.runtimeType}; returning null');
-      return null;
+  static Future<void> _update(
+    WorkflowStepExecutionRepository repo,
+    String taskId,
+    WorkflowStepExecution Function(WorkflowStepExecution current) mutate,
+  ) async {
+    final current = await repo.getByTaskId(taskId);
+    if (current == null) {
+      throw StateError('WorkflowStepExecution not found for task $taskId');
     }
-    final trimmed = raw.trim();
+    await repo.update(mutate(current));
+  }
+
+  static String? _trimmedOrNull(String? value) {
+    if (value == null) return null;
+    final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
 
-  static int _readInt(Map<String, dynamic> cfg, String keyName) {
-    final raw = cfg[keyName];
-    return switch (raw) {
-      final int value when value >= 0 => value,
-      final num value when value >= 0 => value.toInt(),
+  static int _readInt(Map<String, dynamic>? payload, String key) {
+    final value = payload?[key];
+    return switch (value) {
+      final int intValue when intValue >= 0 => intValue,
+      final num numValue when numValue >= 0 => numValue.toInt(),
       _ => 0,
     };
   }

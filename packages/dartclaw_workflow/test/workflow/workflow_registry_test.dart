@@ -184,13 +184,16 @@ void main() {
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
       expect(specAndImplement, isNot(contains('review-spec')));
       expect(specAndImplement, contains('spec_path'));
-      expect(specAndImplement, contains('skill: dartclaw-review-gap'));
+      // Unified `dartclaw-review` replaces the separate -code / -doc / -gap specialists (AndThen 0.12.1 re-port).
+      expect(specAndImplement, contains('skill: dartclaw-review'));
+      expect(specAndImplement, isNot(contains('skill: dartclaw-review-gap')));
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(planAndImplement, isNot(contains('review-prd')));
       expect(planAndImplement, contains('skill: dartclaw-quick-review'));
-      expect(planAndImplement, contains('skill: dartclaw-review-gap'));
+      expect(planAndImplement, contains('skill: dartclaw-review'));
+      expect(planAndImplement, isNot(contains('skill: dartclaw-review-gap')));
       expect(planAndImplement, contains('skill: dartclaw-plan'));
       expect(planAndImplement, contains('skill: dartclaw-prd'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-spec-plan')));
@@ -198,12 +201,15 @@ void main() {
       expect(codeReview, contains(RegExp(r'^  PROJECT:$', multiLine: true)));
       expect(codeReview, isNot(contains(RegExp(r'^  REPO:$', multiLine: true))));
       expect(codeReview, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(codeReview, contains('skill: dartclaw-review-code'));
+      expect(codeReview, contains('skill: dartclaw-review'));
+      expect(codeReview, isNot(contains('skill: dartclaw-review-code')));
     });
 
-    test('code-review keeps review and re-review on the direct code-review specialist', () async {
+    test('code-review keeps review and re-review on the unified dartclaw-review specialist', () async {
       final source = File(p.join(_workflowDefinitionsDir(), 'code-review.yaml')).readAsStringSync();
-      final reviewSkillCount = RegExp(r'skill:\s+dartclaw-review-code').allMatches(source).length;
+      // `skill: dartclaw-review` (not `-code`, `-doc`, or `-gap`) is the unified review specialist.
+      // Use a negative lookahead so `dartclaw-review` doesn't also match `dartclaw-review-code` etc.
+      final reviewSkillCount = RegExp(r'skill:\s+dartclaw-review(?![-\w])').allMatches(source).length;
 
       expect(reviewSkillCount, equals(2));
       expect(source, isNot(contains('extract-diff')));

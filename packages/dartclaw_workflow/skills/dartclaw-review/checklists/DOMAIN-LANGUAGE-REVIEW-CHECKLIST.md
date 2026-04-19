@@ -42,6 +42,6 @@
 - Synonym used instead of canonical term (e.g., "client" instead of "Customer")
 - Inconsistent naming across related files (same concept, different names)
 
-### 💡 SUGGESTIONS (Consider)
+### 💡 LOW (Consider)
 - Opportunity to improve naming clarity
 - New concept that should be added to glossary

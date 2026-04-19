@@ -49,6 +49,7 @@ import 'wiring/project_wiring.dart';
 class WiringResult {
   final DartclawServer server;
   final Database searchDb;
+  final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
   final AgentHarness harness;
   final HarnessPool pool;
@@ -70,6 +71,7 @@ class WiringResult {
   const WiringResult({
     required this.server,
     required this.searchDb,
+    required this.agentExecutionRepository,
     required this.taskService,
     required this.harness,
     required this.pool,
@@ -541,6 +543,10 @@ class ServiceWiring {
       ),
       structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
       skillRegistry: skillRegistry,
+      taskRepository: storage.taskRepository,
+      agentExecutionRepository: storage.agentExecutionRepository,
+      workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
+      executionRepositoryTransactor: storage.executionRepositoryTransactor,
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,
@@ -782,6 +788,7 @@ class ServiceWiring {
     return WiringResult(
       server: server,
       searchDb: storage.searchDb,
+      agentExecutionRepository: storage.agentExecutionRepository,
       taskService: storage.taskService,
       harness: harness.harness,
       pool: harness.pool,

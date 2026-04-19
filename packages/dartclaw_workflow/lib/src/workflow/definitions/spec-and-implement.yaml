@@ -105,7 +105,7 @@ steps:
   - id: integrated-review
     name: Integrated Review
     type: analysis
-    skill: dartclaw-review-gap
+    skill: dartclaw-review
     contextInputs: [project_index, spec_path, validation_summary, diff_summary]
     contextOutputs: [review_findings, findings_count, integrated-review.findings_count]
     outputs:

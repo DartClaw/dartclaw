@@ -113,7 +113,7 @@ Concise, actionable checklist for thorough code reviews.
 - Incorrect error handling
 - Significant technical debt
 
-### 💡 SUGGESTIONS (Consider)
+### 💡 LOW (Consider)
 - Code style improvements
 - Refactoring opportunities
 - Documentation enhancements

@@ -2,17 +2,10 @@
 
 Use this reference when a review skill needs a fresh-context sub-agent to challenge previously collected findings.
 
-## Common Pattern
-Every challenge prompt should include:
-- **Role**: who the challenger is
-- **Calibration refs**: the shared review calibration plus any skill-specific calibration
-- **Context block**: the project, document, or implementation context the challenger needs
-- **Questions**: the exact challenge questions to apply to each finding
-- **Verdicts**: the allowed outcomes for the challenge
-- **Non-expansion rule**: state that the challenger filters existing findings and does not add new ones, unless the calling workflow explicitly allows it
-- **Findings payload**: the findings set being challenged
-
 ## Generic Findings-Challenger Template
+
+Fill every placeholder. Omit `{optional_extra_rules}` unless the calling workflow needs more.
+
 ```text
 You are {role}.
 

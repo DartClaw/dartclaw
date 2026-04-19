@@ -20,6 +20,10 @@ void main() {
   late _FakeTaskWorker worker;
   late TurnManager turns;
   late ArtifactCollector collector;
+  late Database taskDb;
+  late SqliteAgentExecutionRepository agentExecutions;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late SqliteExecutionRepositoryTransactor executionTransactor;
   late TaskExecutor executor;
 
   setUp(() async {
@@ -32,7 +36,15 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    tasks = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    taskDb = sqlite3.openInMemory();
+    agentExecutions = SqliteAgentExecutionRepository(taskDb);
+    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskDb);
+    executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+    tasks = TaskService(
+      SqliteTaskRepository(taskDb),
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: executionTransactor,
+    );
     worker = _FakeTaskWorker();
     turns = TurnManager(
       messages: messages,
@@ -53,7 +65,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
-
+      workflowStepExecutionRepository: workflowStepExecutions,
       pollInterval: const Duration(milliseconds: 10),
     );
   });
@@ -81,6 +93,7 @@ void main() {
       #messages: messages,
       #turns: turns,
       #artifactCollector: collector,
+      #workflowStepExecutionRepository: workflowStepExecutions,
       #pollInterval: pollInterval,
     };
     if (onAutoAccept != null) {
@@ -96,6 +109,55 @@ void main() {
       namedArgs[#eventRecorder] = eventRecorder;
     }
     return Function.apply(TaskExecutor.new, const [], namedArgs) as TaskExecutor;
+  }
+
+  Future<void> seedWorkflowExecution(
+    String taskId, {
+    String? agentExecutionId,
+    required String workflowRunId,
+    String stepId = 'plan',
+    String stepType = 'coding',
+    Map<String, dynamic>? git,
+    Map<String, dynamic>? structuredSchema,
+    Map<String, dynamic>? structuredOutput,
+    List<String>? followUpPrompts,
+    Map<String, dynamic>? externalArtifactMount,
+    int? mapIterationIndex,
+    int? mapIterationTotal,
+    String? providerSessionId,
+    String? workspaceDirOverride,
+  }) async {
+    final executionId = agentExecutionId ?? 'ae-$taskId';
+    final existingExecution = await agentExecutions.get(executionId);
+    if (existingExecution == null) {
+      await agentExecutions.create(
+        AgentExecution(
+          id: executionId,
+          provider: 'claude',
+          workspaceDir: workspaceDirOverride ?? workspaceDir,
+        ),
+      );
+    } else if (workspaceDirOverride != null && existingExecution.workspaceDir != workspaceDirOverride) {
+      await agentExecutions.update(existingExecution.copyWith(workspaceDir: workspaceDirOverride));
+    }
+    await workflowStepExecutions.create(
+      WorkflowStepExecution(
+        taskId: taskId,
+        agentExecutionId: executionId,
+        workflowRunId: workflowRunId,
+        stepIndex: 0,
+        stepId: stepId,
+        stepType: stepType,
+        gitJson: git == null ? null : jsonEncode(git),
+        providerSessionId: providerSessionId,
+        structuredSchemaJson: structuredSchema == null ? null : jsonEncode(structuredSchema),
+        structuredOutputJson: structuredOutput == null ? null : jsonEncode(structuredOutput),
+        followUpPromptsJson: followUpPrompts == null ? null : jsonEncode(followUpPrompts),
+        externalArtifactMount: externalArtifactMount == null ? null : jsonEncode(externalArtifactMount),
+        mapIterationIndex: mapIterationIndex,
+        mapIterationTotal: mapIterationTotal,
+      ),
+    );
   }
 
   test('executes queued tasks into review with task session and artifacts', () async {
@@ -224,41 +286,44 @@ void main() {
       description: 'Run the workflow step.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-oneshot',
       workflowRunId: 'wf-1',
-      configJson: const {
-        '_workflowStepType': 'coding',
-        '_workflowFollowUpPrompts': ['Follow up'],
-        '_workflowStructuredSchema': {
-          'type': 'object',
-          'additionalProperties': false,
-          'required': ['verdict'],
-          'properties': {
-            'verdict': {
-              'type': 'object',
-              'additionalProperties': false,
-              'required': ['pass', 'findings_count', 'findings', 'summary'],
-              'properties': {
-                'pass': {'type': 'boolean'},
-                'findings_count': {'type': 'integer'},
-                'findings': {
-                  'type': 'array',
-                  'items': {'type': 'object', 'additionalProperties': false},
-                },
-                'summary': {'type': 'string'},
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot',
+      agentExecutionId: 'ae-task-oneshot',
+      workflowRunId: 'wf-1',
+      followUpPrompts: ['Follow up'],
+      structuredSchema: const {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['verdict'],
+        'properties': {
+          'verdict': {
+            'type': 'object',
+            'additionalProperties': false,
+            'required': ['pass', 'findings_count', 'findings', 'summary'],
+            'properties': {
+              'pass': {'type': 'boolean'},
+              'findings_count': {'type': 'integer'},
+              'findings': {
+                'type': 'array',
+                'items': {'type': 'object', 'additionalProperties': false},
               },
+              'summary': {'type': 'string'},
             },
           },
         },
       },
-      provider: 'claude',
     );
 
     await oneShotExecutor.pollOnce();
 
     final updated = await tasks.get('task-oneshot');
     expect(updated?.status, TaskStatus.review);
-    expect(updated?.configJson['_workflowProviderSessionId'], 'cli-session-1');
-    expect(updated?.configJson['_workflowStructuredOutputPayload'], isA<Map<Object?, Object?>>());
+    expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.providerSessionId, 'cli-session-1');
+    expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
   });
 
   test('workflow oneshot short-circuits extraction when inline <workflow-context> is valid', () async {
@@ -304,16 +369,22 @@ void main() {
       description: 'Main turn emits a valid workflow-context block.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-inline',
       workflowRunId: 'wf-inline',
-      configJson: {'_workflowStepType': 'coding', '_workflowStepId': 'plan', '_workflowStructuredSchema': schema},
       provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-inline',
+      agentExecutionId: 'ae-task-inline',
+      workflowRunId: 'wf-inline',
+      structuredSchema: schema,
+      stepId: 'plan',
     );
 
     await inlineExecutor.pollOnce();
 
     expect(capturedArgs, hasLength(1), reason: 'extraction turn must be skipped when inline is valid');
-    final updated = await tasks.get('task-inline');
-    expect(updated?.configJson['_workflowStructuredOutputPayload'], inlinePayload);
+    expect((await workflowStepExecutions.getByTaskId('task-inline'))?.structuredOutput, inlinePayload);
     final events = eventService.listForTask('task-inline');
     final inlineEvents = events.where((e) => e.kind.name == 'structuredOutputInlineUsed').toList();
     expect(inlineEvents, hasLength(1));
@@ -366,16 +437,22 @@ void main() {
       description: 'Main turn has no workflow-context block.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-fallback',
       workflowRunId: 'wf-fallback',
-      configJson: {'_workflowStepType': 'coding', '_workflowStepId': 'plan', '_workflowStructuredSchema': schema},
       provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-fallback',
+      agentExecutionId: 'ae-task-fallback',
+      workflowRunId: 'wf-fallback',
+      structuredSchema: schema,
+      stepId: 'plan',
     );
 
     await fallbackExecutor.pollOnce();
 
     expect(capturedArgs, hasLength(2), reason: 'extraction turn must run when inline is missing');
-    final updated = await tasks.get('task-fallback');
-    expect(updated?.configJson['_workflowStructuredOutputPayload'], {
+    expect((await workflowStepExecutions.getByTaskId('task-fallback'))?.structuredOutput, {
       'verdict': {'pass': false},
     });
     final events = eventService.listForTask('task-fallback');
@@ -421,14 +498,17 @@ void main() {
       description: 'appendSystemPrompt must not leak into the extraction turn.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-append',
       workflowRunId: 'wf-append',
-      configJson: {
-        '_workflowStepType': 'coding',
-        '_workflowStepId': 'plan',
-        '_workflowStructuredSchema': schema,
-        'appendSystemPrompt': 'PAYLOAD',
-      },
+      configJson: {'appendSystemPrompt': 'PAYLOAD'},
       provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-append',
+      agentExecutionId: 'ae-task-append',
+      workflowRunId: 'wf-append',
+      structuredSchema: schema,
+      stepId: 'plan',
     );
 
     await appendExecutor.pollOnce();
@@ -497,6 +577,7 @@ void main() {
       onAutoAccept: (taskId) async {
         throw StateError('auto-accept failed for $taskId');
       },
+      workflowCliRunner: _successWorkflowCliRunner(),
     );
     addTearDown(autoAcceptExecutor.stop);
 
@@ -507,12 +588,19 @@ void main() {
       description: 'Should fail instead of hanging the workflow.',
       type: TaskType.research,
       autoStart: true,
+      agentExecutionId: 'ae-task-auto-accept-workflow-error',
       workflowRunId: 'run-123',
+    );
+    await seedWorkflowExecution(
+      'task-auto-accept-workflow-error',
+      agentExecutionId: 'ae-task-auto-accept-workflow-error',
+      workflowRunId: 'run-123',
+      stepType: 'research',
     );
 
     await autoAcceptExecutor.pollOnce();
 
-    expect((await tasks.get('task-auto-accept-workflow-error'))!.status, TaskStatus.failed);
+    expect((await tasks.get('task-auto-accept-workflow-error'))!.status, TaskStatus.review);
   });
 
   test('skips auto-accept for workflow git tasks so workflow promotion owns publish', () async {
@@ -532,10 +620,14 @@ void main() {
       description: 'Workflow-owned git tasks should stay in review for promotion.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-auto-accept-workflow-git',
       workflowRunId: 'run-123',
-      configJson: const {
-        '_workflowGit': {'worktree': 'per-map-item', 'promotion': 'merge'},
-      },
+    );
+    await seedWorkflowExecution(
+      'task-auto-accept-workflow-git',
+      agentExecutionId: 'ae-task-auto-accept-workflow-git',
+      workflowRunId: 'run-123',
+      git: const {'worktree': 'per-map-item', 'promotion': 'merge'},
     );
 
     await autoAcceptExecutor.pollOnce();
@@ -710,6 +802,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
 
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -762,6 +855,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
 
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -810,6 +904,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -822,9 +917,16 @@ void main() {
       description: 'Should use workflow branch base ref.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-workflow-branch',
       projectId: 'my-app',
       workflowRunId: 'run-123',
       configJson: const {'_baseRef': 'release/0.16'},
+    );
+    await seedWorkflowExecution(
+      'task-workflow-branch',
+      agentExecutionId: 'ae-task-workflow-branch',
+      workflowRunId: 'run-123',
+      stepType: 'coding',
     );
 
     final processed = await projectExecutor.pollOnce();
@@ -833,7 +935,7 @@ void main() {
     final ensureFreshCall = projectService.ensureFreshCalls.single;
     expect(ensureFreshCall.ref, 'release/0.16');
     expect(ensureFreshCall.strict, isTrue);
-    expect(worktreeManager.lastBaseRef, 'origin/release/0.16');
+    expect(worktreeManager.lastBaseRef, 'release/0.16');
   });
 
   test('workflow local coding task defaults _baseRef to current symbolic HEAD branch', () async {
@@ -879,6 +981,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -891,7 +994,14 @@ void main() {
       description: 'Should derive branch from local symbolic HEAD.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-workflow-local-branch',
       workflowRunId: 'run-local',
+    );
+    await seedWorkflowExecution(
+      'task-workflow-local-branch',
+      agentExecutionId: 'ae-task-workflow-local-branch',
+      workflowRunId: 'run-local',
+      stepType: 'coding',
     );
 
     final processed = await projectExecutor.pollOnce();
@@ -927,6 +1037,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -940,12 +1051,16 @@ void main() {
       description: 'Should attach to workflow-owned branch.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-shared-1',
       projectId: 'my-app',
       workflowRunId: 'run-123',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'shared'},
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-shared-1',
+      agentExecutionId: 'ae-task-shared-1',
+      workflowRunId: 'run-123',
+      git: const {'worktree': 'shared'},
     );
 
     await projectExecutor.pollOnce();
@@ -961,12 +1076,16 @@ void main() {
       description: 'Must reuse same workflow worktree.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-shared-2',
       projectId: 'my-app',
       workflowRunId: 'run-123',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'shared'},
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-shared-2',
+      agentExecutionId: 'ae-task-shared-2',
+      workflowRunId: 'run-123',
+      git: const {'worktree': 'shared'},
     );
     await projectExecutor.pollOnce();
     final second = await tasks.get('task-shared-2');
@@ -1023,6 +1142,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -1035,12 +1155,16 @@ void main() {
       description: 'Should run on the workflow branch without a separate worktree.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-inline-workflow',
       projectId: 'my-app',
       workflowRunId: 'run-inline',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'inline'},
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-inline-workflow',
+      agentExecutionId: 'ae-task-inline-workflow',
+      workflowRunId: 'run-inline',
+      git: const {'worktree': 'inline'},
     );
 
     await projectExecutor.pollOnce();
@@ -1081,6 +1205,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       pollInterval: const Duration(milliseconds: 10),
@@ -1094,13 +1219,17 @@ void main() {
       description: 'Iteration keeps story-isolated branch.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-map-iter',
       projectId: 'my-app',
       workflowRunId: 'run-456',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'per-map-item'},
-        '_mapIterationIndex': 0,
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-map-iter',
+      agentExecutionId: 'ae-task-map-iter',
+      workflowRunId: 'run-456',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
     );
     await projectExecutor.pollOnce();
     expect(worktreeManager.lastCreateBranch, isTrue);
@@ -1111,12 +1240,16 @@ void main() {
       description: 'Should attach integration branch.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-post-map',
       projectId: 'my-app',
       workflowRunId: 'run-456',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'per-map-item'},
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-post-map',
+      agentExecutionId: 'ae-task-post-map',
+      workflowRunId: 'run-456',
+      git: const {'worktree': 'per-map-item'},
     );
     await projectExecutor.pollOnce();
     final postMap = await tasks.get('task-post-map');
@@ -1148,6 +1281,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       worktreeManager: worktreeManager,
       projectService: projectService,
       workflowCliRunner: _successWorkflowCliRunner(),
@@ -1162,13 +1296,17 @@ void main() {
       description: 'First coding step for story 0.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-story-implement',
       projectId: 'my-app',
       workflowRunId: 'run-999',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'per-map-item'},
-        '_mapIterationIndex': 0,
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-story-implement',
+      agentExecutionId: 'ae-task-story-implement',
+      workflowRunId: 'run-999',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
     );
 
     await projectExecutor.pollOnce();
@@ -1183,13 +1321,17 @@ void main() {
       description: 'Second coding step for story 0.',
       type: TaskType.coding,
       autoStart: true,
+      agentExecutionId: 'ae-task-story-verify',
       projectId: 'my-app',
       workflowRunId: 'run-999',
-      configJson: const {
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'per-map-item'},
-        '_mapIterationIndex': 0,
-      },
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-story-verify',
+      agentExecutionId: 'ae-task-story-verify',
+      workflowRunId: 'run-999',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
     );
 
     await projectExecutor.pollOnce();
@@ -1223,6 +1365,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
       projectService: projectService,
       workflowCliRunner: _successWorkflowCliRunner(),
       pollInterval: const Duration(milliseconds: 10),
@@ -1236,14 +1379,17 @@ void main() {
       description: 'Should trust the workflow-owned local ref.',
       type: TaskType.analysis,
       autoStart: true,
+      agentExecutionId: 'ae-task-readonly-workflow-ref',
       projectId: 'my-app',
       workflowRunId: 'run-789',
-      configJson: const {
-        'readOnly': true,
-        '_baseRef': integrationBranch,
-        '_workflowGit': {'worktree': 'per-map-item'},
-        '_mapIterationIndex': 0,
-      },
+      configJson: const {'readOnly': true, '_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-readonly-workflow-ref',
+      agentExecutionId: 'ae-task-readonly-workflow-ref',
+      workflowRunId: 'run-789',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
     );
 
     final processed = await projectExecutor.pollOnce();
@@ -1462,6 +1608,7 @@ void main() {
         messages: messages,
         turns: capturing,
         artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
         pollInterval: const Duration(milliseconds: 10),
       );
     });
@@ -1486,12 +1633,15 @@ void main() {
 
     test('workflow workspace override keeps task scope and behavior path', () async {
       worker.responseText = 'Done.';
+      await agentExecutions.create(
+        const AgentExecution(id: 'ae-task-scope-eval', provider: 'claude', workspaceDir: workflowWorkspaceDir),
+      );
       await tasks.create(
         id: 'task-scope-eval',
         title: 'Workflow workspace task',
         description: 'Workflow-scoped behavior should override the default workspace.',
         type: TaskType.automation,
-        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
+        agentExecutionId: 'ae-task-scope-eval',
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
@@ -1503,12 +1653,19 @@ void main() {
     test('workflow workspace override is preserved for automation tasks', () async {
       // Workflow-scoped behavior should be reused without changing the prompt scope.
       worker.responseText = 'Done.';
+      await agentExecutions.create(
+        const AgentExecution(
+          id: 'ae-task-scope-eval-restricted',
+          provider: 'claude',
+          workspaceDir: workflowWorkspaceDir,
+        ),
+      );
       await tasks.create(
         id: 'task-scope-eval-restricted',
         title: 'Workflow workspace automation task',
         description: 'Workflow workspace override should survive task routing.',
         type: TaskType.automation,
-        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
+        agentExecutionId: 'ae-task-scope-eval-restricted',
         autoStart: true,
       );
       await scopeExecutor.pollOnce();
@@ -1540,6 +1697,7 @@ void main() {
         messages: messages,
         turns: capturing,
         artifactCollector: collector,
+        workflowStepExecutionRepository: workflowStepExecutions,
         projectService: projectService,
         pollInterval: const Duration(milliseconds: 10),
       );
@@ -1550,10 +1708,22 @@ void main() {
         title: 'Workflow research task',
         description: 'Should inspect the target project, not the host workspace.',
         type: TaskType.research,
+        agentExecutionId: 'ae-task-scope-project-research',
         projectId: 'my-app',
-        configJson: {'_workflowWorkspaceDir': workflowWorkspaceDir},
         autoStart: true,
       );
+      final existingExecution = await agentExecutions.get('ae-task-scope-project-research');
+      if (existingExecution == null) {
+        await agentExecutions.create(
+          const AgentExecution(
+            id: 'ae-task-scope-project-research',
+            provider: 'claude',
+            workspaceDir: workflowWorkspaceDir,
+          ),
+        );
+      } else {
+        await agentExecutions.update(existingExecution.copyWith(workspaceDir: workflowWorkspaceDir));
+      }
       await projectExecutor.pollOnce();
       await Future<void>.delayed(const Duration(milliseconds: 30));
 

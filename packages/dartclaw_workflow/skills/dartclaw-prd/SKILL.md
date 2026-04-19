@@ -1,8 +1,6 @@
 ---
-name: dartclaw-prd
-description: Use when the user wants a PRD synthesized from requirements, a draft PRD, or a requirements-clarification artifact. This DartClaw-authored skill has no direct upstream counterpart because extracting the PRD-only slice from the upstream plan skill would require substantive rewriting. Produces `prd.md` in a discoverable feature directory, ready to feed the `dartclaw-plan` skill. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
-argument-hint: "[Specs directory, requirements source, file, URL, or --issue <n>]"
-user-invocable: true
+description: Use when the user wants a PRD. Creates a Product Requirements Document from clarified requirements, a draft PRD, an inline description, a file, a URL, or a GitHub issue. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
+argument-hint: "[Specs directory or requirements source] | --issue <number> [--to-issue]"
 workflow:
   default_prompt: "Use $dartclaw-prd to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."
   default_outputs:
@@ -14,143 +12,169 @@ workflow:
       description: "`existing` when a pre-existing PRD was reused, `synthesized` when this skill wrote a new `prd.md`."
 ---
 
-# Create PRD
+# Create Product Requirements Document
 
 
-Transform requirements, clarification artifacts, or a draft PRD into a finalized `prd.md`. If a PRD already exists in the input directory, pass-through (no-op). If prior artifacts exist (e.g. `requirements-clarification.md` or `prd-draft.md`), use them as the basis. If nothing exists, perform headless requirements synthesis to produce a PRD directly. Use interactive clarification only when the user explicitly asks for it or the input is too ambiguous to support any defensible PRD.
+Produce a `prd.md` from whatever requirements material is available: a clarified requirements doc, a draft PRD, an inline description, a requirements file, a URL, or a GitHub issue. If a `prd.md` already exists in the target directory, pass through and exit — do not regenerate.
 
-**Altitude**: Product. This skill does not plan stories, spec features, or create any FIS. That work belongs to the `dartclaw-plan` skill (implementation plan bundle, including FIS generation) which takes the `prd.md` produced here as its required upstream input.
+Upstream of the `dartclaw-plan` skill. The PRD created here is the required input for `dartclaw-plan`.
 
-**Philosophy**: The PRD captures *what* to build and why. Implementation details belong in downstream plan/spec artifacts, not here.
+**Philosophy**: PRDs focus on *what* must be true for users and the business — not *how* to build it. Deep technical research and story breakdown are deferred to the `dartclaw-plan` skill and downstream spec generation.
 
 
 ## VARIABLES
 
-_Specs directory (with PRD, clarification artifacts, or draft PRD), file path to a prior artifact, URL, inline description, or `--issue <n>` / GitHub URL (**required**):_
+_Requirements source (**required**):_
 INPUT: $ARGUMENTS
 
-_Output directory (see Output-Path Semantics below — defaults to the Project Document Index's specs path or `<project_root>/docs/specs/` for new features):_
-OUTPUT_DIR: derived from INPUT per Output-Path Semantics
+_Output directory (derived from INPUT type — see **Output Path Semantics**):_
+OUTPUT_DIR: _(see resolution rules below)_
 
-
-## USAGE
-
-```
-/dartclaw-prd docs/specs/my-feature/          # From directory with prior artifacts
-/dartclaw-prd @docs/requirements.md           # From requirements file
-/dartclaw-prd "Build a user dashboard"        # From inline description
-/dartclaw-prd --issue 42                      # From a typed GitHub issue
-```
+### Optional Flags
+- `--issue <number>` → Fetch and use a GitHub issue as requirements input
+- `--to-issue` → PUBLISH_ISSUE: Publish PRD as a GitHub issue after saving locally
 
 
 ## INSTRUCTIONS
 
-- **Make sure `INPUT` is provided** — otherwise stop and ask for input.
-- Read the Development and Architecture guidelines referenced in the project's CLAUDE.md / AGENTS.md before synthesis.
-- **Single altitude**: produce only the PRD. Do not draft an implementation plan, stories, or any FIS. If the user asked for a plan, redirect to the `dartclaw-plan` skill after the PRD exists.
-- **Headless-first synthesis**: unless the user explicitly asked for interactive discovery, continue to completion without pausing for routine clarification. Make reasonable assumptions, document them explicitly in the PRD, and surface unresolved questions in the PRD output rather than blocking.
-- **Stop only on true contract failures**: missing required input, incompatible typed artifacts, or ambiguity so severe that no defensible PRD can be produced are valid stop conditions. Ordinary requirement gaps are not.
-- **Focus on "what" not "how"**: requirements and outcomes, not implementation details.
-- **Be specific**: replace vague terms with measurable criteria.
-- **Document decisions**: record rationale, trade-offs, and alternatives considered.
-- **Sub-agents for exploration only** _(if supported by your coding agent)_: delegate codebase/research reads to a `general-purpose` sub-agent when the context budget benefits — never pass `dartclaw-*` names as `subagent_type` (none are valid agent types).
-
-
-### Output-Path Semantics
-
-The output location depends on the shape of `INPUT`:
-
-| Input | Output |
-|-------|--------|
-| Existing directory containing `prd.md` | Pass-through / no-op — print the existing PRD path and exit |
-| Existing directory without `prd.md` (may contain `requirements-clarification.md` / `prd-draft.md`) | Write `prd.md` **into that directory** |
-| Prior-artifact file path (e.g. `docs/specs/foo/prd-draft.md` or `requirements-clarification.md`) | Write `prd.md` in the **parent directory** of that file |
-| Raw requirements / URL / inline description | Create `<output-dir>/<feature-name>/prd.md` (default `<output-dir>` is the Project Document Index's spec path, otherwise `docs/specs/`) |
-| `--issue <number>` | Create `<output-dir>/issue-{number}-{feature-name}/prd.md` |
-
-
-### Single-Mode File-Based Contract (Critical)
-
-This skill **always writes `prd.md` to disk** at the canonical location and, when invoked by a workflow, **always emits the file path** via `contextOutputs`. Never emit the PRD body inline. Downstream workflow steps read the file via `file_read`.
-
-- **Standalone** (direct CLI / `/dartclaw-prd <args>`): write `prd.md` to disk per the output-path semantics above; print the final path.
-- **Workflow invocation** (detected via a `## Workflow Output Contract` section appended to the prompt, or a project-index handoff from the `dartclaw-discover-project` skill): write `prd.md` to the canonical project-index location, then emit that path via `contextOutputs.prd` and emit `prd_source ∈ {existing, synthesized}` via `contextOutputs.prd_source`.
-
-#### Read-Existing Detection
-
-Before synthesis during a workflow invocation, inspect `context.docs_project_index.active_prd`:
-
-- If `active_prd` is non-null **and the file exists**: skip synthesis entirely. Emit `prd: <active_prd path>` and `prd_source: "existing"`. Do not rewrite the file.
-- Otherwise:
-  - If `context.docs_project_index.artifact_locations.prd` is non-null, synthesize there and emit `prd_source: "synthesized"`.
-  - If `artifact_locations.prd` is null, infer `docs/specs/<feature-name>/prd.md` from `REQUIREMENTS`, log the inferred location in the run trace, populate `artifact_locations.prd` for downstream reads, then synthesize there and emit `prd_source: "synthesized"`.
+- Require `INPUT`. Stop if missing.
+- Delegate research and exploration to sub-agents _(if supported)_.
+- **Headless-first** — continue to completion without pausing for routine clarification. Make reasonable assumptions, document them, and surface unresolved questions in the output.
+- Stop only on true contract failures (missing input, incompatible artifacts, or ambiguity so severe no defensible PRD can be produced).
+- Focus on "what" not "how". Replace vague terms with measurable criteria. Record rationale and trade-offs.
+- Keep implementation-level details (architecture patterns, library choices, API protocol specifics, internal code organization) out of the PRD. Capture significant technical constraints in `Constraints & Assumptions`; defer deep technical research to the `dartclaw-plan` skill.
 
 
 ## GOTCHAS
-- Drifting into planning or story breakdown — that's the `dartclaw-plan` skill's altitude; this skill stops at the PRD boundary.
-- Skipping prior artifacts and re-doing discovery when `requirements-clarification.md` or `prd-draft.md` exist — wastes effort and risks contradicting completed decisions.
-- Emitting the PRD body inline via `contextOutputs` — removed in 0.16.4. Workflow invocation is file-based only: write the file, emit the path.
-- Re-synthesizing when `active_prd` already exists — skip synthesis and emit the existing path with `prd_source: "existing"`.
-- Pausing for interactive clarification on routine gaps — document assumptions in the PRD instead.
+- Skipping requirements synthesis when only a vague one-liner exists — infer the smallest coherent MVP, document assumptions, and continue
+- Re-asking questions already answered in `requirements-clarification.md` or `prd-draft.md`
+- Letting implementation details leak into the PRD — if it's about *how*, push it to the **Decisions Log** or defer to the `dartclaw-plan` skill
+- Writing `prd.md` into the wrong directory — follow **Output Path Semantics** exactly so the `prd → plan` chain stays stable
+- Overwriting an existing `prd.md` — always pass through when one exists
+
+
+## Output Path Semantics
+
+Resolve `OUTPUT_DIR` and the final PRD path by input type. These rules must match the `dartclaw-plan` skill's input contract so the chain is stable:
+
+- **Existing feature directory containing `prd.md`** → **pass-through / no-op**: print the existing path and exit. Do not regenerate.
+- **Existing feature directory without `prd.md`** (may contain `requirements-clarification.md` and/or `prd-draft.md`) → write `prd.md` **into that directory**.
+- **Prior-artifact file path** (e.g. `docs/specs/foo/prd-draft.md` or `requirements-clarification.md`) → write `prd.md` in the **parent directory** of that file.
+- **Raw requirements**, **URL**, or **inline description** → create `<output-dir>/<feature-name>/prd.md`. Default `<output-dir>` is `docs/specs/` or the path configured in the **Project Document Index**.
+- **`--issue <number>`** → use `issue-{number}-{feature-name}/` as the output subdirectory name under `<output-dir>`.
+
+When complete, print the output's **relative path from the project root**.
 
 
 ## WORKFLOW
 
-### 1. Input Classification & PRD Detection
+### 1. Input Validation & Dispatch
 
 1. **Parse INPUT** — determine type:
-   - **`--issue <number>` flag or GitHub URL**: follow `../references/resolve-github-input.md`. Compatible types: untyped requirements issues (use the issue body as raw requirements); redirect typed artifacts to the correct downstream skill (`plan-bundle` → `dartclaw-plan`; `fis-bundle` → `dartclaw-exec-spec`; `*-review` → `dartclaw-remediate-findings`). Store issue number for the output subdirectory name. → proceed to Step 2
-   - **Directory with `prd.md`**: pass-through → skip to Step 5 (print existing path, exit)
-   - **Directory with prior artifacts** (`requirements-clarification.md` and/or `prd-draft.md`, no `prd.md`): read all artifacts → proceed to Step 3
-   - **File path to a prior artifact** (`prd-draft.md` or `requirements-clarification.md`): read the file → proceed to Step 3
-   - **URL**: fetch and extract requirements → proceed to Step 2
-   - **Inline description or raw requirements**: use directly → proceed to Step 2
+   - **`--issue` flag present** (or INPUT refers to a GitHub issue): follow `../references/resolve-github-input.md`.
+     Compatible types: none (prd works from untyped issues as raw requirements input). Redirects (all **skills**): `plan-bundle` → `dartclaw-plan` / `plan-and-implement` workflow; `fis-bundle` → `dartclaw-exec-spec` / `dartclaw-spec`; `triage-plan` / `triage-completion` / any `*-review` → stop with matching downstream skill. Untyped: use issue content as requirements input; store issue number for reference. → proceed to Step 2 (Synthesis).
+   - **Directory with `prd.md`** → pass-through: print the existing path and exit.
+   - **Directory with prior artifacts** (`requirements-clarification.md` and/or `prd-draft.md`, no finalized `prd.md`) → proceed to Step 3 (PRD from Existing Artifacts).
+   - **File path** that is a prior artifact (`prd-draft.md` or `requirements-clarification.md`) → proceed to Step 3.
+   - **Other file path**, **URL**, or **inline description** → proceed to Step 2 (Synthesis).
 
-2. **If no PRD and no prior artifacts**:
-   - If broad but directional: infer smallest coherent MVP, document assumptions, proceed to Step 2 (synthesis).
-   - If too vague for a coherent feature boundary: stop, report minimum missing contract, mention interactive clarification as fallback.
+2. **Document optional assets** if present in the resolved directory (Architecture/ADRs, Design system, Wireframes). Keep pointers; don't inline contents.
 
-**Gate**: Input classified
+**Gate**: Input validated, dispatch path chosen
 
 
-### 2. Headless Requirements Synthesis _(skip if prior artifacts already cover this)_
+### 2. Requirements Synthesis _(skip if a prior artifact is the basis; go to Step 3)_
 
-Cover: users & personas, core workflows, data model, integrations, constraints, NFRs, success metrics. Fill gaps with explicit assumptions grounded in source material, codebase patterns, adjacent artifacts, and standard conventions. When a gap materially affects scope and evidence is weak, choose the most conservative MVP assumption; record it in the PRD under `Constraints & Assumptions` and `Decisions Log`. Do not pause for routine clarification.
+Cover the full requirements landscape, defaulting to synthesis rather than interview: users & personas, core workflows, data model, integrations, constraints, NFRs, and success metrics. Fill ordinary gaps using explicit assumptions grounded in the source material, codebase patterns, adjacent artifacts, and standard product conventions.
 
-If multiple incompatible PRDs are equally plausible with no justification from available evidence, stop and report the smallest missing decisions. Use interactive clarification only as a fallback.
+When a gap materially affects scope or prioritization and the evidence is weak, choose the most conservative MVP assumption that still allows a coherent PRD. Record it under `Constraints & Assumptions` and in the `Decisions Log` with alternatives considered. Do not pause the run for routine clarification.
 
-**Gate**: Enough detail exists for a defensible PRD; major assumptions and unresolved questions are captured explicitly
+If the input is so ambiguous that multiple incompatible PRDs are equally plausible and none can be justified, stop and report the smallest missing decisions required. Fall back to interactive clarification only as an explicit user-requested path.
 
+Initial gap analysis — document what's explicitly stated, what's assumed/implied, and what's missing/unclear (functional requirements, user flows, edge cases, success criteria, business context, MVP scope).
 
-### 3. PRD Drafting
-
-Map content against [`templates/prd-template.md`](templates/prd-template.md). Use existing artifacts (`requirements-clarification.md` / `prd-draft.md`) as the primary basis when present — do not re-ask answered questions or pause for routine clarification. Apply MoSCoW + P0/P1/P2 prioritization. Keep required sections, adapt optional subsections to the project, and preserve concrete decisions from source material.
-
-- **Extract technical details** (architecture, API details, framework constraints) into `{OUTPUT_DIR}/technical-research.md` when they surface during synthesis — the PRD stays focused on *what* to build, not *how*.
-- Capture ambiguity as explicit assumptions or deferred decisions so downstream skills inherit a usable contract.
-
-**Gate**: PRD drafted
+**Gate**: PRD is specific enough for planning; major assumptions and unresolved questions are documented explicitly → continue to Step 4
 
 
-### 4. Validation
+### 3. PRD from Existing Artifacts _(skip if running synthesis in Step 2)_
+
+Use existing artifacts (`requirements-clarification.md` and/or `prd-draft.md`) as the primary basis for the PRD. This path avoids duplicating discovery work already completed.
+
+- Map existing content against the PRD template (see [`templates/prd-template.md`](templates/prd-template.md)); fill only the missing sections using bounded assumptions derived from the existing artifacts, codebase context, and adjacent documents.
+- Do not re-ask questions already answered in the existing artifacts; do not pause for routine clarification.
+- If the artifacts are too ambiguous to support any defensible PRD shape, stop and report the minimum missing decisions required. Mention interactive clarification as the fallback if the user wants to continue.
+- **Extract technical details**: if the draft contains implementation-level content (architecture patterns, technology choices, API details, framework constraints, integration specifics), keep them out of the PRD. Note significant technical constraints in `Constraints & Assumptions`; defer deep technical research to the `dartclaw-plan` skill.
+- Preserve decisions, rationale, and specific details from existing artifacts — do not paraphrase or generalize away specifics.
+
+**Gate**: Source artifacts mapped, gaps filled with bounded assumptions → continue to Step 4
+
+
+### 4. Generate PRD Document
+
+Structure the PRD from the synthesized or mapped requirements using the template at [`templates/prd-template.md`](templates/prd-template.md). Keep the required sections, adapt optional subsections to the project, and preserve concrete decisions from discovery rather than generalizing them away. Apply MoSCoW prioritization (Must / Should / Could / Won't) and P0/P1/P2 levels to features.
+
+When running headlessly, do not leave important ambiguity implicit. Capture it as an explicit assumption, dependency, or deferred decision in the PRD so downstream skills inherit a usable contract.
+
+Save the PRD to the path resolved under **Output Path Semantics**.
+
+**Gate**: PRD saved
+
+
+### 5. PRD Validation
 
 Self-check:
-- [ ] Problem statement with measurable impact; success metrics are specific
+- [ ] Problem statement with measurable impact
 - [ ] All user stories have testable acceptance criteria
-- [ ] Scope explicitly defined (in/out) with no conflicting requirements
-- [ ] Every feature has defined error handling; NFRs have clear thresholds
-- [ ] No ambiguous terms without definitions; all assumptions documented
+- [ ] Success metrics are specific and measurable
+- [ ] Scope explicitly defined (in/out)
+- [ ] Every feature has defined error handling
+- [ ] Non-functional requirements have clear thresholds
+- [ ] No ambiguous terms without definitions
+- [ ] All assumptions documented
+- [ ] No conflicting requirements
 - [ ] **Problem-solution fit (bidirectional)**: every pain or desired outcome named on the **problem side** — in `Problem Definition` and in the "so that..." clauses of `Functional Requirements > User Stories` — has at least one feature, acceptance criterion, or metric on the **solution side** (a row in `Functional Requirements > Feature Specifications`, an item in `Executive Summary > Success Metrics`, a `Non-Functional Requirements` threshold, or a `Scope > In Scope` capability) that signals it's resolved; and every solution-side item traces back to such a pain or outcome. Fix: unaddressed problem → add a feature/metric or drop the problem element; orphan solution → drop it or amend `Problem Definition` / user-story rationale to justify (solutionism smell).
+
+Optional: Invoke the `dartclaw-review --mode doc` skill to validate the PRD before finalizing.
 
 **Gate**: Validation complete
 
 
-### 5. Output
+## OUTPUT
 
-**Standalone**: write `prd.md` to `OUTPUT_DIR` per the Output-Path Semantics table. Print the relative path from project root.
+```
+OUTPUT_DIR/
+└── prd.md                 # Product Requirements Document
+```
 
-**Workflow invocation**: if `active_prd` is non-null and exists on disk, emit `prd: <active_prd path>` + `prd_source: "existing"` and stop. Otherwise write `prd.md` to the canonical project-index path (using the inferred fallback path when `artifact_locations.prd` is null) and emit `prd: <that path>` + `prd_source: "synthesized"`.
+- If from GitHub issue: use `issue-{number}-{feature-name}/` as the output subdirectory name (e.g. `docs/specs/issue-42-user-dashboard/prd.md`). Include issue reference in the PRD header.
 
+When complete, print the output's **relative path from the project root**. Do not use absolute paths.
+
+### Publish to GitHub _(if --to-issue)_
+If PUBLISH_ISSUE is `true`:
+1. Follow `../references/github-artifact-roundtrip.md`
+   - `artifact_type`: `prd`
+   - Title: `[PRD] {project-name}: Product Requirements Document`
+   - Primary file: `prd.md`
+   - Labels: `prd`, `andthen-artifact`
+2. Print the issue URL and the local primary path (`prd.md`)
+
+
+## FOLLOW-UP ACTIONS
+
+After completion, suggest the following next steps. **Recommend a clean session** for the context-intensive downstream skills.
+
+1. **Create implementation plan** _(clean session recommended)_: Invoke the `dartclaw-plan` skill on the PRD directory — it produces the full plan bundle (`plan.md` + all FIS + `.technical-research.md`).
+2. **Review the PRD**: Invoke the `dartclaw-review --mode doc` skill on `prd.md`.
+3. **Initialize project state** (if not already tracking): Use the `dartclaw-update-state` skill to create or refresh the State document for this project.
+
+
+---
+
+
+## Appendix: Template
+
+**USE THE TEMPLATE**: [`templates/prd-template.md`](templates/prd-template.md)
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_
 
@@ -160,11 +184,3 @@ When this skill runs as a workflow step, its canonical outputs are:
 - `prd_source` (format: `text`) — `"existing"` when a pre-existing PRD was reused, `"synthesized"` when the skill wrote a new file
 
 Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step. Never emit the PRD body inline — workflow steps downstream read the file via `file_read`.
-
-
-### Publish to GitHub _(if --to-issue)_
-Follow `../references/github-artifact-roundtrip.md` with `artifact_type: prd-bundle`, primary file `prd.md`, labels `prd, andthen-artifact`. Print issue URL and local path.
-
-
-## Appendix: Templates
-- PRD: [`templates/prd-template.md`](templates/prd-template.md)

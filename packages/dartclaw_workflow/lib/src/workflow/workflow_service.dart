@@ -4,11 +4,15 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        AgentExecutionRepository,
         EventBus,
+        ExecutionRepositoryTransactor,
         KvService,
         MessageService,
+        TaskRepository,
         Task,
         TaskStatus,
+        WorkflowStepExecutionRepository,
         WorkflowExecutionCursor,
         WorkflowExecutionCursorNodeType,
         WorkflowApprovalResolvedEvent,
@@ -50,6 +54,10 @@ class WorkflowService {
   final WorkflowStepOutputTransformer? _outputTransformer;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
   final SkillRegistry? _skillRegistry;
+  final TaskRepository? _taskRepository;
+  final AgentExecutionRepository? _agentExecutionRepository;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -72,6 +80,10 @@ class WorkflowService {
     WorkflowStepOutputTransformer? outputTransformer,
     StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
     SkillRegistry? skillRegistry,
+    TaskRepository? taskRepository,
+    AgentExecutionRepository? agentExecutionRepository,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    ExecutionRepositoryTransactor? executionRepositoryTransactor,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
@@ -84,6 +96,10 @@ class WorkflowService {
        _outputTransformer = outputTransformer,
        _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder,
        _skillRegistry = skillRegistry,
+       _taskRepository = taskRepository,
+       _agentExecutionRepository = agentExecutionRepository,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _executionRepositoryTransactor = executionRepositoryTransactor,
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -547,6 +563,7 @@ class WorkflowService {
         taskService: _taskService,
         messageService: _messageService,
         dataDir: _dataDir,
+        workflowStepExecutionRepository: _workflowStepExecutionRepository,
         structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
       ),
       messageService: _messageService,
@@ -555,6 +572,10 @@ class WorkflowService {
       dataDir: _dataDir,
       roleDefaults: _roleDefaults,
       skillRegistry: _skillRegistry,
+      taskRepository: _taskRepository,
+      agentExecutionRepository: _agentExecutionRepository,
+      workflowStepExecutionRepository: _workflowStepExecutionRepository,
+      executionTransactor: _executionRepositoryTransactor,
     );
 
     Future<void> executeFn() async {

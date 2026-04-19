@@ -44,6 +44,7 @@ class TaskExecutor {
     TurnTraceService? traceService,
     TaskEventRecorder? eventRecorder,
     WorkflowCliRunner? workflowCliRunner,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
@@ -70,6 +71,7 @@ class TaskExecutor {
        _traceService = traceService,
        _eventRecorder = eventRecorder,
        _workflowCliRunner = workflowCliRunner,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
        _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
        _projectService = projectService,
@@ -99,6 +101,7 @@ class TaskExecutor {
   final TurnTraceService? _traceService;
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
@@ -420,11 +423,11 @@ class TaskExecutor {
         }
         final explicitBaseRef = _taskBaseRef(task);
         final effectiveBaseRef = await _resolveEffectiveBaseRef(task, project, explicitBaseRef: explicitBaseRef);
-        final workflowOwnedBranchTask = _workflowOwnedWorktreeKey(task) != null;
+        final workflowOwnedBranchTask = await _workflowOwnedWorktreeKey(task) != null;
         final workflowOwnedLocalBaseRef = _isWorkflowOwnedLocalRef(effectiveBaseRef);
-        final worktreeBaseRef = _worktreeBaseRefFor(task, project, effectiveBaseRef);
+        final worktreeBaseRef = await _worktreeBaseRefFor(task, project, effectiveBaseRef);
         final strictGitValidation =
-            task.workflowRunId != null && !workflowOwnedBranchTask && !workflowOwnedLocalBaseRef;
+            _isWorkflowOrchestrated(task) && !workflowOwnedBranchTask && !workflowOwnedLocalBaseRef;
         final freshnessRef = (workflowOwnedBranchTask || workflowOwnedLocalBaseRef)
             ? null
             : _freshnessRefFor(project, effectiveBaseRef);
@@ -453,7 +456,7 @@ class TaskExecutor {
 
       readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
 
-      final usesInlineWorkflowCheckout = _workflowUsesInlineProjectCheckout(task);
+      final usesInlineWorkflowCheckout = await _workflowUsesInlineProjectCheckout(task);
       if (task.type == TaskType.coding && usesInlineWorkflowCheckout && project != null) {
         final inlineBaseRef = _taskBaseRef(task);
         if (inlineBaseRef != null && inlineBaseRef.isNotEmpty) {
@@ -466,9 +469,9 @@ class TaskExecutor {
 
       // Worktree setup for coding tasks
       if (task.type == TaskType.coding && _worktreeManager != null && !usesInlineWorkflowCheckout) {
-        final workflowWorktreeKey = _workflowOwnedWorktreeKey(task);
-        final workflowWorktreeTaskId = _workflowOwnedWorktreeTaskId(task);
-        final requiresStoryBranch = _workflowMapIterationOwnsBranch(task);
+        final workflowWorktreeKey = await _workflowOwnedWorktreeKey(task);
+        final workflowWorktreeTaskId = await _workflowOwnedWorktreeTaskId(task);
+        final requiresStoryBranch = await _workflowMapIterationOwnsBranch(task);
         if (workflowWorktreeKey != null && workflowWorktreeTaskId != null) {
           final existing = _workflowSharedWorktrees[workflowWorktreeKey];
           if (existing != null) {
@@ -494,8 +497,8 @@ class TaskExecutor {
 
         // Apply workflow externalArtifactMount (per-story file copy) when the
         // enclosing workflow resolved a source file for this map iteration.
-        final mountJson = task.configJson['_workflow.externalArtifactMount'];
-        if (mountJson is Map) {
+        final mountJson = _workflowExternalArtifactMount(task);
+        if (mountJson != null) {
           final fromProjectDir = mountJson['fromProjectDir'] as String?;
           final relativeSource = mountJson['source'] as String?;
           final mountMode = (mountJson['mode'] as String?) ?? 'per-story-copy';
@@ -561,7 +564,7 @@ class TaskExecutor {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
 
-      if (task.workflowRunId != null) {
+      if (_isWorkflowOrchestrated(task)) {
         final outcome = await _executeWorkflowOneShotTask(
           task,
           sessionId: session.id,
@@ -594,7 +597,7 @@ class TaskExecutor {
         final postStatus = _resolvePostCompletionStatus(task);
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
-        if (onAutoAccept != null && postStatus == TaskStatus.review && !_skipAutoAcceptForWorkflowTask(task)) {
+        if (onAutoAccept != null && postStatus == TaskStatus.review && !_isWorkflowOrchestrated(task)) {
           await onAutoAccept(task.id);
         }
         return;
@@ -626,7 +629,7 @@ class TaskExecutor {
 
       // Create task-scoped BehaviorFileService for workflow tasks first.
       BehaviorFileService? taskBehavior;
-      final workflowWorkspaceDir = task.configJson['_workflowWorkspaceDir'] as String?;
+      final workflowWorkspaceDir = _workflowWorkspaceDir(task);
       final workspaceDir = _workspaceDir;
       if (workflowWorkspaceDir != null && workflowWorkspaceDir.trim().isNotEmpty) {
         taskBehavior = BehaviorFileService(
@@ -749,7 +752,7 @@ class TaskExecutor {
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
         if (onAutoAccept != null && postStatus == TaskStatus.review) {
-          if (_skipAutoAcceptForWorkflowTask(task)) {
+          if (_isWorkflowOrchestrated(task)) {
             _log.fine(
               'Task ${task.id}: skipping task-level auto-accept because workflow git promotion '
               'owns publish/merge for this task',
@@ -761,7 +764,7 @@ class TaskExecutor {
             await onAutoAccept(task.id);
           } catch (error, stackTrace) {
             _log.warning('Auto-accept failed for task ${task.id}: $error', error, stackTrace);
-            if (task.workflowRunId != null) {
+            if (_isWorkflowOrchestrated(task)) {
               await _markFailedOrRetry(task, errorSummary: _sanitizeErrorSummary(error.toString()), retryable: false);
             }
           }
@@ -843,11 +846,13 @@ class TaskExecutor {
     }
 
     final cwd = workingDirectory ?? Directory.current.path;
-    final followUps = WorkflowTaskConfig.readFollowUpPrompts(task.configJson);
-    final structuredSchema = WorkflowTaskConfig.readStructuredSchema(task.configJson);
+    final repo = _workflowStepExecutionRepository;
+    final workflowStepExecution = task.workflowStepExecution;
+    final followUps = workflowStepExecution?.followUpPrompts ?? const <String>[];
+    final structuredSchema = workflowStepExecution?.structuredSchema;
 
-    String? providerSessionId = WorkflowTaskConfig.readContinueProviderSessionId(task.configJson);
-    final workflowStepId = WorkflowTaskConfig.readWorkflowStepId(task.configJson);
+    String? providerSessionId = workflowStepExecution?.providerSessionId;
+    final workflowStepId = workflowStepExecution?.stepId;
     // Reserved workflow pass-through. This key is intentionally unwritten by
     // the workflow pipeline today, and the structured extraction turn
     // explicitly discards it to avoid inflating extraction cost.
@@ -958,20 +963,25 @@ class TaskExecutor {
       }
     }
 
-    final nextConfig = Map<String, dynamic>.from(task.configJson);
+    if (repo == null) {
+      throw StateError(
+        'Workflow one-shot execution requires a WorkflowStepExecutionRepository. '
+        'Wire workflowStepExecutionRepository into TaskExecutor before running workflow steps.',
+      );
+    }
     if (providerSessionId != null && providerSessionId.isNotEmpty) {
-      WorkflowTaskConfig.writeProviderSessionId(nextConfig, providerSessionId);
+      await WorkflowTaskConfig.writeProviderSessionId(task, repo, providerSessionId);
     }
-    WorkflowTaskConfig.writeInputTokensNew(
-      nextConfig,
-      cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+    await WorkflowTaskConfig.writeTokenBreakdown(
+      task,
+      repo,
+      inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+      cacheReadTokens: cacheReadTokens,
+      outputTokens: outputTokens,
     );
-    WorkflowTaskConfig.writeCacheReadTokens(nextConfig, cacheReadTokens);
-    WorkflowTaskConfig.writeOutputTokens(nextConfig, outputTokens);
     if (structuredPayload != null) {
-      WorkflowTaskConfig.writeStructuredOutputPayload(nextConfig, structuredPayload);
+      await WorkflowTaskConfig.writeStructuredOutputPayload(task, repo, structuredPayload);
     }
-    await _tasks.updateFields(task.id, configJson: nextConfig);
 
     return TurnOutcome(
       turnId: 'workflow-oneshot-${task.id}',
@@ -1231,13 +1241,20 @@ class TaskExecutor {
     return next;
   }
 
-  String? _workflowOwnedWorktreeKey(Task task) {
-    final workflowRunId = task.workflowRunId;
+  WorkflowStepExecution? _workflowStepExecutionFor(Task task) => task.workflowStepExecution;
+
+  Map<String, dynamic>? _workflowExternalArtifactMount(Task task) => task.workflowStepExecution?.externalArtifactMountConfig;
+
+  String? _workflowWorkspaceDir(Task task) => task.agentExecution?.workspaceDir;
+
+  Future<String?> _workflowOwnedWorktreeKey(Task task) async {
+    final workflowStepExecution = _workflowStepExecutionFor(task);
+    final workflowRunId = workflowStepExecution?.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
-    final strategy = _workflowGitWorktreeMode(task);
+    final strategy = await _workflowGitWorktreeMode(task);
     if (strategy == 'shared') return workflowRunId;
     if (strategy == 'per-map-item') {
-      final iterIndex = task.configJson['_mapIterationIndex'];
+      final iterIndex = workflowStepExecution?.mapIterationIndex;
       if (iterIndex is int) return '$workflowRunId:map:$iterIndex';
       // Post-map serial coding steps must operate on the workflow-owned integration branch.
       return workflowRunId;
@@ -1245,32 +1262,31 @@ class TaskExecutor {
     return null;
   }
 
-  String? _workflowOwnedWorktreeTaskId(Task task) {
-    final workflowRunId = task.workflowRunId;
+  Future<String?> _workflowOwnedWorktreeTaskId(Task task) async {
+    final workflowStepExecution = _workflowStepExecutionFor(task);
+    final workflowRunId = workflowStepExecution?.workflowRunId;
     if (workflowRunId == null || workflowRunId.isEmpty) return null;
-    final strategy = _workflowGitWorktreeMode(task);
+    final strategy = await _workflowGitWorktreeMode(task);
     if (strategy == 'shared') return 'wf-$workflowRunId';
     if (strategy == 'per-map-item') {
-      final iterIndex = task.configJson['_mapIterationIndex'];
+      final iterIndex = workflowStepExecution?.mapIterationIndex;
       if (iterIndex is int) return 'wf-$workflowRunId-map-$iterIndex';
       return 'wf-$workflowRunId';
     }
     return null;
   }
 
-  bool _workflowMapIterationOwnsBranch(Task task) {
-    if (_workflowGitWorktreeMode(task) != 'per-map-item') return false;
-    return task.configJson['_mapIterationIndex'] is int;
+  Future<bool> _workflowMapIterationOwnsBranch(Task task) async {
+    if (await _workflowGitWorktreeMode(task) != 'per-map-item') return false;
+    return _workflowStepExecutionFor(task)?.mapIterationIndex is int;
   }
 
-  String? _workflowGitWorktreeMode(Task task) {
-    final workflowGit = task.configJson['_workflowGit'];
-    if (workflowGit is! Map) return null;
-    final raw = workflowGit['worktree'];
+  Future<String?> _workflowGitWorktreeMode(Task task) async {
+    final raw = _workflowStepExecutionFor(task)?.git?['worktree'];
     return raw is String ? raw.trim() : null;
   }
 
-  bool _workflowUsesInlineProjectCheckout(Task task) => _workflowGitWorktreeMode(task) == 'inline';
+  Future<bool> _workflowUsesInlineProjectCheckout(Task task) async => await _workflowGitWorktreeMode(task) == 'inline';
 
   Future<bool> _ensureInlineWorkflowBranchCheckedOut(Task task, Project project, String branch) async {
     final key = '${project.id}:$branch';
@@ -1330,8 +1346,7 @@ class TaskExecutor {
 
   bool _isReadOnlyTask(Task task) => task.configJson['readOnly'] == true;
 
-  bool _skipAutoAcceptForWorkflowTask(Task task) =>
-      task.isWorkflowOwnedGitTask;
+  bool _isWorkflowOrchestrated(Task task) => task.workflowStepExecution != null;
 
   String? _reviewMode(Task task) {
     final raw = task.configJson['reviewMode'];
@@ -1350,24 +1365,17 @@ class TaskExecutor {
     return switch (mode) {
       'auto-accept' => TaskStatus.accepted,
       'mandatory' => TaskStatus.review,
-      'coding-only' => _isCodingReviewStep(task) ? TaskStatus.review : TaskStatus.accepted,
+      'coding-only' => _isCodingTask(task) ? TaskStatus.review : TaskStatus.accepted,
       _ => TaskStatus.review, // null = current default (all tasks go to review)
     };
   }
 
-  bool _isCodingReviewStep(Task task) {
-    if (task.workflowRunId == null) {
-      return task.type == TaskType.coding;
-    }
-    return task.configJson['_workflowStepType'] == 'coding';
-  }
+  /// True for any coding task — whether standalone (`task.type == coding`)
+  /// or a workflow step whose authored type is `coding`.
+  bool _isCodingTask(Task task) =>
+      task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
 
-  String? _modelOverride(Task task) {
-    final raw = task.configJson['model'];
-    if (raw is! String) return null;
-    final trimmed = raw.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
+  String? _modelOverride(Task task) => task.model;
 
   String? _effortOverride(Task task) {
     final raw = task.configJson['effort'];
@@ -1411,7 +1419,7 @@ class TaskExecutor {
     if (explicitBaseRef != null && explicitBaseRef.isNotEmpty) {
       return explicitBaseRef;
     }
-    if (project.id == '_local' && task.workflowRunId != null) {
+    if (project.id == '_local' && _isWorkflowOrchestrated(task)) {
       final head = await _currentSymbolicHead(project.localPath);
       if (head != null && head.isNotEmpty) {
         return head;
@@ -1429,10 +1437,9 @@ class TaskExecutor {
     return baseRef;
   }
 
-  String? _worktreeBaseRefFor(Task task, Project project, String? baseRef) {
+  Future<String?> _worktreeBaseRefFor(Task task, Project project, String? baseRef) async {
     if (baseRef == null || baseRef.isEmpty) return null;
-    final workflowGit = task.configJson['_workflowGit'];
-    if (workflowGit is Map) {
+    if (_isWorkflowOrchestrated(task)) {
       // Workflow-owned branches are local refs; do not rewrite to origin/*.
       return baseRef;
     }

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Workflow step spawn creates `AgentExecution` + `WorkflowStepExecution` + `Task` atomically in a single transaction; `Task.configJson` is sanitized on spawn so `_workflow*` keys and `model` no longer round-trip through the task row (`model` is canonical on `AgentExecution`)
+- Workflow execution now relies on the shared `AgentExecution` primitive end-to-end: the public task payload shape is nested, the workflow/task boundary is guarded by explicit fitness checks, and workflow metadata is expected to flow through `WorkflowStepExecution` rather than task-owned JSON blobs
+- Workflow task spawn now fails fast with a clear `StateError` when `AgentExecution`/`WorkflowStepExecution` persistence is not wired, instead of silently falling back to the legacy `_workflow*` task-config path. Hosts that previously spawned workflow tasks without the execution repositories must now supply `taskRepository`, `agentExecutionRepository`, `workflowStepExecutionRepository`, and `executionTransactor` (or accept the run pausing with the fail-fast error)
+
 ## 0.15.0
 
 - **Changed**: workflow-spawned tasks now auto-advance by default. Omitted `review:` and `review: coding-only` now map to task `reviewMode: auto-accept`; only explicit `review: always` keeps a workflow step parked in review for human intervention.

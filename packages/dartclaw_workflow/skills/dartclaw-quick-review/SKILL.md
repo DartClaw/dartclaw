@@ -1,7 +1,7 @@
 ---
 description: Quick in-conversation review of recent changes using a fresh-context sub-agent for adversarial critique. Use mid-conversation to sanity-check work before moving on. Trigger on 'quick review this', 'sanity-check this', 'give this a quick pass'.
-argument-hint: "[optional focus or scope]"
 user-invocable: true
+argument-hint: "[optional focus or scope]"
 workflow:
   default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes. When the relevant spec or plan is provided as a workspace path, read it from disk with file_read before judging requirements fit."
   default_outputs:
@@ -18,11 +18,13 @@ workflow:
 
 Lightweight, ad-hoc review of recent work in the current conversation. Spawns a fresh-context sub-agent to critique what was just done — catching errors, inconsistencies, and missed edge cases that in-context work tends to overlook.
 
-**For thorough reviews, start with** the `dartclaw-review` **skill**.
+**For thorough reviews, start with** the `dartclaw-review` **skill**. Use the `dartclaw-review-council` **skill** when you explicitly want multi-perspective adversarial review.
+
 
 ## VARIABLES
 
 FOCUS: $ARGUMENTS
+
 
 ## INSTRUCTIONS
 
@@ -32,11 +34,13 @@ FOCUS: $ARGUMENTS
 - Anti-leniency: if the sub-agent identifies a problem, it is a problem. Do not rationalize issues away.
 - Output findings inline — no separate report file.
 
+
 ## GOTCHAS
 - Sending the sub-agent too little context (it needs to understand what was done and why)
 - Sending the sub-agent too much context (entire files when only a section changed)
 - Rationalizing away findings because "I just wrote that and it seemed fine"
 - Using this as a substitute for a proper review on significant changes
+
 
 ## WORKFLOW
 
@@ -117,9 +121,7 @@ Present accepted findings to the user as a concise inline list. If there are act
 
 Do not produce a report file. Do not add a summary preamble. Keep it tight.
 
-## Structured Output
+## Workflow Output Contract _(consumed by the workflow engine only)_
 
-- findings_count: <integer>
-- verdict: <PASS|FAIL>
-- critical_count: <integer>
-- high_count: <integer>
+- `quick_review_summary` (format: `text`) — short assessment of whether the implementation meets its spec and acceptance criteria
+- `quick_review_findings_count` (format: `json`, schema: `non-negative-integer`) — number of issues flagged; `0` means clean

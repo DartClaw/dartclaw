@@ -47,7 +47,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show
         SearchDbFactory,
+        SqliteAgentExecutionRepository,
+        SqliteExecutionRepositoryTransactor,
         SqliteTaskRepository,
+        SqliteWorkflowStepExecutionRepository,
         SqliteWorkflowRunRepository,
         TaskDbFactory,
         TaskEventService,
@@ -147,9 +150,18 @@ class CliWorkflowWiring {
     await sessionService.getOrCreateMain();
 
     // Task layer
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
+    final executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
     final taskRepository = SqliteTaskRepository(taskDb);
     final taskEventRecorder = TaskEventRecorder(eventService: TaskEventService(taskDb), eventBus: eventBus);
-    final taskServiceInst = TaskService(taskRepository, eventBus: eventBus, eventRecorder: taskEventRecorder);
+    final taskServiceInst = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      eventBus: eventBus,
+      eventRecorder: taskEventRecorder,
+    );
     taskService = taskServiceInst;
     worktreeManager = WorktreeManager(
       dataDir: dataDir,
@@ -239,6 +251,7 @@ class CliWorkflowWiring {
       turns: turns,
       artifactCollector: artifactCollector,
       worktreeManager: worktreeManager,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
       kvService: kvService,
       eventBus: eventBus,
       dataDir: dataDir,
@@ -258,6 +271,10 @@ class CliWorkflowWiring {
       repository: workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionRepositoryTransactor: executionRepositoryTransactor,
       roleDefaults: WorkflowRoleDefaults(
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,

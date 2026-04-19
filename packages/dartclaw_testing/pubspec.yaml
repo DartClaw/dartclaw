@@ -29,5 +29,7 @@ dependencies:
   http: ^1.6.0
 
 dev_dependencies:
+  dartclaw_storage:
+    path: ../dartclaw_storage
   test: ^1.31.0
   lints: ^6.1.0

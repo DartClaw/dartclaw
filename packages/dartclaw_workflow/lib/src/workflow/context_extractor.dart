@@ -8,6 +8,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         OutputFormat,
         OutputMode,
         Task,
+        WorkflowStepExecutionRepository,
         WorkflowStep,
         ExtractionConfig,
         ExtractionType,
@@ -50,16 +51,19 @@ class ContextExtractor {
   final String _dataDir;
   final SchemaValidator _schemaValidator;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
+  final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
 
   ContextExtractor({
     required WorkflowTaskService taskService,
     required MessageService messageService,
     required String dataDir,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     SchemaValidator? schemaValidator,
     StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder,
   }) : _taskService = taskService,
        _messageService = messageService,
        _dataDir = dataDir,
+       _workflowStepExecutionRepository = workflowStepExecutionRepository,
        _schemaValidator = schemaValidator ?? const SchemaValidator(),
        _structuredOutputFallbackRecorder = structuredOutputFallbackRecorder;
 
@@ -79,7 +83,7 @@ class ContextExtractor {
     final outputs = <String, dynamic>{};
     final configs = effectiveOutputs ?? step.outputs;
     final workflowContextPayload = await _extractWorkflowContextPayload(task);
-    final structuredOutputPayload = _extractStructuredOutputPayload(task);
+    final structuredOutputPayload = await _extractStructuredOutputPayload(task);
 
     // 1. Explicit ExtractionConfig takes priority for first output key (backward compat).
     if (step.extraction != null && step.contextOutputs.isNotEmpty) {
@@ -270,8 +274,12 @@ class ContextExtractor {
     return null;
   }
 
-  Map<String, dynamic> _extractStructuredOutputPayload(Task task) {
-    return WorkflowTaskConfig.readStructuredOutputPayload(task.configJson) ?? const <String, dynamic>{};
+  Future<Map<String, dynamic>> _extractStructuredOutputPayload(Task task) async {
+    final repo = _workflowStepExecutionRepository;
+    if (repo != null) {
+      return await WorkflowTaskConfig.readStructuredOutputPayload(task, repo) ?? const <String, dynamic>{};
+    }
+    return const <String, dynamic>{};
   }
 
   /// Extracts raw text content for format-aware processing.

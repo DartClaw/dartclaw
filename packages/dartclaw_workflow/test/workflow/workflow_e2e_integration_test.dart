@@ -15,7 +15,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         EventBus,
         TaskStatus,
         TaskStatusChangedEvent,
-        WorkflowTaskConfig,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowService,
@@ -334,9 +333,9 @@ class WorkflowExecutionRecorder {
         tokenCount: event.tokenCount,
         sessionTotalTokens: (sessionCost['total_tokens'] as num?)?.toInt() ?? 0,
         stepDeltaTokens: event.tokenCount,
-        inputTokensNew: WorkflowTaskConfig.readInputTokensNew(task.configJson),
-        cacheReadTokens: WorkflowTaskConfig.readCacheReadTokens(task.configJson),
-        outputTokens: WorkflowTaskConfig.readOutputTokens(task.configJson),
+        inputTokensNew: _tokenMetric(task.configJson, 'inputTokensNew'),
+        cacheReadTokens: _tokenMetric(task.configJson, 'cacheReadTokens'),
+        outputTokens: _tokenMetric(task.configJson, 'outputTokens'),
         sessionId: sessionId,
         contextOutputs: contextOutputs,
         stepScopedContext: stepScopedContext,
@@ -358,9 +357,9 @@ class WorkflowExecutionRecorder {
           tokenCount: event.tokenCount,
           sessionTotalTokens: (sessionCost['total_tokens'] as num?)?.toInt() ?? 0,
           stepDeltaTokens: event.tokenCount,
-          inputTokensNew: WorkflowTaskConfig.readInputTokensNew(task.configJson),
-          cacheReadTokens: WorkflowTaskConfig.readCacheReadTokens(task.configJson),
-          outputTokens: WorkflowTaskConfig.readOutputTokens(task.configJson),
+          inputTokensNew: _tokenMetric(task.configJson, 'inputTokensNew'),
+          cacheReadTokens: _tokenMetric(task.configJson, 'cacheReadTokens'),
+          outputTokens: _tokenMetric(task.configJson, 'outputTokens'),
           configJson: pending.configJson,
           worktreeJson: task.worktreeJson ?? pending.worktreeJson,
           sessionId: sessionId,
@@ -430,7 +429,7 @@ class WorkflowExecutionRecorder {
       'completedAt': DateTime.now().toIso8601String(),
       'sessionId': sessionId,
       'provider': task.provider,
-      'providerSessionId': task.configJson['_workflowProviderSessionId'],
+      'providerSessionId': null,
       'workflowRunId': task.workflowRunId,
       'stepIndex': task.stepIndex,
       'configJson': pending.configJson,
@@ -453,6 +452,21 @@ class WorkflowExecutionRecorder {
     final decoded = jsonDecode(raw);
     return decoded is Map<String, dynamic> ? decoded : const <String, dynamic>{};
   }
+}
+
+int _tokenMetric(Map<String, dynamic> configJson, String key) {
+  final workflowKey = switch (key) {
+    'inputTokensNew' => '_workflowInputTokensNew',
+    'cacheReadTokens' => '_workflowCacheReadTokens',
+    'outputTokens' => '_workflowOutputTokens',
+    _ => key,
+  };
+  final value = configJson[workflowKey];
+  return switch (value) {
+    final int intValue when intValue >= 0 => intValue,
+    final num numValue when numValue >= 0 => numValue.toInt(),
+    _ => 0,
+  };
 }
 
 String _sanitizeFileComponent(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9._-]+'), '_');

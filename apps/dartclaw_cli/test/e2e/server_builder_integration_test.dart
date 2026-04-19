@@ -135,6 +135,15 @@ void main() {
 
     final result = await wiring.wire();
     addTearDown(() => _disposeWiringResult(result, logService));
+    await result.agentExecutionRepository.create(
+      AgentExecution(
+        id: 'ae-1',
+        provider: 'claude',
+        sessionId: 'sess-1',
+        startedAt: DateTime.parse('2026-04-19T00:00:00Z'),
+      ),
+    );
+    expect(await result.agentExecutionRepository.get('ae-1'), isNotNull);
 
     final handler = result.server.handler;
 

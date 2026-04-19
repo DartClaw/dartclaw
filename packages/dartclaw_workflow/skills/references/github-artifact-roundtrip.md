@@ -16,11 +16,11 @@ Wrap the GitHub issue body or PR comment in a typed envelope, then embed the art
 ```yaml
 schema: andthen/github-artifact-v1
 artifact_type: plan-bundle
-source_skill: dartclaw-plan  # name of the originating skill (e.g. dartclaw-prd, dartclaw-plan, dartclaw-spec, dartclaw-review-gap)
+source_skill: dartclaw-plan
 canonical_local_primary: docs/specs/my-feature/plan.md
 canonical_local_companions:
   - docs/specs/my-feature/prd.md
-  - docs/specs/my-feature/technical-research.md
+  - docs/specs/my-feature/.technical-research.md
 plan_path: docs/specs/my-feature/plan.md
 fis_path:
 report_path:
@@ -60,8 +60,8 @@ source_issue_number: 42
 - Keep `## Human Summary` concise; the embedded files are the source of truth.
 
 ## Standard Artifact Types
-- `plan-bundle` — `plan.md` primary; include sibling `prd.md`; include `technical-research.md` when present; when resuming after spec generation or execution, also include any FIS files referenced by `plan.md` that downstream steps now depend on
-- `fis-bundle` — FIS primary; include `technical-research.md` when present; if the FIS originated from a plan story, include `plan.md` and populate `plan_path` / `story_ids`
+- `plan-bundle` — `plan.md` primary; include sibling `prd.md`; include `.technical-research.md` when present; when resuming after spec generation or execution, also include any FIS files referenced by `plan.md` that downstream steps now depend on
+- `fis-bundle` — FIS primary; include `.technical-research.md` when present; if the FIS originated from a plan story, include `plan.md` and populate `plan_path` / `story_ids`
 - `triage-plan` — investigation / fix plan primary
 - `triage-completion` — completion summary with verification evidence primary
 - `review`, `gap-review`, `code-review`, `architecture-review`, `doc-review`, `council-review` — review reports; the report file is the primary artifact
@@ -76,7 +76,8 @@ Add narrower types only when a downstream consumer needs distinct behavior.
 - If the posting command does not return a direct comment URL, resolve it immediately via follow-up GitHub lookup and print that URL before completion
 
 ## Consumption Rules
-See `resolve-github-input.md` for the standard typed-envelope inspection and routing procedure used by consuming skills.
+
+Routing and extraction logic for GitHub inputs is defined in the shared reference `resolve-github-input.md`. Skills that accept `--issue` or GitHub URLs load that reference and provide their compatible types, redirect targets, and untyped-input rules inline.
 
 ## Continuation Rules
 - An extracted `.agent_temp/github-artifacts/...` directory is a **working mirror**, not canonical state
@@ -94,7 +95,7 @@ Reusable procedure for skills that accept `<path-to-plan | --issue <number> | is
 2. **`--issue <number>` or GitHub issue URL**:
    a. Fetch the issue body and inspect the typed envelope (validate `schema` and `artifact_type`)
    b. Require `artifact_type: plan-bundle` — if incompatible, apply the calling skill's routing table
-   c. If untyped, stop -- the calling skill requires a typed plan artifact, not a free-form issue
+   c. If untyped, **STOP** — the calling skill requires a typed plan artifact, not a free-form issue
    d. Extract embedded files into `.agent_temp/github-artifacts/{github-id}-plan-bundle/`, preserving the repo-relative paths from `### File:` headings
    e. Resolve `PLAN_FILE_PATH` from `canonical_local_primary`; set `PLAN_DIR` to its parent directory
    f. Store `SOURCE_ISSUE` (issue number or URL) from the envelope's `source_issue_number` or from the input — needed by the continuation sync to know which issue to update
@@ -108,7 +109,7 @@ After resolution, the calling skill has `PLAN_DIR`, `PLAN_FILE_PATH`, `PLAN_SOUR
 Apply when `PLAN_SOURCE_MODE = github-artifact` — both incrementally (after each plan/FIS status update) and as a final gate before the skill finishes.
 
 - If the declared canonical local plan/FIS paths exist in the workspace, verify all updated files landed there
-- Otherwise update `SOURCE_ISSUE` to the latest typed `plan-bundle`, including the updated `plan.md`, `prd.md`, `technical-research.md` when present, and every FIS file referenced by `plan.md` that now exists
+- Otherwise update `SOURCE_ISSUE` to the latest typed `plan-bundle`, including the updated `plan.md`, `prd.md`, `.technical-research.md` when present, and every FIS file referenced by `plan.md` that now exists
 - Never finish with the extracted mirror as the only updated copy
 
 ## Direct URLs

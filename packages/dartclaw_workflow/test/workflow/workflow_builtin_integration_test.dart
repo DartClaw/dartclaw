@@ -139,6 +139,10 @@ void main() {
   late SessionService sessionService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
+  late SqliteTaskRepository taskRepository;
+  late SqliteAgentExecutionRepository agentExecutionRepository;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late SqliteExecutionRepositoryTransactor executionTransactor;
   late EventBus eventBus;
 
   setUp(() {
@@ -148,7 +152,16 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    taskRepository = SqliteTaskRepository(db);
+    agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
@@ -198,8 +211,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionTransactor,
       turnAdapter: WorkflowTurnAdapter(
         reserveTurn: (_) => Future.value('turn-1'),
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -282,7 +300,7 @@ void main() {
         task: task,
         stepKey: stepKey,
         occurrence: occurrence,
-        mapIndex: task.configJson['_mapIterationIndex'] as int?,
+        mapIndex: task.workflowStepExecution?.mapIterationIndex,
       );
       final response = await responseForStep(queued);
       await attachAssistantOutput(task, content: response.assistantContent, worktreeJson: response.worktreeJson);

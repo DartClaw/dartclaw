@@ -1,0 +1,7 @@
+interface:
+  display_name: "AndThen - Review"
+  short_description: "Review code, docs, or requirements fit with selectable mode"
+  default_prompt: "Review the target in the selected mode (code, doc, gap, or mixed). Review target: "
+
+policy:
+  allow_implicit_invocation: true

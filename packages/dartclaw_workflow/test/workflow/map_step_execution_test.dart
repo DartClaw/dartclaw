@@ -32,10 +32,14 @@ import 'package:test/test.dart';
 void main() {
   late Directory tempDir;
   late String sessionsDir;
+  late SqliteTaskRepository taskRepository;
   late TaskService taskService;
   late MessageService messageService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
+  late SqliteAgentExecutionRepository agentExecutionRepository;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
   late EventBus eventBus;
   late WorkflowExecutor executor;
 
@@ -46,7 +50,16 @@ void main() {
 
     final db = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    taskRepository = SqliteTaskRepository(db);
+    agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(db);
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      eventBus: eventBus,
+    );
     repository = SqliteWorkflowRunRepository(db);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
@@ -61,8 +74,13 @@ void main() {
         taskService: taskService,
         messageService: messageService,
         dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
     );
   });
 
@@ -159,8 +177,13 @@ void main() {
           taskService: taskService,
           messageService: messageService,
           dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
         ),
         dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
         turnAdapter: WorkflowTurnAdapter(
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
@@ -249,6 +272,24 @@ void main() {
     });
 
     test('worktree auto resolves to inline for serial map execution', () async {
+      final repoBackedExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+      );
       final definition = WorkflowDefinition(
         name: 'map-inline-auto',
         description: 'Map auto worktree serial resolution',
@@ -276,19 +317,37 @@ void main() {
       ) async {
         final task = await taskService.get(e.taskId);
         if (task != null && !modeCompleter.isCompleted) {
-          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
           modeCompleter.complete(workflowGit?['worktree'] as String?);
         }
         await completeTask(e.taskId);
       });
 
-      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
       await sub.cancel();
 
       expect(await modeCompleter.future, 'inline');
     });
 
     test('worktree auto resolves to per-map-item for parallel map execution', () async {
+      final repoBackedExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+      );
       final definition = WorkflowDefinition(
         name: 'map-per-item-auto',
         description: 'Map auto worktree parallel resolution',
@@ -316,19 +375,37 @@ void main() {
       ) async {
         final task = await taskService.get(e.taskId);
         if (task != null && !modeCompleter.isCompleted) {
-          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
           modeCompleter.complete(workflowGit?['worktree'] as String?);
         }
         await completeTask(e.taskId);
       });
 
-      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
       await sub.cancel();
 
       expect(await modeCompleter.future, 'per-map-item');
     });
 
     test('worktree auto resolves to per-map-item for unlimited map execution', () async {
+      final repoBackedExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+      );
       final definition = WorkflowDefinition(
         name: 'map-unlimited-auto',
         description: 'Map auto worktree unlimited resolution',
@@ -356,13 +433,13 @@ void main() {
       ) async {
         final task = await taskService.get(e.taskId);
         if (task != null && !modeCompleter.isCompleted) {
-          final workflowGit = task.configJson['_workflowGit'] as Map?;
+          final workflowGit = (await workflowStepExecutionRepository.getByTaskId(task.id))?.git;
           modeCompleter.complete(workflowGit?['worktree'] as String?);
         }
         await completeTask(e.taskId);
       });
 
-      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await repoBackedExecutor.execute(run, definition, context, startFromStepIndex: 1);
       await sub.cancel();
 
       expect(await modeCompleter.future, 'per-map-item');
@@ -606,8 +683,13 @@ void main() {
           taskService: taskService,
           messageService: messageService,
           dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
         ),
         dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
         turnAdapter: WorkflowTurnAdapter(
           reserveTurn: (_) => Future.value('turn-1'),
           executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},

@@ -22,7 +22,12 @@ void main() {
   setUp(() async {
     db = openTaskDbInMemory();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    tasks = TaskService(
+      SqliteTaskRepository(db),
+      agentExecutionRepository: SqliteAgentExecutionRepository(db, eventBus: eventBus),
+      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      eventBus: eventBus,
+    );
     tempDir = Directory.systemTemp.createTempSync('task_routes_test_');
     threadBindingStore = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     await threadBindingStore.load();
@@ -86,6 +91,24 @@ void main() {
       final body = decodeObject(await response.readAsString());
       expect(body['title'], 'Draft task');
       expect(body['status'], 'draft');
+    });
+
+    test('task payload nests agent execution fields', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Nested task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'provider': 'codex',
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body.containsKey('provider'), isFalse);
+      expect(body.containsKey('sessionId'), isFalse);
+      expect(body['agentExecution'], isA<Map<String, dynamic>>());
+      expect((body['agentExecution'] as Map<String, dynamic>)['provider'], 'codex');
     });
 
     test('creates task with autoStart as queued', () async {

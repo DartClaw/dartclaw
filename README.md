@@ -63,7 +63,7 @@ Two layers with clear trust boundaries:
 - **Agent CLI** -- at least one: `claude` (Claude Code) or `codex` (OpenAI Codex CLI)
 - **SQLite** -- system library (bundled on macOS/most Linux)
 - **Docker** -- optional, for container isolation
-- **API key** -- `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` depending on configured providers
+- **API key** -- `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI — primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
 
 ### AOT Binary
 

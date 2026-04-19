@@ -27,7 +27,7 @@ void main(List<String> args) {
     return;
   }
 
-  final normalizedSource = sourceFile.path;
+  final normalizedSource = _canonicalize(sourceFile.path);
   final sourceLines = sourceFile.readAsLinesSync();
   final liveMatches = <_Match>[];
   for (var i = 0; i < sourceLines.length; i++) {
@@ -40,7 +40,7 @@ void main(List<String> args) {
   final allowlist = allowlistFile
       .readAsLinesSync()
       .where((line) => line.trim().isNotEmpty && !line.trimLeft().startsWith('#'))
-      .map(_AllowlistEntry.parse)
+      .map((line) => _AllowlistEntry.parse(line, _canonicalize))
       .toList(growable: false);
 
   final unexpected = <_Match>[];
@@ -85,6 +85,14 @@ String? _argValue(List<String> args, String flag) {
   return args[index + 1];
 }
 
+String _canonicalize(String path) {
+  try {
+    return File(path).absolute.uri.normalizePath().toFilePath();
+  } catch (_) {
+    return path;
+  }
+}
+
 bool _isAllowed(_Match match, List<_AllowlistEntry> allowlist) =>
     allowlist.any((entry) => entry.path == match.path && (entry.line - match.line).abs() <= 3);
 
@@ -106,14 +114,14 @@ class _AllowlistEntry {
 
   _AllowlistEntry(this.path, this.line, this.reason);
 
-  factory _AllowlistEntry.parse(String line) {
+  factory _AllowlistEntry.parse(String line, String Function(String) canonicalize) {
     final parts = line.split(':');
     if (parts.length < 3) {
       throw FormatException('Invalid allowlist entry: $line');
     }
-    final path = parts.sublist(0, parts.length - 2).join(':');
+    final rawPath = parts.sublist(0, parts.length - 2).join(':');
     final lineNumber = int.parse(parts[parts.length - 2]);
     final reason = parts.last;
-    return _AllowlistEntry(path, lineNumber, reason);
+    return _AllowlistEntry(canonicalize(rawPath), lineNumber, reason);
   }
 }

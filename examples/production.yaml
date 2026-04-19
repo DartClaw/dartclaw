@@ -104,7 +104,8 @@ concurrency:
 #   anthropic:
 #     api_key: ${ANTHROPIC_API_KEY}
 #   openai:
-#     api_key: ${OPENAI_API_KEY}
+#     # CODEX_API_KEY is preferred for non-interactive `codex exec`; OPENAI_API_KEY is accepted as a legacy fallback.
+#     api_key: ${CODEX_API_KEY}
 
 context:
   reserve_tokens: 25000

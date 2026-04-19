@@ -20,6 +20,8 @@ abstract interface class WorkflowTaskService {
     String? acceptanceCriteria,
     String? createdBy,
     String? provider,
+    String? model,
+    String? sessionId,
     String? agentExecutionId,
     String? projectId,
     int? maxTokens,

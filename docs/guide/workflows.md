@@ -660,14 +660,11 @@ Configure these in `workflow.defaults` in your config. The `model` fields accept
 
 ### Built-In Skill Library
 
-The workflow engine now ships 14 built-in `dartclaw-*` skills:
+The workflow engine ships 11 built-in `dartclaw-*` skills:
 
 - `dartclaw-discover-project`
 - `dartclaw-update-state`
-- `dartclaw-review`
-- `dartclaw-review-code`
-- `dartclaw-review-doc`
-- `dartclaw-review-gap`
+- `dartclaw-review` — unified code / doc / gap / mixed review (0.16.4 S30 re-port; previously split into `review-code` / `review-doc` / `review-gap`)
 - `dartclaw-quick-review`
 - `dartclaw-spec`
 - `dartclaw-prd`

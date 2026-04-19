@@ -1,5 +1,7 @@
 ---
+name: dartclaw-prd
 description: Use when the user wants a PRD. Creates a Product Requirements Document from clarified requirements, a draft PRD, an inline description, a file, a URL, or a GitHub issue. Trigger on 'create a PRD', 'write a PRD', 'draft a PRD', 'PRD from clarify output'.
+user-invocable: true
 argument-hint: "[Specs directory or requirements source] | --issue <number> [--to-issue]"
 workflow:
   default_prompt: "Use $dartclaw-prd to synthesize a PRD from the provided requirements, clarification artifacts, or draft PRD. Writes prd.md only — do not plan stories or create FIS files here."

@@ -111,6 +111,41 @@ void main() {
       expect((body['agentExecution'] as Map<String, dynamic>)['provider'], 'codex');
     });
 
+    test('persists model, sessionId, and maxTokens onto agent execution', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Execution-seeded task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'provider': 'claude',
+          'model': 'claude-opus-4-7',
+          'sessionId': 'sess-42',
+          'maxTokens': 8000,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      final ae = body['agentExecution'] as Map<String, dynamic>;
+      expect(ae['provider'], 'claude');
+      expect(ae['model'], 'claude-opus-4-7');
+      expect(ae['sessionId'], 'sess-42');
+      expect(ae['budgetTokens'], 8000);
+    });
+
+    test('rejects non-integer maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 'lots',
+        }),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
     test('creates task with autoStart as queued', () async {
       final response = await handler(
         jsonRequest('POST', '/api/tasks', {

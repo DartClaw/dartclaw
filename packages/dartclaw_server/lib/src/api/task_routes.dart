@@ -64,8 +64,15 @@ Router taskRoutes(
       if (acceptanceCriteriaFieldError != null) return acceptanceCriteriaFieldError;
       final providerFieldError = _validateStringFieldType(body.value!, 'provider');
       if (providerFieldError != null) return providerFieldError;
+      final modelFieldError = _validateStringFieldType(body.value!, 'model');
+      if (modelFieldError != null) return modelFieldError;
+      final sessionIdFieldError = _validateStringFieldType(body.value!, 'sessionId');
+      if (sessionIdFieldError != null) return sessionIdFieldError;
       final projectIdFieldError = _validateStringFieldType(body.value!, 'projectId');
       if (projectIdFieldError != null) return projectIdFieldError;
+      if (body.value!.containsKey('maxTokens') && body.value!['maxTokens'] is! int) {
+        return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be an integer', {'field': 'maxTokens'});
+      }
 
       final title = trimmedStringOrNull(body.value!['title']);
       final description = trimmedStringOrNull(body.value!['description']);
@@ -75,6 +82,9 @@ Router taskRoutes(
       final goalId = _stringOrNull(body.value!['goalId']);
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
       final provider = trimmedStringOrNull(body.value!['provider']);
+      final model = trimmedStringOrNull(body.value!['model']);
+      final sessionId = trimmedStringOrNull(body.value!['sessionId']);
+      final maxTokens = body.value!['maxTokens'] as int?;
       final projectId = trimmedStringOrNull(body.value!['projectId']);
 
       if (projectId != null && projectService != null) {
@@ -129,6 +139,9 @@ Router taskRoutes(
         acceptanceCriteria: acceptanceCriteria,
         createdBy: createdBy,
         provider: provider,
+        model: model,
+        sessionId: sessionId,
+        maxTokens: maxTokens,
         projectId: projectId,
         configJson: configJson,
         trigger: 'user',

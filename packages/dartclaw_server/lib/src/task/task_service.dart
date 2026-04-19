@@ -65,6 +65,8 @@ class TaskService implements WorkflowTaskService {
     String? acceptanceCriteria,
     String? createdBy,
     String? provider,
+    String? model,
+    String? sessionId,
     String? agentExecutionId,
     String? projectId,
     int? maxTokens,
@@ -80,7 +82,8 @@ class TaskService implements WorkflowTaskService {
       provider ??
           ((configJson['provider'] as String?)?.trim().isEmpty ?? true ? null : configJson['provider'] as String?),
     );
-    final persistedModel = _trimmedOrNull(configJson['model'] as String?);
+    final persistedModel = _trimmedOrNull(model) ?? _trimmedOrNull(configJson['model'] as String?);
+    final persistedSessionId = _trimmedOrNull(sessionId);
     final normalizedMaxTokens = maxTokens != null && maxTokens > 0 ? maxTokens : null;
     final sanitizedConfig = Map<String, dynamic>.from(configJson)..remove('model');
     final persistedAgentExecutionId = agentExecutionId?.trim().isEmpty ?? true ? null : agentExecutionId?.trim();
@@ -91,6 +94,7 @@ class TaskService implements WorkflowTaskService {
             id: persistedAgentExecutionId ?? 'ae-$id',
             provider: persistedProvider,
             model: persistedModel,
+            sessionId: persistedSessionId,
             budgetTokens: normalizedMaxTokens,
           )
         : null;

@@ -87,8 +87,8 @@ asset_archive="$BUILD_DIR/dartclaw-assets-v${version}.tar.gz"
 platform_sha="$platform_archive.sha256"
 asset_sha="$asset_archive.sha256"
 
-COPYFILE_DISABLE=1 tar --format=ustar -C "$platform_stage" -czf "$platform_archive" VERSION bin share
-COPYFILE_DISABLE=1 tar --format=ustar -C "$assets_stage" -czf "$asset_archive" VERSION templates static skills workflows
+COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$platform_stage" -czf "$platform_archive" VERSION bin share
+COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$assets_stage" -czf "$asset_archive" VERSION templates static skills workflows
 
 {
   printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")"

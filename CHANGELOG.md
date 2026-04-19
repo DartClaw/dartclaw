@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.4]
 
-CLI Operations & Connected Workflows — connected-by-default workflow execution, operational command groups for live instances, workflow trigger surfaces, and headless/server-side parity. 11 stories across 6 phases.
+CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-by-default workflow execution, operational command groups, workflow trigger surfaces, a redesigned `plan-and-implement` built-in, file-based artifact transport with auto-commit, skill altitude split + upstream AndThen re-sync, workflow default cleanup, and the `AgentExecution` primitive decomposition. 35 stories across 21 phases.
 
 ### Added
 
@@ -20,6 +20,21 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **New server read endpoints**: `GET /api/sessions/:id`, `GET /api/traces/:id`, `GET /api/scheduling/jobs`, and `GET /api/scheduling/jobs/:name`
 - **Workflow trigger surfaces**: launch forms on `/workflows`, `/workflow` chat commands in the web UI, and GitHub PR webhooks that can start the `code-review` workflow
 - **CLI operations guide**: new public guide page covering connected mode, standalone mode, server detection, and authentication behavior
+- **Workflow control structures & node model**: first-class `foreach` and `story-pipeline` sub-pipelines with item-level crash recovery and per-item resume fidelity
+- **Workflow worktree + publish pipeline**: per-story worktrees, deterministic branch promotion/merge semantics, explicit project auth + GitHub token delivery, and a workflow-owned publish path producing a `publish.pr_url`
+- **`workflow show [--resolved] [--step <id>]`**: CLI + server endpoint that emits the fully merged workflow (variables, `stepDefaults`, skill defaults) as round-trippable YAML for debugging and audit
+- **Auto-framed context inputs**: the engine wraps unreferenced `contextInputs` / variables in XML tags during prompt assembly; `auto_frame_context: false` opts out per step
+- **Skill frontmatter defaults**: `workflow.default_prompt` and `workflow.default_outputs` on SKILL.md replace the per-skill `agents/openai.yaml` files across all built-in skills (the S30 re-port later unified `review-code` / `review-doc` / `review-gap` into a single `dartclaw-review` skill; end-of-release count is 11)
+- **Generalized step-level `entryGate`**: skip-on-false semantic with `StepSkippedEvent`, available on all step kinds (previously loop-only)
+- **File-based artifact transport**: `dartclaw-prd`/`dartclaw-plan`/`dartclaw-spec` skills write to disk and emit paths; `dartclaw-discover-project` publishes `artifact_locations` + `active_milestone`/`active_prd`/`active_plan`
+- **Artifact auto-commit hook**: `gitStrategy.artifacts.commit: true` lands generated artifacts on the workflow branch before per-map-item worktrees are created, so stories inherit them via standard `git checkout`
+- **`gitStrategy.worktree.externalArtifactMount`**: cross-clone FIS visibility for split-repo testing profiles (mount or per-story copy)
+- **`worktree: auto`**: resolves to `per-map-item` under real parallelism, otherwise to `inline`; explicit values still win
+- **`AgentExecution` primitive**: shared execution metadata (session, provider, model, token budget) lives in new `agent_executions` and `workflow_step_executions` tables with atomic AE+WSE+Task creation for workflow steps; five CI-enforced fitness functions lock the boundary. See `docs/adrs/021-agent-execution-primitive.md`
+- **Workflow E2E Dart integration test**: tagged integration test drives `plan-and-implement` and `spec-and-implement` end-to-end with the real Codex harness and git (`packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart`)
+- **`dartclaw-prd` skill**: PRD creation split out of `dartclaw-plan` (altitude split, mirrors AndThen 0.13.0)
+- **`dartclaw-validate-workflow` skill**: validates workflow YAML definitions and packaged workflow assets
+- **New server event stream**: `GET /api/agent-executions/events` surfaces AE status transitions
 
 ### Changed
 
@@ -41,6 +56,15 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Shared skill support content completed**: the built-in skill tree now includes the shared `references/` support content and expanded review/spec support files, with relative-path wiring verified in both the source tree and the installed harness-visible copies under `~/.claude/skills/` and `~/.agents/skills/`
 - **AndThen migration process documented**: the private milestone artifacts now include a repeatable checklist for porting future AndThen skill changes into DartClaw without reintroducing AndThen-only runtime assumptions
 - **Built-in workflow definitions tightened**: skill-backed workflow prompts now act as thin input/output wrappers around the `dartclaw-*` skills, `spec-and-implement` and `plan-and-implement` both use bounded remediation/re-review loops, and the obsolete `research-and-evaluate` built-in workflow was removed from the default set
+- **Breaking**: `plan-and-implement` restructured around a first-class per-story sub-pipeline (`story-pipeline` + `foreach`), replacing the flat step list; authored workflow YAMLs targeting the prior shape need to migrate
+- **Breaking**: `Task.toJson()` now exposes nested `agentExecution` and optional `workflowStepExecution` objects; `sessionId`, `provider`, `maxTokens`, and `model` are no longer top-level task fields. Web UI, CLI output, REST, and SSE responses were updated together. No backward-compat rehydration — DartClaw is soft-published
+- **Breaking**: `dartclaw-spec-plan` skill removed — its responsibilities absorbed into `dartclaw-plan` (Option A merge); PRD creation split out of `dartclaw-plan` into new `dartclaw-prd` skill (altitude split mirroring AndThen 0.13.0)
+- **Breaking**: `dartclaw-prd`/`dartclaw-plan`/`dartclaw-spec` Workflow-Step Mode collapsed to a single file-based contract — skills always write files and emit paths; inline-emission branches removed
+- **Breaking**: shipped `plan-and-implement.yaml` removed the `review-prd` step; `spec-and-implement.yaml` removed the `review-spec` step; remaining review steps gate on `*_source == synthesized`
+- **Workflow skills re-ported from AndThen 0.12.1**: eight SYNC-VERBATIM skills (`dartclaw-spec`, `-exec-spec`, `-review`, `-review-code`, `-review-doc`, `-review-gap`, `-remediate-findings`, `-quick-review`) re-synchronized verbatim + three DC overlays; redundant step-level `prompt:` blocks in shipped YAMLs folded into skill `workflow.default_prompt` + auto-framing
+- **Workflow defaults cleanup**: workflow-owned coding tasks auto-advance by default (only explicit `review: always` parks in the Review queue); omitted `gitStrategy.promotion` is inferred from worktree shape; the default Review queue hides workflow-owned parked artifacts with an on-demand workflow-artifact view
+- **Workflow structured-output remediation**: the `plan-and-implement` E2E run now completes inside a 3.5M-token budget (3,449,461 tokens consumed). Nine `continueSession` edges tightened, skill scoping cleaned, and Codex one-shot token accounting corrected to treat `turn.completed` as cumulative-per-invocation
+- **`dartclaw_workflow` package**: bumped 0.11.0 → 0.12.0 with migration notes for file-based artifact contract, generalized `entryGate`, `gitStrategy.artifacts`, and `externalArtifactMount`
 
 ### Fixed
 
@@ -51,6 +75,11 @@ CLI Operations & Connected Workflows — connected-by-default workflow execution
 - **Codex workflow token accounting**: one-shot workflow usage now treats Codex `turn.completed` token counts as cumulative-per-invocation values instead of summing them, and persists `new_input_tokens` alongside cache-read and output metrics
 - **Standalone approval pause messaging**: CLI guidance for approval-paused standalone runs now points operators to start `dartclaw serve` before using `workflow resume` or `workflow cancel`
 - **Map/fan-in merge hygiene**: `MergeExecutor` now recognises `git stash pop`'s "already exists, no checkout" overlap (caused by stashed untracked files colliding with files introduced by the merge) and drops the stash entry instead of leaving it behind, keeping the stash list clean across sequential fan-in merges
+- **Workflow-branch promotion for top-level / loop-body scopes**: the last branch-touching step in top-level and loop-body scopes now folds back into the integration branch via `promoteAfterSuccess` (previously confined to map/foreach iteration handlers)
+- **Legacy `tasks` table migration**: `SqliteTaskRepository` now migrates pre-S34 tables that are missing `agent_execution_id` / `workflow_run_id` instead of crashing at boot; session/provider/max_tokens/model are backfilled onto matching `agent_executions` rows
+- **Concurrency bug in execution-repository transactor**: parallel map iterations no longer attempt nested `BEGIN` on the same connection; `SqliteExecutionRepositoryTransactor` serializes transactions through a single-slot queue
+- **Pause responsiveness during task-completion wait**: `WorkflowExecutor._waitForTaskCompletion` now subscribes to `WorkflowRunStatusChangedEvent` and re-queries the run after subscription to close the broadcast-race window; pausing a run whose current step is waiting on a task now aborts cleanly with a clear `StateError`
+- **Standalone coding-task review honoring**: `TaskExecutor._resolvePostCompletionStatus` now checks `_isCodingTask(task)` rather than only the WSE step type, so standalone coding tasks (no WSE) no longer skip their configured review
 
 ---
 

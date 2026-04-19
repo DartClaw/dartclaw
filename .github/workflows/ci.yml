@@ -29,3 +29,6 @@ jobs:
 
       - name: Architecture check
         run: dart run tool/arch_check.dart
+
+      - name: Fitness functions
+        run: bash tool/fitness/run_all.sh

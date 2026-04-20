@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'dart:isolate';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
 import '../project/project_auth_support.dart';
@@ -119,7 +119,11 @@ class RemotePushService {
       final wdCopy = localPath;
 
       final result = await Isolate.run(() async {
-        final r = await Process.run('git', gitArgs, workingDirectory: wdCopy, environment: envCopy);
+        final r = await SafeProcess.git(
+          gitArgs,
+          plan: _InlineProcessEnvironmentPlan(envCopy),
+          workingDirectory: wdCopy,
+        );
         return (exitCode: r.exitCode, stdout: r.stdout as String, stderr: r.stderr as String);
       });
       exitCode = result.exitCode;
@@ -159,4 +163,12 @@ class RemotePushService {
     }
     return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
   }
+}
+
+final class _InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
+  @override
+  final Map<String, String> environment;
+
+  const _InlineProcessEnvironmentPlan(Map<String, String>? environment)
+    : environment = environment ?? const <String, String>{};
 }

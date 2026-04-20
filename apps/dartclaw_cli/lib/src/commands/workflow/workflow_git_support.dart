@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show MergeConflict, MergeExecutor, MergeStrategy, MergeSuccess;
+import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_server/dartclaw_server.dart'
+    show GitCredentialPlan, MergeConflict, MergeExecutor, MergeStrategy, MergeSuccess;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         WorkflowGitPromotionConflict,
@@ -8,6 +10,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult;
+
+Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
+  return SafeProcess.git(
+    args,
+    plan: const GitCredentialPlan.none(),
+    workingDirectory: workingDirectory,
+    noSystemConfig: true,
+  );
+}
 
 /// Commits pending changes in the worktree that currently has [branch] checked
 /// out, if such a worktree exists and has any unstaged or untracked changes.
@@ -21,11 +32,7 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     return;
   }
 
-  final status = await Process.run('git', [
-    'status',
-    '--porcelain',
-    '--untracked-files=all',
-  ], workingDirectory: worktreePath);
+  final status = await _workflowGit(['status', '--porcelain', '--untracked-files=all'], workingDirectory: worktreePath);
   if (status.exitCode != 0) {
     final stderr = (status.stderr as String).trim();
     throw StateError('Failed to inspect workflow worktree "$worktreePath": $stderr');
@@ -34,13 +41,13 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     return;
   }
 
-  final add = await Process.run('git', ['add', '-A'], workingDirectory: worktreePath);
+  final add = await _workflowGit(['add', '-A'], workingDirectory: worktreePath);
   if (add.exitCode != 0) {
     final stderr = (add.stderr as String).trim();
     throw StateError('Failed to stage workflow worktree changes in "$worktreePath": $stderr');
   }
 
-  final commit = await Process.run('git', ['commit', '-m', commitMessage], workingDirectory: worktreePath);
+  final commit = await _workflowGit(['commit', '-m', commitMessage], workingDirectory: worktreePath);
   if (commit.exitCode != 0 && !_isNothingToCommit(commit)) {
     final stderr = (commit.stderr as String).trim();
     final stdout = (commit.stdout as String).trim();
@@ -115,7 +122,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
     );
   }
 
-  final push = await Process.run('git', ['push', remote, branch], workingDirectory: projectDir);
+  final push = await _workflowGit(['push', remote, branch], workingDirectory: projectDir);
   if (push.exitCode != 0) {
     return WorkflowGitPublishResult(
       status: 'failed',
@@ -127,7 +134,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
   }
 
   final remoteRef = 'refs/heads/$branch:refs/remotes/$remote/$branch';
-  final fetch = await Process.run('git', ['fetch', '--no-tags', remote, remoteRef], workingDirectory: projectDir);
+  final fetch = await _workflowGit(['fetch', '--no-tags', remote, remoteRef], workingDirectory: projectDir);
   if (fetch.exitCode != 0) {
     final stderr = (fetch.stderr as String).trim();
     final stdout = (fetch.stdout as String).trim();
@@ -141,7 +148,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
     );
   }
 
-  final verify = await Process.run('git', [
+  final verify = await _workflowGit([
     'rev-parse',
     '--verify',
     'refs/remotes/$remote/$branch',
@@ -160,7 +167,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
 }
 
 Future<String?> _findWorktreePathForBranch({required String projectDir, required String branch}) async {
-  final result = await Process.run('git', ['worktree', 'list', '--porcelain'], workingDirectory: projectDir);
+  final result = await _workflowGit(['worktree', 'list', '--porcelain'], workingDirectory: projectDir);
   if (result.exitCode != 0) {
     final stderr = (result.stderr as String).trim();
     throw StateError('Failed to list git worktrees in "$projectDir": $stderr');

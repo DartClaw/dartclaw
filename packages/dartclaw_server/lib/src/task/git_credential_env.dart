@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -9,11 +10,14 @@ import '../project/project_auth_support.dart';
 final _log = Logger('GitCredentialEnv');
 
 /// Per-command git credential resolution.
-final class GitCredentialPlan {
+final class GitCredentialPlan implements ProcessEnvironmentPlan {
   final String remoteUrl;
+  @override
   final Map<String, String> environment;
 
   const GitCredentialPlan({required this.remoteUrl, required this.environment});
+
+  const GitCredentialPlan.none() : remoteUrl = '', environment = const <String, String>{};
 }
 
 /// Resolves git transport and environment variables for credential injection.

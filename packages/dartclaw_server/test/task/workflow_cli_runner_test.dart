@@ -743,6 +743,70 @@ void main() {
       expect(schemaFlagIndex, isNonNegative);
       expect(container.lastCommand[schemaFlagIndex + 1], startsWith('/workspace/.dartclaw-codex-schema-'));
     });
+
+    test('one-shot runner default starter does not leak parent env into child', () async {
+      // Regression guard for S38/E2 that exercises the REAL default process
+      // starter (no processStarter injection). The test configures a fake
+      // provider binary — a shell script that dumps its env — and a minimal
+      // provider env. If `_defaultProcessStarter` ever regresses to a policy
+      // that re-inherits `Platform.environment` (e.g. `includeParentEnvironment:
+      // true` or a sanitize fallback), the child would see parent-only keys
+      // that are NOT in providerConfig.environment.
+      final tempDir = Directory.systemTemp.createTempSync('workflow_cli_env_default_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+      final envDump = File(p.join(tempDir.path, 'env.txt'));
+      final scriptPath = p.join(tempDir.path, 'fake-claude.sh');
+      final stdoutPayload = jsonEncode({'session_id': 'default-starter', 'result': 'ok'});
+      File(scriptPath).writeAsStringSync(
+        '#!/bin/sh\n'
+        'env > "${envDump.path}"\n'
+        "printf '%s' '${stdoutPayload.replaceAll("'", r"'\''")}'\n",
+      );
+      await Process.run('chmod', ['+x', scriptPath]);
+
+      final runner = WorkflowCliRunner(
+        providers: {
+          'claude': WorkflowCliProviderConfig(
+            executable: scriptPath,
+            environment: {
+              'PROVIDER_OK': 'provider-value',
+              'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin',
+            },
+          ),
+        },
+        // No processStarter override — the production `_defaultProcessStarter`
+        // must isolate the child env from Platform.environment.
+      );
+
+      await runner.executeTurn(
+        provider: 'claude',
+        prompt: 'test',
+        workingDirectory: tempDir.path,
+        profileId: 'workspace',
+      );
+
+      expect(envDump.existsSync(), isTrue, reason: 'fake claude did not run');
+      final lines = envDump.readAsLinesSync();
+      expect(lines, contains('PROVIDER_OK=provider-value'), reason: 'provider env must reach child');
+
+      // Keys present in Platform.environment but NOT in providerConfig.environment
+      // must NOT appear in the child dump. `HOME` and `USER` are reliably present
+      // in Dart test harnesses on POSIX and absent from the provider env above.
+      final parentHome = Platform.environment['HOME'];
+      if (parentHome != null) {
+        expect(
+          lines,
+          isNot(contains('HOME=$parentHome')),
+          reason: 'parent HOME must not leak into child — default starter may have regressed to inherit parent env',
+        );
+      }
+      final parentUser = Platform.environment['USER'];
+      if (parentUser != null) {
+        expect(lines, isNot(contains('USER=$parentUser')), reason: 'parent USER must not leak into child');
+      }
+    });
   });
 }
 

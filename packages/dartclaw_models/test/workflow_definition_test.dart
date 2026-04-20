@@ -182,18 +182,18 @@ void main() {
     });
 
     test('foreach node round-trips via toJson/fromJson (S19)', () {
-      const node = ForeachNode(stepId: 'story-pipeline', childStepIds: ['implement', 'verify-refine', 'quick-review']);
+      const node = ForeachNode(stepId: 'story-pipeline', childStepIds: ['implement', 'quick-review']);
       final json = node.toJson();
       expect(json['type'], 'foreach');
       expect(json['stepId'], 'story-pipeline');
-      expect(json['childStepIds'], ['implement', 'verify-refine', 'quick-review']);
+      expect(json['childStepIds'], ['implement', 'quick-review']);
 
       final restored = WorkflowNode.fromJson(json);
       expect(restored, isA<ForeachNode>());
       final foreach = restored as ForeachNode;
       expect(foreach.stepId, 'story-pipeline');
-      expect(foreach.childStepIds, ['implement', 'verify-refine', 'quick-review']);
-      expect(foreach.stepIds, ['story-pipeline', 'implement', 'verify-refine', 'quick-review']);
+      expect(foreach.childStepIds, ['implement', 'quick-review']);
+      expect(foreach.stepIds, ['story-pipeline', 'implement', 'quick-review']);
     });
   });
 

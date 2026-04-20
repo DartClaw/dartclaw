@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskType;
 import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:dartclaw_server/src/task/worktree_manager.dart';
 import 'package:logging/logging.dart';
@@ -118,6 +119,116 @@ void main() {
 
       await manager.create('fresh-task');
       await manager.detectStaleWorktrees();
+    });
+
+    test('detectStaleWorktrees() logs and continues when stale reap fails', () async {
+      final staleDir = Directory(p.join(dataDir, 'worktrees', 'task-stale'))..createSync(recursive: true);
+      File(p.join(staleDir.path, 'README.md')).writeAsStringSync('stale');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        staleTimeoutHours: 0,
+        taskLookup: (_) async => Task(
+          id: 'task-stale',
+          title: 'stale',
+          description: 'stale',
+          type: TaskType.coding,
+          createdAt: DateTime.now(),
+          status: TaskStatus.accepted,
+        ),
+        processRunner: (executable, arguments, {String? workingDirectory}) async {
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(0, 0, 'worktree ${staleDir.path}\nbranch refs/heads/main\n\n', '');
+          }
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'remove') {
+            return ProcessResult(0, 1, '', 'fatal: worktree locked');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await manager.detectStaleWorktrees();
+
+      expect(staleDir.existsSync(), isTrue, reason: 'failed reaps should leave the stale dir in place');
+    });
+
+    test('detectStaleWorktrees() routes reap to the owning project repo', () async {
+      final reapCalls = <({List<String> arguments, String? workingDirectory})>[];
+      final staleDir = Directory(p.join(dataDir, 'worktrees', 'task-project'))..createSync(recursive: true);
+      File(p.join(staleDir.path, 'README.md')).writeAsStringSync('stale');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final owningProject = Project(
+        id: 'proj-a',
+        name: 'Project A',
+        remoteUrl: 'git@example.com:u/proj-a.git',
+        localPath: '/data/projects/proj-a',
+        defaultBranch: 'main',
+        status: ProjectStatus.ready,
+        createdAt: DateTime.now(),
+      );
+
+      final manager = WorktreeManager(
+        dataDir: dataDir,
+        projectDir: projectDir,
+        staleTimeoutHours: 0,
+        taskLookup: (_) async => Task(
+          id: 'task-project',
+          title: 'stale',
+          description: 'stale',
+          type: TaskType.coding,
+          projectId: 'proj-a',
+          createdAt: DateTime.now(),
+          status: TaskStatus.accepted,
+        ),
+        projectLookup: (id) async => id == 'proj-a' ? owningProject : null,
+        processRunner: (executable, arguments, {String? workingDirectory}) async {
+          reapCalls.add((arguments: List<String>.from(arguments), workingDirectory: workingDirectory));
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 2 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(0, 0, 'worktree ${staleDir.path}\nbranch refs/heads/main\n\n', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await manager.detectStaleWorktrees();
+
+      expect(staleDir.existsSync(), isFalse, reason: 'confirmed orphan should be reaped from disk');
+      final reapWorktreeCalls = reapCalls.where(
+        (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments.contains('remove'),
+      );
+      expect(reapWorktreeCalls, isNotEmpty, reason: 'worktree remove should be invoked');
+      for (final call in reapWorktreeCalls) {
+        expect(
+          call.workingDirectory,
+          equals('/data/projects/proj-a'),
+          reason: 'orphan worktree must be unregistered from the owning project repo, not the default',
+        );
+      }
+    });
+
+    test('default runner propagates GIT_CONFIG_NOSYSTEM=1 to git child processes', () async {
+      // git worktree add triggers a post-checkout hook; the hook dumps the
+      // value of $GIT_CONFIG_NOSYSTEM seen by the child. If the default
+      // runner forgets to set the flag, the sentinel reads "unset".
+      final sentinel = File(p.join(tmpDir.path, 'git-config-nosystem.txt'));
+      final hookPath = p.join(projectDir, '.git', 'hooks', 'post-checkout');
+      File(hookPath).writeAsStringSync('#!/bin/sh\nprintf "%s" "\${GIT_CONFIG_NOSYSTEM:-unset}" > "${sentinel.path}"\n');
+      await Process.run('chmod', ['+x', hookPath]);
+
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
+      await manager.create('nosystem-sentinel');
+
+      expect(sentinel.existsSync(), isTrue, reason: 'post-checkout hook did not run — git child may have failed');
+      expect(
+        sentinel.readAsStringSync(),
+        '1',
+        reason: 'workflow-owned worktree children must carry GIT_CONFIG_NOSYSTEM=1 (S39 hardening)',
+      );
     });
   });
 
@@ -260,7 +371,9 @@ void main() {
         await manager.create('task-1', project: project);
 
         // The worktree add call should include origin/develop as startpoint
-        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
         expect(worktreeCall.arguments, contains('origin/develop'));
       });
 
@@ -279,7 +392,9 @@ void main() {
 
         await manager.create('task-1', project: project, baseRef: 'origin/release/0.16');
 
-        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
         expect(worktreeCall.arguments, contains('origin/release/0.16'));
         expect(worktreeCall.arguments, isNot(contains('origin/develop')));
       });
@@ -299,7 +414,9 @@ void main() {
 
         await manager.create('task-1', project: project, baseRef: 'release/0.16');
 
-        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
         expect(worktreeCall.arguments, contains('origin/release/0.16'));
       });
 
@@ -333,7 +450,9 @@ void main() {
 
         await manager.create('task-1', project: project, baseRef: 'dartclaw/workflow/run123');
 
-        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
         expect(worktreeCall.arguments, contains('dartclaw/workflow/run123'));
         expect(worktreeCall.arguments, isNot(contains('origin/dartclaw/workflow/run123')));
       });
@@ -354,7 +473,9 @@ void main() {
         await manager.create('task-1', project: project);
 
         // Should be a single worktree add with -b flag, no separate git branch command
-        final worktreeCall = calls.firstWhere((c) => c.arguments.contains('worktree'));
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
         expect(worktreeCall.arguments, contains('-b'));
         // No separate 'git branch' create command (only --list for collision check)
         final branchCreateCalls = calls.where((c) => c.arguments.first == 'branch' && !c.arguments.contains('--list'));
@@ -448,6 +569,223 @@ void main() {
     });
   });
 
+  group('WorktreeManager reconciliation', () {
+    test('create() adopts persisted worktreeJson when directory and git registration match', () async {
+      final tempDir = Directory.systemTemp.createTempSync('worktree_reconcile_match_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final worktreePath = p.join(tempDir.path, 'worktrees', 'task-1');
+      await Directory(worktreePath).create(recursive: true);
+      var worktreeAddCalls = 0;
+      final manager = WorktreeManager(
+        dataDir: tempDir.path,
+        projectDir: tempDir.path,
+        processRunner: (executable, arguments, {workingDirectory}) async {
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(
+              0,
+              0,
+              'worktree $worktreePath\nHEAD abc123\nbranch refs/heads/dartclaw/task-task-1\n\n',
+              '',
+            );
+          }
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'add') {
+            worktreeAddCalls++;
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      final info = await manager.create(
+        'task-1',
+        existingWorktreeJson: {
+          'path': worktreePath,
+          'branch': 'dartclaw/task-task-1',
+          'createdAt': '2026-04-20T10:00:00.000Z',
+        },
+      );
+
+      expect(info.path, worktreePath);
+      expect(info.branch, 'dartclaw/task-task-1');
+      expect(worktreeAddCalls, 0);
+      expect(manager.getWorktreeInfo('task-1')?.path, worktreePath);
+    });
+
+    test('create() removes orphaned directory and recreates the worktree', () async {
+      final tempDir = Directory.systemTemp.createTempSync('worktree_reconcile_orphan_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final worktreePath = p.join(tempDir.path, 'worktrees', 'task-1');
+      await Directory(worktreePath).create(recursive: true);
+      File(p.join(worktreePath, 'orphan.txt')).writeAsStringSync('stale');
+      var worktreeAddCalls = 0;
+      final manager = WorktreeManager(
+        dataDir: tempDir.path,
+        projectDir: tempDir.path,
+        processRunner: (executable, arguments, {workingDirectory}) async {
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.length >= 3 && arguments[0] == 'branch' && arguments[1] == '--list') {
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.isNotEmpty && arguments[0] == 'branch') {
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'add') {
+            worktreeAddCalls++;
+            await Directory(arguments[2]).create(recursive: true);
+            return ProcessResult(0, 0, '', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await manager.create('task-1');
+
+      expect(worktreeAddCalls, 1);
+      expect(Directory(worktreePath).existsSync(), isTrue);
+      expect(File(p.join(worktreePath, 'orphan.txt')).existsSync(), isFalse);
+    });
+
+    test('create() prunes dangling git registration before recreating', () async {
+      final tempDir = Directory.systemTemp.createTempSync('worktree_reconcile_prune_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final worktreePath = p.join(tempDir.path, 'worktrees', 'task-1');
+      var pruneCalls = 0;
+      var worktreeAddCalls = 0;
+      final manager = WorktreeManager(
+        dataDir: tempDir.path,
+        projectDir: tempDir.path,
+        processRunner: (executable, arguments, {workingDirectory}) async {
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(
+              0,
+              0,
+              'worktree $worktreePath\nHEAD abc123\nbranch refs/heads/dartclaw/task-task-1\n\n',
+              '',
+            );
+          }
+          if (arguments.length >= 2 && arguments[0] == 'worktree' && arguments[1] == 'prune') {
+            pruneCalls++;
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.length >= 3 && arguments[0] == 'branch' && arguments[1] == '--list') {
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.isNotEmpty && arguments[0] == 'branch') {
+            return ProcessResult(0, 0, '', '');
+          }
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'add') {
+            worktreeAddCalls++;
+            await Directory(arguments[2]).create(recursive: true);
+            return ProcessResult(0, 0, '', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await manager.create('task-1');
+
+      expect(pruneCalls, 1);
+      expect(worktreeAddCalls, 1);
+      expect(Directory(worktreePath).existsSync(), isTrue);
+    });
+  });
+
+  group('detectStaleWorktrees()', () {
+    test('reaps confirmed orphans and leaves running-task worktrees alone', () async {
+      final tempDir = Directory.systemTemp.createTempSync('worktree_stale_reap_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final worktreesDir = p.join(tempDir.path, 'worktrees');
+      final runningPath = p.join(worktreesDir, 'A');
+      final completedPath = p.join(worktreesDir, 'B');
+      final missingPath = p.join(worktreesDir, 'C');
+      await Directory(runningPath).create(recursive: true);
+      await Directory(completedPath).create(recursive: true);
+      await Directory(missingPath).create(recursive: true);
+      final removedPaths = <String>[];
+      final records = <LogRecord>[];
+      final subscription = Logger('WorktreeManager').onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+
+      final manager = WorktreeManager(
+        dataDir: tempDir.path,
+        projectDir: tempDir.path,
+        staleTimeoutHours: 0,
+        taskLookup: (taskId) async => switch (taskId) {
+          'A' => Task(
+            id: 'A',
+            title: 'Running task',
+            description: 'desc',
+            type: TaskType.coding,
+            status: TaskStatus.running,
+            createdAt: DateTime.now(),
+          ),
+          'B' => Task(
+            id: 'B',
+            title: 'Completed task',
+            description: 'desc',
+            type: TaskType.coding,
+            status: TaskStatus.failed,
+            createdAt: DateTime.now(),
+          ),
+          _ => null,
+        },
+        processRunner: (executable, arguments, {workingDirectory}) async {
+          if (arguments.contains('--version')) return ProcessResult(0, 0, 'git version 2', '');
+          if (arguments.length >= 3 && arguments[0] == 'worktree' && arguments[1] == 'list') {
+            return ProcessResult(
+              0,
+              0,
+              'worktree $runningPath\nHEAD a\nbranch refs/heads/dartclaw/task-A\n\n'
+                  'worktree $completedPath\nHEAD b\nbranch refs/heads/dartclaw/task-B\n\n'
+                  'worktree $missingPath\nHEAD c\nbranch refs/heads/dartclaw/task-C\n\n',
+              '',
+            );
+          }
+          if (arguments.length >= 4 && arguments[0] == 'worktree' && arguments[1] == 'remove') {
+            removedPaths.add(arguments[3]);
+            return ProcessResult(0, 0, '', '');
+          }
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await manager.detectStaleWorktrees();
+
+      expect(Directory(runningPath).existsSync(), isTrue);
+      expect(Directory(completedPath).existsSync(), isFalse);
+      expect(Directory(missingPath).existsSync(), isFalse);
+      expect(removedPaths, containsAll([completedPath, missingPath]));
+      expect(
+        records.where((record) => record.level == Level.INFO).map((record) => record.message),
+        anyElement(contains(completedPath)),
+      );
+      expect(
+        records.where((record) => record.level == Level.INFO).map((record) => record.message),
+        anyElement(contains(missingPath)),
+      );
+    });
+  });
+
   group('WorktreeInfo', () {
     test('toJson and fromJson round-trip', () {
       final info = WorktreeInfo(
@@ -517,11 +855,7 @@ void main() {
       final wm = WorktreeManager(dataDir: tmpDir.path);
       final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
       await expectLater(
-        wm.applyExternalArtifactMount(
-          worktree: wt,
-          fromProjectDir: fromProjectDir,
-          relativeSourcePath: '../escape.md',
-        ),
+        wm.applyExternalArtifactMount(worktree: wt, fromProjectDir: fromProjectDir, relativeSourcePath: '../escape.md'),
         throwsA(isA<WorktreeException>()),
       );
     });
@@ -530,11 +864,7 @@ void main() {
       final wm = WorktreeManager(dataDir: tmpDir.path);
       final wt = WorktreeInfo(path: worktreeDir, branch: 'b', createdAt: DateTime.now());
       await expectLater(
-        wm.applyExternalArtifactMount(
-          worktree: wt,
-          fromProjectDir: fromProjectDir,
-          relativeSourcePath: '/etc/passwd',
-        ),
+        wm.applyExternalArtifactMount(worktree: wt, fromProjectDir: fromProjectDir, relativeSourcePath: '/etc/passwd'),
         throwsA(isA<WorktreeException>()),
       );
     });

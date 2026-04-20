@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -279,10 +280,7 @@ class WorkflowCliRunner {
       args.addAll(['resume', providerSessionId]);
     }
     args.add(prompt);
-    return _WorkflowCliCommand(
-      (providers['codex']!.executable, args),
-      tempSchemaPath: schemaPath,
-    );
+    return _WorkflowCliCommand((providers['codex']!.executable, args), tempSchemaPath: schemaPath);
   }
 
   WorkflowCliTurnResult _parseClaude(String stdout, {required Duration fallbackDuration}) {
@@ -367,11 +365,11 @@ class WorkflowCliRunner {
     String? workingDirectory,
     Map<String, String>? environment,
   }) {
-    return Process.start(
+    return SafeProcess.start(
       executable,
       arguments,
+      env: EnvPolicy.passthrough(environment: environment ?? const <String, String>{}),
       workingDirectory: workingDirectory,
-      environment: environment,
       runInShell: false,
     );
   }

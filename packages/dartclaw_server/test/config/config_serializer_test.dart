@@ -96,6 +96,34 @@ void main() {
       });
     });
 
+    test('security.bashStep is serialized with defaults', () {
+      final config = const DartclawConfig.defaults();
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final security = json['security'] as Map<String, dynamic>;
+      final bashStep = security['bashStep'] as Map<String, dynamic>;
+      expect(bashStep['envAllowlist'], containsAll(['PATH', 'HOME', 'LANG']));
+      expect(bashStep['extraStripPatterns'], isEmpty);
+    });
+
+    test('security.bashStep reflects configured overrides', () {
+      final config = const DartclawConfig(
+        security: SecurityConfig(
+          bashStep: SecurityBashStepConfig(
+            envAllowlist: ['PATH', 'HOME', 'CUSTOM_ALLOWED'],
+            extraStripPatterns: ['CUSTOM_FLAG'],
+          ),
+        ),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true, gitSyncPushEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final bashStep = (json['security'] as Map<String, dynamic>)['bashStep'] as Map<String, dynamic>;
+      expect(bashStep['envAllowlist'], ['PATH', 'HOME', 'CUSTOM_ALLOWED']);
+      expect(bashStep['extraStripPatterns'], ['CUSTOM_FLAG']);
+    });
+
     test('gateway.token masked as "***" when non-null', () {
       final config = const DartclawConfig(gateway: GatewayConfig(token: 'super-secret-token'));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);

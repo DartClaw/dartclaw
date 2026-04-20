@@ -81,6 +81,9 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **Concurrency bug in execution-repository transactor**: parallel map iterations no longer attempt nested `BEGIN` on the same connection; `SqliteExecutionRepositoryTransactor` serializes transactions through a single-slot queue
 - **Pause responsiveness during task-completion wait**: `WorkflowExecutor._waitForTaskCompletion` now subscribes to `WorkflowRunStatusChangedEvent` and re-queries the run after subscription to close the broadcast-race window; pausing a run whose current step is waiting on a task now aborts cleanly with a clear `StateError`
 - **Standalone coding-task review honoring**: `TaskExecutor._resolvePostCompletionStatus` now checks `_isCodingTask(task)` rather than only the WSE step type, so standalone coding tasks (no WSE) no longer skip their configured review
+- **CLI task-event recorder wiring**: `CliWorkflowWiring` now constructs `TaskExecutor` with the shared `TaskEventRecorder`. The CLI workflow path (used by `dartclaw workflow run` and the workflow E2E integration test) had been silently dropping task error, artifact-created, token, compaction, and structured-output-inline events since the recorder was introduced; the server wiring was correct, but the CLI surface was not. Server-path observability was unaffected
+- **Permanent task-failure logging**: `TaskExecutor._markFailed` now logs `errorSummary` via `_log.warning` before recording the event, so failures remain diagnosable in logs even when the event recorder is null or unreachable
+- **Workflow publish phase logging**: `WorkflowExecutor._runDeterministicPublish` now emits `info` on start and success, `warning` on a failed publish result, and `severe` when the publish callback throws — previously the 5-10s phase between the last agent step and workflow `completed` was completely silent, masking push/PR-creation errors
 
 ---
 

@@ -41,26 +41,24 @@ FIS_FILE_PATH: $ARGUMENTS
 
 Do not: delegate coding to advisory agents, batch status updates until the end, silently narrow scope, or skip final gates.
 
-### Helper Scripts
-Available in `scripts/`:
-- `check-stubs.sh <path>` – scan for incomplete implementation indicators
-- `check-wiring.sh <path>` – verify new/changed files are imported/referenced
-- `verify-implementation.sh <file1> [file2...]` – combined existence + substance + wiring check
-
 ### Proactive Sub-Agents
-Spawn narrow background sub-agents when they materially improve a coding decision and you can keep implementing while they run. Their output is advisory; the FIS remains the contract.
+Spawn narrow sub-agents when they materially improve a coding decision. Their output is advisory; the FIS remains the contract.
 
-These are **agents** (valid `subagent_type` values for the Task tool) — _(all are optional and used only if supported by the current harness)_:
+**Agents** (pass as `subagent_type` to the Task tool):
 
-- the `documentation-lookup` sub-agent – use for unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. This is the preferred path for documentation lookup; run it as a separate background sub-task when available.
-- the `research-specialist` sub-agent – use for external best-practice research or context not available in the codebase
-- the `qa-test-engineer` sub-agent – use for complex test strategy or unfamiliar test-harness patterns
-- the `visual-validation-specialist` sub-agent – use for visual/design compliance validation against wireframes or baselines
+- the `documentation-lookup` sub-agent _(if supported)_ – unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. Required path for documentation lookup. Use a fast/lightweight model (`model: "haiku"`, `gpt-5.4-mini`, or similar).
+- the `research-specialist` sub-agent _(if supported)_ – external best-practice research or context not available in the codebase
+- the `visual-validation-specialist` sub-agent _(if supported)_ – visual/design compliance against wireframes or baselines
+
+**Skills** (invoke as `/dartclaw-<name>`; when you want fresh-context isolation, spawn a `general-purpose` sub-agent whose prompt runs the skill):
+
+- the `dartclaw-testing` skill – test strategy, coverage assessment, test-first / red-green-refactor discipline, Prove-It bugfix flow, or unfamiliar test-harness patterns
+
+For advisory analysis, use a capable reasoning model (`model: "sonnet"` or stronger, `gpt-5.4`, or similar); for retrieval and routine lookups, haiku-class is sufficient.
 
 Usage rules:
 - Prefer multiple narrow questions over one broad prompt
 - Spawn early when the need appears; do not wait until you are fully blocked
-- Continue local implementation when the sub-agent is background-able
 - If sub-agent guidance conflicts with the FIS, follow the FIS
 - Do not spawn a sub-agent for coding work you should do directly
 
@@ -127,15 +125,16 @@ Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — int
 1. **Build**: run the project's applicable build/package checks; every available build step relevant to the feature must succeed
 2. **Tests**: run the applicable test suites; all relevant tests must pass (or pre-existing failures documented)
 3. **Lint/types**: run the applicable static analysis checks; no new violations
-4. **Stub detection**: `check-stubs.sh <changed-files>` — must be clean
-5. **Wiring check**: `check-wiring.sh <changed-files>` — each new file referenced by at least one other
+4. **Stub detection**: grep `changed-files` for incomplete-implementation markers (`TODO`, `FIXME`, `XXX`, `NotImplementedError`, language-appropriate `pass`/empty-body/`throw.*not implemented` patterns). Triage each hit — intentional (e.g. a `pass` in an abstract stub) vs. forgotten — and remediate the forgotten ones.
+5. **Wiring check**: for each new file in `changed-files`, confirm at least one other file imports or references it (language-appropriate import/require/include grep on the basename or module path). Isolated new files are a Stop-the-Line signal unless the FIS explicitly justifies them.
 6. **Spec compliance spot-check**: extract prescriptive details from the FIS (output format strings, column name lists, file paths for new artifacts, exact error messages, UI elements like buttons/controls) and grep/verify each against the implementation — any mismatch is a remediation input
+7. **Tautology check**: for each test added or modified in `changed-files`, inspect the test source — the unit under test must be imported and called without being replaced by a mock/stub; assertions must reference its return value or an observable effect, not mock call arguments; fixtures must not substitute for the production computation (captured golden outputs are fine). A test that would still pass if the asserted behavior were removed is tautological and is a remediation input.
 
 #### 4b. Code Review (mandatory fresh-context review)
 Run the `dartclaw-review` **skill** with `--mode code` for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation). Prefer to invoke it in a fresh-context sub-agent: spawn a `general-purpose` sub-agent whose prompt runs `/dartclaw-review --mode code`. Do not pass `dartclaw-review` as `subagent_type` — it is a skill, not an agent type.
 
 #### 4c. Visual Validation (if UI)
-Spawn the `visual-validation-specialist` **agent** (a real `subagent_type` for the Task tool — unlike the `dartclaw-review` skill in 4b) _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
+Spawn the `visual-validation-specialist` sub-agent (a real `subagent_type` for the Task tool — unlike the `dartclaw-review` skill in 4b) _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
 
 Steps 4b and 4c can run in parallel _(if supported)_.
 
@@ -145,8 +144,8 @@ Apply the Gate Classes policy from `references/execution-discipline.md`.
 
 1. **Collect** — combine required failures from 4a with findings from 4b/4c. A failed build/test/lint/stub/wiring check is a remediation input even if the code review does not flag it separately.
 2. **Triage** — severity scale: CRITICAL/HIGH must fix, MEDIUM should fix, LOW optional.
-3. **Objective red gates (4a)** — iterate until green; halt with a structured blocker in the step output if iteration stalls on the same issue.
-4. **Subjective findings (4b/4c)** — one pass on CRITICAL/HIGH, re-run the affected lens (`/dartclaw-review --mode code` or visual validation) on the touched scope; halt with a structured blocker if findings persist.
+3. **Objective red gates (4a)** — iterate until green.
+4. **Subjective findings (4b/4c)** — one pass on CRITICAL/HIGH, re-run the affected lens (`/dartclaw-review --mode code` or visual validation) on the touched scope; halt with a structured blocker in the step output if they persist.
 
 ### Step 5: Complete
 All substeps below are gates — complete them before finishing.

@@ -15,4 +15,12 @@ export 'src/content_guard.dart' show ContentGuard;
 export 'src/anthropic_api_classifier.dart' show AnthropicApiClassifier;
 export 'src/claude_binary_classifier.dart' show ClaudeBinaryClassifier;
 export 'src/env_substitute.dart' show envSubstitute;
+export 'src/safe_process.dart'
+    show
+        EnvPolicy,
+        ProcessEnvironmentPlan,
+        SafeProcess,
+        kDefaultBashStepEnvAllowlist,
+        kDefaultGitEnvAllowlist,
+        kDefaultSensitivePatterns;
 export 'src/task_tool_filter_guard.dart' show TaskToolFilterGuard;

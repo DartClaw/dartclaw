@@ -371,6 +371,8 @@ class ServiceWiring {
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
       messageService: storage.messages,
+      bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
+      bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
       roleDefaults: WorkflowRoleDefaults(
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,
@@ -514,11 +516,11 @@ class ServiceWiring {
           final gitDir = resolvedProject.localPath;
 
           for (final worktreePath in cleanupPlan.worktreePaths) {
-            await Process.run('git', ['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
+            await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: gitDir);
           }
           for (final branch in cleanupPlan.branches) {
             if (branch.startsWith('origin/')) continue;
-            await Process.run('git', ['branch', '--delete', '--force', branch], workingDirectory: gitDir);
+            await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: gitDir);
           }
         },
         reserveTurn: serverTurns.reserveTurn,
@@ -542,6 +544,7 @@ class ServiceWiring {
         availableRunnerCount: () => serverTurns.availableRunnerCount,
       ),
       structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
+      hydrateWorkflowWorktreeBinding: task.taskExecutor.hydrateWorkflowSharedWorktreeBinding,
       skillRegistry: skillRegistry,
       taskRepository: storage.taskRepository,
       agentExecutionRepository: storage.agentExecutionRepository,
@@ -1092,7 +1095,7 @@ String? _workflowFreshnessRefForProject(Project project, String? branch) {
 
 Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   try {
-    final result = await Process.run('git', [
+    final result = await _workflowGit([
       'symbolic-ref',
       '--quiet',
       '--short',
@@ -1113,11 +1116,11 @@ Future<void> _ensureLocalBranch({
   required bool remoteBacked,
 }) async {
   final normalizedBaseRef = remoteBacked && !baseRef.startsWith('origin/') ? 'origin/$baseRef' : baseRef;
-  final existing = await Process.run('git', ['rev-parse', '--verify', branch], workingDirectory: projectDir);
+  final existing = await _workflowGit(['rev-parse', '--verify', branch], workingDirectory: projectDir);
   if (existing.exitCode == 0) {
     return;
   }
-  final create = await Process.run('git', ['branch', branch, normalizedBaseRef], workingDirectory: projectDir);
+  final create = await _workflowGit(['branch', branch, normalizedBaseRef], workingDirectory: projectDir);
   if (create.exitCode != 0) {
     final stderr = (create.stderr as String).trim();
     throw StateError('Failed to create workflow branch "$branch" from "$normalizedBaseRef": $stderr');
@@ -1223,6 +1226,15 @@ class WorkflowGitCleanupPlan {
   final Set<String> branches;
 
   const WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
+  return SafeProcess.git(
+    args,
+    plan: const GitCredentialPlan.none(),
+    workingDirectory: workingDirectory,
+    noSystemConfig: true,
+  );
 }
 
 WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {

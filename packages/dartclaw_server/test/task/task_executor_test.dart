@@ -22,6 +22,7 @@ void main() {
   late ArtifactCollector collector;
   late Database taskDb;
   late SqliteAgentExecutionRepository agentExecutions;
+  late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
   late SqliteExecutionRepositoryTransactor executionTransactor;
   late TaskExecutor executor;
@@ -38,6 +39,7 @@ void main() {
     messages = MessageService(baseDir: sessionsDir);
     taskDb = sqlite3.openInMemory();
     agentExecutions = SqliteAgentExecutionRepository(taskDb);
+    workflowRuns = SqliteWorkflowRunRepository(taskDb);
     workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskDb);
     executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
     tasks = TaskService(
@@ -65,6 +67,7 @@ void main() {
       messages: messages,
       turns: turns,
       artifactCollector: collector,
+      workflowRunRepository: workflowRuns,
       workflowStepExecutionRepository: workflowStepExecutions,
       pollInterval: const Duration(milliseconds: 10),
     );
@@ -93,6 +96,7 @@ void main() {
       #messages: messages,
       #turns: turns,
       #artifactCollector: collector,
+      #workflowRunRepository: workflowRuns,
       #workflowStepExecutionRepository: workflowStepExecutions,
       #pollInterval: pollInterval,
     };
@@ -131,14 +135,25 @@ void main() {
     final existingExecution = await agentExecutions.get(executionId);
     if (existingExecution == null) {
       await agentExecutions.create(
-        AgentExecution(
-          id: executionId,
-          provider: 'claude',
-          workspaceDir: workspaceDirOverride ?? workspaceDir,
-        ),
+        AgentExecution(id: executionId, provider: 'claude', workspaceDir: workspaceDirOverride ?? workspaceDir),
       );
     } else if (workspaceDirOverride != null && existingExecution.workspaceDir != workspaceDirOverride) {
       await agentExecutions.update(existingExecution.copyWith(workspaceDir: workspaceDirOverride));
+    }
+    final existingRun = await workflowRuns.getById(workflowRunId);
+    if (existingRun == null) {
+      final now = DateTime.now();
+      await workflowRuns.insert(
+        WorkflowRun(
+          id: workflowRunId,
+          definitionName: 'task-executor-test',
+          status: WorkflowRunStatus.running,
+          startedAt: now,
+          updatedAt: now,
+          definitionJson: const {'name': 'task-executor-test', 'steps': []},
+          variablesJson: const {'PROJECT': '_local'},
+        ),
+      );
     }
     await workflowStepExecutions.create(
       WorkflowStepExecution(
@@ -1094,6 +1109,112 @@ void main() {
     expect(second?.worktreeJson?['branch'], integrationBranch);
   });
 
+  test('shared workflow worktree binding persists on the workflow run', () async {
+    worker.responseText = 'Done.';
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      worktreeManager: worktreeManager,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const workflowRunId = 'run-binding';
+    await tasks.create(
+      id: 'task-shared-binding',
+      title: 'Shared workflow step',
+      description: 'Persists its shared worktree binding.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-binding',
+      configJson: const {'_baseRef': 'dartclaw/workflow/runbinding/integration'},
+    );
+    await seedWorkflowExecution(
+      'task-shared-binding',
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-binding',
+      git: const {'worktree': 'shared'},
+    );
+
+    await projectExecutor.pollOnce();
+
+    final binding = await workflowRuns.getWorktreeBinding(workflowRunId);
+    expect(binding, isNotNull);
+    expect(binding?.key, workflowRunId);
+    expect(binding?.path, '/tmp/worktrees/wf-$workflowRunId');
+    expect(binding?.branch, 'dartclaw/workflow/runbinding/integration');
+    expect(binding?.workflowRunId, workflowRunId);
+  });
+
+  test('hydrated shared workflow worktree binding reuses the persisted worktree without create()', () async {
+    worker.responseText = 'Done.';
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      worktreeManager: worktreeManager,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const workflowRunId = 'run-hydrated';
+    const binding = WorkflowWorktreeBinding(
+      key: workflowRunId,
+      path: '/tmp/worktrees/wf-run-hydrated',
+      branch: 'dartclaw/workflow/runhydrated/integration',
+      workflowRunId: workflowRunId,
+    );
+    final now = DateTime.now();
+    await workflowRuns.insert(
+      WorkflowRun(
+        id: workflowRunId,
+        definitionName: 'task-executor-test',
+        status: WorkflowRunStatus.running,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: const {'name': 'task-executor-test', 'steps': []},
+      ),
+    );
+    await workflowRuns.setWorktreeBinding(workflowRunId, binding);
+    projectExecutor.hydrateWorkflowSharedWorktreeBinding(binding, workflowRunId: workflowRunId);
+
+    await tasks.create(
+      id: 'task-shared-hydrated',
+      title: 'Hydrated shared workflow step',
+      description: 'Must reuse hydrated binding.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-hydrated',
+      configJson: const {'_baseRef': 'dartclaw/workflow/runhydrated/integration'},
+    );
+    await seedWorkflowExecution(
+      'task-shared-hydrated',
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-hydrated',
+      git: const {'worktree': 'shared'},
+    );
+
+    await projectExecutor.pollOnce();
+
+    final task = await tasks.get('task-shared-hydrated');
+    expect(worktreeManager.createCallCount, 0);
+    expect(task?.worktreeJson?['path'], binding.path);
+    expect(task?.worktreeJson?['branch'], binding.branch);
+  });
+
   test('inline workflow coding tasks reuse the project checkout without creating a worktree', () async {
     worker.responseText = 'Done.';
 
@@ -1506,6 +1627,98 @@ void main() {
     poolWorker2.responseText = 'done b';
     poolWorker1Gate.complete();
     poolWorker2Gate.complete();
+  });
+
+  test('concurrent shared workflow dispatch uses one worktree create call', () async {
+    final poolWorker1 = _FakeTaskWorker()..responseText = 'pool result 1';
+    final poolWorker2 = _FakeTaskWorker()..responseText = 'pool result 2';
+    final createGate = Completer<void>();
+    final worktreeManager = _BlockingWorktreeManager(createGate);
+    addTearDown(() async {
+      if (!createGate.isCompleted) {
+        createGate.complete();
+      }
+      await poolWorker1.dispose();
+      await poolWorker2.dispose();
+    });
+
+    final behavior = BehaviorFileService(workspaceDir: workspaceDir);
+    final primaryRunner = TurnRunner(harness: worker, messages: messages, behavior: behavior, sessions: sessions);
+    final taskRunner1 = TurnRunner(harness: poolWorker1, messages: messages, behavior: behavior, sessions: sessions);
+    final taskRunner2 = TurnRunner(harness: poolWorker2, messages: messages, behavior: behavior, sessions: sessions);
+    final pool = HarnessPool(runners: [primaryRunner, taskRunner1, taskRunner2]);
+    final poolTurns = TurnManager.fromPool(pool: pool);
+    final poolExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: poolTurns,
+      artifactCollector: collector,
+      workflowRunRepository: workflowRuns,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      worktreeManager: worktreeManager,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(poolExecutor.stop);
+
+    const workflowRunId = 'run-concurrent';
+    await tasks.create(
+      id: 'task-shared-concurrent-a',
+      title: 'Concurrent A',
+      description: 'First shared workflow task.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-concurrent-a',
+      configJson: const {'_baseRef': 'dartclaw/workflow/runconcurrent/integration'},
+    );
+    await seedWorkflowExecution(
+      'task-shared-concurrent-a',
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-concurrent-a',
+      git: const {'worktree': 'shared'},
+    );
+
+    await tasks.create(
+      id: 'task-shared-concurrent-b',
+      title: 'Concurrent B',
+      description: 'Second shared workflow task.',
+      type: TaskType.coding,
+      autoStart: true,
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-concurrent-b',
+      configJson: const {'_baseRef': 'dartclaw/workflow/runconcurrent/integration'},
+    );
+    await seedWorkflowExecution(
+      'task-shared-concurrent-b',
+      workflowRunId: workflowRunId,
+      agentExecutionId: 'ae-task-shared-concurrent-b',
+      git: const {'worktree': 'shared'},
+    );
+
+    final processed = await poolExecutor.pollOnce();
+    expect(processed, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(worktreeManager.createCallCount, 1);
+
+    createGate.complete();
+    for (var attempt = 0; attempt < 40; attempt++) {
+      final first = await tasks.get('task-shared-concurrent-a');
+      final second = await tasks.get('task-shared-concurrent-b');
+      final firstDone = first != null && first.status != TaskStatus.running;
+      final secondDone = second != null && second.status != TaskStatus.running;
+      if (firstDone && secondDone) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    final first = await tasks.get('task-shared-concurrent-a');
+    final second = await tasks.get('task-shared-concurrent-b');
+    expect(first?.worktreeJson?['path'], second?.worktreeJson?['path']);
+    expect('${first?.configJson['errorSummary'] ?? ''}', isNot(contains('already exists')));
+    expect('${second?.configJson['errorSummary'] ?? ''}', isNot(contains('already exists')));
   });
 
   test('waits for shared-harness contention instead of failing the task', () async {
@@ -1922,11 +2135,48 @@ class _CapturingWorktreeManager extends WorktreeManager {
   int createCallCount = 0;
 
   @override
-  Future<WorktreeInfo> create(String taskId, {String? baseRef, Project? project, bool createBranch = true}) async {
+  Future<WorktreeInfo> create(
+    String taskId, {
+    String? baseRef,
+    Project? project,
+    bool createBranch = true,
+    Map<String, dynamic>? existingWorktreeJson,
+  }) async {
     createCallCount++;
     lastBaseRef = baseRef;
     lastProject = project;
     lastCreateBranch = createBranch;
+    return WorktreeInfo(
+      path: '/tmp/worktrees/$taskId',
+      branch: createBranch ? 'dartclaw/task-$taskId' : (baseRef ?? 'main'),
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> cleanup(String taskId, {Project? project}) async {}
+}
+
+class _BlockingWorktreeManager extends WorktreeManager {
+  _BlockingWorktreeManager(this._gate)
+    : super(
+        dataDir: '/tmp',
+        processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
+      );
+
+  final Completer<void> _gate;
+  int createCallCount = 0;
+
+  @override
+  Future<WorktreeInfo> create(
+    String taskId, {
+    String? baseRef,
+    Project? project,
+    bool createBranch = true,
+    Map<String, dynamic>? existingWorktreeJson,
+  }) async {
+    createCallCount++;
+    await _gate.future;
     return WorktreeInfo(
       path: '/tmp/worktrees/$taskId',
       branch: createBranch ? 'dartclaw/task-$taskId' : (baseRef ?? 'main'),

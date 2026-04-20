@@ -260,6 +260,18 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       nullable: true,
     ),
+    'security.bash_step.env_allowlist': FieldMeta(
+      yamlPath: 'security.bash_step.env_allowlist',
+      jsonKey: 'security.bashStep.envAllowlist',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+    ),
+    'security.bash_step.extra_strip_patterns': FieldMeta(
+      yamlPath: 'security.bash_step.extra_strip_patterns',
+      jsonKey: 'security.bashStep.extraStripPatterns',
+      type: ConfigFieldType.stringList,
+      mutability: ConfigMutability.restart,
+    ),
     'github.enabled': FieldMeta(
       yamlPath: 'github.enabled',
       jsonKey: 'github.enabled',

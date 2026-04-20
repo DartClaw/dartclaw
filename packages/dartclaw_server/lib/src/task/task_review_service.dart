@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'git_credential_env.dart';
 import 'merge_executor.dart';
 import 'pr_creator.dart';
 import 'remote_push_service.dart';
@@ -143,6 +144,9 @@ class TaskReviewService {
     List<String> arguments, {
     String? workingDirectory,
   }) {
+    if (executable == 'git') {
+      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+    }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 

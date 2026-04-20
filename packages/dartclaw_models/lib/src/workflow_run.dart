@@ -1,5 +1,44 @@
 const _sentinel = Object();
 
+/// Persisted binding between a workflow run and its shared worktree.
+class WorkflowWorktreeBinding {
+  /// Resolver key that identifies the shared worktree slot within the run.
+  final String key;
+
+  /// Absolute filesystem path of the shared worktree.
+  final String path;
+
+  /// Branch or ref attached inside the shared worktree.
+  final String branch;
+
+  /// Workflow run that owns the binding.
+  final String workflowRunId;
+
+  const WorkflowWorktreeBinding({
+    required this.key,
+    required this.path,
+    required this.branch,
+    required this.workflowRunId,
+  });
+
+  WorkflowWorktreeBinding copyWith({String? key, String? path, String? branch, String? workflowRunId}) =>
+      WorkflowWorktreeBinding(
+        key: key ?? this.key,
+        path: path ?? this.path,
+        branch: branch ?? this.branch,
+        workflowRunId: workflowRunId ?? this.workflowRunId,
+      );
+
+  Map<String, dynamic> toJson() => {'key': key, 'path': path, 'branch': branch, 'workflowRunId': workflowRunId};
+
+  factory WorkflowWorktreeBinding.fromJson(Map<String, dynamic> json) => WorkflowWorktreeBinding(
+    key: json['key'] as String,
+    path: json['path'] as String,
+    branch: json['branch'] as String,
+    workflowRunId: json['workflowRunId'] as String,
+  );
+}
+
 /// Node kinds that can be resumed via a persisted execution cursor.
 enum WorkflowExecutionCursorNodeType { loop, map, foreach }
 
@@ -204,7 +243,14 @@ class WorkflowRun {
   /// Generalized execution cursor for node-oriented crash recovery.
   final WorkflowExecutionCursor? executionCursor;
 
-  const WorkflowRun({
+  /// Persisted workflow-owned shared worktree bindings for this run.
+  final List<WorkflowWorktreeBinding> workflowWorktrees;
+
+  /// Last persisted workflow-owned shared worktree binding, retained for
+  /// compatibility with single-binding callers.
+  WorkflowWorktreeBinding? get workflowWorktree => workflowWorktrees.isEmpty ? null : workflowWorktrees.last;
+
+  WorkflowRun({
     required this.id,
     required this.definitionName,
     this.status = WorkflowRunStatus.pending,
@@ -220,7 +266,13 @@ class WorkflowRun {
     this.currentLoopId,
     this.currentLoopIteration,
     this.executionCursor,
-  });
+    WorkflowWorktreeBinding? workflowWorktree,
+    List<WorkflowWorktreeBinding> workflowWorktrees = const [],
+  }) : workflowWorktrees = List<WorkflowWorktreeBinding>.unmodifiable(
+         workflowWorktrees.isNotEmpty
+             ? workflowWorktrees
+             : (workflowWorktree == null ? const <WorkflowWorktreeBinding>[] : [workflowWorktree]),
+       );
 
   /// Returns a copy with selected fields replaced.
   WorkflowRun copyWith({
@@ -239,6 +291,8 @@ class WorkflowRun {
     Object? currentLoopId = _sentinel,
     Object? currentLoopIteration = _sentinel,
     Object? executionCursor = _sentinel,
+    Object? workflowWorktree = _sentinel,
+    Object? workflowWorktrees = _sentinel,
   }) => WorkflowRun(
     id: id ?? this.id,
     definitionName: definitionName ?? this.definitionName,
@@ -259,6 +313,10 @@ class WorkflowRun {
     executionCursor: identical(executionCursor, _sentinel)
         ? this.executionCursor
         : executionCursor as WorkflowExecutionCursor?,
+    workflowWorktree: identical(workflowWorktree, _sentinel) ? null : workflowWorktree as WorkflowWorktreeBinding?,
+    workflowWorktrees: identical(workflowWorktrees, _sentinel)
+        ? this.workflowWorktrees
+        : workflowWorktrees as List<WorkflowWorktreeBinding>,
   );
 
   Map<String, dynamic> toJson() => {
@@ -277,6 +335,8 @@ class WorkflowRun {
     if (currentLoopId != null) 'currentLoopId': currentLoopId,
     if (currentLoopIteration != null) 'currentLoopIteration': currentLoopIteration,
     if (executionCursor != null) 'executionCursor': executionCursor!.toJson(),
+    if (workflowWorktrees.isNotEmpty)
+      'workflowWorktrees': workflowWorktrees.map((binding) => binding.toJson()).toList(),
   };
 
   factory WorkflowRun.fromJson(Map<String, dynamic> json) => WorkflowRun(
@@ -295,6 +355,7 @@ class WorkflowRun {
     currentLoopId: json['currentLoopId'] as String?,
     currentLoopIteration: json['currentLoopIteration'] as int?,
     executionCursor: _toExecutionCursor(json['executionCursor']),
+    workflowWorktrees: _toWorkflowWorktreeBindings(json['workflowWorktrees'] ?? json['workflowWorktree']),
   );
 }
 
@@ -311,3 +372,17 @@ List<dynamic> _toDynamicList(Object? value) => value == null ? const [] : List<d
 
 WorkflowExecutionCursor? _toExecutionCursor(Object? value) =>
     value == null ? null : WorkflowExecutionCursor.fromJson(Map<String, dynamic>.from(value as Map));
+
+WorkflowWorktreeBinding? _toWorkflowWorktreeBinding(Object? value) =>
+    value == null ? null : WorkflowWorktreeBinding.fromJson(Map<String, dynamic>.from(value as Map));
+
+List<WorkflowWorktreeBinding> _toWorkflowWorktreeBindings(Object? value) {
+  if (value == null) return const [];
+  if (value is List) {
+    return value
+        .map((item) => WorkflowWorktreeBinding.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList(growable: false);
+  }
+  final single = _toWorkflowWorktreeBinding(value);
+  return single == null ? const [] : [single];
+}

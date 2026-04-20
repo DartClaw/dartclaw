@@ -54,6 +54,8 @@ copy_tree() {
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+bash "$ROOT_DIR/tool/check_git_process_usage.sh"
+
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
 cleanup() {
   rm -rf "$stage_root"

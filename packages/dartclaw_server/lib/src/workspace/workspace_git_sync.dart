@@ -1,7 +1,10 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
+
+import '../task/git_credential_env.dart';
 
 /// Callback for running shell commands (injectable for tests).
 typedef CommandRunner =
@@ -142,6 +145,9 @@ class WorkspaceGitSync implements Reconfigurable {
   }
 
   static Future<ProcessResult> _defaultRunner(String executable, List<String> arguments, {String? workingDirectory}) {
+    if (executable == 'git') {
+      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+    }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 }

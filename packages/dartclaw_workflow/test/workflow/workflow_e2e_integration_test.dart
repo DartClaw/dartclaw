@@ -587,11 +587,7 @@ void expectWorkflowCreatedPr(Map<String, dynamic> contextJson, {required String?
   final contextData = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
 
   final prUrl = contextData['publish.pr_url'] as String? ?? '';
-  expect(
-    prUrl,
-    isNotEmpty,
-    reason: 'Workflow publish should have emitted a non-empty publish.pr_url; got "$prUrl"',
-  );
+  expect(prUrl, isNotEmpty, reason: 'Workflow publish should have emitted a non-empty publish.pr_url; got "$prUrl"');
   expect(
     prUrl,
     matches(RegExp(r'^https://github\.com/[^/\s]+/[^/\s]+/pull/\d+$')),
@@ -647,7 +643,7 @@ Future<void> _cloneWorkflowTestingRepo(String targetDir) async {
     'clone',
     '--depth',
     '1',
-    'https://github.com/tolo/dartclaw-workflow-testing.git',
+    'git@github.com:tolo/dartclaw-workflow-testing.git',
     targetDir,
   ]);
   if (result.exitCode != 0) {
@@ -918,19 +914,14 @@ void main() {
         reason: 'spec-and-implement should complete or pause (remediation loop exhausted)',
       );
 
-      // Core pipeline steps must appear in order. When paused after remediation
-      // loop exhaustion, update-state won't run.
+      // Core pipeline steps that must ALWAYS appear in order. Gated/optional
+      // steps (revise-spec runs only when spec_source=synthesized & confidence<7;
+      // remediate/re-review only when integrated-review finds issues) are
+      // excluded — assert their runs separately if they occur.
+      // When paused after remediation loop exhaustion, update-state won't run.
       final expectedOrder = finalStatus == WorkflowRunStatus.completed
-          ? [
-              'discover-project',
-              'spec',
-              'revise-spec',
-              'implement',
-              'verify-refine',
-              'integrated-review',
-              'update-state',
-            ]
-          : ['discover-project', 'spec', 'revise-spec', 'implement', 'verify-refine', 'integrated-review'];
+          ? ['discover-project', 'spec', 'implement', 'integrated-review', 'update-state']
+          : ['discover-project', 'spec', 'implement', 'integrated-review'];
       expectStepOrder(recorder, expectedOrder);
 
       // Assert context handoff: discover output flows into spec
@@ -1038,11 +1029,9 @@ void main() {
               'review-prd',
               'plan',
               'implement',
-              'verify-refine',
               'quick-review',
               'plan-review',
               'remediate',
-              're-verify-refine',
               're-review',
               'update-state',
             ]
@@ -1052,11 +1041,9 @@ void main() {
               'review-prd',
               'plan',
               'implement',
-              'verify-refine',
               'quick-review',
               'plan-review',
               'remediate',
-              're-verify-refine',
               're-review',
             ];
       expectStepOrder(recorder, coreSteps);
@@ -1066,26 +1053,15 @@ void main() {
       expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
       expect(recorder.count('review-prd'), 1, reason: 'review-prd should run exactly once');
 
-      // implement, verify-refine should run at least twice (per story) — regardless of final status
       expect(
         recorder.count('implement'),
         greaterThanOrEqualTo(2),
         reason: 'implement should run at least twice (once per story)',
       );
-      expect(
-        recorder.count('verify-refine'),
-        greaterThanOrEqualTo(2),
-        reason: 'verify-refine should run at least twice',
-      );
 
       expect(recorder.count('quick-review'), greaterThanOrEqualTo(2), reason: 'quick-review should run at least twice');
       expect(recorder.count('plan-review'), 1, reason: 'plan-review should run exactly once');
       expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
-      expect(
-        recorder.count('re-verify-refine'),
-        greaterThanOrEqualTo(1),
-        reason: 're-verify-refine should run at least once',
-      );
       expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
       expectStepInputContains(recorder, 'remediate', '<review_findings>');
 

@@ -47,7 +47,9 @@ void main() {
         final outputs = {'stories': const OutputConfig(format: OutputFormat.json, schema: 'story-plan')};
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
-        expect(result, contains('dependencies'));
+        expect(result, contains('id (string)'));
+        expect(result, contains('title (string)'));
+        expect(result, contains('Short unique identifier'));
       });
 
       test('appends section for checklist preset', () {
@@ -64,7 +66,7 @@ void main() {
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
         expect(result, contains('acceptance_criteria'));
-        expect(result, contains('spec'));
+        expect(result, contains('spec_path'));
       });
 
       test('appends section for file-list preset', () {

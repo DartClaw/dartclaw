@@ -20,6 +20,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
+        WorkflowWorktreeBinding,
         WorkflowTaskService,
         atomicWriteJson;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
@@ -58,6 +59,11 @@ class WorkflowService {
   final AgentExecutionRepository? _agentExecutionRepository;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
+  final FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
+  _hydrateWorkflowWorktreeBinding;
+  final Map<String, String>? _hostEnvironment;
+  final List<String>? _bashStepEnvAllowlist;
+  final List<String>? _bashStepExtraStripPatterns;
 
   // Cancellation tokens per run ID.
   final _cancelFlags = <String, bool>{};
@@ -84,6 +90,11 @@ class WorkflowService {
     AgentExecutionRepository? agentExecutionRepository,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     ExecutionRepositoryTransactor? executionRepositoryTransactor,
+    FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
+    hydrateWorkflowWorktreeBinding,
+    Map<String, String>? hostEnvironment,
+    List<String>? bashStepEnvAllowlist,
+    List<String>? bashStepExtraStripPatterns,
     Uuid? uuid,
   }) : _repository = repository,
        _taskService = taskService,
@@ -100,6 +111,10 @@ class WorkflowService {
        _agentExecutionRepository = agentExecutionRepository,
        _workflowStepExecutionRepository = workflowStepExecutionRepository,
        _executionRepositoryTransactor = executionRepositoryTransactor,
+       _hydrateWorkflowWorktreeBinding = hydrateWorkflowWorktreeBinding,
+       _hostEnvironment = hostEnvironment,
+       _bashStepEnvAllowlist = bashStepEnvAllowlist,
+       _bashStepExtraStripPatterns = bashStepExtraStripPatterns,
        _uuid = uuid ?? const Uuid();
 
   /// Starts a new workflow run from a parsed definition.
@@ -267,6 +282,7 @@ class WorkflowService {
     final executionCursor = _resumeCursor(run, definition);
     final resumeStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
     _logResumeCursor(run, executionCursor, action: 'Resuming');
+    await _rehydrateWorkflowWorktreeBinding(run);
 
     // Transition to running.
     final running = run.copyWith(status: WorkflowRunStatus.running, errorMessage: null, updatedAt: DateTime.now());
@@ -297,6 +313,7 @@ class WorkflowService {
     final executionCursor = _resumeCursor(run, definition);
     final retryStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
     _logResumeCursor(run, executionCursor, action: 'Retrying');
+    await _rehydrateWorkflowWorktreeBinding(run);
 
     final failingStepId = _stepIdForRetry(run, definition, executionCursor);
     if (failingStepId != null) {
@@ -466,6 +483,7 @@ class WorkflowService {
 
     // Load context from disk (fall back to SQLite snapshot).
     final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
+    await _rehydrateWorkflowWorktreeBinding(run);
 
     final executionCursor = _resumeCursor(run, definition);
     if (executionCursor != null) {
@@ -634,6 +652,9 @@ class WorkflowService {
       agentExecutionRepository: _agentExecutionRepository,
       workflowStepExecutionRepository: _workflowStepExecutionRepository,
       executionTransactor: _executionRepositoryTransactor,
+      hostEnvironment: _hostEnvironment,
+      bashStepEnvAllowlist: _bashStepEnvAllowlist,
+      bashStepExtraStripPatterns: _bashStepExtraStripPatterns,
     );
 
     Future<void> executeFn() async {
@@ -692,6 +713,25 @@ class WorkflowService {
     final run = await _repository.getById(runId);
     if (run == null) throw ArgumentError('Workflow run not found: $runId');
     return run;
+  }
+
+  Future<void> _rehydrateWorkflowWorktreeBinding(WorkflowRun run) async {
+    final bindings = run.workflowWorktrees.isNotEmpty
+        ? run.workflowWorktrees
+        : await _repository.getWorktreeBindings(run.id);
+    for (final binding in bindings) {
+      if (binding.workflowRunId != run.id) {
+        throw StateError(
+          'Workflow worktree binding run ID mismatch: '
+          'persisted ${binding.workflowRunId}, requested ${run.id}',
+        );
+      }
+    }
+    final hydrate = _hydrateWorkflowWorktreeBinding;
+    if (hydrate == null) return;
+    for (final binding in bindings) {
+      await hydrate(binding, workflowRunId: run.id);
+    }
   }
 
   String? _stepIdForRetry(WorkflowRun run, WorkflowDefinition definition, WorkflowExecutionCursor? executionCursor) {

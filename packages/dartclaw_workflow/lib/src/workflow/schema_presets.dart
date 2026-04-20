@@ -3,13 +3,14 @@ class SchemaPreset {
   /// Preset name (used in YAML: `schema: verdict`).
   final String name;
 
-  /// JSON Schema definition.
+  /// JSON Schema definition. Per-property `description` fields drive prompt
+  /// generation for JSON presets — see `PromptAugmenter._writeProperties`.
   final Map<String, dynamic> schema;
 
-  /// Human-readable prompt fragment appended to step prompts for JSON outputs.
-  ///
-  /// Null for presets that only apply to `format: text` outputs — those do not
-  /// render a schema section, so a prompt fragment would be dead code.
+  /// Optional override prompt fragment for JSON outputs. When null, the
+  /// augmenter derives the fragment from [schema] itself (property types +
+  /// JSON Schema `description` fields), which keeps the shape definition in
+  /// one place. Null for `format: text` presets (no schema section rendered).
   final String? promptFragment;
 
   /// Optional canonical one-line description for this output. Used when a
@@ -47,10 +48,17 @@ const verdictPreset = SchemaPreset(
     'additionalProperties': false,
     'required': ['pass', 'findings_count', 'findings', 'summary'],
     'properties': {
-      'pass': {'type': 'boolean'},
-      'findings_count': {'type': 'integer'},
+      'pass': {
+        'type': 'boolean',
+        'description': 'Whether the review passes overall.',
+      },
+      'findings_count': {
+        'type': 'integer',
+        'description': 'Total number of findings in `findings`.',
+      },
       'findings': {
         'type': 'array',
+        'description': 'Structured list of issues. Empty when `pass` is true.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
@@ -59,25 +67,25 @@ const verdictPreset = SchemaPreset(
             'severity': {
               'type': 'string',
               'enum': ['critical', 'high', 'medium', 'low'],
+              'description': 'Severity tier.',
             },
-            'location': {'type': 'string'},
-            'description': {'type': 'string'},
+            'location': {
+              'type': 'string',
+              'description': 'File path and line reference.',
+            },
+            'description': {
+              'type': 'string',
+              'description': 'What the issue is and why it matters.',
+            },
           },
         },
       },
-      'summary': {'type': 'string'},
+      'summary': {
+        'type': 'string',
+        'description': '2-3 sentence overall assessment.',
+      },
     },
   },
-  promptFragment: '''Produce your final output as a JSON object with these fields:
-- pass (boolean): Whether the review passes overall
-- findings_count (integer): Total number of findings
-- findings (array): Each finding has:
-  - severity: "critical", "high", "medium", or "low"
-  - location: File path and line reference
-  - description: What the issue is and why it matters
-- summary (string): 2-3 sentence overall assessment
-
-Output the JSON directly — do not wrap in markdown code fences.''',
 );
 
 const storyPlanPreset = SchemaPreset(
@@ -89,58 +97,29 @@ const storyPlanPreset = SchemaPreset(
     'properties': {
       'items': {
         'type': 'array',
+        'description': 'Ordered list of stories parsed from the plan.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': [
-            'id',
-            'title',
-            'description',
-            'acceptance_criteria',
-            'type',
-            'phase',
-            'dependencies',
-            'key_files',
-            'effort',
-          ],
+          'required': ['id', 'title', 'description'],
           'properties': {
-            'id': {'type': 'string'},
-            'title': {'type': 'string'},
-            'description': {'type': 'string'},
-            'acceptance_criteria': {
-              'type': 'array',
-              'items': {'type': 'string'},
+            'id': {
+              'type': 'string',
+              'description': 'Short unique identifier (e.g. "s01").',
             },
-            'type': {'type': 'string'},
-            'phase': {
-              'type': ['string', 'null'],
+            'title': {
+              'type': 'string',
+              'description': 'Concise story title.',
             },
-            'dependencies': {
-              'type': 'array',
-              'items': {'type': 'string'},
+            'description': {
+              'type': 'string',
+              'description': 'One-sentence summary of what this story delivers.',
             },
-            'key_files': {
-              'type': 'array',
-              'items': {'type': 'string'},
-            },
-            'effort': {'type': 'string'},
           },
         },
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON object with an `items` array of story objects. Each story has:
-- id (string): Short unique identifier (e.g. "s01", "s02")
-- title (string): Concise story title
-- description (string): What this story delivers
-- acceptance_criteria (array of strings): Testable criteria
-- type (string): "coding", "research", "analysis", or "writing"
-- phase (string, optional): Grouping label
-- dependencies (array of strings): IDs of stories this depends on
-- key_files (array of strings): Primary files affected
-- effort (string): "small", "medium", or "large"
-
-Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const remediationResultPreset = SchemaPreset(
@@ -150,15 +129,16 @@ const remediationResultPreset = SchemaPreset(
     'additionalProperties': false,
     'required': ['remediation_summary', 'diff_summary'],
     'properties': {
-      'remediation_summary': {'type': 'string'},
-      'diff_summary': {'type': 'string'},
+      'remediation_summary': {
+        'type': 'string',
+        'description': 'What was re-validated and changed during this pass.',
+      },
+      'diff_summary': {
+        'type': 'string',
+        'description': 'Concise summary of the resulting code diff.',
+      },
     },
   },
-  promptFragment: '''Produce your final output as a JSON object with these fields:
-- remediation_summary (string): What was re-validated and changed
-- diff_summary (string): A concise summary of the resulting code diff
-
-Output the JSON directly — do not wrap in markdown code fences.''',
 );
 
 const storySpecsPreset = SchemaPreset(
@@ -170,76 +150,35 @@ const storySpecsPreset = SchemaPreset(
     'properties': {
       'items': {
         'type': 'array',
+        'description': 'Per-story records used as the foreach iteration source. '
+            'Downstream steps read the authoritative FIS body from `spec_path`.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': [
-            'id',
-            'title',
-            'description',
-            'acceptance_criteria',
-            'type',
-            'phase',
-            'dependencies',
-            'key_files',
-            'effort',
-            'spec',
-            'story_id',
-            'classification',
-            'path',
-          ],
+          'required': ['id', 'title', 'spec_path', 'acceptance_criteria'],
           'properties': {
-            'id': {'type': 'string'},
-            'title': {'type': 'string'},
-            'description': {'type': 'string'},
+            'id': {
+              'type': 'string',
+              'description': 'Story identifier used by downstream foreach steps (e.g. "s01").',
+            },
+            'title': {
+              'type': 'string',
+              'description': 'Concise story title for display and logs.',
+            },
+            'spec_path': {
+              'type': 'string',
+              'description': 'Workspace-relative path to the FIS file — the authoritative spec body lives here.',
+            },
             'acceptance_criteria': {
               'type': 'array',
+              'description': 'Structured acceptance criteria preserved for downstream review.',
               'items': {'type': 'string'},
-            },
-            'type': {'type': 'string'},
-            'phase': {
-              'type': ['string', 'null'],
-            },
-            'dependencies': {
-              'type': 'array',
-              'items': {'type': 'string'},
-            },
-            'key_files': {
-              'type': 'array',
-              'items': {'type': 'string'},
-            },
-            'effort': {'type': 'string'},
-            'spec': {'type': 'string'},
-            'story_id': {
-              'type': ['string', 'null'],
-            },
-            'classification': {
-              'type': ['string', 'null'],
-            },
-            'path': {
-              'type': ['string', 'null'],
             },
           },
         },
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON object with an `items` array of story spec objects. Each item has:
-- id (string): Story identifier used by downstream foreach steps
-- title (string): Concise story title
-- description (string): Story summary from the plan
-- acceptance_criteria (array of strings): Structured criteria preserved for downstream review
-- type (string): Story type such as "coding" or "analysis"
-- phase (string, optional): Grouping label
-- dependencies (array of strings): Story IDs this spec depends on
-- key_files (array of strings): Primary files affected by the story
-- effort (string): Story effort label
-- spec (string): Full story specification text used by implementation steps
-- story_id (string, optional): Legacy compatibility field if needed
-- classification (string, optional): Spec classification such as THIN, STANDARD, or COMPOSITE
-- path (string, optional): Relative path to any persisted spec artifact
-
-Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const fileListPreset = SchemaPreset(
@@ -251,25 +190,25 @@ const fileListPreset = SchemaPreset(
     'properties': {
       'items': {
         'type': 'array',
+        'description': 'List of files relevant to this step.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['path', 'reason'],
+          'required': ['path'],
           'properties': {
-            'path': {'type': 'string'},
+            'path': {
+              'type': 'string',
+              'description': 'File path relative to project root.',
+            },
             'reason': {
               'type': ['string', 'null'],
+              'description': 'Why this file is included (optional).',
             },
           },
         },
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON object with an `items` array of file objects. Each item has:
-- path (string): File path relative to project root
-- reason (string, optional): Why this file is included
-
-Return the object directly — do not wrap in markdown code fences.''',
 );
 
 const checklistPreset = SchemaPreset(
@@ -281,30 +220,33 @@ const checklistPreset = SchemaPreset(
     'properties': {
       'items': {
         'type': 'array',
+        'description': 'Individual checks performed.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['check', 'pass', 'detail'],
+          'required': ['check', 'pass'],
           'properties': {
-            'check': {'type': 'string'},
-            'pass': {'type': 'boolean'},
+            'check': {
+              'type': 'string',
+              'description': 'What was verified.',
+            },
+            'pass': {
+              'type': 'boolean',
+              'description': 'Whether the check passed.',
+            },
             'detail': {
               'type': ['string', 'null'],
+              'description': 'Additional context when the check failed (optional).',
             },
           },
         },
       },
-      'all_pass': {'type': 'boolean'},
+      'all_pass': {
+        'type': 'boolean',
+        'description': 'True only if every item in `items` passed.',
+      },
     },
   },
-  promptFragment: '''Produce your output as a JSON object with:
-- items (array): Each item has:
-  - check (string): What was verified
-  - pass (boolean): Whether it passed
-  - detail (string, optional): Additional context
-- all_pass (boolean): true only if every item passed
-
-Output the JSON directly — do not wrap in markdown code fences.''',
 );
 
 /// Shape emitted by the `dartclaw-discover-project` skill and consumed as
@@ -316,11 +258,19 @@ const projectIndexPreset = SchemaPreset(
     'additionalProperties': false,
     'required': ['framework', 'project_root', 'document_locations', 'state_protocol'],
     'properties': {
-      'framework': {'type': 'string'},
-      'project_root': {'type': 'string'},
+      'framework': {
+        'type': 'string',
+        'description': 'Detected project framework (e.g. "andthen", "spec-kit"), or "none".',
+      },
+      'project_root': {
+        'type': 'string',
+        'description': 'Absolute or repo-relative path to the project root.',
+      },
       'document_locations': {
         'type': 'object',
         'additionalProperties': false,
+        'description': 'Map of canonical document kind to workspace-relative path. '
+            'Each value is the path the document should live at even when the file is missing.',
         'required': [
           'product',
           'backlog',
@@ -337,64 +287,72 @@ const projectIndexPreset = SchemaPreset(
         'properties': {
           'product': {
             'type': ['string', 'null'],
+            'description': 'Product vision document.',
           },
           'backlog': {
             'type': ['string', 'null'],
+            'description': 'Product backlog.',
           },
           'roadmap': {
             'type': ['string', 'null'],
+            'description': 'Roadmap or milestone plan.',
           },
           'prd': {
             'type': ['string', 'null'],
+            'description': 'Active milestone PRD.',
           },
           'plan': {
             'type': ['string', 'null'],
+            'description': 'Active milestone plan.',
           },
           'spec': {
             'type': ['string', 'null'],
+            'description': 'Active FIS / spec directory or file.',
           },
           'state': {
             'type': ['string', 'null'],
+            'description': 'State-tracking document (e.g. STATE.md).',
           },
           'readme': {
             'type': ['string', 'null'],
+            'description': 'Project README.',
           },
           'agent_rules': {
             'type': ['string', 'null'],
+            'description': 'Project-level agent instructions (CLAUDE.md / AGENTS.md).',
           },
           'architecture': {
             'type': ['string', 'null'],
+            'description': 'Architecture documentation root.',
           },
           'guide': {
             'type': ['string', 'null'],
+            'description': 'Contributor / developer guide.',
           },
         },
       },
       'state_protocol': {
         'type': 'object',
         'additionalProperties': false,
+        'description': 'How project state transitions are recorded.',
         'required': ['type', 'state_file', 'format'],
         'properties': {
           'type': {
             'type': ['string', 'null'],
+            'description': 'State protocol identifier (e.g. "andthen-state", "none").',
           },
           'state_file': {
             'type': ['string', 'null'],
+            'description': 'Path to the state file when one is tracked.',
           },
           'format': {
             'type': ['string', 'null'],
+            'description': 'Encoding format (e.g. "markdown", "json").',
           },
         },
       },
     },
   },
-  promptFragment: '''Produce your output as a JSON object describing the project layout:
-- framework (string): Detected project framework or "none"
-- project_root (string): Absolute or repo-relative project root
-- document_locations (object): Map of document kind → path (e.g. product, plan, state)
-- state_protocol (object): How project state is tracked (e.g. state_file path, format)
-
-Output the JSON directly — do not wrap in markdown code fences.''',
 );
 
 /// Simple scalar schema for non-negative integer counters like `findings_count`.

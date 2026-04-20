@@ -12,13 +12,16 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         SessionService,
         Task;
+import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
         ArtifactCollector,
         BehaviorFileService,
         DiffGenerator,
+        GitCredentialPlan,
         HarnessPool,
+        ProjectServiceImpl,
         PromptScope,
         TaskCancellationSubscriber,
         TaskEventRecorder,
@@ -125,6 +128,7 @@ class CliWorkflowWiring {
   late final WorkflowService workflowService;
   late final WorkflowCliRunner workflowCliRunner;
   late final BehaviorFileService behavior;
+  late final ProjectServiceImpl projectService;
 
   late final CredentialRegistry _credentialRegistry;
   late final HarnessConfig _harnessConfig;
@@ -185,6 +189,7 @@ class CliWorkflowWiring {
     final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
     final executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
     final taskRepository = SqliteTaskRepository(taskDb);
+    final workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
     final taskEventRecorder = TaskEventRecorder(eventService: TaskEventService(taskDb), eventBus: eventBus);
     final taskServiceInst = TaskService(
       taskRepository,
@@ -194,11 +199,20 @@ class CliWorkflowWiring {
       eventRecorder: taskEventRecorder,
     );
     taskService = taskServiceInst;
+    projectService = ProjectServiceImpl(
+      dataDir: dataDir,
+      projectConfig: config.projects,
+      credentials: config.credentials,
+      eventBus: eventBus,
+    );
+    await projectService.initialize();
     worktreeManager = WorktreeManager(
       dataDir: dataDir,
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+      taskLookup: taskServiceInst.get,
+      projectLookup: projectService.get,
     );
     await worktreeManager.detectStaleWorktrees();
 
@@ -263,6 +277,7 @@ class CliWorkflowWiring {
       dataDir: dataDir,
       workspaceDir: config.workspaceDir,
       diffGenerator: DiffGenerator(projectDir: Directory.current.path),
+      projectService: projectService,
     );
     workflowCliRunner = WorkflowCliRunner(
       providers: {
@@ -283,8 +298,10 @@ class CliWorkflowWiring {
       artifactCollector: artifactCollector,
       worktreeManager: worktreeManager,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
+      workflowRunRepository: workflowRunRepository,
       kvService: kvService,
       eventBus: eventBus,
+      eventRecorder: taskEventRecorder,
       dataDir: dataDir,
       workspaceDir: config.workspaceDir,
       maxMemoryBytes: config.memory.maxBytes,
@@ -293,15 +310,17 @@ class CliWorkflowWiring {
       identifierInstructions: config.context.identifierInstructions,
       budgetConfig: config.tasks.budget,
       workflowCliRunner: workflowCliRunner,
+      projectService: projectService,
     );
     taskExecutor.start();
 
     // Workflow layer
-    final workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
     workflowService = WorkflowService(
       repository: workflowRunRepository,
       taskService: taskService,
       messageService: messageService,
+      bashStepEnvAllowlist: config.security.bashStep.envAllowlist,
+      bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
@@ -330,23 +349,25 @@ class CliWorkflowWiring {
       ),
       structuredOutputFallbackRecorder: taskEventRecorder.recordStructuredOutputFallbackUsed,
       skillRegistry: skillRegistry,
+      hydrateWorkflowWorktreeBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');
           final declaresBranch = definition.variables.containsKey('BRANCH');
           final resolvedProjectId = (projectId ?? variables['PROJECT'])?.trim();
+          final workflowProjectDir = await _resolveWorkflowProjectDir(resolvedProjectId);
           String? resolvedBranch;
           if (declaresBranch) {
             final requested = variables['BRANCH']?.trim();
             if (requested != null && requested.isNotEmpty) {
-              final exists = await _localRefExists(Directory.current.path, requested);
+              final exists = await _localRefExists(workflowProjectDir, requested);
               if (!exists) {
-                throw ArgumentError('Ref "$requested" not found in local repository');
+                throw ArgumentError('Ref "$requested" not found in project repository');
               }
               resolvedBranch = requested;
             } else {
-              resolvedBranch = await _resolveSymbolicHeadBranch(Directory.current.path) ?? 'main';
+              resolvedBranch = await _resolveSymbolicHeadBranch(workflowProjectDir) ?? 'main';
             }
           }
           return WorkflowStartResolution(
@@ -358,7 +379,11 @@ class CliWorkflowWiring {
           final integrationBranch = perMapItem
               ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
               : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
-          await _ensureLocalBranch(projectDir: Directory.current.path, branch: integrationBranch, baseRef: baseRef);
+          await _ensureLocalBranch(
+            projectDir: await _resolveWorkflowProjectDir(projectId),
+            branch: integrationBranch,
+            baseRef: baseRef,
+          );
           return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
         },
         promoteWorkflowBranch:
@@ -371,7 +396,7 @@ class CliWorkflowWiring {
               String? storyId,
             }) async {
               return promoteWorkflowBranchLocally(
-                projectDir: Directory.current.path,
+                projectDir: await _resolveWorkflowProjectDir(projectId),
                 runId: runId,
                 branch: branch,
                 integrationBranch: integrationBranch,
@@ -380,7 +405,10 @@ class CliWorkflowWiring {
               );
             },
         publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-          final pushResult = await publishWorkflowBranchLocally(projectDir: Directory.current.path, branch: branch);
+          final pushResult = await publishWorkflowBranchLocally(
+            projectDir: await _resolveWorkflowProjectDir(projectId),
+            branch: branch,
+          );
           if (pushResult.status != 'success') {
             return pushResult;
           }
@@ -475,8 +503,21 @@ class CliWorkflowWiring {
     await taskService.dispose();
     await pool.dispose();
     await kvService.dispose();
+    await projectService.dispose();
     searchDb.close();
     taskDb.close();
+  }
+
+  Future<String> _resolveWorkflowProjectDir(String? projectId) async {
+    final trimmed = projectId?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == '_local') {
+      return Directory.current.path;
+    }
+    final project = await projectService.get(trimmed);
+    if (project == null) {
+      throw StateError('Project "$trimmed" not found');
+    }
+    return project.localPath;
   }
 
   Future<void> _cleanupWorkflowGitRun(String runId) async {
@@ -506,16 +547,11 @@ class CliWorkflowWiring {
 
   Future<void> _runWorkflowGitCleanupPlan(_WorkflowGitCleanupPlan cleanupPlan) async {
     for (final worktreePath in cleanupPlan.worktreePaths) {
-      await Process.run('git', [
-        'worktree',
-        'remove',
-        '--force',
-        worktreePath,
-      ], workingDirectory: Directory.current.path);
+      await _workflowGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: Directory.current.path);
     }
     for (final branch in cleanupPlan.branches) {
       if (branch.startsWith('origin/')) continue;
-      await Process.run('git', ['branch', '--delete', '--force', branch], workingDirectory: Directory.current.path);
+      await _workflowGit(['branch', '--delete', '--force', branch], workingDirectory: Directory.current.path);
     }
   }
 
@@ -599,7 +635,7 @@ List<String> _workflowSkillProjectDirs(DartclawConfig config) {
 
 Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   try {
-    final result = await Process.run('git', [
+    final result = await _workflowGit([
       'symbolic-ref',
       '--quiet',
       '--short',
@@ -620,7 +656,7 @@ Future<bool> _localRefExists(String workingDirectory, String ref) async {
   }
   for (final candidate in candidates) {
     try {
-      final result = await Process.run('git', [
+      final result = await _workflowGit([
         'rev-parse',
         '--verify',
         '--quiet',
@@ -637,6 +673,15 @@ class _WorkflowGitCleanupPlan {
   final Set<String> branches;
 
   const _WorkflowGitCleanupPlan({required this.worktreePaths, required this.branches});
+}
+
+Future<ProcessResult> _workflowGit(List<String> args, {required String workingDirectory}) {
+  return SafeProcess.git(
+    args,
+    plan: const GitCredentialPlan.none(),
+    workingDirectory: workingDirectory,
+    noSystemConfig: true,
+  );
 }
 
 _WorkflowGitCleanupPlan _buildWorkflowCleanupPlan(String runId, List<Task> runTasks) {
@@ -661,11 +706,11 @@ _WorkflowGitCleanupPlan _buildWorkflowCleanupPlan(String runId, List<Task> runTa
 }
 
 Future<void> _ensureLocalBranch({required String projectDir, required String branch, required String baseRef}) async {
-  final existing = await Process.run('git', ['rev-parse', '--verify', branch], workingDirectory: projectDir);
+  final existing = await _workflowGit(['rev-parse', '--verify', branch], workingDirectory: projectDir);
   if (existing.exitCode == 0) {
     return;
   }
-  final create = await Process.run('git', ['branch', branch, baseRef], workingDirectory: projectDir);
+  final create = await _workflowGit(['branch', branch, baseRef], workingDirectory: projectDir);
   if (create.exitCode != 0) {
     final stderr = (create.stderr as String).trim();
     throw StateError('Failed to create workflow branch "$branch" from "$baseRef": $stderr');

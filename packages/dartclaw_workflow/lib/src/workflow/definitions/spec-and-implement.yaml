@@ -22,16 +22,20 @@ gitStrategy:
     enabled: true
 
 stepDefaults:
+  # Literal matches (no `*`) are evaluated by equality — `spec` does NOT
+  # catch `revise-spec`. The `revise*` match below owns `revise-spec` and
+  # routes it to the reviewer provider since it runs the `dartclaw-review`
+  # skill.
   - match: "spec"
     provider: "@planner"
     model: "@planner"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
-  - match: "*verify*"
-    provider: "@executor"
-    model: "@executor"
   - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "revise*"
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
@@ -59,13 +63,16 @@ steps:
         schema: project-index
         description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
-  # Draft the initial implementation spec from the requested feature and discovered project context.
+  # Draft the initial implementation spec from the requested feature and
+  # discovered project context. Also emits a 1-10 self-rated confidence
+  # score; downstream review/revise steps are gated on this value so
+  # high-confidence specs skip the review loop entirely.
   - id: spec
     name: Generate Specification
     type: writing
     skill: dartclaw-spec
     contextInputs: [project_index]
-    contextOutputs: [spec_path, spec_source]
+    contextOutputs: [spec_path, spec_source, spec_confidence]
     outputs:
       spec_path:
         format: path
@@ -73,6 +80,30 @@ steps:
       spec_source:
         format: text
         description: "'existing' when the skill reused a spec, 'synthesized' when it wrote a new one."
+      spec_confidence:
+        format: json
+        schema: non-negative-integer
+        description: "Skill's self-rated 1-10 readiness of the synthesized FIS (per the Confidence Check in fis-authoring-guidelines.md). `0` when spec_source == existing (pass-through). `<7` triggers the revise-spec step."
+
+  # Review-and-revise pass gated on the spec skill's own confidence score.
+  # The `--fix` flag on dartclaw-review writes a doc-review report and
+  # delegates remediation to dartclaw-remediate-findings in one invocation.
+  # Skipped entirely when the spec was reused (spec_source == existing) or
+  # when confidence is already >= 7.
+  - id: revise-spec
+    name: Revise Spec (low confidence)
+    type: analysis
+    skill: dartclaw-review
+    entryGate: "spec_source == synthesized && spec_confidence < 7"
+    project: "{{PROJECT}}"
+    contextInputs: [project_index, spec_path, spec_confidence]
+    allowedTools: [shell, file_read, file_write]
+    prompt: "Review `{{context.spec_path}}` with `--mode doc --fix` (spec skill confidence {{context.spec_confidence}}/10)."
+    contextOutputs: [spec_path]
+    outputs:
+      spec_path:
+        format: path
+        description: Pass-through of the FIS file path — same location, revised contents after the --fix pass.
 
   # Implement the feature against the on-disk specification.
   - id: implement
@@ -87,48 +118,35 @@ steps:
         format: text
         schema: diff-summary
 
-  # Validate the implementation and capture any remaining findings.
-  - id: verify-refine
-    name: Validate Implementation
-    type: coding
-    skill: dartclaw-verify-refine
-    project: "{{PROJECT}}"
-    continueSession: implement
-    contextInputs: [project_index, diff_summary, spec_path]
-    contextOutputs: [validation_summary]
-    outputs:
-      validation_summary:
-        format: text
-        schema: validation-summary
-
-  # Run an integrated implementation review after validation to decide whether remediation is needed.
+  # Run an integrated implementation review to decide whether remediation is needed.
+  # exec-spec is responsible for running analysis/tests/linting and fixing issues
+  # before emitting a completed diff; this review inspects the resulting change set
+  # holistically and hands any remaining findings to the remediation loop.
   - id: integrated-review
     name: Integrated Review
     type: analysis
     skill: dartclaw-review
-    contextInputs: [project_index, spec_path, validation_summary, diff_summary]
-    contextOutputs: [review_findings, findings_count, integrated-review.findings_count]
+    contextInputs: [project_index, spec_path, diff_summary]
+    contextOutputs: [review_findings, integrated-review.findings_count]
     outputs:
       review_findings:
         format: json
         schema: verdict
-        description: Summary of all issues identified during the review that require remediation. 
-      findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Number of issues flagged by the integrated review; 0 means the remediation loop can exit.
+        description: Summary of all issues identified during the review that require remediation.
       integrated-review.findings_count:
         format: json
         schema: non-negative-integer
-        description: Step-scoped copy of the integrated review findings count used by remediation loop gates.
+        description: Number of issues flagged by the integrated review; 0 means the remediation loop can exit.
 
-  # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
+  # Iterate remediation until re-review reports a clean result or the loop is exhausted.
+  # The remediation skill is responsible for running analysis/tests/linting on its
+  # edits; re-review inspects the outcome and gates loop exit.
   - id: remediation-loop
     name: Remediation Loop
     type: loop
     maxIterations: 3
     entryGate: "integrated-review.findings_count > 0"
-    exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
+    exitGate: "re-review.findings_count == 0"
     steps:
       # Apply fixes for the current set of integrated-review findings.
       - id: remediate
@@ -146,48 +164,22 @@ steps:
             format: text
             schema: diff-summary
 
-      # Re-run validation after remediation to confirm the fixes hold.
-      - id: re-verify-refine
-        name: Re-validate Implementation
-        type: coding
-        skill: dartclaw-verify-refine
-        project: "{{PROJECT}}"
-        continueSession: remediate
-        contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
-        outputs:
-          validation_summary:
-            format: text
-            schema: validation-summary
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of validation findings after remediation.
-          re-verify-refine.findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Step-scoped copy of the remediation validation findings count used by loop gates.
-
       # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
         type: analysis
         skill: dartclaw-quick-review
-        contextInputs: [project_index, spec_path, validation_summary, remediation_summary, diff_summary]
-        contextOutputs: [review_findings, findings_count, re-review.findings_count]
+        contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
+        contextOutputs: [review_findings, re-review.findings_count]
         outputs:
           review_findings:
             format: json
             schema: verdict
-            description: Summary of all issues identified during the review that require remediation. 
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining issues after this re-review; 0 contributes to exiting the remediation loop.
+            description: Summary of all issues identified during the review that require remediation.
           re-review.findings_count:
             format: json
             schema: non-negative-integer
-            description: Step-scoped copy of the re-review findings count used by remediation loop gates.
+            description: Number of remaining issues after this re-review; 0 exits the remediation loop.
 
   # Record the finished workflow outcome in the project state document.
   - id: update-state

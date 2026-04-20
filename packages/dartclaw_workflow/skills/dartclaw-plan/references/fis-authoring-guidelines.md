@@ -126,6 +126,8 @@ Rate your FIS 1-10 for single-pass implementation success:
 - **7-8**: Good detail, minor clarifications might be needed
 - **<7**: Missing context, unclear architecture, needs revision
 
-**If score <7**: Revise or ask for user clarification.
+**If score <7 (standalone invocation)**: Revise or ask for user clarification before finalizing.
 
 **If score <7 AND FIS exceeds size thresholds**: the feature is likely too large for a single spec. Recommend the `dartclaw-plan` skill for story decomposition before proceeding.
+
+**When invoked as a workflow step**: always emit the numeric score as the `spec_confidence` workflow output (or `prd_confidence` / `plan_confidence` for the upstream skills that reuse this rubric). The workflow gates a review + revise pass on `confidence < 7` — do not self-revise inline; the workflow handles that deterministically. Emit `0` when passing through an existing artifact (not re-scored on reuse).

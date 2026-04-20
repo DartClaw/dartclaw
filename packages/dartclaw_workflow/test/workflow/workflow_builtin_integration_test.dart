@@ -342,9 +342,6 @@ void main() {
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'VALIDATE_MARKER', 'findings_count': 0}),
-          ),
           'integrated-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'integrated review passed')),
@@ -356,13 +353,6 @@ void main() {
             assistantContent: _contextOutput({
               'remediation_summary': 'No remediation needed',
               'diff_summary': 'IMPLEMENT_DIFF_MARKER',
-            }),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'REVALIDATE_MARKER',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -383,8 +373,7 @@ void main() {
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.descriptionsByStep['spec']!.single, contains('DISCOVER_MARKER'));
     expect(trace.descriptionsByStep['implement']!.single, contains('docs/specs/test/spec.md'));
-    expect(trace.descriptionsByStep['verify-refine']!.single, contains('IMPLEMENT_DIFF_MARKER'));
-    expect(trace.descriptionsByStep['integrated-review']!.single, contains('VALIDATE_MARKER'));
+    expect(trace.descriptionsByStep['integrated-review']!.single, contains('IMPLEMENT_DIFF_MARKER'));
   });
 
   test('spec-and-implement integration binds discover-project and coding steps to the workflow PROJECT', () async {
@@ -408,9 +397,6 @@ void main() {
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
-          ),
           'integrated-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
@@ -420,13 +406,6 @@ void main() {
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'VALID_AGAIN',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
-            }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -447,9 +426,7 @@ void main() {
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('re-verify-refine'), isEmpty);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
 
@@ -474,9 +451,6 @@ void main() {
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
-          ),
           'integrated-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
@@ -486,13 +460,6 @@ void main() {
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'VALID_AGAIN',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
-            }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -518,7 +485,6 @@ void main() {
 
     expect(trace.tasksForStep('spec').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
-    expect(trace.tasksForStep('verify-refine').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
   });
@@ -545,9 +511,6 @@ void main() {
             }),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'VALID', 'findings_count': 0}),
-          ),
           'integrated-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_findings': jsonDecode(_verdictJson(findingsCount: 0, summary: 'review accepted')),
@@ -557,13 +520,6 @@ void main() {
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'VALID_AGAIN',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
-            }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -585,7 +541,7 @@ void main() {
   });
 
   test(
-    'spec-and-implement integration enters remediation when verify-refine finds issues and exits after refactor-re-validation',
+    'spec-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean',
     () async {
       final trace = await executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
@@ -608,12 +564,6 @@ void main() {
               }),
             ),
             'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
-            'verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
-                'findings_count': 2,
-              }),
-            ),
             'integrated-review' => _StubResponse(
               assistantContent: _contextOutput({
                 'review_findings': jsonDecode(
@@ -627,13 +577,6 @@ void main() {
               assistantContent: _contextOutput({
                 'remediation_summary': 'Fixed the lint findings',
                 'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
-              }),
-            ),
-            're-verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'REVALIDATED_CLEAN',
-                'findings_count': 0,
-                're-verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -653,10 +596,9 @@ void main() {
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
       expect(trace.count('remediate'), 1);
-      expect(trace.count('re-verify-refine'), 1);
       expect(trace.count('re-review'), 1);
       expect(trace.descriptionsByStep['remediate']!.single, contains('implementation still needs validation cleanup'));
-      expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
+      expect(trace.descriptionsByStep['re-review']!.single, contains('LOOP_DIFF_MARKER_AFTER_FIX'));
     },
   );
 
@@ -753,12 +695,6 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'PLAN_VALIDATE_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
-              'findings_count': 0,
-            }),
-          ),
           // quick-review is now an authored per-story step (not a runtime-synthesized task).
           'quick-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -772,19 +708,13 @@ void main() {
               'remediation_plan': 'No remediation needed',
               'needs_remediation': false,
               'findings_count': 0,
+              'plan-review.findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({
               'remediation_summary': 'No batch remediation needed',
               'diff_summary': 'batch clean',
-            }),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'PLAN_REVALIDATED',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -810,7 +740,6 @@ void main() {
     // The PRD path is passed through to the plan step unchanged.
     expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/test/prd.md'));
     expect(trace.count('implement'), 2);
-    expect(trace.count('verify-refine'), 2);
     expect(trace.count('quick-review'), 2);
     expect(trace.count('plan-review'), 1);
 
@@ -891,9 +820,6 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
-          ),
           'quick-review' => _StubResponse(
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
@@ -903,17 +829,11 @@ void main() {
               'remediation_plan': 'No remediation needed',
               'needs_remediation': false,
               'findings_count': 0,
+              'plan-review.findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'PLAN_REVALIDATED',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
-            }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -937,7 +857,6 @@ void main() {
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('verify-refine').single.projectId, 'demo-project');
     expect(trace.tasksForStep('quick-review').single.projectId, isNull);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
@@ -1009,9 +928,6 @@ void main() {
               'createdAt': DateTime.now().toIso8601String(),
             },
           ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({'validation_summary': 'PLAN_VALIDATE', 'findings_count': 0}),
-          ),
           'quick-review' => _StubResponse(
             assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
           ),
@@ -1021,17 +937,11 @@ void main() {
               'remediation_plan': 'none',
               'needs_remediation': false,
               'findings_count': 0,
+              'plan-review.findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
             assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
-          ),
-          're-verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'PLAN_REVALIDATED',
-              'findings_count': 0,
-              're-verify-refine.findings_count': 0,
-            }),
           ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
@@ -1146,12 +1056,6 @@ void main() {
                 'createdAt': DateTime.now().toIso8601String(),
               },
             ),
-            'verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'INITIAL_VALIDATE_FINDINGS',
-                'findings_count': 1,
-              }),
-            ),
             'quick-review' => _StubResponse(
               assistantContent: _contextOutput({
                 'quick_review_summary': 'Minor issues for ${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
@@ -1161,22 +1065,16 @@ void main() {
             'plan-review' => _StubResponse(
               assistantContent: _contextOutput({
                 'implementation_summary': 'Batch needs remediation',
-                'remediation_plan': 'Fix INITIAL_VALIDATE_FINDINGS',
+                'remediation_plan': 'Fix the lingering review findings',
                 'needs_remediation': true,
                 'findings_count': 2,
+                'plan-review.findings_count': 2,
               }),
             ),
             'remediate' => _StubResponse(
               assistantContent: _contextOutput({
                 'remediation_summary': 'Remediated batch findings',
                 'diff_summary': 'REMEDIATED_DIFF',
-              }),
-            ),
-            're-verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'REVALIDATED_CLEAN',
-                'findings_count': 0,
-                're-verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -1196,10 +1094,7 @@ void main() {
 
       expect(trace.finalRun?.status, WorkflowRunStatus.completed);
       expect(trace.count('remediate'), 1);
-      expect(trace.count('re-verify-refine'), 1);
       expect(trace.count('re-review'), 1);
-      expect(trace.descriptionsByStep['remediate']!.single, contains('INITIAL_VALIDATE_FINDINGS'));
-      expect(trace.descriptionsByStep['re-review']!.single, contains('REVALIDATED_CLEAN'));
     },
   );
 
@@ -1227,6 +1122,7 @@ void main() {
             assistantContent: _contextOutput({
               'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
               'findings_count': 0,
+              'review-code.findings_count': 0,
             }),
           ),
           'remediate' => _StubResponse(
@@ -1237,13 +1133,6 @@ void main() {
               }),
               'remediation_summary': 'No remediation needed',
               'diff_summary': 'No diff',
-            }),
-          ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'Validation is clean',
-              'findings_count': 0,
-              'verify-refine.findings_count': 0,
             }),
           ),
           're-review' => _StubResponse(
@@ -1264,7 +1153,6 @@ void main() {
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('verify-refine'), isEmpty);
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
@@ -1294,6 +1182,7 @@ void main() {
               assistantContent: _contextOutput({
                 'review_summary': _verdictJson(findingsCount: 0, summary: 'Initial review is clean'),
                 'findings_count': 0,
+                'review-code.findings_count': 0,
               }),
             ),
             'remediate' => _StubResponse(
@@ -1304,13 +1193,6 @@ void main() {
                 }),
                 'remediation_summary': 'No remediation needed',
                 'diff_summary': 'No diff',
-              }),
-            ),
-            'verify-refine' => _StubResponse(
-              assistantContent: _contextOutput({
-                'validation_summary': 'Validation is clean',
-                'findings_count': 0,
-                'verify-refine.findings_count': 0,
               }),
             ),
             're-review' => _StubResponse(
@@ -1334,7 +1216,6 @@ void main() {
       expect(trace.tasksForStep('review-code').single.configJson['readOnly'], isTrue);
       expect(trace.tasksForStep('re-review'), isEmpty);
       expect(trace.tasksForStep('remediate'), isEmpty);
-      expect(trace.tasksForStep('verify-refine'), isEmpty);
     },
   );
 
@@ -1376,13 +1257,6 @@ void main() {
               'diff_summary': 'No diff',
             }),
           ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'Validation is clean',
-              'findings_count': 0,
-              'verify-refine.findings_count': 0,
-            }),
-          ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_summary': _verdictJson(findingsCount: 0, summary: 'Review remains clean'),
@@ -1403,7 +1277,7 @@ void main() {
     expect(discover, contains(target));
   });
 
-  test('code-review integration keeps looping until both verify-refine and re-review findings reach zero', () async {
+  test('code-review integration keeps looping until re-review findings reach zero', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'code-review.yaml',
       variables: {
@@ -1451,13 +1325,6 @@ void main() {
               'diff_summary': 'Diff summary ${queued.occurrence + 1}',
             }),
           ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': 'Validate pass ${queued.occurrence + 1} is clean',
-              'findings_count': 0,
-              'verify-refine.findings_count': 0,
-            }),
-          ),
           're-review' => _StubResponse(
             assistantContent: _contextOutput({
               'review_summary': _verdictJson(
@@ -1484,74 +1351,11 @@ void main() {
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('verify-refine'), 2);
+    expect(trace.count('remediate'), 2);
     expect(trace.count('re-review'), 2);
     expect(
-      trace.queuedStepOrder.where((step) => step == 'remediate' || step == 'verify-refine' || step == 're-review'),
-      ['remediate', 'verify-refine', 're-review', 'remediate', 'verify-refine', 're-review'],
+      trace.queuedStepOrder.where((step) => step == 'remediate' || step == 're-review'),
+      ['remediate', 're-review', 'remediate', 're-review'],
     );
-    expect(trace.descriptionsByStep['re-review']!.first, contains('Validate pass 1 is clean'));
-  });
-
-  test('code-review integration carries verify-refine-only failures into the next remediation pass', () async {
-    final trace = await executeBuiltInWorkflow(
-      workflowFileName: 'code-review.yaml',
-      variables: {
-        'TARGET': 'feature branch',
-        'BRANCH': 'feature/validate',
-        'PR_NUMBER': '',
-        'BASE_BRANCH': 'main',
-        'PROJECT': 'demo-project',
-      },
-      responseForStep: (queued) async {
-        return switch (queued.stepKey) {
-          'discover-project' => _StubResponse(
-            assistantContent: jsonEncode({
-              'framework': 'dart',
-              'project_root': '/repo/demo',
-              'document_locations': {'product': 'PRODUCT.md'},
-              'state_protocol': {'state_file': 'docs/STATE.md'},
-              'marker': 'VALIDATE_ONLY_DISCOVER',
-            }),
-          ),
-          'review-code' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 1, summary: 'Initial review requires one remediation pass'),
-              'findings_count': 1,
-              'review-code.findings_count': 1,
-            }),
-          ),
-          'remediate' => _StubResponse(
-            assistantContent: _contextOutput({
-              'remediation_result': jsonEncode({
-                'remediation_summary': 'Remediation pass ${queued.occurrence + 1}',
-                'diff_summary': 'Diff summary ${queued.occurrence + 1}',
-              }),
-              'remediation_summary': 'Remediation pass ${queued.occurrence + 1}',
-              'diff_summary': 'Diff summary ${queued.occurrence + 1}',
-            }),
-          ),
-          'verify-refine' => _StubResponse(
-            assistantContent: _contextOutput({
-              'validation_summary': queued.occurrence == 0 ? 'BROKEN_BUILD_MARKER' : 'Validation is now clean',
-              'findings_count': queued.occurrence == 0 ? 1 : 0,
-              'verify-refine.findings_count': queued.occurrence == 0 ? 1 : 0,
-            }),
-          ),
-          're-review' => _StubResponse(
-            assistantContent: _contextOutput({
-              'review_summary': _verdictJson(findingsCount: 0, summary: 'Gap review remains clean'),
-              'findings_count': 0,
-              're-review.findings_count': 0,
-            }),
-          ),
-          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
-        };
-      },
-    );
-
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.count('remediate'), 2);
-    expect(trace.descriptionsByStep['remediate']![1], contains('BROKEN_BUILD_MARKER'));
   });
 }

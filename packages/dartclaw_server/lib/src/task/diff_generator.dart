@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
+import 'git_credential_env.dart';
 import 'worktree_manager.dart';
 
 /// File-level change classification in a diff.
@@ -134,6 +136,9 @@ class DiffGenerator {
     List<String> arguments, {
     String? workingDirectory,
   }) {
+    if (executable == 'git') {
+      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+    }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }
 

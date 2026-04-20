@@ -23,6 +23,7 @@ import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_service.dart';
 import 'workflow_cli_runner.dart';
+import 'git_credential_env.dart';
 import 'worktree_manager.dart';
 
 /// Executes queued tasks against the harness pool.
@@ -45,6 +46,7 @@ class TaskExecutor {
     TaskEventRecorder? eventRecorder,
     WorkflowCliRunner? workflowCliRunner,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    SqliteWorkflowRunRepository? workflowRunRepository,
     Future<void> Function()? onSpawnNeeded,
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
@@ -72,6 +74,7 @@ class TaskExecutor {
        _eventRecorder = eventRecorder,
        _workflowCliRunner = workflowCliRunner,
        _workflowStepExecutionRepository = workflowStepExecutionRepository,
+       _workflowRunRepository = workflowRunRepository,
        _onSpawnNeeded = onSpawnNeeded,
        _onAutoAccept = onAutoAccept,
        _projectService = projectService,
@@ -102,6 +105,7 @@ class TaskExecutor {
   final TaskEventRecorder? _eventRecorder;
   final WorkflowCliRunner? _workflowCliRunner;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
+  final SqliteWorkflowRunRepository? _workflowRunRepository;
   final Future<void> Function()? _onSpawnNeeded;
   final Future<void> Function(String taskId)? _onAutoAccept;
   final ProjectService? _projectService;
@@ -120,8 +124,25 @@ class TaskExecutor {
   Future<bool>? _inFlightPoll;
   bool _isSpawning = false;
   final Map<String, WorktreeInfo> _workflowSharedWorktrees = {};
+  final Map<String, WorkflowWorktreeBinding> _workflowSharedWorktreeBindings = {};
+  final Map<String, Completer<WorktreeInfo>> _workflowSharedWorktreeWaiters = {};
   final Set<String> _workflowInlineBranchKeys = <String>{};
   final Set<String> _runnerWaitLoggedTaskIds = <String>{};
+
+  void hydrateWorkflowSharedWorktreeBinding(WorkflowWorktreeBinding binding, {required String workflowRunId}) {
+    if (binding.workflowRunId != workflowRunId) {
+      throw StateError(
+        'Workflow worktree binding run ID mismatch: '
+        'persisted ${binding.workflowRunId}, requested $workflowRunId',
+      );
+    }
+    _workflowSharedWorktreeBindings[binding.key] = binding;
+    _workflowSharedWorktrees[binding.key] = WorktreeInfo(
+      path: binding.path,
+      branch: binding.branch,
+      createdAt: DateTime.now(),
+    );
+  }
 
   void start() {
     if (_timer != null) return;
@@ -473,24 +494,22 @@ class TaskExecutor {
         final workflowWorktreeTaskId = await _workflowOwnedWorktreeTaskId(task);
         final requiresStoryBranch = await _workflowMapIterationOwnsBranch(task);
         if (workflowWorktreeKey != null && workflowWorktreeTaskId != null) {
-          final existing = _workflowSharedWorktrees[workflowWorktreeKey];
-          if (existing != null) {
-            worktreeInfo = existing;
-          } else {
-            // Pass project only when it's not the implicit _local project.
-            final worktreeProject = (project != null && project.id != '_local') ? project : null;
-            worktreeInfo = await _worktreeManager.create(
-              workflowWorktreeTaskId,
-              project: worktreeProject,
-              baseRef: _taskBaseRef(task),
-              createBranch: requiresStoryBranch,
-            );
-            _workflowSharedWorktrees[workflowWorktreeKey] = worktreeInfo;
-          }
+          worktreeInfo = await _resolveWorkflowSharedWorktree(
+            task,
+            workflowWorktreeKey: workflowWorktreeKey,
+            workflowWorktreeTaskId: workflowWorktreeTaskId,
+            project: project,
+            createBranch: requiresStoryBranch,
+          );
         } else {
           // Pass project only when it's not the implicit _local project.
           final worktreeProject = (project != null && project.id != '_local') ? project : null;
-          worktreeInfo = await _worktreeManager.create(task.id, project: worktreeProject, baseRef: _taskBaseRef(task));
+          worktreeInfo = await _worktreeManager.create(
+            task.id,
+            project: worktreeProject,
+            baseRef: _taskBaseRef(task),
+            existingWorktreeJson: task.worktreeJson,
+          );
         }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
@@ -502,7 +521,10 @@ class TaskExecutor {
           final fromProjectDir = mountJson['fromProjectDir'] as String?;
           final relativeSource = mountJson['source'] as String?;
           final mountMode = (mountJson['mode'] as String?) ?? 'per-story-copy';
-          if (fromProjectDir != null && relativeSource != null && fromProjectDir.isNotEmpty && relativeSource.isNotEmpty) {
+          if (fromProjectDir != null &&
+              relativeSource != null &&
+              fromProjectDir.isNotEmpty &&
+              relativeSource.isNotEmpty) {
             try {
               await _worktreeManager.applyExternalArtifactMount(
                 worktree: worktreeInfo,
@@ -1243,7 +1265,8 @@ class TaskExecutor {
 
   WorkflowStepExecution? _workflowStepExecutionFor(Task task) => task.workflowStepExecution;
 
-  Map<String, dynamic>? _workflowExternalArtifactMount(Task task) => task.workflowStepExecution?.externalArtifactMountConfig;
+  Map<String, dynamic>? _workflowExternalArtifactMount(Task task) =>
+      task.workflowStepExecution?.externalArtifactMountConfig;
 
   String? _workflowWorkspaceDir(Task task) => task.agentExecution?.workspaceDir;
 
@@ -1288,15 +1311,111 @@ class TaskExecutor {
 
   Future<bool> _workflowUsesInlineProjectCheckout(Task task) async => await _workflowGitWorktreeMode(task) == 'inline';
 
+  Future<WorktreeInfo> _resolveWorkflowSharedWorktree(
+    Task task, {
+    required String workflowWorktreeKey,
+    required String workflowWorktreeTaskId,
+    required Project? project,
+    required bool createBranch,
+  }) async {
+    final existing = _workflowSharedWorktrees[workflowWorktreeKey];
+    if (existing != null) {
+      _assertWorkflowSharedBindingMatch(task, workflowWorktreeKey);
+      return existing;
+    }
+
+    final pending = _workflowSharedWorktreeWaiters[workflowWorktreeKey];
+    if (pending != null) {
+      final info = await pending.future;
+      _assertWorkflowSharedBindingMatch(task, workflowWorktreeKey);
+      return info;
+    }
+
+    final completer = Completer<WorktreeInfo>();
+    _workflowSharedWorktreeWaiters[workflowWorktreeKey] = completer;
+
+    try {
+      final alreadyCreated = _workflowSharedWorktrees[workflowWorktreeKey];
+      if (alreadyCreated != null) {
+        _assertWorkflowSharedBindingMatch(task, workflowWorktreeKey);
+        completer.complete(alreadyCreated);
+        return alreadyCreated;
+      }
+
+      final worktreeManager = _worktreeManager;
+      if (worktreeManager == null) {
+        throw StateError('Workflow-owned worktree requested without a WorktreeManager');
+      }
+      final worktreeProject = (project != null && project.id != '_local') ? project : null;
+      final created = await worktreeManager.create(
+        workflowWorktreeTaskId,
+        project: worktreeProject,
+        baseRef: _taskBaseRef(task),
+        createBranch: createBranch,
+        existingWorktreeJson: task.worktreeJson,
+      );
+      await _persistWorkflowSharedWorktreeBinding(task, workflowWorktreeKey, created);
+      _workflowSharedWorktrees[workflowWorktreeKey] = created;
+      completer.complete(created);
+      return created;
+    } catch (error, stackTrace) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
+      rethrow;
+    } finally {
+      _workflowSharedWorktreeWaiters.remove(workflowWorktreeKey);
+    }
+  }
+
+  void _assertWorkflowSharedBindingMatch(Task task, String workflowWorktreeKey) {
+    final binding = _workflowSharedWorktreeBindings[workflowWorktreeKey];
+    final taskWorkflowRunId = task.workflowRunId;
+    if (binding == null || taskWorkflowRunId == null || taskWorkflowRunId.isEmpty) {
+      return;
+    }
+    if (binding.workflowRunId != taskWorkflowRunId) {
+      throw StateError(
+        'Workflow worktree binding run ID mismatch: '
+        'persisted ${binding.workflowRunId}, requested $taskWorkflowRunId',
+      );
+    }
+  }
+
+  Future<void> _persistWorkflowSharedWorktreeBinding(
+    Task task,
+    String workflowWorktreeKey,
+    WorktreeInfo worktreeInfo,
+  ) async {
+    final repository = _workflowRunRepository;
+    final workflowRunId = task.workflowRunId;
+    if (repository == null || workflowRunId == null || workflowRunId.isEmpty) {
+      return;
+    }
+
+    final binding = WorkflowWorktreeBinding(
+      key: workflowWorktreeKey,
+      path: worktreeInfo.path,
+      branch: worktreeInfo.branch,
+      workflowRunId: workflowRunId,
+    );
+    await repository.setWorktreeBinding(workflowRunId, binding);
+    _workflowSharedWorktreeBindings[workflowWorktreeKey] = binding;
+  }
+
   Future<bool> _ensureInlineWorkflowBranchCheckedOut(Task task, Project project, String branch) async {
     final key = '${project.id}:$branch';
-    final currentHead = await _currentSymbolicHead(project.localPath);
+    final currentHead = await _currentSymbolicHead(project.localPath, noSystemConfig: _isWorkflowOrchestrated(task));
     if (currentHead == branch) {
       _workflowInlineBranchKeys.add(key);
       return true;
     }
 
-    final status = await Process.run('git', ['status', '--porcelain'], workingDirectory: project.localPath);
+    final status = await _git(
+      ['status', '--porcelain'],
+      workingDirectory: project.localPath,
+      noSystemConfig: _isWorkflowOrchestrated(task),
+    );
     if (status.exitCode != 0) {
       await _markFailedOrRetry(
         task,
@@ -1316,7 +1435,11 @@ class TaskExecutor {
       return false;
     }
 
-    final checkout = await Process.run('git', ['checkout', branch], workingDirectory: project.localPath);
+    final checkout = await _git(
+      ['checkout', branch],
+      workingDirectory: project.localPath,
+      noSystemConfig: _isWorkflowOrchestrated(task),
+    );
     if (checkout.exitCode != 0) {
       final stderr = (checkout.stderr as String).trim();
       final stdout = (checkout.stdout as String).trim();
@@ -1372,8 +1495,7 @@ class TaskExecutor {
 
   /// True for any coding task — whether standalone (`task.type == coding`)
   /// or a workflow step whose authored type is `coding`.
-  bool _isCodingTask(Task task) =>
-      task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
+  bool _isCodingTask(Task task) => task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
 
   String? _modelOverride(Task task) => task.model;
 
@@ -1420,7 +1542,7 @@ class TaskExecutor {
       return explicitBaseRef;
     }
     if (project.id == '_local' && _isWorkflowOrchestrated(task)) {
-      final head = await _currentSymbolicHead(project.localPath);
+      final head = await _currentSymbolicHead(project.localPath, noSystemConfig: true);
       if (head != null && head.isNotEmpty) {
         return head;
       }
@@ -1495,7 +1617,7 @@ class TaskExecutor {
 
   Future<Set<String>?> _gitStatusEntries(String workingDirectory, {required String taskId}) async {
     try {
-      final result = await Process.run('git', const [
+      final result = await _git(const [
         'status',
         '--short',
         '--untracked-files=all',
@@ -1528,20 +1650,28 @@ class TaskExecutor {
     return trimmed.substring(3).trim();
   }
 
-  Future<String?> _currentSymbolicHead(String workingDirectory) async {
+  Future<String?> _currentSymbolicHead(String workingDirectory, {bool noSystemConfig = false}) async {
     try {
-      final result = await Process.run('git', [
-        'symbolic-ref',
-        '--quiet',
-        '--short',
-        'HEAD',
-      ], workingDirectory: workingDirectory);
+      final result = await _git(
+        ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+        workingDirectory: workingDirectory,
+        noSystemConfig: noSystemConfig,
+      );
       if (result.exitCode != 0) return null;
       final stdout = (result.stdout as String).trim();
       return stdout.isEmpty ? null : stdout;
     } catch (_) {
       return null;
     }
+  }
+
+  Future<ProcessResult> _git(List<String> args, {required String workingDirectory, bool noSystemConfig = false}) {
+    return SafeProcess.git(
+      args,
+      plan: const GitCredentialPlan.none(),
+      workingDirectory: workingDirectory,
+      noSystemConfig: noSystemConfig,
+    );
   }
 
   /// Pre-turn budget check. Returns verdict and optional warning message to inject.
@@ -1674,7 +1804,8 @@ class TaskExecutor {
   }
 
   Future<void> _markFailed(Task task, {String? errorSummary}) async {
-    if (errorSummary != null) {
+    if (errorSummary != null && errorSummary.isNotEmpty) {
+      _log.warning('Task ${task.id} failed: $errorSummary');
       _eventRecorder?.recordError(task.id, message: errorSummary);
     }
     try {

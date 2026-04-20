@@ -504,7 +504,6 @@ void main() {
           },
           'implement.story_result':
               'Implemented notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
-          'verify-refine.validation_summary': 'Validation passed with no automated findings.',
         },
       ),
       mapContext: MapContext(
@@ -564,11 +563,6 @@ void main() {
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
-        'verify-refine': {
-          'validation_summary':
-              'Validated notes/alpha.md. The file exists and exactly matches the story spec. No findings.',
-          'findings_count': 0,
-        },
         'quick-review': {
           'quick_review_summary': 'Story S01 matches its spec and acceptance criteria. No findings.',
           'quick_review_findings_count': 0,
@@ -576,11 +570,6 @@ void main() {
       },
       {
         'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
-        'verify-refine': {
-          'validation_summary':
-              'Validated notes/beta.md. The file exists and exactly matches the story spec. No findings.',
-          'findings_count': 0,
-        },
         'quick-review': {
           'quick_review_summary': 'Story S02 matches its spec and acceptance criteria. No findings.',
           'quick_review_findings_count': 0,

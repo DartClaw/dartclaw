@@ -29,9 +29,6 @@ gitStrategy:
     enabled: false
 
 stepDefaults:
-  - match: "*verify*"
-    provider: "@executor"
-    model: "@executor"
   - match: "*review*"
     provider: "@reviewer"
     model: "@reviewer"
@@ -63,13 +60,13 @@ steps:
     type: analysis
     skill: dartclaw-review
     contextInputs: [project_index]
-    contextOutputs: [review_summary, findings_count, review-code.findings_count]
+    contextOutputs: [review_summary, review-code.findings_count]
     outputs:
       review_summary:
         format: json
         schema: verdict
         description: Structured verdict and findings from the code review.
-      findings_count:
+      review-code.findings_count:
         format: json
         schema: non-negative-integer
         description: Number of findings flagged by the review; 0 means the remediation loop can exit.
@@ -80,15 +77,17 @@ steps:
     type: loop
     maxIterations: 3
     entryGate: "review-code.findings_count > 0"
-    exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"
+    exitGate: "re-review.findings_count == 0"
     steps:
       # Apply fixes for the issues captured in the current review summary.
+      # The remediation skill is responsible for running analysis/tests/linting
+      # on its edits before emitting a completed remediation result.
       - id: remediate
         name: Remediate Findings
         type: coding
         skill: dartclaw-remediate-findings
         project: "{{PROJECT}}"
-        contextInputs: [project_index, review_summary, validation_summary]
+        contextInputs: [project_index, review_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
           remediation_result:
@@ -102,37 +101,19 @@ steps:
             format: text
             schema: diff-summary
 
-      # Validate the remediation changes before re-running the code review.
-      - id: verify-refine
-        name: Validate Remediation
-        type: coding
-        skill: dartclaw-verify-refine
-        project: "{{PROJECT}}"
-        continueSession: remediate
-        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, verify-refine.findings_count]
-        outputs:
-          validation_summary:
-            format: text
-            schema: validation-summary
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining issues after post-remediation validation; 0 contributes to exiting the remediation loop.
-
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
         type: analysis
         skill: dartclaw-review
-        contextInputs: [project_index, review_summary, validation_summary, remediation_summary, diff_summary]
-        contextOutputs: [review_summary, findings_count, re-review.findings_count]
+        contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
+        contextOutputs: [review_summary, re-review.findings_count]
         outputs:
           review_summary:
             format: json
             schema: verdict
             description: Updated structured verdict and findings from the re-review pass.
-          findings_count:
+          re-review.findings_count:
             format: json
             schema: non-negative-integer
-            description: Number of remaining issues after this re-review; 0 contributes to exiting the remediation loop.
+            description: Number of remaining issues after this re-review; 0 exits the remediation loop.

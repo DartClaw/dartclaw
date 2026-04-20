@@ -18,8 +18,8 @@ Two failure classes with different persistence policies:
 
 | Class | Examples | Policy |
 |---|---|---|
-| **Objective red gate** | Build, tests, lint, type-check, stub/wiring check, task `Verify` | **Iterate until green.** Fix → re-run → repeat. Halt with a structured blocker in the step output when iteration stalls on the same issue. One-pass limits do **not** apply. |
-| **Subjective finding** | Code-review CRITICAL/HIGH, visual-validation findings | **One pass max.** Focused remediation → re-run the relevant review lens → halt with a structured blocker if findings persist. |
+| **Objective red gate** | Build, tests, lint, type-check, stub/wiring check, task `Verify` | **Iterate until green.** Fix → re-run → repeat. One-pass limits do **not** apply. |
+| **Subjective finding** | Code-review CRITICAL/HIGH, visual-validation findings | **One pass max.** Focused remediation → re-run the relevant review lens → halt with a structured blocker in the step output if findings persist. |
 
 Objective failures have binary answers and converge. Subjective findings drift and thrash — different policies on purpose.
 
@@ -31,14 +31,14 @@ The only legitimate reasons to stop a run with unresolved work:
 - Missing credentials or unavailable infrastructure
 - Merge conflicts requiring human policy
 - Missing or contradictory requirements the skill cannot resolve
-- Repeated iteration failure on the *same* issue after focused debugging attempts
+- Repeated iteration failure on the *same* issue that resists bounded debugging
 
 Partial sub-agent work, intermediate refactor state, and perceived scope overrun are **not** blockers — they are work to finish.
 
 
 ## Authoritative Status Writes
 
-In orchestrated flows (e.g. `dartclaw-exec-spec` running under `plan-and-implement`):
+In orchestrated flows (e.g. `dartclaw-exec-spec` running under the `plan-and-implement` workflow):
 
 - The **executing skill** writes its own story's status authoritatively via `dartclaw-update-state` (plan.md story row, FIS field, FIS checkboxes, `State` active-story).
 - **Delegating sub-agents and teammates do NOT additionally call `dartclaw-update-state update-*`** on top of the executing skill — that duplicates writes.

@@ -30,6 +30,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatusChangedEvent,
         WorkflowDefinitionParser,
         WorkflowGitBootstrapResult,
+        WorkflowGitArtifactsStrategy,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowGitPublishStrategy,
@@ -38,6 +39,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutor,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
+        WorkflowVariable,
         WorkflowStep,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
@@ -101,6 +103,7 @@ void main() {
   late Database db;
   late SqliteTaskRepository taskRepository;
   late TaskService taskService;
+  late SessionService sessionService;
   late MessageService messageService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
@@ -128,6 +131,7 @@ void main() {
       eventBus: eventBus,
     );
     repository = SqliteWorkflowRunRepository(db);
+    sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
@@ -821,6 +825,92 @@ void main() {
     expect(context['publish.branch'], 'feature/test');
     expect(context['publish.remote'], 'origin');
     expect(context['publish.pr_url'], 'https://example.test/pr/123');
+  });
+
+  test('artifact commit stages path outputs from the producing task worktree', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'projects', 'my-project'))..createSync(recursive: true);
+    final worktreeDir = Directory(p.join(tempDir.path, 'worktree'));
+
+    ProcessResult runGit(String workingDir, List<String> args) {
+      final result = Process.runSync('git', args, workingDirectory: workingDir);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed in $workingDir: ${result.stderr}');
+      }
+      return result;
+    }
+
+    runGit(projectDir.path, ['init', '-b', 'main']);
+    runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# repo\n');
+    runGit(projectDir.path, ['add', 'README.md']);
+    runGit(projectDir.path, ['commit', '-m', 'initial']);
+    runGit(projectDir.path, ['worktree', 'add', worktreeDir.path, '-b', 'dartclaw/workflow/run-1', 'main']);
+
+    final definition = WorkflowDefinition(
+      name: 'artifact-commit',
+      description: 'Commits produced path artifacts',
+      gitStrategy: const WorkflowGitStrategy(
+        artifacts: WorkflowGitArtifactsStrategy(commit: true, commitMessage: 'workflow artifacts {{runId}}'),
+      ),
+      variables: const {'PROJECT': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(
+          id: 'spec',
+          name: 'Spec',
+          type: 'writing',
+          project: '{{PROJECT}}',
+          contextOutputs: ['spec_path'],
+          outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
+          prompts: ['Write spec'],
+        ),
+      ],
+    );
+
+    final run = WorkflowRun(
+      id: 'run-1',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'my-project'},
+      definitionJson: definition.toJson(),
+    );
+    await repository.insert(run);
+
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project'});
+
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      final outputPath = p.join(worktreeDir.path, 'docs', 'specs', 'test.md');
+      File(outputPath).parent.createSync(recursive: true);
+      File(outputPath).writeAsStringSync('# test\n');
+      final task = await taskService.get(e.taskId);
+      expect(task, isNotNull);
+      final session = await sessionService.createSession(type: SessionType.task);
+      await taskService.updateFields(
+        task!.id,
+        sessionId: session.id,
+        worktreeJson: {
+          'path': worktreeDir.path,
+          'branch': 'dartclaw/workflow/run-1',
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+      );
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '<workflow-context>${jsonEncode({'spec_path': 'docs/specs/test.md'})}</workflow-context>',
+      );
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final logResult = runGit(worktreeDir.path, ['log', '-1', '--pretty=%s']);
+    expect((logResult.stdout as String).trim(), 'workflow artifacts run-1');
+    final showResult = runGit(worktreeDir.path, ['show', 'HEAD:docs/specs/test.md']);
+    expect(showResult.stdout, contains('# test'));
   });
 
   test('step failure pauses workflow', () async {
@@ -2333,6 +2423,58 @@ void main() {
       expect((context['cwd'] as String?)?.trim(), equals(expected));
     });
 
+    test('bash step strips sensitive parent env and keeps allowlisted vars only', () async {
+      final isolatedExecutor = WorkflowExecutor(
+        taskService: taskService,
+        eventBus: eventBus,
+        kvService: kvService,
+        repository: repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: taskService,
+          messageService: messageService,
+          dataDir: tempDir.path,
+          workflowStepExecutionRepository: workflowStepExecutionRepository,
+        ),
+        dataDir: tempDir.path,
+        taskRepository: taskRepository,
+        agentExecutionRepository: agentExecutionRepository,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+        executionTransactor: executionRepositoryTransactor,
+        hostEnvironment: const {
+          'PATH': '/usr/bin:/bin',
+          'HOME': '/tmp/home',
+          'LANG': 'en_US.UTF-8',
+          'ANTHROPIC_API_KEY': 'leak-canary',
+          'GITHUB_TOKEN': 'gh-leak',
+          'CUSTOM_SECRET': 'dont-leak',
+          'CUSTOM_ALLOWED': 'survives',
+        },
+        bashStepEnvAllowlist: const ['PATH', 'HOME', 'CUSTOM_ALLOWED'],
+      );
+      final definition = makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'bash1',
+            name: 'Bash 1',
+            type: 'bash',
+            prompts: const [
+              r'printf "%s|%s|%s|%s" "${ANTHROPIC_API_KEY:-missing}" "${GITHUB_TOKEN:-missing}" "${CUSTOM_SECRET:-missing}" "${CUSTOM_ALLOWED:-missing}"',
+            ],
+            contextOutputs: const ['bash1.out'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      await isolatedExecutor.execute(run, definition, context);
+
+      expect(context['bash1.out'], 'missing|missing|missing|survives');
+    });
+
     test('bash step with non-existent workdir pauses workflow', () async {
       final definition = makeDefinition(
         steps: [
@@ -2591,12 +2733,7 @@ void main() {
     test('onFailure: pause after failed outcome routes through the same awaitingApproval hold', () async {
       final definition = makeDefinition(
         steps: [
-          const WorkflowStep(
-            id: 'step1',
-            name: 'Step 1',
-            prompts: ['Do step 1'],
-            onFailure: OnFailurePolicy.pause,
-          ),
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1'], onFailure: OnFailurePolicy.pause),
           const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
         ],
       );

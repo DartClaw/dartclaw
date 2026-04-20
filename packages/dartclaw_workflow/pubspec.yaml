@@ -23,6 +23,8 @@ dependencies:
     path: ../dartclaw_core
   dartclaw_models:
     path: ../dartclaw_models
+  dartclaw_security:
+    path: ../dartclaw_security
   dartclaw_storage:
     path: ../dartclaw_storage
   logging: ^1.3.0

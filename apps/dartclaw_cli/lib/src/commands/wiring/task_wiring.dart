@@ -128,6 +128,8 @@ class TaskWiring {
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       worktreesDir: p.join(config.workspaceDir, '.dartclaw', 'worktrees'),
+      taskLookup: _storage.taskService.get,
+      projectLookup: _project?.projectService.get,
     );
     await _worktreeManager.detectStaleWorktrees();
 
@@ -209,6 +211,7 @@ class TaskWiring {
       observer: _agentObserver,
       eventRecorder: _storage.taskEventRecorder,
       workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
+      workflowRunRepository: _storage.workflowRunRepository,
       onSpawnNeeded: onSpawnNeeded,
       onAutoAccept: buildAutoAcceptCallback(
         completionAction: config.tasks.completionAction,
@@ -264,11 +267,10 @@ class TaskWiring {
 }
 
 Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
-  final environment = Map<String, String>.from(Platform.environment)
-    ..remove('ANTHROPIC_API_KEY')
-    ..remove('OPENAI_API_KEY')
-    ..remove('CODEX_API_KEY')
-    ..remove('CLAUDE_CODE_SUBAGENT_MODEL');
+  final environment = SafeProcess.sanitize(
+    baseEnvironment: Platform.environment,
+    sensitivePatterns: [...kDefaultSensitivePatterns, 'CLAUDE_CODE_SUBAGENT_MODEL'],
+  );
   final apiKey = registry.getApiKey(providerId);
   if (apiKey != null) {
     for (final envVar in CredentialRegistry.envVarsFor(providerId)) {

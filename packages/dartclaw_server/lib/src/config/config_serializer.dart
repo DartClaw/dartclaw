@@ -127,6 +127,12 @@ class ConfigSerializer {
           'channelsOnly': config.security.inputSanitizerChannelsOnly,
         },
       },
+      'security': {
+        'bashStep': {
+          'envAllowlist': config.security.bashStep.envAllowlist,
+          'extraStripPatterns': config.security.bashStep.extraStripPatterns,
+        },
+      },
       'memory': {
         'maxBytes': config.memory.maxBytes,
         'pruning': {

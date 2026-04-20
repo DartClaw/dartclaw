@@ -33,6 +33,9 @@ gitStrategy:
     project: "{{PROJECT}}"
 
 stepDefaults:
+  # Literal matches (no `*`) are evaluated by equality — `prd` does NOT catch
+  # `revise-prd`. The `revise*` match below owns `revise-prd` and routes it
+  # to the reviewer provider since it runs the `dartclaw-review` skill.
   - match: "prd"
     provider: "@planner"
     model: "@planner"
@@ -42,10 +45,10 @@ stepDefaults:
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
-  - match: "*verify*"
-    provider: "@executor"
-    model: "@executor"
   - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "revise*"
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
@@ -75,14 +78,16 @@ steps:
 
   # Synthesize a PRD from the input requirements, or reuse an existing one at
   # context.project_index.active_prd. Writes prd.md to disk and emits the path
-  # + a source tag — never emits the PRD body inline.
+  # + a source tag — never emits the PRD body inline. Also emits a 1-10
+  # self-rated confidence score; downstream review/revise steps are gated on
+  # this value so high-confidence PRDs skip the review loop entirely.
   - id: prd
     name: Draft PRD
     type: analysis
     skill: dartclaw-prd
     contextInputs: [project_index]
     allowedTools: [shell, file_read, file_write]
-    contextOutputs: [prd, prd_source]
+    contextOutputs: [prd, prd_source, prd_confidence]
     outputs:
       prd:
         format: path
@@ -90,6 +95,30 @@ steps:
       prd_source:
         format: text
         description: "'existing' when reused from context.project_index.active_prd, 'synthesized' when this step wrote a new file."
+      prd_confidence:
+        format: json
+        schema: non-negative-integer
+        description: "Skill's self-rated 1-10 readiness of the synthesized PRD. `0` when prd_source == existing (pass-through). `<7` triggers the revise-prd step."
+
+  # Review-and-revise pass gated on the PRD skill's own confidence score.
+  # The `--fix` flag on dartclaw-review writes a doc-review report and
+  # delegates remediation to dartclaw-remediate-findings in one invocation.
+  # Skipped entirely when the PRD was reused (prd_source == existing) or
+  # when confidence is already >= 7.
+  - id: revise-prd
+    name: Revise PRD (low confidence)
+    type: analysis
+    skill: dartclaw-review
+    entryGate: "prd_source == synthesized && prd_confidence < 7"
+    project: "{{PROJECT}}"
+    contextInputs: [project_index, prd, prd_confidence]
+    allowedTools: [shell, file_read, file_write]
+    prompt: "Review `{{context.prd}}` with `--mode doc --fix` (PRD skill confidence {{context.prd_confidence}}/10)."
+    contextOutputs: [prd]
+    outputs:
+      prd:
+        format: path
+        description: Pass-through of the PRD file path — same location, revised contents after the --fix pass.
 
   # Plan stories and per-story FIS files from the reviewed PRD path. Reuses
   # context.project_index.active_plan when it exists; otherwise synthesizes.
@@ -101,28 +130,18 @@ steps:
     skill: dartclaw-plan
     contextInputs: [project_index, prd]
     allowedTools: [shell, file_read, file_write]
-    contextOutputs: [stories, story_specs, plan, plan_source, prd, technical_research]
+    contextOutputs: [story_specs, plan, plan_source]
     outputs:
-      stories:
-        format: json
-        schema: story-plan
-        description: Ordered list of stories parsed from the Story Catalog in plan.md.
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story structured records (id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files). spec_path is the workspace-relative FIS file path.
+        description: Per-story records — id, title, spec_path, acceptance_criteria. Drives the foreach; exec-spec reads the FIS body from disk at spec_path.
       plan:
         format: path
         description: Workspace-relative path to plan.md on disk.
       plan_source:
         format: text
-        description: "'existing' when reused from context.project_index.active_plan, 'synthesized' when this step wrote a new file."
-      prd:
-        format: path
-        description: Pass-through of the PRD file path — unchanged (plan does not rewrite the PRD).
-      technical_research:
-        format: path
-        description: Workspace-relative path to technical-research.md when one was written (null otherwise).
+        description: "'existing' when reused from context.project_index.active_plan, 'synthesized' when this step wrote a new file. Gates plan-review."
 
   # Run the implement/validate/review sub-pipeline independently for each planned story.
   - id: story-pipeline
@@ -135,10 +154,8 @@ steps:
     contextOutputs: [story_results]
     steps:
       # Implement one story against its generated story spec.
-      # The FIS body is read from disk via file_read — per-story worktrees
-      # inherit the committed FIS files from the workflow branch, or receive
-      # a per-story copy when gitStrategy.worktree.externalArtifactMount is
-      # configured.
+      # dartclaw-exec-spec reads the FIS body from disk at story.spec_path;
+      # per-story worktrees inherit the committed FIS from the workflow branch.
       - id: implement
         name: Implement Story
         type: coding
@@ -146,77 +163,27 @@ steps:
         project: "{{PROJECT}}"
         allowedTools: [shell, file_read, file_write]
         prompt: |
-          Story {{map.display_index}} of {{map.length}}:
-          {{map.item.title}} ({{map.item.id}})
-
-          <acceptance_criteria>
-          {{map.item.acceptance_criteria}}
-          </acceptance_criteria>
-
-          Read the FIS body from disk at the workspace-relative path
-          `{{map.item.spec_path}}` via `file_read`. Do not rely on inline FIS
-          content in this prompt — the authoritative spec is the file.
-
-          <story_record>
-          {{map.item}}
-          </story_record>
+          Story {{map.display_index}}/{{map.length}}:
+          <story>{{map.item}}</story>
         contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
         outputs:
           story_result:
             format: text
             schema: story-result
+            description: Structured story-execution report — status, acceptance-criteria outcome, key files touched, validation commands run — consumed by quick-review, plan-review, remediation, and update-state.
 
-      # Validate the story implementation before the story-level review pass.
-      - id: verify-refine
-        name: Validate Story
-        type: coding
-        skill: dartclaw-verify-refine
-        project: "{{PROJECT}}"
-        continueSession: implement
-        prompt: |
-          Story {{map.display_index}} of {{map.length}}:
-          {{map.item.title}} ({{map.item.id}})
-
-          <story_result>
-          {{context.implement.story_result}}
-          </story_result>
-        contextInputs: [project_index]
-        contextOutputs: [validation_summary, findings_count]
-        outputs:
-          validation_summary:
-            format: text
-            schema: validation-summary
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining issues after validation; 0 means the story is clean.
-
-      # Review the implemented story against its story-specific requirements and spec.
+      # Review the implemented story against its spec and acceptance criteria.
+      # exec-spec already ran analysis/tests/linting; this step gates the outcome.
       - id: quick-review
         name: Quick Review Story
         type: analysis
         skill: dartclaw-quick-review
         allowedTools: [file_read]
         prompt: |
-          Story {{map.display_index}} of {{map.length}}:
-          {{map.item.title}} ({{map.item.id}})
-
-          Read the story's FIS from disk via `file_read` at
-          `{{map.item.spec_path}}` when you need the full acceptance criteria
-          or task detail.
-
-          <story_record>
-          {{map.item}}
-          </story_record>
-
-          <story_result>
-          {{context.implement.story_result}}
-          </story_result>
-
-          <validation_summary>
-          {{context.validation_summary}}
-          </validation_summary>
+          Story {{map.display_index}}/{{map.length}}:
+          <story>{{map.item}}</story>
+          <story_result>{{context.implement.story_result}}</story_result>
         contextInputs: [project_index]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
@@ -239,19 +206,15 @@ steps:
     entryGate: "plan_source == synthesized"
     contextInputs: [project_index, story_specs, story_results, plan]
     allowedTools: [file_read]
-    contextOutputs: [review_findings, findings_count, plan-review.findings_count]
+    contextOutputs: [review_findings, plan-review.findings_count]
     outputs:
       review_findings:
         format: text
         description: Summary of all issues identified during the review that require remediation.
-      findings_count:
-        format: json
-        schema: non-negative-integer
-        description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
       plan-review.findings_count:
         format: json
         schema: non-negative-integer
-        description: Step-scoped copy of the plan review findings count used by remediation loop gates.
+        description: Total number of issues requiring remediation; 0 means the remediation loop can exit.
 
   # Iterate plan-level remediation until validation and re-review both pass or the loop is exhausted.
   - id: remediation-loop
@@ -259,7 +222,7 @@ steps:
     type: loop
     maxIterations: 3
     entryGate: "plan-review.findings_count > 0"
-    exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"
+    exitGate: "re-review.findings_count == 0"
     steps:
       # Apply the remediation plan produced by the plan-level review.
       - id: remediate
@@ -273,51 +236,29 @@ steps:
           remediation_summary:
             format: text
             schema: remediation-summary
+            description: What was remediated this iteration — findings addressed, files touched, validation outcome — consumed by re-review.
           diff_summary:
             format: text
             schema: diff-summary
-
-      # Re-run validation after the remediation pass to confirm the fixes hold.
-      - id: re-verify-refine
-        name: Re-validate After Remediation
-        type: coding
-        skill: dartclaw-verify-refine
-        project: "{{PROJECT}}"
-        continueSession: remediate
-        contextInputs: [project_index, remediation_summary, diff_summary]
-        contextOutputs: [validation_summary, findings_count, re-verify-refine.findings_count]
-        outputs:
-          validation_summary:
-            format: text
-            schema: validation-summary
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of validation findings after the remediation pass.
-          re-verify-refine.findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Step-scoped copy of the remediation validation findings count used by loop gates.
+            description: Aggregated diff of the remediation pass (paths and high-level change types) — consumed by re-review to gate loop exit.
 
       # Re-review the full implementation after remediation using the updated summaries and diff.
+      # The remediation skill is responsible for running analysis/tests/linting on
+      # its edits; this review gates loop exit.
       - id: re-review
         name: Re-review After Remediation
         type: analysis
         skill: dartclaw-quick-review
-        contextInputs: [project_index, story_specs, story_results, validation_summary, remediation_summary, diff_summary]
-        contextOutputs: [review_findings, findings_count, re-review.findings_count]
+        contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
+        contextOutputs: [review_findings, re-review.findings_count]
         outputs:
           review_findings:
             format: text
             description: Summary of all issues identified during the review that require remediation.
-          findings_count:
-            format: json
-            schema: non-negative-integer
-            description: Number of remaining plan-level issues after this re-review; 0 contributes to exiting the remediation loop.
           re-review.findings_count:
             format: json
             schema: non-negative-integer
-            description: Step-scoped copy of the re-review findings count used by remediation loop gates.
+            description: Number of remaining plan-level issues after this re-review; 0 exits the remediation loop.
 
   # Record the completed plan execution state back into the project state document.
   - id: update-state
@@ -331,3 +272,4 @@ steps:
       state_update_summary:
         format: text
         schema: state-update-summary
+        description: What changed in the project state document — milestone/story status transitions and any notes written — terminal output of the workflow.

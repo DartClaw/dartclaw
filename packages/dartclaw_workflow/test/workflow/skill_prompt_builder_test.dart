@@ -83,15 +83,15 @@ void main() {
 
     test('skill + no prompt + skillDefaultPrompt -> skill line + default prompt', () {
       final result = builder.build(
-        skill: 'dartclaw-verify-refine',
-        skillDefaultPrompt: 'Verify and refine the implementation.',
+        skill: 'dartclaw-quick-review',
+        skillDefaultPrompt: 'Quick-review the recent change set.',
       );
-      expect(result, "Use the 'dartclaw-verify-refine' skill.\n\nVerify and refine the implementation.");
+      expect(result, "Use the 'dartclaw-quick-review' skill.\n\nQuick-review the recent change set.");
     });
 
     test('skill + explicit prompt overrides skillDefaultPrompt', () {
       final result = builder.build(
-        skill: 'dartclaw-verify-refine',
+        skill: 'dartclaw-quick-review',
         resolvedPrompt: 'Custom prompt.',
         skillDefaultPrompt: 'Default prompt that should NOT appear.',
       );

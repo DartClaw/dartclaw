@@ -182,7 +182,13 @@ void main() {
       expect(specAndImplement, isNot(contains(RegExp(r'^  BASE_BRANCH:$', multiLine: true))));
       expect(specAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
       expect(specAndImplement, isNot(contains('- id: approve-spec')));
-      expect(specAndImplement, isNot(contains('review-spec')));
+      // Confidence-gated single-step review-and-revise pass reintroduced
+      // post-S29: runs only when the spec skill self-rates confidence < 7.
+      // The step invokes dartclaw-review and applies findings in place,
+      // overriding the skill's default read-only posture via its prompt.
+      expect(specAndImplement, contains('- id: revise-spec'));
+      expect(specAndImplement, isNot(contains('- id: review-spec')));
+      expect(specAndImplement, contains('spec_confidence < 7'));
       expect(specAndImplement, contains('spec_path'));
       // Unified `dartclaw-review` replaces the separate -code / -doc / -gap specialists (AndThen 0.12.1 re-port).
       expect(specAndImplement, contains('skill: dartclaw-review'));
@@ -190,7 +196,10 @@ void main() {
 
       expect(planAndImplement, contains(RegExp(r'^  BRANCH:$', multiLine: true)));
       expect(planAndImplement, contains(RegExp(r'^gitStrategy:$', multiLine: true)));
-      expect(planAndImplement, isNot(contains('review-prd')));
+      // Confidence-gated single-step revise-prd mirrors the spec workflow.
+      expect(planAndImplement, contains('- id: revise-prd'));
+      expect(planAndImplement, isNot(contains('- id: review-prd')));
+      expect(planAndImplement, contains('prd_confidence < 7'));
       expect(planAndImplement, contains('skill: dartclaw-quick-review'));
       expect(planAndImplement, contains('skill: dartclaw-review'));
       expect(planAndImplement, isNot(contains('skill: dartclaw-review-gap')));
@@ -219,31 +228,23 @@ void main() {
       expect(source, isNot(contains('review-architecture')));
     });
 
-    test('implementation built-ins include validate steps with combined remediation gates', () async {
+    test('implementation built-ins gate remediation loops on re-review findings only', () async {
       final definitionsDir = _workflowDefinitionsDir();
       final specAndImplement = File(p.join(definitionsDir, 'spec-and-implement.yaml')).readAsStringSync();
       final planAndImplement = File(p.join(definitionsDir, 'plan-and-implement.yaml')).readAsStringSync();
       final codeReview = File(p.join(definitionsDir, 'code-review.yaml')).readAsStringSync();
 
-      expect(specAndImplement, contains('- id: verify-refine'));
-      expect(specAndImplement, contains('- id: re-verify-refine'));
+      expect(specAndImplement, isNot(contains('verify-refine')));
       expect(specAndImplement, contains('entryGate: "integrated-review.findings_count > 0"'));
-      expect(
-        specAndImplement,
-        contains('exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"'),
-      );
+      expect(specAndImplement, contains('exitGate: "re-review.findings_count == 0"'));
 
-      expect(planAndImplement, contains('- id: verify-refine'));
-      expect(planAndImplement, contains('- id: re-verify-refine'));
+      expect(planAndImplement, isNot(contains('verify-refine')));
       expect(planAndImplement, contains('entryGate: "plan-review.findings_count > 0"'));
-      expect(
-        planAndImplement,
-        contains('exitGate: "re-review.findings_count == 0 && re-verify-refine.findings_count == 0"'),
-      );
+      expect(planAndImplement, contains('exitGate: "re-review.findings_count == 0"'));
 
-      expect(codeReview, contains('- id: verify-refine'));
+      expect(codeReview, isNot(contains('verify-refine')));
       expect(codeReview, contains('entryGate: "review-code.findings_count > 0"'));
-      expect(codeReview, contains('exitGate: "re-review.findings_count == 0 && verify-refine.findings_count == 0"'));
+      expect(codeReview, contains('exitGate: "re-review.findings_count == 0"'));
     });
   });
 

@@ -140,7 +140,7 @@ Important details:
 - `contextInputs` is the dependency contract. It does not automatically inject values into a normal prompt. Use `{{context.key}}` in authored prompts when you want the value rendered explicitly.
 - Skill-only steps are the exception: when a step has `skill:` but no prompt, the engine builds a compact context summary from the declared `contextInputs`.
 - Repeating a key in a later step's `contextOutputs` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
-- Many built-ins also emit step-scoped aliases such as `verify-refine.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps.
+- Many built-ins also emit step-scoped aliases such as `re-review.findings_count`. Those aliases make gates and downstream references exact, even when a generic key like `findings_count` is reused by later steps.
 
 The runtime also writes metadata keys automatically:
 
@@ -340,8 +340,8 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
   steps:
     - id: implement
       contextOutputs: [story_result]
-    - id: verify-refine
-      contextOutputs: [validation_summary, findings_count]
+    - id: quick-review
+      contextOutputs: [quick_review_summary, quick_review_findings_count]
 ```
 
 `foreach` has two scopes:
@@ -363,9 +363,9 @@ The final aggregate exported by a `foreach` controller is a list of per-item obj
   "implement": {
     "story_result": "..."
   },
-  "verify-refine": {
-    "validation_summary": "...",
-    "findings_count": 0
+  "quick-review": {
+    "quick_review_summary": "...",
+    "quick_review_findings_count": 0
   }
 }
 ```
@@ -480,30 +480,30 @@ A skill's `SKILL.md` may declare a neutral `workflow:` block in its YAML frontma
 
 ```yaml
 ---
-name: dartclaw-verify-refine
-description: Verify the current implementation first, apply light cleanup only when the gates pass, then re-verify.
+name: dartclaw-quick-review
+description: Lightweight, ad-hoc review of recent work with a fresh-context sub-agent for adversarial critique.
 workflow:
-  default_prompt: "Use $dartclaw-verify-refine to verify the scoped implementation, refine it lightly only if the gates pass, and then re-verify."
+  default_prompt: "Use $dartclaw-quick-review to run a fast fresh-context review of the recent changes."
   default_outputs:
-    validation_summary:
+    quick_review_summary:
       format: text
-      schema: validation-summary
-    findings_count:
+      description: Short assessment of whether the implementation meets its spec and acceptance criteria.
+    quick_review_findings_count:
       format: json
       schema: non-negative-integer
-      description: Number of remaining issues after validation; 0 means clean.
+      description: Number of issues flagged by the quick review; 0 means clean.
 ---
 ```
 
 A workflow step can now be as thin as:
 
 ```yaml
-- id: verify-refine
-  name: Validate
-  type: coding
-  skill: dartclaw-verify-refine
+- id: quick-review
+  name: Quick Review
+  type: analysis
+  skill: dartclaw-quick-review
   contextInputs: [project_index, story_result]
-  contextOutputs: [validation_summary, findings_count]
+  contextOutputs: [quick_review_summary, quick_review_findings_count]
 ```
 
 The engine fills in `prompt` from `default_prompt` and `outputs` from `default_outputs`; the step still wins wherever it declares an explicit field. Authors are never forced to use defaults — declaring `prompt:` or `outputs:` on the step keeps the existing behavior.
@@ -604,7 +604,7 @@ Use this whenever a step behaves differently than the authored YAML suggests: th
 
 ### `spec-and-implement` — Feature Pipeline
 
-Pipeline that starts with `discover-project`, writes or reuses a spec with `dartclaw-spec`, implements via `dartclaw-exec-spec`, validates via the `verify-refine` step using `dartclaw-verify-refine`, runs an integrated `dartclaw-review-code`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
+Pipeline that starts with `discover-project`, writes or reuses a spec with `dartclaw-spec`, implements via `dartclaw-exec-spec` (which is responsible for running analysis/tests/linting and fixing issues before emitting a completed diff), runs an integrated `dartclaw-review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
 
 Notable patterns:
 - **Project discovery first**: every downstream step receives `project_index` instead of hardcoded document paths.
@@ -613,14 +613,14 @@ Notable patterns:
 
 ### `plan-and-implement` — Story Fan-Out
 
-Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> verify-refine -> quick-review` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
+Multi-story pipeline organized around three altitudes: a PRD step (`dartclaw-prd`), a merged plan step (`dartclaw-plan`) that produces the story plan and per-story specs in one pass, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> quick-review` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-project -> prd -> plan -> story-pipeline -> plan-review -> remediation-loop -> update-state`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
 - **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
 - **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
-- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` and `{{context.verify-refine.validation_summary}}` within the same story iteration.
+- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` within the same story iteration.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
@@ -629,7 +629,7 @@ Notable patterns:
 Role usage:
 - `@workflow`: `discover-project`
 - `@planner`: `prd`, `plan`
-- `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
+- `@executor`: `implement`, `remediate`, `update-state`
 - `@reviewer`: `quick-review`, `plan-review`, `re-review`
 
 ### `spec-and-implement` — Single-Feature Pipeline
@@ -639,12 +639,12 @@ Single-feature pipeline that discovers the project, writes a specification, impl
 Role usage:
 - `@workflow`: `discover-project`
 - `@planner`: `spec`
-- `@executor`: `implement`, `verify-refine`, `remediate`, `re-verify-refine`, `update-state`
+- `@executor`: `implement`, `remediate`, `update-state`
 - `@reviewer`: `integrated-review`, `re-review`
 
 ### `code-review` — Review And Remediate Loop
 
-A review workflow that discovers the project, routes the initial review and re-review directly through `dartclaw-review-code`, and loops through remediate → `verify-refine` → re-review up to 3 iterations only when the initial review reports findings.
+A review workflow that discovers the project, routes the initial review and re-review directly through `dartclaw-review`, and loops through remediate → re-review up to 3 iterations only when the initial review reports findings. The remediation skill is responsible for running analysis/tests/linting on its edits before emitting a completed remediation result.
 
 Notable patterns:
 - **Inputs-only review prompts**: the workflow passes target identifiers and prior outputs; diff discovery and review method stay inside the review skill.
@@ -654,7 +654,7 @@ Notable patterns:
 
 Role usage:
 - `@workflow`: `discover-project`
-- `@executor`: `remediate`, `verify-refine`
+- `@executor`: `remediate`
 - `@reviewer`: `review-code`, `re-review`
 
 ### Choosing Defaults
@@ -689,7 +689,6 @@ The workflow engine ships 11 built-in `dartclaw-*` skills:
 - `dartclaw-plan`
 - `dartclaw-exec-spec`
 - `dartclaw-remediate-findings`
-- `dartclaw-verify-refine`
 - `dartclaw-validate-workflow`
 
 These skills are discovered by the registry with source `dartclaw` and materialized to the user-scoped harness directories (`~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and other non-Claude agents) for native loading. Root-level support directories under the built-in skills tree, such as `references/` and `scripts/`, are materialized alongside the skill directories but are not registered as skills.
@@ -803,7 +802,7 @@ Key behaviors:
 
 ```yaml
 steps:
-  - id: verify-refine
+  - id: run-tests
     name: Run tests
     type: bash
     prompt: dart test packages/dartclaw_core

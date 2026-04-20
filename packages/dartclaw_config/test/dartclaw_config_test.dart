@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:test/test.dart';
 
 class _FakeGoogleChatConfig {
@@ -1088,6 +1089,49 @@ projects:
         );
         expect(config.security.guards.failOpen, isFalse);
         expect(config.warnings, anyElement(contains('Invalid type for guards')));
+      });
+
+      test('security.bash_step.env_allowlist extends defaults', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
+              return 'security:\n  bash_step:\n    env_allowlist:\n      - CUSTOM_ALLOWED\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.security.bashStep.envAllowlist, containsAll(['PATH', 'HOME', 'CUSTOM_ALLOWED']));
+      });
+
+      test('invalid security.bash_step.env_allowlist type warns and uses defaults', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
+              return 'security:\n  bash_step:\n    env_allowlist: true\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.security.bashStep.envAllowlist, kDefaultBashStepEnvAllowlist);
+        expect(config.warnings, anyElement(contains('Invalid type for security.bash_step.env_allowlist')));
+      });
+
+      test('security.bash_step.extra_strip_patterns parses as additive list', () {
+        final config = DartclawConfig.load(
+          fileReader: (path) {
+            if (path == '/home/user/.dartclaw/dartclaw.yaml') {
+              return 'security:\n  bash_step:\n    extra_strip_patterns:\n      - CUSTOM_FLAG\n';
+            }
+            return null;
+          },
+          env: {'HOME': '/home/user'},
+        );
+
+        expect(config.security.bashStep.extraStripPatterns, ['CUSTOM_FLAG']);
       });
     });
 

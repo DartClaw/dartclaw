@@ -48,6 +48,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         atomicWriteJson;
 import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
 import 'package:dartclaw_models/dartclaw_models.dart' show OnFailurePolicy;
+import 'package:dartclaw_security/dartclaw_security.dart'
+    show EnvPolicy, ProcessEnvironmentPlan, SafeProcess, kDefaultSensitivePatterns;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -122,6 +124,13 @@ class _MapStepResult {
   const _MapStepResult({required this.results, required this.totalTokens, required this.success, this.error});
 }
 
+final class _EmptyProcessEnvironmentPlan implements ProcessEnvironmentPlan {
+  @override
+  final Map<String, String> environment;
+
+  const _EmptyProcessEnvironmentPlan() : environment = const <String, String>{};
+}
+
 /// Sequential + parallel + iterative workflow execution engine.
 ///
 /// Traverses the normalized node graph in authored order. Parallel groups use
@@ -148,6 +157,9 @@ class WorkflowExecutor {
   final String _dataDir;
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
+  final Map<String, String>? _hostEnvironment;
+  final List<String> _bashStepEnvAllowlist;
+  final List<String> _bashStepExtraStripPatterns;
   String? _workflowWorkspaceDirCache;
 
   // Approval timeout timers keyed by "<runId>:<stepId>".
@@ -295,6 +307,7 @@ class WorkflowExecutor {
     required WorkflowDefinition definition,
     required WorkflowStep step,
     required WorkflowContext context,
+    required Task task,
   }) async {
     final artifacts = definition.gitStrategy?.artifacts;
     final hasProducer = _workflowHasArtifactProducer(definition);
@@ -332,33 +345,49 @@ class WorkflowExecutor {
       );
       return;
     }
-    final projectDir = resolved.dir;
+    final worktreeDir = (task.worktreeJson?['path'] as String?)?.trim();
+    final projectDir = (worktreeDir != null && worktreeDir.isNotEmpty) ? worktreeDir : resolved.dir;
 
     final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
     final resolvedMessage = _templateEngine.resolve(messageTemplate.replaceAll('{{runId}}', run.id), context).trim();
     final commitMessage = resolvedMessage.isEmpty ? 'chore(workflow): artifacts for run ${run.id}' : resolvedMessage;
 
     try {
-      final addResult = await Process.run('git', ['add', '--', ...producedPaths], workingDirectory: projectDir);
+      final addResult = await SafeProcess.git(
+        ['add', '--', ...producedPaths],
+        plan: const _EmptyProcessEnvironmentPlan(),
+        workingDirectory: projectDir,
+        noSystemConfig: true,
+      );
       if (addResult.exitCode != 0) {
         _log.warning("artifact-commit: git add failed in '$projectDir': ${addResult.stderr}");
         return;
       }
-      final stagedResult = await Process.run('git', ['diff', '--cached', '--name-only'], workingDirectory: projectDir);
+      final stagedResult = await SafeProcess.git(
+        ['diff', '--cached', '--name-only'],
+        plan: const _EmptyProcessEnvironmentPlan(),
+        workingDirectory: projectDir,
+        noSystemConfig: true,
+      );
       final staged = (stagedResult.stdout as String).trim();
       if (staged.isEmpty) {
         _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
         return;
       }
-      final commitResult = await Process.run('git', [
-        '-c',
-        'user.name=$_artifactCommitAuthorName',
-        '-c',
-        'user.email=$_artifactCommitAuthorEmail',
-        'commit',
-        '-m',
-        commitMessage,
-      ], workingDirectory: projectDir);
+      final commitResult = await SafeProcess.git(
+        [
+          '-c',
+          'user.name=$_artifactCommitAuthorName',
+          '-c',
+          'user.email=$_artifactCommitAuthorEmail',
+          'commit',
+          '-m',
+          commitMessage,
+        ],
+        plan: const _EmptyProcessEnvironmentPlan(),
+        workingDirectory: projectDir,
+        noSystemConfig: true,
+      );
       if (commitResult.exitCode != 0) {
         _log.warning("artifact-commit: git commit failed in '$projectDir': ${commitResult.stderr}");
         return;
@@ -406,6 +435,9 @@ class WorkflowExecutor {
     AgentExecutionRepository? agentExecutionRepository,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     ExecutionRepositoryTransactor? executionTransactor,
+    Map<String, String>? hostEnvironment,
+    List<String>? bashStepEnvAllowlist,
+    List<String>? bashStepExtraStripPatterns,
     Uuid? uuid,
   }) : _taskService = taskService,
        _eventBus = eventBus,
@@ -425,6 +457,12 @@ class WorkflowExecutor {
        _executionTransactor = executionTransactor,
        _dataDir = dataDir,
        _roleDefaults = roleDefaults ?? const WorkflowRoleDefaults(),
+       _hostEnvironment = hostEnvironment,
+       _bashStepEnvAllowlist = List.unmodifiable(
+         bashStepEnvAllowlist ??
+             const <String>['PATH', 'HOME', 'LANG', 'LC_*', 'TZ', 'USER', 'SHELL', 'TERM', 'TMPDIR', 'TMP', 'TEMP'],
+       ),
+       _bashStepExtraStripPatterns = List.unmodifiable(bashStepExtraStripPatterns ?? const <String>[]),
        _uuid = uuid ?? const Uuid();
 
   /// Executes a workflow run in authored order over normalized steps/loops.
@@ -1011,7 +1049,15 @@ class WorkflowExecutor {
             ),
           );
 
-          await _maybeCommitArtifacts(run: run, definition: definition, step: step, context: context);
+          if (result.task != null) {
+            await _maybeCommitArtifacts(
+              run: run,
+              definition: definition,
+              step: step,
+              context: context,
+              task: result.task!,
+            );
+          }
 
           nodeIndex++;
       }
@@ -2106,7 +2152,7 @@ class WorkflowExecutor {
 
   // ── Bash step execution ─────────────────────────────────────────────────────
 
-  /// Executes a `type: bash` step on the host via [Process.run].
+  /// Executes a `type: bash` step on the host via [SafeProcess.start].
   ///
   /// - Zero task creation; zero token accounting.
   /// - `{{context.*}}` substitutions are shell-escaped before execution.
@@ -2143,7 +2189,17 @@ class WorkflowExecutor {
     final timeoutSeconds = step.timeoutSeconds ?? 60;
     late Process process;
     try {
-      process = await Process.start('/bin/sh', ['-c', resolvedCommand], workingDirectory: workDir, runInShell: false);
+      process = await SafeProcess.start(
+        '/bin/sh',
+        ['-c', resolvedCommand],
+        env: EnvPolicy.sanitize(
+          allowlist: _bashStepEnvAllowlist,
+          sensitivePatterns: [...kDefaultSensitivePatterns, ..._bashStepExtraStripPatterns],
+        ),
+        baseEnvironment: _hostEnvironment,
+        workingDirectory: workDir,
+        runInShell: false,
+      );
     } catch (e) {
       return _bashFailure(step, 'process execution failed: $e');
     }
@@ -4742,6 +4798,7 @@ class WorkflowExecutor {
       return 'workflow publish could not resolve a branch to publish';
     }
 
+    _log.info("Workflow '${run.id}': publishing branch '$branch' for project '$projectId'");
     try {
       final result = await publish(runId: run.id, projectId: projectId, branch: branch);
       context['publish.status'] = result.status;
@@ -4764,10 +4821,18 @@ class WorkflowExecutor {
         ),
       );
       if (result.status == 'failed') {
+        _log.warning(
+          "Workflow '${run.id}': publish failed for branch '$branch': ${result.error ?? 'unknown error'}",
+        );
         return 'publish failed: ${result.error ?? 'unknown error'}';
       }
+      _log.info(
+        "Workflow '${run.id}': publish succeeded — branch '${result.branch}' pushed to '${result.remote}'"
+        '${result.prUrl.isNotEmpty ? ', PR: ${result.prUrl}' : ''}',
+      );
       return null;
-    } catch (e) {
+    } catch (e, st) {
+      _log.severe("Workflow '${run.id}': publish threw exception for branch '$branch'", e, st);
       return 'publish failed: $e';
     }
   }

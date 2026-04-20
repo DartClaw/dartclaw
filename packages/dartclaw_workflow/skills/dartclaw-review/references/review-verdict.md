@@ -19,7 +19,7 @@ Four levels, normalised across all modes:
 
 ### Gap mode (`--mode gap`)
 
-**PASS/FAIL verdict is a byte-level compatibility contract.** Downstream skills (`plan-and-implement`, `dartclaw-remediate-findings`) parse this table directly — keep the dimensions, thresholds, and canonical summary block stable.
+**PASS/FAIL verdict is a byte-level compatibility contract.** Downstream consumers (the `plan-and-implement` workflow, the `dartclaw-remediate-findings` skill) parse this table directly — keep the dimensions, thresholds, and canonical summary block stable.
 
 | Dimension | Question | Threshold |
 |-----------|----------|-----------|

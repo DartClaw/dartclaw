@@ -10,6 +10,10 @@ workflow:
     spec_source:
       format: text
       description: "'existing' when a pre-existing spec was reused, 'synthesized' when a new FIS was written."
+    spec_confidence:
+      format: json
+      schema: non-negative-integer
+      description: Self-rated 1-10 readiness of the synthesized FIS for single-pass implementation (per the Confidence Check in `fis-authoring-guidelines.md`). `0` when `spec_source == existing`. `<7` signals the workflow to run a review + revise pass.
 ---
 
 # Generate Feature Implementation Specification
@@ -171,8 +175,3 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 ## Appendix: FIS Template
 
 **USE THE TEMPLATE**: Read and use the template at [`templates/fis-template.md`](templates/fis-template.md) to generate the Feature Implementation Specification.
-
-## Workflow Output Contract _(consumed by the workflow engine only)_
-
-- `spec_path` (format: `path`) — workspace-relative path to the generated FIS file on disk
-- `spec_source` (format: `text`) — `"existing"` when a pre-existing spec was reused, `"synthesized"` when the skill wrote a new FIS

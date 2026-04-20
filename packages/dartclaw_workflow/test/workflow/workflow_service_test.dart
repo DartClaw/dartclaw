@@ -16,6 +16,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
+        WorkflowWorktreeBinding,
         WorkflowStep,
         WorkflowVariable,
         WorkflowStartResolution,
@@ -293,6 +294,147 @@ void main() {
     final resumed = await workflowService.resume(paused.id);
 
     expect(resumed.status, equals(WorkflowRunStatus.running));
+  });
+
+  test('repository worktree binding round-trips on workflow_runs', () async {
+    final now = DateTime.now();
+    await repository.insert(
+      WorkflowRun(
+        id: 'run-binding',
+        definitionName: 'test-workflow',
+        status: WorkflowRunStatus.running,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: makeDefinition().toJson(),
+      ),
+    );
+    const binding = WorkflowWorktreeBinding(
+      key: 'run-binding',
+      path: '/tmp/worktrees/wf-run-binding',
+      branch: 'dartclaw/workflow/runbinding/integration',
+      workflowRunId: 'run-binding',
+    );
+
+    await repository.setWorktreeBinding('run-binding', binding);
+
+    final stored = await repository.getById('run-binding');
+    final rebound = await repository.getWorktreeBinding('run-binding');
+    expect(stored?.workflowWorktree?.toJson(), binding.toJson());
+    expect(rebound?.toJson(), binding.toJson());
+  });
+
+  test('resume() hydrates persisted workflow worktree binding before respawn', () async {
+    final hydrated = <WorkflowWorktreeBinding>[];
+    workflowService = WorkflowService(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+      hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
+        expect(workflowRunId, 'run-hydrate');
+        hydrated.add(binding);
+      },
+    );
+
+    final now = DateTime.now();
+    await repository.insert(
+      WorkflowRun(
+        id: 'run-hydrate',
+        definitionName: 'test-workflow',
+        status: WorkflowRunStatus.paused,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: makeDefinition().toJson(),
+        workflowWorktree: const WorkflowWorktreeBinding(
+          key: 'run-hydrate',
+          path: '/tmp/worktrees/wf-run-hydrate',
+          branch: 'dartclaw/workflow/runhydrate/integration',
+          workflowRunId: 'run-hydrate',
+        ),
+      ),
+    );
+    autoCompleteNewTasks();
+
+    await workflowService.resume('run-hydrate');
+
+    expect(hydrated, hasLength(1));
+    expect(hydrated.single.key, 'run-hydrate');
+    expect(hydrated.single.path, '/tmp/worktrees/wf-run-hydrate');
+  });
+
+  test('resume() hydrates every persisted workflow worktree binding for the run', () async {
+    final hydrated = <WorkflowWorktreeBinding>[];
+    workflowService = WorkflowService(
+      repository: repository,
+      taskService: taskService,
+      messageService: messageService,
+      eventBus: eventBus,
+      kvService: kvService,
+      dataDir: tempDir.path,
+      hydrateWorkflowWorktreeBinding: (binding, {required workflowRunId}) {
+        expect(workflowRunId, 'run-hydrate-many');
+        hydrated.add(binding);
+      },
+    );
+
+    final now = DateTime.now();
+    await repository.insert(
+      WorkflowRun(
+        id: 'run-hydrate-many',
+        definitionName: 'test-workflow',
+        status: WorkflowRunStatus.paused,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: makeDefinition().toJson(),
+      ),
+    );
+    await repository.setWorktreeBinding(
+      'run-hydrate-many',
+      const WorkflowWorktreeBinding(
+        key: 'run-hydrate-many',
+        path: '/tmp/worktrees/wf-run-hydrate-many',
+        branch: 'dartclaw/workflow/runhydrate/integration',
+        workflowRunId: 'run-hydrate-many',
+      ),
+    );
+    await repository.setWorktreeBinding(
+      'run-hydrate-many',
+      const WorkflowWorktreeBinding(
+        key: 'run-hydrate-many:map:0',
+        path: '/tmp/worktrees/wf-run-hydrate-many-map-0',
+        branch: 'dartclaw/workflow/runhydrate/story-0',
+        workflowRunId: 'run-hydrate-many',
+      ),
+    );
+    autoCompleteNewTasks();
+
+    await workflowService.resume('run-hydrate-many');
+
+    expect(hydrated.map((binding) => binding.key), containsAll(['run-hydrate-many', 'run-hydrate-many:map:0']));
+  });
+
+  test('resume() throws when persisted workflow worktree binding runId mismatches the run', () async {
+    final now = DateTime.now();
+    await repository.insert(
+      WorkflowRun(
+        id: 'run-mismatch',
+        definitionName: 'test-workflow',
+        status: WorkflowRunStatus.paused,
+        startedAt: now,
+        updatedAt: now,
+        definitionJson: makeDefinition().toJson(),
+        workflowWorktree: const WorkflowWorktreeBinding(
+          key: 'run-mismatch',
+          path: '/tmp/worktrees/wf-run-mismatch',
+          branch: 'dartclaw/workflow/runmismatch/integration',
+          workflowRunId: 'run-other',
+        ),
+      ),
+    );
+
+    await expectLater(workflowService.resume('run-mismatch'), throwsA(isA<StateError>()));
   });
 
   test('resume() throws when workflow not paused', () async {

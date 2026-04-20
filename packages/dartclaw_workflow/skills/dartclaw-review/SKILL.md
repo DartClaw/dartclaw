@@ -1,7 +1,7 @@
 ---
 description: "The default review skill – start here for all reviews. Runs code, doc, gap, or mixed review, plus multi-perspective council mode via `--council`. Trigger on 'review this', 'review this PR/spec/PRD', 'audit this', 'does this match the spec', 'council review', 'adversarial review', 'multi-reviewer'."
 user-invocable: true
-argument-hint: "[target/files/PR/spec path] [--mode code|doc|gap|mixed] [--council] [--team] [--inline-findings] [--to-pr <number>]"
+argument-hint: "[target/files/PR/spec path] [--mode code|doc|gap|mixed] [--council] [--team] [--inline-findings] [--to-pr <number>] [--fix]"
 workflow:
   default_prompt: "Use $dartclaw-review to review the provided target and route to the appropriate review mode (code / doc / gap / mixed), with optional --council for multi-perspective adversarial review."
 ---
@@ -22,12 +22,14 @@ ARGUMENTS: $ARGUMENTS
 - `--team` → force Agent Teams execution mode for council (error if unavailable). Without `--team`, council auto-detects Agent Teams and falls back to parallel sub-agents with sequential debate.
 - `--inline-findings` → return findings inline and skip report-file output. **Do not pass** when the caller depends on a report file (e.g. the `plan-and-implement` workflow's final gap gate, which feeds the `dartclaw-remediate-findings` skill).
 - `--to-pr <number>` → post the consolidated report as a PR comment
+- `--fix` → after the report is written, hand it to the `dartclaw-remediate-findings` skill to address actionable findings. **Incompatible with `--inline-findings`** — reject up-front, before running any review work. When combined with `--to-pr <number>`, post the PR comment first (so the comment reflects the original findings), then run remediation.
 
 
 ## INSTRUCTIONS
 
 - Read the Workflow Rules, Guardrails, and relevant project guidelines before starting.
-- Read-only analysis. Do not modify the reviewed artifacts.
+- The review itself is read-only. Do not modify the reviewed artifacts. Remediation only runs in Step 5 when `--fix` is set, and delegates editing to the `dartclaw-remediate-findings` skill.
+- Reject `--fix` combined with `--inline-findings` before doing any review work — remediation requires the report file.
 - Default to the minimum correct lens for the target.
 - One lens per call (except **Mixed**, which intentionally runs both doc and code lenses).
 - Load the lens-specific reference before running the lens — it carries the rubric, calibration pointers, and report format.
@@ -305,3 +307,10 @@ Date: {YYYY-MM-DD}
 **Gate**: One consolidated result delivered
 
 
+### 5. Remediate _(only when `--fix`)_
+
+Invoke the `dartclaw-remediate-findings` skill with the report path as its argument. Skip only when there is nothing actionable to remediate — a `gap` PASS verdict, or a clean report with no findings. In every other case (code / doc / mixed / council), hand the report over and let the remediation skill scope the fixes.
+
+Do not re-interpret findings or pre-filter by severity here. The `dartclaw-remediate-findings` skill owns the fix scoping — this step is pure delegation.
+
+**Gate**: Remediation invoked or explicitly skipped with reason

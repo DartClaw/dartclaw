@@ -302,6 +302,122 @@ steps:
     expect((branchResult.stdout as String).trim(), isEmpty);
   });
 
+  test('standalone coding tasks use the configured project clone instead of cwd', () async {
+    final localRepoDir = Directory(p.join(tempDir.path, 'local-repo'))..createSync(recursive: true);
+    final alphaSeedDir = Directory(p.join(tempDir.path, 'alpha-seed'))..createSync(recursive: true);
+    final alphaOriginDir = Directory(p.join(tempDir.path, 'alpha-origin.git'))..createSync(recursive: true);
+    final alphaRepoDir = Directory(p.join(tempDir.path, 'projects', 'alpha'));
+
+    ProcessResult runGit(String repoDir, List<String> args) {
+      final result = Process.runSync('git', args, workingDirectory: repoDir);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed in $repoDir: ${result.stderr}');
+      }
+      return result;
+    }
+
+    void seedRepo(String repoDir, String readmeTitle) {
+      runGit(repoDir, ['init', '-b', 'main']);
+      runGit(repoDir, ['config', 'user.name', 'Test User']);
+      runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+      File(p.join(repoDir, 'README.md')).writeAsStringSync('# $readmeTitle\n');
+      runGit(repoDir, ['add', 'README.md']);
+      runGit(repoDir, ['commit', '-m', 'initial']);
+    }
+
+    seedRepo(localRepoDir.path, 'local');
+    seedRepo(alphaSeedDir.path, 'alpha');
+    runGit(alphaOriginDir.path, ['init', '--bare']);
+    runGit(alphaSeedDir.path, ['remote', 'add', 'origin', alphaOriginDir.path]);
+    runGit(alphaSeedDir.path, ['push', '-u', 'origin', 'main']);
+    final cloneResult = Process.runSync('git', ['clone', alphaOriginDir.path, alphaRepoDir.path]);
+    if (cloneResult.exitCode != 0) {
+      fail('git clone ${alphaOriginDir.path} failed: ${cloneResult.stderr}');
+    }
+
+    final harnesses = <FakeAgentHarness>[];
+    final factory = HarnessFactory()
+      ..register('claude', (_) {
+        final harness = FakeAgentHarness();
+        harnesses.add(harness);
+        return harness;
+      });
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', remote: alphaOriginDir.uri.toString())},
+      ),
+    );
+
+    final savedCwd = Directory.current;
+    Directory.current = localRepoDir;
+    CliWorkflowWiring? wiring;
+
+    try {
+      wiring = CliWorkflowWiring(
+        config: config,
+        dataDir: tempDir.path,
+        skillsHomeDir: p.join(tempDir.path, 'home'),
+        harnessFactory: factory,
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+      );
+      await wiring.wire();
+
+      var taskCompleted = false;
+      final taskSub = wiring.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.taskId == 'project-bound-task' && event.newStatus.terminal)
+          .listen((_) {
+            taskCompleted = true;
+          });
+      addTearDown(taskSub.cancel);
+
+      await wiring.taskService.create(
+        id: 'project-bound-task',
+        title: 'Project bound task',
+        description: 'Inspect repo binding',
+        type: TaskType.coding,
+        projectId: 'alpha',
+        autoStart: true,
+        configJson: const {'reviewMode': 'auto-accept'},
+      );
+
+      Task? updatedTask;
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (DateTime.now().isBefore(deadline)) {
+        updatedTask = await wiring.taskService.get('project-bound-task');
+        if (updatedTask?.worktreeJson != null) {
+          break;
+        }
+        if (updatedTask?.status == TaskStatus.failed) {
+          fail('Task failed before worktree creation: ${updatedTask?.configJson['failReason'] ?? updatedTask}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      final worktreeDir = updatedTask?.worktreeJson?['path'] as String?;
+      expect(worktreeDir, isNotNull, reason: 'coding task should create a git worktree for the configured project');
+      expect(File(p.join(worktreeDir!, 'README.md')).readAsStringSync(), '# alpha\n');
+
+      await _waitFor(() => harnesses.any((h) => h.turnCallCount > 0), timeout: const Duration(seconds: 10));
+      final worker = harnesses.firstWhere((h) => h.turnCallCount > 0);
+
+      worker.completeSuccess();
+      await _waitFor(() => taskCompleted);
+    } finally {
+      Directory.current = savedCwd;
+      if (wiring != null) {
+        await wiring.dispose();
+      }
+    }
+  });
+
   test('honors a local asset root for built-in skill discovery and materialization', () async {
     final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
     final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);

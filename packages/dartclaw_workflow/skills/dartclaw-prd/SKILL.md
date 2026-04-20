@@ -10,6 +10,10 @@ workflow:
     prd_source:
       format: text
       description: "`existing` when a pre-existing PRD was reused, `synthesized` when this skill wrote a new `prd.md`."
+    prd_confidence:
+      format: json
+      schema: non-negative-integer
+      description: Self-rated 1-10 readiness of the synthesized PRD for single-pass planning. `0` when `prd_source == existing` (not re-scored on pass-through). `<7` signals the workflow to run a review + revise pass.
 ---
 
 # Create Product Requirements Document
@@ -138,6 +142,15 @@ Self-check:
 
 Optional: Invoke the `dartclaw-review --mode doc` skill to validate the PRD before finalizing.
 
+#### Confidence Check
+
+Rate the synthesized PRD 1-10 for readiness to drive single-pass planning downstream:
+- **9-10**: All self-check items green, problem-solution fit clean, no deferred decisions remain
+- **7-8**: Solid; minor clarifications or lightly-justified assumptions remain
+- **<7**: Meaningful gaps — unresolved scope questions, thin acceptance criteria, weak problem-solution fit, or several bounded assumptions that should be firmed up
+
+Emit the score as the workflow output `prd_confidence`. When this skill runs standalone (not as a workflow step) and the score is `<7`, revise the PRD or ask for user clarification before finalizing. Skip the confidence rating (emit `0`) when passing through an existing PRD — the score is only meaningful for freshly-synthesized output.
+
 **Gate**: Validation complete
 
 
@@ -165,11 +178,7 @@ If PUBLISH_ISSUE is `true`:
 
 **USE THE TEMPLATE**: [`templates/prd-template.md`](templates/prd-template.md)
 
-## Workflow Output Contract _(consumed by the workflow engine only)_
+## Output Constraints
 
-When this skill runs as a workflow step, its canonical outputs are:
-
-- `prd` (format: `path`) — workspace-relative path to `prd.md` on disk
-- `prd_source` (format: `text`) — `"existing"` when a pre-existing PRD was reused, `"synthesized"` when the skill wrote a new file
-
-Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step. Never emit the PRD body inline — workflow steps downstream read the file via `file_read`.
+- Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step.
+- Never emit the PRD body inline — workflow steps downstream read the file via `file_read`.

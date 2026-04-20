@@ -33,9 +33,9 @@ const _expectedSkillDirs = <String>{
   'dartclaw-remediate-findings',
   'dartclaw-review',
   'dartclaw-spec',
+  'dartclaw-testing',
   'dartclaw-update-state',
   'dartclaw-validate-workflow',
-  'dartclaw-verify-refine',
 };
 
 const _syncVerbatimSkills = <String>{
@@ -46,6 +46,7 @@ const _syncVerbatimSkills = <String>{
   'dartclaw-review',
   'dartclaw-remediate-findings',
   'dartclaw-quick-review',
+  'dartclaw-testing',
 };
 
 void main() {

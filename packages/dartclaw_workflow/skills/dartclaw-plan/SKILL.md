@@ -17,7 +17,7 @@ workflow:
     story_specs:
       format: json
       schema: story-specs
-      description: Structured per-story records including `id`, `title`, `spec_path`, acceptance criteria, phase, wave, dependencies, and key files.
+      description: Per-story records driving the foreach — `id`, `title`, `spec_path`, and `acceptance_criteria`. Plan-level detail (phase, wave, dependencies, key_files) lives in `plan.md`; FIS body lives at `spec_path`.
     technical_research:
       format: path
       description: Workspace-relative path to `technical-research.md` on disk, when one was written.
@@ -400,16 +400,8 @@ Print a summary:
 - FIS: `templates/fis-template.md`
 - PRD template (used by the `dartclaw-prd` skill upstream): `templates/prd-template.md`
 
-## Workflow Output Contract _(consumed by the workflow engine only)_
+## Output Constraints
 
-When this skill runs as a workflow step, its canonical outputs are:
-
-- `plan` (format: `path`) — workspace-relative path to `plan.md` on disk
-- `plan_source` (format: `text`) — `"existing"` when the skill reused a pre-existing plan, `"synthesized"` when it wrote a new one
-- `stories` (format: `json`, schema: `story-plan`) — the structured story list parsed from `plan.md`
-- `story_specs` (format: `json`, schema: `story-specs`) — per-story **structured records** including `{id, title, spec_path, acceptance_criteria, phase, wave, dependencies, key_files}` — each record's `spec_path` points at the FIS file on disk
-- `technical_research` (format: `path`, optional) — workspace-relative path to `technical-research.md` on disk, when one was written
-
-`story_specs` is **not** a bare path array: downstream map-iteration prompts depend on `map.item.title`, `map.item.id`, `map.item.acceptance_criteria`; `map.item.spec_path` is the **added** field for file resolution, never a replacement.
-
-Do not emit `prd` from this skill — the reviewed PRD path flows in via `contextInputs` and is passed through unchanged. Never emit `plan.md`, FIS content, or `technical-research.md` body inline — the files on disk are the source of truth.
+- `story_specs` is **not** a bare path array: each item must carry `id`, `title`, `spec_path`, and `acceptance_criteria`. Downstream map-iteration prompts read these directly; the FIS body is resolved from disk via `spec_path`. Plan-level detail (phase, wave, dependencies, key_files, effort) is not part of this shape — it belongs in `plan.md`.
+- Do not emit `prd` from this skill — the reviewed PRD path flows in via `contextInputs` and is passed through unchanged.
+- Never emit `plan.md`, FIS content, or `technical-research.md` body inline — the files on disk are the source of truth.

@@ -1,6 +1,38 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
+/// Collects every leaf property schema from an object preset so we can assert
+/// that each property carries a JSON Schema `description`.
+List<MapEntry<String, Map<String, dynamic>>> _collectProperties(
+  Map<String, dynamic> schema, {
+  String prefix = '',
+}) {
+  final out = <MapEntry<String, Map<String, dynamic>>>[];
+
+  void visit(Map<String, dynamic> node, String path) {
+    final props = node['properties'] as Map<String, dynamic>?;
+    if (props == null) return;
+    for (final e in props.entries) {
+      final prop = e.value as Map<String, dynamic>;
+      final fullPath = path.isEmpty ? e.key : '$path.${e.key}';
+      out.add(MapEntry(fullPath, prop));
+
+      final type = prop['type'];
+      final isObject = type == 'object' || (type is List && type.contains('object'));
+      final isArray = type == 'array' || (type is List && type.contains('array'));
+      if (isObject) {
+        visit(prop, fullPath);
+      } else if (isArray) {
+        final items = prop['items'] as Map<String, dynamic>?;
+        if (items != null) visit(items, '$fullPath[]');
+      }
+    }
+  }
+
+  visit(schema, prefix);
+  return out;
+}
+
 void main() {
   group('SchemaPreset constants', () {
     test('all presets exist in registry', () {
@@ -42,9 +74,10 @@ void main() {
     // A "text preset" is one whose schema represents a plain string value —
     // the schema section isn't rendered for text outputs, so those presets
     // omit promptFragment and rely on `description` instead. "JSON presets"
-    // cover object/array/integer/boolean shapes; they need promptFragment to
-    // explain the JSON shape and must NOT set description (doing so would
-    // affect every workflow using them — see _effectiveDescription).
+    // cover object/array/integer/boolean shapes; their shape is documented
+    // via per-property JSON Schema `description` fields and must NOT set the
+    // preset-level `description` (doing so would affect every workflow using
+    // them — see `PromptAugmenter.effectiveDescription`).
     test('text presets have description, no promptFragment', () {
       for (final preset in schemaPresets.values) {
         if (preset.schema['type'] != 'string') continue;
@@ -62,22 +95,36 @@ void main() {
       }
     });
 
-    test('JSON presets have promptFragment and must not set description', () {
+    test('JSON object/array presets have per-property descriptions and no preset-level description', () {
       for (final preset in schemaPresets.values) {
-        if (preset.schema['type'] == 'string') continue;
-        expect(
-          preset.promptFragment,
-          isNotNull,
-          reason: '"${preset.name}" is a JSON preset — promptFragment is required to explain the shape.',
-        );
-        expect(preset.promptFragment, isNotEmpty, reason: preset.name);
+        final type = preset.schema['type'];
+        if (type != 'object' && type != 'array') continue;
         expect(
           preset.description,
           isNull,
           reason:
-              '"${preset.name}" is a JSON preset — setting description would silently affect every '
-              'workflow using this preset via PromptAugmenter._effectiveDescription.',
+              '"${preset.name}" is a structured preset — setting description would silently affect every '
+              'workflow using this preset via PromptAugmenter.effectiveDescription.',
         );
+        final properties = _collectProperties(preset.schema);
+        expect(
+          properties,
+          isNotEmpty,
+          reason: '"${preset.name}" should expose at least one property.',
+        );
+        for (final entry in properties) {
+          final desc = entry.value['description'];
+          expect(
+            desc,
+            isA<String>(),
+            reason: '"${preset.name}".${entry.key} is missing a JSON Schema `description`.',
+          );
+          expect(
+            (desc as String).trim(),
+            isNotEmpty,
+            reason: '"${preset.name}".${entry.key} has an empty description.',
+          );
+        }
       }
     });
   });
@@ -96,13 +143,11 @@ void main() {
       expect(required, containsAll(['pass', 'findings_count', 'findings', 'summary']));
     });
 
-    test('prompt fragment mentions pass boolean', () {
-      expect(verdictPreset.promptFragment, contains('pass'));
-      expect(verdictPreset.promptFragment, contains('boolean'));
-    });
-
-    test('prompt fragment mentions findings', () {
-      expect(verdictPreset.promptFragment, contains('findings'));
+    test('finding item severity uses enum', () {
+      final findings = (verdictPreset.schema['properties'] as Map)['findings'] as Map;
+      final item = findings['items'] as Map;
+      final severity = (item['properties'] as Map)['severity'] as Map;
+      expect(severity['enum'], containsAll(['critical', 'high', 'medium', 'low']));
     });
   });
 
@@ -126,14 +171,6 @@ void main() {
       final required = storyPlanPreset.schema['required'] as List;
       expect(required, contains('items'));
     });
-
-    test('prompt fragment describes object envelope', () {
-      expect(storyPlanPreset.promptFragment, contains('JSON object with an `items` array'));
-    });
-
-    test('prompt fragment mentions dependencies', () {
-      expect(storyPlanPreset.promptFragment, contains('dependencies'));
-    });
   });
 
   group('storySpecsPreset', () {
@@ -146,24 +183,14 @@ void main() {
       expect(storySpecsPreset.schema['additionalProperties'], isFalse);
     });
 
-    test('schema item requires downstream foreach fields', () {
+    test('schema item requires foreach-driving fields only', () {
       final items = (storySpecsPreset.schema['properties'] as Map)['items'] as Map;
       final itemSchema = items['items'] as Map;
       final required = itemSchema['required'] as List;
-      expect(
-        required,
-        containsAll([
-          'id',
-          'title',
-          'description',
-          'acceptance_criteria',
-          'type',
-          'dependencies',
-          'key_files',
-          'effort',
-          'spec',
-        ]),
-      );
+      // Slim contract: id + title for display/routing, spec_path for FIS
+      // resolution, acceptance_criteria for downstream review. Everything
+      // else lives in plan.md or the FIS on disk.
+      expect(required, unorderedEquals(['id', 'title', 'spec_path', 'acceptance_criteria']));
     });
 
     test('schema envelope requires items', () {
@@ -171,10 +198,12 @@ void main() {
       expect(required, contains('items'));
     });
 
-    test('prompt fragment mentions acceptance_criteria and spec', () {
-      expect(storySpecsPreset.promptFragment, contains('JSON object with an `items` array'));
-      expect(storySpecsPreset.promptFragment, contains('acceptance_criteria'));
-      expect(storySpecsPreset.promptFragment, contains('spec'));
+    test('spec_path property is present (naming aligns with validator + workflow prompts)', () {
+      final items = (storySpecsPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
+      final props = itemSchema['properties'] as Map;
+      expect(props.containsKey('spec_path'), isTrue, reason: 'schema must use spec_path (not path) for FIS location');
+      expect(props.containsKey('path'), isFalse, reason: 'legacy `path` field must not be present');
     });
   });
 
@@ -193,10 +222,6 @@ void main() {
       final required = itemSchema['required'] as List;
       expect(required, contains('path'));
     });
-
-    test('prompt fragment describes object envelope', () {
-      expect(fileListPreset.promptFragment, contains('JSON object with an `items` array'));
-    });
   });
 
   group('checklistPreset', () {
@@ -211,10 +236,6 @@ void main() {
     test('schema requires items and all_pass', () {
       final required = checklistPreset.schema['required'] as List;
       expect(required, containsAll(['items', 'all_pass']));
-    });
-
-    test('prompt fragment mentions all_pass', () {
-      expect(checklistPreset.promptFragment, contains('all_pass'));
     });
   });
 

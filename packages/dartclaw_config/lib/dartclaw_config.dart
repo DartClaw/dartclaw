@@ -47,7 +47,7 @@ export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/scheduling_config.dart' show SchedulingConfig;
 export 'src/search_config.dart' show SearchConfig, SearchProviderEntry;
-export 'src/security_config.dart' show SecurityConfig;
+export 'src/security_config.dart' show SecurityBashStepConfig, SecurityConfig;
 export 'src/server_config.dart' show ServerConfig;
 export 'src/session_config.dart' show SessionConfig;
 export 'src/session_maintenance_config.dart' show SessionMaintenanceConfig, MaintenanceMode;

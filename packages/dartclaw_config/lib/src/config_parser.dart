@@ -64,6 +64,7 @@ const _knownKeys = {
   'projects',
   'advisor',
   'alerts',
+  'security',
 };
 
 String? _defaultFileReader(String path) {
@@ -1176,6 +1177,7 @@ CredentialsConfig _parseCredentials(
 SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults, List<String> warns) {
   final guardsRaw = yaml['guards'];
   final guardsYaml = guardsRaw is Map ? Map<String, dynamic>.from(guardsRaw) : <String, dynamic>{};
+  final securityRaw = yaml['security'];
   GuardConfig guards;
   if (guardsRaw is Map) {
     try {
@@ -1232,6 +1234,49 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
     }
   }
 
+  var bashStepEnvAllowlist = List<String>.from(defaults.bashStep.envAllowlist);
+  var bashStepExtraStripPatterns = List<String>.from(defaults.bashStep.extraStripPatterns);
+  if (securityRaw is Map) {
+    final bashStepRaw = securityRaw['bash_step'];
+    if (bashStepRaw is Map) {
+      final allowlistRaw = bashStepRaw['env_allowlist'];
+      if (allowlistRaw is List) {
+        final extensions = <String>[];
+        for (final entry in allowlistRaw) {
+          if (entry is! String || entry.trim().isEmpty) {
+            warns.add('Invalid value for security.bash_step.env_allowlist entry: "$entry" — ignoring');
+            continue;
+          }
+          extensions.add(entry.trim());
+        }
+        bashStepEnvAllowlist = {...defaults.bashStep.envAllowlist, ...extensions}.toList()..sort();
+      } else if (allowlistRaw != null) {
+        warns.add('Invalid type for security.bash_step.env_allowlist: "${allowlistRaw.runtimeType}" — using defaults');
+      }
+
+      final extraStripRaw = bashStepRaw['extra_strip_patterns'];
+      if (extraStripRaw is List) {
+        final patterns = <String>[];
+        for (final entry in extraStripRaw) {
+          if (entry is! String || entry.trim().isEmpty) {
+            warns.add('Invalid value for security.bash_step.extra_strip_patterns entry: "$entry" — ignoring');
+            continue;
+          }
+          patterns.add(entry.trim());
+        }
+        bashStepExtraStripPatterns = patterns;
+      } else if (extraStripRaw != null) {
+        warns.add(
+          'Invalid type for security.bash_step.extra_strip_patterns: "${extraStripRaw.runtimeType}" — using defaults',
+        );
+      }
+    } else if (bashStepRaw != null) {
+      warns.add('Invalid type for security.bash_step: "${bashStepRaw.runtimeType}" — using defaults');
+    }
+  } else if (securityRaw != null) {
+    warns.add('Invalid type for security: "${securityRaw.runtimeType}" — using defaults');
+  }
+
   final guardAuditRaw = yaml['guard_audit'];
   if (guardAuditRaw is Map && guardAuditRaw.containsKey('max_entries')) {
     warns.add(
@@ -1250,6 +1295,10 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
   return SecurityConfig(
     guards: guards,
     guardsYaml: guardsYaml,
+    bashStep: SecurityBashStepConfig(
+      envAllowlist: bashStepEnvAllowlist,
+      extraStripPatterns: bashStepExtraStripPatterns,
+    ),
     contentGuardEnabled: contentGuardEnabled,
     contentGuardClassifier: contentGuardClassifier,
     contentGuardModel: contentGuardModel,

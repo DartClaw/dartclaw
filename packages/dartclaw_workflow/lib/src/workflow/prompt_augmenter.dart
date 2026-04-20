@@ -64,10 +64,12 @@ class PromptAugmenter {
       String? fragment;
 
       if (config.presetName != null) {
-        // Preset schema.
+        // Preset schema — use explicit promptFragment when set, otherwise
+        // derive the fragment from the schema itself (single source of truth
+        // via per-property `description` fields).
         final preset = schemaPresets[config.presetName];
         if (preset != null) {
-          fragment = preset.promptFragment;
+          fragment = preset.promptFragment ?? _generateInlineFragment(preset.schema, entry.key);
         }
       } else if (config.inlineSchema != null) {
         // Inline JSON Schema — generate prompt from schema properties.
@@ -191,22 +193,30 @@ class PromptAugmenter {
       final propType = _schemaTypes(prop);
       final isRequired = required.contains(name);
       final enumValues = prop['enum'] as List?;
+      final propDesc = (prop['description'] as String?)?.trim();
 
-      var desc = '$indent- $name (${_typeLabel(propType)}';
-      if (!isRequired) desc += ', optional';
-      desc += ')';
+      var line = '$indent- $name (${_typeLabel(propType)}';
+      if (!isRequired) line += ', optional';
+      line += ')';
       if (enumValues != null) {
-        desc += ': ${enumValues.map((e) => '"$e"').join(', ')}';
+        line += ': ${enumValues.map((e) => '"$e"').join(', ')}';
       }
-      buf.writeln(desc);
+      if (propDesc != null && propDesc.isNotEmpty) {
+        line += ': $propDesc';
+      }
+      buf.writeln(line);
 
-      // Recurse into nested object/array items (one level only for inline).
+      // Recurse into nested objects and arrays of objects. Depth is bounded
+      // by schema nesting — current presets reach two levels (project-index).
       if (propType.contains('array')) {
         final items = prop['items'] as Map<String, dynamic>?;
         if (items != null && items['properties'] != null) {
           buf.writeln('$indent  Each item has:');
           _writeProperties(buf, items, indent: '$indent    ');
         }
+      } else if (propType.contains('object') && prop['properties'] != null) {
+        buf.writeln('$indent  With fields:');
+        _writeProperties(buf, prop, indent: '$indent    ');
       }
     }
   }

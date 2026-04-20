@@ -63,16 +63,12 @@ Run project checks and gather evidence directly — do not delegate to the code 
 - Run applicable build/package checks
 - Run applicable test suites
 - Run static analysis, linting, type checks
-- `../scripts/check-stubs.sh <changed-files>` – scan for incomplete implementations
-- `../scripts/check-wiring.sh <changed-files>` – verify new files are imported/referenced
+- **Stub scan**: grep changed files for incomplete-implementation markers (`TODO`, `FIXME`, `XXX`, `NotImplementedError`, language-appropriate `pass`/empty-body/`throw.*not implemented` patterns). Triage intentional vs. forgotten.
+- **Wiring check**: for each new file, confirm at least one other file imports or references it (language-appropriate import/require/include grep on basename or module path).
 - Check substance and wiring using `verification-patterns.md`
+- Run available security tooling (e.g. `../scripts/run-security-scan.sh <path>`) when applicable
 
 Focus on requirements-vs-implementation alignment — the unique value of this lens.
-
-### Helper Scripts
-- `../scripts/check-stubs.sh <path>`
-- `../scripts/check-wiring.sh <path>`
-- `../scripts/run-security-scan.sh <path>`
 
 
 ## 4. Gap Analysis
@@ -140,7 +136,7 @@ Include this exact summary in the Executive Summary:
 **Overall: PASS / FAIL**
 ```
 
-> **Contract invariance**: The PASS/FAIL verdict table above is a byte-level compatibility contract. Downstream skills (`plan-and-implement`, `dartclaw-remediate-findings`) parse this table directly. Do not re-label, re-phrase, or re-order the columns.
+> **Contract invariance**: The PASS/FAIL verdict table above is a byte-level compatibility contract. Downstream consumers (the `plan-and-implement` workflow, the `dartclaw-remediate-findings` skill) parse this table directly. Do not re-label, re-phrase, or re-order the columns.
 
 
 ## Report Sections

@@ -6,6 +6,7 @@ import 'dart:isolate';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show EventBus, ProjectService, ProjectStatusChangedEvent, atomicWriteJson;
+import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -35,9 +36,21 @@ Future<({int exitCode, String stderr, String stdout})> _isolateGitRunner(
   final wdCopy = workingDirectory;
 
   return Isolate.run(() async {
-    final result = await Process.run('git', argsCopy, environment: envCopy, workingDirectory: wdCopy);
+    final result = await SafeProcess.git(
+      argsCopy,
+      plan: _InlineProcessEnvironmentPlan(envCopy),
+      workingDirectory: wdCopy,
+    );
     return (exitCode: result.exitCode, stderr: result.stderr as String, stdout: result.stdout as String);
   });
+}
+
+final class _InlineProcessEnvironmentPlan implements ProcessEnvironmentPlan {
+  @override
+  final Map<String, String> environment;
+
+  const _InlineProcessEnvironmentPlan(Map<String, String>? environment)
+    : environment = environment ?? const <String, String>{};
 }
 
 /// Implementation of [ProjectService] for the DartClaw server.

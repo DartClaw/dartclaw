@@ -65,5 +65,10 @@ export 'src/workflow_definition.dart'
         OutputMode,
         OutputConfig;
 export 'src/workflow_run.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
+    show
+        WorkflowExecutionCursor,
+        WorkflowExecutionCursorNodeType,
+        WorkflowRun,
+        WorkflowRunStatus,
+        WorkflowWorktreeBinding;
 export 'src/skill_info.dart' show SkillInfo, SkillSource;

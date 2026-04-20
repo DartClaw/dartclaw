@@ -1154,7 +1154,10 @@ CredentialsConfig _parseCredentials(
           warns.add('credentials.$credentialName missing "api_key" — skipping');
           continue;
         }
-        entries[credentialName] = CredentialEntry(apiKey: envSubstitute(apiKeyRaw, env: env));
+        entries[credentialName] = CredentialEntry(
+          apiKey: envSubstitute(apiKeyRaw, env: env),
+          envVars: envReferences(apiKeyRaw),
+        );
 
       case CredentialType.githubToken:
         final tokenRaw = credentialMap['token'];
@@ -1167,6 +1170,7 @@ CredentialsConfig _parseCredentials(
         entries[credentialName] = CredentialEntry.githubToken(
           token: envSubstitute(tokenRaw, env: env),
           repository: repository == null || repository.isEmpty ? null : repository,
+          envVars: envReferences(tokenRaw),
         );
     }
   }

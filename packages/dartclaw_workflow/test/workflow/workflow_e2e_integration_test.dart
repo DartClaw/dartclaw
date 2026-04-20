@@ -27,6 +27,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import 'workflow_e2e_preconditions.dart';
+
 // ---------------------------------------------------------------------------
 // Path resolution helpers
 // ---------------------------------------------------------------------------
@@ -432,7 +434,7 @@ class WorkflowExecutionRecorder {
       'providerSessionId': null,
       'workflowRunId': task.workflowRunId,
       'stepIndex': task.stepIndex,
-      'configJson': pending.configJson,
+      'configJson': task.configJson,
       'worktreeJson': task.worktreeJson ?? pending.worktreeJson,
       'contextInputs': pending.contextInputs,
       'contextOutputs': contextOutputs,
@@ -544,6 +546,54 @@ void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) 
     expect(trace.worktreeJson, isNotNull, reason: 'Step "$stepKey" (task ${trace.taskId}) should have worktreeJson');
     expect(trace.worktreeJson!['path'], isNotNull, reason: 'Step "$stepKey" worktreeJson should contain a "path" key');
   }
+}
+
+/// Asserts at least one preserved step artifact shows a non-zero workflow
+/// token key on a step that actually ran an agent turn. Proves the end-to-end
+/// token-mirroring path: TurnOutcome → TaskExecutor → task.configJson →
+/// preserved artifact file.
+void expectPreservedArtifactsHaveNonZeroTokenKeys(Directory artifactDir, {required List<String> agentSteps}) {
+  final files = artifactDir
+      .listSync()
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.json'))
+      .toList();
+  expect(files, isNotEmpty, reason: 'No preserved artifacts found under ${artifactDir.path}');
+
+  final tokenKeys = const ['_workflowInputTokensNew', '_workflowCacheReadTokens', '_workflowOutputTokens'];
+  final agentStepSet = agentSteps.toSet();
+  var anyAgentArtifactSeen = false;
+  var anyNonZeroSeen = false;
+  final inspected = <String>[];
+
+  for (final file in files) {
+    final payload = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    final stepKey = payload['stepKey'] as String? ?? '';
+    if (!agentStepSet.contains(stepKey)) continue;
+    anyAgentArtifactSeen = true;
+    final configJson = (payload['configJson'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final values = {for (final key in tokenKeys) key: configJson[key]};
+    inspected.add('${p.basename(file.path)} -> $values');
+    if (tokenKeys.any((key) {
+      final value = configJson[key];
+      return value is num && value > 0;
+    })) {
+      anyNonZeroSeen = true;
+    }
+  }
+
+  expect(
+    anyAgentArtifactSeen,
+    isTrue,
+    reason: 'Expected at least one preserved artifact for steps $agentSteps; inspected: $inspected',
+  );
+  expect(
+    anyNonZeroSeen,
+    isTrue,
+    reason:
+        'Expected at least one preserved artifact under ${artifactDir.path} with a non-zero '
+        '_workflow*Tokens* key on an agent-turn step, but all were zero.\nInspected: $inspected',
+  );
 }
 
 void expectPublishSuccess(Map<String, dynamic> contextJson) {
@@ -692,6 +742,10 @@ void main() {
         'Install Codex and authenticate, or set CODEX_API_KEY.',
       );
       return;
+    }
+    final githubTokenMessage = missingWorkflowE2eGitHubTokenMessage(Platform.environment);
+    if (githubTokenMessage != null) {
+      fail(githubTokenMessage);
     }
 
     fixturesRoot = _fixturesRoot();
@@ -929,6 +983,15 @@ void main() {
 
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');
+
+      // Prove the token-mirroring path wrote non-zero `_workflow*Tokens*`
+      // onto task.configJson for steps that ran agent turns. Catches the
+      // regression where artifact consumers saw zero totals despite the
+      // step completing with real usage.
+      expectPreservedArtifactsHaveNonZeroTokenKeys(
+        artifactDir,
+        agentSteps: const ['discover-project', 'spec', 'implement', 'integrated-review'],
+      );
 
       // Safety net: publish step runs at the end of the workflow. A `failed`
       // terminal state here usually means the publish callback (push or PR

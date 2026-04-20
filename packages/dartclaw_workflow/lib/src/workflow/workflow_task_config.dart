@@ -128,6 +128,39 @@ abstract final class WorkflowTaskConfig {
     );
   }
 
+  /// Mirrors workflow token totals into task config for downstream consumers
+  /// that still read the legacy `_workflow*` task keys.
+  static Map<String, dynamic> withTaskConfigTokenBreakdown(
+    Map<String, dynamic> configJson, {
+    required int inputTokensNew,
+    required int cacheReadTokens,
+    required int outputTokens,
+  }) {
+    return {
+      ...configJson,
+      ...taskConfigTokenBreakdownPatch(
+        inputTokensNew: inputTokensNew,
+        cacheReadTokens: cacheReadTokens,
+        outputTokens: outputTokens,
+      ),
+    };
+  }
+
+  /// Returns a merge patch for the workflow token breakdown keys, for use with
+  /// `TaskService.mergeConfigJson` so concurrent updates on disjoint keys do
+  /// not clobber each other.
+  static Map<String, dynamic> taskConfigTokenBreakdownPatch({
+    required int inputTokensNew,
+    required int cacheReadTokens,
+    required int outputTokens,
+  }) {
+    return <String, dynamic>{
+      '_workflowInputTokensNew': inputTokensNew,
+      '_workflowCacheReadTokens': cacheReadTokens,
+      '_workflowOutputTokens': outputTokens,
+    };
+  }
+
   static Future<void> _update(
     WorkflowStepExecutionRepository repo,
     String taskId,

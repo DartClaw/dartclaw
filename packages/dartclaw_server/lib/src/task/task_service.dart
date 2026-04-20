@@ -318,6 +318,30 @@ class TaskService implements WorkflowTaskService {
     return updated;
   }
 
+  /// Atomically merges [patch] into the task's `configJson` without touching
+  /// any other mutable field.
+  ///
+  /// Use this for additive metadata writes (e.g. workflow token breakdown
+  /// mirroring) where concurrent updates to disjoint config keys must not
+  /// overwrite each other. The merge is performed as a single storage-level
+  /// update — no read-modify-write round trip.
+  ///
+  /// Returns the refreshed task, or the original if the task is missing or
+  /// its status changed before the write.
+  Future<Task> mergeConfigJson(String taskId, Map<String, dynamic> patch) async {
+    if (patch.isEmpty) {
+      return await _repo.getById(taskId) ?? (throw ArgumentError('Task not found: $taskId'));
+    }
+    final task = await _requireTask(taskId);
+    if (task.status.terminal) {
+      throw StateError('Cannot update terminal task: ${task.status.name}');
+    }
+    await _repo.mergeConfigJsonIfStatus(taskId, patch, expectedStatus: task.status);
+    // Return the freshest snapshot even when the merge was a no-op (e.g.
+    // status drifted); callers downstream read-through this state.
+    return await _repo.getById(taskId) ?? task;
+  }
+
   /// Deletes a terminal task.
   Future<void> delete(String taskId) async {
     final task = await _requireTask(taskId);

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
+import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
@@ -78,6 +80,52 @@ steps:
       expect(output.last, contains('"newStatus":"completed"'));
     });
 
+    test('standalone run aborts early when a referenced credential resolves empty', () async {
+      config = DartclawConfig(
+        agent: const AgentConfig(provider: 'claude'),
+        server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+        credentials: const CredentialsConfig(
+          entries: {
+            'github-main': CredentialEntry.githubToken(token: ''),
+          },
+        ),
+        projects: const ProjectConfig(
+          definitions: {
+            'workflow-testing': ProjectDefinition(
+              id: 'workflow-testing',
+              remote: 'git@github.com:tolo/dartclaw-workflow-testing.git',
+              credentials: 'github-main',
+            ),
+          },
+        ),
+      );
+      final output = <String>[];
+      final command = WorkflowRunCommand(
+        config: config,
+        apiClient: DartclawApiClient(
+          baseUri: Uri.parse('http://localhost:3333'),
+          transport: _FakeTransport(sendResponses: [_response(503)]),
+        ),
+        environment: const {},
+        harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+        searchDbFactory: (_) => sqlite3.openInMemory(),
+        taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: output.add,
+        exitFn: _fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone']),
+        throwsA(isA<_FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      expect(output, [
+        'Credential preflight failed: project "workflow-testing" references credential "github-main" '
+            'but env var GITHUB_TOKEN is unset or empty',
+      ]);
+    });
+
     test('standalone run provisions explicit provider runners and CLI configs before starting the workflow', () async {
       config = DartclawConfig(
         agent: const AgentConfig(provider: 'codex'),
@@ -129,4 +177,26 @@ steps:
       expect(createdHarnesses['claude'], isNotEmpty);
     });
   });
+}
+
+class _FakeTransport implements ApiTransport {
+  final List<ApiResponse> _sendResponses;
+
+  _FakeTransport({List<ApiResponse> sendResponses = const []}) : _sendResponses = List<ApiResponse>.from(sendResponses);
+
+  @override
+  Future<ApiResponse> send(ApiRequest request) async => _sendResponses.removeAt(0);
+
+  @override
+  Future<ApiResponse> openStream(ApiRequest request) {
+    throw UnimplementedError();
+  }
+}
+
+ApiResponse _response(int statusCode, [Object? body]) {
+  return ApiResponse(
+    statusCode: statusCode,
+    headers: const {'content-type': 'application/json; charset=utf-8'},
+    body: Stream.value(utf8.encode(body == null ? '{}' : jsonEncode(body))),
+  );
 }

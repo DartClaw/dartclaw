@@ -348,6 +348,28 @@ class SqliteTaskRepository implements TaskRepository {
   }
 
   @override
+  Future<bool> mergeConfigJsonIfStatus(
+    String taskId,
+    Map<String, dynamic> patch, {
+    required TaskStatus expectedStatus,
+  }) async {
+    if (patch.isEmpty) {
+      return true;
+    }
+    final stmt = _db.prepare('''
+      UPDATE tasks
+      SET config_json = json_patch(COALESCE(config_json, '{}'), ?)
+      WHERE id = ? AND status = ?
+    ''');
+    try {
+      stmt.execute([_encodeJson(patch), taskId, expectedStatus.name]);
+      return _db.updatedRows > 0;
+    } finally {
+      stmt.close();
+    }
+  }
+
+  @override
   Future<void> delete(String id) async {
     final stmt = _db.prepare('DELETE FROM tasks WHERE id = ?');
     try {

@@ -101,6 +101,39 @@ void main() {
       });
     });
 
+    test('mirrors token breakdown into task config keys for artifact consumers', () {
+      final configJson = WorkflowTaskConfig.withTaskConfigTokenBreakdown(
+        const {'existing': true},
+        inputTokensNew: 600,
+        cacheReadTokens: 400,
+        outputTokens: 500,
+      );
+
+      expect(configJson, {
+        'existing': true,
+        '_workflowInputTokensNew': 600,
+        '_workflowCacheReadTokens': 400,
+        '_workflowOutputTokens': 500,
+      });
+    });
+
+    test('builds a merge patch containing only the workflow token keys', () {
+      final patch = WorkflowTaskConfig.taskConfigTokenBreakdownPatch(
+        inputTokensNew: 600,
+        cacheReadTokens: 400,
+        outputTokens: 500,
+      );
+
+      // Patch is disjoint from other task-config fields, so
+      // `TaskService.mergeConfigJson` can apply it atomically without
+      // clobbering concurrent updates to unrelated keys.
+      expect(patch, {
+        '_workflowInputTokensNew': 600,
+        '_workflowCacheReadTokens': 400,
+        '_workflowOutputTokens': 500,
+      });
+    });
+
     test('throws when writing without an existing WSE row', () async {
       expect(
         () => WorkflowTaskConfig.writeProviderSessionId(task, repository, 'sess'),

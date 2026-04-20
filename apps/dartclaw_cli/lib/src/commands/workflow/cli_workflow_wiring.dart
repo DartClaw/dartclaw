@@ -66,6 +66,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 
 import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
+import 'credential_preflight.dart';
 import 'workflow_git_support.dart';
 
 /// Outcome of a standalone-mode pull-request creation hook.
@@ -102,6 +103,7 @@ class CliWorkflowWiring {
   final DartclawConfig config;
   final String dataDir;
   final String? skillsHomeDir;
+  final Map<String, String> environment;
   final HarnessFactory _harnessFactory;
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
@@ -137,13 +139,15 @@ class CliWorkflowWiring {
     required this.config,
     required this.dataDir,
     this.skillsHomeDir,
+    Map<String, String>? environment,
     HarnessFactory? harnessFactory,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
     AssetResolver? assetResolver,
     this.workflowStepOutputTransformer,
     this.prCreator,
-  }) : _harnessFactory = harnessFactory ?? HarnessFactory(),
+  }) : environment = environment ?? Platform.environment,
+       _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
        assetResolver = assetResolver ?? AssetResolver();
@@ -153,6 +157,15 @@ class CliWorkflowWiring {
   /// Does not start an HTTP server, initialize templates, connect channels,
   /// or wire scheduling. Call [dispose] when done.
   Future<void> wire() async {
+    final wiringLog = Logger('CliWorkflowWiring');
+    final preflight = CredentialPreflight.validate(config, environment);
+    for (final warning in preflight.warnings) {
+      wiringLog.warning(warning);
+    }
+    if (preflight.hasHardErrors) {
+      throw CredentialPreflightException(preflight.hardErrors);
+    }
+
     eventBus = EventBus();
     final projectDirs = _workflowSkillProjectDirs(config);
     final resolvedAssets = assetResolver.resolve();
@@ -218,13 +231,12 @@ class CliWorkflowWiring {
 
     // Harness: minimal config — no MCP server, no container, no guards.
     final defaultProviderId = config.agent.provider;
-    final wiringLog = Logger('CliWorkflowWiring');
     final providerEntry = config.providers[defaultProviderId];
     wiringLog.info(
       'Provider "$defaultProviderId": entry=${providerEntry != null ? providerEntry.toString() : "null"}, '
       'options=${providerEntry?.options}',
     );
-    _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: environment);
     _harnessConfig = HarnessConfig(
       maxTurns: config.agent.maxTurns,
       model: config.agent.model,

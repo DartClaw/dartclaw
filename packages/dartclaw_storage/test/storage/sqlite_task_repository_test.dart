@@ -274,6 +274,58 @@ void main() {
         expect((await repository.getById(task.id))?.status, TaskStatus.running);
       });
 
+      test('mergeConfigJsonIfStatus preserves keys not present in the patch', () async {
+        final task = _task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z'));
+        await repository.insert(task.copyWith(configJson: const {'existing': true, 'keep': 1}));
+
+        final applied = await repository.mergeConfigJsonIfStatus(
+          task.id,
+          const {'added': 'value', 'keep': 2},
+          expectedStatus: TaskStatus.running,
+        );
+
+        expect(applied, isTrue);
+        final loaded = await repository.getById(task.id);
+        expect(loaded?.configJson, {'existing': true, 'keep': 2, 'added': 'value'});
+      });
+
+      test('mergeConfigJsonIfStatus does not clobber concurrent disjoint writes', () async {
+        final task = _task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z'));
+        await repository.insert(task.copyWith(configJson: const {'a': 1}));
+
+        // Simulate a concurrent writer landing a disjoint key between two
+        // merge-patch calls on the same status.
+        final first = await repository.mergeConfigJsonIfStatus(
+          task.id,
+          const {'b': 2},
+          expectedStatus: TaskStatus.running,
+        );
+        final second = await repository.mergeConfigJsonIfStatus(
+          task.id,
+          const {'c': 3},
+          expectedStatus: TaskStatus.running,
+        );
+
+        expect(first, isTrue);
+        expect(second, isTrue);
+        expect((await repository.getById(task.id))?.configJson, {'a': 1, 'b': 2, 'c': 3});
+      });
+
+      test('mergeConfigJsonIfStatus returns false when status changed', () async {
+        final task = _task(status: TaskStatus.queued);
+        await repository.insert(task.copyWith(configJson: const {'a': 1}));
+        await repository.update(task.copyWith(status: TaskStatus.running, configJson: const {'a': 1}));
+
+        final applied = await repository.mergeConfigJsonIfStatus(
+          task.id,
+          const {'b': 2},
+          expectedStatus: TaskStatus.queued,
+        );
+
+        expect(applied, isFalse);
+        expect((await repository.getById(task.id))?.configJson, {'a': 1});
+      });
+
       test('deletes a task', () async {
         final task = _task();
         await repository.insert(task);

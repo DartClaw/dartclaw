@@ -10,6 +10,7 @@ enum CredentialType {
 }
 
 const _credentialEntriesEquality = MapEquality<String, CredentialEntry>();
+const _envVarsEquality = ListEquality<String>();
 
 /// A single credential entry with a resolved secret value.
 class CredentialEntry {
@@ -22,10 +23,19 @@ class CredentialEntry {
   /// Optional repository policy for project-scoped credentials.
   final String? repository;
 
-  const CredentialEntry({required String apiKey}) : type = CredentialType.apiKey, secret = apiKey, repository = null;
+  /// Env var names referenced by the original YAML template (e.g. `GITHUB_TOKEN`
+  /// for `token: ${GITHUB_TOKEN}`), preserved so downstream diagnostics can
+  /// name the real variable even after `envSubstitute` has resolved the value.
+  /// Empty when the credential was configured with a literal value.
+  final List<String> envVars;
+
+  const CredentialEntry({required String apiKey, this.envVars = const <String>[]})
+    : type = CredentialType.apiKey,
+      secret = apiKey,
+      repository = null;
 
   /// Creates a first-class GitHub token credential.
-  const CredentialEntry.githubToken({required String token, this.repository})
+  const CredentialEntry.githubToken({required String token, this.repository, this.envVars = const <String>[]})
     : type = CredentialType.githubToken,
       secret = token;
 
@@ -47,15 +57,20 @@ class CredentialEntry {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is CredentialEntry && type == other.type && secret == other.secret && repository == other.repository;
+      other is CredentialEntry &&
+          type == other.type &&
+          secret == other.secret &&
+          repository == other.repository &&
+          _envVarsEquality.equals(envVars, other.envVars);
 
   @override
-  int get hashCode => Object.hash(type, secret, repository);
+  int get hashCode => Object.hash(type, secret, repository, _envVarsEquality.hash(envVars));
 
   @override
   String toString() =>
       'CredentialEntry(type: ${type.name}, secret: ${secret.isEmpty ? "<empty>" : "***"}'
-      '${repository == null ? "" : ", repository: $repository"})';
+      '${repository == null ? "" : ", repository: $repository"}'
+      '${envVars.isEmpty ? "" : ", envVars: $envVars"})';
 }
 
 /// Multi-credential configuration.

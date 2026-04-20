@@ -279,6 +279,9 @@ void main() {
         final payload = args.contains('--json-schema')
             ? jsonEncode({
                 'session_id': 'cli-session-1',
+                'input_tokens': 600,
+                'output_tokens': 400,
+                'cache_read_tokens': 300,
                 'structured_output': {
                   'verdict': {
                     'pass': true,
@@ -288,7 +291,13 @@ void main() {
                   },
                 },
               })
-            : jsonEncode({'session_id': 'cli-session-1', 'result': 'Working...'});
+            : jsonEncode({
+                'session_id': 'cli-session-1',
+                'input_tokens': 200,
+                'output_tokens': 50,
+                'cache_read_tokens': 50,
+                'result': 'Working...',
+              });
         return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
       },
     );
@@ -337,8 +346,108 @@ void main() {
 
     final updated = await tasks.get('task-oneshot');
     expect(updated?.status, TaskStatus.review);
+    expect(updated?.configJson['_workflowInputTokensNew'], 600);
+    expect(updated?.configJson['_workflowCacheReadTokens'], 400);
+    expect(updated?.configJson['_workflowOutputTokens'], 500);
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.providerSessionId, 'cli-session-1');
+    expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.stepTokenBreakdown, {
+      'inputTokensNew': 600,
+      'cacheReadTokens': 400,
+      'outputTokens': 500,
+    });
     expect((await workflowStepExecutions.getByTaskId('task-oneshot'))?.structuredOutput, isA<Map<Object?, Object?>>());
+  });
+
+  test('workflow oneshot token mirroring preserves config updates made while the task is running', () async {
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        final payload = args.contains('--json-schema')
+            ? jsonEncode({
+                'session_id': 'cli-session-race',
+                'input_tokens': 600,
+                'output_tokens': 400,
+                'cache_read_tokens': 300,
+                'structured_output': {
+                  'verdict': {
+                    'pass': true,
+                    'findings_count': 0,
+                    'findings': <Map<String, dynamic>>[],
+                    'summary': 'Clean',
+                  },
+                },
+              })
+            : jsonEncode({
+                'session_id': 'cli-session-race',
+                'input_tokens': 200,
+                'output_tokens': 50,
+                'cache_read_tokens': 50,
+                'result': 'Working...',
+              });
+        final script = "sleep 0.2; printf '%s' '${payload.replaceAll("'", "'\\''")}'";
+        return Process.start('/bin/sh', ['-lc', script]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-oneshot-race',
+      title: 'One-shot workflow step race',
+      description: 'Run the workflow step.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-oneshot-race',
+      workflowRunId: 'wf-race',
+      provider: 'claude',
+    );
+    await seedWorkflowExecution(
+      'task-oneshot-race',
+      agentExecutionId: 'ae-task-oneshot-race',
+      workflowRunId: 'wf-race',
+      followUpPrompts: ['Follow up'],
+      structuredSchema: const {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['verdict'],
+        'properties': {
+          'verdict': {
+            'type': 'object',
+            'additionalProperties': false,
+            'required': ['pass', 'findings_count', 'findings', 'summary'],
+            'properties': {
+              'pass': {'type': 'boolean'},
+              'findings_count': {'type': 'integer'},
+              'findings': {
+                'type': 'array',
+                'items': {'type': 'object', 'additionalProperties': false},
+              },
+              'summary': {'type': 'string'},
+            },
+          },
+        },
+      },
+    );
+
+    final pollFuture = oneShotExecutor.pollOnce();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final current = await tasks.get('task-oneshot-race');
+    await tasks.updateFields(
+      'task-oneshot-race',
+      configJson: {
+        ...?current?.configJson,
+        '_tokenBudgetWarningFired': true,
+      },
+    );
+
+    await pollFuture;
+
+    final updated = await tasks.get('task-oneshot-race');
+    expect(updated?.status, TaskStatus.review);
+    expect(updated?.configJson['_tokenBudgetWarningFired'], isTrue);
+    expect(updated?.configJson['_workflowInputTokensNew'], 600);
+    expect(updated?.configJson['_workflowCacheReadTokens'], 400);
+    expect(updated?.configJson['_workflowOutputTokens'], 500);
   });
 
   test('workflow oneshot short-circuits extraction when inline <workflow-context> is valid', () async {

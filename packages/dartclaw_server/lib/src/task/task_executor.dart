@@ -747,6 +747,12 @@ class TaskExecutor {
       }
 
       if (outcome.status == TurnStatus.completed) {
+        task = await _writeWorkflowTokenBreakdownToTaskConfig(
+          task,
+          inputTokens: outcome.inputTokens,
+          cacheReadTokens: outcome.cacheReadTokens,
+          outputTokens: outcome.outputTokens,
+        );
         final readOnlyMutationSummary = await _readOnlyMutationSummary(task, project, readOnlyProjectStatusBeforeTurn);
         if (readOnlyMutationSummary != null) {
           _log.warning('Task ${task.id}: $readOnlyMutationSummary');
@@ -998,6 +1004,12 @@ class TaskExecutor {
       task,
       repo,
       inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+      cacheReadTokens: cacheReadTokens,
+      outputTokens: outputTokens,
+    );
+    await _writeWorkflowTokenBreakdownToTaskConfig(
+      task,
+      inputTokens: inputTokens,
       cacheReadTokens: cacheReadTokens,
       outputTokens: outputTokens,
     );
@@ -1991,6 +2003,25 @@ class TaskExecutor {
       return normalized;
     }
     return '${normalized.substring(0, 197).trimRight()}...';
+  }
+
+  Future<Task> _writeWorkflowTokenBreakdownToTaskConfig(
+    Task task, {
+    required int inputTokens,
+    required int cacheReadTokens,
+    required int outputTokens,
+  }) async {
+    if (!_isWorkflowOrchestrated(task)) {
+      return task;
+    }
+    // Atomic merge so a concurrent config update on the same status (e.g.
+    // token-budget-warning flag) cannot be lost by a read-modify-write.
+    final patch = WorkflowTaskConfig.taskConfigTokenBreakdownPatch(
+      inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+      cacheReadTokens: cacheReadTokens,
+      outputTokens: outputTokens,
+    );
+    return _tasks.mergeConfigJson(task.id, patch);
   }
 }
 

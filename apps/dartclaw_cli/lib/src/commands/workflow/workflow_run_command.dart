@@ -26,6 +26,7 @@ import '../config_loader.dart';
 import '../serve_command.dart' show ExitFn, WriteLine;
 import 'cli_progress_printer.dart';
 import 'cli_workflow_wiring.dart';
+import 'credential_preflight.dart';
 
 /// Runs a workflow either against a live server or in standalone mode.
 class WorkflowRunCommand extends Command<void> {
@@ -34,6 +35,7 @@ class WorkflowRunCommand extends Command<void> {
   final TaskDbFactory? _taskDbFactory;
   final HarnessFactory? _harnessFactory;
   final DartclawApiClient? _apiClient;
+  final Map<String, String>? _environment;
   final WriteLine _stdoutLine;
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
@@ -45,6 +47,7 @@ class WorkflowRunCommand extends Command<void> {
     TaskDbFactory? taskDbFactory,
     HarnessFactory? harnessFactory,
     DartclawApiClient? apiClient,
+    Map<String, String>? environment,
     WriteLine? stdoutLine,
     WriteLine? stderrLine,
     ExitFn? exitFn,
@@ -54,6 +57,7 @@ class WorkflowRunCommand extends Command<void> {
        _taskDbFactory = taskDbFactory,
        _harnessFactory = harnessFactory,
        _apiClient = apiClient,
+       _environment = environment,
        _stdoutLine = stdoutLine ?? stdout.writeln,
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
@@ -158,11 +162,21 @@ class WorkflowRunCommand extends Command<void> {
     final wiring = CliWorkflowWiring(
       config: config,
       dataDir: dataDir,
+      environment: _environment,
       harnessFactory: _harnessFactory,
       searchDbFactory: _searchDbFactory,
       taskDbFactory: _taskDbFactory,
     );
-    await wiring.wire();
+    var wired = false;
+    try {
+      await wiring.wire();
+      wired = true;
+    } on CredentialPreflightException catch (error) {
+      for (final item in error.errors) {
+        _stderrLine(item.message);
+      }
+      _exitFn(1);
+    }
 
     try {
       final definition = wiring.registry.getByName(workflowName);
@@ -194,7 +208,9 @@ class WorkflowRunCommand extends Command<void> {
       );
       _exitFn(exitCode);
     } finally {
-      await wiring.dispose();
+      if (wired) {
+        await wiring.dispose();
+      }
     }
   }
 

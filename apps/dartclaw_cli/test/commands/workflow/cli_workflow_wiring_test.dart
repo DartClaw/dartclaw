@@ -168,7 +168,7 @@ steps:
     await _waitFor(() => createdTask != null);
     await sub.cancel();
 
-    expect(createdTask?.configJson['_workflowWorkspaceDir'], workflowWorkspaceDir.path);
+    expect(createdTask?.agentExecution?.workspaceDir, workflowWorkspaceDir.path);
     await wiring.workflowService.cancel(run.id);
   });
 

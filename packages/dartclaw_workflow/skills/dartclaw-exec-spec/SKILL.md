@@ -50,9 +50,9 @@ Available in `scripts/`:
 ### Proactive Sub-Agents
 Spawn narrow background sub-agents when they materially improve a coding decision and you can keep implementing while they run. Their output is advisory; the FIS remains the contract.
 
-These are **agents** (valid `subagent_type` values for the Task tool):
+These are **agents** (valid `subagent_type` values for the Task tool) — _(all are optional and used only if supported by the current harness)_:
 
-- the `documentation-lookup` sub-agent – use for unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. This is the required path for documentation lookup; run it as a separate background sub-task.
+- the `documentation-lookup` sub-agent – use for unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. This is the preferred path for documentation lookup; run it as a separate background sub-task when available.
 - the `research-specialist` sub-agent – use for external best-practice research or context not available in the codebase
 - the `qa-test-engineer` sub-agent – use for complex test strategy or unfamiliar test-harness patterns
 - the `visual-validation-specialist` sub-agent – use for visual/design compliance validation against wireframes or baselines

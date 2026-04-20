@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowExecutionCursor, WorkflowRun, WorkflowRunStatus;
+import 'package:logging/logging.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// SQLite-backed repository for workflow run persistence.
@@ -8,6 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Shares the tasks database ([Database]) with [SqliteTaskRepository].
 /// Uses CREATE TABLE IF NOT EXISTS for idempotent schema initialization.
 class SqliteWorkflowRunRepository {
+  static final _log = Logger('SqliteWorkflowRunRepository');
   final Database _db;
 
   SqliteWorkflowRunRepository(this._db) {
@@ -40,6 +42,61 @@ class SqliteWorkflowRunRepository {
     }
     _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
     _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition ON workflow_runs(definition_name)');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS workflow_run_migrations (
+        name TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      )
+    ''');
+    _migrateLegacyPausedStatuses();
+  }
+
+  void _migrateLegacyPausedStatuses() {
+    const migrationName = 's36_awaiting_approval_status_split';
+    final existing = _db.select('SELECT 1 FROM workflow_run_migrations WHERE name = ? LIMIT 1', [migrationName]);
+    if (existing.isNotEmpty) return;
+
+    _db.execute('BEGIN');
+    try {
+      final pausedRows = _db.select('SELECT id, context_json FROM workflow_runs WHERE status = ?', [
+        WorkflowRunStatus.paused.name,
+      ]);
+
+      var awaitingApprovalCount = 0;
+      var failedCount = 0;
+      final updateStmt = _db.prepare('UPDATE workflow_runs SET status = ? WHERE id = ?');
+      try {
+        for (final row in pausedRows) {
+          final id = row['id'] as String;
+          final contextJson = _decodeJson(row['context_json'] as String);
+          final hasPendingApproval = contextJson['_approval.pending.stepId'] is String;
+          final nextStatus = hasPendingApproval
+              ? WorkflowRunStatus.awaitingApproval.name
+              : WorkflowRunStatus.failed.name;
+          updateStmt.execute([nextStatus, id]);
+          if (hasPendingApproval) {
+            awaitingApprovalCount++;
+          } else {
+            failedCount++;
+          }
+        }
+      } finally {
+        updateStmt.close();
+      }
+
+      _db.execute('INSERT INTO workflow_run_migrations (name, applied_at) VALUES (?, ?)', [
+        migrationName,
+        DateTime.now().toIso8601String(),
+      ]);
+      _db.execute('COMMIT');
+      _log.info(
+        'Applied workflow-run status migration $migrationName '
+        '(awaitingApproval=$awaitingApprovalCount, failed=$failedCount)',
+      );
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   Future<void> insert(WorkflowRun run) async {

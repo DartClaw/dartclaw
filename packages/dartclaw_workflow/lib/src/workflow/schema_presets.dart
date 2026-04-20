@@ -433,7 +433,8 @@ const stateUpdateSummaryPreset = SchemaPreset(
 const remediationSummaryPreset = SchemaPreset(
   name: 'remediation-summary',
   schema: {'type': 'string'},
-  description: 'Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.',
+  description:
+      'Summary of what was changed during this remediation pass — issues addressed, approach taken, and any deferrals.',
 );
 
 /// Canonical text shape for per-story `story_result` outputs emitted inside

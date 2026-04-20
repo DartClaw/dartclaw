@@ -250,6 +250,21 @@ class ContextExtractor {
     return outputs;
   }
 
+  /// Parses the last well-formed `<step-outcome>` payload from [task]'s
+  /// assistant messages.
+  Future<StepOutcomePayload?> extractStepOutcome(Task task) async {
+    final sessionId = task.sessionId;
+    if (sessionId == null || sessionId.isEmpty) return null;
+
+    final messages = await _messageService.getMessages(sessionId);
+    for (final message in messages.reversed) {
+      if (message.role != 'assistant') continue;
+      final parsed = parseStepOutcomePayload(message.content);
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
   dynamic _deriveFromStructuredOutputs(Map<String, dynamic> outputs, String outputKey) {
     if (outputs.containsKey(outputKey)) {
       return outputs[outputKey];

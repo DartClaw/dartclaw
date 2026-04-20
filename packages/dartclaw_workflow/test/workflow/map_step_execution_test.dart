@@ -702,7 +702,7 @@ void main() {
       await promotionAwareExecutor.execute(run, definition, context);
 
       final finalRun = await repository.getById(run.id);
-      expect(finalRun?.status, WorkflowRunStatus.paused);
+      expect(finalRun?.status, WorkflowRunStatus.failed);
       expect(finalRun?.errorMessage, contains('unknown dependency IDs'));
       final tasks = await taskService.list();
       expect(tasks.where((t) => t.workflowRunId == run.id), isEmpty, reason: 'Validation should fail before dispatch');
@@ -760,7 +760,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('null or missing'));
     });
 
@@ -787,7 +787,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('not a List'));
     });
 
@@ -816,7 +816,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
       expect(updatedRun?.errorMessage, contains('decompos'));
     });
@@ -868,7 +868,7 @@ void main() {
 
       // Step should be paused (has failures).
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
 
       // Results array is still stored in context before pausing.
       expect(context['mapped'], isA<List<Object?>>());
@@ -916,7 +916,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('Circular dependency'));
     });
   });
@@ -1262,7 +1262,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxParallel'));
     });
   });
@@ -1397,7 +1397,7 @@ void main() {
 
       // Foreach with a failed iteration pauses the workflow (consistent with map step behavior).
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
     });
 
     test('foreach fires MapIterationCompletedEvent per item', () async {
@@ -1579,7 +1579,7 @@ void main() {
       await executor.execute(run, definition, context, startFromStepIndex: 1);
 
       final updatedRun = await repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
       expect(updatedRun?.errorMessage, contains('maxItems'));
     });
   });

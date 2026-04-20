@@ -42,12 +42,14 @@ class SkillPromptBuilder {
   /// `<key>\n{value}\n</key>` blocks for context/variable keys that the
   /// author has not already referenced). See [appendAutoFramedContext].
   /// [outputs] and [contextOutputs] are forwarded to [PromptAugmenter].
+  /// [emitStepOutcomeProtocol] appends the workflow step-outcome contract.
   String build({
     required String? skill,
     String? resolvedPrompt,
     String? contextSummary,
     Map<String, OutputConfig>? outputs,
     List<String> contextOutputs = const [],
+    bool emitStepOutcomeProtocol = false,
     String? skillDefaultPrompt,
     bool autoFrameContext = true,
     List<String> contextInputs = const [],
@@ -103,7 +105,12 @@ class SkillPromptBuilder {
         : prompt;
 
     // Step 3: append schema-driven output format section via PromptAugmenter.
-    return _augmenter.augment(framed, outputs: outputs, contextOutputs: contextOutputs);
+    return _augmenter.augment(
+      framed,
+      outputs: outputs,
+      contextOutputs: contextOutputs,
+      emitStepOutcomeProtocol: emitStepOutcomeProtocol,
+    );
   }
 
   /// Appends XML-framed `<tagName>value</tagName>` blocks for each context
@@ -186,13 +193,11 @@ class SkillPromptBuilder {
   /// boundary so prefix collisions (`<prdfoo>` when looking for `<prd>`)
   /// don't accidentally suppress auto-injection. Case-sensitive — matches
   /// the FIS Detection A contract.
-  static RegExp _tagBoundaryRegExp(String tagName) =>
-      RegExp('<${RegExp.escape(tagName)}(?:[\\s/>])');
+  static RegExp _tagBoundaryRegExp(String tagName) => RegExp('<${RegExp.escape(tagName)}(?:[\\s/>])');
 
   /// Regex matching `{{ name }}` with optional internal whitespace, matching
   /// the workflow template engine's tolerance.
-  static RegExp _templateReferenceRegExp(String name) =>
-      RegExp('\\{\\{\\s*${RegExp.escape(name)}\\s*\\}\\}');
+  static RegExp _templateReferenceRegExp(String name) => RegExp('\\{\\{\\s*${RegExp.escape(name)}\\s*\\}\\}');
 
   /// Renders resolved context inputs as markdown sections.
   ///
@@ -280,10 +285,7 @@ class SkillPromptBuilder {
   /// emitted by both a validate step and a re-validate step), the first
   /// wins. Producers sharing a canonical name are expected to share the
   /// same semantic description.
-  static Map<String, OutputConfig> collectInputConfigs(
-    Iterable<WorkflowStep> steps,
-    Iterable<String> keys,
-  ) {
+  static Map<String, OutputConfig> collectInputConfigs(Iterable<WorkflowStep> steps, Iterable<String> keys) {
     final wanted = keys.toSet();
     if (wanted.isEmpty) return const {};
 

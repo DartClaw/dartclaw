@@ -47,12 +47,18 @@ class WorkflowShowCommand extends Command<void> {
        _writeLine = writeLine ?? stdout.writeln,
        _exitFn = exitFn ?? exit {
     argParser
-      ..addFlag('resolved', negatable: false,
-          help: 'Print the fully merged form (stepDefaults applied, skill defaults injected)')
+      ..addFlag(
+        'resolved',
+        negatable: false,
+        help: 'Print the fully merged form (stepDefaults applied, skill defaults injected)',
+      )
       ..addOption('step', help: 'When combined with --resolved, emit a single resolved step')
       ..addFlag('json', negatable: false, help: 'Emit a JSON envelope {"yaml": "..."} for scripting')
-      ..addFlag('standalone', negatable: false,
-          help: 'Load the workflow from the local registry (bypasses the server)');
+      ..addFlag(
+        'standalone',
+        negatable: false,
+        help: 'Load the workflow from the local registry (bypasses the server)',
+      );
   }
 
   @override
@@ -140,11 +146,12 @@ class WorkflowShowCommand extends Command<void> {
     // Build a transient SkillRegistry so the standalone path can fill in
     // skill-declared default_prompt / default_outputs just like the server.
     final resolvedAssets = _assetResolver.resolve();
-    final builtInSkillsDir =
-        resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
+    final builtInSkillsDir = resolvedAssets?.skillsDir ?? WorkflowSkillMaterializer.resolveBuiltInSkillsSourceDir();
     final skills = SkillRegistryImpl()
       ..discover(
-        projectDirs: <String>[for (final pd in config.projects.definitions.values) p.join(config.projectsClonesDir, pd.id)],
+        projectDirs: <String>[
+          for (final pd in config.projects.definitions.values) p.join(config.projectsClonesDir, pd.id),
+        ],
         workspaceDir: config.workspaceDir,
         dataDir: config.server.dataDir,
         builtInSkillsDir: builtInSkillsDir,

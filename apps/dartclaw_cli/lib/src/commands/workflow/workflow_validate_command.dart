@@ -50,9 +50,7 @@ class WorkflowValidateCommand extends Command<void> {
 
     // Derive continuity providers by probing harness capabilities.
     final allContinuityProviders = HarnessFactory().probeContinuityProviders();
-    final continuityProviders = config.providers.entries.keys
-        .where(allContinuityProviders.contains)
-        .toSet();
+    final continuityProviders = config.providers.entries.keys.where(allContinuityProviders.contains).toSet();
 
     final parser = WorkflowDefinitionParser();
     final validator = WorkflowDefinitionValidator();

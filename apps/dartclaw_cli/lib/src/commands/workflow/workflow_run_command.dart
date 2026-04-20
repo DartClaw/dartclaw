@@ -259,7 +259,9 @@ class WorkflowRunCommand extends Command<void> {
           final refreshedRun = WorkflowRun.fromJson(refreshed);
           lastStatus = refreshedRun.status;
           lastError = refreshedRun.errorMessage;
-          if (lastStatus.terminal || lastStatus == WorkflowRunStatus.paused) {
+          if (lastStatus.terminal ||
+              lastStatus == WorkflowRunStatus.paused ||
+              lastStatus == WorkflowRunStatus.awaitingApproval) {
             if (!completer.isCompleted) {
               completer.complete(_exitCodeForStatus(lastStatus));
             }
@@ -323,7 +325,9 @@ class WorkflowRunCommand extends Command<void> {
             }
             lastStatus = WorkflowRunStatus.values.byName(newStatusName);
             lastError = event['errorMessage']?.toString();
-            if (!lastStatus.terminal && lastStatus != WorkflowRunStatus.paused) {
+            if (!lastStatus.terminal &&
+                lastStatus != WorkflowRunStatus.paused &&
+                lastStatus != WorkflowRunStatus.awaitingApproval) {
               break;
             }
             if (!jsonOutput) {
@@ -338,6 +342,9 @@ class WorkflowRunCommand extends Command<void> {
                   printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError ?? 'Cancelled');
                   break;
                 case WorkflowRunStatus.paused:
+                  printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
+                  break;
+                case WorkflowRunStatus.awaitingApproval:
                   printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
                   break;
                 case WorkflowRunStatus.pending || WorkflowRunStatus.running:
@@ -356,7 +363,9 @@ class WorkflowRunCommand extends Command<void> {
       final refreshed = await apiClient.getObject('/api/workflows/runs/${run.id}');
       lastStatus = WorkflowRun.fromJson(refreshed).status;
       lastError = WorkflowRun.fromJson(refreshed).errorMessage;
-      if (lastStatus.terminal || lastStatus == WorkflowRunStatus.paused) {
+      if (lastStatus.terminal ||
+          lastStatus == WorkflowRunStatus.paused ||
+          lastStatus == WorkflowRunStatus.awaitingApproval) {
         if (!completer.isCompleted) {
           completer.complete(_exitCodeForStatus(lastStatus));
         }
@@ -404,7 +413,9 @@ class WorkflowRunCommand extends Command<void> {
           }),
         );
       }
-      if (event.newStatus.terminal || event.newStatus == WorkflowRunStatus.paused) {
+      if (event.newStatus.terminal ||
+          event.newStatus == WorkflowRunStatus.paused ||
+          event.newStatus == WorkflowRunStatus.awaitingApproval) {
         if (!runCompleter.isCompleted) {
           service.get(event.runId).then((run) {
             if (run != null && !runCompleter.isCompleted) {
@@ -530,7 +541,7 @@ class WorkflowRunCommand extends Command<void> {
           }
           return 0;
         }(),
-        WorkflowRunStatus.paused => () {
+        WorkflowRunStatus.paused || WorkflowRunStatus.awaitingApproval => () {
           final approval = lastApprovalEvent;
           if (!jsonOutput && approval != null) {
             printer.workflowApprovalPaused(
@@ -572,7 +583,7 @@ class WorkflowRunCommand extends Command<void> {
     return switch (status) {
       WorkflowRunStatus.completed => 0,
       WorkflowRunStatus.failed => 1,
-      WorkflowRunStatus.cancelled || WorkflowRunStatus.paused => 2,
+      WorkflowRunStatus.cancelled || WorkflowRunStatus.paused || WorkflowRunStatus.awaitingApproval => 2,
       WorkflowRunStatus.pending || WorkflowRunStatus.running => 1,
     };
   }

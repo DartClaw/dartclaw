@@ -12,7 +12,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepExecuti
 abstract final class WorkflowTaskConfig {
   /// Returns the workflow step execution for [task], or null when this is not
   /// a workflow-spawned task with side-table metadata.
-  static Future<WorkflowStepExecution?> read(Task task, WorkflowStepExecutionRepository repo) => repo.getByTaskId(task.id);
+  static Future<WorkflowStepExecution?> read(Task task, WorkflowStepExecutionRepository repo) =>
+      repo.getByTaskId(task.id);
 
   /// Reads workflow follow-up prompts for one-shot execution.
   static Future<List<String>> readFollowUpPrompts(Task task, WorkflowStepExecutionRepository repo) async {
@@ -103,11 +104,8 @@ abstract final class WorkflowTaskConfig {
 
   /// Persists the provider session id on the workflow step row to support
   /// `continueSession` chains.
-  static Future<void> writeContinueProviderSessionId(
-    Task task,
-    WorkflowStepExecutionRepository repo,
-    String id,
-  ) => writeProviderSessionId(task, repo, id);
+  static Future<void> writeContinueProviderSessionId(Task task, WorkflowStepExecutionRepository repo, String id) =>
+      writeProviderSessionId(task, repo, id);
 
   /// Persists per-step token breakdown.
   static Future<void> writeTokenBreakdown(

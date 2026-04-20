@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         GateEvaluator,
         KvService,
         MessageService,
+        OnFailurePolicy,
         OutputConfig,
         OutputFormat,
         SessionService,
@@ -206,14 +207,11 @@ void main() {
     // bypasses AE/WSE persistence.
     if (captured == null) {
       final finalRun = await repository.getById('run-fail-fast');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
       expect(finalRun?.errorMessage, contains('AgentExecution + WorkflowStepExecution persistence'));
     } else {
       expect(captured, isA<StateError>());
-      expect(
-        (captured as StateError).message,
-        contains('AgentExecution + WorkflowStepExecution persistence'),
-      );
+      expect((captured as StateError).message, contains('AgentExecution + WorkflowStepExecution persistence'));
     }
   });
 
@@ -690,7 +688,7 @@ void main() {
     await sub.cancel();
 
     final finalRun = await repository.getById(run.id);
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.totalTokens, equals(7));
     expect(context['step1.status'], equals('failed'));
     expect(context['step1.tokenCount'], equals(7));
@@ -853,7 +851,7 @@ void main() {
 
     expect(stepCount, equals(1)); // Step 2 never executed.
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('step1'));
   });
 
@@ -885,7 +883,7 @@ void main() {
     // Step 1 executes (no gate), step 2 is blocked by gate.
     expect(stepCount, equals(1));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Gate failed'));
   });
 
@@ -1184,7 +1182,7 @@ void main() {
     // Step 1 executes but budget is checked before step 2.
     expect(stepCount, lessThanOrEqualTo(1));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
 
@@ -1343,7 +1341,7 @@ void main() {
 
       expect(queueCount, equals(2));
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
   });
 
@@ -1363,7 +1361,7 @@ void main() {
     await executor.execute(run, definition, context);
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('timed out'));
   }, timeout: const Timeout(Duration(seconds: 10)));
 
@@ -1511,7 +1509,7 @@ void main() {
       await sub.cancel();
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
       // currentStepIndex should be at group start (0), not past the group.
       expect(finalRun?.currentStepIndex, equals(0));
       // Failed step IDs should be persisted.
@@ -1732,10 +1730,14 @@ void main() {
 
       final createdTask = (await taskService.list()).single;
       expect(createdTask.description, equals('First prompt'));
-      expect(
-        (await workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts,
-        equals(['Second prompt', 'Third prompt']),
-      );
+      final followUps = (await workflowStepExecutionRepository.getByTaskId(createdTask.id))?.followUpPrompts;
+      expect(followUps, isNotNull);
+      expect(followUps, hasLength(2));
+      expect(followUps![0], equals('Second prompt'));
+      // Last follow-up prompt gets the step-outcome protocol appended
+      // (S36: host-injected via PromptAugmenter unless emitsOwnOutcome).
+      expect(followUps[1], startsWith('Third prompt'));
+      expect(followUps[1], contains('## Step Outcome Protocol'));
 
       final finalRun = await repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.completed));
@@ -1829,13 +1831,15 @@ void main() {
       final workflowStepCount =
           (db.select('SELECT COUNT(*) AS c FROM workflow_step_executions').first['c'] as int?) ?? 0;
       final joinedWorkflowStepCount =
-          (db.select(
-                'SELECT COUNT(*) AS c FROM tasks t '
-                'JOIN workflow_step_executions wse ON wse.task_id = t.id',
-              ).first['c'] as int?) ??
+          (db
+                  .select(
+                    'SELECT COUNT(*) AS c FROM tasks t '
+                    'JOIN workflow_step_executions wse ON wse.task_id = t.id',
+                  )
+                  .first['c']
+              as int?) ??
           0;
-      final agentExecutionCount =
-          (db.select('SELECT COUNT(*) AS c FROM agent_executions').first['c'] as int?) ?? 0;
+      final agentExecutionCount = (db.select('SELECT COUNT(*) AS c FROM agent_executions').first['c'] as int?) ?? 0;
 
       expect(taskCount, 1);
       expect(tasksWithoutAe, 0);
@@ -2272,7 +2276,7 @@ void main() {
       await executor.execute(run, definition, context);
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
     test('bash step with onError: continue records failure and proceeds', () async {
@@ -2349,7 +2353,7 @@ void main() {
       await executor.execute(run, definition, context);
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
     test('bash step timeout pauses workflow', () async {
@@ -2366,7 +2370,7 @@ void main() {
       await executor.execute(run, definition, context);
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     }, timeout: const Timeout(Duration(seconds: 10)));
 
     test('bash step timeout terminates the spawned process', () async {
@@ -2412,7 +2416,7 @@ void main() {
       await executor.execute(run, definition, WorkflowContext());
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
     test('bash step shell-escapes context values', () async {
@@ -2517,9 +2521,120 @@ void main() {
       await sub.cancel();
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
       // Only one task created — second step not reached.
       expect(taskCount, equals(1));
+    });
+  });
+
+  group('S36: needsInput hold transitions to awaitingApproval with approval-step semantics', () {
+    test('needsInput outcome advances currentStepIndex past held step and fires approval event', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final approvalEvents = <WorkflowApprovalRequestedEvent>[];
+      final evSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalEvents.add);
+
+      final sessionService = SessionService(baseDir: sessionsDir);
+      int taskCount = 0;
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await sessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content:
+              'Blocked pending human decision.\n'
+              '<step-outcome>{"outcome":"needsInput","reason":"ambiguous requirements"}</step-outcome>',
+        );
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await evSub.cancel();
+
+      // Only step1 should have run — step2 must not execute before resume.
+      expect(taskCount, equals(1));
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      // Resume must continue at step2 (index 1), not re-run the held step (index 0).
+      expect(finalRun?.currentStepIndex, equals(1));
+      expect(finalRun?.contextJson['_approval.pending.stepId'], equals('step1'));
+      expect(finalRun?.contextJson['_approval.pending.stepIndex'], equals(0));
+      expect(finalRun?.errorMessage, equals('ambiguous requirements'));
+
+      // Connected CLI/SSE consumers receive an approval-style event, not
+      // just a generic paused status change.
+      expect(approvalEvents, hasLength(1));
+      expect(approvalEvents.first.stepId, equals('step1'));
+      expect(approvalEvents.first.message, equals('ambiguous requirements'));
+    });
+
+    test('onFailure: pause after failed outcome routes through the same awaitingApproval hold', () async {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.pause,
+          ),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext();
+
+      final approvalEvents = <WorkflowApprovalRequestedEvent>[];
+      final evSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalEvents.add);
+      final sessionService = SessionService(baseDir: sessionsDir);
+
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        final task = await taskService.get(e.taskId);
+        if (task == null) return;
+        final session = await sessionService.createSession(type: SessionType.task);
+        await taskService.updateFields(task.id, sessionId: session.id);
+        await messageService.insertMessage(
+          sessionId: session.id,
+          role: 'assistant',
+          content: '<step-outcome>{"outcome":"failed","reason":"guarded"}</step-outcome>',
+        );
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      await evSub.cancel();
+
+      final finalRun = await repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
+      expect(finalRun?.currentStepIndex, equals(1));
+      expect(approvalEvents, hasLength(1));
+      expect(approvalEvents.first.stepId, equals('step1'));
     });
   });
 
@@ -2539,10 +2654,11 @@ void main() {
       final eventSub = eventBus.on<WorkflowApprovalRequestedEvent>().listen(approvalEvents.add);
 
       await executor.execute(run, definition, context);
+      await Future<void>.delayed(Duration.zero);
       await eventSub.cancel();
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
       expect(finalRun?.totalTokens, equals(0));
       // No child tasks created.
       final allTasks = await taskService.list();
@@ -2576,7 +2692,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final finalRun = await repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.awaitingApproval));
       // No timeout deadline persisted.
       expect(context['gate.approval.timeout_deadline'], isNull);
     });
@@ -2595,7 +2711,7 @@ void main() {
 
       // Run should be paused first; timeout_deadline persisted as flat contextJson key.
       final pausedRun = await repository.getById('run-1');
-      expect(pausedRun?.status, equals(WorkflowRunStatus.paused));
+      expect(pausedRun?.status, equals(WorkflowRunStatus.awaitingApproval));
       expect(pausedRun?.contextJson['gate.approval.timeout_deadline'], isNotNull);
 
       // Wait for the timer to fire (1s + buffer).
@@ -2834,7 +2950,7 @@ void main() {
 
       final finalRun = await repository.getById('run-1');
       // step 1 completes; step 2 cannot resolve session → workflow pauses.
-      expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
       expect(finalRun?.errorMessage, contains('continueSession'));
     });
 

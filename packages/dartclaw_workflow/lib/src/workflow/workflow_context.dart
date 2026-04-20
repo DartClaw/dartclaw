@@ -29,6 +29,9 @@ class WorkflowContext {
   /// Merges step outputs into the context.
   void merge(Map<String, dynamic> outputs) => _data.addAll(outputs);
 
+  /// Removes a context value when retry or remediation needs to clear stale state.
+  void remove(String key) => _data.remove(key);
+
   /// Returns the current loop iteration for [loopId], or null if not in a loop.
   int? loopIteration(String loopId) => _data['loop.$loopId.iteration'] as int?;
 

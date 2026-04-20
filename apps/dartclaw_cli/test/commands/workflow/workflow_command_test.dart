@@ -57,7 +57,7 @@ void main() {
     test('workflow --help shows all workflow subcommands', () {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
       expect(runner.commands.containsKey('workflow'), isTrue);
-      expect(command.subcommands.length, 9);
+      expect(command.subcommands.length, 10);
     });
   });
 }

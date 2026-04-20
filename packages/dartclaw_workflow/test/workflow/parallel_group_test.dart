@@ -202,7 +202,7 @@ void main() {
     expect(callCount, equals(3));
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Parallel step(s) failed'));
 
     // Successful steps' metadata should still be set.
@@ -235,7 +235,7 @@ void main() {
     await sub.cancel();
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Parallel step(s) failed'));
   });
 
@@ -268,7 +268,7 @@ void main() {
     // No tasks created — gate blocked the group.
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('Gate failed for parallel step'));
   });
 
@@ -299,7 +299,7 @@ void main() {
 
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
 

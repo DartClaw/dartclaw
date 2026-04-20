@@ -150,6 +150,24 @@ The runtime also writes metadata keys automatically:
 
 Agent steps with `contextOutputs` receive a workflow output contract automatically. They are expected to end with a `<workflow-context>` JSON object containing exactly the declared output keys. For `outputMode: structured`, DartClaw now treats that inline payload as the happy path: if the last assistant message already contains valid JSON with the required top-level keys, the executor promotes it directly and skips the extra extraction turn. Provider-native schema extraction remains as the fallback when the inline payload is missing or malformed.
 
+Agent steps also receive a semantic step-outcome contract unless the step or referenced skill opts out with `emitsOwnOutcome: true`. End the final assistant message with:
+
+```text
+<step-outcome>{"outcome":"succeeded|failed|needsInput","reason":"..."}</step-outcome>
+```
+
+This is separate from `<workflow-context>`: the context block carries domain outputs, while `<step-outcome>` tells the engine what the step *meant*. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`), and `needsInput` always moves the run into an approval-style hold.
+
+### Workflow Run Statuses and Retry
+
+Workflow runs now distinguish three operator-visible non-success states:
+
+- `Paused`: deliberately paused by an operator.
+- `Awaiting approval`: blocked on an explicit approval step or a step that emitted `needsInput`.
+- `Failed`: a step, gate, or runtime failure stopped execution.
+
+Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. Retry clears the failing step's lifecycle/outcome markers and restarts from the stored resume cursor. `Awaiting approval` uses `resume`, not `retry`, because the run is waiting on a human decision rather than a broken execution.
+
 ### Step 5: Narrow to Determinism
 
 Replace agent steps with deterministic alternatives where patterns are clear. If the "list affected files" step always runs `git diff --name-only`, replace the agent step with a pre-workflow shell script and inject the result as a variable.

@@ -73,6 +73,12 @@ class SkillInfo {
   /// omits the `workflow.default_outputs` key.
   final Map<String, OutputConfig>? defaultOutputs;
 
+  /// Whether this skill emits its own `<step-outcome>` marker.
+  ///
+  /// When true the workflow prompt augmenter suppresses the built-in outcome
+  /// protocol instructions and lets the skill produce the marker itself.
+  final bool emitsOwnOutcome;
+
   const SkillInfo({
     required this.name,
     required this.description,
@@ -81,6 +87,7 @@ class SkillInfo {
     this.nativeHarnesses = const {},
     this.defaultPrompt,
     this.defaultOutputs,
+    this.emitsOwnOutcome = false,
   });
 
   /// Creates a copy with merged harness sets (used during deduplication).
@@ -92,6 +99,7 @@ class SkillInfo {
     nativeHarnesses: {...nativeHarnesses, ...additional},
     defaultPrompt: defaultPrompt,
     defaultOutputs: defaultOutputs,
+    emitsOwnOutcome: emitsOwnOutcome,
   );
 
   Map<String, dynamic> toJson() => {
@@ -101,8 +109,8 @@ class SkillInfo {
     'path': path,
     'nativeHarnesses': nativeHarnesses.toList()..sort(),
     if (defaultPrompt != null) 'defaultPrompt': defaultPrompt,
-    if (defaultOutputs != null)
-      'defaultOutputs': defaultOutputs!.map((k, v) => MapEntry(k, v.toJson())),
+    if (defaultOutputs != null) 'defaultOutputs': defaultOutputs!.map((k, v) => MapEntry(k, v.toJson())),
+    if (emitsOwnOutcome) 'emitsOwnOutcome': true,
   };
 
   factory SkillInfo.fromJson(Map<String, dynamic> json) => SkillInfo(
@@ -115,5 +123,6 @@ class SkillInfo {
     defaultOutputs: (json['defaultOutputs'] as Map<String, dynamic>?)?.map(
       (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
     ),
+    emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
   );
 }

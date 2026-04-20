@@ -57,6 +57,7 @@ export 'src/workflow_definition.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
         StepConfigDefault,
+        OnFailurePolicy,
         StepReviewMode,
         ExtractionType,
         ExtractionConfig,

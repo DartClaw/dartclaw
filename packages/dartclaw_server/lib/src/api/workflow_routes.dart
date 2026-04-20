@@ -124,6 +124,23 @@ Router workflowRoutes(
     }
   });
 
+  // POST /api/workflows/runs/<id>/retry
+  router.post('/api/workflows/runs/<id>/retry', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.retry(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to retry workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to retry workflow run');
+    }
+  });
+
   // POST /api/workflows/runs/<id>/cancel
   router.post('/api/workflows/runs/<id>/cancel', (Request request, String id) async {
     try {
@@ -184,10 +201,7 @@ Router workflowRoutes(
       final shouldResolve = params['resolve'] == 'true';
       if (!shouldResolve) {
         final authored = definitions.authoredYaml(name) ?? resolver.emitYaml(def);
-        return Response.ok(
-          authored,
-          headers: {'content-type': 'application/yaml; charset=utf-8'},
-        );
+        return Response.ok(authored, headers: {'content-type': 'application/yaml; charset=utf-8'});
       }
 
       final resolved = resolver.resolve(def);
@@ -197,16 +211,10 @@ Router workflowRoutes(
         if (slice == null) {
           return errorResponse(404, 'STEP_NOT_FOUND', 'Step "$stepId" not found in workflow "$name"');
         }
-        return Response.ok(
-          resolver.emitYaml(slice),
-          headers: {'content-type': 'application/yaml; charset=utf-8'},
-        );
+        return Response.ok(resolver.emitYaml(slice), headers: {'content-type': 'application/yaml; charset=utf-8'});
       }
 
-      return Response.ok(
-        resolver.emitYaml(resolved),
-        headers: {'content-type': 'application/yaml; charset=utf-8'},
-      );
+      return Response.ok(resolver.emitYaml(resolved), headers: {'content-type': 'application/yaml; charset=utf-8'});
     } catch (e, st) {
       _log.severe('Failed to get workflow definition $name', e, st);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow definition');

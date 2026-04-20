@@ -176,5 +176,41 @@ void main() {
       expect(result, contains('"findings_count"'));
       expect(result, isNot(contains('## Required Output Format')));
     });
+
+    group('step outcome protocol (S36)', () {
+      test('appends Step Outcome Protocol section when flag is true', () {
+        const prompt = 'Do the thing';
+        final result = augmenter.augment(prompt, emitStepOutcomeProtocol: true);
+        expect(result, startsWith('Do the thing'));
+        expect(result, contains('## Step Outcome Protocol'));
+        expect(result, contains('<step-outcome>'));
+        expect(result, contains('succeeded'));
+        expect(result, contains('failed'));
+        expect(result, contains('needsInput'));
+      });
+
+      test('omits Step Outcome Protocol section when flag is false', () {
+        const prompt = 'Do the thing';
+        final result = augmenter.augment(prompt);
+        expect(result, equals(prompt));
+      });
+
+      test('omits Step Outcome Protocol section when flag defaulted', () {
+        const prompt = 'Do the thing';
+        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
+        final result = augmenter.augment(prompt, outputs: outputs);
+        expect(result, isNot(contains('## Step Outcome Protocol')));
+      });
+
+      test('Step Outcome Protocol appears after output contract sections', () {
+        const prompt = 'Do work';
+        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
+        final result = augmenter.augment(prompt, outputs: outputs, emitStepOutcomeProtocol: true);
+        final outcomeIdx = result.indexOf('## Step Outcome Protocol');
+        final schemaIdx = result.indexOf('## Required Output Format');
+        expect(schemaIdx, greaterThan(0));
+        expect(outcomeIdx, greaterThan(schemaIdx));
+      });
+    });
   });
 }

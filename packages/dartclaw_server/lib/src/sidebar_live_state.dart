@@ -21,7 +21,8 @@ Future<List<SidebarActiveTask>> buildActiveSidebarTasks(TaskService tasks) async
 Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService workflows, TaskService tasks) async {
   final running = await workflows.list(status: WorkflowRunStatus.running);
   final paused = await workflows.list(status: WorkflowRunStatus.paused);
-  final activeRuns = [...running, ...paused];
+  final awaitingApproval = await workflows.list(status: WorkflowRunStatus.awaitingApproval);
+  final activeRuns = [...running, ...paused, ...awaitingApproval];
 
   if (activeRuns.isEmpty) return const [];
 

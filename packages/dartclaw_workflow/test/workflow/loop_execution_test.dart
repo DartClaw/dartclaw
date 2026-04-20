@@ -207,7 +207,7 @@ void main() {
 
     expect(taskCount, equals(2)); // 2 iterations executed.
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
     expect(finalRun?.errorMessage, contains('2'));
     expect(finalRun?.errorMessage, contains('loop1'));
@@ -238,7 +238,7 @@ void main() {
     await sub.cancel();
 
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('loop1'));
     expect(finalRun?.errorMessage, contains('LS1'));
   });
@@ -549,7 +549,7 @@ void main() {
 
     expect(taskCount, equals(0));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('budget'));
   });
 
@@ -631,7 +631,7 @@ void main() {
     expect(taskCount, equals(3));
     final finalRun = await repository.getById('run-1');
     // Loop pauses (maxIterations exceeded), even though finalizer ran.
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('max iterations'));
   });
 
@@ -676,7 +676,7 @@ void main() {
     // ls1 failed (1) + cleanup finalizer ran (1) = 2 tasks.
     expect(taskCount, equals(2));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
   });
 
   test('S03: finalizer failure pauses workflow with finalizer error', () async {
@@ -719,7 +719,7 @@ void main() {
 
     expect(taskCount, equals(2));
     final finalRun = await repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.paused));
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, contains('finalizer'));
     expect(finalRun?.errorMessage, contains('Bad Cleanup'));
   });

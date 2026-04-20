@@ -795,4 +795,79 @@ void main() {
       expect(updated?.status, equals(WorkflowRunStatus.cancelled));
     });
   });
+
+  group('S36: retry()', () {
+    WorkflowRun buildFailedRun({
+      String runId = 'run-failed',
+      String failingStepId = 'step1',
+      int currentStepIndex = 0,
+    }) {
+      final definition = makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
+          const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2']),
+        ],
+      );
+      final now = DateTime.now();
+      return WorkflowRun(
+        id: runId,
+        definitionName: definition.name,
+        status: WorkflowRunStatus.failed,
+        startedAt: now,
+        updatedAt: now,
+        errorMessage: 'boom',
+        currentStepIndex: currentStepIndex,
+        definitionJson: definition.toJson(),
+        contextJson: {
+          '$failingStepId.status': 'failed',
+          'step.$failingStepId.outcome': 'failed',
+          'step.$failingStepId.outcome.reason': 'boom',
+        },
+      );
+    }
+
+    test('throws StateError when run is not in failed status', () async {
+      final definition = makeDefinition();
+      final run = await workflowService.start(definition, {});
+      await workflowService.pause(run.id);
+      expect(() => workflowService.retry(run.id), throwsA(isA<StateError>()));
+    });
+
+    test('transitions failed → running and fires status event', () async {
+      final statusEvents = <WorkflowRunStatusChangedEvent>[];
+      eventBus.on<WorkflowRunStatusChangedEvent>().listen(statusEvents.add);
+
+      final run = buildFailedRun();
+      await repository.insert(run);
+      // Seed context.json so _loadContext doesn't build from DB only.
+      final ctxDir = Directory(p.join(tempDir.path, 'workflows', run.id))..createSync(recursive: true);
+      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      autoCompleteNewTasks();
+
+      final retried = await workflowService.retry(run.id);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(retried.status, equals(WorkflowRunStatus.running));
+      expect(
+        statusEvents.any((e) => e.oldStatus == WorkflowRunStatus.failed && e.newStatus == WorkflowRunStatus.running),
+        isTrue,
+      );
+    });
+
+    test('clears failing step status/outcome context keys', () async {
+      final run = buildFailedRun();
+      await repository.insert(run);
+      final ctxDir = Directory(p.join(tempDir.path, 'workflows', run.id))..createSync(recursive: true);
+      File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
+      autoCompleteNewTasks();
+
+      await workflowService.retry(run.id);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final updated = await workflowService.get(run.id);
+      expect(updated?.contextJson.containsKey('step1.status'), isFalse);
+      expect(updated?.contextJson.containsKey('step.step1.outcome'), isFalse);
+      expect(updated?.contextJson.containsKey('step.step1.outcome.reason'), isFalse);
+    });
+  });
 }

@@ -3,6 +3,16 @@ import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowRun,
+        WorkflowRunStatus,
+        workflowCanApprove,
+        workflowCanReject,
+        workflowCanResume,
+        workflowCanRetry,
+        workflowStatusBadgeClass,
+        workflowStatusLabel;
 
 /// Renders the workflow run detail page with vertical pipeline,
 /// progress bar, context viewer, and action buttons.
@@ -31,13 +41,31 @@ String workflowDetailPageTemplate({
   final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
   // Determine which actions are available.
-  final isApprovalPaused = run['isApprovalPaused'] == true;
+  final runStatus = switch (statusName) {
+    'pending' => WorkflowRunStatus.pending,
+    'running' => WorkflowRunStatus.running,
+    'paused' => WorkflowRunStatus.paused,
+    'awaitingApproval' => WorkflowRunStatus.awaitingApproval,
+    'completed' => WorkflowRunStatus.completed,
+    'failed' => WorkflowRunStatus.failed,
+    'cancelled' => WorkflowRunStatus.cancelled,
+    _ => WorkflowRunStatus.pending,
+  };
+  final workflowRun = WorkflowRun(
+    id: run['id']?.toString() ?? '',
+    definitionName: definitionName,
+    status: runStatus,
+    contextJson: Map<String, dynamic>.from(run['contextJson'] as Map? ?? const {}),
+    variablesJson: const {},
+    startedAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
   final canPause = statusName == 'running';
-  final canResume = statusName == 'paused';
-  final canCancel = statusName == 'running' || statusName == 'paused';
-  // Approval-paused runs show Approve/Reject instead of generic Resume/Cancel.
-  final canApprove = isApprovalPaused;
-  final canReject = isApprovalPaused;
+  final canResume = workflowCanResume(workflowRun);
+  final canRetry = workflowCanRetry(workflowRun);
+  final canCancel = statusName == 'running' || statusName == 'paused' || statusName == 'awaitingApproval';
+  final canApprove = workflowCanApprove(workflowRun);
+  final canReject = workflowCanReject(workflowRun);
 
   // Annotate steps with loop/parallel info and display labels.
   final annotatedSteps = steps.map((step) {
@@ -94,8 +122,8 @@ String workflowDetailPageTemplate({
     'runId': run['id'],
     'definitionName': definitionName,
     'status': statusName,
-    'statusLabel': titleCase(statusName),
-    'statusBadgeClass': 'status-badge-$statusName',
+    'statusLabel': workflowStatusLabel(runStatus),
+    'statusBadgeClass': workflowStatusBadgeClass(runStatus),
     'startedAtDisplay': _formatTimeAgo(run['startedAt']),
     'updatedAtDisplay': _formatTimeAgo(run['updatedAt']),
     'hasCompletedAt': run['completedAt'] != null,
@@ -112,9 +140,9 @@ String workflowDetailPageTemplate({
     'contextEntries': contextEntries,
     'hasContext': contextEntries.isNotEmpty,
     'canPause': canPause,
-    'canResume': canResume && !isApprovalPaused,
-    'canCancel': canCancel && !isApprovalPaused,
-    'isApprovalPaused': isApprovalPaused,
+    'canResume': canResume,
+    'canRetry': canRetry,
+    'canCancel': canCancel && !canApprove,
     'canApprove': canApprove,
     'canReject': canReject,
   });

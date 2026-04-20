@@ -201,5 +201,72 @@ void main() {
         expect(await repository.getById(run.id), isNull);
       });
     });
+
+    group('S36 legacy paused → awaitingApproval / failed migration', () {
+      // Uses a dedicated in-memory DB per test so the migration ledger is
+      // fresh (the shared setUp already runs the migration on its db).
+      late Database migrationDb;
+
+      setUp(() {
+        migrationDb = sqlite3.openInMemory();
+        // Seed minimal workflow_runs table matching the repository schema.
+        migrationDb.execute('''
+          CREATE TABLE workflow_runs (
+            id TEXT PRIMARY KEY,
+            definition_name TEXT,
+            status TEXT,
+            context_json TEXT,
+            variables_json TEXT,
+            started_at TEXT,
+            updated_at TEXT,
+            completed_at TEXT,
+            error_message TEXT,
+            total_tokens INTEGER DEFAULT 0,
+            current_step_index INTEGER DEFAULT 0,
+            definition_json TEXT,
+            execution_cursor_json TEXT,
+            current_loop_id TEXT,
+            current_loop_iteration INTEGER
+          )
+        ''');
+      });
+
+      tearDown(() {
+        migrationDb.close();
+      });
+
+      test('reclassifies paused rows: with pending approval → awaitingApproval, without → failed', () async {
+        migrationDb.execute('''
+          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
+            started_at, updated_at, definition_json)
+          VALUES ('run-approval', 'wf', 'paused',
+            '{"_approval.pending.stepId":"gate"}', '{}',
+            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
+        ''');
+        migrationDb.execute('''
+          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
+            started_at, updated_at, definition_json)
+          VALUES ('run-failure', 'wf', 'paused',
+            '{}', '{}',
+            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
+        ''');
+
+        final repo = SqliteWorkflowRunRepository(migrationDb);
+
+        expect((await repo.getById('run-approval'))?.status, WorkflowRunStatus.awaitingApproval);
+        expect((await repo.getById('run-failure'))?.status, WorkflowRunStatus.failed);
+      });
+
+      test('migration runs once and does not touch later user-initiated paused rows', () async {
+        // First construction applies the migration (nothing to reclassify).
+        final repo = SqliteWorkflowRunRepository(migrationDb);
+
+        // After migration: a legitimately paused run must not be reclassified on re-open.
+        await repo.insert(_buildRun(id: 'post-migration-paused', status: WorkflowRunStatus.paused));
+
+        final repo2 = SqliteWorkflowRunRepository(migrationDb);
+        expect((await repo2.getById('post-migration-paused'))?.status, WorkflowRunStatus.paused);
+      });
+    });
   });
 }

@@ -1,6 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask;
+    show buildLoopInfo, formatContextForDisplay, stepStatusFromTask, workflowStatusBadgeClass, workflowStatusLabel;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -97,8 +97,8 @@ class WorkflowsPage extends DashboardPage {
         'id': run.id,
         'definitionName': run.definitionName,
         'status': run.status.name,
-        'statusLabel': titleCase(run.status.name),
-        'statusBadgeClass': 'status-badge-${run.status.name}',
+        'statusLabel': workflowStatusLabel(run.status),
+        'statusBadgeClass': workflowStatusBadgeClass(run.status),
         'completedSteps': completedSteps,
         'totalSteps': totalSteps,
         'progressPercent': progressPercent,
@@ -269,7 +269,7 @@ class WorkflowsPage extends DashboardPage {
         'completedAt': run.completedAt?.toIso8601String(),
         'totalTokens': run.totalTokens,
         'errorMessage': run.errorMessage,
-        'isApprovalPaused': pendingApprovalStepId != null,
+        'contextJson': run.contextJson,
         'pendingApprovalStepId': pendingApprovalStepId,
       },
       steps: steps,

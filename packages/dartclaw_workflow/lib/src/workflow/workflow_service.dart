@@ -219,8 +219,11 @@ class WorkflowService {
   /// [WorkflowApprovalResolvedEvent].
   Future<WorkflowRun> resume(String runId) async {
     var run = await _requireRun(runId);
-    if (run.status != WorkflowRunStatus.paused) {
-      throw StateError('Cannot resume workflow in ${run.status.name} state (only paused workflows can be resumed)');
+    if (run.status != WorkflowRunStatus.paused && run.status != WorkflowRunStatus.awaitingApproval) {
+      throw StateError(
+        'Cannot resume workflow in ${run.status.name} state '
+        '(only paused or awaitingApproval workflows can be resumed)',
+      );
     }
 
     // Record approval outcome if this was an approval-paused run.
@@ -279,6 +282,56 @@ class WorkflowService {
 
     _spawnExecutor(running, definition, context, startFromStepIndex: resumeStepIndex, startCursor: executionCursor);
 
+    return running;
+  }
+
+  /// Retries a failed workflow from its persisted resume cursor.
+  Future<WorkflowRun> retry(String runId) async {
+    var run = await _requireRun(runId);
+    if (run.status != WorkflowRunStatus.failed) {
+      throw StateError('Cannot retry workflow in ${run.status.name} state (only failed workflows can be retried)');
+    }
+
+    final definition = WorkflowDefinition.fromJson(run.definitionJson);
+    final context = await _loadContext(runId) ?? WorkflowContext.fromJson(run.contextJson);
+    final executionCursor = _resumeCursor(run, definition);
+    final retryStepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    _logResumeCursor(run, executionCursor, action: 'Retrying');
+
+    final failingStepId = _stepIdForRetry(run, definition, executionCursor);
+    if (failingStepId != null) {
+      context.remove('$failingStepId.status');
+      context.remove('step.$failingStepId.outcome');
+      context.remove('step.$failingStepId.outcome.reason');
+    }
+    await _persistContext(runId, context);
+
+    final running = run.copyWith(
+      status: WorkflowRunStatus.running,
+      errorMessage: null,
+      completedAt: null,
+      contextJson: _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: {
+          if (failingStepId != null) '$failingStepId.status',
+          if (failingStepId != null) 'step.$failingStepId.outcome',
+          if (failingStepId != null) 'step.$failingStepId.outcome.reason',
+        },
+      ),
+      updatedAt: DateTime.now(),
+    );
+    await _repository.update(running);
+    _cancelFlags.remove(runId);
+
+    _fireStatusChanged(
+      runId: runId,
+      definitionName: run.definitionName,
+      oldStatus: run.status,
+      newStatus: WorkflowRunStatus.running,
+    );
+
+    _spawnExecutor(running, definition, context, startFromStepIndex: retryStepIndex, startCursor: executionCursor);
     return running;
   }
 
@@ -348,7 +401,9 @@ class WorkflowService {
     // Host-side wiring is responsible for reacting to running->cancelled task
     // transitions and terminating any active turn bound to the task session.
     final allTasks = await _taskService.list();
-    final workflowTasks = allTasks.where((t) => t.workflowRunId == runId && !t.status.terminal);
+    final workflowTasks = allTasks.where(
+      (t) => t.workflowRunId == runId && (t.status == TaskStatus.queued || t.status == TaskStatus.running),
+    );
     for (final task in workflowTasks) {
       try {
         await _taskService.transition(task.id, TaskStatus.cancelled, trigger: 'workflow-cancel');
@@ -385,8 +440,11 @@ class WorkflowService {
       }
     }
 
-    final pausedRuns = await _repository.list(status: WorkflowRunStatus.paused);
-    for (final run in pausedRuns) {
+    final heldRuns = [
+      ...await _repository.list(status: WorkflowRunStatus.paused),
+      ...await _repository.list(status: WorkflowRunStatus.awaitingApproval),
+    ];
+    for (final run in heldRuns) {
       try {
         await _rehydrateApprovalTimeout(run);
       } catch (e, st) {
@@ -592,7 +650,7 @@ class WorkflowService {
           isCancelled: () => _cancelFlags[run.id] ?? false,
         );
         final current = await _repository.getById(run.id);
-        if (current != null && current.status == WorkflowRunStatus.paused) {
+        if (current != null && current.status == WorkflowRunStatus.awaitingApproval) {
           await _rehydrateApprovalTimeout(current);
         }
       } catch (e, st) {
@@ -634,6 +692,15 @@ class WorkflowService {
     final run = await _repository.getById(runId);
     if (run == null) throw ArgumentError('Workflow run not found: $runId');
     return run;
+  }
+
+  String? _stepIdForRetry(WorkflowRun run, WorkflowDefinition definition, WorkflowExecutionCursor? executionCursor) {
+    if (executionCursor?.stepId case final String stepId?) {
+      return stepId;
+    }
+    final stepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
+    if (stepIndex < 0 || stepIndex >= definition.steps.length) return null;
+    return definition.steps[stepIndex].id;
   }
 
   Future<void> _persistContext(String runId, WorkflowContext context) async {
@@ -733,7 +800,7 @@ class WorkflowService {
   }
 
   Future<void> _expireApprovalTimeout(WorkflowRun run, String stepId) async {
-    if (run.status != WorkflowRunStatus.paused) return;
+    if (run.status != WorkflowRunStatus.awaitingApproval && run.status != WorkflowRunStatus.paused) return;
     if (run.contextJson['_approval.pending.stepId'] != stepId) return;
 
     _clearApprovalTimeoutTimer(run.id, stepId);

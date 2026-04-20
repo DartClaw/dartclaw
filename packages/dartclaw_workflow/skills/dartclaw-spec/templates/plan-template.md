@@ -121,4 +121,4 @@ W3: S05
 3. Stories marked `[P]` may run in parallel after dependencies are satisfied.
 4. After the plan is complete, invoke the `dartclaw-review` skill with `--mode gap` against `plan.md`.
 
-> **Status tracking**: Keep the Story Catalog table and the Phase Breakdown story sections in sync. The `plan-and-implement` workflow skill and the `dartclaw-update-state` skill rely on these fields for progress tracking.
+> **Status tracking**: Keep the Story Catalog table and the Phase Breakdown story sections in sync. The `plan-and-implement` workflow and the `dartclaw-update-state` skill rely on these fields for progress tracking.

@@ -110,7 +110,7 @@ Synthesize into a unified understanding of: all PRD requirements and user storie
 
 #### Design Space Analysis _(if applicable)_
 
-For features with multiple design dimensions, use design space decomposition to inform story structure: independent dimensions → separate stories, coupled dimensions → same story, high-uncertainty dimensions → spike story. If a decomposition was produced upstream (by `clarify` or `trade-off`), reference and build on it. Skip for straightforward designs.
+For features with multiple design dimensions, use design space decomposition to inform story structure: independent dimensions → separate stories, coupled dimensions → same story, high-uncertainty dimensions → spike story. If an upstream decomposition (requirements clarification, trade-off analysis, or similar prior artifact) is available, reference and build on it. Skip for straightforward designs.
 
 #### Story Guidelines
 
@@ -194,7 +194,7 @@ If the `State` document exists, update it to reflect the new plan via the `dartc
 - `update-state status "On Track"`
 - `update-state note "Plan created: {plan_name} ({N} stories, {M} phases)"`
 
-If the `State` document does not exist, do not create it here — the workflow's state-update step (or an explicit `dartclaw-update-state` invocation) is the right place for that.
+If the `State` document does not exist, do not create it here.
 
 **Gate**: `plan.md` saved and validated
 
@@ -265,7 +265,7 @@ Classify each story — **fully automatic**, no user confirmation needed. Apply 
 
 All THIN stories in the current scope are collected into a **single** FIS file: `{OUTPUT_DIR}/thin-specs.md` (or `thin-specs-p{N}.md` when running with `--phase N`). The orchestrator writes this directly — no sub-agents needed. Use the standard FIS template (`templates/fis-template.md`) and FIS authoring guidelines (`references/fis-authoring-guidelines.md`). Tag Success Criteria with source story IDs (e.g., `### S08: Story Name`) so acceptance gates can map criteria per story. Keep implementation tasks for each source story contiguous and call out the source story ID in task context where needed. Populate from plan story scope/criteria, Key Scenarios (if present), and technical research. Target: compact but complete.
 
-After writing, update **ALL** THIN stories' `**FIS**` fields in `plan.md` to point to the thin-specs file and set `**Status**` to `Spec Ready`. The shared FIS path triggers existing shared-FIS dedup in `exec-plan` — `exec-spec` runs once, remaining stories skip to acceptance gate.
+After writing, update **ALL** THIN stories' `**FIS**` fields in `plan.md` to point to the thin-specs file and set `**Status**` to `Spec Ready`. The shared FIS path triggers shared-FIS dedup in the `plan-and-implement` workflow — the `dartclaw-exec-spec` step runs once, remaining stories skip to acceptance gate.
 
 #### 6c. COMPOSITE and STANDARD: Parallel Spec Creation
 
@@ -343,7 +343,7 @@ If the review found CRITICAL or HIGH severity issues, apply fixes to resolve int
 **Broken scenario chains (#11)** — pick one:
 - Add the missing scenario to the FIS whose story naturally owns that leg. Don't stretch an unrelated FIS.
 - If no story owns it, add a new story: re-enter Step 3 (Phase/Wave/Dependencies/Risk), update the Story Catalog, re-run technical research if files fall outside the existing map, then Step 6 for that story before execution.
-- If the gap is a missing upstream decision, treat as a contract failure (per INSTRUCTIONS): halt and surface the minimum missing decision in the step output. Do not invent the answer, and do not wait for interactive clarification — the workflow engine decides whether to retry, reroute, or surface the blocker.
+- If the gap is a missing upstream decision, treat as a contract failure (per INSTRUCTIONS): halt and surface the minimum missing decision in the step output. Do not invent the answer.
 
 **Phantom-scope findings** (from sub-agent `PHANTOM_SCOPE` return summaries): sub-agents only saw plan-level sources, so first re-check each finding against `prd.md` — criteria that trace to a PRD outcome are **not** phantom scope (suppress). For confirmed phantom scope: remove the unsourced Success Criterion, or amend plan/PRD to justify it. Treat confirmed phantom scope as MEDIUM severity by default; upgrade to HIGH when it drives significant implementation work or introduces new dependencies.
 

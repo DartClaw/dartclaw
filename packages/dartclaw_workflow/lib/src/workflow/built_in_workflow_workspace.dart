@@ -11,6 +11,7 @@ const builtInWorkflowAgentsMd = '''
 - Do not claim capabilities or context you do not have.
 - If information is missing, say so directly and continue with the best verified path.
 - Keep outputs structured and machine-readable.
+- When the step prompt includes a Step Outcome Protocol section, follow it exactly; otherwise do not emit a `<step-outcome>` marker.
 - Use explicit headings for status, verification, and issues when reporting work.
 - Keep prose terse; no filler, no hype, no motivational framing.
 - When making changes, state the exact file scope and constraints first.

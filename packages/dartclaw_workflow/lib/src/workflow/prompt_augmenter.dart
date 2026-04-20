@@ -8,7 +8,12 @@ class PromptAugmenter {
   const PromptAugmenter();
 
   /// Returns [prompt] with appended output format and workflow-context instructions.
-  String augment(String prompt, {Map<String, OutputConfig>? outputs, List<String> contextOutputs = const []}) {
+  String augment(
+    String prompt, {
+    Map<String, OutputConfig>? outputs,
+    List<String> contextOutputs = const [],
+    bool emitStepOutcomeProtocol = false,
+  }) {
     final sections = <String>[];
 
     final workflowContextSection = _buildWorkflowContextSection(outputs, contextOutputs);
@@ -17,9 +22,32 @@ class PromptAugmenter {
     final schemaSection = _buildSchemaSection(outputs, contextOutputs);
     if (schemaSection != null) sections.add(schemaSection);
 
+    if (emitStepOutcomeProtocol) {
+      sections.add(_buildStepOutcomeSection());
+    }
+
     if (sections.isEmpty) return prompt;
 
     return '$prompt\n\n${sections.join('\n\n')}';
+  }
+
+  String _buildStepOutcomeSection() {
+    final buf = StringBuffer();
+    buf.writeln('## Step Outcome Protocol');
+    buf.writeln();
+    buf.writeln(
+      'End your final response with '
+      '`$kStepOutcomeOpen{"outcome":"succeeded|failed|needsInput","reason":"..." }$kStepOutcomeClose`.',
+    );
+    buf.writeln('Do not use markdown code fences inside `$kStepOutcomeOpen`.');
+    buf.writeln('Allowed outcome values are exactly: `succeeded`, `failed`, `needsInput`.');
+    buf.writeln('Use `needsInput` when a human decision or missing requirement blocks safe progress.');
+    buf.writeln();
+    buf.writeln('Example:');
+    buf.writeln(kStepOutcomeOpen);
+    buf.writeln('{"outcome":"succeeded","reason":"completed as requested"}');
+    buf.writeln(kStepOutcomeClose);
+    return buf.toString().trimRight();
   }
 
   String? _buildSchemaSection(Map<String, OutputConfig>? outputs, List<String> contextOutputs) {

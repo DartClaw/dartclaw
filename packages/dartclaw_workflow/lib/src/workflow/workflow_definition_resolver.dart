@@ -26,10 +26,7 @@ class WorkflowDefinitionResolver {
   ///
   /// The emitted definition no longer carries `stepDefaults` (already
   /// applied) and recomputes `nodes` via [WorkflowDefinition.normalizeNodes].
-  WorkflowDefinition resolve(
-    WorkflowDefinition def, {
-    Map<String, String>? variableBindings,
-  }) {
+  WorkflowDefinition resolve(WorkflowDefinition def, {Map<String, String>? variableBindings}) {
     final resolvedSteps = def.steps
         .map((step) => _resolveStep(step, def.stepDefaults, variableBindings))
         .toList(growable: false);
@@ -137,6 +134,8 @@ class WorkflowDefinitionResolver {
       continueSession: step.continueSession,
       onError: step.onError,
       workdir: step.workdir,
+      onFailure: step.onFailure,
+      emitsOwnOutcome: step.emitsOwnOutcome || (skillInfo?.emitsOwnOutcome ?? false),
       autoFrameContext: step.autoFrameContext,
     );
   }
@@ -175,10 +174,7 @@ class WorkflowDefinitionResolver {
   /// emitted YAML preserves a stable, human-friendly field order (name,
   /// description, variables, stepDefaults, gitStrategy, steps, loops).
   List<MapEntry<String, dynamic>> _workflowToOrderedMap(WorkflowDefinition def) {
-    final entries = <MapEntry<String, dynamic>>[
-      MapEntry('name', def.name),
-      MapEntry('description', def.description),
-    ];
+    final entries = <MapEntry<String, dynamic>>[MapEntry('name', def.name), MapEntry('description', def.description)];
     if (def.variables.isNotEmpty) {
       entries.add(MapEntry('variables', def.variables.map((k, v) => MapEntry(k, v.toJson()))));
     }
@@ -291,6 +287,8 @@ class WorkflowDefinitionResolver {
     }
     if (step.onError != null) entries.add(MapEntry('onError', step.onError));
     if (step.workdir != null) entries.add(MapEntry('workdir', step.workdir));
+    if (step.onFailure != OnFailurePolicy.fail) entries.add(MapEntry('onFailure', step.onFailure.yamlName));
+    if (step.emitsOwnOutcome) entries.add(MapEntry('emitsOwnOutcome', true));
     if (!step.autoFrameContext) entries.add(MapEntry('auto_frame_context', false));
     return entries;
   }

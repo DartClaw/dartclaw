@@ -126,6 +126,26 @@ enum StepReviewMode {
   };
 }
 
+/// Policy applied when a workflow step reports an explicit failed outcome.
+enum OnFailurePolicy {
+  fail('fail'),
+  continueWorkflow('continue'),
+  retry('retry'),
+  pause('pause');
+
+  final String yamlName;
+
+  const OnFailurePolicy(this.yamlName);
+
+  static OnFailurePolicy? fromYaml(String value) => switch (value) {
+    'fail' => fail,
+    'continue' => continueWorkflow,
+    'retry' => retry,
+    'pause' => pause,
+    _ => null,
+  };
+}
+
 /// Extraction strategy for context output values.
 enum ExtractionType {
   /// Extract using a regular expression.
@@ -567,6 +587,15 @@ class WorkflowStep {
   /// S02 owns runtime execution semantics for this field.
   final String? workdir;
 
+  /// Policy applied when this step reports an explicit failed outcome.
+  ///
+  /// Defaults to [OnFailurePolicy.fail].
+  final OnFailurePolicy onFailure;
+
+  /// Whether this step or its referenced skill emits its own `<step-outcome>`
+  /// marker and should skip prompt augmentation for the outcome protocol.
+  final bool emitsOwnOutcome;
+
   /// Whether the engine auto-frames unreferenced `contextInputs` and
   /// workflow-level `variables` onto the step prompt as `<key>...</key>`
   /// blocks. Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`)
@@ -618,6 +647,8 @@ class WorkflowStep {
     this.continueSession,
     this.onError,
     this.workdir,
+    this.onFailure = OnFailurePolicy.fail,
+    this.emitsOwnOutcome = false,
     this.autoFrameContext = true,
   });
 
@@ -651,6 +682,8 @@ class WorkflowStep {
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
+    if (onFailure != OnFailurePolicy.fail) 'onFailure': onFailure.yamlName,
+    if (emitsOwnOutcome) 'emitsOwnOutcome': true,
     if (!autoFrameContext) 'autoFrameContext': false,
   };
 
@@ -705,6 +738,10 @@ class WorkflowStep {
       },
       onError: json['onError'] as String?,
       workdir: json['workdir'] as String?,
+      onFailure: json['onFailure'] is String
+          ? (OnFailurePolicy.fromYaml(json['onFailure'] as String) ?? OnFailurePolicy.fail)
+          : OnFailurePolicy.fail,
+      emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
       autoFrameContext: (json['autoFrameContext'] as bool?) ?? true,
     );
   }

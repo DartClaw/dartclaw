@@ -380,16 +380,37 @@ class WorkflowDefinitionParser {
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
+      onFailure: _parseOnFailure(raw['onFailure'] ?? raw['on_failure'], id, sourcePath),
+      emitsOwnOutcome: _parseEmitsOwnOutcome(raw['emitsOwnOutcome'] ?? raw['emits_own_outcome'], id, sourcePath),
       autoFrameContext: _parseAutoFrameContext(raw['auto_frame_context'] ?? raw['autoFrameContext'], id, sourcePath),
     );
+  }
+
+  OnFailurePolicy _parseOnFailure(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return OnFailurePolicy.fail;
+    if (raw is! String) {
+      throw FormatException('Step "$stepId": "onFailure" must be a string${_at(sourcePath)}.');
+    }
+    final policy = OnFailurePolicy.fromYaml(raw);
+    if (policy == null) {
+      throw FormatException(
+        'Step "$stepId": unknown onFailure policy "$raw" '
+        '(expected fail, continue, retry, or pause)${_at(sourcePath)}.',
+      );
+    }
+    return policy;
+  }
+
+  bool _parseEmitsOwnOutcome(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return false;
+    if (raw is bool) return raw;
+    throw FormatException('Step "$stepId": "emitsOwnOutcome" must be a boolean (true or false)${_at(sourcePath)}.');
   }
 
   bool _parseAutoFrameContext(Object? raw, String stepId, String? sourcePath) {
     if (raw == null) return true;
     if (raw is bool) return raw;
-    throw FormatException(
-      'Step "$stepId": "auto_frame_context" must be a boolean (true or false)${_at(sourcePath)}.',
-    );
+    throw FormatException('Step "$stepId": "auto_frame_context" must be a boolean (true or false)${_at(sourcePath)}.');
   }
 
   String? _parseContinueSession(Object? raw, String stepId, String? sourcePath) {
@@ -529,11 +550,7 @@ class WorkflowDefinitionParser {
         'flat-level declaration${_at(sourcePath)}.',
       );
     }
-    final flatMount = _parseExternalArtifactMount(
-      flatMountRaw,
-      sourcePath,
-      'gitStrategy.externalArtifactMount',
-    );
+    final flatMount = _parseExternalArtifactMount(flatMountRaw, sourcePath, 'gitStrategy.externalArtifactMount');
     final legacyExternalArtifactMountLocation = flatMount != null;
     worktree ??= WorkflowGitWorktreeStrategy();
     if (flatMount != null) {
@@ -550,11 +567,7 @@ class WorkflowDefinitionParser {
     );
   }
 
-  WorkflowGitExternalArtifactMount? _parseExternalArtifactMount(
-    Object? raw,
-    String? sourcePath,
-    String fieldPath,
-  ) {
+  WorkflowGitExternalArtifactMount? _parseExternalArtifactMount(Object? raw, String? sourcePath, String fieldPath) {
     if (raw == null) return null;
     if (raw is! YamlMap) {
       throw FormatException('Field "$fieldPath" must be a mapping${_at(sourcePath)}.');

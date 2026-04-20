@@ -210,7 +210,8 @@ class SkillRegistryImpl implements SkillRegistry {
   ///
   /// Frontmatter is delimited by `---` lines at the start of the file.
   /// Extracts `name` and `description` fields per Agent Skills spec plus the
-  /// optional `workflow:` block carrying `default_prompt` and `default_outputs`
+  /// optional `workflow:` block carrying `default_prompt`, `default_outputs`,
+  /// and `emits_own_outcome`
   /// (DartClaw extension — third-party skills without the block are unaffected).
   /// Falls back to directory name for `name` if missing.
   SkillInfo? _parseFrontmatterContent(
@@ -225,6 +226,7 @@ class SkillRegistryImpl implements SkillRegistry {
       String description = '';
       String? defaultPrompt;
       Map<String, OutputConfig>? defaultOutputs;
+      bool emitsOwnOutcome = false;
 
       if (content.startsWith('---')) {
         final endIndex = content.indexOf('\n---', 3);
@@ -236,7 +238,10 @@ class SkillRegistryImpl implements SkillRegistry {
             description = (yaml['description'] as String?) ?? '';
             final workflowBlock = yaml['workflow'];
             if (workflowBlock is YamlMap) {
-              (defaultPrompt, defaultOutputs) = _parseWorkflowFrontmatterBlock(workflowBlock, skillPath);
+              (defaultPrompt, defaultOutputs, emitsOwnOutcome) = _parseWorkflowFrontmatterBlock(
+                workflowBlock,
+                skillPath,
+              );
             } else if (workflowBlock != null) {
               _log.warning('SKILL.md `workflow:` block is not a map in $skillPath; ignoring');
             }
@@ -255,6 +260,7 @@ class SkillRegistryImpl implements SkillRegistry {
         nativeHarnesses: harnesses,
         defaultPrompt: defaultPrompt,
         defaultOutputs: defaultOutputs,
+        emitsOwnOutcome: emitsOwnOutcome,
       );
     } catch (e) {
       _log.warning('Failed to parse SKILL.md in $skillPath: $e');
@@ -264,12 +270,13 @@ class SkillRegistryImpl implements SkillRegistry {
 
   /// Parses the optional `workflow:` frontmatter block.
   ///
-  /// Returns `(defaultPrompt, defaultOutputs)`. Malformed entries are logged at
+  /// Returns `(defaultPrompt, defaultOutputs, emitsOwnOutcome)`. Malformed entries are logged at
   /// warning level and yield null for that field so skill discovery keeps
   /// working for minimally-declared third-party skills.
-  (String?, Map<String, OutputConfig>?) _parseWorkflowFrontmatterBlock(YamlMap block, String skillPath) {
+  (String?, Map<String, OutputConfig>?, bool) _parseWorkflowFrontmatterBlock(YamlMap block, String skillPath) {
     String? defaultPrompt;
     Map<String, OutputConfig>? defaultOutputs;
+    var emitsOwnOutcome = false;
 
     final rawPrompt = block['default_prompt'];
     if (rawPrompt is String) {
@@ -303,7 +310,14 @@ class SkillRegistryImpl implements SkillRegistry {
       _log.warning('SKILL.md `workflow.default_outputs` is not a map in $skillPath; ignoring');
     }
 
-    return (defaultPrompt, defaultOutputs);
+    final rawEmitsOwnOutcome = block['emits_own_outcome'];
+    if (rawEmitsOwnOutcome is bool) {
+      emitsOwnOutcome = rawEmitsOwnOutcome;
+    } else if (rawEmitsOwnOutcome != null) {
+      _log.warning('SKILL.md `workflow.emits_own_outcome` is not a boolean in $skillPath; ignoring');
+    }
+
+    return (defaultPrompt, defaultOutputs, emitsOwnOutcome);
   }
 
   /// Recursively converts YAML-native nodes to plain Dart types so they plug
@@ -311,9 +325,7 @@ class SkillRegistryImpl implements SkillRegistry {
   /// `List<dynamic>` rather than `YamlMap` / `YamlList`).
   Object? _yamlToDart(Object? node) {
     if (node is YamlMap) {
-      return <String, dynamic>{
-        for (final entry in node.entries) entry.key.toString(): _yamlToDart(entry.value),
-      };
+      return <String, dynamic>{for (final entry in node.entries) entry.key.toString(): _yamlToDart(entry.value)};
     }
     if (node is YamlList) {
       return [for (final item in node) _yamlToDart(item)];

@@ -7,7 +7,7 @@ import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
 import 'package:dartclaw_storage/dartclaw_storage.dart'
     show SqliteAgentExecutionRepository, SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDb, TaskDbFactory;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunStatus;
 
 import '../../dartclaw_api_client.dart';
 import '../config_loader.dart';
@@ -166,8 +166,10 @@ class WorkflowStatusCommand extends Command<void> {
     _writeLine('Workflow Run: ${run.id}');
     _writeLine('  Definition:  ${run.definitionName}');
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
-    final isApprovalPaused = run.status.name == 'paused' && pendingApprovalStepId != null;
-    final statusDisplay = isApprovalPaused ? 'paused (awaiting approval)' : run.status.name;
+    final isAwaitingApproval =
+        pendingApprovalStepId != null &&
+        (run.status == WorkflowRunStatus.awaitingApproval || run.status == WorkflowRunStatus.paused);
+    final statusDisplay = isAwaitingApproval ? 'paused (awaiting approval)' : run.status.name;
     _writeLine('  Status:      $statusDisplay');
     _writeLine('  Started:     ${_formatDateTime(run.startedAt.toIso8601String())}');
     if (run.completedAt != null) {
@@ -175,7 +177,7 @@ class WorkflowStatusCommand extends Command<void> {
     }
     _writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
     _writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
-    if (isApprovalPaused) {
+    if (isAwaitingApproval) {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
       _writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
       if (approvalMessage != null) {
@@ -183,6 +185,8 @@ class WorkflowStatusCommand extends Command<void> {
       }
       _writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow resume ${run.id}` to approve');
       _writeLine('               Start `dartclaw serve`, then run `dartclaw workflow cancel ${run.id}` to reject');
+    } else if (run.status == WorkflowRunStatus.failed) {
+      _writeLine('  Actions:     Start `dartclaw serve`, then run `dartclaw workflow retry ${run.id}` to retry');
     }
     if (run.errorMessage != null) {
       _writeLine('  Error:       ${run.errorMessage}');

@@ -135,8 +135,11 @@ enum WorkflowRunStatus {
   /// Workflow is actively executing steps.
   running,
 
-  /// Workflow paused due to step failure, gate failure, or user intervention.
+  /// Workflow deliberately paused by an operator.
   paused,
+
+  /// Workflow is waiting for human approval or additional input.
+  awaitingApproval,
 
   /// All steps completed successfully.
   completed,
@@ -180,7 +183,7 @@ class WorkflowRun {
   /// When this run reached a terminal state.
   final DateTime? completedAt;
 
-  /// Error message when status is paused or failed.
+  /// Error or hold message when status is paused, awaitingApproval, or failed.
   final String? errorMessage;
 
   /// Cumulative tokens consumed across all steps.

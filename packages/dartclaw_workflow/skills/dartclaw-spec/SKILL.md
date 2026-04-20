@@ -46,7 +46,7 @@ ARGUMENTS: $ARGUMENTS
 
 **Scenarios that describe implementation, not behavior** – scenarios should use Given/When/Then to describe observable outcomes from the user's or system's perspective, not internal code steps. Bad: "Given a new AuthService class, When login() is called...". Good: "Given valid credentials, When the user submits login, Then a session token is returned."
 
-**Over-researching** – gather just enough context for a clear spec. Default to skipping research phases unless clearly needed (gap in requirements, unfamiliar APIs, novel features). A spec that reads like a diff is too detailed. A 30-line minimal FIS is fine; zero FIS is not. Most strong FIS files land in the 100-300 line range. If the first-pass draft is pushing past roughly ~400 lines or >12 tasks, pivot at spec time into a small plan bundle with multiple child FIS files instead of leaving the problem for `exec-spec`.
+**Over-researching** – gather just enough context for a clear spec. Default to skipping research phases unless clearly needed (gap in requirements, unfamiliar APIs, novel features). A spec that reads like a diff is too detailed. A 30-line minimal FIS is fine; zero FIS is not. Most strong FIS files land in the 100-300 line range. If the first-pass draft is pushing past roughly ~400 lines or >12 tasks, pivot at spec time into a small plan bundle with multiple child FIS files instead of leaving the problem for `dartclaw-exec-spec`.
 
 **Generic "What We're NOT Doing" section** – use it to record real non-goals or deferrals with reasons, not filler bullets.
 
@@ -137,7 +137,7 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
      - save with a stable story-scoped filename such as `s01-{story-name}.md`
      - keep the spec execution-sized; if a child FIS would still be oversized, split the story further in `plan.md` before saving specs
   8. Update the generated `plan.md` immediately after each child FIS is written so that every story points at its child FIS path and has `Status: Spec Ready`.
-  9. Treat the result as a **fully-specced plan bundle** whose downstream path is the `plan-and-implement` workflow skill, not the `dartclaw-exec-spec` skill. Specs for every story are already included, so `exec-plan` can consume the bundle directly without an upstream `dartclaw-plan` pass.
+  9. Treat the result as a **fully-specced plan bundle** whose downstream path is the `plan-and-implement` workflow, not the `dartclaw-exec-spec` skill. Specs for every story are already included, so the workflow can consume the bundle directly without an upstream `dartclaw-plan` pass.
 - If the draft is oversized **and the input is `story {story_id} of {path-to-plan.md}`**:
   - Do **not** silently fan one plan story out into multiple FIS files.
   - Stop and report that the story needs upstream plan decomposition before spec generation can complete. Do not save an oversized single FIS.
@@ -162,7 +162,7 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 - Do **not** use THIN/COMPOSITE/shared-FIS grouping in oversize pivot mode; this mode is a straightforward one-story-per-FIS decomposition
 - Save or reuse `.technical-research.md` beside the plan bundle
 - Update `plan.md` so each generated story references its child FIS path and has `Status` = `Spec Ready`
-- The downstream execution path is the `plan-and-implement` workflow skill
+- The downstream execution path is the `plan-and-implement` workflow
 - Do **not** use oversize pivot mode for `story {story_id} of {path-to-plan.md}` input; that case must escalate for upstream plan decomposition instead
 
 ---

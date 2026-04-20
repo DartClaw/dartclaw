@@ -68,14 +68,14 @@ class ValidationReport {
 /// [warnings] (soft notices). A definition is valid when [errors] is empty.
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
-  static final _gateConditionPattern = RegExp(r'^([\w-]+)\.([\w-]+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
+  static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)+)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
   // `entryGate` supports both bare-key and dotted `stepId.key` forms
   // (e.g. `active_prd != null` or `review-prd.findings_count > 0`), mirroring
   // how `GateEvaluator` reads values out of context. The key segment pattern
   // intentionally rejects multi-dotted forms (`a.b.c`) because the runtime
   // evaluator does not resolve nested paths — a gate written that way would
   // always read as null at runtime.
-  static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)?)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
+  static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*(.+)$');
 
   /// Skills that produce artifact files under `context.docs_project_index.artifact_locations.*`.
   static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
@@ -884,7 +884,7 @@ class WorkflowDefinitionValidator {
           );
           continue;
         }
-        final referencedStepId = match.group(1)!;
+        final referencedStepId = _gateReferencedStepId(match.group(1)!);
         if (!stepIds.contains(referencedStepId)) {
           errors.add(
             ValidationError(
@@ -923,7 +923,7 @@ class WorkflowDefinitionValidator {
             continue;
           }
 
-          final referencedStepId = match.group(1)!;
+          final referencedStepId = _gateReferencedStepId(match.group(1)!);
           if (!stepIds.contains(referencedStepId)) {
             errors.add(
               ValidationError(
@@ -936,6 +936,16 @@ class WorkflowDefinitionValidator {
         }
       }
     }
+  }
+
+  String _gateReferencedStepId(String rawKey) {
+    if (rawKey.startsWith('step.')) {
+      final segments = rawKey.split('.');
+      if (segments.length >= 3) {
+        return segments[1];
+      }
+    }
+    return rawKey.split('.').first;
   }
 
   void _validateLoopReferences(WorkflowDefinition definition, List<ValidationError> errors) {
@@ -1374,7 +1384,6 @@ class WorkflowDefinitionValidator {
           ),
         );
       }
-
       // continueSession validation.
       if (step.continueSession != null) {
         final stepIndex = definition.steps.indexWhere((s) => s.id == step.id);

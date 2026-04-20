@@ -45,7 +45,7 @@ REPORT_SOURCE: $ARGUMENTS
    - Local report path or direct raw report URL: read it directly
    - Any other input shape (issue page, PR shell URL, generic link): stop with an invalid-input error stating that the actual report content is required
 2. Extract from the report body:
-   - Review mode (`gap`, `code`, `doc`, `mixed`, `architecture`, `council`) — read from the report's mode line or the report filename suffix (e.g. `-gap-review.md` → `gap`)
+   - Review mode (`gap`, `code`, `doc`, `mixed`, `council`) — read from the report's mode line or the report filename suffix (e.g. `-gap-review.md` → `gap`)
    - Report verdict (PASS/FAIL) when present
    - Findings, severity, remediation recommendations, and reviewed scope
    - Referenced implementation targets, requirements baseline, FIS path, `plan.md`, and story IDs when the report names them
@@ -95,7 +95,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 4. Invoke the `dartclaw-quick-review` skill on the touched scope. This replaces the heavyweight re-review sub-agents – one lightweight pass is sufficient for targeted fixes.
 5. **Findings re-check**: Walk through every finding from the original report and verify resolution against the current workspace. For each finding, state: `RESOLVED` (with evidence), `PARTIALLY RESOLVED` (what remains), `UNRESOLVED` (why), or `DEFERRED` (per severity policy, with justification). This is the primary close-the-loop validation.
 6. If both implementation and document artifacts changed, verify consistency across them.
-7. If Critical/High findings remain after one remediation pass, halt and report the unresolved findings in the step output rather than looping — the workflow engine decides what comes next.
+7. If Critical/High findings remain after one remediation pass, halt with a structured blocker in the step output rather than looping.
 
 **Gate**: Every Critical/High finding is RESOLVED with evidence, Medium/Low findings are RESOLVED or DEFERRED with justification, quick-review on touched scope is clean, no new regressions
 

@@ -40,6 +40,31 @@ List<Map<String, dynamic>> buildLoopInfo(WorkflowDefinition definition, Map<Stri
   }).toList();
 }
 
+String workflowStatusLabel(WorkflowRunStatus status) => switch (status) {
+  WorkflowRunStatus.pending => 'Pending',
+  WorkflowRunStatus.running => 'Running',
+  WorkflowRunStatus.paused => 'Paused',
+  WorkflowRunStatus.awaitingApproval => 'Awaiting approval',
+  WorkflowRunStatus.completed => 'Completed',
+  WorkflowRunStatus.failed => 'Failed',
+  WorkflowRunStatus.cancelled => 'Cancelled',
+};
+
+String workflowStatusBadgeClass(WorkflowRunStatus status) => switch (status) {
+  WorkflowRunStatus.awaitingApproval => 'status-badge-awaiting-approval',
+  _ => 'status-badge-${status.name}',
+};
+
+bool workflowCanRetry(WorkflowRun run) => run.status == WorkflowRunStatus.failed;
+
+bool workflowCanResume(WorkflowRun run) => run.status == WorkflowRunStatus.paused;
+
+bool workflowCanApprove(WorkflowRun run) =>
+    run.status == WorkflowRunStatus.awaitingApproval && run.contextJson['_approval.pending.stepId'] != null;
+
+bool workflowCanReject(WorkflowRun run) =>
+    run.status == WorkflowRunStatus.awaitingApproval && run.contextJson['_approval.pending.stepId'] != null;
+
 /// Formats context JSON for display, filtering internal keys and truncating long values.
 List<Map<String, dynamic>> formatContextForDisplay(Map<String, dynamic> contextJson) {
   return contextJson.entries.where((e) => !e.key.startsWith('_') && !e.key.startsWith('loop.')).map((e) {

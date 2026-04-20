@@ -113,10 +113,7 @@ class WorkflowListCommand extends Command<void> {
 /// loaded synchronously, so this helper is kept separate and used from within
 /// an async context by [WorkflowListCommand.run]. The async loading is
 /// extracted here for reuse.
-Future<WorkflowRegistry> buildWorkflowRegistry(
-  DartclawConfig config, {
-  AssetResolver? assetResolver,
-}) async {
+Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetResolver? assetResolver}) async {
   final registry = WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
   await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
   await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'), source: WorkflowSource.materialized);

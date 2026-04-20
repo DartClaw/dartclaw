@@ -41,6 +41,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStepOutputTransformer,
         WorkflowService,
         WorkflowGitBootstrapResult,
+        WorkflowGitPublishResult,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
@@ -64,6 +65,31 @@ import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
 import 'workflow_git_support.dart';
 
+/// Outcome of a standalone-mode pull-request creation hook.
+///
+/// Mirrors the three-state contract used by the server-backed publish path
+/// (`success`, `manual`, `failed`). [CliWorkflowWiring.prCreator] returns one
+/// of these after a successful branch push; the value is threaded through
+/// `WorkflowGitPublishResult.prUrl` into the workflow context as
+/// `publish.pr_url`.
+class CliWorkflowPrResult {
+  final String status;
+  final String prUrl;
+  final String? error;
+
+  const CliWorkflowPrResult({required this.status, required this.prUrl, this.error});
+}
+
+/// Optional PR-creation hook for standalone CLI workflow runs.
+///
+/// Production `CliWorkflowWiring` does not pass a creator: the standalone
+/// publish path pushes the branch and returns `publish.pr_url == ''`, leaving
+/// PR creation to the operator. Tests (and alternative standalone entry
+/// points) can inject a creator — e.g. one that shells out to `gh pr create`
+/// — to exercise the full publish → context → consumer pipeline end to end.
+typedef CliWorkflowPrCreator =
+    Future<CliWorkflowPrResult> Function({required String runId, required String projectId, required String branch});
+
 /// Minimal service graph for headless workflow execution.
 ///
 /// Constructs only what [WorkflowService] + [TaskExecutor] need to run
@@ -78,6 +104,10 @@ class CliWorkflowWiring {
   final TaskDbFactory _taskDbFactory;
   final AssetResolver assetResolver;
   final WorkflowStepOutputTransformer? workflowStepOutputTransformer;
+
+  /// Optional hook invoked after a successful standalone publish push to
+  /// create a pull request; null by default (production behavior).
+  final CliWorkflowPrCreator? prCreator;
 
   late final EventBus eventBus;
   late final KvService kvService;
@@ -108,6 +138,7 @@ class CliWorkflowWiring {
     TaskDbFactory? taskDbFactory,
     AssetResolver? assetResolver,
     this.workflowStepOutputTransformer,
+    this.prCreator,
   }) : _harnessFactory = harnessFactory ?? HarnessFactory(),
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -349,20 +380,39 @@ class CliWorkflowWiring {
               );
             },
         publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-          final result = await publishWorkflowBranchLocally(projectDir: Directory.current.path, branch: branch);
-          if (result.status != 'success') {
-            return result;
+          final pushResult = await publishWorkflowBranchLocally(projectDir: Directory.current.path, branch: branch);
+          if (pushResult.status != 'success') {
+            return pushResult;
           }
+
+          // Optional PR-creation hook. Production CLI leaves prCreator null, so
+          // publish.pr_url stays empty and the operator creates the PR manually.
+          // When a hook is injected (tests / alternative entry points), its
+          // result replaces the push-only outcome so the URL flows through
+          // WorkflowGitPublishResult.prUrl into `publish.pr_url` context.
+          var result = pushResult;
+          if (prCreator != null) {
+            final prResult = await prCreator!(runId: runId, projectId: projectId, branch: branch);
+            result = WorkflowGitPublishResult(
+              status: prResult.status,
+              branch: pushResult.branch,
+              remote: pushResult.remote,
+              prUrl: prResult.prUrl,
+              error: prResult.error,
+            );
+          }
+
           final workflowTasks = (await taskService.list()).where((task) => task.workflowRunId == runId).toList()
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
           final artifactTaskId = workflowTasks.isEmpty ? null : workflowTasks.last.id;
           if (artifactTaskId != null) {
+            final artifactPath = result.prUrl.isNotEmpty ? result.prUrl : branch;
             await taskService.addArtifact(
               id: 'workflow-publish-$runId-${DateTime.now().microsecondsSinceEpoch}',
               taskId: artifactTaskId,
               name: 'Workflow Publish',
               kind: ArtifactKind.pr,
-              path: branch,
+              path: artifactPath,
             );
           }
           return result;

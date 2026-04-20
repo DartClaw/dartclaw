@@ -32,16 +32,6 @@ Technical research that supports the FIS but doesn't require intent review belon
 
 When writing the FIS, reference the technical research rather than inlining findings. Example: `See [Technical Research](./.technical-research.md#architecture-analysis) for detailed trade-off analysis`.
 
-### Verification during execution
-
-Technical research is a **point-in-time snapshot** — codebase patterns, API behaviors, and library versions change. The executing agent MUST treat research findings as leads to verify, not facts to trust:
-- **File:line references** may be stale — verify they still exist and match the described pattern
-- **API behaviors** described in research should be confirmed against the current codebase or docs
-- **Library gotchas** may be version-specific — check the project's actual dependency versions
-- **Architecture patterns** referenced should be confirmed they still exist in the codebase
-
-A research finding that doesn't match reality is a signal to investigate, not to force-fit the research into the implementation.
-
 
 ## Scenarios and Proof-of-Work
 
@@ -59,15 +49,7 @@ Each scenario: one behavior, concrete Given/When/Then using actual codebase iden
 
 ## Execution Contract
 
-Every FIS should carry a lightweight **Execution Contract** near the bottom of the Implementation Plan. The contract makes the run-time expectations explicit across agent environments:
-- tasks execute in order
-- each **Verify** line is a gate before the next task
-- prescriptive details are exact, not advisory
-- non-coding sub-agents are encouraged for advisory work
-- final validation gates should name the applicable project checks for the feature — build/test/lint/stub where those checks exist and are relevant
-- task checkboxes update immediately, not in a batch at the end
-
-Treat this section as the "how to execute this spec safely" footer. Keep it short, stable, and aligned with `exec-spec`. For configuration-only, static-asset, or similarly lightweight specs, phrase the validation bullet in terms of the checks that actually exist and matter; do not force a fake harness into the contract.
+Include the template's **Execution Contract** section near the bottom of the Implementation Plan. Extend it only if the feature truly needs feature-specific execution constraints; for lightweight specs, phrase the validation bullet around the checks that actually exist.
 
 
 ## Key Generation Guidelines
@@ -76,17 +58,12 @@ Treat this section as the "how to execute this spec safely" footer. Keep it shor
 2. **Task brevity**: Each task description is 1-3 lines. State the outcome, reference the pattern (file:line), include the Verify line. If a task description exceeds 3 lines, it is either too large (split it) or too detailed (describe the outcome, not the steps).
 3. Each task: atomic, self-contained, with file:line references to patterns to follow. Order tasks so later tasks can build on earlier ones without hidden dependencies (see Task Ordering below)
 4. Reference patterns, don't reproduce them
-5. Each task must include a **`Verify:`** line — a concrete, observable check proving the outcome. **Verify lines must assert the described behavior, not just build success.** At least one assertion per task should fail if the outcome is not achieved:
-   - Weak: `tests pass` (proves existing tests work, not that new behavior exists)
-   - Strong: `Test: effectiveConcurrency(3) returns 3 when maxParallel is 5 — AND dispatch loop calls it`
+5. Each task must include a **`Verify:`** line — a concrete, observable check proving the outcome. **Verify lines must assert the described behavior, not just build success.** At least one assertion per task should fail if the outcome is not achieved. Trace verification back to the feature's Success Criteria where applicable.
 
-   Where applicable, trace verification back to the feature's Success Criteria. Reference: `../references/verification-patterns.md` for stub-detection and wiring-check patterns.
+   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line MUST check the prescribed detail verbatim — not just that "output exists." A proof check that doesn't name the prescribed detail lets the implementation satisfy the task in spirit while missing the exact contract.
 
-   **Prescriptive details must be in Verify lines.** When the FIS prescribes specific outputs (column names, format strings, error messages, file locations), the Verify line MUST check the prescribed detail — not just that "output exists." If the proof check does not name the prescribed detail, it is easy for the implementation to satisfy the task in spirit while missing the exact contract.
    - Weak: `Verify: traces list shows token breakdown` (doesn't name the columns)
    - Strong: `Verify: traces list output includes columns IN_TOKENS, OUT_TOKENS, CACHE_R, CACHE_W`
-   - Weak: `Verify: config class exists in config package`
-   - Strong: `Verify: GitHubWebhookConfig exists at packages/dartclaw_config/lib/src/github_config.dart`
 
    Rule of thumb: if you prescribed a specific format, column name, file path, or string in the FIS — put it in the Verify line verbatim.
 6. Most good FIS files land in the 100-300 line range. Once a draft starts pushing past roughly ~400 lines or more than ~12 tasks, that is a strong signal that this is no longer one execution-sized spec. For standalone feature requests, prefer a spec-time decomposition pivot into a small plan bundle plus child FIS files. For `story {story_id} of plan.md` inputs, do **not** fan one plan story out into multiple child specs — decompose the plan upstream instead.
@@ -134,15 +111,10 @@ Do not finalize a FIS with Success Criteria the upstream contract doesn't justif
 ## Self-Check
 
 Quick sanity check before saving:
-- [ ] FIS follows template structure; ADR clearly states the decision
-- [ ] All tasks are atomic, ordered coherently, with file:line references and explicit cross-task dependencies
-- [ ] Scenarios cover happy path, edge cases, and at least one error case; negative-path checklist applied; all plan Key Scenario seeds mapped (if from a plan story)
-- [ ] Every Success Criterion has a proof path — at least one scenario (behavioral) or task Verify line (structural)
-- [ ] **Scope-consistency** (internal coverage; paired with the Reverse Coverage Check above for external upstream sourcing): every "In Scope" item is exercised by a scenario or task Verify line; items with no coverage are phantom features (remove) or underspecified (add coverage)
-- [ ] **What We're NOT Doing** is specific, intentional, and no exclusion blocks or contradicts a Success Criterion
-- [ ] **Output format completeness**: if structured output is a Success Criterion, at least one scenario **Then** clause specifies the output shape — not just "returns JSON"
-- [ ] No over-specification, no code snippets >5 lines — describe outcomes and reference patterns
-- [ ] **Size check**: 100-300 lines is the sweet spot; >400 lines or >12 tasks means split upstream. Spec-time pivot only for standalone requests, not existing plan stories.
+- [ ] **Template structure**: FIS follows the template; ADR states the decision; no over-specification or code snippets >5 lines
+- [ ] **Size check**: 100-300 lines is the sweet spot; >400 lines or >12 tasks means split upstream (spec-time pivot for standalone requests only)
+- [ ] **Scope-consistency**: every "In Scope" item is exercised by a scenario or Verify line; `What We're NOT Doing` is specific and never contradicts a Success Criterion
+- [ ] **Coverage**: every Success Criterion has a proof path (scenario or Verify line); scenarios cover happy path, edge cases, one error case; negative-path checklist applied; plan Key Scenario seeds all mapped (if plan-derived); output shapes specified when structured output is a Success Criterion
 
 ### Confidence Check
 Rate your FIS 1-10 for single-pass implementation success:

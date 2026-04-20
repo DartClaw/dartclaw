@@ -20,9 +20,6 @@ Default to **workspace-wide resolution** when requirements and implementation ma
 
 When the caller provides a directory path or a plan file, discover the full requirements baseline rather than treating the single input as the only source.
 
-**GitHub issue or URL** — follow `../references/resolve-github-input.md`.
-Compatible types: `plan-bundle` — extract and continue as a directory / plan input so sibling PRD and FIS discovery still works; `fis-bundle` — extract and continue as a specific FIS input. Redirects: any `*-review` → the `dartclaw-remediate-findings` skill; any other typed artifact → stop with matching skill. Untyped: use as-is without further discovery.
-
 **Directory path** — search the directory (and its parent, for cases where a subdirectory like `fis/` is given) for:
 - `plan.md` — the implementation plan with story breakdown
 - `prd.md` — the product requirements document
@@ -62,13 +59,13 @@ Map the current implementation state:
 
 ## 3. Quality Review
 
-Run project checks and gather evidence directly — do not delegate to the code lens (when called as part of a plan pipeline, the prior per-story step has already run code review):
+Run project checks and gather evidence directly — do not delegate to the code lens. When an upstream step has already run code review (e.g. a `plan` pipeline's per-story `quick-review`), reuse that evidence; otherwise gather it here:
 - Run applicable build/package checks
 - Run applicable test suites
 - Run static analysis, linting, type checks
 - `../scripts/check-stubs.sh <changed-files>` – scan for incomplete implementations
 - `../scripts/check-wiring.sh <changed-files>` – verify new files are imported/referenced
-- Check substance and wiring using `../references/verification-patterns.md`
+- Check substance and wiring using `verification-patterns.md`
 
 Focus on requirements-vs-implementation alignment — the unique value of this lens.
 
@@ -99,10 +96,10 @@ If it adds value, reflect on architectural trade-offs, simpler alternatives, pro
 
 Run the full adversarial challenge only when any finding is Critical OR total findings > 5. Otherwise apply an inline self-check: re-read each finding against calibration examples, adjust severity, and withdraw findings that don't hold up. Add one line: "Applied inline severity calibration (adversarial challenge skipped: no Critical findings and ≤5 total)."
 
-**Full challenge** (when triggered): Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+**Full challenge** (when triggered): Use `adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
 - **Role**: `Adversarial Challenger reviewing gap analysis findings`
-- **Shared calibration**: `../references/review-calibration.md`
-- **Skill calibration**: `../dartclaw-review/references/code-review-calibration.md`
+- **Shared calibration**: `review-calibration.md`
+- **Skill calibration**: `code-review-calibration.md`
 - **Context block**: `Review target context: {implementation target paths from Step 0}`
 - **Questions**: Is this a real gap? Is severity justified? Could there be an existing mitigation? Would a senior engineer flag this?
 - **Verdicts**: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`
@@ -113,7 +110,7 @@ Apply verdicts before scoring.
 
 ## Calibration
 
-Calibrate severity with `../references/review-calibration.md` (universal) and `../dartclaw-review/references/code-review-calibration.md` (code-specific). Use the unified severity scale defined in `../references/review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
+Calibrate severity with `review-calibration.md` (universal) and `code-review-calibration.md` (code-specific). Use the unified severity scale defined in `review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
 
 
 ## 7. Dimensional Scoring & Verdict
@@ -143,7 +140,7 @@ Include this exact summary in the Executive Summary:
 **Overall: PASS / FAIL**
 ```
 
-> **Contract invariance**: The PASS/FAIL verdict table above is a byte-level compatibility contract. Downstream skills (`plan-and-implement` workflow, `dartclaw-remediate-findings`) parse this table directly. Do not re-label, re-phrase, or re-order the columns.
+> **Contract invariance**: The PASS/FAIL verdict table above is a byte-level compatibility contract. Downstream skills (`plan-and-implement`, `dartclaw-remediate-findings`) parse this table directly. Do not re-label, re-phrase, or re-order the columns.
 
 
 ## Report Sections
@@ -177,8 +174,10 @@ If notable recurring traps emerge, append them to an existing learnings file.
 
 ## Report Output Conventions
 
-When writing a report file (not `--inline-findings`), follow `../references/report-output-conventions.md` with:
-- **Report suffix**: `gap-review`
-- **Scope placeholder**: `feature-name`
-- **Spec-directory rule**: the requirements baseline is a spec/FIS/plan in a spec directory, or the reviewed feature has an associated spec directory from the Project Document Index
-- **Target-directory rule**: the implementation being reviewed is localized to a specific directory, so the report belongs next to the primary implementation target
+When writing a report file (not `--inline-findings`):
+- **Filename**: `<feature-name>-gap-review-<agent>-<YYYY-MM-DD>.md` — on collision append `-2`, `-3`. `<agent>` is your agent short name (`claude`, `codex`, etc.; fall back to `agent`).
+- **Directory priority**:
+  1. **Spec directory** — when the requirements baseline is a spec/FIS/plan in a spec directory, or the reviewed feature has an associated spec directory from the Project Document Index
+  2. **Target directory** — next to the primary implementation target (the localized implementation directory)
+  3. **Fallback** — `{AGENT_TEMP}/reviews/` (default `.agent_temp/reviews/`)
+- On completion, print the report's relative path from the project root.

@@ -1,7 +1,7 @@
 ---
 description: Use when the user wants review findings or review comments addressed. Implements actionable findings from a review report with minimal, guideline-aligned fixes across code, specs, plans, PRDs, and documentation, then re-validates the result and updates plan/FIS status. Trigger on 'address these review findings', 'fix review comments', 'remediate findings'.
 user-invocable: true
-argument-hint: <review-report-path | report URL | GitHub issue/comment URL>
+argument-hint: <review-report-path | report URL>
 workflow:
   default_prompt: "Use $dartclaw-remediate-findings to address the findings in the provided review report with minimal safe changes. When the report or requirements baseline names a workspace path, read the authoritative file from disk with file_read instead of relying on inline excerpts."
 ---
@@ -23,7 +23,7 @@ REPORT_SOURCE: $ARGUMENTS
 - Fix validated findings with the smallest coherent patch set that resolves them.
 - Avoid scope creep. Do not "clean up nearby code" or rewrite nearby docs unless it is required to resolve a finding or prevent a regression.
 - Prefer explicit, local fixes over broad rewrites, reorganizations, helpers, or framework layers.
-- If external documentation is needed, use the `documentation-lookup` sub-agent.
+- If external documentation is needed, use the `documentation-lookup` sub-agent _(if supported)_.
 - Invoke the `dartclaw-update-state` skill for deterministic plan/FIS/STATE updates instead of hand-editing those artifacts.
 
 
@@ -41,17 +41,15 @@ REPORT_SOURCE: $ARGUMENTS
 
 ### Phase 1: Resolve Report and Targets
 
-1. Resolve `REPORT_SOURCE`:
-   - Local report path or direct raw report URL: read the report content directly
-   - GitHub issue URL or PR comment URL: follow `../references/resolve-github-input.md`.
-     Compatible types: `review`, `gap-review`, `code-review`, `architecture-review`, `doc-review`, `council-review` — extract the embedded primary report and any companion files; use the typed metadata to recover `report_path`, `plan_path`, `fis_path`, `story_ids`, `requirements_baseline`, and `implementation_targets`. Redirects: any non-review typed artifact → stop with invalid-input error. Untyped: fall through to step 3 validation below.
-2. Extract:
-   - Review mode (`gap`, `code`, `doc`, `mixed`, or other; legacy `*-review` `artifact_type` values map to the corresponding modes with the `-review` suffix stripped, e.g. `gap-review` → `gap`)
+1. Resolve `REPORT_SOURCE` to readable report content:
+   - Local report path or direct raw report URL: read it directly
+   - Any other input shape (issue page, PR shell URL, generic link): stop with an invalid-input error stating that the actual report content is required
+2. Extract from the report body:
+   - Review mode (`gap`, `code`, `doc`, `mixed`, `architecture`, `council`) — read from the report's mode line or the report filename suffix (e.g. `-gap-review.md` → `gap`)
    - Report verdict (PASS/FAIL) when present
    - Findings, severity, remediation recommendations, and reviewed scope
-   - Referenced implementation targets, requirements baseline, FIS path, `plan.md`, and story IDs when available
-3. If the input URL does not contain the actual review report content or a valid typed GitHub review artifact, stop with an invalid-input error that states the report itself is required. Do not guess from an issue or PR shell page.
-4. If the report has no actionable findings, stop and return that there are no actionable findings.
+   - Referenced implementation targets, requirements baseline, FIS path, `plan.md`, and story IDs when the report names them
+3. If the report has no actionable findings, stop and return that there are no actionable findings.
 
 **Gate**: Actionable findings and the remediation target are explicit
 
@@ -97,7 +95,7 @@ If all findings are already fixed or superseded, skip to Phase 5 and only update
 4. Invoke the `dartclaw-quick-review` skill on the touched scope. This replaces the heavyweight re-review sub-agents – one lightweight pass is sufficient for targeted fixes.
 5. **Findings re-check**: Walk through every finding from the original report and verify resolution against the current workspace. For each finding, state: `RESOLVED` (with evidence), `PARTIALLY RESOLVED` (what remains), `UNRESOLVED` (why), or `DEFERRED` (per severity policy, with justification). This is the primary close-the-loop validation.
 6. If both implementation and document artifacts changed, verify consistency across them.
-7. If Critical/High findings remain after one remediation pass, escalate to the user rather than looping.
+7. If Critical/High findings remain after one remediation pass, halt and report the unresolved findings in the step output rather than looping — the workflow engine decides what comes next.
 
 **Gate**: Every Critical/High finding is RESOLVED with evidence, Medium/Low findings are RESOLVED or DEFERRED with justification, quick-review on touched scope is clean, no new regressions
 

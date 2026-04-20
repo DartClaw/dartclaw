@@ -1,6 +1,6 @@
 ---
 description: Use when the user wants to execute or implement an existing spec or FIS. Implements code from a Feature Implementation Specification. Trigger on 'execute this spec', 'execute this FIS', 'implement this spec', 'implement this FIS', 'build from spec'.
-argument-hint: <path-to-fis | --issue <number> | issue URL>
+argument-hint: <path-to-fis>
 workflow:
   default_prompt: "Use $dartclaw-exec-spec to execute the provided local FIS with full verification and status gates. When the authoritative FIS is provided as a workspace path, read it from disk with file_read instead of relying on inline excerpts."
 ---
@@ -10,18 +10,22 @@ workflow:
 Execute a fully-defined FIS document as the **executor**. Implement the FIS directly, use sub-agents only for narrow advisory/review work, and complete all validation and status gates before finishing.
 
 ## VARIABLES
-FIS_SOURCE: $ARGUMENTS
+FIS_FILE_PATH: $ARGUMENTS
 
 
 ## INSTRUCTIONS
 
 ### Core Rules
-- Require `FIS_SOURCE`. Stop if missing.
+- Require `FIS_FILE_PATH`. Stop if missing.
 - **Complete implementation** — 100% required. Reporting incomplete work with a caveat is **not** completion.
 - **FIS is source of truth** — follow it exactly.
-- **Execution discipline** — Stop-the-Line on red gates (build, tests, lint, stub, wiring, task `Verify`); iterate until green; escalate only on real external blockers. See `../references/execution-discipline.md`.
+- **Execution discipline** — Stop-the-Line on red gates (build, tests, lint, stub, wiring, task `Verify`); iterate until green; escalate only on real external blockers. See `references/execution-discipline.md`.
 - **Direct execution** — implement the code yourself. Sub-agents are for advisory work, review, and validation only.
-- If you catch yourself rationalizing away test scaffolding, verification gates, status updates, or persistence through a red gate, load `../references/anti-rationalization.md`.
+- **Anti-rationalization** — if you catch yourself skipping test scaffolding, deferring verification, batching status updates, or pushing past a red gate, reject these common rationalizations:
+  - "I'll verify after the next group" — defects compound; verify before more work builds on a bad assumption.
+  - "This failing check is probably unrelated" — Stop-the-Line applies.
+  - "I'll update status at the end" — deferred bookkeeping drifts from reality.
+  - "I'll report this complete with a caveat" — broken is not Done. Finish it or surface a real external blocker.
 
 ### Executor Role
 **You are the executor.** Your job:
@@ -38,7 +42,7 @@ FIS_SOURCE: $ARGUMENTS
 Do not: delegate coding to advisory agents, batch status updates until the end, silently narrow scope, or skip final gates.
 
 ### Helper Scripts
-Available in `../scripts/`:
+Available in `scripts/`:
 - `check-stubs.sh <path>` – scan for incomplete implementation indicators
 - `check-wiring.sh <path>` – verify new/changed files are imported/referenced
 - `verify-implementation.sh <file1> [file2...]` – combined existence + substance + wiring check
@@ -49,11 +53,9 @@ Spawn narrow background sub-agents when they materially improve a coding decisio
 These are **agents** (valid `subagent_type` values for the Task tool):
 
 - the `documentation-lookup` sub-agent – use for unfamiliar APIs, library/framework behavior, migration details, or version-specific questions. This is the required path for documentation lookup; run it as a separate background sub-task.
-- the `solution-architect` sub-agent – use for unresolved architectural trade-offs or integration-pattern ambiguity not settled by the FIS
-- the `ui-ux-designer` sub-agent – use for UI layout, interaction, accessibility, or responsive-pattern advice when the FIS needs a design contract
-- the `build-troubleshooter` sub-agent – use for non-trivial build failures, dependency conflicts, or cascading test failures
 - the `research-specialist` sub-agent – use for external best-practice research or context not available in the codebase
 - the `qa-test-engineer` sub-agent – use for complex test strategy or unfamiliar test-harness patterns
+- the `visual-validation-specialist` sub-agent – use for visual/design compliance validation against wireframes or baselines
 
 Usage rules:
 - Prefer multiple narrow questions over one broad prompt
@@ -74,22 +76,12 @@ Usage rules:
 
 ## WORKFLOW
 
-### Step 1: Resolve FIS Source
-1. Resolve `FIS_SOURCE` to a local `FIS_FILE_PATH`:
-   - Local file path: use it directly
-   - `--issue <number>` or GitHub issue URL: follow `../references/resolve-github-input.md`.
-     Compatible types: `fis-bundle` — extract and set `FIS_FILE_PATH` from `canonical_local_primary`. Redirects: `plan-bundle` → the `plan-and-implement` workflow / `dartclaw-plan` skill; `triage-plan` / `triage-completion` / any `*-review` → stop with matching downstream skill. Untyped: stop — the `dartclaw-exec-spec` skill requires a local FIS path or a typed GitHub FIS artifact.
-   - If `canonical_local_primary` is missing, ambiguous, or does not match an extracted file, stop.
-   - Recover metadata from the envelope:
-     - `FIS_CANONICAL_PATH` = `fis_path` when present, otherwise `canonical_local_primary`
-     - `PLAN_FILE_PATH` = `plan_path` when present; if it refers to an embedded companion file, use the extracted copy
-     - `STORY_IDS` = `story_ids`
-   - If the envelope says the FIS originated from a plan (`plan_path` present) but omits `story_ids`, stop — plan-backed FIS execution needs that context for plan/state updates.
-   - If `plan_path` is present but no embedded or local `PLAN_FILE_PATH` can actually be resolved, stop — plan-backed FIS execution cannot update source plan state without the plan file.
-   - Otherwise set `FIS_SOURCE_MODE = github-artifact`
-2. Recover enough source metadata to finish the run cleanly: `FIS_SOURCE_MODE`, `FIS_CANONICAL_PATH`, optional `PLAN_FILE_PATH`, and optional `STORY_IDS`
+### Step 1: Resolve FIS and Story Context
+1. Require a local `FIS_FILE_PATH`. Stop if the argument is missing or does not resolve to a readable file.
+2. Extract story context from the FIS itself (header field like `**Story ID(s)**: S01, S02` or the filename prefix for plan-backed specs such as `s01-s02-feature-name.md`) into `STORY_IDS`. For single-feature specs not derived from a plan, leave `STORY_IDS` empty.
+3. If the FIS references a source `plan.md` (`**Plan**:` field or a sibling `plan.md` in the same directory), record it as `PLAN_FILE_PATH` for Step 5b updates.
 
-**Gate**: canonical FIS path resolved and any plan/artifact metadata captured
+**Gate**: `FIS_FILE_PATH` exists; `STORY_IDS` and `PLAN_FILE_PATH` captured when the FIS is plan-backed
 
 ### Step 2: Read and Prepare
 1. Read the full FIS at _`FIS_FILE_PATH`_
@@ -120,10 +112,11 @@ For each task:
 8. Record the task result in your working notes
 
 Implementation rules:
-- Use the structured output protocols from `../references/structured-output-protocols.md` when needed:
-  - **CONFUSION**: the FIS is ambiguous and you cannot safely proceed
-  - **NOTICED BUT NOT TOUCHING**: you found something relevant but out of scope
-  - **MISSING REQUIREMENT**: a task assumes something absent from the codebase
+- When stuck, emit named output blocks instead of guessing:
+  - `CONFUSION:` — the FIS is ambiguous and you cannot safely proceed. State the ambiguity, list labeled options, ask `-> Which approach?`
+  - `NOTICED BUT NOT TOUCHING:` — out-of-scope observations. List issues, ask `-> Want me to create tasks?`
+  - `MISSING REQUIREMENT:` — a task assumes something absent. State what is undefined, list labeled options, ask `-> Which behavior?`
+  Each is a labeled block with concrete choices and an arrow-prompt for the user.
 - Spawn proactive sub-agents when the need arises, but keep ownership of the code changes locally
 - If `changed-files` becomes incomplete or ambiguous, derive it from the current worktree diff before Step 4
 
@@ -142,18 +135,18 @@ Step 3 verifies task-level outcomes. Step 4 catches cross-cutting issues — int
 Run the `dartclaw-review` **skill** with `--mode code` for independent fresh-context review covering: static analysis, linting, formatting, type checking, code quality, architecture, security, domain language, stub detection, wiring verification, and simplification opportunities (unnecessary complexity, duplication, over-abstraction introduced during implementation). Prefer to invoke it in a fresh-context sub-agent: spawn a `general-purpose` sub-agent whose prompt runs `/dartclaw-review --mode code`. Do not pass `dartclaw-review` as `subagent_type` — it is a skill, not an agent type.
 
 #### 4c. Visual Validation (if UI)
-Spawn the `visual-validation-specialist` **sub-agent** _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
+Spawn the `visual-validation-specialist` **agent** (a real `subagent_type` for the Task tool — unlike the `dartclaw-review` skill in 4b) _(if supported)_ per any Visual Validation Workflow defined in CLAUDE.md.
 
 Steps 4b and 4c can run in parallel _(if supported)_.
 
 #### 4d. Remediation
 
-Apply the Gate Classes policy from `../references/execution-discipline.md`.
+Apply the Gate Classes policy from `references/execution-discipline.md`.
 
 1. **Collect** — combine required failures from 4a with findings from 4b/4c. A failed build/test/lint/stub/wiring check is a remediation input even if the code review does not flag it separately.
-2. **Triage** — severities per `../references/review-verdict.md`: CRITICAL/HIGH must fix, MEDIUM should fix, LOW optional.
-3. **Objective red gates (4a)** — iterate until green, invoking the `build-troubleshooter` sub-agent _(if supported)_ when iteration stalls.
-4. **Subjective findings (4b/4c)** — one pass on CRITICAL/HIGH, re-run the affected lens (`/dartclaw-review --mode code` or visual validation) on the touched scope; escalate if they persist.
+2. **Triage** — severity scale: CRITICAL/HIGH must fix, MEDIUM should fix, LOW optional.
+3. **Objective red gates (4a)** — iterate until green; halt with a structured blocker in the step output if iteration stalls on the same issue.
+4. **Subjective findings (4b/4c)** — one pass on CRITICAL/HIGH, re-run the affected lens (`/dartclaw-review --mode code` or visual validation) on the touched scope; halt with a structured blocker if findings persist.
 
 ### Step 5: Complete
 All substeps below are gates — complete them before finishing.
@@ -168,7 +161,6 @@ Lightweight gate – uses Step 4a results, does not re-run checks:
 #### 5b. Update FIS, Source Plan, and Project State
 Update FIS status, source plan (if applicable), and project state via the `dartclaw-update-state` skill. For plan-backed FIS: set each covered story Status to `Done`, set FIS field path, check off acceptance criteria, and mark the story `Done` in the `State` document (see **Project Document Index**) with a short completion note. For composite/shared FIS, update all constituent stories in `STORY_IDS`. Re-read to verify updates applied.
 
-If `FIS_SOURCE_MODE = github-artifact`, apply the continuation sync from `../references/github-artifact-roundtrip.md` before finishing.
 
 #### 5c. Completion Report
 Report: per-task status, files created/modified, verification evidence, any unresolved low-priority issues or `NOTICED BUT NOT TOUCHING` items.

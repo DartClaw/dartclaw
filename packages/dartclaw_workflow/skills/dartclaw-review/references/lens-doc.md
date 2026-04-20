@@ -20,22 +20,22 @@ Review the document through these lenses and record only issues relevant to the 
 - **Scope and architecture**: explicit in/out-of-scope boundaries, phase boundaries, architecture soundness, and signs of disproportionate complexity
 - **Stakeholder fit**: user needs, success criteria, UX/error-state coverage
 
-If the document is a FIS, verify it still follows the structure produced by the `dartclaw-spec` skill.
+If the document is a FIS, verify it still follows the structure and intent-first authoring rules from `fis-authoring-guidelines.md`.
 
 
 ## Calibration
 
-Calibrate severity with `../references/review-calibration.md` (universal) and `../dartclaw-review/references/doc-review-calibration.md` (doc-specific). Use the unified severity scale defined in `../references/review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
+Calibrate severity with `review-calibration.md` (universal) and `doc-review-calibration.md` (doc-specific). Use the unified severity scale defined in `review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
 
 
 ## Adversarial Challenge
 
 Run the full adversarial challenge only when any finding is Critical OR total findings > 5. Otherwise apply an inline self-check: re-read each finding against calibration examples, adjust severity, and withdraw findings that don't hold up. Add one line: "Applied inline severity calibration (adversarial challenge skipped: no Critical findings and ≤5 total)."
 
-**Full challenge** (when triggered): Use `../references/adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
+**Full challenge** (when triggered): Use `adversarial-challenge.md` (`Generic Findings-Challenger Template`) with:
 - **Role**: `Adversarial Challenger reviewing document review findings`
-- **Shared calibration**: `../references/review-calibration.md`
-- **Skill calibration**: `../dartclaw-review/references/doc-review-calibration.md`
+- **Shared calibration**: `review-calibration.md`
+- **Skill calibration**: `doc-review-calibration.md`
 - **Context block**: `Document type, path, project scale/stage context from discovery.`
 - **Questions**: Is this a real gap given project scale? Is severity proportional? Is it addressed elsewhere? Would it mislead or block implementation?
 - **Verdicts**: `VALIDATED`, `DOWNGRADED`, `WITHDRAWN`
@@ -46,7 +46,7 @@ Apply verdicts before writing the final report.
 
 ## Findings Output
 
-Use the unified severity scale from `../references/review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
+Use the unified severity scale from `review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
 
 **Readiness label**: `Ready` / `Needs Minor Updates` / `Needs Significant Rework` / `Not Ready` — per the verdict reference (doc-mode readiness scale preserved).
 
@@ -83,8 +83,10 @@ Ready / Needs Minor Updates / Needs Significant Rework / Not Ready
 
 ## Report Output Conventions
 
-When writing a report file (not `--inline-findings`), follow `../references/report-output-conventions.md` with:
-- **Report suffix**: `doc-review`
-- **Scope placeholder**: `spec-name`
-- **Spec-directory rule**: the document being reviewed lives in a spec/FIS directory or has an associated spec directory from the Project Document Index
-- **Target-directory rule**: otherwise, store the report in the same directory as the document being reviewed
+When writing a report file (not `--inline-findings`):
+- **Filename**: `<spec-name>-doc-review-<agent>-<YYYY-MM-DD>.md` — on collision append `-2`, `-3`. `<agent>` is your agent short name (`claude`, `codex`, etc.; fall back to `agent`).
+- **Directory priority**:
+  1. **Spec directory** — when the document being reviewed lives in a spec/FIS directory or has an associated spec directory from the Project Document Index
+  2. **Target directory** — otherwise, same directory as the document being reviewed
+  3. **Fallback** — `{AGENT_TEMP}/reviews/` (default `.agent_temp/reviews/`)
+- On completion, print the report's relative path from the project root.

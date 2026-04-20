@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-security-scan.sh – Security scanning with Semgrep or pattern fallback
-# Used by: review-code, review-gap
+# Used by: review (code and gap modes)
 
 set -euo pipefail
 

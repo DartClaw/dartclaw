@@ -1,5 +1,5 @@
 interface:
-  display_name: "AndThen - Remediate Findings"
+  display_name: "DartClaw - Remediate Findings"
   short_description: "Address review findings across code and docs, then update plan/FIS status"
   default_prompt: "Implement the actionable findings from a review report with minimal safe changes across code or documentation, re-validate the result, and update workflow status. Review report: "
 

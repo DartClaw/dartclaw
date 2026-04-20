@@ -1,6 +1,6 @@
 # Review Verdict Model
 
-Unified severity scale and per-mode verdict/readiness definitions used across all `dartclaw-review` modes.
+Unified severity scale and per-mode verdict/readiness definitions used across all `dartclaw-review` modes (including `--council`).
 
 
 ## Severity Scale
@@ -19,7 +19,7 @@ Four levels, normalised across all modes:
 
 ### Gap mode (`--mode gap`)
 
-**PASS/FAIL verdict is a byte-level compatibility contract.** Downstream skills (`plan-and-implement` workflow, `dartclaw-remediate-findings`) parse this table directly — keep the dimensions, thresholds, and canonical summary block stable.
+**PASS/FAIL verdict is a byte-level compatibility contract.** Downstream skills (`plan-and-implement`, `dartclaw-remediate-findings`) parse this table directly — keep the dimensions, thresholds, and canonical summary block stable.
 
 | Dimension | Question | Threshold |
 |-----------|----------|-----------|
@@ -53,8 +53,8 @@ Severity counts + a readiness label:
 | Readiness | When |
 |-----------|------|
 | **Ready** | No CRITICAL or HIGH findings; LOW/MEDIUM items are optional polish. |
-| **Needs Fixes** | HIGH findings, or multiple MEDIUM findings that collectively require rework. |
-| **Blocked** | Any CRITICAL finding, or verification evidence shows a failing check that cannot be interpreted as incidental. |
+| **Needs Fixes** | Any HIGH finding, or three or more MEDIUM findings that collectively require rework. |
+| **Blocked** | Any CRITICAL finding, or a failing check in verification evidence that is load-bearing for the change (not a pre-existing unrelated failure). |
 
 Readiness is a summary — callers still read the severity counts and individual findings.
 

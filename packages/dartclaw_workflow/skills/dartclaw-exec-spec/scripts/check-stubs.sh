@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-stubs.sh – Scan for indicators of incomplete implementation
-# Used by: review-gap, exec-spec, exec-plan
+# Used by: review (gap mode), exec-spec, exec-plan
 
 set -euo pipefail
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-wiring.sh – Verify that new/changed files are imported/referenced
-# Used by: review-gap, exec-spec
+# Used by: review (gap mode), exec-spec
 
 set -euo pipefail
 

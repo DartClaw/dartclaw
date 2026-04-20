@@ -1,5 +1,5 @@
 interface:
-  display_name: "AndThen - Quick Review"
+  display_name: "DartClaw - Quick Review"
   short_description: "Quick sanity-check of recent changes"
   default_prompt: "Review recent changes in this conversation for errors, inconsistencies, and missed edge cases: "
 

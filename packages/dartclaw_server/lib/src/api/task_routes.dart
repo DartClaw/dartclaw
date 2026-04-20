@@ -70,9 +70,8 @@ Router taskRoutes(
       if (sessionIdFieldError != null) return sessionIdFieldError;
       final projectIdFieldError = _validateStringFieldType(body.value!, 'projectId');
       if (projectIdFieldError != null) return projectIdFieldError;
-      if (body.value!.containsKey('maxTokens') && body.value!['maxTokens'] is! int) {
-        return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be an integer', {'field': 'maxTokens'});
-      }
+      final maxTokensError = _validateMaxTokens(body.value!);
+      if (maxTokensError != null) return maxTokensError;
 
       final title = trimmedStringOrNull(body.value!['title']);
       final description = trimmedStringOrNull(body.value!['description']);
@@ -83,8 +82,11 @@ Router taskRoutes(
       final acceptanceCriteria = _stringOrNull(body.value!['acceptanceCriteria']);
       final provider = trimmedStringOrNull(body.value!['provider']);
       final model = trimmedStringOrNull(body.value!['model']);
+      // sessionId is caller-seeded for the synthesized AgentExecution. There is no
+      // SessionService wired into task routes today, so we don't verify the value
+      // refers to a live session — passes through to the AE row as-is.
       final sessionId = trimmedStringOrNull(body.value!['sessionId']);
-      final maxTokens = body.value!['maxTokens'] as int?;
+      final maxTokens = (body.value!['maxTokens'] as num?)?.toInt();
       final projectId = trimmedStringOrNull(body.value!['projectId']);
 
       if (projectId != null && projectService != null) {
@@ -512,6 +514,22 @@ Response? _validateStringFieldType(Map<String, dynamic> body, String field) {
   final value = body[field];
   if (value == null || value is String) return null;
   return errorResponse(400, 'INVALID_INPUT', '$field must be a string', {'field': field});
+}
+
+Response? _validateMaxTokens(Map<String, dynamic> body) {
+  if (!body.containsKey('maxTokens')) return null;
+  final raw = body['maxTokens'];
+  if (raw == null) return null;
+  if (raw is! num) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a number', {'field': 'maxTokens'});
+  }
+  if (raw is double && raw != raw.truncateToDouble()) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a whole number', {'field': 'maxTokens'});
+  }
+  if (raw.toInt() <= 0) {
+    return errorResponse(400, 'INVALID_INPUT', 'maxTokens must be a positive integer', {'field': 'maxTokens'});
+  }
+  return null;
 }
 
 String _sanitizeReviewFailureMessage(String message) {

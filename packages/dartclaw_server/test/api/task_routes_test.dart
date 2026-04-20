@@ -133,7 +133,22 @@ void main() {
       expect(ae['budgetTokens'], 8000);
     });
 
-    test('rejects non-integer maxTokens', () async {
+    test('accepts whole-number JSON double for maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Double task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 8000.0,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect((body['agentExecution'] as Map<String, dynamic>)['budgetTokens'], 8000);
+    });
+
+    test('rejects non-numeric maxTokens', () async {
       final response = await handler(
         jsonRequest('POST', '/api/tasks', {
           'title': 'Bad task',
@@ -144,6 +159,71 @@ void main() {
       );
 
       expect(response.statusCode, 400);
+    });
+
+    test('rejects fractional maxTokens', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Fractional task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'maxTokens': 1.5,
+        }),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
+    test('rejects non-positive maxTokens', () async {
+      for (final value in <num>[0, -1, 0.0]) {
+        final response = await handler(
+          jsonRequest('POST', '/api/tasks', {
+            'title': 'Zero task',
+            'description': 'Describe the work',
+            'type': 'coding',
+            'maxTokens': value,
+          }),
+        );
+        expect(response.statusCode, 400, reason: 'maxTokens=$value should be rejected');
+      }
+    });
+
+    test('rejects non-string model and sessionId', () async {
+      final modelResponse = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'model': 42,
+        }),
+      );
+      expect(modelResponse.statusCode, 400);
+
+      final sessionResponse = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Bad task',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'sessionId': true,
+        }),
+      );
+      expect(sessionResponse.statusCode, 400);
+    });
+
+    test('strips model key from configJson when persisted onto AE', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/tasks', {
+          'title': 'Model in config',
+          'description': 'Describe the work',
+          'type': 'coding',
+          'configJson': {'model': 'claude-opus-4-7', 'allowedTools': <String>[]},
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect((body['agentExecution'] as Map<String, dynamic>)['model'], 'claude-opus-4-7');
+      expect((body['configJson'] as Map<String, dynamic>).containsKey('model'), isFalse);
     });
 
     test('creates task with autoStart as queued', () async {

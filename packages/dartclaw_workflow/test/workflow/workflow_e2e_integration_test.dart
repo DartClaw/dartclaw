@@ -555,6 +555,64 @@ void expectPublishSuccess(Map<String, dynamic> contextJson) {
   );
 }
 
+/// Fails loudly when the workflow terminated in `failed` state with a
+/// publish-step error.
+///
+/// Without this check, a publish failure (push rejected, `gh pr create`
+/// non-zero, auth miss, etc.) would cause the test's existing
+/// `if (finalStatus == completed)` guard to silently skip the URL assertion
+/// and the test would pass with a broken publish path.
+void expectPublishFailureNotSilent(dynamic completedRun, WorkflowRunStatus finalStatus) {
+  if (finalStatus != WorkflowRunStatus.failed) return;
+  final contextJson = completedRun?.contextJson as Map<String, dynamic>? ?? const {};
+  final data = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
+  final publishStatus = data['publish.status'] as String?;
+  final publishError = data['publish.error'] as String?;
+  if (publishStatus == 'failed' || (publishError != null && publishError.isNotEmpty)) {
+    fail('Workflow terminated in failed state during publish: ${publishError ?? '(no error detail)'}');
+  }
+  // Non-publish failures (e.g. earlier step failure) are the test's existing
+  // concern — don't double-report here.
+}
+
+/// Asserts the workflow's publish callback produced a valid PR URL that
+/// resolves to a real GitHub pull request.
+///
+/// Proves the full pipeline: publish hook → `WorkflowGitPublishResult.prUrl`
+/// → `context['publish.pr_url']` → serialized `contextJson`. Also verifies
+/// `publish.branch` matches the branch that was actually pushed to origin
+/// and that `gh pr view <url>` resolves (protects against stale or
+/// fabricated URLs landing in the context).
+void expectWorkflowCreatedPr(Map<String, dynamic> contextJson, {required String? expectedBranch}) {
+  final contextData = (contextJson['data'] as Map?)?.cast<String, dynamic>() ?? contextJson;
+
+  final prUrl = contextData['publish.pr_url'] as String? ?? '';
+  expect(
+    prUrl,
+    isNotEmpty,
+    reason: 'Workflow publish should have emitted a non-empty publish.pr_url; got "$prUrl"',
+  );
+  expect(
+    prUrl,
+    matches(RegExp(r'^https://github\.com/[^/\s]+/[^/\s]+/pull/\d+$')),
+    reason: 'publish.pr_url should be a GitHub pull-request URL, got "$prUrl"',
+  );
+
+  if (expectedBranch != null) {
+    expect(
+      contextData['publish.branch'],
+      expectedBranch,
+      reason: 'publish.branch should match the branch that was pushed to origin',
+    );
+  }
+  expect(contextData['publish.remote'], 'origin', reason: 'publish.remote should be "origin"');
+
+  // Resolve the URL against GitHub to confirm the PR exists — catches the
+  // case where the context carries a well-shaped but fabricated URL.
+  final prView = Process.runSync('gh', ['pr', 'view', prUrl, '--json', 'url']);
+  expect(prView.exitCode, 0, reason: 'gh pr view failed for $prUrl: ${prView.stderr}');
+}
+
 // ---------------------------------------------------------------------------
 // TI05: PR cleanup helpers
 // ---------------------------------------------------------------------------
@@ -689,15 +747,63 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Shared helper: wire up CliWorkflowWiring with in-memory SQLite
+  // Shared helper: create PR after push and track for cleanup
+  // Declared before [wireUp] so the injected `prCreator` closure can capture
+  // it without a forward-reference error.
   // -------------------------------------------------------------------------
-  Future<CliWorkflowWiring> wireUp({WorkflowStepOutputTransformer? outputTransformer}) async {
+  Future<String> createPr({required String branch, required String title}) async {
+    createdBranches.add(branch);
+    final result = await Process.run('gh', [
+      'pr',
+      'create',
+      '--repo',
+      'tolo/dartclaw-workflow-testing',
+      '--head',
+      branch,
+      '--base',
+      'main',
+      '--title',
+      title,
+      '--body',
+      'Automated e2e integration test PR — will be auto-closed.',
+      '--draft',
+    ], workingDirectory: fixtureDir);
+    if (result.exitCode != 0) {
+      fail('Failed to create PR for branch "$branch": ${result.stderr}');
+    }
+    final prUrl = (result.stdout as String).trim();
+    createdPrUrls.add(prUrl);
+    return prUrl;
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared helper: wire up CliWorkflowWiring with in-memory SQLite
+  //
+  // [prTitle] is used to build the PR title if the workflow reaches publish.
+  // Production CliWorkflowWiring does not inject a prCreator (standalone
+  // publish only pushes the branch). The e2e test injects one that shells
+  // out to `gh pr create` so `publish.pr_url` can be asserted end to end.
+  // -------------------------------------------------------------------------
+  Future<CliWorkflowWiring> wireUp({WorkflowStepOutputTransformer? outputTransformer, String? prTitle}) async {
+    final resolvedTitle = prTitle ?? 'E2E workflow run ${DateTime.now().millisecondsSinceEpoch}';
     final w = CliWorkflowWiring(
       config: config,
       dataDir: config.server.dataDir,
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       workflowStepOutputTransformer: outputTransformer,
+      prCreator: ({required runId, required projectId, required branch}) async {
+        // Mirror the server-backed PrCreator contract: never throw — surface
+        // errors as status='failed' so the workflow's publish step records a
+        // clean failure and the test's `expect(finalStatus, isNot(failed))`
+        // safety net below reports it clearly.
+        try {
+          final url = await createPr(branch: branch, title: resolvedTitle);
+          return CliWorkflowPrResult(status: 'success', prUrl: url);
+        } catch (e) {
+          return CliWorkflowPrResult(status: 'failed', prUrl: '', error: 'createPr failed: $e');
+        }
+      },
     );
     await w.wire();
     wiring = w;
@@ -752,39 +858,11 @@ void main() {
   }
 
   // -------------------------------------------------------------------------
-  // Shared helper: create PR after push and track for cleanup
-  // -------------------------------------------------------------------------
-  Future<String> createPr({required String branch, required String title}) async {
-    createdBranches.add(branch);
-    final result = await Process.run('gh', [
-      'pr',
-      'create',
-      '--repo',
-      'tolo/dartclaw-workflow-testing',
-      '--head',
-      branch,
-      '--base',
-      'main',
-      '--title',
-      title,
-      '--body',
-      'Automated e2e integration test PR — will be auto-closed.',
-      '--draft',
-    ], workingDirectory: fixtureDir);
-    if (result.exitCode != 0) {
-      fail('Failed to create PR for branch "$branch": ${result.stderr}');
-    }
-    final prUrl = (result.stdout as String).trim();
-    createdPrUrls.add(prUrl);
-    return prUrl;
-  }
-
-  // -------------------------------------------------------------------------
   // TI03: spec-and-implement e2e
   // -------------------------------------------------------------------------
   test('spec-and-implement e2e with real Codex harness and git operations', () async {
-    final w = await wireUp();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final w = await wireUp(prTitle: 'E2E spec-and-implement $timestamp');
     final artifactDir = _createPreservedArtifactDir('spec-and-implement-e2e');
     Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
@@ -861,6 +939,12 @@ void main() {
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');
 
+      // Safety net: publish step runs at the end of the workflow. A `failed`
+      // terminal state here usually means the publish callback (push or PR
+      // creation) errored — surface that up front so the test doesn't pass
+      // silently by skipping the publish block below.
+      expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
+
       // Publish assertions only apply when the workflow completed.
       if (finalStatus == WorkflowRunStatus.completed) {
         final completedRun = await w.workflowService.get(run.id);
@@ -870,12 +954,9 @@ void main() {
         final publishBranch = _findPublishedBranch(fixtureDir, run.id);
         expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
 
-        if (publishBranch != null) {
-          final prUrl = await createPr(branch: publishBranch, title: 'E2E spec-and-implement $timestamp');
-
-          final prView = await Process.run('gh', ['pr', 'view', prUrl, '--json', 'url']);
-          expect(prView.exitCode, 0, reason: 'PR should exist at $prUrl');
-        }
+        // Assert the workflow itself produced the PR URL via its publish
+        // callback (injected test prCreator → `gh pr create` → URL → context).
+        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: publishBranch);
       }
     } finally {
       Directory.current = savedCwd;
@@ -886,6 +967,7 @@ void main() {
   // TI04: plan-and-implement e2e
   // -------------------------------------------------------------------------
   test('plan-and-implement e2e with real Codex harness and per-story worktrees', () async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     final w = await wireUp(
       outputTransformer: _forceSinglePlanReviewRemediationLoop(
         remediationPlan:
@@ -895,8 +977,8 @@ void main() {
             'Synthetic test summary: both story implementations merged cleanly, '
             'but the E2E test is forcing one remediation iteration for coverage.',
       ),
+      prTitle: 'E2E plan-and-implement $timestamp',
     );
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
     final artifactDir = _createPreservedArtifactDir('plan-and-implement-e2e');
     Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
@@ -1010,6 +1092,9 @@ void main() {
       // Assert worktrees were recorded for coding steps
       expectWorktreeRecorded(recorder, 'implement');
 
+      // Safety net — see spec-and-implement test above for rationale.
+      expectPublishFailureNotSilent(await w.workflowService.get(run.id), finalStatus);
+
       // Publish assertions only when completed
       if (finalStatus == WorkflowRunStatus.completed) {
         final completedRun = await w.workflowService.get(run.id);
@@ -1019,12 +1104,9 @@ void main() {
         final publishBranch = _findPublishedBranch(fixtureDir, run.id);
         expect(publishBranch, isNotNull, reason: 'Integration branch should have been pushed to origin');
 
-        if (publishBranch != null) {
-          final prUrl = await createPr(branch: publishBranch, title: 'E2E plan-and-implement $timestamp');
-
-          final prView = await Process.run('gh', ['pr', 'view', prUrl, '--json', 'url,files']);
-          expect(prView.exitCode, 0, reason: 'PR should exist at $prUrl');
-        }
+        // Assert the workflow itself produced the PR URL via its publish
+        // callback (injected test prCreator → `gh pr create` → URL → context).
+        expectWorkflowCreatedPr(completedRun.contextJson, expectedBranch: publishBranch);
       }
     } finally {
       Directory.current = savedCwd;

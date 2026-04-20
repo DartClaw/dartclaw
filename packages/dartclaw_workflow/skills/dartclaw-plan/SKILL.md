@@ -1,16 +1,26 @@
 ---
-description: Use when the user wants an implementation plan with FIS specs for every story. Trigger on 'create a plan', 'break this into stories', 'plan this feature', 'spec all stories', 'batch spec this plan'. Produces the full plan bundle (`plan.md` + all FIS + `.technical-research.md`) from an existing `prd.md`, or `plan.md` alone with `--skip-specs`. Accepts a directory or a typed GitHub issue (`plan-bundle` or `prd`). Requires an existing `prd.md` — redirect to `dartclaw-prd` if missing.
-argument-hint: "<path-to-directory-with-prd.md> | --issue <number> [--to-issue] [--skip-specs] [--stories S01,S03] [--phase N] [--max-parallel N] [--skip-review]"
+description: Use when the user wants an implementation plan with FIS specs for every story. Trigger on 'create a plan', 'break this into stories', 'plan this feature', 'spec all stories', 'batch spec this plan'. Produces the full plan bundle (`plan.md` + all FIS + `.technical-research.md`) from an existing `prd.md`, or `plan.md` alone with `--skip-specs`. Requires an existing `prd.md` in the input directory — redirect to `dartclaw-prd` if missing.
+argument-hint: "<path-to-directory-with-prd.md> [--skip-specs] [--stories S01,S03] [--phase N] [--max-parallel N] [--skip-review]"
 workflow:
   default_prompt: "Use $dartclaw-plan to create an implementation plan with story breakdown and FIS specs for every story. Requires an existing prd.md in the input directory — run $dartclaw-prd first if one is missing."
   default_outputs:
+    plan:
+      format: path
+      description: Workspace-relative path to `plan.md` on disk.
+    plan_source:
+      format: text
+      description: "`existing` when an on-disk `plan.md` was reused, `synthesized` when this skill wrote a new plan."
+    stories:
+      format: json
+      schema: story-plan
+      description: Structured story list parsed from `plan.md`.
     story_specs:
       format: json
       schema: story-specs
       description: Structured per-story records including `id`, `title`, `spec_path`, acceptance criteria, phase, wave, dependencies, and key files.
-    plan_source:
-      format: text
-      description: "`existing` when an on-disk `plan.md` was reused, `synthesized` when this skill wrote a new plan."
+    technical_research:
+      format: path
+      description: Workspace-relative path to `technical-research.md` on disk, when one was written.
 ---
 
 # Create Implementation Plan Bundle
@@ -18,7 +28,7 @@ workflow:
 
 Transform a Product Requirements Document (`prd.md`) into a complete implementation plan bundle: `plan.md` with story breakdown **plus** batch-generated Feature Implementation Specifications (FIS) for every story **plus** shared `.technical-research.md`. Runs story classification, parallel FIS sub-agents, and a cross-cutting review in one flow.
 
-**Requires an existing `prd.md`** in the input directory. If none is found, fail fast and redirect to the `dartclaw-prd` skill. Do not synthesize a PRD here.
+**`prd.md` is a required input** — if the input directory has no `prd.md`, the skill fails fast and redirects to the `dartclaw-prd` skill. PRD synthesis is not this skill's job.
 
 **Philosophy**: Story breakdown and detailed specs are co-produced. Specs decay quickly when divorced from the story context that motivated them; batching keeps them aligned and lets a cross-cutting review catch inter-story inconsistencies before execution starts.
 
@@ -32,8 +42,6 @@ _Output directory (defaults to input directory):_
 OUTPUT_DIR: `INPUT` (when `INPUT` is a directory containing `prd.md`), or resolved per the input contract below
 
 ### Optional Flags
-- `--issue <number>` → Fetch and use a typed GitHub plan artifact as input
-- `--to-issue` → PUBLISH_ISSUE: Publish plan bundle as a GitHub issue after saving locally
 - `--skip-specs` → SKIP_SPECS: Produce `plan.md` only (cheap planning pass; skip technical research, FIS generation, and cross-cutting review)
 - `--stories S01,S03,...` → STORY_FILTER: Only generate FIS for listed story IDs
 - `--phase N` → PHASE_FILTER: Only generate FIS for stories in phase N
@@ -44,12 +52,11 @@ OUTPUT_DIR: `INPUT` (when `INPUT` is a directory containing `prd.md`), or resolv
 ## INSTRUCTIONS
 
 - Require `INPUT`. Stop if missing.
-- **PRD is required upstream** — if no `prd.md` is found in the resolved directory, stop and redirect to the `dartclaw-prd` skill. Do not synthesize a PRD here.
 - Delegate research and exploration to sub-agents _(if supported)_.
 - Stories define scope, not implementation details. Minimum stories to cover requirements.
 - Organize stories into logical phases.
 - **Headless-first** — continue to completion without pausing for routine clarification. Make reasonable assumptions, document them, and surface unresolved questions in `plan.md`.
-- Stop only on true contract failures (missing `prd.md`, incompatible artifacts, or ambiguity so severe no defensible plan can be produced).
+- Stop only on true contract failures: missing `prd.md` (redirect to the `dartclaw-prd` skill), incompatible artifacts, or ambiguity so severe no defensible plan can be produced.
 - Focus on "what" not "how" at the plan level; detailed implementation decisions live in per-story FIS files.
 - **Resume contract**: when re-running on a partially-specced directory, skip stories whose `**FIS**` field already points at an existing file. Re-running only fills gaps.
 - Read the `Learnings` document (see **Project Document Index**) before FIS generation, if it exists.
@@ -62,7 +69,6 @@ OUTPUT_DIR: `INPUT` (when `INPUT` is a directory containing `prd.md`), or resolv
 
 ## GOTCHAS
 - Agent creates too many small stories – push for fewer, larger vertical slices
-- Missing `prd.md` – stop and redirect to the `dartclaw-prd` skill; do not silently synthesize one
 - Wave assignments get ignored during execution – explicitly mark dependencies between stories
 - Not reading the `State` document (see **Project Document Index**) before planning – misses context about current phase, active blockers, and recent decisions that should inform story priorities
 - **Carried-forward stories without PRD coverage** – use the **Provenance** field; a story with no PRD feature and no provenance is a traceability gap
@@ -80,8 +86,6 @@ OUTPUT_DIR: `INPUT` (when `INPUT` is a directory containing `prd.md`), or resolv
 ### 1. Input Validation & PRD Detection
 
 1. **Parse INPUT** — determine type:
-   - **`--issue` flag present** (or INPUT refers to a GitHub issue): follow `../references/resolve-github-input.md`.
-     Compatible types: `plan-bundle` — extract per the **Resolve Plan-Bundle Input** procedure in `../references/github-artifact-roundtrip.md`, then treat the extracted directory as `INPUT`. `prd` — extract the primary `prd.md` into the resolved feature directory (per `../references/github-artifact-roundtrip.md`), then proceed to Step 2 using that directory as `OUTPUT_DIR`. Redirects (all **skills**): `fis-bundle` → `dartclaw-exec-spec` / `dartclaw-spec`; `triage-plan` / `triage-completion` / any `*-review` → stop with matching downstream skill.
    - **Directory with `prd.md`**: set `OUTPUT_DIR = INPUT`; proceed to Step 2.
    - **Directory without `prd.md`**: stop and redirect to the `dartclaw-prd` skill. Print the expected chain: `dartclaw-prd <input> → dartclaw-plan <same-directory>`.
    - **Any other input** (file, URL, inline): stop and redirect to the `dartclaw-prd` skill.
@@ -106,7 +110,7 @@ Synthesize into a unified understanding of: all PRD requirements and user storie
 
 #### Design Space Analysis _(if applicable)_
 
-For features with multiple design dimensions, use design space decomposition (see `../references/design-tree.md`) to inform story structure: independent dimensions → separate stories, coupled dimensions → same story, high-uncertainty dimensions → spike story. If a decomposition was produced upstream (by `clarify` or `trade-off`), reference and build on it. Skip for straightforward designs.
+For features with multiple design dimensions, use design space decomposition to inform story structure: independent dimensions → separate stories, coupled dimensions → same story, high-uncertainty dimensions → spike story. If a decomposition was produced upstream (by `clarify` or `trade-off`), reference and build on it. Skip for straightforward designs.
 
 #### Story Guidelines
 
@@ -190,7 +194,7 @@ If the `State` document exists, update it to reflect the new plan via the `dartc
 - `update-state status "On Track"`
 - `update-state note "Plan created: {plan_name} ({N} stories, {M} phases)"`
 
-If the `State` document does not exist, do not create it — suggest it in follow-up actions instead.
+If the `State` document does not exist, do not create it here — the workflow's state-update step (or an explicit `dartclaw-update-state` invocation) is the right place for that.
 
 **Gate**: `plan.md` saved and validated
 
@@ -259,7 +263,7 @@ Classify each story — **fully automatic**, no user confirmation needed. Apply 
 
 #### 6b. THIN: Collected FIS
 
-All THIN stories in the current scope are collected into a **single** FIS file: `{OUTPUT_DIR}/thin-specs.md` (or `thin-specs-p{N}.md` when running with `--phase N`). The orchestrator writes this directly — no sub-agents needed. Use the standard FIS template (`../dartclaw-spec/templates/fis-template.md`) and FIS authoring guidelines (`../references/fis-authoring-guidelines.md`). Tag Success Criteria with source story IDs (e.g., `### S08: Story Name`) so acceptance gates can map criteria per story. Keep implementation tasks for each source story contiguous and call out the source story ID in task context where needed. Populate from plan story scope/criteria, Key Scenarios (if present), and technical research. Target: compact but complete.
+All THIN stories in the current scope are collected into a **single** FIS file: `{OUTPUT_DIR}/thin-specs.md` (or `thin-specs-p{N}.md` when running with `--phase N`). The orchestrator writes this directly — no sub-agents needed. Use the standard FIS template (`templates/fis-template.md`) and FIS authoring guidelines (`references/fis-authoring-guidelines.md`). Tag Success Criteria with source story IDs (e.g., `### S08: Story Name`) so acceptance gates can map criteria per story. Keep implementation tasks for each source story contiguous and call out the source story ID in task context where needed. Populate from plan story scope/criteria, Key Scenarios (if present), and technical research. Target: compact but complete.
 
 After writing, update **ALL** THIN stories' `**FIS**` fields in `plan.md` to point to the thin-specs file and set `**Status**` to `Spec Ready`. The shared FIS path triggers existing shared-FIS dedup in `exec-plan` — `exec-spec` runs once, remaining stories skip to acceptance gate.
 
@@ -271,15 +275,22 @@ After writing, update **ALL** THIN stories' `**FIS**` fields in `plan.md` to poi
 
 **Sub-Agent Prompts** — Use a strong reasoning model (`model: "opus"`, `gpt-5.4`, or similar) for all spec sub-agents. These sub-agents do **not** invoke `/dartclaw-spec`; they are ad-hoc sub-agents with FIS-authoring instructions inlined below, because the batch flow has already pre-computed the shared technical research the per-spec skill would otherwise redo.
 
-**STANDARD sub-agent** — provide:
-- Story ID, name, scope, acceptance criteria, Key Scenarios (if present), dependencies
-- References: FIS template (`../dartclaw-spec/templates/fis-template.md`), authoring guidelines (`../references/fis-authoring-guidelines.md`), technical research (`{OUTPUT_DIR}/.technical-research.md`)
-- Instructions: read technical research for context and shared decisions; **check the "Binding PRD Constraints" section** (if present) and ensure each constraint that applies to this story flows into FIS success criteria unchanged; read FIS template and guidelines (including Technical Research Separation section); generate FIS that **references** the technical research rather than inlining its content; if the story references external APIs/libraries not covered by the technical research, delegate lookup to the `documentation-lookup` sub-agent; run Plan-Spec Alignment Check, Reverse Coverage Check (**plan-level sources only** — you do not have `prd.md` in context; PRD-level reverse coverage is checked later in step 7), and Self-Check from guidelines; save to `{OUTPUT_DIR}/{story-name}.md`; report back success/failure, FIS path, confidence score, and any `PHANTOM_SCOPE` findings surfaced by Reverse Coverage
+**Shared references** (provide to both STANDARD and COMPOSITE sub-agents):
+- FIS template: `templates/fis-template.md`
+- Authoring guidelines: `references/fis-authoring-guidelines.md`
+- Technical research: `{OUTPUT_DIR}/.technical-research.md`
 
-**COMPOSITE sub-agent** — provide:
+**Shared authoring rules** — read the technical research for shared decisions and file maps; **reference** it from the FIS rather than inlining its content (enforce the Technical Research Separation rule from the guidelines); honour every entry in the "Binding PRD Constraints" section — each applicable constraint flows into FIS success criteria unchanged; delegate external API/library lookups the technical research does not cover to the `documentation-lookup` sub-agent; always run Plan-Spec Alignment Check, Reverse Coverage Check (**plan-level sources only** — sub-agents do not have `prd.md` in context; PRD-level reverse coverage is handled in Step 7), and Self-Check from the guidelines; report back success/failure, FIS path, confidence score, and any `PHANTOM_SCOPE` findings from Reverse Coverage.
+
+**STANDARD sub-agent** — story-specific inputs:
+- Story ID, name, scope, acceptance criteria, Key Scenarios (if present), dependencies
+- Output path: `{OUTPUT_DIR}/{story-name}.md`
+
+**COMPOSITE sub-agent** — group-specific inputs:
 - All constituent stories (ID, name, scope, acceptance criteria, Key Scenarios if present)
-- Same references as STANDARD
-- Instructions: read technical research; **check the "Binding PRD Constraints" section** (if present) and ensure each constraint that applies to any constituent story flows into FIS success criteria unchanged; generate ONE FIS covering all stories with implementation tasks kept contiguous by story where that improves traceability; **reference** technical research from FIS — do not duplicate codebase analysis or API details into the spec; if stories reference external APIs/libraries not covered by the technical research, delegate lookup to the `documentation-lookup` sub-agent; run Plan-Spec Alignment Check for EACH story; run Reverse Coverage Check across the combined Success Criteria (**plan-level sources only** — PRD-level reverse coverage is checked later in step 7); run Self-Check; save to `{OUTPUT_DIR}/{composite-filename}.md` (concatenated IDs, e.g. `s01-s02-{feature-name}.md`); report back success/failure, FIS path, confidence score, and any `PHANTOM_SCOPE` findings surfaced by Reverse Coverage
+- Produce ONE FIS covering all stories; keep implementation tasks grouped by story where that improves traceability
+- Run Plan-Spec Alignment Check once per constituent story and Reverse Coverage Check across the combined Success Criteria
+- Output path: `{OUTPUT_DIR}/{composite-filename}.md` using concatenated IDs (e.g. `s01-s02-{feature-name}.md`)
 
 **Wait, Collect, and Update Plan** — Wait for all sub-agents in the current sub-wave to complete. Log any failures (continue with remaining stories — don't block the wave). Immediately after each sub-wave:
 
@@ -287,8 +298,6 @@ After writing, update **ALL** THIN stories' `**FIS**` fields in `plan.md` to poi
 - Set `**FIS**` field to the generated spec path
 - Set `**Status**` field to `Spec Ready` (if not already `In Progress` or `Done`)
 - COMPOSITE: set ALL constituent stories' fields
-
-If input was a typed GitHub plan artifact, apply the **Plan-Bundle Continuation Sync** from `../references/github-artifact-roundtrip.md` now.
 
 #### Spec Flow Example
 
@@ -334,7 +343,7 @@ If the review found CRITICAL or HIGH severity issues, apply fixes to resolve int
 **Broken scenario chains (#11)** — pick one:
 - Add the missing scenario to the FIS whose story naturally owns that leg. Don't stretch an unrelated FIS.
 - If no story owns it, add a new story: re-enter Step 3 (Phase/Wave/Dependencies/Risk), update the Story Catalog, re-run technical research if files fall outside the existing map, then Step 6 for that story before execution.
-- If the gap is a missing upstream decision, treat as a contract failure (per INSTRUCTIONS): pause for user input, surface the minimum missing decision, and don't invent the answer.
+- If the gap is a missing upstream decision, treat as a contract failure (per INSTRUCTIONS): halt and surface the minimum missing decision in the step output. Do not invent the answer, and do not wait for interactive clarification — the workflow engine decides whether to retry, reroute, or surface the blocker.
 
 **Phantom-scope findings** (from sub-agent `PHANTOM_SCOPE` return summaries): sub-agents only saw plan-level sources, so first re-check each finding against `prd.md` — criteria that trace to a PRD outcome are **not** phantom scope (suppress). For confirmed phantom scope: remove the unsourced Success Criterion, or amend plan/PRD to justify it. Treat confirmed phantom scope as MEDIUM severity by default; upgrade to HIGH when it drives significant implementation work or introduces new dependencies.
 
@@ -356,19 +365,8 @@ OUTPUT_DIR/
 ```
 
 - With `--skip-specs`: only `plan.md` is produced (plus unchanged `prd.md`).
-- If from GitHub issue: use `issue-{number}-{feature-name}/` as the output subdirectory name.
 
 When complete, print the output's **relative path from the project root**.
-
-### Publish to GitHub _(if --to-issue)_
-If PUBLISH_ISSUE is `true`:
-1. Follow `../references/github-artifact-roundtrip.md`
-   - `artifact_type`: `plan-bundle`
-   - Title: `[Plan] {project-name}: Implementation Plan`
-   - Primary file: `plan.md`
-   - Companion files: `prd.md`, all generated FIS files, and `.technical-research.md` when present
-   - Labels: `plan`, `andthen-artifact`
-2. Print the issue URL and the local primary path (`plan.md`)
 
 
 ## COMPLETION
@@ -382,16 +380,6 @@ Print a summary:
 - **Cross-cutting review**: findings count by severity, readiness assessment
 - **Fixes applied**: list of FIS files modified
 - **Readiness**: overall assessment for execution
-
-
-## FOLLOW-UP ACTIONS
-
-After completion, suggest the following next steps. **Recommend starting a clean session** for the context-intensive downstream skill.
-
-1. **Execute the plan** _(clean session)_: Invoke the `plan-and-implement` workflow — the bundle is fully specced.
-2. **Execute story by story**: Invoke the `dartclaw-exec-spec` skill per story for more control.
-3. **Review the bundle**: Invoke the `dartclaw-review --mode doc` skill on `plan.md` or `--mode gap` once implementation begins.
-4. **Initialize project state** (if not already tracking): Use the `dartclaw-update-state` skill to create or refresh the State document for this project.
 
 
 ## FAILURE HANDLING
@@ -409,8 +397,8 @@ After completion, suggest the following next steps. **Recommend starting a clean
 
 **USE THE TEMPLATE**:
 - Plan: [`templates/plan-template.md`](templates/plan-template.md)
-- FIS: `../dartclaw-spec/templates/fis-template.md`
-- PRD template (used by the `dartclaw-prd` skill upstream): `../dartclaw-prd/templates/prd-template.md`
+- FIS: `templates/fis-template.md`
+- PRD template (used by the `dartclaw-prd` skill upstream): `templates/prd-template.md`
 
 ## Workflow Output Contract _(consumed by the workflow engine only)_
 

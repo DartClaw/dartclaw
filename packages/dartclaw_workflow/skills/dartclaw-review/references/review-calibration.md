@@ -6,8 +6,8 @@ Universal calibration principles for all review skills. Load this reference befo
 > Models trend toward leniency — identifying real issues then rationalizing them away. This reference counteracts that bias.
 
 **Domain-specific calibration** (load after this file):
-- Code/implementation and gap review: `../dartclaw-review/references/code-review-calibration.md`
-- Document review (specs, plans, PRDs): `../dartclaw-review/references/doc-review-calibration.md`
+- Code/implementation and gap review: `code-review-calibration.md`
+- Document review (specs, plans, PRDs): `doc-review-calibration.md`
 
 
 ## Anti-Leniency Protocol

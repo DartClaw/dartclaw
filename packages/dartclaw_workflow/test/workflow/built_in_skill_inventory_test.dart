@@ -64,10 +64,30 @@ void main() {
     expect(skillDirs, isNot(contains('dartclaw-review-doc')));
     expect(skillDirs, isNot(contains('dartclaw-review-gap')));
 
-    expect(File(p.join(skillsDir, 'references', 'verification-patterns.md')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'references', 'structured-output-protocols.md')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'references', 'adversarial-challenge.md')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'scripts', 'check-stubs.sh')).existsSync(), isTrue);
-    expect(File(p.join(skillsDir, 'scripts', 'check-wiring.sh')).existsSync(), isTrue);
+    // AndThen 0.13.0 retired the shared `plugin/references/` and `plugin/scripts/` directories.
+    // Each skill is now self-contained: references, templates, scripts live inside the skill dir.
+    // Verify the canonical per-skill placements for the duplicated assets.
+    expect(
+      Directory(p.join(skillsDir, 'references')).existsSync(),
+      isFalse,
+      reason: 'Shared top-level references/ retired in 0.13.0 self-contained refactor',
+    );
+    expect(
+      Directory(p.join(skillsDir, 'scripts')).existsSync(),
+      isFalse,
+      reason: 'Shared top-level scripts/ retired in 0.13.0 self-contained refactor',
+    );
+    // Verification scripts now live inside the review skill.
+    expect(File(p.join(skillsDir, 'dartclaw-review', 'scripts', 'check-stubs.sh')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-review', 'scripts', 'check-wiring.sh')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-exec-spec', 'scripts', 'check-stubs.sh')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-exec-spec', 'scripts', 'check-wiring.sh')).existsSync(), isTrue);
+    // Adversarial-challenge now lives inside review; execution-discipline inside exec-spec.
+    expect(File(p.join(skillsDir, 'dartclaw-review', 'references', 'adversarial-challenge.md')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-exec-spec', 'references', 'execution-discipline.md')).existsSync(), isTrue);
+    // FIS authoring guidelines — canonical in spec, duplicated in plan + review with `source:` frontmatter.
+    expect(File(p.join(skillsDir, 'dartclaw-spec', 'references', 'fis-authoring-guidelines.md')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-plan', 'references', 'fis-authoring-guidelines.md')).existsSync(), isTrue);
+    expect(File(p.join(skillsDir, 'dartclaw-review', 'references', 'fis-authoring-guidelines.md')).existsSync(), isTrue);
   });
 }

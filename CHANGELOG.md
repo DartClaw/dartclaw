@@ -31,7 +31,8 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 - **`gitStrategy.worktree.externalArtifactMount`**: cross-clone FIS visibility for split-repo testing profiles (mount or per-story copy)
 - **`worktree: auto`**: resolves to `per-map-item` under real parallelism, otherwise to `inline`; explicit values still win
 - **`AgentExecution` primitive**: shared execution metadata (session, provider, model, token budget) lives in new `agent_executions` and `workflow_step_executions` tables with atomic AE+WSE+Task creation for workflow steps; five CI-enforced fitness functions lock the boundary. See `docs/adrs/021-agent-execution-primitive.md`
-- **Workflow E2E Dart integration test**: tagged integration test drives `plan-and-implement` and `spec-and-implement` end-to-end with the real Codex harness and git (`packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart`)
+- **Workflow E2E Dart integration test**: tagged integration test drives `plan-and-implement` and `spec-and-implement` end-to-end with the real Codex harness and git (`packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart`). Asserts the workflow-emitted `publish.pr_url` is a real GitHub URL that `gh pr view` resolves — the workflow's publish pipeline is validated end to end rather than via a post-workflow manual PR
+- **Standalone CLI publish PR-creation hook**: `CliWorkflowWiring` accepts an optional `prCreator` to customize publish-step PR creation. Production standalone wiring leaves it null (push-only — operator creates the PR). Tests and alternative entry points inject one (e.g. `gh pr create`) so the URL flows through `WorkflowGitPublishResult.prUrl` into `context['publish.pr_url']`
 - **`dartclaw-prd` skill**: PRD creation split out of `dartclaw-plan` (altitude split, mirrors AndThen 0.13.0)
 - **`dartclaw-validate-workflow` skill**: validates workflow YAML definitions and packaged workflow assets
 - **New server event stream**: `GET /api/agent-executions/events` surfaces AE status transitions
@@ -101,7 +102,7 @@ Architecture Hygiene & Documentation — SDK Package Decomposition Phase 2. Comp
 
 ### Changed
 
-- **Workflow consolidation**: built-in workflows reduced from 10 to 4 (`spec-and-implement`, `plan-and-implement`, `code-review`, `research-and-evaluate`), all referencing `dartclaw-*` skills with `discover-project` as step 0
+- **Workflow consolidation**: built-in workflows reduced from 10 to 4 (`spec-and-implement`, `plan-and-implement`, `code-review`, `research-and-evaluate`), all referencing `dartclaw-*` skills with `discover-project` as step 0. The four 0.16.1 workflow packs (`adversarial-dev`, `idea-to-pr`, `workflow-builder`, `comprehensive-pr-review`) were absorbed into this surface — their delivery, authoring, and review patterns are covered by the skill-backed built-ins plus user-authored workflows. (0.16.4 further removed `research-and-evaluate`, leaving the 3 shipped today.)
 - **Evaluator removal**: the `evaluator` step field has been removed from the workflow model, parser, validator, executor, and prompt augmenter
 - **Package decomposition**: moved shared model types into `dartclaw_models`, moved config parsing and config types into `dartclaw_config`, and kept `dartclaw_core` focused on runtime primitives
 - **Config dependency direction**: the workspace now uses the intended `models -> security -> config -> core` layering, with direct config imports instead of a `dartclaw_core` config facade

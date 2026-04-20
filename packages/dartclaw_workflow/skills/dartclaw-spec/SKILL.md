@@ -1,6 +1,6 @@
 ---
 description: Use when the user wants to generate a new spec or FIS before implementation for a feature or plan story. Do not use when the user wants to execute or implement an existing spec or FIS. Creates an execution-sized FIS by default, or pivots to a small plan bundle with multiple FIS files when one spec would be too large. Trigger on 'create a spec for this', 'create a FIS for this', 'write a spec', 'write a FIS', 'specify this feature'.
-argument-hint: <description> | @<requirements-file> | story <story-id> of <path-to-plan.md> | --issue <number> [--to-issue]
+argument-hint: <description> | @<requirements-file> | story <story-id> of <path-to-plan.md>
 workflow:
   default_prompt: "Use $dartclaw-spec to generate an execution-sized FIS from the provided feature or story."
   default_outputs:
@@ -22,9 +22,6 @@ Given a feature request, generate an execution-sized specification artifact: a s
 
 ARGUMENTS: $ARGUMENTS
 
-### Optional Output Flags
-- `--to-issue` → PUBLISH_ISSUE: Publish the generated spec artifact (single FIS or plan bundle) as a GitHub issue after saving locally
-
 
 ## INSTRUCTIONS
 
@@ -38,7 +35,10 @@ ARGUMENTS: $ARGUMENTS
 
 **Generating a FIS without reading the codebase first** – architecture analysis (Step 1) must precede specification (Step 4).
 
-**Undefined behavior** – use structured output protocols (`../references/structured-output-protocols.md`) to surface ambiguity and missing requirements rather than silently inventing answers.
+**Undefined behavior** – surface ambiguity and missing requirements rather than silently inventing answers. Emit named output blocks:
+- `CONFUSION:` — ambiguity + labeled options + `-> Which approach?`
+- `NOTICED BUT NOT TOUCHING:` — out-of-scope observations + `-> Want me to create tasks?`
+- `MISSING REQUIREMENT:` — undefined behavior + labeled options + `-> Which behavior?`
 
 **Describing code changes instead of outcomes** – tasks should state what must be TRUE when done, not what code to write. Bad: "Create lib/auth.ts with login() and logout()". Good: "Auth module with login/logout; follow pattern at lib/users.ts:10-30".
 
@@ -53,17 +53,14 @@ ARGUMENTS: $ARGUMENTS
 
 ## ORCHESTRATOR ROLE _(if supported by your coding agent)_
 
-You are the orchestrator: parse input, delegate codebase analysis and research to sub-agents, then author the FIS from their findings. Delegate codebase analysis to the `solution-architect` sub-agent; research to the `documentation-lookup` sub-agent or the `research-specialist` sub-agent _(if supported)_. Write the FIS yourself to keep it coherent.
+You are the orchestrator: parse input, delegate codebase analysis and research to sub-agents, then author the FIS from their findings. Delegate research to the `documentation-lookup` sub-agent or the `research-specialist` sub-agent _(if supported)_. Write the FIS yourself to keep it coherent.
 
 
 ## WORKFLOW
 
 ### 0. Parse Input & Get Requirements
 
-**If `--issue` flag present**: follow `../references/resolve-github-input.md`.
-Compatible types: none (spec creates new specs from untyped issues). Redirects (all **skills**): `fis-bundle` → stop, spec already exists — direct to `dartclaw-exec-spec`, `dartclaw-review`, or the local FIS path; `plan-bundle` → stop, direct to `story {story_id} of <path-to-plan.md>`, `dartclaw-plan` (to fill missing FIS), or `plan-and-implement` workflow; `triage-plan` / `triage-completion` / any `*-review` → stop with matching downstream skill. Untyped: use the issue as the feature request and store the issue number for FIS reference.
-
-**If ARGUMENTS is a directory with `requirements-clarification.md`**: read it; use clarified scope, functional requirements, edge cases, success criteria, design decisions, wireframes, and any explicit non-goals / deferred items as the feature request. Skip or reduce research phases (clarify already did discovery). Only do codebase research and any external/API research the requirements reference but haven't investigated.
+**If ARGUMENTS is a directory with `requirements-clarification.md`**: read it; use clarified scope, functional requirements, edge cases, success criteria, design decisions, wireframes, and any explicit non-goals / deferred items as the feature request. Skip or reduce research phases (prior clarification already did discovery). Only do codebase research and any external/API research the requirements reference but haven't investigated.
 
 **If ARGUMENTS use `story {story_id} of {path-to-plan.md}`**: read the plan; locate the story by ID; use its scope, acceptance criteria, dependencies, and phase context as feature request. If the story has **Key Scenarios**, use them as seeds for the Scenarios section (Step 3) — elaborate each seed into full Given/When/Then format. Store plan path and story ID for output updates. If a plan-scoped `.technical-research.md` exists in the plan directory (from the `dartclaw-plan` skill — check for the `## Story-Scoped File Map` section as a fingerprint), read it and reduce Steps 1 and 2 research accordingly.
 
@@ -79,12 +76,12 @@ If a **plan-scoped** `.technical-research.md` exists (created by the `dartclaw-p
 
 If a plan-scoped `.technical-research.md` exists with relevant coverage, skip research categories it already addresses. Only research what's genuinely missing:
 
-- **Codebase research** _(skip if technical research covers file maps and patterns for this story)_: similar features/patterns, files to reference with line numbers, existing conventions and test patterns. Delegate to the `solution-architect` sub-agent _(if supported)_.
+- **Codebase research** _(skip if technical research covers file maps and patterns for this story)_: similar features/patterns, files to reference with line numbers, existing conventions and test patterns.
 - **External research** _(if references to APIs/libraries without prior research)_: current documentation, known gotchas. Delegate to the `research-specialist` sub-agent or the `documentation-lookup` sub-agent _(if supported)_.
-- **Architecture trade-offs** _(skip if technical research covers shared decisions relevant to this story AND no story-internal trade-offs exist; also skip if ADR in ARGUMENTS)_: analyze 1-3 approaches, document risks. Delegate to the `solution-architect` sub-agent _(if supported)_.
-- **UI research** _(if applicable, and no prior wireframes)_: existing patterns, create wireframes. Delegate to the `ui-ux-designer` sub-agent _(if supported)_.
+- **Architecture trade-offs** _(skip if technical research covers shared decisions relevant to this story AND no story-internal trade-offs exist; also skip if ADR in ARGUMENTS)_: analyze 1-3 approaches, document risks.
+- **UI research** _(if applicable, and no prior wireframes)_: existing patterns, create wireframes.
 
-**Save research findings** (if substantial) to `.technical-research.md` in the FIS output directory — a hidden companion document that keeps the FIS lean and reviewable. The FIS references this document; the executing agent reads it alongside the FIS for implementation context. See the [Technical Research Separation](../../references/fis-authoring-guidelines.md#technical-research-separation) guidelines for what belongs in the research doc vs the FIS. Skip this if findings are minimal — not every spec needs a technical research document.
+**Save research findings** (if substantial) to `.technical-research.md` in the FIS output directory — a hidden companion document that keeps the FIS lean and reviewable. The FIS references this document; the executing agent reads it alongside the FIS for implementation context. See the [Technical Research Separation](references/fis-authoring-guidelines.md#technical-research-separation) guidelines for what belongs in the research doc vs the FIS. Skip this if findings are minimal — not every spec needs a technical research document.
 
 If an existing `.technical-research.md` already exists, append story-specific findings under a `## {Story Name}` heading rather than overwriting.
 
@@ -110,7 +107,7 @@ Before generating the full FIS, write the **Scenarios** section first. Scenarios
 Use the `Plan` agent _(if supported)_ to generate the FIS — it provides structured authoring support.
 
 Use the template in the **Appendix** below. Then read and follow the FIS authoring guidelines at
-[`../references/fis-authoring-guidelines.md`](../../references/fis-authoring-guidelines.md).
+[`references/fis-authoring-guidelines.md`](references/fis-authoring-guidelines.md).
 
 > **Optional**: Invoke the `dartclaw-review --mode doc` skill for thorough validation (recommended for large/complex features). This keeps pre-implementation FIS review on the document-review path.
 
@@ -123,7 +120,7 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 - If the draft is oversized **and the input is a standalone feature request / issue / clarification directory**:
   1. Do **not** save the giant single FIS as the primary artifact.
   2. Create a small `plan.md` in the output directory with 2-5 focused stories in execution order.
-  3. Generate that `plan.md` using the `dartclaw-plan` skill's template at `../dartclaw-plan/templates/plan-template.md`. Treat the template as an operational contract, not loose guidance.
+  3. Generate that `plan.md` using the `dartclaw-plan` skill's template at `templates/plan-template.md`. Treat the template as an operational contract, not loose guidance.
   4. Preserve the plan template invariants because downstream skills parse them directly:
      - keep the heading names and overall document shape stable
      - keep the Story Catalog columns exactly `ID | Name | Phase | Wave | Dependencies | Parallel | Risk | Status | FIS`
@@ -160,47 +157,13 @@ After drafting the first-pass FIS, assess whether it is still execution-sized.
 
 ### Oversize Pivot Mode
 - Save `plan.md` in the output directory as the primary artifact
-- Generate `plan.md` from `../dartclaw-plan/templates/plan-template.md` and preserve its required headings, Story Catalog columns, and story metadata labels
+- Generate `plan.md` from `templates/plan-template.md` and preserve its required headings, Story Catalog columns, and story metadata labels
 - Save exactly one child FIS per story in the same directory (prefer stable names like `s01-{story-name}.md`)
 - Do **not** use THIN/COMPOSITE/shared-FIS grouping in oversize pivot mode; this mode is a straightforward one-story-per-FIS decomposition
 - Save or reuse `.technical-research.md` beside the plan bundle
 - Update `plan.md` so each generated story references its child FIS path and has `Status` = `Spec Ready`
 - The downstream execution path is the `plan-and-implement` workflow skill
 - Do **not** use oversize pivot mode for `story {story_id} of {path-to-plan.md}` input; that case must escalate for upstream plan decomposition instead
-
-### Publish to GitHub _(if --to-issue)_
-Follow `../references/github-artifact-roundtrip.md`:
-- **Single-FIS mode**:
-  - `artifact_type`: `fis-bundle`
-  - Title: `[FIS] {feature-name}`
-  - Primary file: generated FIS (`fis_path`)
-  - Companion files: include `.technical-research.md` when it exists; if this spec came from a plan story, also include the current `plan.md`
-  - Metadata: always set `fis_path`; if this spec came from a plan story, also set `plan_path` and `story_ids` (all constituent story IDs for composite/shared FIS)
-  - Labels: `spec`, `fis`, `andthen-artifact`
-- **Oversize pivot mode**:
-  - `artifact_type`: `plan-bundle`
-  - Title: `[PLAN] {feature-name}`
-  - Primary file: generated `plan.md` (`plan_path`)
-  - Companion files: include sibling `prd.md` when present, `.technical-research.md` when present, and every child FIS referenced by the plan
-  - Metadata: set `plan_path`; leave `story_ids` empty at the bundle level unless a downstream consumer requires them
-  - Labels: `plan`, `spec`, `andthen-artifact`
-
-Print the issue URL and the local primary path (the generated FIS or `plan.md`, depending on mode).
-
-
----
-
-
-## FOLLOW-UP ACTIONS
-
-After completion, suggest:
-
-1. **Single-FIS mode**: Invoke the `dartclaw-exec-spec` skill to implement the FIS.
-2. **Oversize pivot mode**: Invoke the `plan-and-implement` workflow skill to execute the generated plan bundle.
-3. **Review first**: Invoke the `dartclaw-review` skill with `--mode doc` on the primary artifact before implementation.
-
-> **Session tip**: The `dartclaw-exec-spec` skill is context-intensive (it runs the full implementation + verification loop). Start a **clean session** for best results.
-
 
 ---
 

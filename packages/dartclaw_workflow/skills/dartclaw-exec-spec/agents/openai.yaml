@@ -1,5 +1,5 @@
 interface:
-  display_name: "AndThen - Exec Spec"
+  display_name: "DartClaw - Exec Spec"
   short_description: "Execute or implement an existing spec or FIS"
   default_prompt: "Implement the Feature Implementation Specification directly, follow the FIS exactly, and use sub-agents only for advisory/review work. Spec path: "
 

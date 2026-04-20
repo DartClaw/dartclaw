@@ -12,7 +12,7 @@ Identify the project checks relevant to the review scope by inspecting the repo'
 
 ## Lenses (applicable subset)
 
-Run only the lenses that actually apply to the changed scope. Use the checklists under `../dartclaw-review/checklists/`:
+Run only the lenses that actually apply to the changed scope. Use the checklists under `../checklists/`:
 
 1. **Code quality** — [CODE-REVIEW-CHECKLIST.md](../checklists/CODE-REVIEW-CHECKLIST.md): correctness, edge cases, readability, naming, maintainability, performance, duplication
 2. **Architecture** — [ARCHITECTURAL-REVIEW-CHECKLIST.md](../checklists/ARCHITECTURAL-REVIEW-CHECKLIST.md): pattern adherence, coupling/cohesion, CUPID, DDD where relevant, resilience/performance trade-offs
@@ -30,12 +30,12 @@ Run only the lenses that actually apply to the changed scope. Use the checklists
 
 Run available security tooling such as Semgrep (`../scripts/run-security-scan.sh <path>`) when possible.
 
-When the review touches browser state, AI/agent flows, logs, stack traces, error output, scraped content, tool results, or other external-data flows, apply `../references/trust-boundaries.md`.
+When the review touches browser state, AI/agent flows, logs, stack traces, error output, scraped content, tool results, or other external-data flows, apply `trust-boundaries.md`.
 
 
 ## Calibration
 
-Calibrate severity with `../references/review-calibration.md` (universal) and `../dartclaw-review/references/code-review-calibration.md` (code-specific). Use the unified severity scale defined in `../references/review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
+Calibrate severity with `review-calibration.md` (universal) and `code-review-calibration.md` (code-specific). Use the unified severity scale defined in `review-verdict.md`: CRITICAL / HIGH / MEDIUM / LOW.
 
 
 ## Verification Evidence
@@ -49,21 +49,14 @@ Run applicable project checks that strengthen review signal:
 When invoked standalone, treat those checks as part of the review evidence. When invoked by an orchestrator that already ran them, reuse fresh results when available instead of rerunning broad project checks unnecessarily. Report which verification commands were run, which were skipped, and why. Do not claim a clean review if a critical available check failed or could not be interpreted.
 
 
-## Parallel Review Lenses (optional)
+## Parallelization
 
-When sub-agents are supported, delegate parallel reviewers for:
-1. Code quality
-2. Security
-3. Architecture
-4. Domain language
-5. UI/UX
-
-If sub-agents are unavailable, run the same lenses sequentially.
+When the review applies two or more lenses from the list above and sub-agents are supported, delegate each applicable lens to a parallel sub-agent. Otherwise run the same lenses sequentially inline.
 
 
 ## Findings Output
 
-Categorize findings using the unified severity scale from `../references/review-verdict.md`:
+Categorize findings using the unified severity scale from `review-verdict.md`:
 - **CRITICAL**: security vulnerabilities, data loss, or broken core behavior
 - **HIGH**: significant maintainability, performance, or correctness issues
 - **MEDIUM**: non-trivial quality/consistency issues worth addressing
@@ -116,8 +109,10 @@ Ready / Needs Fixes / Blocked — with severity counts
 
 ## Report Output Conventions
 
-When writing a report file (not `--inline-findings`), follow `../references/report-output-conventions.md` with:
-- **Report suffix**: `code-review`
-- **Scope placeholder**: `feature-name`
-- **Spec-directory rule**: the files being reviewed correspond to a feature that has an associated spec directory from the Project Document Index
-- **Target-directory rule**: the review target is a specific file or localized directory, so the report belongs next to the primary review target
+When writing a report file (not `--inline-findings`):
+- **Filename**: `<feature-name>-code-review-<agent>-<YYYY-MM-DD>.md` — on collision append `-2`, `-3`. `<agent>` is your agent short name (`claude`, `codex`, etc.; fall back to `agent`).
+- **Directory priority**:
+  1. **Spec directory** — when the files being reviewed correspond to a feature that has an associated spec directory from the Project Document Index
+  2. **Target directory** — next to the primary review target (the specific file or localized directory)
+  3. **Fallback** — `{AGENT_TEMP}/reviews/` (default `.agent_temp/reviews/`)
+- On completion, print the report's relative path from the project root.

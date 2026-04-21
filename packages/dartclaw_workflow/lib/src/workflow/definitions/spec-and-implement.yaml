@@ -72,6 +72,7 @@ steps:
     type: writing
     skill: dartclaw-spec
     contextInputs: [project_index]
+    workflowVariables: [FEATURE]
     contextOutputs: [spec_path, spec_source, spec_confidence]
     outputs:
       spec_path:

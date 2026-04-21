@@ -254,6 +254,26 @@ void main() {
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.invalidReference), true);
       });
+
+      test('workflowVariables entry missing from variables block produces invalidReference error', () {
+        final def = _buildDef(
+          steps: [
+            const WorkflowStep(id: 's1', name: 'S', prompts: ['p'], workflowVariables: ['UNDECLARED']),
+          ],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.type == ValidationErrorType.invalidReference && e.stepId == 's1'), true);
+      });
+
+      test('workflowVariables entry declared in variables block produces no error', () {
+        final def = _buildDef(
+          variables: {'REQUIREMENTS': const WorkflowVariable(description: 'r')},
+          steps: [
+            const WorkflowStep(id: 's1', name: 'S', prompts: ['p'], workflowVariables: ['REQUIREMENTS']),
+          ],
+        );
+        expect(validator.validate(def).errors, isEmpty);
+      });
     });
 
     group('context key consistency', () {
@@ -1839,6 +1859,108 @@ void main() {
         expect(report.warnings.any((w) => w.message.contains('stepDefaults ordering is load-bearing')), isTrue);
         expect(report.warnings.any((w) => w.message.contains('review-prd')), isTrue);
       });
+    });
+  });
+
+  group('map alias (`as:`) validation', () {
+    test('valid `as:` on a map step produces no errors', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'setup',
+            name: 'Setup',
+            prompts: ['Setup'],
+            contextOutputs: ['items'],
+          ),
+          WorkflowStep(
+            id: 'each',
+            name: 'Each',
+            prompts: ['Process {{thing.item.path}}'],
+            mapOver: 'items',
+            mapAlias: 'thing',
+            contextOutputs: ['results'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors, isEmpty);
+    });
+
+    test('`as:` on a non-map step is an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['hi'], mapAlias: 'story'),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.message.contains('only valid on map/foreach controllers')), isTrue);
+    });
+
+    test('`as:` colliding with a workflow variable is an error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'x')},
+        steps: const [
+          WorkflowStep(
+            id: 'setup',
+            name: 'Setup',
+            prompts: ['Setup'],
+            contextOutputs: ['items'],
+          ),
+          WorkflowStep(
+            id: 'each',
+            name: 'Each',
+            prompts: ['p'],
+            mapOver: 'items',
+            mapAlias: 'PROJECT',
+            contextOutputs: ['results'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.any((e) => e.message.contains('collides with a declared workflow variable')), isTrue);
+    });
+
+    test('alias references in substep prompts are not flagged as undeclared variables', () {
+      // `{{story.item.spec_path}}` in the child prompt would be mistaken for an
+      // undeclared variable without alias-aware extraction.
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 'setup',
+            name: 'Setup',
+            prompts: ['Setup'],
+            contextOutputs: ['items'],
+          ),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            prompts: null,
+            mapOver: 'items',
+            mapAlias: 'story',
+            foreachSteps: ['implement'],
+            contextOutputs: ['results'],
+          ),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Implement {{story.item.spec_path}}'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors.any((e) => e.message.contains('undeclared variable')),
+        isFalse,
+        reason: 'Alias-aware extraction should skip {{story.*}} in child prompts',
+      );
     });
   });
 }

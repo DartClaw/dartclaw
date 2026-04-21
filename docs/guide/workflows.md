@@ -292,16 +292,35 @@ This pattern is ideal for review fan-out, independent research, and summary gene
 
 ### Map / Fan-Out
 
-Use `mapOver` (`map_over`) when one workflow step should iterate over a JSON array in context.
-This is map shorthand, not loop syntax.
+Use `mapOver` (`map_over`) when a workflow should iterate over a JSON array in context. The engine supports two shapes:
 
-Key fields:
+- **Plain `mapOver`** — one authored step, executed once per array item.
+- **`foreach`** — an ordered sub-pipeline (multiple authored steps) executed in sequence per array item.
 
-- `mapOver`: context key with the source array
-- `maxParallel`: upper bound on concurrent iterations
-- `maxItems`: safety cap for large arrays
+Both are map shorthand, not loop syntax. The decision is about how much work each item needs, not about parallelism or collection size.
+
+Key fields (shared by both shapes):
+
+- `mapOver` (`map_over`): context key with the source array
+- `maxParallel` (`max_parallel`): upper bound on concurrent iterations
+- `maxItems` (`max_items`): safety cap for large arrays
+- `as` (optional): loop variable name — see [Naming the loop with `as:`](#naming-the-loop-with-as) below
 
 Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+
+#### Choosing between `mapOver` and `foreach`
+
+> Use plain `mapOver` for one-step-per-item work. Use `foreach` when each item needs multiple ordered steps (e.g. implement → review → remediate).
+
+| | Plain `mapOver` | `foreach` |
+|---|---|---|
+| YAML shape | `mapOver:` on a regular step | `type: foreach` + `map_over:` + nested `steps:` list |
+| Body per iteration | **One** step — the controller itself runs once per item | **Many** steps — the authored sub-pipeline runs in order per item |
+| Aggregate output shape | Flat list `[r, r, r]` (one entry per item) | List of per-item objects keyed by child step id: `[{impl: {…}, review: {…}}, …]` |
+| Typical use | "Apply skill X to each item" | "Implement → validate → review each item" |
+| Per-iteration overlay | n/a (single step) | Child outputs readable in sibling steps as bare key or `<stepId>.<key>` |
+
+Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<alias>.*}}` template grammar, and git-strategy (`per-map-item` worktree isolation, externalArtifactMount, etc.). The sections below drill into each shape.
 
 #### Plain `mapOver` Steps
 
@@ -336,9 +355,11 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
   name: Per-Story Pipeline
   type: foreach
   map_over: stories
+  as: story                             # optional; names the loop variable
   contextOutputs: [story_results]
   steps:
     - id: implement
+      prompt: Implement {{story.item.spec_path}}
       contextOutputs: [story_result]
     - id: quick-review
       contextOutputs: [quick_review_summary, quick_review_findings_count]
@@ -374,6 +395,54 @@ In other words:
 
 - child step `contextOutputs` control the shape inside each per-item result
 - controller `contextOutputs` control the top-level exported aggregate key
+
+**Nested `foreach` is not supported.** The parser rejects a `foreach` controller inside another `foreach`'s `steps:` list. If you need per-item work that itself fans out over a sub-collection, flatten it: have the outer step emit a denormalized list whose items already combine the two axes, or run the second fan-out as a subsequent top-level step that consumes the aggregated result. Only one iteration context is active at a time, so no outer-vs-inner scoping rules apply.
+
+#### Naming the loop with `as:`
+
+For readability, give the iteration a name with the controller's `as:` field:
+
+```yaml
+- id: story-pipeline
+  type: foreach
+  map_over: story_specs
+  as: story                        # optional; names the loop variable
+  steps:
+    - id: implement
+      prompt: |
+        Implement story {{story.display_index}}/{{story.length}}
+        per {{story.item.spec_path}}.
+```
+
+The same iteration is now reachable as `{{story.*}}` — `{{story.item}}`, `{{story.item.spec_path}}`, `{{story.index}}`, `{{story.display_index}}`, `{{story.length}}`, and `{{context.key[story.index]}}` all work. The legacy `{{map.*}}` prefix continues to resolve against the same iteration, so existing templates keep running unchanged.
+
+Rules:
+
+- The name must be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`).
+- Reserved names `map` and `context` are rejected at parse time — they already have fixed meanings in the template grammar.
+- `as:` is only valid on map/`foreach` controllers (steps that declare `map_over`).
+- The alias must not collide with a declared workflow variable — pick a different identifier if it does.
+- On a `foreach`, the alias is in scope for the controller and for every child prompt under that controller. On a plain `mapOver`, the alias is in scope for the controller's own prompt (plain mapped steps have no children).
+
+**When to use it.** A named alias is self-documenting (`{{story.item.spec_path}}` says what it is) and makes the intent of a prompt clearer at a glance. The legacy `{{map.*}}` is still fine for single-loop workflows where the context is obvious.
+
+#### Prefer field access over the whole-item blob
+
+`{{map.item}}` (or `{{<alias>.item}}`) renders the current iteration item — a JSON blob when it's a Map, `toString()` otherwise. That's a reasonable catch-all, but it duplicates information when the iteration item already points at a file on disk (a FIS path, an artifact path) and can clutter the prompt. Reach for field access instead when you only need one attribute:
+
+```yaml
+# Noisier — full story record dumped into the prompt
+prompt: |
+  Story {{story.display_index}}/{{story.length}}:
+  <story>{{story.item}}</story>
+
+# Leaner — skill reads the FIS body from the mounted spec file itself
+prompt: |
+  Implement story {{story.display_index}}/{{story.length}} per
+  {{story.item.spec_path}}.
+```
+
+Field access supports up to 10 dot segments after `item.` (`{{story.item.a.b.c.d.e.f.g.h.i}}`). Going deeper throws a template error at resolve time — the cap is a guardrail against typo-driven infinite paths, not a shape constraint, and in practice story/spec records stay at 1-2 levels. Array-typed fields render as a markdown bullet list (`{{story.item.acceptance_criteria}}` → `- item one\n- item two\n…`), so a list is automatically the "end of the line" for a path.
 
 ### Workflow-Owned Git Lifecycle
 
@@ -548,6 +617,17 @@ To opt a single step out:
   prompt: "…"
 ```
 
+**Interaction summary** — what the agent actually sees depending on how the step is authored:
+
+| Authoring choice | What the agent sees |
+|---|---|
+| `contextInputs: [plan]` + prompt references `{{context.plan}}` | Value interpolated inline; no extra `<plan>` block appended |
+| `contextInputs: [plan]` + prompt contains `<plan>…</plan>` by hand | Manual block preserved; no auto-frame added |
+| `contextInputs: [plan]` + prompt never mentions `plan` | `<plan>\n{value}\n</plan>` auto-appended after the prompt body |
+| `contextInputs: [plan]` + `auto_frame_context: false` + no reference | Value not rendered — dependency is declared but silent |
+| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `contextInputs` auto-framed at the tail |
+| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `contextInputs` entry becomes the prompt body |
+
 ### Exit Gates and Finalizers
 
 Loops use `exitGate` to decide when to stop and `finally` to run a closing step after the loop ends.
@@ -619,7 +699,7 @@ Notable patterns:
 - **PRD / Plan / Exec altitudes**: `prd` stops at the product layer; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
 - **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
-- **Cross-map binding**: implementation uses `{{context.story_spec[map.index]}}`, while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller.
+- **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` within the same story iteration.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
@@ -719,6 +799,29 @@ This split keeps picker/browser UIs fast and stable as the built-in library grow
 
 ## YAML Field Reference (0.16.4)
 
+### Orchestration Containers at a Glance
+
+DartClaw workflow steps are the unit of execution, but several step types act as **containers** — they don't create an agent task themselves; they shape how a set of other steps runs. Here's the whole container set in one place:
+
+| Container | Spelling | What it does | Task created? |
+|---|---|---|---|
+| Plain step | `type: research` / `analysis` / `coding` / `writing` | Runs one agent turn (or zero-turn bash/approval below) | 1 |
+| Parallel group | `parallel: true` on ≥2 contiguous siblings | Runs the contiguous parallel-flagged steps concurrently; context merges after all finish | 1 per member |
+| Plain map | `mapOver:` (or `map_over:`) on a regular step | Runs the same step once per item in a context array, then aggregates results | 1 per item |
+| `foreach` | `type: foreach` + `map_over:` + nested `steps:` list | Runs an ordered sub-pipeline per item in the array | 1 per child step × items |
+| Inline loop | `type: loop` + `maxIterations:` + `exitGate:` + nested `steps:` | Repeats a sub-pipeline until `exitGate` is true or `maxIterations` runs out | 1 per child step × iterations |
+| `bash` | `type: bash` + `prompt: <shell command>` | Runs a host-side shell command; no agent, no tokens | 0 |
+| `approval` | `type: approval` | Zero-task pause for a human decision | 0 |
+
+Rules of thumb:
+
+- **`parallel` is orthogonal to everything else** — a `coding` step can have `parallel: true`, but `foreach` / `loop` / `approval` cannot be `parallel`.
+- **Don't nest `foreach` inside `foreach`** — the parser rejects it. Flatten or sequence instead.
+- **`loop` repeats; `foreach` iterates.** Use `loop` for "do this until X is satisfied" (remediation loops), `foreach` for "do this once per item in a list".
+- **`bash` and `approval` are zero-task.** They don't consume tokens and don't enter review; they just side-step the agent loop for deterministic work (bash) or a human gate (approval).
+
+Each container is documented in full in its own section above — [Parallel Steps](#parallel-steps), [Map / Fan-Out](#map--fan-out), [Inline Loops](#inline-loops), [`bash` Steps](#bash-steps), and [`approval` Steps](#approval-steps).
+
 ### Top-Level Fields
 
 | Field | Type | Default | Description |
@@ -768,6 +871,7 @@ variables:
 | `skill` | string | none | Skill name for skill-aware steps (requires installation) |
 | `evaluator` | bool | `false` | Minimal prompt scope — step receives only its own instructions |
 | `mapOver` (`map_over`) | string | none | Context key naming a JSON array — step runs once per element |
+| `as` (`mapAlias`, `map_alias`) | string | none | Loop variable name for map/foreach controllers. Templates can reference `{{<as>.item.field}}`, `{{<as>.index}}`, etc. Legacy `{{map.*}}` keeps working alongside it |
 | `maxParallel` (`max_parallel`) | int or string | `1` | Max concurrent iterations for map steps. `"unlimited"` or template |
 | `maxItems` (`max_items`) | int | `20` | Max items processed from the mapped array |
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
@@ -969,14 +1073,18 @@ Templates in `prompt` and `project` fields support:
 | `{{VARIABLE}}` | Declared workflow variable |
 | `{{context.key}}` | Context value written by a prior step |
 | `{{map.item}}` | Current item in the mapped array (JSON for objects, toString for scalars) |
-| `{{map.item.field}}` | Field access on a Map item (dot notation, max 3 levels) |
+| `{{map.item.field}}` | Field access on a Map item (dot notation, up to 10 segments) |
 | `{{map.index}}` | 0-based iteration index |
 | `{{map.display_index}}` | 1-based iteration index |
 | `{{map.length}}` | Total number of items in the mapped array |
 | `{{context.key[map.index]}}` | Indexed lookup into a List-typed context value |
 | `{{context.key[map.index].field}}` | Field access on the indexed element |
+| `{{<alias>.item}}` | Named variant of `{{map.item}}` when the controller declares `as: <alias>` |
+| `{{<alias>.item.field}}` | Named variant of `{{map.item.field}}` (same 10-segment cap) |
+| `{{<alias>.index}}` / `{{<alias>.display_index}}` / `{{<alias>.length}}` | Named counterparts of the `map.*` metadata refs |
+| `{{context.key[<alias>.index]}}` | Indexed lookup using the named alias as the index source |
 
-The `{{context.key[map.index]}}` pattern auto-extracts `.text` from structured result elements (supports S07 coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
+The `{{context.key[map.index]}}` (or `[<alias>.index]`) pattern auto-extracts `.text` from structured result elements (supports S07 coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
 
 ### Legacy `loops` Fields
 

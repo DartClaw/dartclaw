@@ -428,6 +428,56 @@ steps:
       expect(def.steps[0].contextOutputs, ['out_c']);
     });
 
+    test('parses workflowVariables (snake_case and camelCase aliases)', () {
+      const yaml = '''
+name: n
+description: d
+variables:
+  REQUIREMENTS:
+    required: true
+    description: req
+  FEATURE:
+    required: true
+    description: feat
+steps:
+  - id: snake
+    name: Snake
+    prompt: p
+    workflow_variables:
+      - REQUIREMENTS
+  - id: camel
+    name: Camel
+    prompt: p
+    workflowVariables: [FEATURE]
+  - id: missing
+    name: Missing
+    prompt: p
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].workflowVariables, ['REQUIREMENTS']);
+      expect(def.steps[1].workflowVariables, ['FEATURE']);
+      expect(def.steps[2].workflowVariables, isEmpty);
+    });
+
+    test('workflowVariables round-trips through toJson/fromJson', () {
+      const yaml = '''
+name: n
+description: d
+variables:
+  REQUIREMENTS:
+    required: true
+    description: req
+steps:
+  - id: s
+    name: S
+    prompt: p
+    workflowVariables: [REQUIREMENTS]
+''';
+      final def = parser.parse(yaml);
+      final roundTripped = WorkflowStep.fromJson(def.steps[0].toJson());
+      expect(roundTripped.workflowVariables, ['REQUIREMENTS']);
+    });
+
     test('parses type field correctly', () {
       for (final type in ['research', 'analysis', 'writing', 'coding']) {
         final yaml =
@@ -972,6 +1022,226 @@ steps:
       final def = parser.parse(yaml);
       expect(def.steps[0].mapOver, isNull);
       expect(def.steps[0].isMapStep, isFalse);
+    });
+
+    test('parses `as:` loop variable name on a map step', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: 'Implement {{story.item.spec_path}}'
+    map_over: story_specs
+    as: story
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].mapAlias, 'story');
+    });
+
+    test('parses camelCase alias `mapAlias:` as the same field', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    mapAlias: thing
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].mapAlias, 'thing');
+    });
+
+    test('absent `as:` defaults to null (legacy `map.*` only)', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].mapAlias, isNull);
+    });
+
+    test('rejects invalid identifier on `as:`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: "has-hyphen"
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('rejects reserved prefix `as: map`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: map
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('rejects reserved prefix `as: context`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: context
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('parses `as:` on an inline `type: foreach` controller', () {
+      // Regression: inline foreach goes through _parseInlineForeachStep, not
+      // _parseStep. The alias must propagate through the foreach-specific path.
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
+    map_over: stories
+    as: story
+    steps:
+      - id: implement
+        name: Implement
+        prompt: 'Implement {{story.item.spec_path}}'
+''';
+      final def = parser.parse(yaml);
+      final controller = def.steps.firstWhere((s) => s.id == 'story-pipeline');
+      expect(controller.mapAlias, 'story');
+      expect(controller.isForeachController, isTrue);
+    });
+
+    test('parses `mapAlias:` camelCase alias on inline foreach', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    mapAlias: thing
+    steps:
+      - id: step
+        name: Step
+        prompt: p
+''';
+      final def = parser.parse(yaml);
+      final controller = def.steps.firstWhere((s) => s.id == 'fe');
+      expect(controller.mapAlias, 'thing');
+    });
+
+    test('rejects reserved `as: context` on inline foreach', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: fe
+    name: FE
+    type: foreach
+    map_over: items
+    as: context
+    steps:
+      - id: step
+        name: Step
+        prompt: p
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('rejects empty string `as: ""`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: ""
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('rejects whitespace-only `as: "   "`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: "   "
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('rejects non-string `as: 42`', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: p
+    map_over: items
+    as: 42
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
+    });
+
+    test('accepts single-letter `as: m` (substring of reserved "map")', () {
+      // Guard against over-eager prefix matching on reserved names.
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: 'hi {{m.item.x}}'
+    map_over: items
+    as: m
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].mapAlias, 'm');
+    });
+
+    test('accepts `as: map_foo` (starts with "map" but not a dotted map ref)', () {
+      const yaml = '''
+name: n
+description: d
+steps:
+  - id: s
+    name: S
+    prompt: 'hi {{map_foo.item.x}}'
+    map_over: items
+    as: map_foo
+''';
+      final def = parser.parse(yaml);
+      expect(def.steps[0].mapAlias, 'map_foo');
     });
 
     test('parses max_parallel as int', () {

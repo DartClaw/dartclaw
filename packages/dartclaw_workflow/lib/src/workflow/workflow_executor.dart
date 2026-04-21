@@ -228,14 +228,13 @@ class WorkflowExecutor {
     return values;
   }
 
-  // Workflow-level `variables` are NOT auto-framed into step prompts. Step
-  // authors must reference them explicitly with `{{VAR}}` in the prompt body
-  // if they want them included. This prevents unrelated variables (for
-  // example REQUIREMENTS on discover-project) from leaking into every step's
-  // prompt. `contextInputs` remains the declarative channel for upstream
-  // step outputs and is still auto-framed by SkillPromptBuilder when
-  // `autoFrameContext` is true.
-  List<String> _autoFrameVariableNames(WorkflowDefinition definition, WorkflowContext context) => const [];
+  // Workflow-level `variables` are opt-in per step. Only names listed in
+  // `step.workflowVariables` are auto-framed as `<NAME>{value}</NAME>` blocks
+  // on that step's prompt. Undeclared variables never reach unrelated steps
+  // (e.g. REQUIREMENTS must not land on discover-project). `contextInputs`
+  // remains the declarative channel for upstream step outputs and is still
+  // auto-framed by SkillPromptBuilder when `autoFrameContext` is true.
+  List<String> _autoFrameVariableNames(WorkflowStep step) => step.workflowVariables;
 
   /// Fallback git identity for auto-commit in environments without a
   /// configured `user.name` / `user.email`. Applied only to the artifact-commit
@@ -1835,7 +1834,7 @@ class WorkflowExecutor {
         : null;
     final skillDefaultPrompt = _skillDefaultPromptFor(step);
     final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
-    final variableNames = _autoFrameVariableNames(definition, context);
+    final variableNames = _autoFrameVariableNames(step);
     final resolvedWorktreeMode = _resolvedWorktreeModeForScope(
       definition,
       step,
@@ -2040,16 +2039,18 @@ class WorkflowExecutor {
         }
       }
 
-      if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
-        final wj = finalTask.worktreeJson;
-        outputs['${step.id}.branch'] = (wj?['branch'] as String?) ?? '';
-        outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
-        if (wj == null) {
-          _log.warning(
-            "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
-            'branch/worktree_path context values will be empty',
-          );
-        }
+      // Always expose the `{stepId}.branch` / `{stepId}.worktree_path` keys
+      // (empty when no worktree metadata) so downstream `{{context.X.branch}}`
+      // template references resolve uniformly regardless of step type. Warn
+      // only when a step that was supposed to have a worktree doesn't.
+      final wj = finalTask.worktreeJson;
+      outputs['${step.id}.branch'] = (wj?['branch'] as String?) ?? '';
+      outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
+      if (wj == null && _stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
+        _log.warning(
+          "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
+          'branch/worktree_path context values will be empty',
+        );
       }
       outputs = _normalizeWorkflowOutputs(run, step, outputs, context);
       final providerSessionId = _workflowStepExecutionRepository == null
@@ -2761,12 +2762,12 @@ class WorkflowExecutor {
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
     final allowsFileWrite = resolved.allowedTools?.contains('file_write') ?? false;
-      if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
-        config['readOnly'] = true;
-      }
-      if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
-        config['_workflowNeedsWorktree'] = true;
-      }
+    if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
+      config['readOnly'] = true;
+    }
+    if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
+      config['_workflowNeedsWorktree'] = true;
+    }
     config['_workflowStepType'] = step.type;
     final branch = context.variables['BRANCH']?.trim();
     if (branch != null && branch.isNotEmpty) {
@@ -3547,6 +3548,7 @@ class WorkflowExecutor {
           item: (collection[iterIndex] as Object?) ?? '',
           index: iterIndex,
           length: collection.length,
+          alias: step.mapAlias,
         );
         final effectiveProjectId = _resolveProjectIdWithMap(step, context, mapContext);
 
@@ -3563,7 +3565,7 @@ class WorkflowExecutor {
         final effectiveOutputs = _effectiveOutputsFor(step);
         final skillDefaultPrompt = _skillDefaultPromptFor(step);
         final resolvedInputValues = _resolvedInputValuesFor(step, definition, context);
-        final variableNames = _autoFrameVariableNames(definition, context);
+        final variableNames = _autoFrameVariableNames(step);
         final iterPrompt = _skillPromptBuilder.build(
           skill: step.skill,
           resolvedPrompt: resolvedPrompt,
@@ -3937,6 +3939,7 @@ class WorkflowExecutor {
           item: (collection[iterIndex] as Object?) ?? '',
           index: iterIndex,
           length: collection.length,
+          alias: controllerStep.mapAlias,
         );
         final effectiveProjectId = _resolveProjectIdWithMap(controllerStep, context, mapContext);
         mapCtx.inFlightCount++;

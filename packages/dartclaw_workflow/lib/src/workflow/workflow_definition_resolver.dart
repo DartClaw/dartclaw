@@ -137,6 +137,7 @@ class WorkflowDefinitionResolver {
       onFailure: step.onFailure,
       emitsOwnOutcome: step.emitsOwnOutcome || (skillInfo?.emitsOwnOutcome ?? false),
       autoFrameContext: step.autoFrameContext,
+      workflowVariables: step.workflowVariables,
     );
   }
 
@@ -232,6 +233,9 @@ class WorkflowDefinitionResolver {
     if (controller.contextOutputs.isNotEmpty) {
       entries.add(MapEntry('contextOutputs', controller.contextOutputs.toList()));
     }
+    if (controller.workflowVariables.isNotEmpty) {
+      entries.add(MapEntry('workflow_variables', controller.workflowVariables.toList()));
+    }
     final childSteps = <dynamic>[];
     for (final childId in controller.foreachSteps ?? const <String>[]) {
       final child = stepsById[childId];
@@ -290,6 +294,9 @@ class WorkflowDefinitionResolver {
     if (step.onFailure != OnFailurePolicy.fail) entries.add(MapEntry('onFailure', step.onFailure.yamlName));
     if (step.emitsOwnOutcome) entries.add(MapEntry('emitsOwnOutcome', true));
     if (!step.autoFrameContext) entries.add(MapEntry('auto_frame_context', false));
+    if (step.workflowVariables.isNotEmpty) {
+      entries.add(MapEntry('workflow_variables', step.workflowVariables.toList()));
+    }
     return entries;
   }
 

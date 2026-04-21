@@ -114,6 +114,7 @@ class WorkflowDefinitionValidator {
     _validateUniqueStepIds(definition, errors);
     _validateUniqueLoopIds(definition, errors);
     _validateNormalizedNodes(definition, errors);
+    _validateMapAliases(definition, errors);
     _validateVariableReferences(definition, errors);
     _validateContextKeyConsistency(definition, errors);
     _validateGateExpressions(definition, errors);
@@ -782,10 +783,28 @@ class WorkflowDefinitionValidator {
 
   void _validateVariableReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final declaredVars = definition.variables.keys.toSet();
+
+    // Build a step-id → enclosing-map-aliases lookup so that substep prompts
+    // inside a foreach/map can reference the controller's `as:` alias without
+    // the extractor flagging it as an undeclared variable.
+    final aliasesByStepId = <String, Set<String>>{};
     for (final step in definition.steps) {
+      if (step.mapAlias != null) {
+        aliasesByStepId.putIfAbsent(step.id, () => <String>{}).add(step.mapAlias!);
+      }
+      if (step.isForeachController && step.mapAlias != null) {
+        for (final childId in step.foreachSteps!) {
+          aliasesByStepId.putIfAbsent(childId, () => <String>{}).add(step.mapAlias!);
+        }
+      }
+    }
+
+    for (final step in definition.steps) {
+      final aliases = aliasesByStepId[step.id];
       // Extract variable references from all prompts combined (prompts optional for skill steps).
       final allPromptRefs = <String>{
-        for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p),
+        for (final p in step.prompts ?? const <String>[])
+          ..._engine.extractVariableReferences(p, mapAliases: aliases),
       };
       for (final ref in allPromptRefs) {
         if (!declaredVars.contains(ref)) {
@@ -799,7 +818,7 @@ class WorkflowDefinitionValidator {
         }
       }
       if (step.project != null) {
-        final projectRefs = _engine.extractVariableReferences(step.project!);
+        final projectRefs = _engine.extractVariableReferences(step.project!, mapAliases: aliases);
         for (final ref in projectRefs) {
           if (!declaredVars.contains(ref)) {
             errors.add(
@@ -811,6 +830,52 @@ class WorkflowDefinitionValidator {
             );
           }
         }
+      }
+      for (final name in step.workflowVariables) {
+        if (!declaredVars.contains(name)) {
+          errors.add(
+            ValidationError(
+              message:
+                  'Step "${step.id}" declares workflowVariables entry "$name" '
+                  'but the workflow has no top-level variable with that name.',
+              type: ValidationErrorType.invalidReference,
+              stepId: step.id,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// Validates the `as:` loop variable name on map/foreach controllers.
+  ///
+  /// Parser enforces shape and reserved names (`map` / `context`); the
+  /// validator owns cross-field rules: `as:` only applies to map controllers,
+  /// and must not collide with a declared workflow variable.
+  void _validateMapAliases(WorkflowDefinition definition, List<ValidationError> errors) {
+    final declaredVars = definition.variables.keys.toSet();
+    for (final step in definition.steps) {
+      final alias = step.mapAlias;
+      if (alias == null) continue;
+      if (!step.isMapStep) {
+        errors.add(
+          ValidationError(
+            message: 'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
+                '(steps that declare map_over).',
+            type: ValidationErrorType.invalidReference,
+            stepId: step.id,
+          ),
+        );
+      }
+      if (declaredVars.contains(alias)) {
+        errors.add(
+          ValidationError(
+            message: 'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
+                '(pick a different identifier).',
+            type: ValidationErrorType.invalidReference,
+            stepId: step.id,
+          ),
+        );
       }
     }
   }

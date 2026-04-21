@@ -11,8 +11,14 @@ import 'workflow_context.dart';
 class WorkflowTemplateEngine {
   static final _log = Logger('WorkflowTemplateEngine');
   static final _pattern = RegExp(r'\{\{([^}]+)\}\}');
-  static final _indexedContextPattern = RegExp(r'^([\w]+)\[map\.index\](?:\.(.+))?$');
+  // Captures `<key>[<prefix>.index]` and optional `.field[.sub…]` tail.
+  // `<prefix>` is `map` for legacy references or a user-declared `as:` alias.
+  static final _indexedContextPattern = RegExp(r'^([\w]+)\[([A-Za-z_][\w]*)\.index\](?:\.(.+))?$');
   static final Object _missingIndexedElement = Object();
+
+  /// Aliases reserved at the template level — parser must reject `as:` values
+  /// that collide with these, since they already have fixed meanings.
+  static const reservedMapAliases = {'map', 'context'};
 
   /// Resolves all template references in [template] against [context].
   ///
@@ -48,30 +54,50 @@ class WorkflowTemplateEngine {
   /// Extends [resolve] with support for map-iteration references:
   /// - `{{map.item}}` — current item (JSON-encoded if Map, toString otherwise)
   /// - `{{map.item.field}}` — field access on Map item (fail-fast if item is scalar)
-  /// - `{{map.item.a.b}}` / `{{map.item.a.b.c}}` — nested traversal (max 3 levels)
+  /// - `{{map.item.a.b.…}}` — nested traversal (up to 10 segments after `map.item`)
   /// - `{{map.index}}` — 0-based iteration index
   /// - `{{map.display_index}}` — 1-based iteration index for author-facing text
   /// - `{{map.length}}` — total collection size
   /// - `{{context.key[map.index]}}` — indexed lookup into a List-typed context value
   ///
+  /// When the controller step declares an `as:` alias, the same references are
+  /// also reachable under that prefix — e.g. `{{story.item.spec_path}}`,
+  /// `{{story.display_index}}`, `{{context.items[story.index]}}` — while the
+  /// legacy `map.*` references continue to resolve against the same iteration.
+  ///
   /// When [mapCtx] is null, delegates to [resolve] (backward compat).
   String resolveWithMap(String template, WorkflowContext context, MapContext? mapCtx) {
     if (mapCtx == null) return resolve(template, context);
+    final alias = mapCtx.alias;
     return template.replaceAllMapped(_pattern, (match) {
       final ref = match.group(1)!.trim();
 
-      // map.* references
-      if (ref.startsWith('map.')) {
-        return _resolveMapRef(ref, mapCtx);
+      // Legacy `map.*` — always binds to the innermost context.
+      if (ref == 'map' || ref.startsWith('map.')) {
+        return _resolveMapRef(ref, 'map', mapCtx);
       }
 
-      // context.key[map.index] or context.key[map.index].field references
+      // Author-supplied alias (e.g. `as: story` → `{{story.item}}`).
+      if (alias != null && (ref == alias || ref.startsWith('$alias.'))) {
+        return _resolveMapRef(ref, alias, mapCtx);
+      }
+
+      // context.key[<prefix>.index] or context.key[<prefix>.index].field
       if (ref.startsWith('context.')) {
         final keyPart = ref.substring('context.'.length);
         final indexedMatch = _indexedContextPattern.firstMatch(keyPart);
         if (indexedMatch != null) {
           final key = indexedMatch.group(1)!;
-          final dotSuffix = indexedMatch.group(2); // null if no dot-access suffix
+          final indexPrefix = indexedMatch.group(2)!;
+          final dotSuffix = indexedMatch.group(3); // null if no dot-access suffix
+          if (indexPrefix != 'map' && indexPrefix != alias) {
+            _log.warning(
+              'Indexed context reference {{$ref}}: unknown prefix "$indexPrefix" '
+              '(expected "map" or the controller alias "${alias ?? '—'}") — '
+              'resolving to empty string.',
+            );
+            return '';
+          }
           return _resolveIndexedContext(key, dotSuffix, context, mapCtx);
         }
         // Plain context reference — use normal resolution
@@ -95,22 +121,27 @@ class WorkflowTemplateEngine {
     });
   }
 
-  /// Resolves a `map.*` reference using the current [MapContext].
-  String _resolveMapRef(String ref, MapContext mapCtx) {
-    if (ref == 'map.index') return mapCtx.index.toString();
-    if (ref == 'map.display_index') return (mapCtx.index + 1).toString();
-    if (ref == 'map.length') return mapCtx.length.toString();
-    if (ref == 'map.item') {
+  /// Resolves a `<prefix>.*` reference (where `<prefix>` is `"map"` or the
+  /// controller's `as:` alias) using the current [MapContext].
+  String _resolveMapRef(String ref, String prefix, MapContext mapCtx) {
+    if (ref == prefix) {
+      throw ArgumentError('Template reference {{$ref}}: "$prefix" alone has no value; did you mean {{$prefix.item}}?');
+    }
+    final suffix = ref.substring(prefix.length + 1); // strip "<prefix>."
+    if (suffix == 'index') return mapCtx.index.toString();
+    if (suffix == 'display_index') return (mapCtx.index + 1).toString();
+    if (suffix == 'length') return mapCtx.length.toString();
+    if (suffix == 'item') {
       final item = mapCtx.item;
       if (item is Map) return jsonEncode(item);
       return item.toString();
     }
 
-    // map.item.field[.sub[.sub2]] — dot notation, max 3 levels after map.item
-    if (ref.startsWith('map.item.')) {
-      final path = ref.substring('map.item.'.length).split('.');
-      if (path.length > 3) {
-        throw ArgumentError('Template reference {{$ref}}: dot notation exceeds 3 levels after map.item.');
+    // <prefix>.item.field[.sub…] — dot notation, max 10 segments after `item.`
+    if (suffix.startsWith('item.')) {
+      final path = suffix.substring('item.'.length).split('.');
+      if (path.length > 10) {
+        throw ArgumentError('Template reference {{$ref}}: dot notation exceeds 10 levels after $prefix.item.');
       }
       final item = mapCtx.item;
       if (item is! Map) {
@@ -232,12 +263,22 @@ class WorkflowTemplateEngine {
   /// Extracts all variable references (non-context) from [template].
   ///
   /// Used by validation to check that all referenced variables are declared.
-  Set<String> extractVariableReferences(String template) {
-    return _pattern
-        .allMatches(template)
-        .map((m) => m.group(1)!.trim())
-        .where((ref) => !ref.startsWith('context.') && !ref.startsWith('map.'))
-        .toSet();
+  ///
+  /// Pass [mapAliases] with the set of loop variable names (`as:` values) that
+  /// are in scope for the template's step. Refs matching any declared alias
+  /// are excluded so that `{{story.item.path}}` is not mistaken for an
+  /// undeclared `story` variable.
+  Set<String> extractVariableReferences(String template, {Set<String>? mapAliases}) {
+    return _pattern.allMatches(template).map((m) => m.group(1)!.trim()).where((ref) {
+      if (ref.startsWith('context.')) return false;
+      if (ref == 'map' || ref.startsWith('map.')) return false;
+      if (mapAliases != null) {
+        for (final alias in mapAliases) {
+          if (ref == alias || ref.startsWith('$alias.')) return false;
+        }
+      }
+      return true;
+    }).toSet();
   }
 
   /// Extracts all context key references from [template].
@@ -246,7 +287,7 @@ class WorkflowTemplateEngine {
       ref,
     ) {
       final keyPart = ref.substring('context.'.length);
-      // Strip [map.index] suffix and dot-access if present
+      // Strip `[<prefix>.index]` suffix and dot-access if present
       final bracketIdx = keyPart.indexOf('[');
       return bracketIdx >= 0 ? keyPart.substring(0, bracketIdx) : keyPart;
     }).toSet();

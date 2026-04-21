@@ -55,11 +55,14 @@ steps:
         description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
 
   # Run the initial code review and emit a structured verdict for the remediation loop.
+  # TARGET identifies what to review; BRANCH / PR_NUMBER / BASE_BRANCH let the
+  # review skill select the right diffing strategy (PR vs branch vs plain target).
   - id: review-code
     name: Review Code
     type: analysis
     skill: dartclaw-review
     contextInputs: [project_index]
+    workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     contextOutputs: [review_summary, review-code.findings_count]
     outputs:
       review_summary:

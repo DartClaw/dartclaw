@@ -5,14 +5,24 @@ import 'prompt_augmenter.dart';
 
 /// Builds agent prompts for skill-aware workflow steps.
 ///
-/// Handles the 4 prompt construction cases:
-/// - skill + prompt: `"Use the '<skill>' skill.\n\n<resolved prompt>"`
-/// - skill + no (or empty) prompt: `"Use the '<skill>' skill.\n\n<framed context sections>"`
-/// - no skill + prompt: `"<resolved prompt>"` (passthrough)
-/// - no skill + no prompt: error (caught by validator, not here)
+/// `<activation>` below is the provider-native skill line produced by
+/// [HarnessFactory.skillActivationLineFor] (`/skill` for Claude, `$skill`
+/// for Codex, `Use the '<skill>' skill.` otherwise):
 ///
-/// After construction, delegates to [PromptAugmenter] for schema-driven
-/// output format section appendage (S01 integration).
+/// - **Case 1** — skill + prompt: `"<activation>\n\n<resolved prompt>"`
+/// - **Case 1 (via default)** — skill + no prompt, skill has
+///   `workflow.default_prompt`: the default prompt is injected as the
+///   resolved prompt so Case 1 applies
+/// - **Case 2** — skill + no prompt + no skill default + non-empty
+///   `contextSummary`: `"<activation>\n\n<## Pretty Name summary>"`
+/// - **Case 2b** — skill + no prompt + nothing to summarize: `"<activation>"`
+/// - **Case 3** — no skill + prompt: `"<resolved prompt>"` (passthrough)
+/// - **Case 4** — no skill + no prompt: rejected upstream by the validator
+///
+/// After construction, the builder auto-frames any unreferenced
+/// `contextInputs` / workflow `variables:` via [appendAutoFramedContext]
+/// and then delegates to [PromptAugmenter] for schema-driven output
+/// format section appendage (S01 integration).
 class SkillPromptBuilder {
   final PromptAugmenter _augmenter;
   final HarnessFactory _harnessFactory;

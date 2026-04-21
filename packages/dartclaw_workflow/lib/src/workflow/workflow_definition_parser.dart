@@ -4,6 +4,7 @@ import 'package:dartclaw_models/dartclaw_models.dart';
 import 'package:yaml/yaml.dart';
 
 import 'duration_parser.dart';
+import 'workflow_template_engine.dart' show WorkflowTemplateEngine;
 
 /// Parses workflow definition YAML files into [WorkflowDefinition] objects.
 class WorkflowDefinitionParser {
@@ -141,6 +142,7 @@ class WorkflowDefinitionParser {
     }
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
     final maxItems = (raw['max_items'] ?? raw['maxItems']) as int? ?? 20;
+    final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
     final controller = WorkflowStep(
       id: id,
       name: name,
@@ -152,6 +154,8 @@ class WorkflowDefinitionParser {
       contextInputs: _parseStringList(raw['contextInputs']),
       contextOutputs: _parseStringList(raw['contextOutputs']),
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
+      mapAlias: mapAlias,
+      workflowVariables: _parseStringList(raw['workflow_variables'] ?? raw['workflowVariables']),
     );
     return _ParsedInlineForeachStep(controller: controller, childSteps: childSteps);
   }
@@ -349,6 +353,9 @@ class WorkflowDefinitionParser {
     final foreachSteps = foreachStepsRaw is YamlList
         ? foreachStepsRaw.cast<String>().toList(growable: false)
         : (foreachStepsRaw as List?)?.cast<String>();
+    // `as:` is the primary spelling; `mapAlias:` / `map_alias:` also accepted for
+    // round-trip compatibility with the JSON model.
+    final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
 
     return WorkflowStep(
       id: id,
@@ -377,12 +384,14 @@ class WorkflowDefinitionParser {
       maxParallel: maxParallel,
       maxItems: maxItems,
       foreachSteps: foreachSteps,
+      mapAlias: mapAlias,
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: (raw['onError'] ?? raw['on_error']) as String?,
       workdir: raw['workdir'] as String?,
       onFailure: _parseOnFailure(raw['onFailure'] ?? raw['on_failure'], id, sourcePath),
       emitsOwnOutcome: _parseEmitsOwnOutcome(raw['emitsOwnOutcome'] ?? raw['emits_own_outcome'], id, sourcePath),
       autoFrameContext: _parseAutoFrameContext(raw['auto_frame_context'] ?? raw['autoFrameContext'], id, sourcePath),
+      workflowVariables: _parseStringList(raw['workflow_variables'] ?? raw['workflowVariables']),
     );
   }
 
@@ -420,6 +429,36 @@ class WorkflowDefinitionParser {
     throw FormatException(
       'Step "$stepId": "continueSession" must be true or a non-empty step ID string${_at(sourcePath)}.',
     );
+  }
+
+  /// Parses the `as:` loop variable name for a map/foreach controller.
+  ///
+  /// Enforces identifier format and rejects reserved template prefixes. Cross-
+  /// field rules (e.g. "as: only allowed on map/foreach controllers") live in
+  /// the validator so the parser stays focused on shape.
+  static final _mapAliasPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+  String? _parseMapAlias(Object? raw, String stepId, String? sourcePath) {
+    if (raw == null) return null;
+    if (raw is! String) {
+      throw FormatException('Step "$stepId": "as" must be a string identifier${_at(sourcePath)}.');
+    }
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      throw FormatException('Step "$stepId": "as" must not be empty${_at(sourcePath)}.');
+    }
+    if (!_mapAliasPattern.hasMatch(trimmed)) {
+      throw FormatException(
+        'Step "$stepId": "as" must match [A-Za-z_][A-Za-z0-9_]* '
+        '(got "$trimmed")${_at(sourcePath)}.',
+      );
+    }
+    if (WorkflowTemplateEngine.reservedMapAliases.contains(trimmed)) {
+      throw FormatException(
+        'Step "$stepId": "as: $trimmed" is reserved — pick a different identifier${_at(sourcePath)}.',
+      );
+    }
+    return trimmed;
   }
 
   void _rejectRemovedExecutionMode(YamlMap raw, String? stepId, String? sourcePath) {

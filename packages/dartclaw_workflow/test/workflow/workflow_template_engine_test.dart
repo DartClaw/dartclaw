@@ -124,7 +124,7 @@ void main() {
         expect(engine.resolveWithMap('{{map.item.meta.author}}', ctx, mapCtx), 'Alice');
       });
 
-      test('{{map.item.a.b.c}} resolves at 3 levels depth', () {
+      test('{{map.item.a.b.c}} traverses three nested levels', () {
         final ctx = _ctx();
         final mapCtx = _mapCtx(
           item: {
@@ -136,6 +136,34 @@ void main() {
           length: 1,
         );
         expect(engine.resolveWithMap('{{map.item.a.b.c}}', ctx, mapCtx), 'deep');
+      });
+
+      test('nested traversal resolves at the 10-segment cap', () {
+        final ctx = _ctx();
+        final mapCtx = _mapCtx(
+          item: {
+            'a': {
+              'b': {
+                'c': {
+                  'd': {
+                    'e': {
+                      'f': {
+                        'g': {
+                          'h': {
+                            'i': {'j': 'deep'},
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          index: 0,
+          length: 1,
+        );
+        expect(engine.resolveWithMap('{{map.item.a.b.c.d.e.f.g.h.i.j}}', ctx, mapCtx), 'deep');
       });
 
       test('array-typed field renders as bullet list', () {
@@ -156,20 +184,19 @@ void main() {
         expect(engine.resolveWithMap('{{map.item.missing}}', ctx, mapCtx), '');
       });
 
-      test('dot notation exceeding 3 levels throws ArgumentError', () {
+      test('dot notation exceeding 10 levels throws ArgumentError', () {
         final ctx = _ctx();
-        final mapCtx = _mapCtx(
-          item: {
-            'a': {
-              'b': {
-                'c': {'d': 'x'},
-              },
-            },
-          },
-          index: 0,
-          length: 1,
+        // 11-segment path — one past the cap.
+        Map<String, Object?> nest(String key, Object? value) => {key: value};
+        Object? item = 'leaf';
+        for (final k in const ['k', 'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a']) {
+          item = nest(k, item);
+        }
+        final mapCtx = _mapCtx(item: item as Map<String, Object?>, index: 0, length: 1);
+        expect(
+          () => engine.resolveWithMap('{{map.item.a.b.c.d.e.f.g.h.i.j.k}}', ctx, mapCtx),
+          throwsA(isA<ArgumentError>()),
         );
-        expect(() => engine.resolveWithMap('{{map.item.a.b.c.d}}', ctx, mapCtx), throwsA(isA<ArgumentError>()));
       });
 
       test('{{map.item.field}} on non-Map item throws ArgumentError', () {
@@ -330,6 +357,104 @@ void main() {
       test('null MapContext — missing variable still throws', () {
         final ctx = _ctx();
         expect(() => engine.resolveWithMap('{{MISSING}}', ctx, null), throwsA(isA<ArgumentError>()));
+      });
+    });
+
+    group('author-supplied alias (as:)', () {
+      MapContext aliased({required Object item, required int index, required int length, required String alias}) =>
+          MapContext(item: item, index: index, length: length, alias: alias);
+
+      test('{{<alias>.item.field}} resolves against the same iteration as {{map.*}}', () {
+        final ctx = _ctx();
+        final mapCtx = aliased(item: {'spec_path': 'docs/s01.md', 'title': 'First'}, index: 0, length: 3, alias: 'story');
+        expect(engine.resolveWithMap('{{story.item.spec_path}}', ctx, mapCtx), 'docs/s01.md');
+        expect(engine.resolveWithMap('{{map.item.spec_path}}', ctx, mapCtx), 'docs/s01.md');
+      });
+
+      test('{{<alias>.index}}, {{<alias>.display_index}}, {{<alias>.length}} work alongside map.*', () {
+        final ctx = _ctx();
+        final mapCtx = aliased(item: {'id': 'a'}, index: 2, length: 5, alias: 'story');
+        expect(engine.resolveWithMap('{{story.index}}', ctx, mapCtx), '2');
+        expect(engine.resolveWithMap('{{story.display_index}}', ctx, mapCtx), '3');
+        expect(engine.resolveWithMap('{{story.length}}', ctx, mapCtx), '5');
+      });
+
+      test('{{<alias>.item}} JSON-encodes Map items the same way map.item does', () {
+        final ctx = _ctx();
+        final mapCtx = aliased(item: {'a': 1}, index: 0, length: 1, alias: 'story');
+        expect(engine.resolveWithMap('{{story.item}}', ctx, mapCtx), '{"a":1}');
+      });
+
+      test('{{<alias>.item.field}} respects the 10-segment depth cap', () {
+        final ctx = _ctx();
+        Object? inner = 'leaf';
+        for (final k in const ['k', 'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a']) {
+          inner = {k: inner};
+        }
+        final mapCtx = aliased(item: inner as Map<String, Object?>, index: 0, length: 1, alias: 'story');
+        expect(
+          () => engine.resolveWithMap('{{story.item.a.b.c.d.e.f.g.h.i.j.k}}', ctx, mapCtx),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('{{context.key[<alias>.index]}} resolves indexed context against alias', () {
+        final ctx = _ctx(
+          data: {
+            'labels': ['X', 'Y', 'Z'],
+          },
+        );
+        final mapCtx = aliased(item: {'id': 'a'}, index: 1, length: 3, alias: 'story');
+        expect(engine.resolveWithMap('{{context.labels[story.index]}}', ctx, mapCtx), 'Y');
+      });
+
+      test('{{context.key[<alias>.index]}} with unknown prefix resolves to empty string', () {
+        final ctx = _ctx(
+          data: {
+            'labels': ['X', 'Y', 'Z'],
+          },
+        );
+        final mapCtx = aliased(item: {'id': 'a'}, index: 1, length: 3, alias: 'story');
+        expect(engine.resolveWithMap('{{context.labels[other.index]}}', ctx, mapCtx), '');
+      });
+
+      test('aliased prompt still lets legacy {{map.*}} work in the same template', () {
+        final ctx = _ctx(variables: {'PREFIX': 'Story'});
+        final mapCtx = aliased(item: {'title': 'T', 'spec_path': 'p'}, index: 0, length: 2, alias: 'story');
+        final result = engine.resolveWithMap(
+          '{{PREFIX}} {{story.display_index}}/{{map.length}}: {{story.item.title}} at {{map.item.spec_path}}',
+          ctx,
+          mapCtx,
+        );
+        expect(result, 'Story 1/2: T at p');
+      });
+
+      test('{{<alias>}} alone (no .field) throws a clear error', () {
+        final ctx = _ctx();
+        final mapCtx = aliased(item: {'a': 1}, index: 0, length: 1, alias: 'story');
+        expect(() => engine.resolveWithMap('{{story}}', ctx, mapCtx), throwsA(isA<ArgumentError>()));
+      });
+
+      test('alias does not leak as a variable reference when mapCtx is absent', () {
+        // Without a MapContext, `{{story.item}}` has no special meaning — it must
+        // fall through to variable resolution and throw like any other undeclared ref.
+        final ctx = _ctx();
+        expect(() => engine.resolveWithMap('{{story.item}}', ctx, null), throwsA(isA<ArgumentError>()));
+      });
+    });
+
+    group('alias-aware variable extraction', () {
+      test('extractVariableReferences treats declared aliases as non-variables', () {
+        final refs = engine.extractVariableReferences(
+          'Hello {{NAME}} — story {{story.display_index}}/{{story.length}} at {{story.item.spec_path}}',
+          mapAliases: {'story'},
+        );
+        expect(refs, {'NAME'});
+      });
+
+      test('extractVariableReferences without mapAliases keeps alias refs as variables', () {
+        final refs = engine.extractVariableReferences('{{NAME}} {{story.item.spec_path}}');
+        expect(refs, {'NAME', 'story.item.spec_path'});
       });
     });
   });

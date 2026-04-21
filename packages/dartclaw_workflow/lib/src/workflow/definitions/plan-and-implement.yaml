@@ -86,10 +86,8 @@ steps:
     type: analysis
     skill: dartclaw-prd
     contextInputs: [project_index]
+    workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
-    prompt: |
-      Draft or reuse the PRD for this request:
-      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
     contextOutputs: [prd, prd_source, prd_confidence]
     outputs:
       prd:
@@ -117,9 +115,8 @@ steps:
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: |
-      Review `{{context.prd}}` with `--mode doc --fix` against the original request
+      Review `{{context.prd}}` with `--mode doc --fix`
       (PRD skill confidence {{context.prd_confidence}}/10).
-      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
     contextOutputs: [prd]
     outputs:
       prd:
@@ -134,11 +131,8 @@ steps:
     name: Plan Stories and Specs
     type: analysis
     skill: dartclaw-plan
-    contextInputs: [project_index, prd]
     allowedTools: [shell, file_read, file_write]
-    prompt: |
-      Plan exactly against this request, using the current PRD as the source of truth:
-      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
+    contextInputs: [project_index, prd]    
     contextOutputs: [story_specs, plan, plan_source]
     outputs:
       story_specs:
@@ -158,7 +152,7 @@ steps:
     type: foreach
     map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
-    max_items: 20
+    #max_items: 20
     project: "{{PROJECT}}"
     contextOutputs: [story_results]
     steps:

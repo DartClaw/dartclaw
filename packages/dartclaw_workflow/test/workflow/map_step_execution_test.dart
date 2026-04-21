@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowDefinitionParser,
         WorkflowGitBootstrapResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishStrategy,
@@ -1268,6 +1269,155 @@ void main() {
   });
 
   group('S19: foreach execution', () {
+    test('end-to-end: `as:` on inline `type: foreach` parses and reaches child prompts', () async {
+      // Regression for the parser bug where _parseInlineForeachStep silently
+      // dropped `as:` / `mapAlias:`. This test goes YAML → parser → executor
+      // and asserts the alias substitutes in child task descriptions.
+      const yaml = r'''
+name: e2e-foreach-as
+description: end-to-end foreach with as
+steps:
+  - id: produce
+    name: Produce
+    prompt: p
+    contextOutputs: [stories]
+  - id: story-pipeline
+    name: Per-Story Pipeline
+    type: foreach
+    map_over: stories
+    as: story
+    contextOutputs: [story_results]
+    steps:
+      - id: implement
+        name: Implement
+        type: coding
+        prompt: 'Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'
+''';
+      final definition = WorkflowDefinitionParser().parse(yaml);
+
+      final controller = definition.steps.firstWhere((s) => s.id == 'story-pipeline');
+      expect(controller.mapAlias, 'story', reason: 'Parser must propagate `as:` on inline foreach');
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()
+        ..['stories'] = [
+          {'id': 'S01', 'spec_path': 'docs/s01.md'},
+          {'id': 'S02', 'spec_path': 'docs/s02.md'},
+        ];
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Story 1/2: implement docs/s01.md'));
+      expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
+    });
+
+    test('foreach with `as:` resolves aliased refs in child prompts', () async {
+      final collection = [
+        {'id': 'S01', 'spec_path': 'docs/s01.md'},
+        {'id': 'S02', 'spec_path': 'docs/s02.md'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'foreach-as-test',
+        description: 'foreach with as: alias',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['stories']),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            type: 'foreach',
+            mapOver: 'stories',
+            mapAlias: 'story',
+            foreachSteps: ['implement'],
+            contextOutputs: ['story_results'],
+          ),
+          WorkflowStep(
+            id: 'implement',
+            name: 'Implement',
+            prompts: ['Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'],
+            type: 'coding',
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['stories'] = collection;
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Story 1/2: implement docs/s01.md'));
+      expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
+    });
+
+    test('plain mapOver step with `as:` substitutes in the controller prompt', () async {
+      final collection = [
+        {'id': 's01', 'title': 'first'},
+        {'id': 's02', 'title': 'second'},
+      ];
+      final definition = WorkflowDefinition(
+        name: 'map-as-test',
+        description: 'plain map with as: alias',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'process',
+            name: 'Process',
+            prompts: ['Process item {{thing.index}}: {{thing.item.title}}'],
+            mapOver: 'items',
+            mapAlias: 'thing',
+            maxParallel: 1,
+            contextOutputs: ['results'],
+          ),
+        ],
+      );
+
+      final run = makeRun(definition);
+      await repository.insert(run);
+      final context = WorkflowContext()..['items'] = collection;
+
+      final descriptions = <String>[];
+      final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        final task = await taskService.get(e.taskId);
+        if (task != null) descriptions.add(task.description);
+        await Future<void>.delayed(Duration.zero);
+        await completeTask(e.taskId);
+      });
+
+      await executor.execute(run, definition, context, startFromStepIndex: 1);
+      await sub.cancel();
+
+      expect(descriptions, hasLength(2));
+      expect(descriptions[0], contains('Process item 0: first'));
+      expect(descriptions[1], contains('Process item 1: second'));
+    });
+
     test('foreach iterates items and runs child steps sequentially per item', () async {
       final collection = [
         {'id': 'S01', 'title': 'Story 1'},

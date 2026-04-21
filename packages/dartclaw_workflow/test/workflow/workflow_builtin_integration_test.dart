@@ -1045,7 +1045,7 @@ void main() {
     expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
-  test('plan-and-implement threads authored requirements into prd and plan prompts only', () async {
+  test('plan-and-implement threads authored requirements only into the prd step', () async {
     const requirements = 'Create exactly two thin note stories from this request.';
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'plan-and-implement.yaml',
@@ -1128,9 +1128,13 @@ void main() {
     final prd = trace.tasksForStep('prd').single.description;
     final plan = trace.tasksForStep('plan').single.description;
 
+    // Only `prd` opts in to REQUIREMENTS via `workflowVariables: [REQUIREMENTS]`;
+    // the engine frames it as a multi-line <REQUIREMENTS> block. Other steps
+    // must not receive the raw requirements string.
     expect(discover, isNot(contains(requirements)));
-    expect(prd, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
-    expect(plan, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
+    expect(prd, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
+    expect(plan, isNot(contains(requirements)));
+    expect(plan, isNot(contains('<REQUIREMENTS>')));
   });
 
   test('plan-and-implement normalizes relative story spec paths against the emitted plan path', () async {

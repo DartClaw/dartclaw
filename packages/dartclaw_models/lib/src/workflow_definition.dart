@@ -563,6 +563,20 @@ class WorkflowStep {
   /// not create an agent task — it is a pure orchestration container.
   final List<String>? foreachSteps;
 
+  /// Optional author-supplied loop variable name for this map/foreach controller.
+  ///
+  /// When set, templates in this step (or its foreach children) can reference
+  /// the iteration as `{{<alias>.item}}`, `{{<alias>.item.field}}`,
+  /// `{{<alias>.index}}`, `{{<alias>.display_index}}`, `{{<alias>.length}}`,
+  /// and `{{context.key[<alias>.index]}}`. Legacy `{{map.*}}` continues to
+  /// resolve against the same iteration so existing workflows keep working.
+  ///
+  /// Must be a plain identifier (`[a-zA-Z_][a-zA-Z0-9_]*`). Reserved names
+  /// `map` and `context` are rejected by the validator.
+  ///
+  /// YAML spelling: `as:` (primary) or `mapAlias:` / `map_alias:` (aliases).
+  final String? mapAlias;
+
   /// Optional step reference whose root agent session should be continued.
   ///
   /// The value is normally a step ID. The legacy boolean form
@@ -596,11 +610,22 @@ class WorkflowStep {
   /// marker and should skip prompt augmentation for the outcome protocol.
   final bool emitsOwnOutcome;
 
-  /// Whether the engine auto-frames unreferenced `contextInputs` and
-  /// workflow-level `variables` onto the step prompt as `<key>...</key>`
-  /// blocks. Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`)
-  /// when the step's prompt body intentionally omits some declared context.
+  /// Whether the engine auto-frames unreferenced `contextInputs` and declared
+  /// [workflowVariables] onto the step prompt as `<key>...</key>` blocks.
+  /// Defaults to `true`; set to `false` (YAML: `auto_frame_context: false`) when
+  /// the step's prompt body intentionally omits some declared context.
   final bool autoFrameContext;
+
+  /// Workflow-level variable names this step opts in to receive via auto-framing.
+  ///
+  /// Only variables listed here are appended as `<NAME>{value}</NAME>` blocks
+  /// by the engine. Undeclared workflow variables never reach the prompt, even
+  /// if declared on the workflow, preventing leakage across unrelated steps
+  /// (e.g. `REQUIREMENTS` must not land on `discover-project`).
+  ///
+  /// Each entry must be a key in the workflow's top-level `variables:` block;
+  /// the validator rejects unknown names at load time. Empty by default.
+  final List<String> workflowVariables;
 
   /// Convenience getter returning the first (or only) prompt.
   ///
@@ -644,12 +669,14 @@ class WorkflowStep {
     this.maxParallel,
     this.maxItems = 20,
     this.foreachSteps,
+    this.mapAlias,
     this.continueSession,
     this.onError,
     this.workdir,
     this.onFailure = OnFailurePolicy.fail,
     this.emitsOwnOutcome = false,
     this.autoFrameContext = true,
+    this.workflowVariables = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -679,12 +706,14 @@ class WorkflowStep {
     if (maxParallel != null) 'maxParallel': maxParallel,
     if (maxItems != 20) 'maxItems': maxItems,
     if (foreachSteps != null) 'foreachSteps': foreachSteps!.toList(growable: false),
+    if (mapAlias != null) 'mapAlias': mapAlias,
     if (continueSession != null) 'continueSession': continueSession == '@previous' ? true : continueSession,
     if (onError != null) 'onError': onError,
     if (workdir != null) 'workdir': workdir,
     if (onFailure != OnFailurePolicy.fail) 'onFailure': onFailure.yamlName,
     if (emitsOwnOutcome) 'emitsOwnOutcome': true,
     if (!autoFrameContext) 'autoFrameContext': false,
+    if (workflowVariables.isNotEmpty) 'workflowVariables': workflowVariables.toList(growable: false),
   };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) {
@@ -731,6 +760,7 @@ class WorkflowStep {
       maxParallel: json['maxParallel'],
       maxItems: (json['maxItems'] as int?) ?? 20,
       foreachSteps: (json['foreachSteps'] as List?)?.cast<String>(),
+      mapAlias: json['mapAlias'] as String?,
       continueSession: switch (json['continueSession']) {
         true => '@previous',
         String value when value.isNotEmpty => value,
@@ -743,6 +773,7 @@ class WorkflowStep {
           : OnFailurePolicy.fail,
       emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
       autoFrameContext: (json['autoFrameContext'] as bool?) ?? true,
+      workflowVariables: (json['workflowVariables'] as List?)?.cast<String>() ?? const [],
     );
   }
 }

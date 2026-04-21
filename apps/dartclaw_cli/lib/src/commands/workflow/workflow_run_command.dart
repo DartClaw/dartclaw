@@ -65,6 +65,11 @@ class WorkflowRunCommand extends Command<void> {
     argParser
       ..addMultiOption('var', abbr: 'v', help: 'Variable (KEY=VALUE)', valueHelp: 'KEY=VALUE', splitCommas: false)
       ..addOption('project', abbr: 'p', help: 'Project ID for project-scoped steps')
+      ..addFlag(
+        'allow-dirty-localpath',
+        negatable: false,
+        help: 'Allow workflows to run against dirty or branch-mismatched localPath projects',
+      )
       ..addFlag('standalone', negatable: false, help: 'Run the workflow in-process without using the server API')
       ..addFlag('force', negatable: false, help: 'Bypass the standalone safety check')
       ..addFlag('json', negatable: false, help: 'Output structured JSON events');
@@ -88,6 +93,7 @@ class WorkflowRunCommand extends Command<void> {
     final workflowName = args.first;
     final variables = _parseVariables(argResults!['var'] as List<String>);
     final projectId = argResults!['project'] as String?;
+    final allowDirtyLocalPath = argResults!['allow-dirty-localpath'] as bool;
     final standalone = argResults!['standalone'] as bool;
     final force = argResults!['force'] as bool;
     final jsonOutput = argResults!['json'] as bool;
@@ -103,6 +109,7 @@ class WorkflowRunCommand extends Command<void> {
         workflowName: workflowName,
         variables: variables,
         projectId: projectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
         force: force,
         jsonOutput: jsonOutput,
       );
@@ -122,6 +129,7 @@ class WorkflowRunCommand extends Command<void> {
         workflowName: workflowName,
         variables: variables,
         projectId: projectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
         jsonOutput: jsonOutput,
       );
     } on DartclawApiException catch (error) {
@@ -135,6 +143,7 @@ class WorkflowRunCommand extends Command<void> {
     required String workflowName,
     required Map<String, String> variables,
     required String? projectId,
+    required bool allowDirtyLocalPath,
     required bool force,
     required bool jsonOutput,
   }) async {
@@ -204,6 +213,7 @@ class WorkflowRunCommand extends Command<void> {
         eventBus: wiring.eventBus,
         printer: printer,
         projectId: projectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
         jsonOutput: jsonOutput,
       );
       _exitFn(exitCode);
@@ -219,6 +229,7 @@ class WorkflowRunCommand extends Command<void> {
     required String workflowName,
     required Map<String, String> variables,
     required String? projectId,
+    required bool allowDirtyLocalPath,
     required bool jsonOutput,
   }) async {
     final started = await apiClient.postObject(
@@ -227,6 +238,7 @@ class WorkflowRunCommand extends Command<void> {
         'definition': workflowName,
         'variables': variables,
         if (projectId != null && projectId.isNotEmpty) 'project': projectId,
+        if (allowDirtyLocalPath) 'allowDirtyLocalPath': true,
       },
     );
     final run = WorkflowRun.fromJson(started);
@@ -407,6 +419,7 @@ class WorkflowRunCommand extends Command<void> {
     required EventBus eventBus,
     required CliProgressPrinter printer,
     String? projectId,
+    required bool allowDirtyLocalPath,
     required bool jsonOutput,
   }) async {
     final runCompleter = Completer<WorkflowRun>();
@@ -541,7 +554,13 @@ class WorkflowRunCommand extends Command<void> {
     });
 
     try {
-      final run = await service.start(definition, variables, projectId: projectId, headless: true);
+      final run = await service.start(
+        definition,
+        variables,
+        projectId: projectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
+        headless: true,
+      );
       activeRunId = run.id;
       if (jsonOutput) {
         _stdoutLine(jsonEncode({'type': 'run_started', 'run': run.toJson()}));

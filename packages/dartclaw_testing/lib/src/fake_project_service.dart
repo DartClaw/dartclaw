@@ -3,7 +3,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 typedef FakeProjectCreateCallback =
     Future<Project> Function({
       required String name,
-      required String remoteUrl,
+      String? remoteUrl,
+      String? localPath,
       String defaultBranch,
       String? credentialsRef,
       CloneStrategy cloneStrategy,
@@ -26,7 +27,8 @@ typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project, 
 
 typedef RecordedProjectCreate = ({
   String name,
-  String remoteUrl,
+  String? remoteUrl,
+  String? localPath,
   String defaultBranch,
   String? credentialsRef,
   CloneStrategy cloneStrategy,
@@ -149,7 +151,8 @@ class FakeProjectService implements ProjectService {
   @override
   Future<Project> create({
     required String name,
-    required String remoteUrl,
+    String? remoteUrl,
+    String? localPath,
     String defaultBranch = 'main',
     String? credentialsRef,
     CloneStrategy cloneStrategy = CloneStrategy.shallow,
@@ -158,6 +161,7 @@ class FakeProjectService implements ProjectService {
     createCalls.add((
       name: name,
       remoteUrl: remoteUrl,
+      localPath: localPath,
       defaultBranch: defaultBranch,
       credentialsRef: credentialsRef,
       cloneStrategy: cloneStrategy,
@@ -168,6 +172,7 @@ class FakeProjectService implements ProjectService {
       final project = await callback(
         name: name,
         remoteUrl: remoteUrl,
+        localPath: localPath,
         defaultBranch: defaultBranch,
         credentialsRef: credentialsRef,
         cloneStrategy: cloneStrategy,
@@ -184,16 +189,21 @@ class FakeProjectService implements ProjectService {
     if (_projects.containsKey(id)) {
       throw ArgumentError('Project "$id" already exists');
     }
+    final hasRemote = remoteUrl != null && remoteUrl.isNotEmpty;
+    final hasLocalPath = localPath != null && localPath.isNotEmpty;
+    if (hasRemote == hasLocalPath) {
+      throw ArgumentError('Exactly one of remoteUrl or localPath must be provided');
+    }
     final project = Project(
       id: id,
       name: name,
-      remoteUrl: remoteUrl,
-      localPath: '/data/projects/$id',
+      remoteUrl: remoteUrl ?? '',
+      localPath: localPath ?? '/data/projects/$id',
       defaultBranch: defaultBranch,
       credentialsRef: credentialsRef,
       cloneStrategy: cloneStrategy,
       pr: pr,
-      status: ProjectStatus.cloning,
+      status: hasLocalPath ? ProjectStatus.ready : ProjectStatus.cloning,
       createdAt: _now(),
     );
     _projects[id] = project;

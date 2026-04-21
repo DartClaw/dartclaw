@@ -173,6 +173,7 @@ class _FakeWorkflowService extends WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     for (final entry in definition.variables.entries) {

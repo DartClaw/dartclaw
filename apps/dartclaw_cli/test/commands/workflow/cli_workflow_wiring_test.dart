@@ -16,6 +16,13 @@ HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
   return factory;
 }
 
+void _runGit(String workingDirectory, List<String> args) {
+  final result = Process.runSync('git', args, workingDirectory: workingDirectory);
+  if (result.exitCode != 0) {
+    fail('git ${args.join(' ')} failed in $workingDirectory: ${result.stderr}');
+  }
+}
+
 Future<void> _waitFor(bool Function() predicate, {Duration timeout = const Duration(seconds: 5)}) async {
   final deadline = DateTime.now().add(timeout);
   while (!predicate()) {
@@ -115,6 +122,106 @@ steps:
     await wiring.wire();
 
     expect(wiring.registry.getByName('invalid-missing-skill'), isNull);
+  });
+
+  test('loads per-project workflows from configured localPath directories', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'live-project'))..createSync(recursive: true);
+    final workflowsDir = Directory(p.join(projectDir.path, 'workflows'))..createSync(recursive: true);
+    File(p.join(workflowsDir.path, 'local-only.yaml')).writeAsStringSync('''
+name: local-only
+description: Loaded from a localPath project
+steps:
+  - id: check
+    name: Check
+    type: analysis
+    prompt: |
+      Say OK.
+''');
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path)},
+      ),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'home'),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    expect(wiring.registry.getByName('local-only'), isNotNull);
+  });
+
+  test('workflow start rejects local-path branch mismatch even when BRANCH matches the observed branch', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'live-project'))..createSync(recursive: true);
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('hello\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+    _runGit(projectDir.path, ['checkout', '-b', 'feature/local']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: 'main')},
+      ),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'home'),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    final definition = WorkflowDefinition(
+      name: 'branch-guard',
+      description: 'Checks local-path branch safety',
+      variables: const {
+        'PROJECT': WorkflowVariable(required: true, description: 'Target project'),
+        'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
+      },
+      steps: const [
+        WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+      ],
+    );
+
+    await expectLater(
+      () => wiring.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': 'feature/local',
+      }, headless: true),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          allOf([contains('feature/local'), contains('expected "main"')]),
+        ),
+      ),
+    );
   });
 
   test('workflow start propagates the configured workflow workspace into created tasks', () async {

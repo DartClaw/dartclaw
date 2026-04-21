@@ -115,6 +115,21 @@ void main() {
       expect(calls.single.workingDirectory, '/data/my-app');
     });
 
+    test('local-path projects push without remote.origin.url override', () async {
+      final calls =
+          <({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})>[];
+      final service = RemotePushService(processRunner: _recordingRunner(calls));
+
+      await service.push(
+        project: makeProject(remoteUrl: '', localPath: '/data/live-checkout'),
+        branch: 'dartclaw/task-1',
+      );
+
+      expect(calls, hasLength(1));
+      expect(calls.single.arguments, ['push', 'origin', 'dartclaw/task-1']);
+      expect(calls.single.arguments, isNot(contains('-c')));
+    });
+
     test('GitHub token credentials normalize SSH remotes to HTTPS and disable prompts', () async {
       final calls =
           <({String executable, List<String> arguments, String? workingDirectory, Map<String, String>? environment})>[];

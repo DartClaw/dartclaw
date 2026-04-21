@@ -1401,6 +1401,24 @@ class WorkflowDefinitionValidator {
       if (step.contextOutputs.isEmpty) {
         _log.warning('Map step "${step.id}" has no contextOutputs; results will not be stored in context.');
       }
+
+      // A map/foreach controller emits exactly one aggregate value — the list of
+      // per-iteration results. Declaring more than one contextOutputs key causes
+      // the engine to broadcast the identical aggregate under every declared key,
+      // which is almost certainly not what the author intended.
+      if (step.contextOutputs.length > 1) {
+        errors.add(
+          ValidationError(
+            message:
+                'Map step "${step.id}" declares ${step.contextOutputs.length} contextOutputs keys '
+                '(${step.contextOutputs.join(', ')}); a map/foreach controller emits exactly one '
+                'aggregate list value, so only one key is meaningful. Keep a single key — '
+                'downstream steps can index the aggregate by iteration and child step id.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+      }
     }
   }
 

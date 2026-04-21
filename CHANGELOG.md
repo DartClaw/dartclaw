@@ -15,6 +15,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 
 - **Connected CLI workflow client**: `DartclawApiClient` now powers server-backed workflow execution, lifecycle control, SSE progress streaming, and loopback server detection
 - **Operational CLI command groups**: new `agents`, `config`, `jobs`, `projects`, `tasks`, and `traces` families, plus expanded `sessions` commands for remote inspection and lifecycle operations
+- **Local-path projects**: `projects.<id>.localPath` can now bind a named project to an existing on-disk checkout, `projects.allowApiLocalPath` gates API creation of local-path projects, `projects.localPathAllowlist` constrains which host paths are valid, workflow start preflights dirty/branch-mismatched local-path trees before any coding task is created, and publish auto-resolves origin from the working tree instead of forcing `remote.origin.url=` overrides when `remoteUrl` is empty
 - **Workflow lifecycle CLI controls**: `workflow runs`, `workflow pause`, `workflow resume`, and `workflow cancel`
 - **Workflow one-shot CLI runner**: workflow-owned task execution can now invoke `claude -p` / `codex exec` directly for bounded workflow prompt chains while preserving DartClaw task/session bookkeeping
 - **New server read endpoints**: `GET /api/sessions/:id`, `GET /api/traces/:id`, `GET /api/scheduling/jobs`, and `GET /api/scheduling/jobs/:name`

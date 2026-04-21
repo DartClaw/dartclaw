@@ -1,5 +1,95 @@
+import 'dart:io';
+
 import 'package:collection/collection.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, PrStrategy;
+import 'package:path/path.dart' as p;
+
+/// Validation result for a configured or API-supplied local project path.
+class LocalProjectPathValidation {
+  final String normalizedPath;
+  final String? errorCode;
+  final String? errorMessage;
+  final bool pathExists;
+  final bool gitRepository;
+
+  const LocalProjectPathValidation({
+    required this.normalizedPath,
+    this.errorCode,
+    this.errorMessage,
+    required this.pathExists,
+    required this.gitRepository,
+  });
+
+  bool get isValid => errorCode == null;
+}
+
+/// Validates a local project path and returns its normalized absolute form.
+///
+/// Relative paths, any `..` traversal segments, and paths outside the optional
+/// [allowlist] are rejected. Existence and git-repository shape are reported as
+/// metadata so callers can decide whether to warn or fail.
+LocalProjectPathValidation validateProjectLocalPath(String localPath, {List<String> allowlist = const []}) {
+  final trimmed = localPath.trim();
+  if (trimmed.isEmpty) {
+    return const LocalProjectPathValidation(
+      normalizedPath: '',
+      errorCode: 'empty',
+      errorMessage: 'localPath must not be empty',
+      pathExists: false,
+      gitRepository: false,
+    );
+  }
+  if (!p.isAbsolute(trimmed)) {
+    return LocalProjectPathValidation(
+      normalizedPath: p.normalize(trimmed),
+      errorCode: 'relative',
+      errorMessage: 'localPath must be an absolute path',
+      pathExists: false,
+      gitRepository: false,
+    );
+  }
+  if (p.split(trimmed).contains('..')) {
+    return LocalProjectPathValidation(
+      normalizedPath: p.normalize(trimmed),
+      errorCode: 'traversal',
+      errorMessage: 'localPath traversal is not allowed',
+      pathExists: false,
+      gitRepository: false,
+    );
+  }
+
+  final normalizedPath = p.normalize(trimmed);
+  if (allowlist.isNotEmpty) {
+    final allowed = allowlist.any((candidate) {
+      final normalizedCandidate = p.normalize(candidate.trim());
+      return p.equals(normalizedPath, normalizedCandidate) || p.isWithin(normalizedCandidate, normalizedPath);
+    });
+    if (!allowed) {
+      return LocalProjectPathValidation(
+        normalizedPath: normalizedPath,
+        errorCode: 'outside-allowlist',
+        errorMessage: 'localPath is outside the configured allowlist',
+        pathExists: false,
+        gitRepository: false,
+      );
+    }
+  }
+
+  final pathExists = Directory(normalizedPath).existsSync();
+  final gitRepository = pathExists && _looksLikeGitRepository(normalizedPath);
+  return LocalProjectPathValidation(
+    normalizedPath: normalizedPath,
+    pathExists: pathExists,
+    gitRepository: gitRepository,
+  );
+}
+
+bool _looksLikeGitRepository(String path) {
+  if (Directory(p.join(path, '.git')).existsSync()) {
+    return true;
+  }
+  return File(p.join(path, '.git')).existsSync();
+}
 
 /// Per-project definition from dartclaw.yaml.
 class ProjectDefinition {
@@ -7,7 +97,10 @@ class ProjectDefinition {
   final String id;
 
   /// Git remote URL (SSH or HTTPS).
-  final String remote;
+  final String? remote;
+
+  /// Existing on-disk git checkout to use directly.
+  final String? localPath;
 
   /// Default branch to track and branch from.
   final String branch;
@@ -26,7 +119,8 @@ class ProjectDefinition {
 
   const ProjectDefinition({
     required this.id,
-    required this.remote,
+    this.remote,
+    this.localPath,
     this.branch = 'main',
     this.credentials,
     this.cloneStrategy = CloneStrategy.shallow,
@@ -40,6 +134,7 @@ class ProjectDefinition {
       other is ProjectDefinition &&
           id == other.id &&
           remote == other.remote &&
+          localPath == other.localPath &&
           branch == other.branch &&
           credentials == other.credentials &&
           cloneStrategy == other.cloneStrategy &&
@@ -47,7 +142,7 @@ class ProjectDefinition {
           isDefault == other.isDefault;
 
   @override
-  int get hashCode => Object.hash(id, remote, branch, credentials, cloneStrategy, pr, isDefault);
+  int get hashCode => Object.hash(id, remote, localPath, branch, credentials, cloneStrategy, pr, isDefault);
 }
 
 /// Configuration for the projects subsystem.
@@ -65,7 +160,18 @@ class ProjectConfig {
   /// Default: 5.
   final int fetchCooldownMinutes;
 
-  const ProjectConfig({this.definitions = const {}, this.fetchCooldownMinutes = 5});
+  /// Whether `POST /api/projects` may create local-path projects.
+  final bool allowApiLocalPath;
+
+  /// Absolute-path allowlist for config/API local-path projects.
+  final List<String> localPathAllowlist;
+
+  const ProjectConfig({
+    this.definitions = const {},
+    this.fetchCooldownMinutes = 5,
+    this.allowApiLocalPath = false,
+    this.localPathAllowlist = const [],
+  });
 
   const ProjectConfig.defaults() : this();
 
@@ -77,11 +183,17 @@ class ProjectConfig {
       identical(this, other) ||
       other is ProjectConfig &&
           fetchCooldownMinutes == other.fetchCooldownMinutes &&
+          allowApiLocalPath == other.allowApiLocalPath &&
+          const ListEquality<String>().equals(localPathAllowlist, other.localPathAllowlist) &&
           const MapEquality<String, ProjectDefinition>().equals(definitions, other.definitions);
 
   @override
-  int get hashCode =>
-      Object.hash(fetchCooldownMinutes, const MapEquality<String, ProjectDefinition>().hash(definitions));
+  int get hashCode => Object.hash(
+    fetchCooldownMinutes,
+    allowApiLocalPath,
+    const ListEquality<String>().hash(localPathAllowlist),
+    const MapEquality<String, ProjectDefinition>().hash(definitions),
+  );
 
   @override
   String toString() => 'ProjectConfig(definitions: ${definitions.keys.toList()})';
@@ -105,11 +217,40 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     warns.add('projects.fetchCooldownMinutes: expected an integer — using default 5');
   }
 
+  var allowApiLocalPath = false;
+  final allowApiRaw = projectsMap['allowApiLocalPath'];
+  if (allowApiRaw is bool) {
+    allowApiLocalPath = allowApiRaw;
+  } else if (allowApiRaw != null) {
+    warns.add('projects.allowApiLocalPath: expected a boolean — using default false');
+  }
+
+  final localPathAllowlist = <String>[];
+  final allowlistRaw = projectsMap['localPathAllowlist'];
+  if (allowlistRaw is List) {
+    for (final (index, entry) in allowlistRaw.indexed) {
+      if (entry is! String || entry.trim().isEmpty) {
+        warns.add('projects.localPathAllowlist[$index]: expected a non-empty absolute path string — skipping');
+        continue;
+      }
+      final validation = validateProjectLocalPath(entry);
+      if (!validation.isValid && validation.errorCode != 'outside-allowlist') {
+        warns.add(
+          'projects.localPathAllowlist[$index]: ${validation.errorMessage ?? "invalid path"} — skipping',
+        );
+        continue;
+      }
+      localPathAllowlist.add(validation.normalizedPath);
+    }
+  } else if (allowlistRaw != null) {
+    warns.add('projects.localPathAllowlist: expected a list of absolute paths — using empty allowlist');
+  }
+
   for (final entry in projectsMap.entries) {
     final id = entry.key;
 
     // Skip top-level scalar keys (not project definitions).
-    if (id == 'fetchCooldownMinutes') continue;
+    if (id == 'fetchCooldownMinutes' || id == 'allowApiLocalPath' || id == 'localPathAllowlist') continue;
 
     if (id == '_local') {
       warns.add('projects: "_local" is a reserved project ID — skipping');
@@ -123,10 +264,34 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     }
     final projectMap = Map<String, dynamic>.from(raw);
 
-    final remote = projectMap['remote'];
-    if (remote is! String || remote.isEmpty) {
-      warns.add('projects.$id: "remote" is required and must be a non-empty string — skipping');
+    final remote = _trimmedStringOrNull(projectMap['remote']);
+    final localPathRaw = _trimmedStringOrNull(projectMap['localPath']);
+    final hasRemote = remote != null && remote.isNotEmpty;
+    final hasLocalPath = localPathRaw != null && localPathRaw.isNotEmpty;
+    if (hasRemote == hasLocalPath) {
+      warns.add('projects.$id: exactly one of "remote" or "localPath" must be supplied — skipping');
       continue;
+    }
+
+    String? localPath;
+    if (hasLocalPath) {
+      final validation = validateProjectLocalPath(localPathRaw, allowlist: localPathAllowlist);
+      if (!validation.isValid) {
+        final reason = switch (validation.errorCode) {
+          'traversal' => 'local-path traversal',
+          'outside-allowlist' => 'local-path outside allowlist',
+          'relative' => 'local-path must be absolute',
+          _ => validation.errorMessage ?? 'invalid local-path',
+        };
+        warns.add('projects.$id: $reason — skipping');
+        continue;
+      }
+      localPath = validation.normalizedPath;
+      if (!validation.pathExists) {
+        warns.add('projects.$id: localPath "$localPath" does not exist at config-load time — accepting');
+      } else if (!validation.gitRepository) {
+        warns.add('projects.$id: localPath "$localPath" is not a git repository at config-load time — accepting');
+      }
     }
 
     final branch = projectMap['branch'] is String ? projectMap['branch'] as String : 'main';
@@ -162,6 +327,7 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     definitions[id] = ProjectDefinition(
       id: id,
       remote: remote,
+      localPath: localPath,
       branch: branch,
       credentials: credentials,
       cloneStrategy: cloneStrategy,
@@ -170,5 +336,16 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     );
   }
 
-  return ProjectConfig(definitions: definitions, fetchCooldownMinutes: fetchCooldownMinutes);
+  return ProjectConfig(
+    definitions: definitions,
+    fetchCooldownMinutes: fetchCooldownMinutes,
+    allowApiLocalPath: allowApiLocalPath,
+    localPathAllowlist: localPathAllowlist,
+  );
+}
+
+String? _trimmedStringOrNull(Object? value) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

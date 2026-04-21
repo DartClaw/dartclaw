@@ -125,6 +125,7 @@ class WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     // Validate required variables.
@@ -150,7 +151,12 @@ class WorkflowService {
 
     final resolver = _turnAdapter?.resolveStartContext;
     if (resolver != null) {
-      final resolution = await resolver(definition, resolvedVariables, projectId: trimmedProjectId);
+      final resolution = await resolver(
+        definition,
+        resolvedVariables,
+        projectId: trimmedProjectId,
+        allowDirtyLocalPath: allowDirtyLocalPath,
+      );
       final resolvedProjectId = resolution.projectId?.trim();
       if (resolvedProjectId != null && resolvedProjectId.isNotEmpty) {
         if (definition.variables.containsKey('PROJECT')) {

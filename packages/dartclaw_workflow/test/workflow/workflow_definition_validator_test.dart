@@ -1052,6 +1052,83 @@ void main() {
       final errors = validator.validate(def).errors;
       expect(errors.where((e) => e.stepId == 'mapstep'), isEmpty);
     });
+
+    test('map step with multiple contextOutputs produces contextInconsistency error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(
+            id: 'mapstep',
+            name: 'Map',
+            prompts: ['p'],
+            mapOver: 'items',
+            contextOutputs: ['results', 'summaries'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((e) => e.type, 'type', ValidationErrorType.contextInconsistency)
+              .having((e) => e.stepId, 'stepId', 'mapstep')
+              .having((e) => e.message, 'message', contains('exactly one aggregate list value')),
+        ),
+      );
+    });
+
+    test('foreach controller with multiple contextOutputs produces contextInconsistency error', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], contextOutputs: ['story_result']),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            contextOutputs: ['story_results', 'implementation_results'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(
+        errors,
+        contains(
+          isA<ValidationError>()
+              .having((e) => e.type, 'type', ValidationErrorType.contextInconsistency)
+              .having((e) => e.stepId, 'stepId', 'pipeline')
+              .having((e) => e.message, 'message', contains('exactly one aggregate list value')),
+        ),
+      );
+    });
+
+    test('foreach controller with a single contextOutputs key is valid', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], contextOutputs: ['items']),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], contextOutputs: ['story_result']),
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Pipeline',
+            type: 'foreach',
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+            contextOutputs: ['story_results'],
+          ),
+        ],
+      );
+      final errors = validator.validate(def).errors;
+      expect(errors.where((e) => e.stepId == 'pipeline'), isEmpty);
+    });
   });
 
   group('S01 (0.16.1): hybrid step validation rules', () {

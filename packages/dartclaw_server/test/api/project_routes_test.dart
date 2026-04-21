@@ -1,8 +1,12 @@
+import 'dart:io';
+
+import 'package:dartclaw_config/dartclaw_config.dart' show ProjectConfig;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, projectRoutes;
 import 'package:dartclaw_server/src/project/project_auth_support.dart' show ProjectAuthException;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository, openTaskDbInMemory;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show ProjectAuthStatus;
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -75,7 +79,182 @@ void main() {
     test('missing remoteUrl returns 400', () async {
       final response = await handler(jsonRequest('POST', '/api/projects', {'name': 'Oops'}));
       expect(response.statusCode, 400);
-      expect(await errorCode(response), 'INVALID_INPUT');
+      expect(await errorCode(response), 'MISSING_INPUT');
+    });
+
+    test('localPath only returns 201 when API localPath is enabled', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['remoteUrl'], '');
+      expect(body['localPath'], '/tmp/live-checkout');
+      expect(body['status'], 'ready');
+    });
+
+    test('localPath only returns 403 when API localPath is disabled', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 403);
+      expect(await errorCode(response), 'LOCAL_PATH_DISABLED');
+    });
+
+    test('both remoteUrl and localPath returns 400 XOR error', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {
+          'name': 'Confused App',
+          'remoteUrl': 'https://github.com/x/y.git',
+          'localPath': '/tmp/live-checkout',
+        }),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'XOR_INPUT');
+    });
+
+    test('invalid localPath is rejected against the allowlist', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true, localPathAllowlist: ['/Users/allowed']),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'INVALID_LOCAL_PATH');
+    });
+
+    test('container mode rejects API localPath projects outside mounted roots', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: const ['/srv/workspace', '/srv/projects'],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/tmp/live-checkout'}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode accepts API localPath projects inside mounted roots', () async {
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: const ['/srv/workspace', '/srv/projects'],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Local App', 'localPath': '/srv/projects/live-checkout'}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['localPath'], '/srv/projects/live-checkout');
+    });
+
+    test('container mode rejects symlinked localPath that resolves outside mounted roots', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final mountedRoot = Directory(p.join(tempDir.path, 'mounted'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      Directory(p.join(outsideRoot.path, '.git')).createSync(recursive: true);
+      final symlinkPath = p.join(mountedRoot.path, 'linked-checkout');
+      Link(symlinkPath).createSync(outsideRoot.path);
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [mountedRoot.path],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Linked App', 'localPath': symlinkPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode rejects new descendants under ancestor symlink escapes', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_ancestor_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final mountedRoot = Directory(p.join(tempDir.path, 'mounted'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      final escapeLink = p.join(mountedRoot.path, 'escape');
+      Link(escapeLink).createSync(outsideRoot.path);
+      final localPath = p.join(escapeLink, 'new-checkout');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [mountedRoot.path],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Escaped App', 'localPath': localPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'LOCAL_PATH_NOT_MOUNTABLE');
+    });
+
+    test('container mode accepts new descendants under symlinked mounted roots', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_symlink_root_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final realRoot = Directory(p.join(tempDir.path, 'real-root'))..createSync(recursive: true);
+      final aliasRoot = p.join(tempDir.path, 'alias-root');
+      Link(aliasRoot).createSync(realRoot.path);
+      final localPath = p.join(aliasRoot, 'new-checkout');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: const ProjectConfig(allowApiLocalPath: true),
+        containerEnabled: true,
+        containerMountRoots: [aliasRoot],
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Aliased App', 'localPath': localPath}),
+      );
+
+      expect(response.statusCode, 201);
+      final body = decodeObject(await response.readAsString());
+      expect(body['localPath'], localPath);
     });
 
     test('duplicate ID returns 409', () async {
@@ -92,7 +271,8 @@ void main() {
         onCreate:
             ({
               required name,
-              required remoteUrl,
+              remoteUrl,
+              localPath,
               defaultBranch = 'main',
               credentialsRef,
               cloneStrategy = CloneStrategy.shallow,

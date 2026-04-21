@@ -164,7 +164,8 @@ class ProjectServiceImpl implements ProjectService {
   @override
   Future<Project> create({
     required String name,
-    required String remoteUrl,
+    String? remoteUrl,
+    String? localPath,
     String defaultBranch = 'main',
     String? credentialsRef,
     CloneStrategy cloneStrategy = CloneStrategy.shallow,
@@ -179,21 +180,33 @@ class ProjectServiceImpl implements ProjectService {
       throw ArgumentError('Project with id "$id" already exists');
     }
 
-    final localPath = p.join(_dataDir, 'projects', id);
+    final hasRemote = remoteUrl != null && remoteUrl.isNotEmpty;
+    final hasLocalPath = localPath != null && localPath.isNotEmpty;
+    if (hasRemote == hasLocalPath) {
+      throw ArgumentError('Exactly one of remoteUrl or localPath must be provided');
+    }
+
+    final effectiveLocalPath = localPath ?? p.join(_dataDir, 'projects', id);
     final now = DateTime.now();
 
     final project = Project(
       id: id,
       name: name,
-      remoteUrl: remoteUrl,
-      localPath: localPath,
+      remoteUrl: remoteUrl ?? '',
+      localPath: effectiveLocalPath,
       defaultBranch: defaultBranch,
       credentialsRef: credentialsRef,
       cloneStrategy: cloneStrategy,
       pr: pr,
-      status: ProjectStatus.cloning,
+      status: hasLocalPath ? ProjectStatus.ready : ProjectStatus.cloning,
       createdAt: now,
     );
+
+    if (hasLocalPath) {
+      _projects[id] = project;
+      await _persist();
+      return project;
+    }
 
     final prepared = await _requireCompatibleAuth(project);
 
@@ -272,6 +285,10 @@ class ProjectServiceImpl implements ProjectService {
 
   @override
   Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {
+    if (project.remoteUrl.isEmpty) {
+      return;
+    }
+
     final effectiveRef = ref?.trim();
     final bypassCooldown = effectiveRef != null && effectiveRef.isNotEmpty;
     final inFlightKey = _fetchInFlightKey(project.id, effectiveRef, strict);
@@ -303,11 +320,7 @@ class ProjectServiceImpl implements ProjectService {
     unawaited(completer.future.catchError((_) {}));
 
     try {
-      if (project.id == '_local') {
-        await _fetchLocal(project, ref: effectiveRef, strict: strict);
-      } else {
-        await _fetchExternal(project, ref: effectiveRef, strict: strict);
-      }
+      await _fetchExternal(project, ref: effectiveRef, strict: strict);
       completer.complete();
     } catch (e) {
       if (strict) {
@@ -347,46 +360,6 @@ class ProjectServiceImpl implements ProjectService {
     _log.info('Fetched latest for "${project.name}" (ref: $targetRef)');
   }
 
-  Future<void> _fetchLocal(Project project, {String? ref, bool strict = false}) async {
-    if (ref != null && ref.isNotEmpty) {
-      if (await _refExistsNonDestructively(project.localPath, ref)) {
-        _log.info('Validated _local ref "$ref" without mutating the working tree');
-        return;
-      }
-      final message = 'Ref "$ref" not found in _local repository';
-      if (strict) {
-        throw StateError(message);
-      }
-      _log.warning(message);
-      return;
-    }
-
-    // For _local: attempt fetch + fast-forward merge.
-    final fetchResult = await _gitRunner(['fetch', 'origin'], workingDirectory: project.localPath);
-
-    if (fetchResult.exitCode != 0) {
-      _log.warning('git fetch failed for _local project: ${fetchResult.stderr}');
-      return;
-    }
-
-    // Attempt fast-forward merge — never force-reset.
-    final mergeResult = await _gitRunner([
-      'merge',
-      '--ff-only',
-      'origin/${project.defaultBranch}',
-    ], workingDirectory: project.localPath);
-
-    if (mergeResult.exitCode != 0) {
-      _log.warning(
-        'Fast-forward merge failed for _local — local branch has diverged. '
-        'Proceeding with local state. stderr: ${mergeResult.stderr}',
-      );
-      return; // Do NOT force-reset — user may have local commits.
-    }
-
-    _log.info('Fast-forwarded _local project to origin/${project.defaultBranch}');
-  }
-
   String _normalizeExternalRef(String? ref, {required String defaultBranch}) {
     if (ref == null || ref.isEmpty) return defaultBranch;
     if (ref.startsWith('origin/')) {
@@ -394,25 +367,6 @@ class ProjectServiceImpl implements ProjectService {
       return trimmed.isEmpty ? defaultBranch : trimmed;
     }
     return ref;
-  }
-
-  Future<bool> _refExistsNonDestructively(String workingDirectory, String ref) async {
-    final candidates = <String>{ref};
-    if (!ref.startsWith('origin/') && !ref.startsWith('refs/')) {
-      candidates.add('origin/$ref');
-    }
-    for (final candidate in candidates) {
-      final result = await _gitRunner([
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        candidate,
-      ], workingDirectory: workingDirectory);
-      if (result.exitCode == 0) {
-        return true;
-      }
-    }
-    return false;
   }
 
   String _fetchInFlightKey(String projectId, String? ref, bool strict) {
@@ -498,7 +452,7 @@ class ProjectServiceImpl implements ProjectService {
   Future<void> _seedConfigProjects() async {
     for (final def in _projectConfig.definitions.values) {
       final id = def.id;
-      final localPath = p.join(_dataDir, 'projects', id);
+      final localPath = def.localPath ?? p.join(_dataDir, 'projects', id);
 
       if (_projects.containsKey(id)) {
         _log.warning(
@@ -508,11 +462,29 @@ class ProjectServiceImpl implements ProjectService {
         _projects.remove(id);
       }
 
+      if (def.localPath != null) {
+        final project = Project(
+          id: id,
+          name: def.id,
+          remoteUrl: '',
+          localPath: localPath,
+          defaultBranch: def.branch,
+          credentialsRef: def.credentials,
+          cloneStrategy: def.cloneStrategy,
+          pr: def.pr,
+          status: ProjectStatus.ready,
+          configDefined: true,
+          createdAt: DateTime.now(),
+        );
+        _projects[id] = project;
+        continue;
+      }
+
       final cloneExists = Directory(localPath).existsSync();
       var project = Project(
         id: id,
         name: def.id, // Use ID as name for config-defined (no display name in YAML)
-        remoteUrl: def.remote,
+        remoteUrl: def.remote!,
         localPath: localPath,
         defaultBranch: def.branch,
         credentialsRef: def.credentials,
@@ -611,6 +583,10 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   Future<Project> _fetchProject(Project project, {required bool bypassCooldown}) async {
+    if (project.remoteUrl.isEmpty) {
+      return project;
+    }
+
     final prepared = await _requireCompatibleAuth(project, persistFailure: true);
     final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
     final args = _buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', '--prune', 'origin']);
@@ -649,7 +625,7 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
-    if (originalRemoteUrl == resolvedRemoteUrl) {
+    if (originalRemoteUrl.trim().isEmpty || originalRemoteUrl == resolvedRemoteUrl) {
       return gitArgs;
     }
     return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];

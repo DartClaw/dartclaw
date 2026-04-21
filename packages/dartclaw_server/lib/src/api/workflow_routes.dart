@@ -237,6 +237,7 @@ typedef _ParsedWorkflowRunRequest = ({
   WorkflowDefinition? definition,
   Map<String, String> variables,
   String? projectId,
+  bool allowDirtyLocalPath,
   Response? error,
 });
 
@@ -246,7 +247,13 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
 ) async {
   final body = await readJsonObject(request);
   if (body.error != null) {
-    return (definition: null, variables: const <String, String>{}, projectId: null, error: body.error);
+    return (
+      definition: null,
+      variables: const <String, String>{},
+      projectId: null,
+      allowDirtyLocalPath: false,
+      error: body.error,
+    );
   }
   final definitionField = body.value!['definition'];
   if (definitionField == null) {
@@ -254,6 +261,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition'),
     );
   }
@@ -262,6 +270,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string'),
     );
   }
@@ -272,6 +281,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $definitionField'),
     );
   }
@@ -282,6 +292,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'}),
     );
   }
@@ -291,12 +302,19 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
   };
   final projectField = body.value!['project'];
   final projectId = projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null;
+  final allowDirtyLocalPath = body.value!['allowDirtyLocalPath'] == true;
   if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
     variables['PROJECT'] = projectId;
   }
 
   final validationError = _validateWorkflowVariables(definition, variables);
-  return (definition: definition, variables: variables, projectId: projectId, error: validationError);
+  return (
+    definition: definition,
+    variables: variables,
+    projectId: projectId,
+    allowDirtyLocalPath: allowDirtyLocalPath,
+    error: validationError,
+  );
 }
 
 Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
@@ -310,6 +328,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: _workflowFormError('Workflow definition is required.'),
     );
   }
@@ -319,6 +338,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       definition: null,
       variables: const <String, String>{},
       projectId: null,
+      allowDirtyLocalPath: false,
       error: _workflowFormError('Workflow definition not found: $definitionName'),
     );
   }
@@ -327,11 +347,21 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       if (entry.key.startsWith('var_') && entry.value.trim().isNotEmpty) entry.key.substring(4): entry.value.trim(),
   };
   final projectId = body['project']?.trim().isNotEmpty == true ? body['project']!.trim() : null;
+  final allowDirtyLocalPath = switch (body['allowDirtyLocalPath']?.trim().toLowerCase()) {
+    '1' || 'true' || 'on' => true,
+    _ => false,
+  };
   if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
     variables['PROJECT'] = projectId;
   }
   final validationError = _validateWorkflowVariables(definition, variables, htmlResponse: true);
-  return (definition: definition, variables: variables, projectId: projectId, error: validationError);
+  return (
+    definition: definition,
+    variables: variables,
+    projectId: projectId,
+    allowDirtyLocalPath: allowDirtyLocalPath,
+    error: validationError,
+  );
 }
 
 Response? _validateWorkflowVariables(
@@ -364,7 +394,12 @@ Future<Response> _startWorkflowResponse(
   }
   final definition = parsed.definition!;
   try {
-    final run = await workflows.start(definition, parsed.variables, projectId: parsed.projectId);
+    final run = await workflows.start(
+      definition,
+      parsed.variables,
+      projectId: parsed.projectId,
+      allowDirtyLocalPath: parsed.allowDirtyLocalPath,
+    );
     if (htmlResponse) {
       final location = '/workflows/${run.id}';
       return Response(201, headers: {'HX-Location': location, 'content-type': 'text/html; charset=utf-8'});
@@ -374,6 +409,16 @@ Future<Response> _startWorkflowResponse(
     return htmlResponse
         ? _workflowFormError(e.message.toString())
         : errorResponse(400, 'INVALID_INPUT', e.message.toString());
+  } on StateError catch (e) {
+    if (_isWorkflowStartPreconditionError(e.message)) {
+      return htmlResponse
+          ? _workflowFormError(e.message, statusCode: 409)
+          : errorResponse(409, 'WORKFLOW_PRECONDITION_FAILED', e.message);
+    }
+    _log.severe('Failed to start workflow', e);
+    return htmlResponse
+        ? _workflowFormError('Failed to start workflow')
+        : errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
   } catch (e, st) {
     _log.severe('Failed to start workflow', e, st);
     return htmlResponse
@@ -382,9 +427,15 @@ Future<Response> _startWorkflowResponse(
   }
 }
 
-Response _workflowFormError(String message) {
+bool _isWorkflowStartPreconditionError(String message) {
+  return message.startsWith('Local-path project "') ||
+      message.startsWith('Publish requires an origin remote in local-path project "') ||
+      message.startsWith('Failed to inspect local-path project "');
+}
+
+Response _workflowFormError(String message, {int statusCode = 400}) {
   return Response(
-    400,
+    statusCode,
     body: '<span class="form-error-text">${htmlEscape.convert(message)}</span>',
     headers: {'content-type': 'text/html; charset=utf-8'},
   );

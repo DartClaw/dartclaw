@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import '../config_loader.dart';
 import '../workflow_materializer.dart';
 import '../serve_command.dart' show WriteLine;
+import 'project_definition_paths.dart';
 
 /// Lists available workflows (materialized + custom).
 ///
@@ -118,8 +119,7 @@ Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetReso
   await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
   await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'), source: WorkflowSource.materialized);
   for (final projectDef in config.projects.definitions.values) {
-    final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
-    await registry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));
+    await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
   }
   return registry;
 }

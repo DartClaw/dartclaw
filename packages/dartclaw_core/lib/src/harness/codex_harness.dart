@@ -106,6 +106,7 @@ class CodexHarness extends BaseHarness {
         developerInstructions: harnessConfig.appendSystemPrompt ?? '',
         mcpServerUrl: harnessConfig.mcpServerUrl,
         mcpGatewayToken: harnessConfig.mcpGatewayToken,
+        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
       );
     },
     start: () async {
@@ -765,5 +766,16 @@ class CodexHarness extends BaseHarness {
   String? _stringProviderOption(String key) {
     final value = providerOptions[key];
     return value is String && value.trim().isNotEmpty ? value : null;
+  }
+
+  bool _boolProviderOption(String key, {required bool defaultValue}) {
+    final value = providerOptions[key];
+    if (value is bool) return value;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true') return true;
+      if (normalized == 'false') return false;
+    }
+    return defaultValue;
   }
 }

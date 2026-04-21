@@ -31,6 +31,13 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   return factory;
 }
 
+void _runGit(String workingDirectory, List<String> args) {
+  final result = Process.runSync('git', args, workingDirectory: workingDirectory);
+  if (result.exitCode != 0) {
+    fail('git ${args.join(' ')} failed in $workingDirectory: ${result.stderr}');
+  }
+}
+
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during server builder integration test');
 }
@@ -276,5 +283,69 @@ void main() {
       final projectSkillDir = p.join(tempDir.path, 'projects', projectId, '.claude', 'skills', 'dartclaw-review');
       expect(Directory(projectSkillDir).existsSync(), isFalse);
     }
+  });
+
+  test('ServiceWiring rejects missing local refs for local-path workflow starts', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+    final projectDir = Directory(p.join(tempDir.path, 'live-project'))..createSync(recursive: true);
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('hello\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: 'main')},
+      ),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final response = await result.server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run'),
+        body: jsonEncode({
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Missing ref regression', 'PROJECT': 'alpha', 'BRANCH': 'missing/ref'},
+        }),
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+
+    expect(response.statusCode, 400);
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+    expect(((body['error'] as Map<String, dynamic>)['message'] as String), contains('Ref "missing/ref" not found'));
   });
 }

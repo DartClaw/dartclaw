@@ -24,10 +24,14 @@ gitStrategy:
     enabled: true
 
 stepDefaults:
-  # Literal matches (no `*`) are evaluated by equality — `spec` does NOT
-  # catch `revise-spec`. The `revise*` match below owns `revise-spec` and
-  # routes it to the reviewer provider since it runs the `dartclaw-review`
-  # skill.
+  # `revise*` is listed before the literal `spec` match so the validator's
+  # literal-token-match forward-compatibility check doesn't flag `spec` as
+  # ambiguous with `revise-spec`. Literal matches are evaluated by equality
+  # at runtime, so `spec` never catches `revise-spec` regardless of order;
+  # the reorder is purely for validator hygiene.
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "spec"
     provider: "@planner"
     model: "@planner"
@@ -35,9 +39,6 @@ stepDefaults:
     provider: "@executor"
     model: "@executor"
   - match: "*review*"
-    provider: "@reviewer"
-    model: "@reviewer"
-  - match: "revise*"
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
@@ -100,11 +101,10 @@ steps:
     contextInputs: [project_index, spec_path, spec_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: "Review `{{context.spec_path}}` with `--mode doc --fix` (spec skill confidence {{context.spec_confidence}}/10)."
-    contextOutputs: [spec_path]
-    outputs:
-      spec_path:
-        format: path
-        description: Pass-through of the FIS file path — same location, revised contents after the --fix pass.
+    # revise-spec modifies the FIS file in place at the same path. No new
+    # context value is produced — downstream steps continue reading
+    # {{context.spec_path}} written by the spec step, which now points at the
+    # revised file contents.
 
   # Implement the feature against the on-disk specification.
   - id: implement

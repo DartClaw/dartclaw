@@ -191,7 +191,7 @@ void main() {
         reserveTurn: (_) async => 'turn-id',
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        resolveStartContext: (definition, variables, {projectId}) async {
+        resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           final head = await Process.run('git', [
             'symbolic-ref',
             '--quiet',
@@ -228,7 +228,7 @@ void main() {
         reserveTurn: (_) async => 'turn-id',
         executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
         waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
-        resolveStartContext: (definition, variables, {projectId}) async {
+        resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           throw ArgumentError('Ref "missing/ref" not found');
         },
       ),

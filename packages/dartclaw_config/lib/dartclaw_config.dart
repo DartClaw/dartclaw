@@ -39,7 +39,13 @@ export 'src/governance_config.dart'
 export 'src/history_config.dart' show HistoryConfig;
 export 'src/logging_config.dart' show LoggingConfig;
 export 'src/memory_config.dart' show MemoryConfig;
-export 'src/project_config.dart' show ProjectConfig, ProjectDefinition, parseProjectConfig;
+export 'src/project_config.dart'
+    show
+        LocalProjectPathValidation,
+        ProjectConfig,
+        ProjectDefinition,
+        parseProjectConfig,
+        validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;
 export 'src/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/providers_config.dart' show ProviderEntry, ProvidersConfig;

@@ -35,9 +35,14 @@ gitStrategy:
     project: "{{PROJECT}}"
 
 stepDefaults:
-  # Literal matches (no `*`) are evaluated by equality — `prd` does NOT catch
-  # `revise-prd`. The `revise*` match below owns `revise-prd` and routes it
-  # to the reviewer provider since it runs the `dartclaw-review` skill.
+  # `revise*` is listed before the literal `prd` / `plan` matches so the
+  # validator's literal-token-match forward-compatibility check doesn't flag
+  # `prd` / `plan` as ambiguous with `revise-prd`. Literal matches are
+  # evaluated by equality at runtime, so `prd` never catches `revise-prd`
+  # regardless of order; the reorder is purely for validator hygiene.
+  - match: "revise*"
+    provider: "@reviewer"
+    model: "@reviewer"
   - match: "prd"
     provider: "@planner"
     model: "@planner"
@@ -48,9 +53,6 @@ stepDefaults:
     provider: "@executor"
     model: "@executor"
   - match: "*review*"
-    provider: "@reviewer"
-    model: "@reviewer"
-  - match: "revise*"
     provider: "@reviewer"
     model: "@reviewer"
   - match: "remediate"
@@ -117,11 +119,10 @@ steps:
     prompt: |
       Review `{{context.prd}}` with `--mode doc --fix`
       (PRD skill confidence {{context.prd_confidence}}/10).
-    contextOutputs: [prd]
-    outputs:
-      prd:
-        format: path
-        description: Pass-through of the PRD file path — same location, revised contents after the --fix pass.
+    # revise-prd modifies the PRD file in place at the same path. No new
+    # context value is produced — downstream steps continue reading
+    # {{context.prd}} written by the prd step, which now points at the
+    # revised file contents.
 
   # Plan stories and per-story FIS files from the reviewed PRD path. Reuses
   # context.project_index.active_plan when it exists; otherwise synthesizes.
@@ -171,7 +172,6 @@ steps:
           story_result:
             format: text
             schema: story-result
-            description: Structured story-execution report — status, acceptance-criteria outcome, key files touched, validation commands run — consumed by quick-review, plan-review, remediation, and update-state.
 
       # Review the implemented story against its spec and acceptance criteria.
       # exec-spec already ran analysis/tests/linting; this step gates the outcome.
@@ -235,11 +235,9 @@ steps:
           remediation_summary:
             format: text
             schema: remediation-summary
-            description: What was remediated this iteration — findings addressed, files touched, validation outcome — consumed by re-review.
           diff_summary:
             format: text
             schema: diff-summary
-            description: Aggregated diff of the remediation pass (paths and high-level change types) — consumed by re-review to gate loop exit.
 
       # Re-review the full implementation after remediation using the updated summaries and diff.
       # The remediation skill is responsible for running analysis/tests/linting on
@@ -270,4 +268,3 @@ steps:
       state_update_summary:
         format: text
         schema: state-update-summary
-        description: What changed in the project state document — milestone/story status transitions and any notes written — terminal output of the workflow.

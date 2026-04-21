@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -204,6 +205,56 @@ void main() {
       expect(createCommand, isNot(contains('/other-workspace:/workspace:rw')));
     });
 
+    test('start rejects local project mounts outside the allowlist', () async {
+      final manager = _manager(
+        workspaceMounts: const ['/tmp/other:/projects/live:ro'],
+        localPathAllowlist: const ['/tmp/allowed'],
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      await expectLater(manager.start(), throwsA(isA<StateError>()));
+    });
+
+    test('start accepts local project mounts within the allowlist', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        workspaceMounts: const ['/tmp/allowed/live:/projects/live:ro'],
+        localPathAllowlist: const ['/tmp/allowed'],
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      expect(calls.any((call) => call[1] == 'create'), isTrue);
+    });
+
+    test('containerPathForHostPath resolves real-path descendants under symlinked mount roots', () async {
+      final tempDir = Directory.systemTemp.createTempSync('container_manager_symlink_mount_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final realRoot = Directory(p.join(tempDir.path, 'real-root'))..createSync(recursive: true);
+      final aliasRoot = p.join(tempDir.path, 'alias-root');
+      Link(aliasRoot).createSync(realRoot.path);
+
+      final manager = _manager(
+        workspaceMounts: ['$aliasRoot:/projects/alias:ro'],
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      final translated = manager.containerPathForHostPath(p.join(realRoot.path, 'new-checkout'));
+
+      expect(translated, '/projects/alias/new-checkout');
+    });
+
     test('defaults buildContextDir to current working directory', () {
       final manager = _manager(
         buildContextDir: null,
@@ -336,6 +387,7 @@ ContainerManager _manager({
   String containerName = 'dartclaw-test1234-workspace',
   String profileId = 'workspace',
   List<String> workspaceMounts = const ['/tmp/workspace:/workspace:rw', '/tmp/project:/project:ro'],
+  List<String> localPathAllowlist = const [],
   String? buildContextDir = '/tmp/project',
   String workingDir = '/project',
 }) {
@@ -344,6 +396,7 @@ ContainerManager _manager({
     containerName: containerName,
     profileId: profileId,
     workspaceMounts: workspaceMounts,
+    localPathAllowlist: localPathAllowlist,
     proxySocketDir: '/tmp/proxy',
     hostClaudeJsonPath: '/tmp/.claude.json',
     buildContextDir: buildContextDir,

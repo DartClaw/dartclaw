@@ -208,7 +208,7 @@ governance:
         expect(config.warnings, anyElement(contains('Invalid type for governance.crowd_coding')));
       });
 
-      test('unrecognized crowd_coding model and effort produce warnings', () {
+      test('unrecognized crowd_coding model warns; effort passes through verbatim', () {
         final config = _loadYaml('''
 governance:
   crowd_coding:
@@ -218,7 +218,11 @@ governance:
         expect(config.governance.crowdCoding.model, 'unknown-model');
         expect(config.governance.crowdCoding.effort, 'extreme');
         expect(config.warnings, anyElement(contains('Unrecognized governance.crowd_coding.model')));
-        expect(config.warnings, anyElement(contains('Unrecognized governance.crowd_coding.effort')));
+        expect(
+          config.warnings,
+          isNot(anyElement(contains('governance.crowd_coding.effort'))),
+          reason: 'effort is forwarded verbatim to the provider — no canonical allow-list',
+        );
       });
 
       test('per_sender max_queued and max_pause_queued parse correctly', () {

@@ -1,7 +1,6 @@
 part of 'dartclaw_config.dart';
 
 const _validAdvisorTriggers = <String>{'turn_depth', 'token_velocity', 'periodic', 'task_review', 'explicit'};
-const _recognizedEfforts = <String>{'low', 'medium', 'high', 'max'};
 final _recognizedClaudeModels = RegExp(
   r'^(default|haiku|sonnet|opus|opusplan)(\[[^\]]+\])?$|^(claude-[a-z0-9][a-z0-9.\-]*|anthropic\.claude-[a-z0-9.\-]+(@[a-z0-9.\-]+)?)$',
   caseSensitive: false,
@@ -388,13 +387,6 @@ void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
   warns.add('Unrecognized $field: "$trimmed" — keeping value as configured');
 }
 
-void _warnIfUnrecognizedEffort(List<String> warns, String field, String? value) {
-  final trimmed = value?.trim().toLowerCase();
-  if (trimmed == null || trimmed.isEmpty) return;
-  if (_recognizedEfforts.contains(trimmed)) return;
-  warns.add('Unrecognized $field: "$value" — keeping value as configured');
-}
-
 AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, List<String> warns) {
   final advisorMap = _sectionMap('advisor', yaml, warns);
   if (advisorMap == null) return defaults;
@@ -422,7 +414,6 @@ AdvisorConfig _parseAdvisor(Map<String, dynamic> yaml, AdvisorConfig defaults, L
   if (effortRaw is String) {
     final trimmed = effortRaw.trim();
     effort = trimmed.isEmpty ? null : trimmed;
-    _warnIfUnrecognizedEffort(warns, 'advisor.effort', effort);
   } else if (effortRaw != null) {
     warns.add('Invalid type for advisor.effort: "${effortRaw.runtimeType}" — using default');
   }
@@ -656,7 +647,6 @@ SessionScopeConfig _parseSessionScope(
   final effortRaw = sessionsRaw['effort'];
   if (effortRaw is String) {
     effort = effortRaw;
-    _warnIfUnrecognizedEffort(warns, 'sessions.effort', effort);
   } else if (effortRaw != null) {
     warns.add('Invalid type for sessions.effort: "${effortRaw.runtimeType}" — using default');
   }
@@ -704,7 +694,6 @@ SessionScopeConfig _parseSessionScope(
       final chEffortRaw = channelMap['effort'];
       if (chEffortRaw is String) {
         chEffort = chEffortRaw;
-        _warnIfUnrecognizedEffort(warns, 'sessions.channels.$channelName.effort', chEffort);
       } else if (chEffortRaw != null) {
         warns.add('Invalid type for sessions.channels.$channelName.effort: "${chEffortRaw.runtimeType}" — ignoring');
       }

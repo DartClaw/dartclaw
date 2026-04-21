@@ -158,7 +158,7 @@ class RemotePushService {
   }
 
   List<String> _buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRemoteUrl, List<String> gitArgs) {
-    if (originalRemoteUrl == resolvedRemoteUrl) {
+    if (originalRemoteUrl.trim().isEmpty || originalRemoteUrl == resolvedRemoteUrl) {
       return gitArgs;
     }
     return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];

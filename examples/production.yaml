@@ -56,7 +56,11 @@ concurrency:
   max_parallel_turns: 2
 
 # Agent model and reasoning effort (default: opus[1m]).
-# Models: haiku, sonnet, opus, opus[1m]. Effort: low, medium, high, max.
+# Models: haiku, sonnet, opus, opus[1m].
+# Effort is passed verbatim to the provider:
+#   Claude accepts low|medium|high|xhigh|max;
+#   Codex accepts low|medium|high|xhigh.
+# Use the exact literal the provider expects.
 # agent:
 #   model: sonnet              # override to use a cheaper model
 #   effort: high

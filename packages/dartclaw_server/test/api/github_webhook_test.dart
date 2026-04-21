@@ -368,6 +368,7 @@ class _FakeWorkflowService extends WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     calls.add('start:${definition.name}');
@@ -427,7 +428,8 @@ class _StaticProjectService implements ProjectService {
   @override
   Future<Project> create({
     required String name,
-    required String remoteUrl,
+    String? remoteUrl,
+    String? localPath,
     String defaultBranch = 'main',
     String? credentialsRef,
     CloneStrategy cloneStrategy = CloneStrategy.shallow,

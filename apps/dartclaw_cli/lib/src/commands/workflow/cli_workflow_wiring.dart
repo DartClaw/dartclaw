@@ -67,7 +67,9 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 import '../workflow_materializer.dart';
 import '../workflow_skill_materializer.dart';
 import 'credential_preflight.dart';
+import 'project_definition_paths.dart';
 import 'workflow_git_support.dart';
+import 'workflow_local_path_preflight.dart';
 
 /// Outcome of a standalone-mode pull-request creation hook.
 ///
@@ -364,7 +366,7 @@ class CliWorkflowWiring {
       hydrateWorkflowWorktreeBinding: taskExecutor.hydrateWorkflowSharedWorktreeBinding,
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
-        resolveStartContext: (definition, variables, {projectId}) async {
+        resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');
           final declaresBranch = definition.variables.containsKey('BRANCH');
           final resolvedProjectId = (projectId ?? variables['PROJECT'])?.trim();
@@ -380,6 +382,16 @@ class CliWorkflowWiring {
               resolvedBranch = requested;
             } else {
               resolvedBranch = await _resolveSymbolicHeadBranch(workflowProjectDir) ?? 'main';
+            }
+          }
+          if (resolvedProjectId != null && resolvedProjectId.isNotEmpty) {
+            final project = await projectService.get(resolvedProjectId);
+            if (project != null) {
+              await ensureWorkflowProjectReady(
+                project: project,
+                publishEnabled: definition.gitStrategy?.publish?.enabled == true,
+                allowDirty: allowDirtyLocalPath,
+              );
             }
           }
           return WorkflowStartResolution(
@@ -501,8 +513,7 @@ class CliWorkflowWiring {
     await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
     await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'), source: WorkflowSource.materialized);
     for (final projectDef in config.projects.definitions.values) {
-      final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
-      await registry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));
+      await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }
   }
 
@@ -642,7 +653,7 @@ List<String> _workflowSkillProjectDirs(DartclawConfig config) {
   if (config.projects.definitions.isEmpty) {
     return [Directory.current.path];
   }
-  return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
+  return configuredProjectDirectories(config);
 }
 
 Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {

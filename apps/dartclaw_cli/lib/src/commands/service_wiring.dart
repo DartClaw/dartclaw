@@ -32,7 +32,9 @@ import 'serve_command.dart';
 import 'wiring/channel_wiring.dart';
 import 'wiring/harness_wiring.dart';
 import 'workflow_materializer.dart';
+import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_git_support.dart';
+import 'workflow/workflow_local_path_preflight.dart';
 import 'workflow_skill_materializer.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
@@ -397,7 +399,7 @@ class ServiceWiring {
       ),
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
-        resolveStartContext: (definition, variables, {projectId}) async {
+        resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
           final declaresProject = definition.variables.containsKey('PROJECT');
           final declaresBranch = definition.variables.containsKey('BRANCH');
           final projectService = project.projectService;
@@ -421,6 +423,12 @@ class ServiceWiring {
           if (declaresBranch) {
             final requestedBranch = variables['BRANCH']?.trim();
             if (requestedBranch != null && requestedBranch.isNotEmpty) {
+              if (resolvedProject.remoteUrl.isEmpty) {
+                final exists = await _localRefExists(resolvedProject.localPath, requestedBranch);
+                if (!exists) {
+                  throw ArgumentError('Ref "$requestedBranch" not found in project repository');
+                }
+              }
               effectiveBranch = requestedBranch;
             } else if (resolvedProject.id == '_local') {
               effectiveBranch =
@@ -429,6 +437,12 @@ class ServiceWiring {
               effectiveBranch = resolvedProject.defaultBranch;
             }
           }
+
+          await ensureWorkflowProjectReady(
+            project: resolvedProject,
+            publishEnabled: definition.gitStrategy?.publish?.enabled == true,
+            allowDirty: allowDirtyLocalPath,
+          );
 
           final refToValidate = _workflowFreshnessRefForProject(resolvedProject, effectiveBranch);
           await projectService.ensureFresh(resolvedProject, ref: refToValidate, strict: true);
@@ -574,8 +588,7 @@ class ServiceWiring {
       source: WorkflowSource.materialized,
     );
     for (final projectDef in config.projects.definitions.values) {
-      final projectCloneDir = p.join(config.projectsClonesDir, projectDef.id);
-      await workflowRegistry.loadFromDirectory(p.join(projectCloneDir, 'workflows'));
+      await workflowRegistry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
     }
 
     // Thread binding reconciliation — prune bindings for terminal tasks.
@@ -1081,7 +1094,7 @@ List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
   if (config.projects.definitions.isEmpty) {
     return [Directory.current.path];
   }
-  return config.projects.definitions.values.map((project) => p.join(config.projectsClonesDir, project.id)).toList();
+  return configuredProjectDirectories(config);
 }
 
 String? _workflowFreshnessRefForProject(Project project, String? branch) {
@@ -1107,6 +1120,25 @@ Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
   } catch (_) {
     return null;
   }
+}
+
+Future<bool> _localRefExists(String workingDirectory, String ref) async {
+  final candidates = <String>{ref};
+  if (!ref.startsWith('origin/') && !ref.startsWith('refs/')) {
+    candidates.add('origin/$ref');
+  }
+  for (final candidate in candidates) {
+    final result = await _workflowGit([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      candidate,
+    ], workingDirectory: workingDirectory);
+    if (result.exitCode == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Future<void> _ensureLocalBranch({

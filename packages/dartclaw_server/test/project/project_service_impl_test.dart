@@ -32,11 +32,14 @@ Future<void> deleteTempDirWithRetries(Directory dir) async {
 
 void main() {
   late Directory tempDir;
+  late Directory gitRepoDir;
   late String dataDir;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('proj_svc_test_');
     dataDir = tempDir.path;
+    gitRepoDir = Directory(p.join(tempDir.path, 'git-repo'))..createSync(recursive: true);
+    Directory(p.join(gitRepoDir.path, '.git')).createSync(recursive: true);
   });
 
   tearDown(() async {
@@ -130,6 +133,32 @@ void main() {
       expect(project.status, equals(ProjectStatus.ready));
     });
 
+    test('seeds config-defined localPath projects without cloning', () async {
+      final commands = <List<String>>[];
+      final config = ProjectConfig(
+        definitions: {
+          'cfg-project': ProjectDefinition(id: 'cfg-project', localPath: gitRepoDir.path),
+        },
+      );
+
+      final svc = makeService(
+        projectConfig: config,
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = await svc.get('cfg-project');
+      expect(commands, isEmpty);
+      expect(project, isNotNull);
+      expect(project!.configDefined, isTrue);
+      expect(project.remoteUrl, isEmpty);
+      expect(project.localPath, gitRepoDir.path);
+      expect(project.status, equals(ProjectStatus.ready));
+    });
+
     test('config wins on ID collision with runtime project', () async {
       // Write a runtime project with same ID as a config project.
       final projectsFile = File('$dataDir/projects.json');
@@ -219,6 +248,24 @@ void main() {
       final updated = await svc.get(project.id);
       expect(updated!.status, equals(ProjectStatus.error));
       expect(updated.errorMessage, isNotEmpty);
+    });
+
+    test('localPath projects are created ready without cloning', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final project = await svc.create(name: 'live-app', localPath: gitRepoDir.path);
+
+      expect(project.status, equals(ProjectStatus.ready));
+      expect(project.remoteUrl, isEmpty);
+      expect(project.localPath, equals(gitRepoDir.path));
+      expect(commands, isEmpty);
     });
 
     test('fires ProjectStatusChangedEvent on status transition', () async {
@@ -594,7 +641,7 @@ void main() {
       await expectLater(svc.ensureFresh(makeReadyProject()), completes);
     });
 
-    test('_local project runs git fetch + merge --ff-only', () async {
+    test('named local-path projects no-op without invoking git', () async {
       final commands = <List<String>>[];
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
@@ -604,38 +651,17 @@ void main() {
       );
       await svc.initialize();
 
-      final localProject = svc.getLocalProject();
+      final localProject = makeReadyProject().copyWith(remoteUrl: '', localPath: gitRepoDir.path);
       await svc.ensureFresh(localProject);
 
-      expect(commands, anyElement(predicate<List<String>>((c) => c.isNotEmpty && c[0] == 'fetch')));
-      expect(
-        commands,
-        anyElement(predicate<List<String>>((c) => c.length >= 2 && c[0] == 'merge' && c[1] == '--ff-only')),
-      );
+      expect(commands, isEmpty);
     });
 
-    test('_local project failed merge does not throw', () async {
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          if (args.isNotEmpty && args[0] == 'merge') {
-            return (exitCode: 1, stderr: 'merge conflict', stdout: '');
-          }
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
-      await svc.initialize();
-
-      await expectLater(svc.ensureFresh(svc.getLocalProject()), completes);
-    });
-
-    test('_local explicit ref validates non-destructively (no merge)', () async {
+    test('_local project ensureFresh is a no-op', () async {
       final commands = <List<String>>[];
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
           commands.add(args);
-          if (args.isNotEmpty && args.first == 'rev-parse') {
-            return (exitCode: 0, stderr: '', stdout: 'abc123');
-          }
           return (exitCode: 0, stderr: '', stdout: '');
         },
       );
@@ -643,26 +669,7 @@ void main() {
 
       await svc.ensureFresh(svc.getLocalProject(), ref: 'release/0.16', strict: true);
 
-      expect(commands, anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'rev-parse')));
-      expect(commands, isNot(anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'merge'))));
-      expect(commands, isNot(anyElement(predicate<List<String>>((c) => c.isNotEmpty && c.first == 'fetch'))));
-    });
-
-    test('_local explicit ref throws in strict mode when ref is missing', () async {
-      final svc = makeService(
-        gitRunner: (args, {environment, workingDirectory}) async {
-          if (args.isNotEmpty && args.first == 'rev-parse') {
-            return (exitCode: 1, stderr: 'unknown revision', stdout: '');
-          }
-          return (exitCode: 0, stderr: '', stdout: '');
-        },
-      );
-      await svc.initialize();
-
-      await expectLater(
-        svc.ensureFresh(svc.getLocalProject(), ref: 'missing/ref', strict: true),
-        throwsA(isA<StateError>()),
-      );
+      expect(commands, isEmpty);
     });
 
     test('does not fetch within cooldown window (existing test)', () async {

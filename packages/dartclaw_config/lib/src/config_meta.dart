@@ -237,7 +237,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'agent.max_turns': FieldMeta(
       yamlPath: 'agent.max_turns',
@@ -1027,7 +1026,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'governance.rate_limits.per_sender.messages': FieldMeta(
       yamlPath: 'governance.rate_limits.per_sender.messages',
@@ -1210,7 +1208,6 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
       nullable: true,
-      allowedValues: ['', 'low', 'medium', 'high', 'max'],
     ),
     'advisor.triggers': FieldMeta(
       yamlPath: 'advisor.triggers',

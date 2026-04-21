@@ -74,7 +74,7 @@ scheduling:
       prompt: "Summarize today's activity"
       delivery: announce
       model: claude-haiku-3   # override model for cost savings
-      effort: low             # override effort level (low | medium | high | max)
+      effort: low             # override effort level — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
 ```
 
 If not specified, the job inherits the global `agent.model` and `agent.effort` values.

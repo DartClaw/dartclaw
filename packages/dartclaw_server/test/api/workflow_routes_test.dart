@@ -55,6 +55,9 @@ class FakeWorkflowService extends WorkflowService {
   bool throwOnPause = false;
   bool throwOnResume = false;
   bool throwOnCancel = false;
+  Object? startError;
+  String? lastProjectId;
+  bool lastAllowDirtyLocalPath = false;
 
   final List<String> calls = [];
 
@@ -63,9 +66,15 @@ class FakeWorkflowService extends WorkflowService {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
     calls.add('start:${definition.name}');
+    if (startError != null) {
+      throw startError!;
+    }
+    lastProjectId = projectId;
+    lastAllowDirtyLocalPath = allowDirtyLocalPath;
     return startResult!;
   }
 
@@ -295,8 +304,6 @@ void main() {
     });
 
     test('passes project to service', () async {
-      // We can't directly verify the projectId passed since FakeWorkflowService
-      // only logs the definition name. But we verify the call succeeded.
       final response = await handler(
         jsonRequest('POST', '/api/workflows/run', {
           'definition': 'spec-and-implement',
@@ -306,6 +313,36 @@ void main() {
       );
 
       expect(response.statusCode, 201);
+      expect(workflows.lastProjectId, 'my-project');
+    });
+
+    test('passes allowDirtyLocalPath to the workflow service', () async {
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+          'allowDirtyLocalPath': true,
+        }),
+      );
+
+      expect(response.statusCode, 201);
+      expect(workflows.lastAllowDirtyLocalPath, isTrue);
+    });
+
+    test('local-path preflight state errors return workflow precondition failed', () async {
+      workflows.startError = StateError(
+        'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
+      );
+
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+        }),
+      );
+
+      expect(response.statusCode, 409);
+      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
     });
 
     test('optional variable with default can be omitted', () async {

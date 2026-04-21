@@ -106,6 +106,7 @@ class WorkflowTurnAdapter {
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath,
   })?
   resolveStartContext;
   final Future<WorkflowGitBootstrapResult> Function({

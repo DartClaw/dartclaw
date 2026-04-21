@@ -78,6 +78,24 @@ void main() {
     expect(response.statusCode, 400);
     expect(await response.readAsString(), contains('Missing required variable'));
   });
+
+  test('POST /api/workflows/run-form returns 409 for workflow precondition failures', () async {
+    workflows.startError = StateError(
+      'Local-path project "alpha" is not safe to mutate: observed branch "feature/local", expected "main", dirty path count 1. Re-run with --allow-dirty-localpath to override.',
+    );
+
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run-form'),
+        headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
+        body: 'definition=spec-and-implement&var_FEATURE=Ship+CLI',
+      ),
+    );
+
+    expect(response.statusCode, 409);
+    expect(await response.readAsString(), contains('Local-path project'));
+  });
 }
 
 class _FakeWorkflowService extends WorkflowService {
@@ -110,14 +128,19 @@ class _FakeWorkflowService extends WorkflowService {
   }
 
   WorkflowRun? startResult;
+  Object? startError;
 
   @override
   Future<WorkflowRun> start(
     WorkflowDefinition definition,
     Map<String, String> variables, {
     String? projectId,
+    bool allowDirtyLocalPath = false,
     bool headless = false,
   }) async {
+    if (startError != null) {
+      throw startError!;
+    }
     return startResult!;
   }
 }

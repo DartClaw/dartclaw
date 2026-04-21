@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -8,6 +9,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart' show MemoryPruner, TaskE
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillRegistry, WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
@@ -799,6 +801,9 @@ class DartclawServer {
     if (ps != null) {
       final projectRouter = projectRoutes(
         ps,
+        projectConfig: _config?.projects ?? const ProjectConfig.defaults(),
+        containerEnabled: _config?.container.enabled ?? false,
+        containerMountRoots: _projectRouteContainerMountRoots(),
         tasks: _taskService,
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
@@ -806,6 +811,52 @@ class DartclawServer {
       );
       router.mount('/', projectRouter.call);
     }
+  }
+
+  List<String> _projectRouteContainerMountRoots() {
+    final config = _config;
+    if (config == null) {
+      return [p.normalize(p.absolute(Directory.current.path))];
+    }
+
+    final roots = <String>{
+      p.normalize(p.absolute(Directory.current.path)),
+      if (config.workspaceDir.trim().isNotEmpty) p.normalize(p.absolute(config.workspaceDir)),
+      if (config.projectsClonesDir.trim().isNotEmpty) p.normalize(p.absolute(config.projectsClonesDir)),
+      ...config.container.extraMounts
+          .map(_hostRootFromMount)
+          .whereType<String>()
+          .map((root) => p.normalize(p.absolute(root))),
+      ..._configuredLocalPathRoots(config),
+    };
+    return roots.toList(growable: false);
+  }
+
+  Iterable<String> _configuredLocalPathRoots(DartclawConfig config) sync* {
+    final clonesDir = p.normalize(p.absolute(config.projectsClonesDir));
+    for (final definition in config.projects.definitions.values) {
+      final localPath = definition.localPath?.trim();
+      if (localPath == null || localPath.isEmpty) {
+        continue;
+      }
+      final normalizedLocalPath = p.normalize(p.absolute(localPath));
+      if (p.equals(normalizedLocalPath, clonesDir) || p.isWithin(clonesDir, normalizedLocalPath)) {
+        continue;
+      }
+      yield normalizedLocalPath;
+    }
+  }
+
+  String? _hostRootFromMount(String mount) {
+    final parts = mount.split(':');
+    if (parts.length < 2) {
+      return null;
+    }
+    final hostPath = parts.first.trim();
+    if (hostPath.isEmpty || !p.isAbsolute(hostPath)) {
+      return null;
+    }
+    return hostPath;
   }
 
   void _mountTaskRoutes(Router router) {
@@ -847,13 +898,7 @@ class DartclawServer {
     final ts = _taskService;
     final ds = _workflowDefinitionSource;
     if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(
-        wf,
-        ts,
-        ds,
-        eventBus: _eventBus,
-        skillRegistry: _skillRegistry,
-      );
+      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _eventBus, skillRegistry: _skillRegistry);
       router.mount('/', workflowRouter.call);
     }
     final skills = _skillRegistry;

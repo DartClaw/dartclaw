@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import 'package:dartclaw_config/dartclaw_config.dart' show ProjectConfig, validateProjectLocalPath;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task, TaskStatus;
 import 'package:dartclaw_models/dartclaw_models.dart' show CloneStrategy, PrConfig, PrStrategy, Project, ProjectStatus;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../path_canonicalization.dart';
 import '../task/task_file_guard.dart';
 import '../task/task_project_ref.dart';
 import '../task/task_service.dart';
@@ -19,6 +22,9 @@ final _log = Logger('ProjectRoutes');
 /// Creates a [Router] exposing project CRUD and lifecycle API endpoints.
 Router projectRoutes(
   ProjectService projects, {
+  ProjectConfig projectConfig = const ProjectConfig.defaults(),
+  bool containerEnabled = false,
+  List<String> containerMountRoots = const [],
   TaskService? tasks,
   WorktreeManager? worktreeManager,
   TaskFileGuard? taskFileGuard,
@@ -34,6 +40,7 @@ Router projectRoutes(
 
       final nameValue = body.value!['name'];
       final remoteUrlValue = body.value!['remoteUrl'];
+      final localPathValue = body.value!['localPath'];
 
       if (nameValue != null && nameValue is! String) {
         return errorResponse(400, 'INVALID_INPUT', 'name must be a string', {'field': 'name'});
@@ -41,15 +48,58 @@ Router projectRoutes(
       if (remoteUrlValue != null && remoteUrlValue is! String) {
         return errorResponse(400, 'INVALID_INPUT', 'remoteUrl must be a string', {'field': 'remoteUrl'});
       }
+      if (localPathValue != null && localPathValue is! String) {
+        return errorResponse(400, 'INVALID_INPUT', 'localPath must be a string', {'field': 'localPath'});
+      }
 
       final name = trimmedStringOrNull(nameValue);
       final remoteUrl = trimmedStringOrNull(remoteUrlValue);
+      final localPath = trimmedStringOrNull(localPathValue);
 
       if (name == null || name.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'name must not be empty', {'field': 'name'});
       }
-      if (remoteUrl == null || remoteUrl.isEmpty) {
-        return errorResponse(400, 'INVALID_INPUT', 'remoteUrl must not be empty', {'field': 'remoteUrl'});
+
+      final hasRemote = remoteUrl != null && remoteUrl.isNotEmpty;
+      final hasLocalPath = localPath != null && localPath.isNotEmpty;
+      if (!hasRemote && !hasLocalPath) {
+        return errorResponse(400, 'MISSING_INPUT', 'Exactly one of remoteUrl or localPath must be provided', {
+          'fields': ['remoteUrl', 'localPath'],
+        });
+      }
+      if (hasRemote && hasLocalPath) {
+        return errorResponse(400, 'XOR_INPUT', 'Exactly one of remoteUrl or localPath must be provided', {
+          'fields': ['remoteUrl', 'localPath'],
+        });
+      }
+      if (hasLocalPath && !projectConfig.allowApiLocalPath) {
+        return errorResponse(403, 'LOCAL_PATH_DISABLED', 'API localPath project creation is disabled', {
+          'field': 'localPath',
+        });
+      }
+
+      String? normalizedLocalPath;
+      if (hasLocalPath) {
+        final validation = validateProjectLocalPath(localPath, allowlist: projectConfig.localPathAllowlist);
+        if (!validation.isValid) {
+          return errorResponse(400, 'INVALID_LOCAL_PATH', validation.errorMessage ?? 'Invalid localPath', {
+            'field': 'localPath',
+            'reason': validation.errorCode,
+          });
+        }
+        normalizedLocalPath = validation.normalizedPath;
+        if (containerEnabled && !_isPathWithinRoots(normalizedLocalPath, containerMountRoots)) {
+          return errorResponse(
+            400,
+            'LOCAL_PATH_NOT_MOUNTABLE',
+            'Runtime localPath projects are not mountable in container mode unless the path is inside an existing mounted root',
+            {
+              'field': 'localPath',
+              'localPath': normalizedLocalPath,
+              'mountRoots': _normalizedRoots(containerMountRoots),
+            },
+          );
+        }
       }
 
       final defaultBranch = trimmedStringOrNull(body.value!['defaultBranch']) ?? 'main';
@@ -61,6 +111,7 @@ Router projectRoutes(
         final project = await projects.create(
           name: name,
           remoteUrl: remoteUrl,
+          localPath: normalizedLocalPath,
           defaultBranch: defaultBranch,
           credentialsRef: credentialsRef,
           cloneStrategy: cloneStrategy,
@@ -217,6 +268,24 @@ Router projectRoutes(
   });
 
   return router;
+}
+
+List<String> _normalizedRoots(List<String> roots) {
+  return roots
+      .map((root) => root.trim())
+      .where((root) => root.isNotEmpty)
+      .map(canonicalizePathWithExistingAncestors)
+      .toList(growable: false);
+}
+
+bool _isPathWithinRoots(String hostPath, List<String> roots) {
+  final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
+  for (final root in _normalizedRoots(roots)) {
+    if (p.equals(normalizedHostPath, root) || p.isWithin(root, normalizedHostPath)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

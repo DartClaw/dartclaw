@@ -298,7 +298,7 @@ agent:
   provider: claude               # default provider: claude | codex
   max_turns: 50
   model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
-  effort: high                   # reasoning effort: low, medium, high, max
+  effort: high                   # reasoning effort — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
   disallowed_tools: []
   agents:                        # subagent definitions — see Agents guide for details
     search:                      # built-in default; omit to use defaults
@@ -469,6 +469,44 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 **Note on `governance.budget.timezone`:** Only UTC-offset formats are supported: `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`). IANA timezone names like `Europe/Stockholm` or `America/New_York` are **not** supported and will fall back to UTC with a warning. This means budget reset times do not automatically adjust for DST. If your timezone observes DST, you may need to update the offset seasonally or accept the one-hour drift during DST transitions.
 
 **Note on `governance` defaults:** All governance features default to disabled/unlimited for backward compatibility. Rate limits, budgets, and loop detection only activate when explicitly configured. Admin senders are exempt from rate limits but not from token budgets.
+
+### Local-path Projects
+
+Projects can now point at an existing on-disk checkout instead of cloning from a remote. Use exactly one of `remote:` or `localPath:` per project definition.
+
+```yaml
+projects:
+  dartclaw-public:
+    remote: https://github.com/DartClaw/dartclaw.git
+    branch: main
+    default: true
+
+  live-checkout:
+    localPath: /Users/alice/repos/dartclaw-public
+    branch: main
+```
+
+Rules and behavior:
+
+- `localPath` must be an absolute path. Relative paths and any `..` traversal segments are rejected at config-load time.
+- `projects.localPathAllowlist` lets you restrict which host paths are valid for `localPath` projects.
+- Non-existent paths and directories that are not yet git repositories are accepted with a warning so operators can pre-seed or mount them later.
+- Local-path projects are treated as local-only runtime projects (`remoteUrl == ''`). DartClaw does not `git clone` or `git fetch` them automatically.
+- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, or the checked-out branch does not match the configured `branch:`, the run aborts before creating coding tasks. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
+- When `gitStrategy.publish.enabled: true`, publish auto-resolves the push target from the checkout's existing `origin` remote. If `origin` is missing, workflow start fails before any coding work begins.
+
+API-created local-path projects are opt-in:
+
+```yaml
+projects:
+  allowApiLocalPath: true
+  localPathAllowlist:
+    - /Users/alice/repos
+```
+
+- `projects.allowApiLocalPath` defaults to `false`.
+- `projects.localPathAllowlist` defaults to empty, which means "no allowlist".
+- Even with the API flag enabled, the same absolute-path, traversal, and allowlist checks apply to `POST /api/projects`.
 
 ## Environment Variables
 

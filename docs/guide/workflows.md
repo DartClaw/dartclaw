@@ -196,7 +196,7 @@ The full reference grammar — indexed lookups, field access on map items, alias
 
 Step-prefixed context keys come from two mechanisms, consistent everywhere (top-level steps, parallel groups, loop bodies, and `mapOver` / `foreach` iterations):
 
-1. **Auto-injected metadata.** The executor writes `<stepId>.status` and `<stepId>.tokenCount` for every step unconditionally. Coding steps additionally get `<stepId>.branch` and `<stepId>.worktree_path`. You can read these without declaring anything — `{{context.lint.status}}` works for any step whose id is `lint`.
+1. **Auto-injected metadata.** The executor writes `<stepId>.status`, `<stepId>.tokenCount`, `<stepId>.branch`, and `<stepId>.worktree_path` for every step unconditionally (the branch/worktree values are empty when the step has no worktree, so `{{context.X.branch}}` resolves uniformly regardless of step type). You can read these without declaring anything — `{{context.lint.status}}` works for any step whose id is `lint`.
 
 2. **Author-declared aliases.** Declare the step-prefixed key explicitly in `contextOutputs`, e.g. `contextOutputs: [review_summary, review-code.findings_count]`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
 
@@ -413,7 +413,7 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
 
 `foreach` has two scopes:
 
-- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`.
+- The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `contextOutputs` must declare exactly one key — the validator rejects multiple keys as a `contextInconsistency` error.
 - The child steps' `contextOutputs` are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
 
 Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay — if you want a disambiguated `<stepId>.<key>` form, declare it explicitly in the writing step's `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)).
@@ -900,7 +900,7 @@ variables:
 | `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
 | `gate` | string | none | Condition expression — step skipped if false |
 | `contextInputs` | list | `[]` | Context keys this step reads |
-| `contextOutputs` | list | `[]` | Context keys this step writes |
+| `contextOutputs` | list | `[]` | Context keys this step writes. On a `foreach` / `mapOver` controller, must be exactly one key — the controller emits a single aggregate list (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's resolved root session, or target an explicit earlier step ID |
 | `maxTokens` | int | none | Per-step token budget |
 | `maxCostUsd` | double | none | Per-step cost budget in USD |
@@ -1112,7 +1112,7 @@ Templates in `prompt` and `project` fields support:
 | `{{context.key}}` | Context value written by a prior step (empty string + warning if absent) |
 | `{{context.<stepId>.status}}` | Per-step lifecycle outcome — auto-written for every step |
 | `{{context.<stepId>.tokenCount}}` | Per-step token usage — auto-written for every step |
-| `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Coding-step worktree metadata — auto-written for coding-type steps |
+| `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Worktree metadata — auto-written for every step (empty when the step has no worktree) |
 | `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key — the writing step must list it in its `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)) |
 | `{{map.item}}` | Current item in the mapped array (JSON for objects, toString for scalars) |
 | `{{map.item.field}}` | Field access on a Map item (dot notation, up to 10 segments) |

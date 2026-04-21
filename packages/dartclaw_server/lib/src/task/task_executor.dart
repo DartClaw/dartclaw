@@ -475,8 +475,6 @@ class TaskExecutor {
         }
       }
 
-      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
-
       final usesInlineWorkflowCheckout = await _workflowUsesInlineProjectCheckout(task);
       if (task.type == TaskType.coding && usesInlineWorkflowCheckout && project != null) {
         final inlineBaseRef = _taskBaseRef(task);
@@ -539,6 +537,8 @@ class TaskExecutor {
         }
       }
 
+      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, project);
+
       // continueSession: reuse the root session from the preceding agent step.
       final continueSessionId = task.configJson['_continueSessionId'] as String?;
       final Session session;
@@ -596,6 +596,7 @@ class TaskExecutor {
           workingDirectory: worktreeInfo?.path ?? projectDirForTask,
           modelOverride: modelOverride,
           effortOverride: effortOverride,
+          sandboxOverride: _isReadOnlyTask(task) ? 'read-only' : null,
         );
         _observer?.recordTurn(
           runnerIndex,
@@ -612,11 +613,21 @@ class TaskExecutor {
           return;
         }
         final refreshedTask = await _tasks.get(task.id) ?? task;
+        final readOnlyMutationSummary = await _readOnlyMutationSummary(
+          refreshedTask,
+          project,
+          readOnlyProjectStatusBeforeTurn,
+        );
+        if (readOnlyMutationSummary != null) {
+          _log.warning('Task ${task.id}: $readOnlyMutationSummary');
+          await _markFailedOrRetry(task, errorSummary: readOnlyMutationSummary, retryable: false);
+          return;
+        }
         final artifacts = await _artifactCollector.collect(refreshedTask);
         for (final artifact in artifacts) {
           _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
         }
-        final postStatus = _resolvePostCompletionStatus(task);
+        final postStatus = _resolvePostCompletionStatus(refreshedTask);
         await _tasks.transition(task.id, postStatus, trigger: 'system');
         final onAutoAccept = _onAutoAccept;
         if (onAutoAccept != null && postStatus == TaskStatus.review && !_isWorkflowOrchestrated(task)) {
@@ -867,6 +878,7 @@ class TaskExecutor {
     required String? workingDirectory,
     required String? modelOverride,
     required String? effortOverride,
+    required String? sandboxOverride,
   }) async {
     final runner = _workflowCliRunner;
     if (runner == null) {
@@ -920,6 +932,7 @@ class TaskExecutor {
         model: modelOverride,
         effort: effortOverride,
         appendSystemPrompt: appendSystemPrompt,
+        sandboxOverride: sandboxOverride,
       );
       providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
       inputTokens += turnResult.inputTokens;
@@ -966,6 +979,7 @@ class TaskExecutor {
           maxTurns: provider == 'claude' ? 5 : null,
           jsonSchema: structuredSchema,
           appendSystemPrompt: null,
+          sandboxOverride: sandboxOverride,
         );
         providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
         inputTokens += turnResult.inputTokens;
@@ -1436,12 +1450,16 @@ class TaskExecutor {
       );
       return false;
     }
-    if ((status.stdout as String).trim().isNotEmpty && !_workflowInlineBranchKeys.contains(key)) {
+    final statusOutput = (status.stdout as String).trim();
+    if (statusOutput.isNotEmpty && !_workflowInlineBranchKeys.contains(key)) {
+      final dirtyEntries = statusOutput.split('\n').where((line) => line.trim().isNotEmpty).take(8).join(', ');
+      final moreCount = statusOutput.split('\n').where((line) => line.trim().isNotEmpty).length - 8;
+      final dirtySummary = moreCount > 0 ? '$dirtyEntries (+$moreCount more)' : dirtyEntries;
       await _markFailedOrRetry(
         task,
         errorSummary:
             'Workflow inline mode requires a clean checkout before switching project "${project.name}" '
-            'to branch "$branch".',
+            'to branch "$branch". Dirty entries: $dirtySummary',
         retryable: false,
       );
       return false;
@@ -1655,11 +1673,10 @@ class TaskExecutor {
   }
 
   String _statusEntryPath(String entry) {
-    final trimmed = entry.trimLeft();
-    if (trimmed.length <= 3) {
-      return trimmed;
+    if (entry.length <= 3) {
+      return entry.trim();
     }
-    return trimmed.substring(3).trim();
+    return entry.substring(3).trim();
   }
 
   Future<String?> _currentSymbolicHead(String workingDirectory, {bool noSystemConfig = false}) async {

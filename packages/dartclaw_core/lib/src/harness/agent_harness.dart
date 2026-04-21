@@ -44,6 +44,28 @@ abstract class AgentHarness {
   /// because compaction signals are already available via hook callbacks.
   bool get supportsPreCompactHook => false;
 
+  /// Renders the native skill-activation line this harness recognises.
+  ///
+  /// Workflow steps (and any caller that wants to hand the harness a skill
+  /// to run) should use this to build the prompt preamble, so the harness
+  /// can pre-load the `SKILL.md` body instead of asking the model to find
+  /// and read it via a tool call. Skipping that tool-call round-trip saves
+  /// one agent turn and a few thousand cumulative input tokens per skill
+  /// invocation.
+  ///
+  /// Subclasses override with the harness-native form (Codex uses
+  /// `$skill-name`, Claude Code uses `/skill-name`, etc.). The default
+  /// here is the portable verbose form so a fresh harness works before
+  /// anyone teaches it the convention — and so non-native harnesses still
+  /// understand the intent via plain language.
+  String skillActivationLine(String skill) => defaultSkillActivationLine(skill);
+
+  /// The portable-verbose skill-activation line used when no harness
+  /// override applies. Shared with `HarnessFactory` so the "unregistered
+  /// provider" fallback mirrors the subclass default without duplicating
+  /// the literal.
+  static String defaultSkillActivationLine(String skill) => "Use the '$skill' skill.";
+
   /// Current lifecycle state of the harness.
   WorkerState get state;
 

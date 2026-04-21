@@ -336,10 +336,7 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'}),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'IMPLEMENT_DIFF_MARKER'})),
           'integrated-review' => _StubResponse(
@@ -391,10 +388,7 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'}),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
@@ -430,7 +424,7 @@ void main() {
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
   });
 
-  test('spec-and-implement integration marks research and analysis steps read-only', () async {
+  test('spec-and-implement integration keeps discovery/review read-only and spec writable', () async {
     final trace = await executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'Read-only policy check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
@@ -445,10 +439,7 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'}),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
@@ -483,7 +474,7 @@ void main() {
     expect(trace.tasksForStep('integrated-review').single.configJson['readOnly'], isTrue);
     expect(trace.tasksForStep('re-review'), isEmpty);
 
-    expect(trace.tasksForStep('spec').single.configJson['readOnly'], isTrue);
+    expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('implement').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('remediate'), isEmpty);
     expect(trace.tasksForStep('update-state').single.configJson.containsKey('readOnly'), isFalse);
@@ -505,10 +496,7 @@ void main() {
             }),
           ),
           'spec' => _StubResponse(
-            assistantContent: _contextOutput({
-              'spec_path': 'docs/specs/test/spec.md',
-              'spec_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'}),
           ),
           'implement' => _StubResponse(assistantContent: _contextOutput({'diff_summary': 'DIFF'})),
           'integrated-review' => _StubResponse(
@@ -535,9 +523,9 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('<BRANCH>'));
-    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
-    expect(discover, contains(feature));
+    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
+    expect(discover, isNot(contains(feature)));
+    expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
   test(
@@ -623,10 +611,7 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': 'docs/specs/test/prd.md',
-              'prd_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'prd': 'docs/specs/test/prd.md', 'prd_source': 'synthesized'}),
           ),
           // The merged plan step now emits stories + story_specs in one pass.
           'plan' => _StubResponse(
@@ -772,10 +757,7 @@ void main() {
             }),
           ),
           'prd' => _StubResponse(
-            assistantContent: _contextOutput({
-              'prd': 'docs/specs/project-bound/prd.md',
-              'prd_source': 'synthesized',
-            }),
+            assistantContent: _contextOutput({'prd': 'docs/specs/project-bound/prd.md', 'prd_source': 'synthesized'}),
           ),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
@@ -884,9 +866,7 @@ void main() {
               'state_protocol': {'type': 'none'},
             }),
           ),
-          'prd' => _StubResponse(
-            assistantContent: _contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'}),
-          ),
+          'prd' => _StubResponse(assistantContent: _contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'})),
           'plan' => _StubResponse(
             assistantContent: _contextOutput({
               'stories': {
@@ -957,9 +937,97 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('<BRANCH>'));
-    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
-    expect(discover, contains(requirements));
+    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
+    expect(discover, isNot(contains(requirements)));
+    expect(discover, isNot(contains('feature/discovery-baseline')));
+  });
+
+  test('plan-and-implement threads authored requirements into prd and plan prompts only', () async {
+    const requirements = 'Create exactly two thin note stories from this request.';
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': requirements,
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/demo/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 8,
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/demo/plan.md',
+              'plan_source': 'synthesized',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Thin Story',
+                    'spec_path': 'docs/specs/demo/fis/s01-thin-story.md',
+                    'acceptance_criteria': ['prompt includes authored requirements'],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the thin story.'}),
+            worktreeJson: {
+              'branch': 'story-branch',
+              'path': '/tmp/worktrees/story-branch',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'implementation_summary': 'complete',
+              'remediation_plan': 'none',
+              'needs_remediation': false,
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_plan': 'No further remediation',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final discover = trace.tasksForStep('discover-project').single.description;
+    final prd = trace.tasksForStep('prd').single.description;
+    final plan = trace.tasksForStep('plan').single.description;
+
+    expect(discover, isNot(contains(requirements)));
+    expect(prd, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
+    expect(plan, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
   });
 
   test(
@@ -985,10 +1053,7 @@ void main() {
               }),
             ),
             'prd' => _StubResponse(
-              assistantContent: _contextOutput({
-                'prd': 'docs/specs/loop/prd.md',
-                'prd_source': 'synthesized',
-              }),
+              assistantContent: _contextOutput({'prd': 'docs/specs/loop/prd.md', 'prd_source': 'synthesized'}),
             ),
             'plan' => _StubResponse(
               assistantContent: _contextOutput({
@@ -1270,11 +1335,9 @@ void main() {
     );
 
     final discover = trace.tasksForStep('discover-project').single.description;
-    expect(discover, contains('<BRANCH>'));
-    expect(discover, contains('<BRANCH>\nfeature/discovery-baseline\n</BRANCH>'));
-    expect(discover, contains('<BASE_BRANCH>\nmain\n</BASE_BRANCH>'));
-    expect(discover, contains('<PR_NUMBER>\n42\n</PR_NUMBER>'));
-    expect(discover, contains(target));
+    expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
+    expect(discover, isNot(contains(target)));
+    expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
   test('code-review integration keeps looping until re-review findings reach zero', () async {
@@ -1353,9 +1416,11 @@ void main() {
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
     expect(trace.count('remediate'), 2);
     expect(trace.count('re-review'), 2);
-    expect(
-      trace.queuedStepOrder.where((step) => step == 'remediate' || step == 're-review'),
-      ['remediate', 're-review', 'remediate', 're-review'],
-    );
+    expect(trace.queuedStepOrder.where((step) => step == 'remediate' || step == 're-review'), [
+      'remediate',
+      're-review',
+      'remediate',
+      're-review',
+    ]);
   });
 }

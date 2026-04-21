@@ -177,6 +177,9 @@ class ClaudeCodeHarness extends BaseHarness {
   bool get supportsSessionContinuity => true;
 
   @override
+  String skillActivationLine(String skill) => '/$skill';
+
+  @override
   bool get supportsPreCompactHook => true;
 
   /// Session ID assigned by the claude binary after init.

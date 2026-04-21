@@ -553,11 +553,7 @@ void expectWorktreeRecorded(WorkflowExecutionRecorder recorder, String stepKey) 
 /// token-mirroring path: TurnOutcome → TaskExecutor → task.configJson →
 /// preserved artifact file.
 void expectPreservedArtifactsHaveNonZeroTokenKeys(Directory artifactDir, {required List<String> agentSteps}) {
-  final files = artifactDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.json'))
-      .toList();
+  final files = artifactDir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).toList();
   expect(files, isNotEmpty, reason: 'No preserved artifacts found under ${artifactDir.path}');
 
   final tokenKeys = const ['_workflowInputTokensNew', '_workflowCacheReadTokens', '_workflowOutputTokens'];
@@ -689,24 +685,41 @@ void _copyDirectorySync(Directory source, Directory target) {
 
 Future<void> _cloneWorkflowTestingRepo(String targetDir) async {
   Directory(targetDir).parent.createSync(recursive: true);
-  final result = await Process.run('git', [
-    'clone',
-    '--depth',
-    '1',
-    'git@github.com:tolo/dartclaw-workflow-testing.git',
-    targetDir,
-  ]);
+
+  // Two auth paths:
+  // 1. HTTPS+token — for CI / headless envs. Chosen when GITHUB_TOKEN is set.
+  // 2. SSH — for a developer who already has their key in ssh-agent locally.
+  //    Uses BatchMode=yes so any missing-agent/passphrase situation fails
+  //    fast with a clear error instead of hanging on an interactive prompt.
+  final githubToken = Platform.environment['GITHUB_TOKEN']?.trim();
+  final useHttps = githubToken != null && githubToken.isNotEmpty;
+  final cloneUri = useHttps
+      ? Uri(
+          scheme: 'https',
+          userInfo: 'x-access-token:$githubToken',
+          host: 'github.com',
+          path: '/tolo/dartclaw-workflow-testing.git',
+        ).toString()
+      : 'git@github.com:tolo/dartclaw-workflow-testing.git';
+  final cloneEnv = <String, String>{
+    'GIT_TERMINAL_PROMPT': '0',
+    if (!useHttps) 'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
+  };
+
+  final result = await Process.run(
+    'git',
+    ['clone', '--depth', '1', cloneUri, targetDir],
+    environment: cloneEnv,
+  );
   if (result.exitCode != 0) {
-    throw StateError('Failed to clone workflow-testing fixture repo: ${result.stderr}');
+    final mode = useHttps ? 'HTTPS+token' : 'SSH (ssh-agent)';
+    throw StateError(
+      'Failed to clone workflow-testing fixture repo over $mode: ${result.stderr}\n'
+      'Tip: set GITHUB_TOKEN for HTTPS, or ensure your SSH key is loaded via `ssh-add` for SSH.',
+    );
   }
   Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
   Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
-}
-
-void _overlayInstructionFiles({required String sourceDir, required String targetDir}) {
-  for (final name in ['AGENTS.md', 'CLAUDE.md']) {
-    File(p.join(sourceDir, name)).copySync(p.join(targetDir, name));
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -772,7 +785,10 @@ void main() {
     );
     fixtureDir = p.join(dataDir, 'projects', 'workflow-testing');
     await _cloneWorkflowTestingRepo(fixtureDir);
-    _overlayInstructionFiles(sourceDir: e2eFixtureProfileDir, targetDir: fixtureDir);
+    // Keep the cloned project checkout pristine so workflow bootstrap can
+    // switch to its owned branch before the first step runs. The fixture
+    // workspace/workflow-workspace already provide the AGENTS.md content that
+    // the workflow task path injects into prompts and Codex home.
     config = _loadWorkflowsConfig(fixtureProfileDir: e2eFixtureProfileDir, dataDir: dataDir);
   });
 
@@ -1061,7 +1077,7 @@ void main() {
             'Story 2: Create notes/e2e-plan-b-$timestamp.md with heading "Plan B" and one bullet only.',
         'PROJECT': 'workflow-testing',
         'BRANCH': 'main',
-        'MAX_PARALLEL': '1',
+        'MAX_PARALLEL': '2',
       };
       final run = await w.workflowService.start(definition, variables, headless: true);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
@@ -1089,7 +1105,6 @@ void main() {
           ? [
               'discover-project',
               'prd',
-              'review-prd',
               'plan',
               'implement',
               'quick-review',
@@ -1101,7 +1116,6 @@ void main() {
           : [
               'discover-project',
               'prd',
-              'review-prd',
               'plan',
               'implement',
               'quick-review',
@@ -1114,7 +1128,11 @@ void main() {
       // merged plan step now emits both stories and story_specs in a single pass — runs exactly once.
       expect(recorder.count('plan'), 1, reason: 'plan should run exactly once');
       expect(recorder.count('prd'), 1, reason: 'prd should run exactly once');
-      expect(recorder.count('review-prd'), 1, reason: 'review-prd should run exactly once');
+      expect(
+        recorder.count('revise-prd'),
+        inInclusiveRange(0, 1),
+        reason: 'revise-prd should be skipped on high-confidence PRDs and run at most once otherwise',
+      );
 
       expect(
         recorder.count('implement'),

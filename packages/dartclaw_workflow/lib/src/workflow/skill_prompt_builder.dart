@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_models/dartclaw_models.dart' show OutputConfig, WorkflowStep;
 
 import 'prompt_augmenter.dart';
@@ -14,8 +15,15 @@ import 'prompt_augmenter.dart';
 /// output format section appendage (S01 integration).
 class SkillPromptBuilder {
   final PromptAugmenter _augmenter;
+  final HarnessFactory _harnessFactory;
 
-  const SkillPromptBuilder({required PromptAugmenter augmenter}) : _augmenter = augmenter;
+  /// [harnessFactory] dispatches the skill-activation line via the same
+  /// registry that produces live harness instances — so the activation
+  /// convention stays owned by each concrete [AgentHarness] subclass. No
+  /// per-provider branching lives in this builder.
+  const SkillPromptBuilder({required PromptAugmenter augmenter, required HarnessFactory harnessFactory})
+    : _augmenter = augmenter,
+      _harnessFactory = harnessFactory;
 
   /// Maximum rendered length for a single context value before truncation.
   ///
@@ -43,6 +51,13 @@ class SkillPromptBuilder {
   /// author has not already referenced). See [appendAutoFramedContext].
   /// [outputs] and [contextOutputs] are forwarded to [PromptAugmenter].
   /// [emitStepOutcomeProtocol] appends the workflow step-outcome contract.
+  /// [provider] picks the native skill-activation convention:
+  ///   * `codex` → `$skill-name` (matches agentskills.io standard + Codex CLI)
+  ///   * `claude` → `/skill-name` (Claude Code slash-command convention)
+  ///   * `null` or unknown → the verbose `Use the 'skill-name' skill.` line
+  /// Native activation saves at least one agent turn because the harness
+  /// loads the SKILL.md contents itself instead of asking the model to
+  /// locate and read the file via a tool call.
   String build({
     required String? skill,
     String? resolvedPrompt,
@@ -56,6 +71,7 @@ class SkillPromptBuilder {
     List<String> variables = const [],
     Map<String, Object?> resolvedInputValues = const {},
     String? templatePrompt,
+    String? provider,
   }) {
     // Step 1: fall back to the skill's frontmatter `default_prompt` when the
     // step declared no prompt of its own. Injecting here keeps Case 1 as the
@@ -72,7 +88,7 @@ class SkillPromptBuilder {
     final String prompt;
 
     if (skill != null) {
-      final skillLine = "Use the '$skill' skill.";
+      final skillLine = _harnessFactory.skillActivationLineFor(provider, skill);
       if (effectiveResolvedPrompt != null && effectiveResolvedPrompt.isNotEmpty) {
         // Case 1: skill + prompt.
         prompt = '$skillLine\n\n$effectiveResolvedPrompt';

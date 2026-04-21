@@ -197,6 +197,12 @@ class TaskWiring {
           ),
       },
       containerManagers: _containerManagers,
+      // Hand the runner its own data dir so any provider-specific
+      // env-isolation helpers it owns (e.g. the Codex isolated profile,
+      // opt-in via `providers.codex.options.isolated_profile`) can
+      // materialise state lazily without the composition root having to
+      // know which feature flags map to which helper.
+      dataDir: _dataDir,
     );
 
     _taskExecutor = TaskExecutor(

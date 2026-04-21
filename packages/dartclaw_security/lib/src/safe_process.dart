@@ -17,7 +17,25 @@ const kDefaultBashStepEnvAllowlist = <String>[
 ];
 
 /// Default env names allowed through to git subprocesses.
-const kDefaultGitEnvAllowlist = <String>['PATH', 'HOME', 'LANG', 'LC_*', 'TZ', 'USER', 'SHELL', 'TERM'];
+///
+/// `SSH_AUTH_SOCK` is allowlisted so that git+ssh transports can reach the
+/// user's running ssh-agent without falling back to interactive passphrase
+/// prompts (which `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` rejects anyway).
+/// `SSH_AGENT_PID` is the benign companion that ssh libraries sometimes
+/// consult; no credentials ever travel through either variable — they only
+/// name a Unix socket and a process ID.
+const kDefaultGitEnvAllowlist = <String>[
+  'PATH',
+  'HOME',
+  'LANG',
+  'LC_*',
+  'TZ',
+  'USER',
+  'SHELL',
+  'TERM',
+  'SSH_AUTH_SOCK',
+  'SSH_AGENT_PID',
+];
 
 /// Default patterns stripped when sanitizing a parent environment.
 final List<Pattern> kDefaultSensitivePatterns = <Pattern>[

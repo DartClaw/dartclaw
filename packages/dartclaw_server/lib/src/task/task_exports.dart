@@ -11,6 +11,7 @@ export 'remote_push_service.dart'
     show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;
 export 'git_credential_env.dart' show GitCredentialPlan, resolveGitCredentialEnv, resolveGitCredentialPlan;
 export 'task_event_recorder.dart' show TaskEventRecorder;
+export 'codex_profile_manager.dart' show CodexProfileManager;
 export 'task_executor.dart' show TaskExecutor;
 export 'task_file_guard.dart' show TaskFileGuard;
 export 'task_notification_subscriber.dart' show TaskNotificationSubscriber;

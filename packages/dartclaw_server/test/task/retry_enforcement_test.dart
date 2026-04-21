@@ -409,6 +409,9 @@ class _WorkerResponse {
 }
 
 class _CountingWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   List<_WorkerResponse> responses = [];

@@ -99,6 +99,9 @@ void main() {
 
 class _StubHarness implements AgentHarness {
   @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
+  @override
   bool get supportsCostReporting => true;
 
   @override

@@ -87,6 +87,9 @@ steps:
     skill: dartclaw-prd
     contextInputs: [project_index]
     allowedTools: [shell, file_read, file_write]
+    prompt: |
+      Draft or reuse the PRD for this request:
+      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
     contextOutputs: [prd, prd_source, prd_confidence]
     outputs:
       prd:
@@ -113,7 +116,10 @@ steps:
     project: "{{PROJECT}}"
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
-    prompt: "Review `{{context.prd}}` with `--mode doc --fix` (PRD skill confidence {{context.prd_confidence}}/10)."
+    prompt: |
+      Review `{{context.prd}}` with `--mode doc --fix` against the original request
+      (PRD skill confidence {{context.prd_confidence}}/10).
+      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
     contextOutputs: [prd]
     outputs:
       prd:
@@ -130,6 +136,9 @@ steps:
     skill: dartclaw-plan
     contextInputs: [project_index, prd]
     allowedTools: [shell, file_read, file_write]
+    prompt: |
+      Plan exactly against this request, using the current PRD as the source of truth:
+      <REQUIREMENTS>{{REQUIREMENTS}}</REQUIREMENTS>
     contextOutputs: [story_specs, plan, plan_source]
     outputs:
       story_specs:

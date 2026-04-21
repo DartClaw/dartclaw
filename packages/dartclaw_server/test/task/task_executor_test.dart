@@ -2130,6 +2130,89 @@ void main() {
     expect(failed.configJson['errorSummary'], contains('Read-only task modified project files'));
     expect(failed.configJson['errorSummary'], contains('notes/leak.md'));
   });
+
+  test('read-only coding task ignores pre-existing dirt in its inherited worktree', () async {
+    final projectDir = Directory.systemTemp.createTempSync('task_executor_readonly_project_');
+    final worktreeDir = Directory.systemTemp.createTempSync('task_executor_readonly_worktree_');
+    addTearDown(() {
+      if (projectDir.existsSync()) {
+        projectDir.deleteSync(recursive: true);
+      }
+      if (worktreeDir.existsSync()) {
+        worktreeDir.deleteSync(recursive: true);
+      }
+    });
+
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('fixture\n');
+    await Process.run('git', ['init', '-b', 'main'], workingDirectory: projectDir.path);
+    await Process.run('git', ['config', 'user.name', 'Test'], workingDirectory: projectDir.path);
+    await Process.run('git', ['config', 'user.email', 'test@test.com'], workingDirectory: projectDir.path);
+    await Process.run('git', ['add', 'README.md'], workingDirectory: projectDir.path);
+    await Process.run('git', ['commit', '-m', 'init', '--no-gpg-sign'], workingDirectory: projectDir.path);
+
+    final cloneResult = await Process.run('git', ['clone', projectDir.path, worktreeDir.path]);
+    expect(cloneResult.exitCode, 0, reason: cloneResult.stderr.toString());
+
+    File(p.join(worktreeDir.path, 'plan.md')).writeAsStringSync('# Plan\n\n- [x] Story 1\n');
+    final notesDir = Directory(p.join(worktreeDir.path, 'notes'))..createSync(recursive: true);
+    File(p.join(notesDir.path, 'artifact.md')).writeAsStringSync('# Artifact\n\n- mutation from implement\n');
+
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: projectDir.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      projectService: projectService,
+      workflowCliRunner: _successWorkflowCliRunner(),
+      worktreeManager: _StaticPathWorktreeManager(worktreeDir.path),
+      workflowStepExecutionRepository: workflowStepExecutions,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-readonly-inherited-worktree',
+      title: 'Read-only coding task',
+      description: 'Should treat inherited worktree dirt as baseline, not a new mutation.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-readonly-inherited-worktree',
+      projectId: 'my-app',
+      workflowRunId: 'wf-readonly-inherited-worktree',
+      configJson: const {'readOnly': true, '_baseRef': 'main'},
+    );
+    await seedWorkflowExecution(
+      'task-readonly-inherited-worktree',
+      agentExecutionId: 'ae-task-readonly-inherited-worktree',
+      workflowRunId: 'wf-readonly-inherited-worktree',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
+    );
+
+    final processed = await projectExecutor.pollOnce();
+
+    expect(processed, isTrue);
+    final updated = await tasks.get('task-readonly-inherited-worktree');
+    expect(updated, isNotNull);
+    expect(updated!.status, TaskStatus.review);
+    expect(updated.configJson['errorSummary'], isNull);
+  });
 }
 
 WorkflowCliRunner _successWorkflowCliRunner({String sessionId = 'cli-session-success'}) {
@@ -2146,6 +2229,9 @@ WorkflowCliRunner _successWorkflowCliRunner({String sessionId = 'cli-session-suc
 }
 
 class _FakeTaskWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   String responseText = '';
@@ -2288,6 +2374,34 @@ class _BlockingWorktreeManager extends WorktreeManager {
     await _gate.future;
     return WorktreeInfo(
       path: '/tmp/worktrees/$taskId',
+      branch: createBranch ? 'dartclaw/task-$taskId' : (baseRef ?? 'main'),
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> cleanup(String taskId, {Project? project}) async {}
+}
+
+class _StaticPathWorktreeManager extends WorktreeManager {
+  _StaticPathWorktreeManager(this.path)
+    : super(
+        dataDir: '/tmp',
+        processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
+      );
+
+  final String path;
+
+  @override
+  Future<WorktreeInfo> create(
+    String taskId, {
+    String? baseRef,
+    Project? project,
+    bool createBranch = true,
+    Map<String, dynamic>? existingWorktreeJson,
+  }) async {
+    return WorktreeInfo(
+      path: path,
       branch: createBranch ? 'dartclaw/task-$taskId' : (baseRef ?? 'main'),
       createdAt: DateTime.now(),
     );

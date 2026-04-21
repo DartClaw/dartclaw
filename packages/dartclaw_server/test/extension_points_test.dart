@@ -10,6 +10,9 @@ import 'package:test/test.dart';
 import 'test_utils.dart';
 
 class _FakeWorkerService implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
   @override

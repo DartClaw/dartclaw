@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository;
@@ -174,7 +175,7 @@ void main() {
   late MessageService messageService;
   late ContextExtractor extractor;
   final templateEngine = WorkflowTemplateEngine();
-  final skillPromptBuilder = SkillPromptBuilder(augmenter: const PromptAugmenter());
+  final skillPromptBuilder = SkillPromptBuilder(augmenter: const PromptAugmenter(), harnessFactory: HarnessFactory());
   var artifactCounter = 0;
 
   setUpAll(() async {
@@ -184,10 +185,29 @@ void main() {
     planDefinition = await parser.parseFile(p.join(_definitionsDir(), 'plan-and-implement.yaml'));
     specDefinition = await parser.parseFile(p.join(_definitionsDir(), 'spec-and-implement.yaml'));
 
+    // `SafeProcess.start` runs with `includeParentEnvironment: false`, so the
+    // spawned `codex` binary only sees whatever environment the provider
+    // config hands through. Propagate PATH + HOME explicitly so tests running
+    // outside the server wiring can still locate the binary.
+    final inheritedEnv = <String, String>{
+      for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL'])
+        if (Platform.environment[key] != null) key: Platform.environment[key]!,
+    };
+    // Optional opt-in to the isolated Codex profile for this test run.
+    // Exercise the managed CODEX_HOME/HOME path by exporting
+    // `DARTCLAW_CODEX_ISOLATED_PROFILE=1`. Defaults off so day-to-day runs
+    // keep using the user's personal profile.
+    final useIsolatedProfile = Platform.environment['DARTCLAW_CODEX_ISOLATED_PROFILE']?.trim() == '1';
+    final profileDataDir = useIsolatedProfile ? Directory.systemTemp.createTempSync('dartclaw_codex_profile_').path : null;
     runner = WorkflowCliRunner(
-      providers: const {
-        'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'danger-full-access'}),
+      providers: {
+        'codex': WorkflowCliProviderConfig(
+          executable: 'codex',
+          options: {'sandbox': 'danger-full-access', if (useIsolatedProfile) 'isolated_profile': true},
+          environment: inheritedEnv,
+        ),
       },
+      dataDir: profileDataDir,
     );
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
   });
@@ -242,6 +262,7 @@ void main() {
           : null,
       outputs: step.outputs,
       contextOutputs: step.contextOutputs,
+      provider: 'codex',
     );
 
     final session = await sessionService.createSession(type: SessionType.task);
@@ -300,6 +321,13 @@ void main() {
       'prompt': prompt,
       'assistantContent': assistantContent,
       'outputs': outputs,
+      'promptCharCount': prompt.length,
+      'assistantCharCount': assistantContent.length,
+      'inputTokens': turnResult.inputTokens,
+      'outputTokens': turnResult.outputTokens,
+      'cacheReadTokens': turnResult.cacheReadTokens,
+      'cacheWriteTokens': turnResult.cacheWriteTokens,
+      'durationMs': turnResult.duration.inMilliseconds,
     };
     await artifactFile.writeAsString(const JsonEncoder.withIndent('  ').convert(artifactPayload));
 

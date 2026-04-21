@@ -9,6 +9,8 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'codex_profile_manager.dart';
+
 typedef WorkflowCliProcessStarter =
     Future<Process> Function(
       String executable,
@@ -63,13 +65,89 @@ class WorkflowCliRunner {
   final WorkflowCliProcessStarter _processStarter;
   final Uuid _uuid;
 
+  /// Resolved Codex profile manager — non-null when any provider opted
+  /// into `isolated_profile: true` and construction-time validation
+  /// succeeded. Created eagerly (but only as a lightweight in-memory
+  /// object, no I/O) so failures surface at startup rather than
+  /// mid-workflow. `ensurePrepared()` is still called lazily on first
+  /// use, with its own memoisation handling concurrent callers.
+  final CodexProfileManager? _codexProfile;
+
+  /// In-flight preparation future — memoised here so that multiple
+  /// concurrent `executeTurn` invocations (parallel map iterations,
+  /// multiple bound groups) share a single `ensurePrepared()` call.
+  Future<void>? _codexPrepareFuture;
+
   WorkflowCliRunner({
     required this.providers,
     this.containerManagers = const <String, ContainerExecutor>{},
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
+    String? dataDir,
+    CodexProfileManager? codexProfile,
   }) : _processStarter = processStarter ?? _defaultProcessStarter,
-       _uuid = uuid ?? const Uuid();
+       _uuid = uuid ?? const Uuid(),
+       _codexProfile = _resolveCodexProfile(providers: providers, dataDir: dataDir, preInjected: codexProfile);
+
+  /// Builds (and validates) the Codex profile manager at construction
+  /// time so opt-in mistakes fail loud at server startup instead of
+  /// mid-workflow. Returns null when no provider opted into the
+  /// isolated profile.
+  ///
+  /// Throws [ArgumentError] when the opt-in is on but either the
+  /// materialisation root (`dataDir`) or the source credential is
+  /// missing — both were silent-fallback footguns before.
+  static CodexProfileManager? _resolveCodexProfile({
+    required Map<String, WorkflowCliProviderConfig> providers,
+    required String? dataDir,
+    required CodexProfileManager? preInjected,
+  }) {
+    final optIn = providers.values.any((p) => _boolOption(p.options, 'isolated_profile'));
+    if (!optIn) return null;
+
+    final profile = preInjected ?? (dataDir == null ? null : CodexProfileManager.forDataDir(dataDir));
+    if (profile == null) {
+      throw ArgumentError.value(
+        null,
+        'dataDir',
+        'WorkflowCliRunner: providers.codex.options.isolated_profile is true but no dataDir '
+            'was supplied and no CodexProfileManager was pre-injected. Pass a dataDir or disable '
+            'the isolated profile.',
+      );
+    }
+    if (!profile.hasValidAuthSync()) {
+      throw ArgumentError.value(
+        profile.sourceAuthPath,
+        'auth.json',
+        'WorkflowCliRunner: isolated_profile is enabled but source auth.json was not found at '
+            '${profile.sourceAuthPath}. Log in with `codex login` first, or disable the isolated '
+            'profile.',
+      );
+    }
+    return profile;
+  }
+
+  /// Reads [key] from [options] as a bool.
+  ///
+  /// Accepts native `bool` as well as the YAML-string forms `"true"` /
+  /// `"false"` (case-insensitive) since workflow authors often hand us
+  /// options decoded from YAML which preserves scalars as strings. Any
+  /// other shape logs a warning and falls back to `false` — don't
+  /// silently misinterpret typos as "disabled".
+  static bool _boolOption(Map<String, dynamic> options, String key) {
+    final raw = options[key];
+    if (raw == null) return false;
+    if (raw is bool) return raw;
+    if (raw is String) {
+      final lower = raw.trim().toLowerCase();
+      if (lower == 'true') return true;
+      if (lower == 'false') return false;
+      _log.warning('Ignoring unsupported string value "$raw" for boolean option "$key"; treating as false');
+      return false;
+    }
+    _log.warning('Ignoring unsupported type ${raw.runtimeType} for boolean option "$key"; treating as false');
+    return false;
+  }
 
   Future<WorkflowCliTurnResult> executeTurn({
     required String provider,
@@ -82,6 +160,7 @@ class WorkflowCliRunner {
     int? maxTurns,
     Map<String, dynamic>? jsonSchema,
     String? appendSystemPrompt,
+    String? sandboxOverride,
   }) async {
     final providerConfig = providers[provider];
     if (providerConfig == null) {
@@ -115,6 +194,7 @@ class WorkflowCliRunner {
           schemaDirectory: workingDirectory,
           containerManager: profileContainer,
           appendSystemPrompt: appendSystemPrompt,
+          sandboxOverride: sandboxOverride,
         ),
         _ => throw UnsupportedError('Workflow one-shot CLI is not implemented for provider "$provider"'),
       };
@@ -122,11 +202,17 @@ class WorkflowCliRunner {
       tempSchemaPath = builtCommand.tempSchemaPath;
       final resolvedWorkingDirectory = _resolveWorkingDirectory(workingDirectory, profileContainer);
 
+      // Codex-only: when the isolated-profile opt-in is set and a manager
+      // was injected at construction, prepare + layer in CODEX_HOME/HOME
+      // overrides so this invocation sees the managed profile instead of
+      // the user's `~/.codex` (bypassing the bloated global skill registry).
+      final resolvedEnvironment = await _resolveProcessEnvironment(provider, providerConfig);
+
       final process = await _startProcess(
         executable: command.$1,
         arguments: command.$2,
         workingDirectory: resolvedWorkingDirectory,
-        environment: providerConfig.environment,
+        environment: resolvedEnvironment,
         containerManager: profileContainer,
       );
       // Close stdin immediately – Codex 0.120.0+ reads from stdin when a pipe
@@ -245,8 +331,9 @@ class WorkflowCliRunner {
     required String schemaDirectory,
     required ContainerExecutor? containerManager,
     String? appendSystemPrompt,
+    String? sandboxOverride,
   }) {
-    final args = <String>['exec', '--json', '--full-auto', '--skip-git-repo-check'];
+    final args = <String>['exec', '--json', '--skip-git-repo-check', '-c', 'approval_policy="never"'];
     if (model != null && model.trim().isNotEmpty) {
       args.addAll(['--model', model]);
     }
@@ -256,7 +343,9 @@ class WorkflowCliRunner {
     if (appendSystemPrompt != null && appendSystemPrompt.trim().isNotEmpty) {
       args.addAll(['-c', 'developer_instructions=${jsonEncode(appendSystemPrompt)}']);
     }
-    final sandbox = providers['codex']?.options['sandbox']?.toString().trim();
+    final sandbox = sandboxOverride?.trim().isNotEmpty == true
+        ? sandboxOverride!.trim()
+        : providers['codex']?.options['sandbox']?.toString().trim();
     if (sandbox != null && sandbox.isNotEmpty) {
       args.addAll(['--sandbox', sandbox]);
     }
@@ -341,9 +430,16 @@ class WorkflowCliRunner {
     Map<String, dynamic>? structuredOutput;
     final trimmed = responseText.trim();
     if (trimmed.startsWith('{')) {
-      final decoded = jsonDecode(trimmed);
-      if (decoded is Map<String, dynamic>) {
-        structuredOutput = decoded;
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map<String, dynamic>) {
+          structuredOutput = decoded;
+        }
+      } on FormatException {
+        _log.fine(
+          'Codex one-shot response began with "{" but was not a standalone JSON object; '
+          'leaving responseText unparsed for downstream workflow-context extraction.',
+        );
       }
     }
 
@@ -357,6 +453,30 @@ class WorkflowCliRunner {
       cacheWriteTokens: cacheWriteTokens,
       duration: fallbackDuration,
     );
+  }
+
+  Future<Map<String, String>> _resolveProcessEnvironment(
+    String provider,
+    WorkflowCliProviderConfig providerConfig,
+  ) async {
+    if (provider != 'codex' || !_boolOption(providerConfig.options, 'isolated_profile')) {
+      return providerConfig.environment;
+    }
+    final profile = _codexProfile;
+    if (profile == null) {
+      // Unreachable in practice — if any provider opted in we validated
+      // at construction. Belt-and-braces: don't produce a malformed env.
+      throw StateError(
+        'isolated_profile=true but no CodexProfileManager was resolved at construction; '
+        'this is a bug in WorkflowCliRunner wiring.',
+      );
+    }
+    // Memoise the in-flight preparation so parallel turns share a
+    // single materialisation.
+    await (_codexPrepareFuture ??= profile.ensurePrepared());
+    // Profile overrides win — we want `CODEX_HOME` / `HOME` to always
+    // point at the managed dir even if the user set them elsewhere.
+    return {...providerConfig.environment, ...profile.envOverrides()};
   }
 
   static Future<Process> _defaultProcessStarter(

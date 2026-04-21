@@ -1,9 +1,10 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show OutputConfig, OutputFormat, PromptAugmenter, SkillPromptBuilder, WorkflowStep;
 import 'package:test/test.dart';
 
 void main() {
-  final builder = SkillPromptBuilder(augmenter: const PromptAugmenter());
+  final builder = SkillPromptBuilder(augmenter: const PromptAugmenter(), harnessFactory: HarnessFactory());
 
   group('SkillPromptBuilder.build', () {
     test('skill + prompt -> skill line + blank line + prompt', () {

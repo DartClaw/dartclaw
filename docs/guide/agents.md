@@ -321,6 +321,37 @@ The Codex app-server provider supports two per-turn settings that control how Co
 >
 > Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
 
+### Codex Isolated Profile (opt-in)
+
+Codex CLI serialises every installed `SKILL.md` into a `<skills_instructions>` block in the developer message of **every** turn. On a developer machine with many globally-installed skills (Excel, PowerPoint, imagegen, third-party agent skills, …) this block can easily exceed 5k tokens per turn — multiplied across every step of every workflow run.
+
+For workflow runs specifically, DartClaw can manage its own minimal Codex profile directory so the spawned `codex` process sees only what the workflow step needs.
+
+Opt in via the Codex provider options:
+
+```yaml
+providers:
+  codex:
+    executable: codex
+    options:
+      isolated_profile: true
+```
+
+When enabled, DartClaw creates `<dataDir>/codex-profile/` on first use and:
+- Symlinks `auth.json` from your personal `~/.codex/` so OAuth keeps working with zero re-login.
+- Symlinks `.codex-global-state.json` when present.
+- Symlinks `.gitconfig`, `.ssh`, and `.gnupg` from your home directory (when present) so `git`, `ssh`, and `gpg` subprocesses spawned inside a Codex turn still see your identity, keys, and commit-signing config. This is essential for `coding` workflow steps that commit and push.
+- Leaves `skills/` and `.agents/skills/` empty, so the `<skills_instructions>` block shrinks to the bare minimum.
+- Passes `CODEX_HOME` and `HOME` overrides so Codex's two skill-discovery paths both resolve to the managed dir.
+
+DartClaw validates the opt-in at startup: if `isolated_profile: true` is set but the source `~/.codex/auth.json` is missing (or no `dataDir` is available), the server fails fast with a clear error instead of silently falling back or surfacing the problem mid-workflow. Run `codex login` first, or disable the isolated profile.
+
+Typical measured savings for the built-in `discover-project` step on a DartClaw contributor's laptop: **~25k input tokens per call** (~45% reduction combined with the skill-activation prefix). Multiplied across `prd`, `plan`, per-story `implement`, `quick-review`, and `plan-review`, a single `plan-and-implement` run saves roughly 200–400k billed input tokens.
+
+The profile is per-`dataDir`, not per-run — it's materialised once and reused. Delete `<dataDir>/codex-profile/` to force a rebuild (e.g. after `codex login`/`codex logout`). This is **opt-in** because some Codex features your personal profile uses (MCP servers, plugins, memories) are intentionally not carried over; a workflow that needs one of those should either stay on the default profile or have the relevant directory added to the profile manager.
+
+> **OAuth refresh caveat.** The `auth.json` link assumes Codex refreshes tokens via in-place writes (the symlink is followed, the real file is updated, both profiles stay in sync). If a future Codex version switches to atomic-rename refresh (`write tmp → rename over`), `rename(2)` replaces the link with a regular file — the isolated profile ends up with the fresh token while `~/.codex/auth.json` grows stale. Has not been integration-tested; treat token drift as a known risk and re-run `codex login` if an interactive session starts prompting for re-auth.
+
 ### Provider Capability Differences
 
 Not all providers support every feature. DartClaw degrades gracefully:

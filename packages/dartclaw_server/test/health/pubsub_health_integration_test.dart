@@ -261,6 +261,9 @@ void main() {
 
 class _FakeHarness implements AgentHarness {
   @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
+  @override
   bool get supportsCostReporting => true;
 
   @override

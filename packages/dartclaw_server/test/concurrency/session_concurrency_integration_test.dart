@@ -10,6 +10,9 @@ import 'package:test/test.dart';
 // ---------------------------------------------------------------------------
 
 class FakeWorkerService implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final _turnCompleters = <String, Completer<Map<String, dynamic>>>{};
   Completer<void> _turnInvoked = Completer<void>();

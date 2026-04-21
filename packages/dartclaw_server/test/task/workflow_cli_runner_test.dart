@@ -88,6 +88,83 @@ void main() {
       expect(arguments, contains('Follow the workflow rules'));
     });
 
+    test('Codex parser tolerates mixed prose plus workflow-context markup', () async {
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          final stdout = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-1'}),
+            jsonEncode({'type': 'turn.started'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {
+                'id': 'item_0',
+                'type': 'agent_message',
+                'text':
+                    '{"stories":{"items":[{"id":"S01","title":"Story"}]}}'
+                    '\n<workflow-context>{"plan":"docs/specs/test/plan.md"}</workflow-context>',
+              },
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 12, 'output_tokens': 7},
+            }),
+          ].join('\n').replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Plan this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(result.providerSessionId, 'codex-thread-1');
+      expect(result.responseText, contains('<workflow-context>'));
+      expect(result.structuredOutput, isNull);
+      expect(result.inputTokens, 12);
+      expect(result.outputTokens, 7);
+    });
+
+    test('builds Codex one-shot args with explicit approval policy and sandbox override', () async {
+      late List<String> arguments;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'codex': WorkflowCliProviderConfig(
+            executable: 'codex',
+            options: {'sandbox': 'workspace-write'},
+          ),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          arguments = List<String>.from(args);
+          final stdout = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-arg-test'}),
+            jsonEncode({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'done'}}),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 1, 'output_tokens': 1},
+            }),
+          ].join('\n').replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+        },
+      );
+
+      await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Review this',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        sandboxOverride: 'read-only',
+      );
+
+      expect(arguments, containsAll(['exec', '--json', '--skip-git-repo-check']));
+      expect(arguments, containsAll(['-c', 'approval_policy="never"']));
+      expect(arguments, containsAll(['--sandbox', 'read-only']));
+      expect(arguments, isNot(contains('--full-auto')));
+    });
+
     test('builds Claude one-shot args with permissionMode and structured settings', () async {
       late List<String> arguments;
       final runner = WorkflowCliRunner(
@@ -770,10 +847,7 @@ void main() {
         providers: {
           'claude': WorkflowCliProviderConfig(
             executable: scriptPath,
-            environment: {
-              'PROVIDER_OK': 'provider-value',
-              'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin',
-            },
+            environment: {'PROVIDER_OK': 'provider-value', 'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin'},
           ),
         },
         // No processStarter override — the production `_defaultProcessStarter`
@@ -806,6 +880,138 @@ void main() {
       if (parentUser != null) {
         expect(lines, isNot(contains('USER=$parentUser')), reason: 'parent USER must not leak into child');
       }
+    });
+
+    group('isolated_profile opt-in', () {
+      test('throws at construction when opt-in is set but no dataDir or profile manager supplied', () {
+        expect(
+          () => WorkflowCliRunner(
+            providers: const {
+              'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'isolated_profile': true}),
+            },
+          ),
+          throwsA(
+            isA<ArgumentError>()
+                .having((e) => e.name, 'name', 'dataDir')
+                .having((e) => e.message.toString(), 'message', contains('isolated_profile')),
+          ),
+          reason: 'silent-fallback footgun — missing dataDir must fail loud at construction',
+        );
+      });
+
+      test('throws at construction when source auth.json is missing', () {
+        final profileRoot = Directory.systemTemp.createTempSync('dartclaw_isolated_profile_test_');
+        addTearDown(() {
+          if (profileRoot.existsSync()) profileRoot.deleteSync(recursive: true);
+        });
+        final fakeSourceHome = Directory(p.join(profileRoot.path, 'fake-codex-home'))..createSync(recursive: true);
+        final fakeUserHome = Directory(p.join(profileRoot.path, 'fake-user-home'))..createSync(recursive: true);
+        final profile = CodexProfileManager(
+          profileDir: p.join(profileRoot.path, 'managed'),
+          sourceHome: fakeSourceHome.path,
+          sourceUserHome: fakeUserHome.path,
+        );
+
+        expect(
+          () => WorkflowCliRunner(
+            providers: const {
+              'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'isolated_profile': true}),
+            },
+            codexProfile: profile,
+          ),
+          throwsA(isA<ArgumentError>().having((e) => e.message.toString(), 'message', contains('auth.json'))),
+          reason: 'missing credential must surface at startup, not mid-workflow',
+        );
+      });
+
+      test('accepts YAML-style string "true" and prepares profile', () async {
+        final profileRoot = Directory.systemTemp.createTempSync('dartclaw_isolated_profile_bool_');
+        addTearDown(() {
+          if (profileRoot.existsSync()) profileRoot.deleteSync(recursive: true);
+        });
+        final fakeSourceHome = Directory(p.join(profileRoot.path, 'fake-codex-home'))..createSync(recursive: true);
+        final fakeUserHome = Directory(p.join(profileRoot.path, 'fake-user-home'))..createSync(recursive: true);
+        File(p.join(fakeSourceHome.path, 'auth.json')).writeAsStringSync('{"token":"stub"}');
+
+        final profile = CodexProfileManager(
+          profileDir: p.join(profileRoot.path, 'managed'),
+          sourceHome: fakeSourceHome.path,
+          sourceUserHome: fakeUserHome.path,
+        );
+
+        expect(
+          () => WorkflowCliRunner(
+            providers: const {
+              // YAML sometimes decodes scalars as strings; the runner must
+              // accept that rather than silently treating it as disabled.
+              'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'isolated_profile': 'true'}),
+            },
+            codexProfile: profile,
+          ),
+          returnsNormally,
+        );
+      });
+    });
+
+    group('CodexProfileManager', () {
+      test('ensurePrepared symlinks .gitconfig and empty .ssh/.gnupg from source user home', () async {
+        final root = Directory.systemTemp.createTempSync('dartclaw_codex_profile_prepare_');
+        addTearDown(() {
+          if (root.existsSync()) root.deleteSync(recursive: true);
+        });
+        final fakeSourceHome = Directory(p.join(root.path, 'fake-codex-home'))..createSync(recursive: true);
+        final fakeUserHome = Directory(p.join(root.path, 'fake-user-home'))..createSync(recursive: true);
+        File(p.join(fakeSourceHome.path, 'auth.json')).writeAsStringSync('{"token":"stub"}');
+        File(p.join(fakeUserHome.path, '.gitconfig')).writeAsStringSync('[user]\n  name = Test User\n');
+        Directory(p.join(fakeUserHome.path, '.ssh')).createSync();
+        // .gnupg intentionally missing — best-effort skip.
+
+        final profileDir = p.join(root.path, 'managed');
+        final profile = CodexProfileManager(
+          profileDir: profileDir,
+          sourceHome: fakeSourceHome.path,
+          sourceUserHome: fakeUserHome.path,
+        );
+        await profile.ensurePrepared();
+
+        final gitconfigLink = Link(p.join(profileDir, '.gitconfig'));
+        expect(
+          gitconfigLink.existsSync(),
+          isTrue,
+          reason: '.gitconfig must be linked so git commits preserve identity',
+        );
+        expect(gitconfigLink.targetSync(), p.join(fakeUserHome.path, '.gitconfig'));
+
+        final sshLink = Link(p.join(profileDir, '.ssh'));
+        expect(sshLink.existsSync(), isTrue, reason: '.ssh must be linked so ssh-agent keys remain reachable');
+
+        final gnupgLink = Link(p.join(profileDir, '.gnupg'));
+        expect(gnupgLink.existsSync(), isFalse, reason: 'missing .gnupg source must be skipped silently, not created');
+      });
+
+      test('ensurePrepared is idempotent across concurrent callers (memoised future)', () async {
+        final root = Directory.systemTemp.createTempSync('dartclaw_codex_profile_race_');
+        addTearDown(() {
+          if (root.existsSync()) root.deleteSync(recursive: true);
+        });
+        final fakeSourceHome = Directory(p.join(root.path, 'fake-codex-home'))..createSync(recursive: true);
+        final fakeUserHome = Directory(p.join(root.path, 'fake-user-home'))..createSync(recursive: true);
+        File(p.join(fakeSourceHome.path, 'auth.json')).writeAsStringSync('{}');
+
+        final profile = CodexProfileManager(
+          profileDir: p.join(root.path, 'managed'),
+          sourceHome: fakeSourceHome.path,
+          sourceUserHome: fakeUserHome.path,
+        );
+
+        // Fire several concurrent prepares — a non-memoised implementation
+        // would race on symlink create and throw FileSystemException.
+        await Future.wait(List.generate(8, (_) => profile.ensurePrepared()));
+        // Second pass after completion — still a no-op.
+        await profile.ensurePrepared();
+
+        expect(File(p.join(root.path, 'managed', 'auth.json')).existsSync(), isTrue);
+      });
     });
   });
 }

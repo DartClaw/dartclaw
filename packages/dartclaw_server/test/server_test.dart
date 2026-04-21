@@ -17,6 +17,9 @@ import 'test_utils.dart';
 // ---------------------------------------------------------------------------
 
 class FakeWorkerService implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
   final Completer<void> _turnStarted = Completer<void>();

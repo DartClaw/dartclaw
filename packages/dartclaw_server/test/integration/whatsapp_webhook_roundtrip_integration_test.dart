@@ -43,6 +43,9 @@ class _FakeGowaManager extends GowaManager {
 }
 
 class _ChannelWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   Completer<Map<String, dynamic>>? _turnCompleter;
   Completer<void> _turnInvoked = Completer<void>();

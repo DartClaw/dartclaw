@@ -352,6 +352,9 @@ void main() {
 }
 
 class _ProviderWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final Completer<void> _turnStarted = Completer<void>();
 

@@ -50,6 +50,9 @@ class _KnowledgeInboxSearchProvider implements SearchProvider {
 }
 
 class _KnowledgeInboxWorker implements AgentHarness {
+  @override
+  String skillActivationLine(String skill) => "Use the '$skill' skill.";
+
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final TavilySearchTool searchTool;
   final WebFetchTool fetchTool;

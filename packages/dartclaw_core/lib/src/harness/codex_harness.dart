@@ -94,6 +94,9 @@ class CodexHarness extends BaseHarness {
   bool get supportsSessionContinuity => true;
 
   @override
+  String skillActivationLine(String skill) => '\$$skill';
+
+  @override
   Future<void> start() => startLifecycle(
     busyMessage: 'Cannot start CodexHarness while busy',
     beforeStart: () async {

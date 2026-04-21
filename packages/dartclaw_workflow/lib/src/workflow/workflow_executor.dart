@@ -14,6 +14,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         LoopNode,
         LoopIterationCompletedEvent,
         ForeachNode,
+        HarnessFactory,
         MapNode,
         MapIterationCompletedEvent,
         MapStepCompletedEvent,
@@ -227,14 +228,14 @@ class WorkflowExecutor {
     return values;
   }
 
-  List<String> _autoFrameVariableNames(WorkflowDefinition definition, WorkflowContext context) {
-    final names = <String>[];
-    for (final entry in definition.variables.entries) {
-      final resolved = context.variable(entry.key) ?? entry.value.defaultValue;
-      if (resolved != null) names.add(entry.key);
-    }
-    return names;
-  }
+  // Workflow-level `variables` are NOT auto-framed into step prompts. Step
+  // authors must reference them explicitly with `{{VAR}}` in the prompt body
+  // if they want them included. This prevents unrelated variables (for
+  // example REQUIREMENTS on discover-project) from leaking into every step's
+  // prompt. `contextInputs` remains the declarative channel for upstream
+  // step outputs and is still auto-framed by SkillPromptBuilder when
+  // `autoFrameContext` is true.
+  List<String> _autoFrameVariableNames(WorkflowDefinition definition, WorkflowContext context) => const [];
 
   /// Fallback git identity for auto-commit in environments without a
   /// configured `user.name` / `user.email`. Applied only to the artifact-commit
@@ -426,6 +427,7 @@ class WorkflowExecutor {
     WorkflowTemplateEngine? templateEngine,
     PromptAugmenter? promptAugmenter,
     SkillPromptBuilder? skillPromptBuilder,
+    HarnessFactory? harnessFactory,
     MessageService? messageService,
     WorkflowTurnAdapter? turnAdapter,
     WorkflowStepOutputTransformer? outputTransformer,
@@ -447,7 +449,11 @@ class WorkflowExecutor {
        _contextExtractor = contextExtractor,
        _templateEngine = templateEngine ?? WorkflowTemplateEngine(),
        _skillPromptBuilder =
-           skillPromptBuilder ?? SkillPromptBuilder(augmenter: promptAugmenter ?? const PromptAugmenter()),
+           skillPromptBuilder ??
+           SkillPromptBuilder(
+             augmenter: promptAugmenter ?? const PromptAugmenter(),
+             harnessFactory: (harnessFactory ?? HarnessFactory())..warnIfEmpty(context: 'WorkflowExecutor'),
+           ),
        _turnAdapter = turnAdapter,
        _outputTransformer = outputTransformer,
        _skillRegistry = skillRegistry,
@@ -1220,11 +1226,23 @@ class WorkflowExecutor {
 
   Future<(String?, String?)> _resolveStepOutcome(WorkflowStep step, Task task) async {
     final parsed = await _contextExtractor.extractStepOutcome(task);
+    final forcedOutcome = _fallbackOutcomeFromTaskStatus(task.status);
+    if (forcedOutcome == 'failed') {
+      if (parsed != null && parsed.outcome != 'failed') {
+        _log.warning(
+          "Workflow step '${step.id}' reported outcome '${parsed.outcome}' but task ${task.id} "
+          'finished with terminal status ${task.status.name}; overriding to failed',
+        );
+      }
+      final failReason =
+          (task.configJson['failReason'] as String?) ?? (task.configJson['errorSummary'] as String?) ?? parsed?.reason;
+      return ('failed', failReason ?? task.status.name);
+    }
     if (parsed != null) {
       return (parsed.outcome, parsed.reason);
     }
 
-    final fallbackOutcome = _fallbackOutcomeFromTaskStatus(task.status);
+    final fallbackOutcome = forcedOutcome;
     if (fallbackOutcome == null) {
       return (null, null);
     }
@@ -1908,6 +1926,7 @@ class WorkflowExecutor {
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,
+            provider: effectiveProvider,
           )
         : _skillPromptBuilder.build(
             skill: step.skill,
@@ -1922,6 +1941,7 @@ class WorkflowExecutor {
             variables: variableNames,
             resolvedInputValues: resolvedInputValues,
             templatePrompt: step.prompts?.first,
+            provider: effectiveProvider,
           );
     final followUpPrompts = _buildOneShotFollowUpPrompts(
       step,
@@ -2739,7 +2759,8 @@ class WorkflowExecutor {
     if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
-    if (const {'research', 'writing', 'analysis'}.contains(step.type)) {
+    final allowsFileWrite = resolved.allowedTools?.contains('file_write') ?? false;
+    if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
       config['readOnly'] = true;
     }
     config['_workflowStepType'] = step.type;
@@ -3455,6 +3476,7 @@ class WorkflowExecutor {
           variables: variableNames,
           resolvedInputValues: resolvedInputValues,
           templatePrompt: rawPrompt,
+          provider: resolved.provider,
         );
         final taskConfig = _buildStepConfig(
           run,
@@ -4821,9 +4843,7 @@ class WorkflowExecutor {
         ),
       );
       if (result.status == 'failed') {
-        _log.warning(
-          "Workflow '${run.id}': publish failed for branch '$branch': ${result.error ?? 'unknown error'}",
-        );
+        _log.warning("Workflow '${run.id}': publish failed for branch '$branch': ${result.error ?? 'unknown error'}");
         return 'publish failed: ${result.error ?? 'unknown error'}';
       }
       _log.info(

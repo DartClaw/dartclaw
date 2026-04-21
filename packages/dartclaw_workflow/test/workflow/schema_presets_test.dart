@@ -188,9 +188,22 @@ void main() {
       final itemSchema = items['items'] as Map;
       final required = itemSchema['required'] as List;
       // Slim contract: id + title for display/routing, spec_path for FIS
-      // resolution, acceptance_criteria for downstream review. Everything
-      // else lives in plan.md or the FIS on disk.
-      expect(required, unorderedEquals(['id', 'title', 'spec_path', 'acceptance_criteria']));
+      // resolution. Acceptance criteria and all other detail live in the FIS
+      // body on disk at spec_path; plan-level detail lives in plan.md.
+      expect(required, unorderedEquals(['id', 'title', 'spec_path']));
+    });
+
+    test('acceptance_criteria is not part of the story-specs contract', () {
+      final items = (storySpecsPreset.schema['properties'] as Map)['items'] as Map;
+      final itemSchema = items['items'] as Map;
+      final required = itemSchema['required'] as List;
+      final props = itemSchema['properties'] as Map;
+      // Single source of truth: AC lives in the FIS body on disk. Including
+      // it in the structured record invited drift between the two copies.
+      expect(required, isNot(contains('acceptance_criteria')));
+      expect(props.containsKey('acceptance_criteria'), isFalse);
+      expect(itemSchema['additionalProperties'], isFalse,
+          reason: 'additionalProperties:false ensures plan skills cannot silently re-emit acceptance_criteria');
     });
 
     test('schema envelope requires items', () {

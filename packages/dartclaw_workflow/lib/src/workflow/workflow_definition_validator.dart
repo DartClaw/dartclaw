@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'schema_presets.dart' show schemaPresets;
 import 'skill_registry.dart';
 import 'step_config_resolver.dart' show globMatchStepId;
+import 'workflow_context.dart';
 import 'workflow_template_engine.dart';
 
 /// Classification of validation errors.
@@ -79,6 +80,7 @@ class WorkflowDefinitionValidator {
 
   /// Skills that produce artifact files under `context.docs_project_index.artifact_locations.*`.
   static const _artifactProducingSkills = {'dartclaw-prd', 'dartclaw-plan', 'dartclaw-spec'};
+  static const _semanticStepTypes = {'coding', 'analysis', 'research', 'writing'};
   final _engine = WorkflowTemplateEngine();
 
   /// Step types known by the engine. Any other type produces a warning.
@@ -116,6 +118,7 @@ class WorkflowDefinitionValidator {
     _validateNormalizedNodes(definition, errors);
     _validateMapAliases(definition, errors);
     _validateVariableReferences(definition, errors);
+    _validateDeprecationWarnings(definition, warnings);
     _validateContextKeyConsistency(definition, errors);
     _validateGateExpressions(definition, errors);
     _validateLoopGateExpressions(definition, errors);
@@ -783,6 +786,19 @@ class WorkflowDefinitionValidator {
 
   void _validateVariableReferences(WorkflowDefinition definition, List<ValidationError> errors) {
     final declaredVars = definition.variables.keys.toSet();
+    if (definition.project != null) {
+      final workflowProjectRefs = _engine.extractVariableReferences(definition.project!);
+      for (final ref in workflowProjectRefs) {
+        if (!declaredVars.contains(ref)) {
+          errors.add(
+            ValidationError(
+              message: 'Workflow project field references undeclared variable "{{$ref}}".',
+              type: ValidationErrorType.invalidReference,
+            ),
+          );
+        }
+      }
+    }
 
     // Build a step-id → enclosing-map-aliases lookup so that substep prompts
     // inside a foreach/map can reference the controller's `as:` alias without
@@ -844,6 +860,60 @@ class WorkflowDefinitionValidator {
           );
         }
       }
+    }
+  }
+
+  void _validateDeprecationWarnings(WorkflowDefinition definition, List<ValidationError> warnings) {
+    final defaultVariables = {
+      for (final entry in definition.variables.entries)
+        if (entry.value.defaultValue != null) entry.key: entry.value.defaultValue!,
+    };
+    final comparisonContext = WorkflowContext(variables: defaultVariables);
+    final workflowProject = definition.project;
+    if (workflowProject != null) {
+      final resolvedWorkflowProject = _resolveProjectTemplate(workflowProject, comparisonContext);
+      for (final step in definition.steps) {
+        final stepProject = step.project;
+        if (stepProject == null) continue;
+        final resolvedStepProject = _resolveProjectTemplate(stepProject, comparisonContext);
+        final sameProject = stepProject.trim() == workflowProject.trim() ||
+            (resolvedWorkflowProject != null &&
+                resolvedStepProject != null &&
+                resolvedWorkflowProject == resolvedStepProject);
+        if (!sameProject) continue;
+        warnings.add(
+          ValidationError(
+            message:
+                'Step "${step.id}" declares a project that duplicates the workflow-level project binding. '
+                'Remove the redundant step-level "project:" declaration.',
+            type: ValidationErrorType.contextInconsistency,
+            stepId: step.id,
+          ),
+        );
+      }
+    }
+
+    final semanticSteps = definition.steps
+        .where((step) => step.typeAuthored && _semanticStepTypes.contains(step.type))
+        .toList(growable: false);
+    if (semanticSteps.isEmpty) return;
+    warnings.add(
+      ValidationError(
+        message:
+            'Semantic step types (${semanticSteps.map((step) => '"${step.type}"').toSet().join(', ')}) are deprecated '
+            'for workflow engine decisions and are retained as observability labels only.',
+        type: ValidationErrorType.contextInconsistency,
+        stepId: semanticSteps.first.id,
+      ),
+    );
+  }
+
+  String? _resolveProjectTemplate(String template, WorkflowContext context) {
+    try {
+      final resolved = _engine.resolve(template, context).trim();
+      return resolved.isEmpty ? null : resolved;
+    } on ArgumentError {
+      return null;
     }
   }
 

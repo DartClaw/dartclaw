@@ -151,11 +151,12 @@ const storySpecsPreset = SchemaPreset(
       'items': {
         'type': 'array',
         'description': 'Per-story records used as the foreach iteration source. '
-            'Downstream steps read the authoritative FIS body from `spec_path`.',
+            'Downstream steps read the authoritative FIS body (including '
+            'acceptance criteria) from `spec_path`.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
-          'required': ['id', 'title', 'spec_path', 'acceptance_criteria'],
+          'required': ['id', 'title', 'spec_path'],
           'properties': {
             'id': {
               'type': 'string',
@@ -168,11 +169,6 @@ const storySpecsPreset = SchemaPreset(
             'spec_path': {
               'type': 'string',
               'description': 'Workspace-relative path to the FIS file — the authoritative spec body lives here.',
-            },
-            'acceptance_criteria': {
-              'type': 'array',
-              'description': 'Structured acceptance criteria preserved for downstream review.',
-              'items': {'type': 'string'},
             },
           },
         },

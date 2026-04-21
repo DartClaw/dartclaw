@@ -104,6 +104,32 @@ void main() {
       expect(reparsed.gitStrategy?.worktreeMode, 'auto');
     });
 
+    test('emitYaml preserves workflow-level project and omits implicit step types', () {
+      const def = WorkflowDefinition(
+        name: 'project-demo',
+        description: 'test',
+        project: '{{PROJECT}}',
+        variables: {'PROJECT': WorkflowVariable(required: false, defaultValue: 'demo-project')},
+        steps: [
+          WorkflowStep(id: 'discover', name: 'Discover', prompts: ['Inspect the repo'], contextOutputs: ['project_index']),
+          WorkflowStep(id: 'implement', name: 'Implement', type: 'custom', typeAuthored: true, prompts: ['Implement']),
+        ],
+      );
+
+      final resolved = resolver.resolve(def, variableBindings: {'PROJECT': 'demo-project'});
+      final yaml = resolver.emitYaml(resolved);
+      expect(yaml, contains('project: demo-project'));
+      expect(yaml, isNot(contains('type: research')));
+      expect(yaml, contains('type: custom'));
+
+      final reparsed = parser.parse(yaml, sourcePath: 'resolved:project-demo');
+      expect(reparsed.project, 'demo-project');
+      expect(reparsed.steps.first.typeAuthored, isFalse);
+      expect(reparsed.steps.first.type, 'research');
+      expect(reparsed.steps[1].typeAuthored, isTrue);
+      expect(reparsed.steps[1].type, 'custom');
+    });
+
     test('variable substitution replaces {{VAR}} but leaves {{context.*}} alone', () {
       final def = WorkflowDefinition(
         name: 'var-demo',

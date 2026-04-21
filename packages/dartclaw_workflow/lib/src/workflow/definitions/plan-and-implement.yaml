@@ -18,6 +18,8 @@ variables:
     description: Max parallel story executions
     default: "2"
 
+project: "{{PROJECT}}"
+
 gitStrategy:
   bootstrap: true
   worktree: auto
@@ -65,9 +67,8 @@ steps:
   # Discover the project layout and document/state locations before planning begins.
   - id: discover-project
     name: Discover Project
-    type: research
+    type: custom
     skill: dartclaw-discover-project
-    project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     contextOutputs: [project_index]
     outputs:
@@ -83,7 +84,7 @@ steps:
   # this value so high-confidence PRDs skip the review loop entirely.
   - id: prd
     name: Draft PRD
-    type: analysis
+    type: custom
     skill: dartclaw-prd
     contextInputs: [project_index]
     workflowVariables: [REQUIREMENTS]
@@ -108,10 +109,9 @@ steps:
   # when confidence is already >= 7.
   - id: revise-prd
     name: Revise PRD (low confidence)
-    type: analysis
+    type: custom
     skill: dartclaw-review
     entryGate: "prd_source == synthesized && prd_confidence < 7"
-    project: "{{PROJECT}}"
     contextInputs: [project_index, prd, prd_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: |
@@ -129,7 +129,7 @@ steps:
   # emits file paths + structured records, never inline artifact bodies.
   - id: plan
     name: Plan Stories and Specs
-    type: analysis
+    type: custom
     skill: dartclaw-plan
     allowedTools: [shell, file_read, file_write]
     contextInputs: [project_index, prd]    
@@ -138,7 +138,7 @@ steps:
       story_specs:
         format: json
         schema: story-specs
-        description: Per-story records — id, title, spec_path, acceptance_criteria. Drives the foreach; exec-spec reads the FIS body from disk at spec_path.
+        description: Per-story records — id, title, spec_path. Drives the foreach; exec-spec reads the FIS body (including acceptance criteria) from disk at spec_path.
       plan:
         format: path
         description: Workspace-relative path to plan.md on disk.
@@ -153,7 +153,6 @@ steps:
     map_over: story_specs
     max_parallel: "{{MAX_PARALLEL}}"
     #max_items: 20
-    project: "{{PROJECT}}"
     contextOutputs: [story_results]
     steps:
       # Implement one story against its generated story spec.
@@ -161,13 +160,11 @@ steps:
       # per-story worktrees inherit the committed FIS from the workflow branch.
       - id: implement
         name: Implement Story
-        type: coding
+        type: custom
         skill: dartclaw-exec-spec
-        project: "{{PROJECT}}"
         allowedTools: [shell, file_read, file_write]
         prompt: |
-          Story {{map.display_index}}/{{map.length}}:
-          <story>{{map.item}}</story>
+          {{map.item.spec_path}} (story {{map.display_index}} of {{map.length}}):
         contextInputs: [project_index, story_specs]
         contextOutputs: [story_result]
         outputs:
@@ -180,13 +177,13 @@ steps:
       # exec-spec already ran analysis/tests/linting; this step gates the outcome.
       - id: quick-review
         name: Quick Review Story
-        type: analysis
+        type: custom
         skill: dartclaw-quick-review
         allowedTools: [file_read]
         prompt: |
           Story {{map.display_index}}/{{map.length}}:
           <story>{{map.item}}</story>
-          <story_result>{{context.implement.story_result}}</story_result>
+          <story_result>{{context.story_result}}</story_result>
         contextInputs: [project_index]
         contextOutputs: [quick_review_summary, quick_review_findings_count]
         outputs:
@@ -204,7 +201,7 @@ steps:
   # remediation loop on that artifact instead.
   - id: plan-review
     name: Review Full Implementation
-    type: analysis
+    type: custom
     skill: dartclaw-review
     entryGate: "plan_source == synthesized"
     contextInputs: [project_index, story_specs, story_results, plan]
@@ -230,9 +227,8 @@ steps:
       # Apply the remediation plan produced by the plan-level review.
       - id: remediate
         name: Remediate Findings
-        type: coding
+        type: custom
         skill: dartclaw-remediate-findings
-        project: "{{PROJECT}}"
         contextInputs: [project_index, review_findings, story_results]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
@@ -250,7 +246,7 @@ steps:
       # its edits; this review gates loop exit.
       - id: re-review
         name: Re-review After Remediation
-        type: analysis
+        type: custom
         skill: dartclaw-quick-review
         contextInputs: [project_index, story_specs, story_results, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
@@ -266,9 +262,8 @@ steps:
   # Record the completed plan execution state back into the project state document.
   - id: update-state
     name: Update State
-    type: coding
+    type: custom
     skill: dartclaw-update-state
-    project: "{{PROJECT}}"
     contextInputs: [project_index, story_specs, story_results]
     contextOutputs: [state_update_summary]
     outputs:

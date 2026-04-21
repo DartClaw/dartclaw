@@ -65,8 +65,11 @@ void main() {
         final outputs = {'story_specs': const OutputConfig(format: OutputFormat.json, schema: 'story-specs')};
         final result = augmenter.augment(prompt, outputs: outputs);
         expect(result, contains('## Required Output Format'));
-        expect(result, contains('acceptance_criteria'));
         expect(result, contains('spec_path'));
+        expect(result, contains('id'));
+        expect(result, contains('title'));
+        // AC lives in the FIS body on disk, not in the structured record.
+        expect(result, isNot(contains('acceptance_criteria')));
       });
 
       test('appends section for file-list preset', () {

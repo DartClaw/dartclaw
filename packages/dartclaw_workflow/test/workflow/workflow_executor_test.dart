@@ -267,6 +267,29 @@ void main() {
     await taskService.transition(taskId, status, trigger: 'test');
   }
 
+  Future<Task> executeAndCaptureSingleTask({
+    required WorkflowDefinition definition,
+    required WorkflowContext context,
+    String runId = 'run-capture',
+  }) async {
+    final run = makeRun(definition).copyWith(id: runId, variablesJson: context.variables);
+    await repository.insert(run);
+
+    final taskCompleter = Completer<Task>();
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await taskService.get(e.taskId);
+      if (task != null && !taskCompleter.isCompleted) {
+        taskCompleter.complete(task);
+      }
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+    return taskCompleter.future;
+  }
+
   test('3-step sequential workflow executes all steps', () async {
     final definition = makeDefinition(
       steps: [
@@ -1092,6 +1115,79 @@ void main() {
       ),
       'auto-accept',
     );
+  });
+
+  test('workflow-level project does not bind semantic analysis steps in inline mode', () async {
+    const definition = WorkflowDefinition(
+      name: 'workflow-project-analysis-unbound',
+      description: 'Semantic analysis labels should not bind workflow-level project ids.',
+      project: '{{PROJECT}}',
+      steps: [
+        WorkflowStep(id: 'review', name: 'Review', type: 'analysis', typeAuthored: true, prompts: ['Review the repo']),
+      ],
+    );
+
+    final task = await executeAndCaptureSingleTask(
+      definition: definition,
+      context: WorkflowContext(variables: const {'PROJECT': 'demo-project'}),
+      runId: 'run-analysis-unbound',
+    );
+
+    expect(task.projectId, isNull);
+    expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+  });
+
+  test('workflow-level project still binds neutral custom steps without an explicit tool allowlist', () async {
+    const definition = WorkflowDefinition(
+      name: 'workflow-project-custom-bound',
+      description: 'Neutral custom steps stay project-bound after S41.',
+      project: '{{PROJECT}}',
+      steps: [
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          type: 'custom',
+          typeAuthored: true,
+          prompts: ['Implement the change'],
+        ),
+      ],
+    );
+
+    final task = await executeAndCaptureSingleTask(
+      definition: definition,
+      context: WorkflowContext(variables: const {'PROJECT': 'demo-project'}),
+      runId: 'run-custom-bound',
+    );
+
+    expect(task.projectId, 'demo-project');
+    expect(task.configJson['_workflowNeedsWorktree'], isTrue);
+  });
+
+  test('explicit step project override still wins for semantic analysis steps', () async {
+    const definition = WorkflowDefinition(
+      name: 'workflow-step-project-override',
+      description: 'Explicit step projects keep binding precedence.',
+      project: '{{PROJECT}}',
+      steps: [
+        WorkflowStep(
+          id: 'review',
+          name: 'Review',
+          type: 'analysis',
+          typeAuthored: true,
+          project: 'docs-project',
+          prompts: ['Review the repo'],
+        ),
+      ],
+    );
+
+    final task = await executeAndCaptureSingleTask(
+      definition: definition,
+      context: WorkflowContext(variables: const {'PROJECT': 'code-project'}),
+      runId: 'run-step-override',
+    );
+
+    expect(task.projectId, 'docs-project');
+    expect(task.configJson['_workflowNeedsWorktree'], isTrue);
   });
 
   test('inline loop executes in authored order before following sibling steps', () async {

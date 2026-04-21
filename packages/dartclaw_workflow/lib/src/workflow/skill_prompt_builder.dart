@@ -7,22 +7,31 @@ import 'prompt_augmenter.dart';
 ///
 /// `<activation>` below is the provider-native skill line produced by
 /// [HarnessFactory.skillActivationLineFor] (`/skill` for Claude, `$skill`
-/// for Codex, `Use the '<skill>' skill.` otherwise):
+/// for Codex, `Use the '<skill>' skill.` otherwise). The gating fields
+/// referenced below are parameters of [build]:
 ///
-/// - **Case 1** — skill + prompt: `"<activation>\n\n<resolved prompt>"`
-/// - **Case 1 (via default)** — skill + no prompt, skill has
-///   `workflow.default_prompt`: the default prompt is injected as the
-///   resolved prompt so Case 1 applies
-/// - **Case 2** — skill + no prompt + no skill default + non-empty
-///   `contextSummary`: `"<activation>\n\n<## Pretty Name summary>"`
-/// - **Case 2b** — skill + no prompt + nothing to summarize: `"<activation>"`
-/// - **Case 3** — no skill + prompt: `"<resolved prompt>"` (passthrough)
-/// - **Case 4** — no skill + no prompt: rejected upstream by the validator
+/// - **Case 1** — `skill` set, `resolvedPrompt` non-empty:
+///   `"<activation>\n\n<resolved prompt>"`
+/// - **Case 1 (via default)** — `skill` set, `resolvedPrompt` empty,
+///   `skillDefaultPrompt` non-empty: the skill's `workflow.default_prompt`
+///   is promoted to `effectiveResolvedPrompt` so Case 1 applies
+/// - **Case 2** — `skill` set, `effectiveResolvedPrompt` still empty
+///   (i.e. neither a step prompt nor a skill default is available),
+///   `contextSummary` non-empty:
+///   `"<activation>\n\n<## Pretty Name summary>"`
+/// - **Case 2b** — `skill` set, `effectiveResolvedPrompt` and
+///   `contextSummary` both empty: `"<activation>"` alone
+/// - **Case 3** — `skill` null, `resolvedPrompt` non-empty:
+///   `"<resolved prompt>"` (passthrough)
+/// - **Case 4** — `skill` null, `resolvedPrompt` empty: rejected upstream
+///   by the validator
 ///
 /// After construction, the builder auto-frames any unreferenced
 /// `contextInputs` / workflow `variables:` via [appendAutoFramedContext]
-/// and then delegates to [PromptAugmenter] for schema-driven output
-/// format section appendage (S01 integration).
+/// (skipping the `contextInputs` list itself when Case 2 already rendered
+/// them as markdown sections, to avoid double-rendering), then delegates
+/// to [PromptAugmenter] for schema-driven output format section appendage
+/// (S01 integration).
 class SkillPromptBuilder {
   final PromptAugmenter _augmenter;
   final HarnessFactory _harnessFactory;
@@ -96,6 +105,7 @@ class SkillPromptBuilder {
     }
 
     final String prompt;
+    var caseUsedSummary = false;
 
     if (skill != null) {
       final skillLine = _harnessFactory.skillActivationLineFor(provider, skill);
@@ -107,6 +117,7 @@ class SkillPromptBuilder {
         // Sections carry their own `##` headers, so no literal "Context:"
         // preamble is needed.
         prompt = '$skillLine\n\n$contextSummary';
+        caseUsedSummary = true;
       } else {
         // Case 2b: skill + no prompt + no context.
         prompt = skillLine;
@@ -120,10 +131,16 @@ class SkillPromptBuilder {
     // Step 2: auto-frame any unreferenced contextInputs/variables so the
     // agent always receives the declared state, even when the authored
     // template body is pure prose.
+    //
+    // When Case 2 used `contextSummary` as the body, the contextInputs
+    // are already rendered as markdown sections — skip them in
+    // auto-framing to avoid double-rendering every value. Workflow
+    // `variables:` are still auto-framed because the summary only covers
+    // contextInputs.
     final framed = autoFrameContext
         ? appendAutoFramedContext(
             prompt,
-            contextInputs: contextInputs,
+            contextInputs: caseUsedSummary ? const <String>[] : contextInputs,
             variables: variables,
             resolvedValues: resolvedInputValues,
             templatePrompt: templatePrompt,

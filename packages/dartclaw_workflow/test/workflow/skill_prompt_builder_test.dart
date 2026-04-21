@@ -47,6 +47,40 @@ void main() {
       expect(result, "Use the 'my-skill' skill.\n\n## Key\n\nval");
     });
 
+    test('Case 2 contextInputs are not auto-framed (avoid duplication)', () {
+      // Regression: when the builder renders contextInputs as a markdown
+      // `## Pretty Name` summary (Case 2), auto-framing must not ALSO
+      // append `<key>…</key>` blocks for the same keys — they are
+      // already present as sections.
+      final summary = SkillPromptBuilder.formatContextSummary({'plan': 'plan body', 'spec': 'spec body'});
+      final result = builder.build(
+        skill: 'my-skill',
+        contextSummary: summary,
+        contextInputs: const ['plan', 'spec'],
+        resolvedInputValues: const {'plan': 'plan body', 'spec': 'spec body'},
+      );
+      expect(result, contains('## Plan\n\nplan body'));
+      expect(result, contains('## Spec\n\nspec body'));
+      expect(result, isNot(contains('<plan>')));
+      expect(result, isNot(contains('<spec>')));
+    });
+
+    test('Case 2 still auto-frames workflow variables that are not part of the summary', () {
+      // The no-duplication guard targets contextInputs only — workflow
+      // `variables:` are orthogonal and must still be auto-framed.
+      final summary = SkillPromptBuilder.formatContextSummary({'plan': 'plan body'});
+      final result = builder.build(
+        skill: 'my-skill',
+        contextSummary: summary,
+        contextInputs: const ['plan'],
+        variables: const ['REQUIREMENTS'],
+        resolvedInputValues: const {'plan': 'plan body', 'REQUIREMENTS': 'req body'},
+      );
+      expect(result, contains('## Plan\n\nplan body'));
+      expect(result, isNot(contains('<plan>')));
+      expect(result, contains('<REQUIREMENTS>\nreq body\n</REQUIREMENTS>'));
+    });
+
     test('skill + prompt + schema -> skill line + prompt + Required Output Format', () {
       final result = builder.build(
         skill: 'dartclaw-review-code',

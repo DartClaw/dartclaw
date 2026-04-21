@@ -177,8 +177,3 @@ If PUBLISH_ISSUE is `true`:
 ## Appendix: Template
 
 **USE THE TEMPLATE**: [`templates/prd-template.md`](templates/prd-template.md)
-
-## Output Constraints
-
-- Do not emit `stories`, `story_specs`, or any planning/spec artifacts from this skill. Those outputs belong to the `dartclaw-plan` step (and downstream spec work), not to the PRD step.
-- Never emit the PRD body inline — workflow steps downstream read the file via `file_read`.

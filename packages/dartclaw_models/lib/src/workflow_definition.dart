@@ -1,3 +1,5 @@
+const _workflowDefinitionFieldUnset = Object();
+
 /// Output format for context extraction.
 enum OutputFormat {
   /// Raw string extraction (default, current behavior).
@@ -470,6 +472,9 @@ class WorkflowStep {
   /// Stored as string to avoid cross-package dependency on dartclaw_core's TaskType.
   final String type;
 
+  /// Whether `type:` was authored explicitly in the source definition.
+  final bool typeAuthored;
+
   /// Optional project reference (supports `{{variable}}` references).
   final String? project;
 
@@ -648,6 +653,7 @@ class WorkflowStep {
     this.prompts,
     this.skill,
     this.type = 'research',
+    this.typeAuthored = false,
     this.project,
     this.provider,
     this.model,
@@ -684,7 +690,7 @@ class WorkflowStep {
     'name': name,
     if (skill != null) 'skill': skill,
     if (prompts != null) 'prompts': prompts!.toList(),
-    'type': type,
+    if (typeAuthored || type != 'research') 'type': type,
     'review': review.name,
     'parallel': parallel,
     if (project != null) 'project': project,
@@ -734,6 +740,7 @@ class WorkflowStep {
       skill: json['skill'] as String?,
       prompts: prompts,
       type: (json['type'] as String?) ?? 'research',
+      typeAuthored: (json['typeAuthored'] as bool?) ?? json.containsKey('type'),
       project: json['project'] as String?,
       provider: json['provider'] as String?,
       model: json['model'] as String?,
@@ -1047,6 +1054,9 @@ class WorkflowDefinition {
   /// Optional workflow-level token budget ceiling.
   final int? maxTokens;
 
+  /// Optional workflow-level project binding inherited by eligible steps.
+  final String? project;
+
   /// Optional pattern-based step config defaults applied in order (first match wins).
   final List<StepConfigDefault>? stepDefaults;
 
@@ -1061,12 +1071,41 @@ class WorkflowDefinition {
     this.loops = const [],
     List<WorkflowNode>? nodes,
     this.maxTokens,
+    this.project,
     this.stepDefaults,
     this.gitStrategy,
   }) : _nodes = nodes;
 
   /// Normalized authored-order execution graph for this definition.
   List<WorkflowNode> get nodes => _nodes ?? normalizeNodes(steps, loops);
+
+  WorkflowDefinition copyWith({
+    String? name,
+    String? description,
+    Map<String, WorkflowVariable>? variables,
+    List<WorkflowStep>? steps,
+    List<WorkflowLoop>? loops,
+    Object? nodes = _workflowDefinitionFieldUnset,
+    int? maxTokens,
+    Object? project = _workflowDefinitionFieldUnset,
+    Object? stepDefaults = _workflowDefinitionFieldUnset,
+    Object? gitStrategy = _workflowDefinitionFieldUnset,
+  }) => WorkflowDefinition(
+    name: name ?? this.name,
+    description: description ?? this.description,
+    variables: variables ?? this.variables,
+    steps: steps ?? this.steps,
+    loops: loops ?? this.loops,
+    nodes: identical(nodes, _workflowDefinitionFieldUnset) ? _nodes : nodes as List<WorkflowNode>?,
+    maxTokens: maxTokens ?? this.maxTokens,
+    project: identical(project, _workflowDefinitionFieldUnset) ? this.project : project as String?,
+    stepDefaults: identical(stepDefaults, _workflowDefinitionFieldUnset)
+        ? this.stepDefaults
+        : stepDefaults as List<StepConfigDefault>?,
+    gitStrategy: identical(gitStrategy, _workflowDefinitionFieldUnset)
+        ? this.gitStrategy
+        : gitStrategy as WorkflowGitStrategy?,
+  );
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -1076,6 +1115,7 @@ class WorkflowDefinition {
     'loops': loops.map((l) => l.toJson()).toList(),
     'nodes': nodes.map((n) => n.toJson()).toList(growable: false),
     if (maxTokens != null) 'maxTokens': maxTokens,
+    if (project != null) 'project': project,
     if (stepDefaults != null) 'stepDefaults': stepDefaults!.map((d) => d.toJson()).toList(),
     if (gitStrategy != null) 'gitStrategy': gitStrategy!.toJson(),
   };
@@ -1098,6 +1138,7 @@ class WorkflowDefinition {
         ?.map((node) => WorkflowNode.fromJson(node as Map<String, dynamic>))
         .toList(growable: false),
     maxTokens: json['maxTokens'] as int?,
+    project: json['project'] as String?,
     stepDefaults: (json['stepDefaults'] as List?)
         ?.map((d) => StepConfigDefault.fromJson(d as Map<String, dynamic>))
         .toList(growable: false),

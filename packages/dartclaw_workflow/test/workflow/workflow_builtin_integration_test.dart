@@ -839,20 +839,20 @@ void main() {
     expect(trace.tasksForStep('prd').single.projectId, isNull);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('discover-project').single.type, TaskType.research);
-    expect(trace.tasksForStep('prd').single.type, TaskType.analysis);
+    expect(trace.tasksForStep('discover-project').single.type, TaskType.coding);
+    expect(trace.tasksForStep('prd').single.type, TaskType.coding);
     expect(trace.tasksForStep('plan').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('plan').single.type, TaskType.analysis);
+    expect(trace.tasksForStep('plan').single.type, TaskType.coding);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('implement').single.type, TaskType.coding);
     expect(trace.tasksForStep('quick-review').single.projectId, isNull);
-    expect(trace.tasksForStep('quick-review').single.type, TaskType.analysis);
+    expect(trace.tasksForStep('quick-review').single.type, TaskType.coding);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, isNull);
-    expect(trace.tasksForStep('plan-review').single.type, TaskType.analysis);
+    expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
     expect(trace.tasksForStep('update-state').single.type, TaskType.coding);
   });
@@ -944,7 +944,7 @@ void main() {
     final quickReviews = trace.tasksForStep('quick-review');
     expect(quickReviews, hasLength(2));
     for (final quickReview in quickReviews) {
-      expect(quickReview.type, TaskType.analysis);
+      expect(quickReview.type, TaskType.coding);
       expect(quickReview.configJson['_workflowNeedsWorktree'], isTrue);
     }
   });
@@ -1216,7 +1216,7 @@ void main() {
     );
 
     final implementPrompt = trace.tasksForStep('implement').single.description;
-    expect(implementPrompt, contains('"spec_path":"docs/specs/demo/fis/s01-story-one.md"'));
+    expect(implementPrompt, contains('docs/specs/demo/fis/s01-story-one.md (story 1 of 1):'));
   });
 
   test(

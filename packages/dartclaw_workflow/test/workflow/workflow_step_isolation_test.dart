@@ -98,7 +98,6 @@ void expectStorySpecShape(Object? raw) {
   expect(storySpec['title'], isA<String>());
   expect((storySpec['title'] as String).trim(), isNotEmpty);
   expect(storySpec['description'], isA<String>());
-  expect(storySpec['acceptance_criteria'], isA<List<Object?>>());
   expect(storySpec['type'], isA<String>());
   expect(storySpec['dependencies'], isA<List<Object?>>());
   expect(storySpec['key_files'], isA<List<Object?>>());
@@ -438,8 +437,9 @@ void main() {
       MapContext(item: firstStorySpec as Object, index: 0, length: storySpecsList.length),
     );
     expect(resolvedStorySpec.trim(), contains('"id"'));
-    expect(resolvedStorySpec.trim(), contains('"acceptance_criteria"'));
-    expect(resolvedStorySpec.trim(), contains('"spec"'));
+    expect(resolvedStorySpec.trim(), contains('"spec_path"'));
+    // AC is resolved from the FIS body at spec_path, not carried inline.
+    expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
   }, timeout: const Timeout(Duration(minutes: 5)));
 
   test(
@@ -530,7 +530,7 @@ void main() {
               },
             ],
           },
-          'implement.story_result':
+          'story_result':
               'Implemented notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
         },
       ),

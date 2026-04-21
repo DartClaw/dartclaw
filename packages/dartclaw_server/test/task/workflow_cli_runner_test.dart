@@ -159,10 +159,9 @@ void main() {
         sandboxOverride: 'read-only',
       );
 
-      expect(arguments, containsAll(['exec', '--json', '--skip-git-repo-check']));
+      expect(arguments, containsAll(['exec', '--json', '--full-auto', '--skip-git-repo-check']));
       expect(arguments, containsAll(['-c', 'approval_policy="never"']));
       expect(arguments, containsAll(['--sandbox', 'read-only']));
-      expect(arguments, isNot(contains('--full-auto')));
     });
 
     test('builds Claude one-shot args with permissionMode and structured settings', () async {

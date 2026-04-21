@@ -22,6 +22,8 @@ variables:
     required: false
     description: Target project for remediation steps (omit for default project)
 
+project: "{{PROJECT}}"
+
 gitStrategy:
   bootstrap: false
   worktree: shared
@@ -43,9 +45,8 @@ steps:
   # Discover the project layout and relevant Git context before the review begins.
   - id: discover-project
     name: Discover Project
-    type: research
+    type: custom
     skill: dartclaw-discover-project
-    project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     contextOutputs: [project_index]
     outputs:
@@ -59,8 +60,9 @@ steps:
   # review skill select the right diffing strategy (PR vs branch vs plain target).
   - id: review-code
     name: Review Code
-    type: analysis
+    type: custom
     skill: dartclaw-review
+    allowedTools: [file_read]
     contextInputs: [project_index]
     workflowVariables: [TARGET, BRANCH, PR_NUMBER, BASE_BRANCH]
     contextOutputs: [review_summary, review-code.findings_count]
@@ -87,9 +89,8 @@ steps:
       # on its edits before emitting a completed remediation result.
       - id: remediate
         name: Remediate Findings
-        type: coding
+        type: custom
         skill: dartclaw-remediate-findings
-        project: "{{PROJECT}}"
         contextInputs: [project_index, review_summary]
         contextOutputs: [remediation_result, remediation_summary, diff_summary]
         outputs:
@@ -107,8 +108,9 @@ steps:
       # Re-run the code review on the remediated implementation to decide whether another pass is needed.
       - id: re-review
         name: Re-review
-        type: analysis
+        type: custom
         skill: dartclaw-review
+        allowedTools: [file_read]
         contextInputs: [project_index, review_summary, remediation_summary, diff_summary]
         contextOutputs: [review_summary, re-review.findings_count]
         outputs:

@@ -307,6 +307,12 @@ void main() {
       expect(restored.allowedTools, isNull);
     });
 
+    test('implicit default type is omitted from json', () {
+      const step = WorkflowStep(id: 'step-1', name: 'Step One', prompts: ['Just do it']);
+      final json = step.toJson();
+      expect(json.containsKey('type'), isFalse);
+    });
+
     test('timeout stored as seconds integer', () {
       const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], timeoutSeconds: 1800);
       final json = step.toJson();
@@ -371,6 +377,7 @@ void main() {
         name: 'my-workflow',
         description: 'A test workflow',
         variables: {'VAR': WorkflowVariable(description: 'A variable')},
+        project: '{{PROJECT}}',
         steps: [
           WorkflowStep(id: 'step-1', name: 'Step One', prompts: ['Do {{VAR}}']),
           WorkflowStep(id: 'step-2', name: 'Step Two', prompts: ['Use {{context.result}}']),
@@ -400,6 +407,16 @@ void main() {
       expect(restored.nodes.first, isA<ActionNode>());
       expect(restored.nodes.last, isA<LoopNode>());
       expect(restored.maxTokens, 50000);
+      expect(restored.project, '{{PROJECT}}');
+    });
+
+    test('copyWith updates and clears workflow-level project', () {
+      final def = buildDefinition();
+      final updated = def.copyWith(project: 'docs-project');
+      expect(updated.project, 'docs-project');
+
+      final cleared = updated.copyWith(project: null);
+      expect(cleared.project, isNull);
     });
 
     test('round-trips with no loops', () {

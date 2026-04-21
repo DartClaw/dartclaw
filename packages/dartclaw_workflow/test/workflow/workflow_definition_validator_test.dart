@@ -138,6 +138,54 @@ void main() {
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.type == ValidationErrorType.missingField), true);
       });
+
+      test('workflow-level project references must be declared', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          project: '{{PROJECT}}',
+          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+        );
+        final errors = validator.validate(def).errors;
+        expect(errors.any((e) => e.message.contains('Workflow project field references undeclared variable')), isTrue);
+      });
+    });
+
+    group('deprecation warnings', () {
+      test('warns when step project duplicates workflow-level project', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          project: '{{PROJECT}}',
+          variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'demo-project')},
+          steps: const [
+            WorkflowStep(
+              id: 'implement',
+              name: 'Implement',
+              prompts: ['p'],
+              project: '{{PROJECT}}',
+            ),
+          ],
+        );
+        final warnings = validator.validate(def).warnings;
+        expect(warnings.any((w) => w.message.contains('duplicates the workflow-level project binding')), isTrue);
+      });
+
+      test('emits one semantic type warning per definition', () {
+        final def = WorkflowDefinition(
+          name: 'wf',
+          description: 'd',
+          steps: const [
+            WorkflowStep(id: 'discover', name: 'Discover', prompts: ['p'], type: 'research', typeAuthored: true),
+            WorkflowStep(id: 'review', name: 'Review', prompts: ['p'], type: 'analysis', typeAuthored: true),
+          ],
+        );
+        final warnings = validator.validate(def).warnings;
+        expect(
+          warnings.where((w) => w.message.contains('Semantic step types')).length,
+          1,
+        );
+      });
     });
 
     group('duplicate IDs', () {
@@ -1157,7 +1205,6 @@ void main() {
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
-          type: 'coding',
           prompts: const ['Implement'],
           contextOutputs: const ['diff_summary'],
           outputs: {'diff_summary': outputConfig},
@@ -1210,7 +1257,6 @@ void main() {
           WorkflowStep(
             id: 'review',
             name: 'Review',
-            type: 'analysis',
             prompts: ['Review'],
             contextOutputs: ['findings_count'],
             outputs: {

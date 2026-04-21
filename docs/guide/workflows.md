@@ -47,6 +47,8 @@ Run it, read the output, and watch where the agent succeeds and where it struggl
 Split at natural phase transitions once you see the agent doing conceptually distinct work in one step.
 
 ```yaml
+project: '{{PROJECT}}'
+
 steps:
   - id: review
     name: Code Review
@@ -58,8 +60,6 @@ steps:
 
   - id: remediate
     name: Remediate Findings
-    type: coding
-    project: "{{PROJECT}}"
     prompt: |
       Fix the issues identified in this review:
       {{context.review_findings}}
@@ -75,10 +75,10 @@ Common split points: research → design → implement → verify, or plan → e
 Insert gate expressions where human checkpoints add value — after implementation, before merge.
 
 ```yaml
+project: '{{PROJECT}}'
+
   - id: remediate
     name: Remediate Findings
-    type: coding
-    project: "{{PROJECT}}"
     review: always       # opt in only when you intentionally want a human stop
     gate: "review.status == accepted"   # only runs if review was accepted
     prompt: |
@@ -91,6 +91,26 @@ Gates reference previous step IDs (`stepId.key operator value`). Compound gates 
 ```yaml
 gate: "review.status == accepted && review.findings_count <= 3"
 ```
+
+### Workflow Project Binding
+
+When a workflow targets a repository-backed project, declare it once at the top level:
+
+```yaml
+project: '{{PROJECT}}'
+```
+
+The executor resolves project binding in this order:
+
+1. Step-level `project:` override, if present.
+2. Workflow-level `project:` for eligible steps.
+3. `null` when the step is intentionally project-agnostic.
+
+In practice:
+
+- Project-discovery and project-mutating steps inherit the workflow project automatically.
+- Review, planning, and other project-agnostic steps stay unbound unless they opt in explicitly.
+- Step-level `project:` is now a compatibility override, not the recommended default.
 
 ### Step 4: Add Structure
 
@@ -157,6 +177,32 @@ Agent steps also receive a semantic step-outcome contract unless the step or ref
 ```
 
 This is separate from `<workflow-context>`: the context block carries domain outputs, while `<step-outcome>` tells the engine what the step *meant*. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`), and `needsInput` always moves the run into an approval-style hold.
+
+### Reference Forms at a Glance
+
+Templates in `prompt:`, `project:`, and similar fields resolve through three distinct namespaces:
+
+| Form | Source | If missing |
+|------|--------|-----------|
+| `{{VARIABLE}}` | Top-level `variables:` declared on the workflow | Throws `ArgumentError` at start time |
+| `{{context.key}}` | Workflow context — values written by prior steps' `contextOutputs`, plus auto-written metadata | Empty string with a warning log |
+| `{{map.*}}` / `{{<alias>.*}}` | Current iteration inside a `mapOver` / `foreach` controller (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) | Raises on shape errors; metadata refs always resolve |
+
+Common trap: `{{review_summary}}` is **not** the same as `{{context.review_summary}}`. Without the `context.` prefix the engine treats it as a variable lookup and throws if `review_summary` isn't a declared variable. **Always use `context.` to read another step's output.**
+
+The full reference grammar — indexed lookups, field access on map items, alias forms — lives in [Template References](#template-references) further down.
+
+#### Step-Prefixed References (`{{context.<stepId>.<key>}}`)
+
+Step-prefixed context keys come from two mechanisms, consistent everywhere (top-level steps, parallel groups, loop bodies, and `mapOver` / `foreach` iterations):
+
+1. **Auto-injected metadata.** The executor writes `<stepId>.status` and `<stepId>.tokenCount` for every step unconditionally. Coding steps additionally get `<stepId>.branch` and `<stepId>.worktree_path`. You can read these without declaring anything — `{{context.lint.status}}` works for any step whose id is `lint`.
+
+2. **Author-declared aliases.** Declare the step-prefixed key explicitly in `contextOutputs`, e.g. `contextOutputs: [review_summary, review-code.findings_count]`. Under the hood this is just a flat context key that happens to have a dot in its name. Use this pattern to disambiguate when more than one step emits the same generic key — `code-review.yaml` does this for `findings_count`, which is written by both `review-code` and `re-review`.
+
+There is **no automatic step-prefix aliasing** in iteration overlays. Inside a `foreach`, sibling child steps read each other's outputs via the declared bare keys (e.g. `{{context.story_result}}`) — the per-iteration overlay isolates iterations from each other, but it does not auto-alias outputs under the writing step's id. If a child step wants to expose its output under a step-prefixed key, declare that key in its own `contextOutputs`.
+
+The aggregate that a map/foreach controller exports to the outer workflow context is a list of per-iteration objects keyed by child step id (`story_results[i].implement.story_result`). That post-iteration shape is separate from how bare keys resolve inside the iteration.
 
 ### Workflow Run Statuses and Retry
 
@@ -370,12 +416,7 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
 - The controller step's `contextOutputs` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`.
 - The child steps' `contextOutputs` are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
 
-Within one iteration, child step outputs are available both as bare keys and as step-prefixed keys:
-
-- `story_result`
-- `implement.story_result`
-
-That is why later child steps in the same pipeline can use references like `{{context.implement.story_result}}`.
+Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay — if you want a disambiguated `<stepId>.<key>` form, declare it explicitly in the writing step's `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)).
 
 The final aggregate exported by a `foreach` controller is a list of per-item objects keyed by child step id. For the example above, one entry in `story_results` looks like:
 
@@ -463,7 +504,7 @@ gitStrategy:
   artifacts:
     commit: true                                    # default true if ≥1 artifact-producing step
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
-    project: "{{PROJECT}}"
+    project: '{{PROJECT}}'
 ```
 
 Key runtime behavior:
@@ -617,7 +658,7 @@ To opt a single step out:
   prompt: "…"
 ```
 
-**Interaction summary** — what the agent actually sees depending on how the step is authored:
+**Interaction summary** — what the agent actually sees depending on how the step is authored. The first four rows cover prompt-authoring combinations and flow directly from the Detection rules above. The last two rows cover skill-only steps, where the prompt body itself is derived (either from the skill's `default_prompt` or from a markdown summary of `contextInputs`) before auto-framing runs:
 
 | Authoring choice | What the agent sees |
 |---|---|
@@ -625,8 +666,8 @@ To opt a single step out:
 | `contextInputs: [plan]` + prompt contains `<plan>…</plan>` by hand | Manual block preserved; no auto-frame added |
 | `contextInputs: [plan]` + prompt never mentions `plan` | `<plan>\n{value}\n</plan>` auto-appended after the prompt body |
 | `contextInputs: [plan]` + `auto_frame_context: false` + no reference | Value not rendered — dependency is declared but silent |
-| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `contextInputs` auto-framed at the tail |
-| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `contextInputs` entry becomes the prompt body |
+| `skill: foo` + no `prompt:` + skill has `workflow.default_prompt` | Skill's default prompt becomes the body; `contextInputs` auto-framed at the tail as `<key>…</key>` blocks |
+| `skill: foo` + no `prompt:` + skill has no `default_prompt` | Markdown `## Pretty Name` summary of each `contextInputs` entry becomes the prompt body; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
 
 ### Exit Gates and Finalizers
 
@@ -700,7 +741,7 @@ Notable patterns:
 - **Single-step artifact producers**: `prd` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume their emitted paths (`prd`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together, absorbing the work the legacy `spec-plan` step used to do.
 - **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
-- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.implement.story_result}}` within the same story iteration.
+- **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares in `contextOutputs`.
 - **Independent story slices**: the plan step is expected to produce stories that can be implemented from the same base branch without implicit code sharing between iterations.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
@@ -851,13 +892,12 @@ variables:
 |-------|------|---------|-------------|
 | `id` | string | required | Unique step identifier |
 | `name` | string | required | Human-readable step name |
-| `type` | string | `research` | Step type: `research`, `analysis`, `coding`, `writing`, `bash`, `approval`, or orchestration containers `foreach` / `loop` |
+| `type` | string | `research` | Optional semantic label. Structural values like `bash`, `approval`, `foreach`, and `loop` change execution behavior; semantic values like `coding` or `analysis` are retained mainly for observability. New workflow YAMLs should prefer `custom` (or omit the field entirely) unless the label matters |
 | `prompt` | string or list | required* | Step instruction(s). Agent steps may use a list for multi-prompt turns. `bash` and `approval` steps accept a single prompt string |
 | `provider` | string | default | AI provider: `claude`, `codex` (agent steps only) |
 | `model` | string | default | Model override (provider-specific name, agent steps only) |
 | `effort` | string | none | Provider-specific reasoning effort override |
-| `project` | string | none | Project ID for worktree isolation (coding steps) |
-| `review` | string | `codingOnly` | Review mode: `always`, `codingOnly`, `never` (agent steps only) |
+| `review` | string | `codingOnly` | Compatibility field. Workflow-owned tasks auto-accept by default; use explicit review or approval steps for human checkpoints |
 | `gate` | string | none | Condition expression — step skipped if false |
 | `contextInputs` | list | `[]` | Context keys this step reads |
 | `contextOutputs` | list | `[]` | Context keys this step writes |
@@ -940,13 +980,11 @@ Non-existent `workdir` fails the step before the command runs.
 - id: investigate
   name: Investigate
   type: coding
-  project: "{{PROJECT}}"
   prompt: Investigate the bug and capture the root cause.
 
 - id: fix
   name: Fix
   type: coding
-  project: "{{PROJECT}}"
   continueSession: true
   prompt: Implement the fix in the same coding session.
 ```
@@ -1070,8 +1108,12 @@ Templates in `prompt` and `project` fields support:
 
 | Reference | Resolves to |
 |-----------|------------|
-| `{{VARIABLE}}` | Declared workflow variable |
-| `{{context.key}}` | Context value written by a prior step |
+| `{{VARIABLE}}` | Declared workflow variable (fail-fast if undefined) |
+| `{{context.key}}` | Context value written by a prior step (empty string + warning if absent) |
+| `{{context.<stepId>.status}}` | Per-step lifecycle outcome — auto-written for every step |
+| `{{context.<stepId>.tokenCount}}` | Per-step token usage — auto-written for every step |
+| `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Coding-step worktree metadata — auto-written for coding-type steps |
+| `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key — the writing step must list it in its `contextOutputs` (see [Step-Prefixed References](#step-prefixed-references-contextstepidkey)) |
 | `{{map.item}}` | Current item in the mapped array (JSON for objects, toString for scalars) |
 | `{{map.item.field}}` | Field access on a Map item (dot notation, up to 10 segments) |
 | `{{map.index}}` | 0-based iteration index |
@@ -1085,6 +1127,8 @@ Templates in `prompt` and `project` fields support:
 | `{{context.key[<alias>.index]}}` | Indexed lookup using the named alias as the index source |
 
 The `{{context.key[map.index]}}` (or `[<alias>.index]`) pattern auto-extracts `.text` from structured result elements (supports S07 coding artifacts). Use `{{context.key[map.index].field}}` to explicitly access a named field instead.
+
+For a higher-level mental model of the three namespaces and the step-prefix rules, see [Reference Forms at a Glance](#reference-forms-at-a-glance).
 
 ### Legacy `loops` Fields
 

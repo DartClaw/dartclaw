@@ -30,6 +30,11 @@ class WorkflowDefinitionResolver {
     final resolvedSteps = def.steps
         .map((step) => _resolveStep(step, def.stepDefaults, variableBindings))
         .toList(growable: false);
+    final resolvedProject = switch ((def.project, variableBindings)) {
+      (final String project, final Map<String, String> bindings) when bindings.isNotEmpty => _substituteVariables(project, bindings),
+      (final String project, _) => project,
+      _ => null,
+    };
     return WorkflowDefinition(
       name: def.name,
       description: def.description,
@@ -38,6 +43,7 @@ class WorkflowDefinitionResolver {
       loops: def.loops,
       nodes: WorkflowDefinition.normalizeNodes(resolvedSteps, def.loops),
       maxTokens: def.maxTokens,
+      project: resolvedProject,
       // stepDefaults intentionally dropped — already baked into each step.
       gitStrategy: def.gitStrategy,
     );
@@ -58,6 +64,7 @@ class WorkflowDefinitionResolver {
       name: resolved.name,
       description: resolved.description,
       variables: resolved.variables,
+      project: resolved.project,
       steps: [step],
       loops: const [],
       nodes: [ActionNode(stepId: step.id)],
@@ -110,6 +117,7 @@ class WorkflowDefinitionResolver {
       skill: step.skill,
       prompts: resolvedPrompts,
       type: step.type,
+      typeAuthored: step.typeAuthored,
       project: step.project,
       provider: step.provider ?? matched?.provider,
       model: step.model ?? matched?.model,
@@ -180,6 +188,7 @@ class WorkflowDefinitionResolver {
       entries.add(MapEntry('variables', def.variables.map((k, v) => MapEntry(k, v.toJson()))));
     }
     if (def.maxTokens != null) entries.add(MapEntry('maxTokens', def.maxTokens));
+    if (def.project != null) entries.add(MapEntry('project', def.project));
     if (def.gitStrategy != null) entries.add(MapEntry('gitStrategy', def.gitStrategy!.toJson()));
     if (def.stepDefaults != null && def.stepDefaults!.isNotEmpty) {
       entries.add(MapEntry('stepDefaults', def.stepDefaults!.map((d) => d.toJson()).toList()));
@@ -246,11 +255,10 @@ class WorkflowDefinitionResolver {
   }
 
   List<MapEntry<String, dynamic>> _stepToOrderedMap(WorkflowStep step) {
-    final entries = <MapEntry<String, dynamic>>[
-      MapEntry('id', step.id),
-      MapEntry('name', step.name),
-      MapEntry('type', step.type),
-    ];
+    final entries = <MapEntry<String, dynamic>>[MapEntry('id', step.id), MapEntry('name', step.name)];
+    if (step.typeAuthored || step.type != 'research') {
+      entries.add(MapEntry('type', step.type));
+    }
     if (step.skill != null) entries.add(MapEntry('skill', step.skill));
     if (step.prompts != null) {
       final prompts = step.prompts!;

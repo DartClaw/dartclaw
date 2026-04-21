@@ -17,7 +17,7 @@ workflow:
     story_specs:
       format: json
       schema: story-specs
-      description: Per-story records driving the foreach — `id`, `title`, `spec_path`, and `acceptance_criteria`. Plan-level detail (phase, wave, dependencies, key_files) lives in `plan.md`; FIS body lives at `spec_path`.
+      description: Per-story records driving the foreach — `id`, `title`, and `spec_path`. Plan-level detail (phase, wave, dependencies, key_files) lives in `plan.md`; the FIS body, including acceptance criteria, lives at `spec_path`.
     technical_research:
       format: path
       description: Workspace-relative path to `technical-research.md` on disk, when one was written.
@@ -378,9 +378,3 @@ Print a summary:
 - Plan: [`templates/plan-template.md`](templates/plan-template.md)
 - FIS: `templates/fis-template.md`
 - PRD template (used by the `dartclaw-prd` skill upstream): `templates/prd-template.md`
-
-## Output Constraints
-
-- `story_specs` is **not** a bare path array: each item must carry `id`, `title`, `spec_path`, and `acceptance_criteria`. Downstream map-iteration prompts read these directly; the FIS body is resolved from disk via `spec_path`. Plan-level detail (phase, wave, dependencies, key_files, effort) is not part of this shape — it belongs in `plan.md`.
-- Do not emit `prd` from this skill — the reviewed PRD path flows in via `contextInputs` and is passed through unchanged.
-- Never emit `plan.md`, FIS content, or `technical-research.md` body inline — the files on disk are the source of truth.

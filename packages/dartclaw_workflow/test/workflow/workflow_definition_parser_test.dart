@@ -132,6 +132,7 @@ loops:
 const _gitStrategyYaml = '''
 name: git-strategy-workflow
 description: Workflow with reusable git strategy
+project: "{{PROJECT}}"
 gitStrategy:
   bootstrap: true
   worktree:
@@ -253,6 +254,25 @@ steps:
     test('parses gitStrategy.worktree: auto', () {
       final def = parser.parse(_autoWorktreeYaml);
       expect(def.gitStrategy?.worktreeMode, 'auto');
+    });
+
+    test('parses workflow-level project', () {
+      final def = parser.parse(_gitStrategyYaml);
+      expect(def.project, '{{PROJECT}}');
+    });
+
+    test('rejects non-string workflow-level project', () {
+      const yaml = '''
+name: wf
+description: desc
+project:
+  nested: nope
+steps:
+  - id: s1
+    name: Step
+    prompt: Hello
+''';
+      expect(() => parser.parse(yaml), throwsFormatException);
     });
 
     test('rejects removed executionMode at workflow root', () {

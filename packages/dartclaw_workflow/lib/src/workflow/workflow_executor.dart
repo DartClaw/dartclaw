@@ -273,17 +273,15 @@ class WorkflowExecutor {
   /// triple so callers can log the resolved path even when the directory is
   /// missing — makes misconfigured `artifacts.project` templates debuggable.
   _ResolvedArtifactProject? _resolveArtifactCommitProject(
+    WorkflowDefinition definition,
     WorkflowStep step,
     WorkflowContext context,
     WorkflowGitArtifactsStrategy strategy,
   ) {
-    String? resolve(String? template) {
-      if (template == null) return null;
-      final rendered = _templateEngine.resolve(template, context).trim();
-      return rendered.isEmpty ? null : rendered;
-    }
-
-    final projectId = resolve(strategy.project) ?? resolve(step.project) ?? resolve('{{PROJECT}}');
+    final projectId =
+        _resolveProjectTemplate(strategy.project, context) ??
+        _resolveProjectTemplate(step.project, context) ??
+        _resolveProjectTemplate(definition.project, context);
     if (projectId == null) return null;
     final dir = p.join(_dataDir, 'projects', projectId);
     return _ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
@@ -329,7 +327,12 @@ class WorkflowExecutor {
     if (producedPaths.isEmpty) return;
 
     // Resolve the project working directory for the commit.
-    final resolved = _resolveArtifactCommitProject(step, context, artifacts ?? const WorkflowGitArtifactsStrategy());
+    final resolved = _resolveArtifactCommitProject(
+      definition,
+      step,
+      context,
+      artifacts ?? const WorkflowGitArtifactsStrategy(),
+    );
     if (resolved == null) {
       _log.warning(
         "artifact-commit: step '${step.id}' produced paths but no project id "
@@ -1857,8 +1860,8 @@ class WorkflowExecutor {
         ? _resolveContinueSessionProvider(definition, step, continuedRootStep, resolved)
         : resolved.provider;
     final effectiveProjectId = mapCtx != null
-        ? _resolveProjectIdWithMap(continuedRootStep ?? step, context, mapCtx)
-        : _resolveProjectId(continuedRootStep ?? step, context);
+        ? _resolveProjectIdWithMap(definition, continuedRootStep ?? step, context, mapCtx, resolved: resolved)
+        : _resolveProjectId(definition, continuedRootStep ?? step, context, resolved: resolved);
 
     // Inject per-iteration metadata for foreach child steps so downstream tracking and tests
     // can identify which story iteration this task belongs to.
@@ -1992,7 +1995,7 @@ class WorkflowExecutor {
           stepIndex: stepIndex,
           title: title,
           description: firstTaskPrompt,
-          type: _mapStepType(step.type),
+          type: TaskType.coding,
           provider: effectiveProvider,
           projectId: effectiveProjectId,
           maxTokens: resolved.maxTokens,
@@ -2046,7 +2049,7 @@ class WorkflowExecutor {
       final wj = finalTask.worktreeJson;
       outputs['${step.id}.branch'] = (wj?['branch'] as String?) ?? '';
       outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
-      if (wj == null && _stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
+      if (wj == null && _stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
         _log.warning(
           "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
           'branch/worktree_path context values will be empty',
@@ -2761,11 +2764,11 @@ class WorkflowExecutor {
     if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
-    final allowsFileWrite = resolved.allowedTools?.contains('file_write') ?? false;
-    if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
+    final isReadOnlyStep = _stepIsReadOnly(step, resolved);
+    if (isReadOnlyStep) {
       config['readOnly'] = true;
     }
-    if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
+    if (_stepNeedsWorktree(definition, step, resolved, resolvedWorktreeMode: resolvedWorktreeMode)) {
       config['_workflowNeedsWorktree'] = true;
     }
     config['_workflowStepType'] = step.type;
@@ -2788,9 +2791,7 @@ class WorkflowExecutor {
     }
     config['_workflowWorkspaceDir'] = _resolveWorkflowWorkspaceDir();
     config['reviewMode'] = switch (step.review.name) {
-      'never' => 'auto-accept',
       'always' => 'mandatory',
-      'codingOnly' => 'auto-accept',
       _ => 'auto-accept',
     };
     return config;
@@ -2822,9 +2823,15 @@ class WorkflowExecutor {
     };
   }
 
-  bool _stepNeedsWorktree(WorkflowStep step, {required String resolvedWorktreeMode}) {
-    if (step.type == 'coding') return true;
-    return resolvedWorktreeMode == 'per-map-item';
+  bool _stepNeedsWorktree(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    ResolvedStepConfig resolved, {
+    required String resolvedWorktreeMode,
+  }) {
+    if (resolvedWorktreeMode == 'per-map-item') return true;
+    if (step.isForeachController || step.contextOutputs.contains('project_index')) return false;
+    return _shouldBindWorkflowProject(definition, step, resolved);
   }
 
   bool _isLastBranchTouchingStepInScope(
@@ -2832,15 +2839,54 @@ class WorkflowExecutor {
     WorkflowStep step,
     Iterable<WorkflowStep> followingScopeSteps,
   ) {
-    if (step.type != 'coding') return false;
+    if (!_stepTouchesProjectBranch(definition, step)) return false;
     final currentRootId = _continueSessionRootStepId(definition, step);
     for (final candidate in followingScopeSteps) {
-      if (candidate.type != 'coding') continue;
+      if (!_stepTouchesProjectBranch(definition, candidate)) continue;
       if (_continueSessionRootStepId(definition, candidate) == currentRootId) {
         return false;
       }
     }
     return true;
+  }
+
+  bool _stepIsReadOnly(WorkflowStep step, ResolvedStepConfig resolved) {
+    final allowedTools = resolved.allowedTools;
+    if (allowedTools != null) {
+      return !allowedTools.contains('file_write');
+    }
+    if (!step.typeAuthored) {
+      return step.type == 'research' || step.type == 'analysis';
+    }
+    return false;
+  }
+
+  bool _stepEmitsArtifactPath(WorkflowStep step) =>
+      step.outputs?.values.any((config) => config.format == OutputFormat.path) ?? false;
+
+  bool _shouldBindWorkflowProject(WorkflowDefinition definition, WorkflowStep step, ResolvedStepConfig resolved) {
+    if (step.project != null) return true;
+    if (definition.project == null) return false;
+    if (step.isMapStep) return true;
+    if (step.contextOutputs.contains('project_index')) return true;
+    if (_stepEmitsArtifactPath(step)) return false;
+    final allowedTools = resolved.allowedTools;
+    if (allowedTools != null) {
+      return allowedTools.contains('file_write');
+    }
+    // S41: semantic labels (`analysis`, `research`, `writing`, `coding`) no
+    // longer drive workflow project binding. The only remaining authored type
+    // hint used here is neutral `custom`, which the migrated built-ins use for
+    // mutating agent steps that do not declare an explicit tool allowlist.
+    return step.type == 'custom';
+  }
+
+  bool _stepTouchesProjectBranch(WorkflowDefinition definition, WorkflowStep step) {
+    if (definition.project == null && step.project == null) return false;
+    final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
+    if (!_shouldBindWorkflowProject(definition, step, resolved)) return false;
+    if (step.isForeachController || step.contextOutputs.contains('project_index')) return false;
+    return !_stepIsReadOnly(step, resolved);
   }
 
   String _continueSessionRootStepId(WorkflowDefinition definition, WorkflowStep step) =>
@@ -2978,10 +3024,7 @@ class WorkflowExecutor {
 
     return {
       ...outputs,
-      'story_specs': {
-        ...rawStorySpecs,
-        'items': normalizedItems,
-      },
+      'story_specs': {...rawStorySpecs, 'items': normalizedItems},
     };
   }
 
@@ -3019,15 +3062,6 @@ class WorkflowExecutor {
     }
     return false;
   }
-
-  TaskType _mapStepType(String type) => switch (type) {
-    'coding' => TaskType.coding,
-    'research' => TaskType.research,
-    'writing' => TaskType.writing,
-    'analysis' => TaskType.analysis,
-    'automation' => TaskType.automation,
-    _ => TaskType.custom,
-  };
 
   /// Returns true if the workflow-level budget has been exceeded.
   bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition) {
@@ -3122,17 +3156,44 @@ class WorkflowExecutor {
     }
   }
 
-  String? _resolveProjectId(WorkflowStep step, WorkflowContext context) {
-    final project = step.project;
-    if (project == null) return null;
-    final resolved = _templateEngine.resolve(project, context).trim();
+  String? _resolveProjectId(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context, {
+    required ResolvedStepConfig resolved,
+  }) {
+    final explicitProject = _resolveProjectTemplate(step.project, context);
+    if (explicitProject != null) return explicitProject;
+    if (!_shouldBindWorkflowProject(definition, step, resolved)) {
+      return null;
+    }
+    return _resolveProjectTemplate(definition.project, context);
+  }
+
+  String? _resolveProjectIdWithMap(
+    WorkflowDefinition definition,
+    WorkflowStep step,
+    WorkflowContext context,
+    MapContext mapContext, {
+    required ResolvedStepConfig resolved,
+  }) {
+    final explicitProject = _resolveProjectTemplateWithMap(step.project, context, mapContext);
+    if (explicitProject != null) return explicitProject;
+    if (!_shouldBindWorkflowProject(definition, step, resolved)) {
+      return null;
+    }
+    return _resolveProjectTemplateWithMap(definition.project, context, mapContext);
+  }
+
+  String? _resolveProjectTemplate(String? template, WorkflowContext context) {
+    if (template == null) return null;
+    final resolved = _templateEngine.resolve(template, context).trim();
     return resolved.isEmpty ? null : resolved;
   }
 
-  String? _resolveProjectIdWithMap(WorkflowStep step, WorkflowContext context, MapContext mapContext) {
-    final project = step.project;
-    if (project == null) return null;
-    final resolved = _templateEngine.resolveWithMap(project, context, mapContext).trim();
+  String? _resolveProjectTemplateWithMap(String? template, WorkflowContext context, MapContext mapContext) {
+    if (template == null) return null;
+    final resolved = _templateEngine.resolveWithMap(template, context, mapContext).trim();
     return resolved.isEmpty ? null : resolved;
   }
 
@@ -3460,7 +3521,7 @@ class WorkflowExecutor {
     final promotionAware = _isPromotionAwareScope(
       strategy,
       resolvedWorktreeMode: resolvedWorktreeMode,
-      hasCodingSteps: step.type == 'coding',
+      hasCodingSteps: _stepTouchesProjectBranch(definition, step),
     );
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds = (context['_map.${step.id}.promotedIds'] as List?)?.whereType<String>().toSet() ?? <String>{};
@@ -3550,7 +3611,7 @@ class WorkflowExecutor {
           length: collection.length,
           alias: step.mapAlias,
         );
-        final effectiveProjectId = _resolveProjectIdWithMap(step, context, mapContext);
+        final effectiveProjectId = _resolveProjectIdWithMap(definition, step, context, mapContext, resolved: resolved);
 
         // Resolve per-iteration prompt (resolveWithMap handles {{map.*}}).
         final rawPrompt = step.prompt;
@@ -3894,7 +3955,7 @@ class WorkflowExecutor {
     final promotionAware = _isPromotionAwareScope(
       strategy,
       resolvedWorktreeMode: resolvedWorktreeMode,
-      hasCodingSteps: childSteps.any((s) => s.type == 'coding'),
+      hasCodingSteps: childSteps.any((step) => _stepTouchesProjectBranch(definition, step)),
     );
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     final promotedIds =
@@ -3941,7 +4002,18 @@ class WorkflowExecutor {
           length: collection.length,
           alias: controllerStep.mapAlias,
         );
-        final effectiveProjectId = _resolveProjectIdWithMap(controllerStep, context, mapContext);
+        final controllerResolved = resolveStepConfig(
+          controllerStep,
+          definition.stepDefaults,
+          roleDefaults: _roleDefaults,
+        );
+        final effectiveProjectId = _resolveProjectIdWithMap(
+          definition,
+          controllerStep,
+          context,
+          mapContext,
+          resolved: controllerResolved,
+        );
         mapCtx.inFlightCount++;
 
         inFlight[iterIndex] =
@@ -4186,12 +4258,10 @@ class WorkflowExecutor {
       }
 
       // Child step succeeded — merge outputs into iteration context and global indexed keys.
-      // Write bare keys (e.g. `story_result`) AND step-prefixed keys (e.g. `implement.story_result`)
-      // so sibling child steps can reference `{{context.implement.story_result}}`.
+      // Sibling child steps read each other's outputs via their declared context
+      // keys (bare keys in the iteration overlay); step-prefixed aliases must be
+      // declared explicitly via `contextOutputs: [<stepId>.<key>]`.
       _mergeStepResultIntoContext(iterContext, result, fallbackStatus: result.task?.status.name ?? 'completed');
-      for (final entry in result.outputs.entries) {
-        iterContext['${childStep.id}.${entry.key}'] = entry.value;
-      }
 
       for (final entry in result.outputs.entries) {
         context['${childStep.id}[$iterIndex].${entry.key}'] = entry.value;
@@ -4225,9 +4295,12 @@ class WorkflowExecutor {
 
     // All child steps succeeded — handle worktree promotion before recording result.
     if (promotionAware) {
-      // Find the first coding child step and get its branch.
-      final codingStep = childSteps.firstWhere((s) => s.type == 'coding', orElse: () => childSteps.first);
-      final storyBranch = (iterContext['${codingStep.id}.branch'] as String?)?.trim();
+      // Find the child step that actually produced the promoted branch.
+      final branchStep = childSteps.firstWhere(
+        (step) => ((iterContext['${step.id}.branch'] as String?)?.trim().isNotEmpty ?? false),
+        orElse: () => childSteps.first,
+      );
+      final storyBranch = (iterContext['${branchStep.id}.branch'] as String?)?.trim();
       final promote = _turnAdapter?.promoteWorkflowBranch;
       final storyId = mapCtx.itemId(iterIndex);
 
@@ -4556,7 +4629,7 @@ class WorkflowExecutor {
         stepIndex: stepIndex,
         title: iterTitle,
         description: iterPrompt,
-        type: _mapStepType(step.type),
+        type: TaskType.coding,
         provider: resolved.provider,
         projectId: projectId,
         maxTokens: resolved.maxTokens,
@@ -4683,7 +4756,7 @@ class WorkflowExecutor {
 
       // Build result value.
       dynamic resultValue;
-      if (step.type == 'coding') {
+      if (finalTask.configJson['_workflowNeedsWorktree'] == true || finalTask.worktreeJson != null) {
         resultValue = await _buildCodingResult(finalTask, outputs);
       } else if (outputs.length == 1) {
         resultValue = outputs.values.first;

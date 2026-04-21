@@ -36,6 +36,7 @@ class WorkflowDefinitionParser {
       loops: loops,
       nodes: WorkflowDefinition.normalizeNodes(parsedSteps.steps, loops),
       maxTokens: yaml['maxTokens'] as int?,
+      project: _optionalString(yaml, 'project', sourcePath),
       stepDefaults: _parseStepDefaults(yaml['stepDefaults'], sourcePath),
       gitStrategy: _parseGitStrategy(yaml['gitStrategy'], sourcePath),
     );
@@ -57,6 +58,15 @@ class WorkflowDefinitionParser {
     }
     if (value.isEmpty) {
       throw FormatException('Field "$key" must not be empty${_at(sourcePath)}.');
+    }
+    return value;
+  }
+
+  String? _optionalString(YamlMap yaml, String key, String? sourcePath) {
+    final value = yaml[key];
+    if (value == null) return null;
+    if (value is! String) {
+      throw FormatException('Field "$key" must be a string${_at(sourcePath)}.');
     }
     return value;
   }
@@ -271,6 +281,7 @@ class WorkflowDefinitionParser {
 
     // Infer step type early so we can relax prompt requirements for hybrid types.
     final stepType = (raw['type'] as String?) ?? 'research';
+    final typeAuthored = raw.containsKey('type');
 
     // Reject no-skill + no-prompt at parse time, except for bash/approval steps
     // which do not need an agent prompt, and foreach controllers which are pure
@@ -363,6 +374,7 @@ class WorkflowDefinitionParser {
       skill: skill,
       prompts: prompts,
       type: stepType,
+      typeAuthored: typeAuthored,
       project: raw['project'] as String?,
       provider: raw['provider'] as String?,
       model: raw['model'] as String?,

@@ -333,7 +333,7 @@ class WorkflowCliRunner {
     String? appendSystemPrompt,
     String? sandboxOverride,
   }) {
-    final args = <String>['exec', '--json', '--skip-git-repo-check', '-c', 'approval_policy="never"'];
+    final args = <String>['exec', '--json', '--full-auto', '--skip-git-repo-check', '-c', 'approval_policy="never"'];
     if (model != null && model.trim().isNotEmpty) {
       args.addAll(['--model', model]);
     }

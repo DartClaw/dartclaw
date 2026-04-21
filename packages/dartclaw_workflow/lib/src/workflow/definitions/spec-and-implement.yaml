@@ -15,6 +15,8 @@ variables:
     description: Base branch/ref used for workflow bootstrap and comparisons
     default: "main"
 
+project: "{{PROJECT}}"
+
 gitStrategy:
   bootstrap: true
   worktree: shared
@@ -52,9 +54,8 @@ steps:
   # Discover the project layout and document/state locations before authoring work starts.
   - id: discover-project
     name: Discover Project
-    type: research
+    type: custom
     skill: dartclaw-discover-project
-    project: "{{PROJECT}}"
     allowedTools: [shell, file_read]
     contextOutputs: [project_index]
     outputs:
@@ -69,7 +70,7 @@ steps:
   # high-confidence specs skip the review loop entirely.
   - id: spec
     name: Generate Specification
-    type: writing
+    type: custom
     skill: dartclaw-spec
     contextInputs: [project_index]
     workflowVariables: [FEATURE]
@@ -93,10 +94,9 @@ steps:
   # when confidence is already >= 7.
   - id: revise-spec
     name: Revise Spec (low confidence)
-    type: analysis
+    type: custom
     skill: dartclaw-review
     entryGate: "spec_source == synthesized && spec_confidence < 7"
-    project: "{{PROJECT}}"
     contextInputs: [project_index, spec_path, spec_confidence]
     allowedTools: [shell, file_read, file_write]
     prompt: "Review `{{context.spec_path}}` with `--mode doc --fix` (spec skill confidence {{context.spec_confidence}}/10)."
@@ -109,9 +109,8 @@ steps:
   # Implement the feature against the on-disk specification.
   - id: implement
     name: Implement
-    type: coding
+    type: custom
     skill: dartclaw-exec-spec
-    project: "{{PROJECT}}"
     contextInputs: [project_index, spec_path]
     contextOutputs: [diff_summary]
     outputs:
@@ -125,8 +124,9 @@ steps:
   # holistically and hands any remaining findings to the remediation loop.
   - id: integrated-review
     name: Integrated Review
-    type: analysis
+    type: custom
     skill: dartclaw-review
+    allowedTools: [file_read]
     contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [review_findings, integrated-review.findings_count]
     outputs:
@@ -152,9 +152,8 @@ steps:
       # Apply fixes for the current set of integrated-review findings.
       - id: remediate
         name: Remediate Findings
-        type: coding
+        type: custom
         skill: dartclaw-remediate-findings
-        project: "{{PROJECT}}"
         contextInputs: [project_index, spec_path, review_findings]
         contextOutputs: [remediation_summary, diff_summary]
         outputs:
@@ -168,8 +167,9 @@ steps:
       # Re-check the remediated implementation against the specification baseline.
       - id: re-review
         name: Re-review Gaps
-        type: analysis
+        type: custom
         skill: dartclaw-quick-review
+        allowedTools: [file_read]
         contextInputs: [project_index, spec_path, remediation_summary, diff_summary]
         contextOutputs: [review_findings, re-review.findings_count]
         outputs:
@@ -185,9 +185,8 @@ steps:
   # Record the finished workflow outcome in the project state document.
   - id: update-state
     name: Update State
-    type: coding
+    type: custom
     skill: dartclaw-update-state
-    project: "{{PROJECT}}"
     contextInputs: [project_index, spec_path, diff_summary]
     contextOutputs: [state_update_summary]
     outputs:

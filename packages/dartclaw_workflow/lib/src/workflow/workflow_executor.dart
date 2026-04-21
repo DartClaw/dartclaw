@@ -2040,17 +2040,18 @@ class WorkflowExecutor {
         }
       }
 
-      if (finalTask.type == TaskType.coding) {
+      if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
         final wj = finalTask.worktreeJson;
         outputs['${step.id}.branch'] = (wj?['branch'] as String?) ?? '';
         outputs['${step.id}.worktree_path'] = (wj?['path'] as String?) ?? '';
         if (wj == null) {
           _log.warning(
-            "Workflow '${run.id}': step '${step.id}' is a coding task but has no worktree metadata — "
+            "Workflow '${run.id}': step '${step.id}' requires a worktree but has no worktree metadata — "
             'branch/worktree_path context values will be empty',
           );
         }
       }
+      outputs = _normalizeWorkflowOutputs(run, step, outputs, context);
       final providerSessionId = _workflowStepExecutionRepository == null
           ? null
           : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -2760,9 +2761,12 @@ class WorkflowExecutor {
     if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
     if (resolved.maxCostUsd != null) config['maxCostUsd'] = resolved.maxCostUsd;
     final allowsFileWrite = resolved.allowedTools?.contains('file_write') ?? false;
-    if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
-      config['readOnly'] = true;
-    }
+      if (step.type == 'research' || (step.type == 'analysis' && !allowsFileWrite)) {
+        config['readOnly'] = true;
+      }
+      if (_stepNeedsWorktree(step, resolvedWorktreeMode: resolvedWorktreeMode)) {
+        config['_workflowNeedsWorktree'] = true;
+      }
     config['_workflowStepType'] = step.type;
     final branch = context.variables['BRANCH']?.trim();
     if (branch != null && branch.isNotEmpty) {
@@ -2815,6 +2819,11 @@ class WorkflowExecutor {
       'per-map-item' || 'per-task' => 'merge',
       _ => 'none',
     };
+  }
+
+  bool _stepNeedsWorktree(WorkflowStep step, {required String resolvedWorktreeMode}) {
+    if (step.type == 'coding') return true;
+    return resolvedWorktreeMode == 'per-map-item';
   }
 
   bool _isLastBranchTouchingStepInScope(
@@ -2897,6 +2906,91 @@ class WorkflowExecutor {
     }
   }
 
+  Map<String, dynamic> _normalizeWorkflowOutputs(
+    WorkflowRun run,
+    WorkflowStep step,
+    Map<String, dynamic> outputs,
+    WorkflowContext context,
+  ) {
+    if (!outputs.containsKey('story_specs')) {
+      return outputs;
+    }
+
+    final rawStorySpecs = outputs['story_specs'];
+    if (rawStorySpecs is! Map<String, dynamic>) {
+      return outputs;
+    }
+    final rawItems = rawStorySpecs['items'];
+    if (rawItems is! List) {
+      return outputs;
+    }
+
+    final planPath = (outputs['plan'] as String?)?.trim();
+    final planDir = (planPath == null || planPath.isEmpty) ? '' : p.dirname(planPath);
+    final projectIndex = context['project_index'];
+    final projectRoot = switch (projectIndex) {
+      final Map<dynamic, dynamic> map => map['project_root'] as String?,
+      _ => null,
+    };
+
+    final seenSpecPaths = <String, int>{};
+    final duplicateSpecPaths = <String>{};
+    final missingSpecPaths = <String>[];
+    final normalizedItems = <Map<String, dynamic>>[];
+
+    for (final item in rawItems) {
+      final itemMap = switch (item) {
+        final Map<String, dynamic> typed => Map<String, dynamic>.from(typed),
+        final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
+        _ => <String, dynamic>{},
+      };
+      final rawSpecPath = (itemMap['spec_path'] as String?)?.trim();
+      if (rawSpecPath != null && rawSpecPath.isNotEmpty) {
+        final normalizedSpecPath = _normalizeStorySpecPath(rawSpecPath, planDir);
+        itemMap['spec_path'] = normalizedSpecPath;
+        final priorCount = seenSpecPaths.update(normalizedSpecPath, (count) => count + 1, ifAbsent: () => 1);
+        if (priorCount > 1) {
+          duplicateSpecPaths.add(normalizedSpecPath);
+        }
+        if (projectRoot != null && projectRoot.isNotEmpty) {
+          final candidate = File(p.join(projectRoot, normalizedSpecPath));
+          if (!candidate.existsSync()) {
+            missingSpecPaths.add(normalizedSpecPath);
+          }
+        }
+      }
+      normalizedItems.add(itemMap);
+    }
+
+    if (duplicateSpecPaths.isNotEmpty) {
+      _log.warning(
+        "Workflow '${run.id}': step '${step.id}' produced duplicate story_specs.spec_path values: "
+        '${duplicateSpecPaths.toList()..sort()}',
+      );
+    }
+    if (missingSpecPaths.isNotEmpty) {
+      _log.warning(
+        "Workflow '${run.id}': step '${step.id}' produced story_specs.spec_path values that do not exist on disk: "
+        '${missingSpecPaths.toList()..sort()}',
+      );
+    }
+
+    return {
+      ...outputs,
+      'story_specs': {
+        ...rawStorySpecs,
+        'items': normalizedItems,
+      },
+    };
+  }
+
+  String _normalizeStorySpecPath(String specPath, String planDir) {
+    if (specPath.isEmpty) return specPath;
+    if (p.isAbsolute(specPath)) return p.normalize(specPath);
+    if (planDir.isEmpty || planDir == '.') return p.normalize(specPath);
+    return p.normalize(p.join(planDir, specPath));
+  }
+
   bool _isPromotionAwareScope(
     WorkflowGitStrategy? strategy, {
     required String resolvedWorktreeMode,
@@ -2925,8 +3019,14 @@ class WorkflowExecutor {
     return false;
   }
 
-  /// Workflow steps always execute through the coding-task path.
-  TaskType _mapStepType(String type) => TaskType.coding;
+  TaskType _mapStepType(String type) => switch (type) {
+    'coding' => TaskType.coding,
+    'research' => TaskType.research,
+    'writing' => TaskType.writing,
+    'analysis' => TaskType.analysis,
+    'automation' => TaskType.automation,
+    _ => TaskType.custom,
+  };
 
   /// Returns true if the workflow-level budget has been exceeded.
   bool _workflowBudgetExceeded(WorkflowRun run, WorkflowDefinition definition) {

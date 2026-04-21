@@ -238,7 +238,8 @@ void main() {
           expect(harness.state, WorkerState.idle);
           expect(result['stop_reason'], 'completed');
           expect(result.containsKey('total_cost_usd'), isFalse);
-          expect(result['input_tokens'], 12);
+          // input_tokens is normalized to fresh-only (12 raw - 7 cached = 5).
+          expect(result['input_tokens'], 5);
           expect(result['output_tokens'], 34);
           expect(result['cache_read_tokens'], 7);
           expect(result['duration_ms'], isA<int>());

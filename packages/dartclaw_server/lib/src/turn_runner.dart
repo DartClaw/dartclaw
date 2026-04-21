@@ -727,6 +727,7 @@ class TurnRunner {
         'cache_read_tokens': 0,
         'cache_write_tokens': 0,
         'total_tokens': 0,
+        'effective_tokens': 0,
         'estimated_cost_usd': 0.0,
         'turn_count': 0,
       };
@@ -741,12 +742,19 @@ class TurnRunner {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
     };
+    final effectiveDelta = computeEffectiveTokens(
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cacheReadTokens: cacheReadTokens,
+      cacheWriteTokens: cacheWriteTokens,
+    );
 
     costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
     costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
     costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+    costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
     costData['provider'] = existingProvider ?? provider;

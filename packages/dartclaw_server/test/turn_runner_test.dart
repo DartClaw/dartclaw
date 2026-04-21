@@ -37,6 +37,7 @@ Map<String, dynamic> _turnResult({
   int outputTokens = 0,
   double? totalCostUsd,
   int? cachedInputTokens,
+  int? cacheWriteTokens,
 }) {
   final result = <String, dynamic>{'input_tokens': inputTokens, 'output_tokens': outputTokens};
   if (totalCostUsd != null) {
@@ -44,6 +45,9 @@ Map<String, dynamic> _turnResult({
   }
   if (cachedInputTokens != null) {
     result['cache_read_tokens'] = cachedInputTokens;
+  }
+  if (cacheWriteTokens != null) {
+    result['cache_write_tokens'] = cacheWriteTokens;
   }
   return result;
 }
@@ -289,6 +293,7 @@ void main() {
     expect(usageData['output_tokens'], 3);
     expect(usageData['total_tokens'], 5);
     expect(usageData['cache_read_tokens'], 0);
+    expect(usageData['effective_tokens'], 5);
     expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(usageData['turn_count'], 1);
   });
@@ -319,6 +324,8 @@ void main() {
 
     expect(outcome.status, TurnStatus.completed);
     expect(outcome.cacheReadTokens, 7);
+    // 1 + 1 + (0 * 125 ~/ 100 = 0) + (7 * 10 ~/ 100 = 0) = 2.
+    expect(outcome.effectiveTokens, 2);
   });
 
   test('startTurn forwards maxTurns to the harness', () async {
@@ -376,8 +383,39 @@ void main() {
     expect(costData['output_tokens'], 5);
     expect(costData['total_tokens'], 10);
     expect(costData['cache_read_tokens'], 12);
+    // Turn 1: 2+1+(5*0.1~/1=0) = 3. Turn 2: 3+4+(7*0.1~/1=0) = 7. Accumulated = 10.
+    expect(costData['effective_tokens'], 10);
     expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
     expect(costData['turn_count'], 2);
+  });
+
+  test('effective_tokens accumulates weighted cache-write and cache-read through _trackSessionUsage', () async {
+    final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
+    addTearDown(() async => cachedWorker.dispose());
+    final cachedRunner = _buildRunner(
+      harness: cachedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMain();
+    // Values chosen so both weights produce non-zero integer contributions.
+    _scheduleTurnCompletion(
+      cachedWorker,
+      result: _turnResult(inputTokens: 100, outputTokens: 50, cachedInputTokens: 1000, cacheWriteTokens: 200),
+    );
+    final turnId = await cachedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Exercise both cache weights'},
+    ]);
+    await cachedRunner.waitForOutcome(session.id, turnId);
+
+    final costData = await _readSessionCost(kvService, session.id);
+    // 100 + 50 + (200 * 125 ~/ 100 = 250) + (1000 * 10 ~/ 100 = 100) = 500
+    expect(costData['effective_tokens'], 500);
+    expect(costData['cache_read_tokens'], 1000);
+    expect(costData['cache_write_tokens'], 200);
   });
 
   test('preserves the first provider written for a session cost record', () async {

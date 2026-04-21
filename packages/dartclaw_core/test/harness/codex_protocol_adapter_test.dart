@@ -287,7 +287,9 @@ void main() {
 
       expect(msg, isA<TurnComplete>());
       final complete = msg! as TurnComplete;
-      expect(complete.inputTokens, 12);
+      // OpenAI reports input_tokens as total (incl. cached); we normalize to the
+      // Anthropic convention where inputTokens is fresh-only: 12 - 7 = 5.
+      expect(complete.inputTokens, 5);
       expect(complete.outputTokens, 34);
       expect(complete.cacheReadTokens, 7);
       expect(complete.cacheWriteTokens, 0);

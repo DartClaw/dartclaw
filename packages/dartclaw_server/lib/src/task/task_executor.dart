@@ -476,7 +476,7 @@ class TaskExecutor {
       }
 
       final usesInlineWorkflowCheckout = await _workflowUsesInlineProjectCheckout(task);
-      if (task.type == TaskType.coding && usesInlineWorkflowCheckout && project != null) {
+      if (_taskNeedsWorktree(task) && usesInlineWorkflowCheckout && project != null) {
         final inlineBaseRef = _taskBaseRef(task);
         if (inlineBaseRef != null && inlineBaseRef.isNotEmpty) {
           final prepared = await _ensureInlineWorkflowBranchCheckedOut(task, project, inlineBaseRef);
@@ -487,7 +487,7 @@ class TaskExecutor {
       }
 
       // Worktree setup for coding tasks
-      if (task.type == TaskType.coding && _worktreeManager != null && !usesInlineWorkflowCheckout) {
+      if (_taskNeedsWorktree(task) && _worktreeManager != null && !usesInlineWorkflowCheckout) {
         final workflowWorktreeKey = await _workflowOwnedWorktreeKey(task);
         final workflowWorktreeTaskId = await _workflowOwnedWorktreeTaskId(task);
         final requiresStoryBranch = await _workflowMapIterationOwnsBranch(task);
@@ -1069,16 +1069,26 @@ class TaskExecutor {
             'cache_read_tokens': 0,
             'cache_write_tokens': 0,
             'total_tokens': 0,
+            'effective_tokens': 0,
             'estimated_cost_usd': 0.0,
             'turn_count': 0,
             'provider': provider,
           };
+    // Use `newInputTokens` (fresh-only) — not `inputTokens` which this writer
+    // stores cache-inclusive. See `computeEffectiveTokens` for the weights.
+    final effectiveDelta = computeEffectiveTokens(
+      inputTokens: newInputTokens,
+      outputTokens: outputTokens,
+      cacheReadTokens: cacheReadTokens,
+      cacheWriteTokens: cacheWriteTokens,
+    );
     costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
     costData['new_input_tokens'] = ((costData['new_input_tokens'] as num?)?.toInt() ?? 0) + newInputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
     costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
     costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+    costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num?)?.toDouble() ?? 0.0;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as double) + (totalCostUsd ?? 0.0);
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
@@ -1526,6 +1536,9 @@ class TaskExecutor {
   /// True for any coding task — whether standalone (`task.type == coding`)
   /// or a workflow step whose authored type is `coding`.
   bool _isCodingTask(Task task) => task.type == TaskType.coding || task.workflowStepExecution?.stepType == 'coding';
+
+  bool _taskNeedsWorktree(Task task) =>
+      task.type == TaskType.coding || task.configJson['_workflowNeedsWorktree'] == true;
 
   String? _modelOverride(Task task) => task.model;
 

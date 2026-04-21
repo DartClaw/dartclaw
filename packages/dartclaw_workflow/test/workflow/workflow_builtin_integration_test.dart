@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         SessionService,
         Task,
+        TaskType,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
@@ -117,6 +118,7 @@ class _QueuedTaskRecord {
   final String stepKey;
   final String taskId;
   final String? projectId;
+  final TaskType type;
   final String title;
   final String description;
   final Map<String, dynamic> configJson;
@@ -125,6 +127,7 @@ class _QueuedTaskRecord {
     required this.stepKey,
     required this.taskId,
     required this.projectId,
+    required this.type,
     required this.title,
     required this.description,
     required this.configJson,
@@ -289,6 +292,7 @@ void main() {
           stepKey: stepKey,
           taskId: task.id,
           projectId: task.projectId,
+          type: task.type,
           title: task.title,
           description: task.description,
           configJson: Map<String, dynamic>.from(task.configJson),
@@ -835,15 +839,114 @@ void main() {
     expect(trace.tasksForStep('prd').single.projectId, isNull);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('prd').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('discover-project').single.type, TaskType.research);
+    expect(trace.tasksForStep('prd').single.type, TaskType.analysis);
     expect(trace.tasksForStep('plan').single.projectId, isNull);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
+    expect(trace.tasksForStep('plan').single.type, TaskType.analysis);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('implement').single.type, TaskType.coding);
     expect(trace.tasksForStep('quick-review').single.projectId, isNull);
+    expect(trace.tasksForStep('quick-review').single.type, TaskType.analysis);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('quick-review').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, isNull);
+    expect(trace.tasksForStep('plan-review').single.type, TaskType.analysis);
     expect(trace.tasksForStep('update-state').single.projectId, 'demo-project');
+    expect(trace.tasksForStep('update-state').single.type, TaskType.coding);
+  });
+
+  test('plan-and-implement marks per-story analysis steps as worktree-bound when map parallelism resolves to per-map-item', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Per-map-item worktree flag check',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '2',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/demo/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/demo/plan.md',
+              'plan_source': 'synthesized',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
+                    'acceptance_criteria': ['first passes'],
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
+                    'acceptance_criteria': ['second passes'],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the story.'}),
+            worktreeJson: {
+              'branch': 'story-branch-${queued.mapIndex}',
+              'path': '/tmp/worktrees/story-${queued.mapIndex}',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'implementation_summary': 'complete',
+              'remediation_plan': 'none',
+              'needs_remediation': false,
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_plan': 'No further remediation',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final quickReviews = trace.tasksForStep('quick-review');
+    expect(quickReviews, hasLength(2));
+    for (final quickReview in quickReviews) {
+      expect(quickReview.type, TaskType.analysis);
+      expect(quickReview.configJson['_workflowNeedsWorktree'], isTrue);
+    }
   });
 
   test('plan-and-implement discovery prompt excludes authored requirements text', () async {
@@ -1028,6 +1131,88 @@ void main() {
     expect(discover, isNot(contains(requirements)));
     expect(prd, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
     expect(plan, contains('<REQUIREMENTS>$requirements</REQUIREMENTS>'));
+  });
+
+  test('plan-and-implement normalizes relative story spec paths against the emitted plan path', () async {
+    final trace = await executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {
+        'REQUIREMENTS': 'Normalize story spec paths',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-project' => _StubResponse(
+            assistantContent: jsonEncode({
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            }),
+          ),
+          'prd' => _StubResponse(
+            assistantContent: _contextOutput({
+              'prd': 'docs/specs/demo/prd.md',
+              'prd_source': 'synthesized',
+              'prd_confidence': 9,
+            }),
+          ),
+          'plan' => _StubResponse(
+            assistantContent: _contextOutput({
+              'plan': 'docs/specs/demo/plan.md',
+              'plan_source': 'synthesized',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'spec_path': 'fis/s01-story-one.md',
+                    'acceptance_criteria': ['first passes'],
+                  },
+                ],
+              },
+            }),
+          ),
+          'implement' => _StubResponse(
+            assistantContent: _contextOutput({'story_result': 'Implemented the story.'}),
+            worktreeJson: {
+              'branch': 'story-branch',
+              'path': '/tmp/worktrees/story-branch',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
+          ),
+          'quick-review' => _StubResponse(
+            assistantContent: _contextOutput({'quick_review_summary': 'No issues', 'quick_review_findings_count': 0}),
+          ),
+          'plan-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'implementation_summary': 'complete',
+              'remediation_plan': 'none',
+              'needs_remediation': false,
+              'findings_count': 0,
+              'plan-review.findings_count': 0,
+            }),
+          ),
+          'remediate' => _StubResponse(
+            assistantContent: _contextOutput({'remediation_summary': 'none', 'diff_summary': 'DIFF'}),
+          ),
+          're-review' => _StubResponse(
+            assistantContent: _contextOutput({
+              'remediation_plan': 'No further remediation',
+              'findings_count': 0,
+              're-review.findings_count': 0,
+            }),
+          ),
+          'update-state' => _StubResponse(assistantContent: _contextOutput({'state_update_summary': 'done'})),
+          _ => throw StateError('Unexpected step: ${queued.stepKey}'),
+        };
+      },
+    );
+
+    final implementPrompt = trace.tasksForStep('implement').single.description;
+    expect(implementPrompt, contains('"spec_path":"docs/specs/demo/fis/s01-story-one.md"'));
   });
 
   test(

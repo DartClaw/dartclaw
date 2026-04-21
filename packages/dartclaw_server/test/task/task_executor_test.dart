@@ -1572,6 +1572,90 @@ void main() {
     expect(verify?.worktreeJson?['branch'], implement?.worktreeJson?['branch']);
   });
 
+  test('per-map-item map iteration reuses the same story worktree for analysis steps that request one', () async {
+    worker.responseText = 'Done.';
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: 'git@github.com:acme/my-app.git',
+          localPath: '/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-10T09:00:00Z'),
+        ),
+      ],
+      includeLocalProjectInGetAll: false,
+      defaultProjectId: 'my-app',
+    );
+    final worktreeManager = _CapturingWorktreeManager();
+    final projectExecutor = TaskExecutor(
+      tasks: tasks,
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      artifactCollector: collector,
+      workflowStepExecutionRepository: workflowStepExecutions,
+      worktreeManager: worktreeManager,
+      projectService: projectService,
+      workflowCliRunner: _successWorkflowCliRunner(),
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(projectExecutor.stop);
+
+    const integrationBranch = 'dartclaw/workflow/run1000/integration';
+    await tasks.create(
+      id: 'task-story-implement-analysis-prelude',
+      title: 'Story implement',
+      description: 'First coding step for story 0.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-story-implement-analysis-prelude',
+      projectId: 'my-app',
+      workflowRunId: 'run-1000',
+      configJson: const {'_baseRef': integrationBranch},
+    );
+    await seedWorkflowExecution(
+      'task-story-implement-analysis-prelude',
+      agentExecutionId: 'ae-task-story-implement-analysis-prelude',
+      workflowRunId: 'run-1000',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
+    );
+
+    await projectExecutor.pollOnce();
+    final implement = await tasks.get('task-story-implement-analysis-prelude');
+    expect(worktreeManager.createCallCount, 1);
+
+    await tasks.create(
+      id: 'task-story-review-analysis',
+      title: 'Story review',
+      description: 'Analysis step that still needs the story worktree.',
+      type: TaskType.analysis,
+      autoStart: true,
+      agentExecutionId: 'ae-task-story-review-analysis',
+      projectId: 'my-app',
+      workflowRunId: 'run-1000',
+      configJson: const {'_baseRef': integrationBranch, '_workflowNeedsWorktree': true, 'readOnly': true},
+    );
+    await seedWorkflowExecution(
+      'task-story-review-analysis',
+      agentExecutionId: 'ae-task-story-review-analysis',
+      workflowRunId: 'run-1000',
+      stepType: 'analysis',
+      git: const {'worktree': 'per-map-item'},
+      mapIterationIndex: 0,
+    );
+
+    await projectExecutor.pollOnce();
+
+    final review = await tasks.get('task-story-review-analysis');
+    expect(worktreeManager.createCallCount, 1, reason: 'analysis follow-up should reuse the same worktree');
+    expect(review?.worktreeJson?['path'], implement?.worktreeJson?['path']);
+    expect(review?.worktreeJson?['branch'], implement?.worktreeJson?['branch']);
+  });
+
   test('workflow read-only tasks skip strict freshness fetch for local workflow-owned refs', () async {
     worker.responseText = 'Done.';
     final projectService = FakeProjectService(

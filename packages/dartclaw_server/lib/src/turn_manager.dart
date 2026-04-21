@@ -89,6 +89,15 @@ class TurnOutcome {
 
   int get totalTokens => inputTokens + outputTokens;
 
+  /// Billing-weighted token count — see [computeEffectiveTokens]. Prefer this
+  /// over [totalTokens] when comparing runs across harnesses.
+  int get effectiveTokens => computeEffectiveTokens(
+    inputTokens: inputTokens,
+    outputTokens: outputTokens,
+    cacheReadTokens: cacheReadTokens,
+    cacheWriteTokens: cacheWriteTokens,
+  );
+
   TurnOutcome({
     required this.turnId,
     required this.sessionId,

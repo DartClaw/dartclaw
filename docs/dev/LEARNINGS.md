@@ -32,6 +32,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **`thread/start` returns a `thread_id` that must be reused** on every subsequent `turn/start`, or you silently start an orphan thread.
 - **Per-turn model override needs `harnessConfig.model` fallback.** Otherwise the configured default model is silently ignored.
 - **No cost reporting.** `supportsCostReporting` is `false`. Budget enforcement must use tokens.
+- **Anthropic and Codex disagree on `input_tokens` semantics.** Claude reports fresh input directly; Codex reports cache-inclusive input, so normalize at the harness/workflow boundary before persisting or comparing usage.
 - **Strict structured output requires every nested object fully closed.** `additionalProperties: false` and `required` covering every property. Nullable optionals → required keys whose schema allows `null`.
 - **App-server hangs on tool-use turns when approval is required.** Upstream bug ([codex#11816](https://github.com/openai/codex/issues/11816)): `exec_approval.rs` awaits client approval with no timeout, no cancellation. Workaround: `approval: never` + `sandbox: danger-full-access`; lower `worker_timeout` to 120s in crowd-coding to limit blast radius.
 - **App-server tests must drive handshake responses while `start()` is in flight.** `start()` correctly blocks on `initialize → initialized → thread/start`; awaiting `start()` before emitting responses deadlocks.

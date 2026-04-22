@@ -63,6 +63,9 @@ void main() {
       expect(arguments, contains('--json-schema'));
       expect(result.providerSessionId, 'claude-session-1');
       expect(result.structuredOutput?['verdict'], {'pass': true});
+      expect(result.inputTokens, 10);
+      expect(result.cacheReadTokens, 3);
+      expect(result.newInputTokens, 10);
     });
 
     test('forwards appendSystemPrompt to Claude when provided', () async {
@@ -159,7 +162,8 @@ void main() {
         sandboxOverride: 'read-only',
       );
 
-      expect(arguments, containsAll(['exec', '--json', '--full-auto', '--skip-git-repo-check']));
+      expect(arguments, containsAll(['exec', '--json', '--skip-git-repo-check']));
+      expect(arguments, isNot(contains('--full-auto')));
       expect(arguments, containsAll(['-c', 'approval_policy="never"']));
       expect(arguments, containsAll(['--sandbox', 'read-only']));
     });
@@ -543,7 +547,7 @@ void main() {
         }),
         jsonEncode({
           'type': 'turn.completed',
-          'usage': {'input_tokens': 20, 'output_tokens': 8, 'cache_read_tokens': 4},
+          'usage': {'input_tokens': 20, 'output_tokens': 8, 'cached_input_tokens': 4},
         }),
       ].join('\n');
       final runner = WorkflowCliRunner(
@@ -585,7 +589,8 @@ void main() {
       );
 
       expect(executable, 'codex');
-      expect(arguments, containsAll(['exec', '--json', '--full-auto', '--skip-git-repo-check']));
+      expect(arguments, containsAll(['exec', '--json', '--skip-git-repo-check']));
+      expect(arguments, isNot(contains('--full-auto')));
       expect(arguments, contains('resume'));
       expect(arguments, contains('thread-prev'));
       expect(arguments, contains('--output-schema'));
@@ -594,6 +599,37 @@ void main() {
       expect(result.inputTokens, 20);
       expect(result.cacheReadTokens, 4);
       expect(result.newInputTokens, 16);
+    });
+
+    test('treats Codex reasoning_tokens as part of output_tokens', () async {
+      final stdout = [
+        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-reasoning'}),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {
+            'input_tokens': 30,
+            'cached_input_tokens': 10,
+            'output_tokens': 20,
+            'output_tokens_details': {'reasoning_tokens': 7},
+          },
+        }),
+      ].join('\n');
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
+        },
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Summarize',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+      );
+
+      expect(result.outputTokens, 20);
+      expect(result.newInputTokens, 20);
     });
 
     test('Codex turn.completed uses assignment semantics for cumulative usage', () async {

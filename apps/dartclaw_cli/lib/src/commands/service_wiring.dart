@@ -184,6 +184,7 @@ class ServiceWiring {
       exitFn: exitFn,
     );
     await storage.wire();
+    await _dropLegacySessionCostEntries(storage.kvService);
 
     // Derive agent definitions early — needed by both SecurityWiring (guard
     // chain per-agent policies) and HarnessWiring (MCP initialize payload).
@@ -1075,6 +1076,11 @@ class ServiceWiring {
   }
 }
 
+const _legacySessionCostFreshInputKey =
+    'new_'
+    'input_tokens';
+final _serviceWiringLog = Logger('ServiceWiring');
+
 Set<String> _activeHarnessTypes(config_tools.DartclawConfig config) {
   final harnessTypes = <String>{};
 
@@ -1274,4 +1280,21 @@ WorkflowGitCleanupPlan buildWorkflowCleanupPlan(String runId, List<Task> runTask
     }
   }
   return WorkflowGitCleanupPlan(worktreePaths: worktreePaths, branches: branches);
+}
+
+Future<void> _dropLegacySessionCostEntries(KvService kvService) async {
+  final entries = await kvService.getByPrefix('session_cost:');
+  var dropped = 0;
+  for (final entry in entries.entries) {
+    try {
+      final decoded = jsonDecode(entry.value);
+      if (decoded is Map<String, dynamic> && decoded.containsKey(_legacySessionCostFreshInputKey)) {
+        await kvService.delete(entry.key);
+        dropped++;
+      }
+    } catch (_) {
+      continue;
+    }
+  }
+  _serviceWiringLog.info('Dropped $dropped legacy session_cost entries (pre-Tier-1b schema)');
 }

@@ -416,6 +416,7 @@ Router webRoutes(
         provider: usage.provider,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        effectiveTokens: usage.effectiveTokens,
         estimatedCostUsd: usage.estimatedCostUsd,
         cachedInputTokens: usage.cachedInputTokens,
         bannerHtml: restartBannerHtml(appDisplay.dataDir),
@@ -626,13 +627,23 @@ Router webRoutes(
   return router;
 }
 
-Future<({int? inputTokens, int? outputTokens, int? cachedInputTokens, double? estimatedCostUsd, String provider})>
+Future<
+  ({
+    int? inputTokens,
+    int? outputTokens,
+    int? cachedInputTokens,
+    int? effectiveTokens,
+    double? estimatedCostUsd,
+    String provider,
+  })
+>
 _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvider = 'claude'}) async {
   if (kvService == null) {
     return (
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );
@@ -644,6 +655,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );
@@ -656,6 +668,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
         inputTokens: null,
         outputTokens: null,
         cachedInputTokens: null,
+        effectiveTokens: null,
         estimatedCostUsd: null,
         provider: defaultProvider,
       );
@@ -670,6 +683,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
       cachedInputTokens: cacheReadTokens,
+      effectiveTokens: (decoded['effective_tokens'] as num?)?.toInt(),
       estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
       provider: switch (decoded['provider']) {
         final String value when value.trim().isNotEmpty => value,
@@ -681,6 +695,7 @@ _readSessionUsage(KvService? kvService, String sessionId, {String defaultProvide
       inputTokens: null,
       outputTokens: null,
       cachedInputTokens: null,
+      effectiveTokens: null,
       estimatedCostUsd: null,
       provider: defaultProvider,
     );

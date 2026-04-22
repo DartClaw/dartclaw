@@ -17,6 +17,7 @@ String sessionInfoTemplate({
   String defaultProvider = 'claude',
   int? inputTokens,
   int? outputTokens,
+  int? effectiveTokens,
   double? estimatedCostUsd,
   int? cachedInputTokens,
   String bannerHtml = '',
@@ -35,6 +36,11 @@ String sessionInfoTemplate({
       ? '\$${templateEstimatedCostUsd.toStringAsFixed(2)}'
       : null;
   final hasCachedTokens = (cachedInputTokens ?? 0) > 0;
+  final hasEffectiveTokens = (effectiveTokens ?? 0) > 0;
+  final inputLabel = normalizedProvider == 'codex' ? 'Input (fresh)' : 'Input';
+  final inputTooltip = normalizedProvider == 'codex'
+      ? 'Fresh input tokens only. Cached input is tracked separately below.'
+      : null;
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
 
@@ -45,6 +51,8 @@ String sessionInfoTemplate({
     'topbar': topbar,
     'title': displayTitle,
     'sessionId': sessionId,
+    'inputLabel': inputLabel,
+    'inputTooltip': inputTooltip,
     'inputStr': inputTokens != null ? _formatNumber(inputTokens) : '\u2014',
     'outputStr': outputTokens != null ? _formatNumber(outputTokens) : '\u2014',
     'totalStr': totalTokens > 0 ? _formatNumber(totalTokens) : '\u2014',
@@ -56,6 +64,10 @@ String sessionInfoTemplate({
     'cachedInputTokens': cachedInputTokens,
     'hasCachedTokens': hasCachedTokens,
     'cachedTokensDisplay': hasCachedTokens ? _formatNumber(cachedInputTokens!) : null,
+    'hasEffectiveTokens': hasEffectiveTokens,
+    'effectiveTokensDisplay': hasEffectiveTokens ? _formatNumber(effectiveTokens!) : null,
+    'effectiveTokensTooltip':
+        'Billing-weighted token count. Fresh input counts at 1x, cache writes at 1.25x, cache reads at 0.1x.',
     'costUnavailableTooltip':
         'This provider does not report USD cost. Token counts are tracked for governance budgets.',
     'messageCount': messageCount.toString(),

@@ -2,15 +2,15 @@
 
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages, not here. Keep this file lean — when in doubt, cut.
 
-Last Updated: 2026-04-22
+Last Updated: 2026-04-22 22:23 CEST
 
 ## Current Phase
 
-**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. S01–S42 are code-complete; S43 is Spec Ready.
+**0.16.4** — release prep, reopened mid-milestone for workflow step semantics redesign. S01–S43 are code-complete.
 
 ## Active Stories
 
-- **S43 — Token Tracking Cross-Harness Consistency** (Spec Ready) — workflow-CLI path normalization, KV writer semantics alignment, Codex CLI field-name contract verification.
+- None.
 
 ## Next Planned
 

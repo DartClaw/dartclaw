@@ -288,6 +288,18 @@ void main() {
 
     expect(outcome.status, TurnStatus.completed);
     final usageData = await _readSessionCost(kvService, session.id);
+    expect(usageData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(usageData.containsKey('new_input_tokens'), isFalse);
     expect(usageData['provider'], 'claude');
     expect(usageData['input_tokens'], 2);
     expect(usageData['output_tokens'], 3);
@@ -378,6 +390,18 @@ void main() {
     await codexRunner.waitForOutcome(session.id, secondTurnId);
 
     final costData = await _readSessionCost(kvService, session.id);
+    expect(costData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(costData.containsKey('new_input_tokens'), isFalse);
     expect(costData['provider'], 'codex');
     expect(costData['input_tokens'], 5);
     expect(costData['output_tokens'], 5);

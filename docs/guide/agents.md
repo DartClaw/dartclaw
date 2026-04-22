@@ -365,7 +365,7 @@ Not all providers support every feature. DartClaw degrades gracefully:
 | System prompt injection | `--append-system-prompt` | `config.toml` `developer_instructions` |
 | MCP server support | Yes | Yes (via `config.toml`) |
 
-When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator.
+When a provider doesn't report cost, the UI shows token counts with a "cost unavailable" indicator. For Codex sessions, the sidebar now labels input as fresh input and shows cached input separately so Claude and Codex totals are comparable.
 
 ### Provider Status
 

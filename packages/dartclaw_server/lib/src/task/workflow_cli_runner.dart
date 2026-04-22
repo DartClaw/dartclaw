@@ -51,10 +51,10 @@ class WorkflowCliTurnResult {
     this.outputTokens = 0,
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
-    int? newInputTokens,
+    required this.newInputTokens,
     this.totalCostUsd,
     this.duration = Duration.zero,
-  }) : newInputTokens = newInputTokens ?? math.max(0, inputTokens - cacheReadTokens);
+  });
 }
 
 class WorkflowCliRunner {
@@ -454,6 +454,7 @@ class WorkflowCliRunner {
       outputTokens: (decoded['output_tokens'] as num?)?.toInt() ?? 0,
       cacheReadTokens: (decoded['cache_read_tokens'] as num?)?.toInt() ?? 0,
       cacheWriteTokens: (decoded['cache_write_tokens'] as num?)?.toInt() ?? 0,
+      newInputTokens: (decoded['input_tokens'] as num?)?.toInt() ?? 0,
       totalCostUsd: (decoded['total_cost_usd'] as num?)?.toDouble(),
       duration: Duration(milliseconds: (decoded['duration_ms'] as num?)?.toInt() ?? fallbackDuration.inMilliseconds),
     );
@@ -513,7 +514,7 @@ class WorkflowCliRunner {
 
         final previousCumulative = state.inputTokens + state.outputTokens;
         state.inputTokens = _intValue(usage['input_tokens']) ?? state.inputTokens;
-        state.outputTokens = _intValue(usage['output_tokens']) ?? state.outputTokens;
+        state.outputTokens = _codexOutputTokens(usage, fallback: state.outputTokens);
         state.cacheReadTokens =
             _intValue(usage['cache_read_tokens']) ?? _intValue(usage['cached_input_tokens']) ?? state.cacheReadTokens;
         state.cacheWriteTokens = _intValue(usage['cache_write_tokens']) ?? state.cacheWriteTokens;
@@ -573,6 +574,7 @@ class WorkflowCliRunner {
       outputTokens: state.outputTokens,
       cacheReadTokens: state.cacheReadTokens,
       cacheWriteTokens: state.cacheWriteTokens,
+      newInputTokens: math.max(0, state.inputTokens - state.cacheReadTokens),
       duration: fallbackDuration,
     );
   }
@@ -598,6 +600,19 @@ class WorkflowCliRunner {
       String() => int.tryParse(value),
       _ => null,
     };
+  }
+
+  int _codexOutputTokens(Map<String, dynamic> usage, {required int fallback}) {
+    final outputTokens = _intValue(usage['output_tokens']) ?? fallback;
+    final outputTokensDetails = _mapValue(usage['output_tokens_details']);
+    final reasoningTokens = _intValue(outputTokensDetails?['reasoning_tokens']);
+    if (reasoningTokens != null) {
+      _log.fine(
+        'WorkflowCliRunner: codex usage reported reasoning_tokens=$reasoningTokens '
+        'inside output_tokens_details; treating it as part of output_tokens.',
+      );
+    }
+    return outputTokens;
   }
 
   static String _previewText(String text, {int maxLength = 120}) {

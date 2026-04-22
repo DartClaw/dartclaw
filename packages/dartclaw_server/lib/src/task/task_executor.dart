@@ -32,6 +32,10 @@ import 'worktree_manager.dart';
 /// When `pool.maxConcurrentTasks == 0` (single-harness mode), falls back to
 /// using the primary runner directly when it is idle (S06 behavior).
 class TaskExecutor {
+  static const _legacySessionCostFreshInputKey =
+      'new_'
+      'input_tokens';
+
   TaskExecutor({
     required TaskService tasks,
     GoalService? goals,
@@ -905,6 +909,68 @@ class TaskExecutor {
     var outputTokens = 0;
     var cacheReadTokens = 0;
     var cacheWriteTokens = 0;
+    final sessionUsageBaseline = switch (provider) {
+      'codex' when providerSessionId != null && providerSessionId.isNotEmpty => await _readSessionUsageSnapshot(
+        sessionId,
+      ),
+      _ => const _SessionUsageSnapshot(),
+    };
+    // Codex `turn.completed` reports cumulative thread usage. Convert that
+    // back to per-invocation deltas before persisting session-cost and
+    // workflow step token breakdowns, while leaving Claude unchanged. When a
+    // step continues an existing session, seed the tracker from the current
+    // session-cost snapshot so the first resumed turn also subtracts the
+    // already-accounted baseline.
+    var previousCumulativeProviderSessionId = providerSessionId;
+    var previousCumulativeInputTokens = sessionUsageBaseline.inputTokens + sessionUsageBaseline.cacheReadTokens;
+    var previousCumulativeNewInputTokens = sessionUsageBaseline.inputTokens;
+    var previousCumulativeOutputTokens = sessionUsageBaseline.outputTokens;
+    var previousCumulativeCacheReadTokens = sessionUsageBaseline.cacheReadTokens;
+    var previousCumulativeCacheWriteTokens = sessionUsageBaseline.cacheWriteTokens;
+
+    int usageDelta(int current, int previous) => current >= previous ? current - previous : current;
+
+    ({int inputTokens, int newInputTokens, int outputTokens, int cacheReadTokens, int cacheWriteTokens})
+    normalizeWorkflowCliUsage(WorkflowCliTurnResult turnResult) {
+      if (provider != 'codex') {
+        return (
+          inputTokens: turnResult.inputTokens,
+          newInputTokens: turnResult.newInputTokens,
+          outputTokens: turnResult.outputTokens,
+          cacheReadTokens: turnResult.cacheReadTokens,
+          cacheWriteTokens: turnResult.cacheWriteTokens,
+        );
+      }
+
+      final currentProviderSessionId = switch (turnResult.providerSessionId.trim()) {
+        final String value when value.isNotEmpty => value,
+        _ => previousCumulativeProviderSessionId,
+      };
+      if (previousCumulativeProviderSessionId != null &&
+          currentProviderSessionId != null &&
+          currentProviderSessionId != previousCumulativeProviderSessionId) {
+        previousCumulativeInputTokens = 0;
+        previousCumulativeNewInputTokens = 0;
+        previousCumulativeOutputTokens = 0;
+        previousCumulativeCacheReadTokens = 0;
+        previousCumulativeCacheWriteTokens = 0;
+      }
+
+      final normalized = (
+        inputTokens: usageDelta(turnResult.inputTokens, previousCumulativeInputTokens),
+        newInputTokens: usageDelta(turnResult.newInputTokens, previousCumulativeNewInputTokens),
+        outputTokens: usageDelta(turnResult.outputTokens, previousCumulativeOutputTokens),
+        cacheReadTokens: usageDelta(turnResult.cacheReadTokens, previousCumulativeCacheReadTokens),
+        cacheWriteTokens: usageDelta(turnResult.cacheWriteTokens, previousCumulativeCacheWriteTokens),
+      );
+      previousCumulativeProviderSessionId = currentProviderSessionId;
+      previousCumulativeInputTokens = turnResult.inputTokens;
+      previousCumulativeNewInputTokens = turnResult.newInputTokens;
+      previousCumulativeOutputTokens = turnResult.outputTokens;
+      previousCumulativeCacheReadTokens = turnResult.cacheReadTokens;
+      previousCumulativeCacheWriteTokens = turnResult.cacheWriteTokens;
+      return normalized;
+    }
 
     final prompts = <String>[pendingMessage, ...followUps];
     for (final prompt in prompts) {
@@ -936,19 +1002,20 @@ class TaskExecutor {
         appendSystemPrompt: appendSystemPrompt,
         sandboxOverride: sandboxOverride,
       );
+      final usage = normalizeWorkflowCliUsage(turnResult);
       providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
-      inputTokens += turnResult.inputTokens;
-      outputTokens += turnResult.outputTokens;
-      cacheReadTokens += turnResult.cacheReadTokens;
-      cacheWriteTokens += turnResult.cacheWriteTokens;
+      inputTokens += usage.inputTokens;
+      outputTokens += usage.outputTokens;
+      cacheReadTokens += usage.cacheReadTokens;
+      cacheWriteTokens += usage.cacheWriteTokens;
       await _trackWorkflowSessionUsage(
         sessionId,
         provider: provider,
-        inputTokens: turnResult.inputTokens,
-        newInputTokens: turnResult.newInputTokens,
-        outputTokens: turnResult.outputTokens,
-        cacheReadTokens: turnResult.cacheReadTokens,
-        cacheWriteTokens: turnResult.cacheWriteTokens,
+        inputTokens: usage.inputTokens,
+        newInputTokens: usage.newInputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
         totalCostUsd: turnResult.totalCostUsd,
       );
       final assistantText = turnResult.structuredOutput != null
@@ -985,19 +1052,20 @@ class TaskExecutor {
           appendSystemPrompt: null,
           sandboxOverride: sandboxOverride,
         );
+        final usage = normalizeWorkflowCliUsage(turnResult);
         providerSessionId = turnResult.providerSessionId.isEmpty ? providerSessionId : turnResult.providerSessionId;
-        inputTokens += turnResult.inputTokens;
-        outputTokens += turnResult.outputTokens;
-        cacheReadTokens += turnResult.cacheReadTokens;
-        cacheWriteTokens += turnResult.cacheWriteTokens;
+        inputTokens += usage.inputTokens;
+        outputTokens += usage.outputTokens;
+        cacheReadTokens += usage.cacheReadTokens;
+        cacheWriteTokens += usage.cacheWriteTokens;
         await _trackWorkflowSessionUsage(
           sessionId,
           provider: provider,
-          inputTokens: turnResult.inputTokens,
-          newInputTokens: turnResult.newInputTokens,
-          outputTokens: turnResult.outputTokens,
-          cacheReadTokens: turnResult.cacheReadTokens,
-          cacheWriteTokens: turnResult.cacheWriteTokens,
+          inputTokens: usage.inputTokens,
+          newInputTokens: usage.newInputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
           totalCostUsd: turnResult.totalCostUsd,
         );
         structuredPayload = turnResult.structuredOutput;
@@ -1068,7 +1136,6 @@ class TaskExecutor {
         ? jsonDecode(existing) as Map<String, dynamic>
         : <String, dynamic>{
             'input_tokens': 0,
-            'new_input_tokens': 0,
             'output_tokens': 0,
             'cache_read_tokens': 0,
             'cache_write_tokens': 0,
@@ -1078,20 +1145,35 @@ class TaskExecutor {
             'turn_count': 0,
             'provider': provider,
           };
+    if (costData.containsKey(_legacySessionCostFreshInputKey)) {
+      costData
+        ..clear()
+        ..addAll(<String, dynamic>{
+          'input_tokens': 0,
+          'output_tokens': 0,
+          'cache_read_tokens': 0,
+          'cache_write_tokens': 0,
+          'total_tokens': 0,
+          'effective_tokens': 0,
+          'estimated_cost_usd': 0.0,
+          'turn_count': 0,
+          'provider': provider,
+        });
+    }
     // Use `newInputTokens` (fresh-only) — not `inputTokens` which this writer
-    // stores cache-inclusive. See `computeEffectiveTokens` for the weights.
+    // reports cache-inclusive for Codex. See `computeEffectiveTokens`.
+    final freshInputTokens = newInputTokens;
     final effectiveDelta = computeEffectiveTokens(
-      inputTokens: newInputTokens,
+      inputTokens: freshInputTokens,
       outputTokens: outputTokens,
       cacheReadTokens: cacheReadTokens,
       cacheWriteTokens: cacheWriteTokens,
     );
-    costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
-    costData['new_input_tokens'] = ((costData['new_input_tokens'] as num?)?.toInt() ?? 0) + newInputTokens;
+    costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + freshInputTokens;
     costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
     costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
-    costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+    costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + freshInputTokens + outputTokens;
     costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num?)?.toDouble() ?? 0.0;
     costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as double) + (totalCostUsd ?? 0.0);
@@ -1817,6 +1899,22 @@ class TaskExecutor {
     );
   }
 
+  Future<_SessionUsageSnapshot> _readSessionUsageSnapshot(String sessionId) async {
+    try {
+      final raw = await _kv?.get('session_cost:$sessionId');
+      if (raw == null) return const _SessionUsageSnapshot();
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return _SessionUsageSnapshot(
+        inputTokens: (json['input_tokens'] as num?)?.toInt() ?? 0,
+        outputTokens: (json['output_tokens'] as num?)?.toInt() ?? 0,
+        cacheReadTokens: (json['cache_read_tokens'] as num?)?.toInt() ?? 0,
+        cacheWriteTokens: (json['cache_write_tokens'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return const _SessionUsageSnapshot();
+    }
+  }
+
   bool _budgetWarningFired(Task task) => task.configJson['_tokenBudgetWarningFired'] == true;
 
   Future<Task> _markBudgetWarningFired(Task task) async {
@@ -2105,4 +2203,18 @@ class _SessionCostSnapshot {
   final int turnCount;
 
   const _SessionCostSnapshot({required this.totalTokens, required this.turnCount});
+}
+
+class _SessionUsageSnapshot {
+  final int inputTokens;
+  final int outputTokens;
+  final int cacheReadTokens;
+  final int cacheWriteTokens;
+
+  const _SessionUsageSnapshot({
+    this.inputTokens = 0,
+    this.outputTokens = 0,
+    this.cacheReadTokens = 0,
+    this.cacheWriteTokens = 0,
+  });
 }

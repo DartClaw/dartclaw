@@ -171,6 +171,7 @@ void main() {
             mcpServerUrl: 'http://127.0.0.1:3333/mcp',
             mcpGatewayToken: 'test-token',
           ),
+          providerOptions: const {'use_system_codex_home': false},
         );
         addTearDown(() async => harness.dispose());
 

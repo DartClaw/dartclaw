@@ -8,6 +8,7 @@ import 'package:dartclaw_cli/src/commands/service_wiring.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -347,5 +348,84 @@ void main() {
     expect(response.statusCode, 400);
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
     expect(((body['error'] as Map<String, dynamic>)['message'] as String), contains('Ref "missing/ref" not found'));
+  });
+
+  test('ServiceWiring drops legacy session_cost entries at boot and logs the cleanup count', () async {
+    final skillsHomeDir = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
+    final seededKv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    await seededKv.set(
+      'session_cost:legacy',
+      jsonEncode({'input_tokens': 100, 'new_input_tokens': 20, 'output_tokens': 50, 'total_tokens': 150}),
+    );
+    await seededKv.set(
+      'session_cost:current',
+      jsonEncode({
+        'input_tokens': 20,
+        'output_tokens': 10,
+        'cache_read_tokens': 5,
+        'cache_write_tokens': 0,
+        'total_tokens': 30,
+        'effective_tokens': 30,
+        'estimated_cost_usd': 0.0,
+        'turn_count': 1,
+        'provider': 'claude',
+      }),
+    );
+    await seededKv.dispose();
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      gateway: const GatewayConfig(authMode: 'none'),
+      server: ServerConfig(
+        dataDir: tempDir.path,
+        staticDir: _staticDir(),
+        templatesDir: _templatesDir(),
+        claudeExecutable: Platform.resolvedExecutable,
+      ),
+    );
+
+    final oldLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final records = <LogRecord>[];
+    final logSub = Logger.root.onRecord.listen(records.add);
+    addTearDown(() async {
+      await logSub.cancel();
+      Logger.root.level = oldLevel;
+    });
+
+    final wiring = ServiceWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3000,
+      skillsHomeDir: skillsHomeDir.path,
+      harnessFactory: _harnessFactoryFor(worker),
+      serverFactory: (builder) => builder.build(),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      logService: logService,
+      messageRedactor: messageRedactor,
+    );
+
+    final result = await wiring.wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    expect(await result.kvService.get('session_cost:legacy'), isNull);
+    expect(await result.kvService.get('session_cost:current'), isNotNull);
+    expect(
+      records.any(
+        (record) =>
+            record.loggerName == 'ServiceWiring' &&
+            record.level == Level.INFO &&
+            record.message == 'Dropped 1 legacy session_cost entries (pre-Tier-1b schema)',
+      ),
+      isTrue,
+    );
   });
 }

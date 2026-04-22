@@ -21,6 +21,7 @@ void main() {
   late _FakeTaskWorker worker;
   late TurnManager turns;
   late ArtifactCollector collector;
+  late KvService kvService;
   late Database taskDb;
   late SqliteAgentExecutionRepository agentExecutions;
   late SqliteWorkflowRunRepository workflowRuns;
@@ -55,6 +56,7 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: workspaceDir),
       sessions: sessions,
     );
+    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     collector = ArtifactCollector(
       tasks: tasks,
       messages: messages,
@@ -78,6 +80,7 @@ void main() {
     await executor.stop();
     await tasks.dispose();
     await messages.dispose();
+    await kvService.dispose();
     await worker.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     final wsDir = Directory(workspaceDir);
@@ -99,6 +102,7 @@ void main() {
       #artifactCollector: collector,
       #workflowRunRepository: workflowRuns,
       #workflowStepExecutionRepository: workflowStepExecutions,
+      #kvService: kvService,
       #pollInterval: pollInterval,
     };
     if (onAutoAccept != null) {
@@ -435,10 +439,7 @@ void main() {
     final current = await tasks.get('task-oneshot-race');
     await tasks.updateFields(
       'task-oneshot-race',
-      configJson: {
-        ...?current?.configJson,
-        '_tokenBudgetWarningFired': true,
-      },
+      configJson: {...?current?.configJson, '_tokenBudgetWarningFired': true},
     );
 
     await pollFuture;
@@ -449,6 +450,300 @@ void main() {
     expect(updated?.configJson['_workflowInputTokensNew'], 600);
     expect(updated?.configJson['_workflowCacheReadTokens'], 400);
     expect(updated?.configJson['_workflowOutputTokens'], 500);
+  });
+
+  test('workflow oneshot session_cost uses canonical fresh-input schema and matches turn-runner shape', () async {
+    final session = await sessions.createSession();
+    final interactiveWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    addTearDown(interactiveWorker.dispose);
+    final turnStateDb = sqlite3.openInMemory();
+    addTearDown(turnStateDb.close);
+    final turnState = TurnStateStore(turnStateDb);
+    addTearDown(turnState.dispose);
+    final interactiveRunner = TurnRunner(
+      harness: interactiveWorker,
+      messages: messages,
+      behavior: BehaviorFileService(workspaceDir: workspaceDir),
+      sessions: sessions,
+      turnState: turnState,
+      kv: kvService,
+      providerId: 'claude',
+    );
+
+    unawaited(() async {
+      await interactiveWorker.turnInvoked;
+      interactiveWorker.completeSuccess({'input_tokens': 100, 'output_tokens': 50, 'cache_read_tokens': 80});
+    }());
+
+    final interactiveTurnId = await interactiveRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'interactive'},
+    ]);
+    await interactiveRunner.waitForOutcome(session.id, interactiveTurnId);
+
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        final payload = [
+          jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-schema'}),
+          jsonEncode({
+            'type': 'item.completed',
+            'item': {'type': 'agent_message', 'text': 'Done.'},
+          }),
+          jsonEncode({
+            'type': 'turn.completed',
+            'usage': {'input_tokens': 100, 'cached_input_tokens': 80, 'output_tokens': 50},
+          }),
+        ].join('\n').replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-session-cost-shape',
+      title: 'Workflow schema parity',
+      description: 'Verify workflow session_cost shape matches TurnRunner.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-session-cost-shape',
+      workflowRunId: 'wf-session-cost-shape',
+      provider: 'codex',
+      configJson: {'_continueSessionId': session.id},
+    );
+    await seedWorkflowExecution(
+      'task-session-cost-shape',
+      agentExecutionId: 'ae-task-session-cost-shape',
+      workflowRunId: 'wf-session-cost-shape',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final raw = await kvService.get('session_cost:${session.id}');
+    expect(raw, isNotNull);
+    final costData = jsonDecode(raw!) as Map<String, dynamic>;
+    expect(costData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(costData.containsKey('new_input_tokens'), isFalse);
+    expect(costData['input_tokens'], 120);
+    expect(costData['output_tokens'], 100);
+    expect(costData['cache_read_tokens'], 160);
+    expect(costData['cache_write_tokens'], 0);
+    expect(costData['total_tokens'], 220);
+    expect(costData['effective_tokens'], 236);
+    expect(costData['turn_count'], 2);
+    expect(costData['provider'], 'claude');
+  });
+
+  test('workflow oneshot normalizes cumulative Codex usage across resumed follow-up and extraction turns', () async {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['verdict'],
+      'properties': {
+        'verdict': {
+          'type': 'object',
+          'required': ['pass'],
+          'properties': {
+            'pass': {'type': 'boolean'},
+          },
+        },
+      },
+    };
+    final capturedArgs = <List<String>>[];
+    var invocation = 0;
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        capturedArgs.add(List<String>.from(args));
+        invocation++;
+        final List<String> lines;
+        if (invocation == 1) {
+          lines = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-resume'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'Initial analysis.'},
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 100, 'cached_input_tokens': 80, 'output_tokens': 10},
+            }),
+          ];
+        } else if (invocation == 2) {
+          lines = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-resume'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'Follow-up analysis.'},
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 140, 'cached_input_tokens': 100, 'output_tokens': 18},
+            }),
+          ];
+        } else {
+          lines = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-resume'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {
+                'type': 'agent_message',
+                'text': jsonEncode({
+                  'verdict': {'pass': true},
+                }),
+              },
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 170, 'cached_input_tokens': 120, 'output_tokens': 25},
+            }),
+          ];
+        }
+        final stdout = lines.join('\n').replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-codex-cumulative-deltas',
+      title: 'Workflow cumulative Codex deltas',
+      description: 'Normalize cumulative Codex usage into per-turn deltas.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-codex-cumulative-deltas',
+      workflowRunId: 'wf-codex-cumulative-deltas',
+      provider: 'codex',
+    );
+    await seedWorkflowExecution(
+      'task-codex-cumulative-deltas',
+      agentExecutionId: 'ae-task-codex-cumulative-deltas',
+      workflowRunId: 'wf-codex-cumulative-deltas',
+      followUpPrompts: ['Follow up'],
+      structuredSchema: schema,
+      stepId: 'plan',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    expect(invocation, 3);
+    expect(capturedArgs[0].contains('resume'), isFalse);
+    expect(capturedArgs[1], containsAll(<String>['resume', 'codex-thread-resume']));
+    expect(capturedArgs[2], containsAll(<String>['resume', 'codex-thread-resume']));
+
+    final updated = await tasks.get('task-codex-cumulative-deltas');
+    expect(updated?.status, TaskStatus.review);
+    expect(updated?.configJson['_workflowInputTokensNew'], 50);
+    expect(updated?.configJson['_workflowCacheReadTokens'], 120);
+    expect(updated?.configJson['_workflowOutputTokens'], 25);
+
+    final stepExecution = await workflowStepExecutions.getByTaskId('task-codex-cumulative-deltas');
+    expect(stepExecution?.providerSessionId, 'codex-thread-resume');
+    expect(stepExecution?.stepTokenBreakdown, {'inputTokensNew': 50, 'cacheReadTokens': 120, 'outputTokens': 25});
+    expect(stepExecution?.structuredOutput, {
+      'verdict': {'pass': true},
+    });
+
+    final sessionId = updated?.sessionId;
+    expect(sessionId, isNotNull);
+    final raw = await kvService.get('session_cost:$sessionId');
+    expect(raw, isNotNull);
+    final costData = jsonDecode(raw!) as Map<String, dynamic>;
+    expect(costData['input_tokens'], 50);
+    expect(costData['output_tokens'], 25);
+    expect(costData['cache_read_tokens'], 120);
+    expect(costData['cache_write_tokens'], 0);
+    expect(costData['total_tokens'], 75);
+    expect(costData['effective_tokens'], 87);
+    expect(costData['turn_count'], 3);
+  });
+
+  test('workflow oneshot subtracts existing session baseline on the first resumed Codex turn', () async {
+    final continuedSession = await sessions.createSession();
+    await kvService.set(
+      'session_cost:${continuedSession.id}',
+      jsonEncode({
+        'input_tokens': 20,
+        'output_tokens': 10,
+        'cache_read_tokens': 80,
+        'cache_write_tokens': 0,
+        'total_tokens': 30,
+        'effective_tokens': 38,
+        'estimated_cost_usd': 0.0,
+        'turn_count': 1,
+        'provider': 'codex',
+      }),
+    );
+
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        final stdout = [
+          jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-resume'}),
+          jsonEncode({
+            'type': 'item.completed',
+            'item': {'type': 'agent_message', 'text': 'Done.'},
+          }),
+          jsonEncode({
+            'type': 'turn.completed',
+            'usage': {'input_tokens': 170, 'cached_input_tokens': 120, 'output_tokens': 25},
+          }),
+        ].join('\n').replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+      },
+    );
+    final oneShotExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(oneShotExecutor.stop);
+
+    await tasks.create(
+      id: 'task-codex-session-baseline',
+      title: 'Workflow continued Codex baseline',
+      description: 'Subtract the already-accounted shared-session baseline.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-codex-session-baseline',
+      workflowRunId: 'wf-codex-session-baseline',
+      provider: 'codex',
+      configJson: {'_continueSessionId': continuedSession.id},
+    );
+    await seedWorkflowExecution(
+      'task-codex-session-baseline',
+      agentExecutionId: 'ae-task-codex-session-baseline',
+      workflowRunId: 'wf-codex-session-baseline',
+      providerSessionId: 'codex-thread-resume',
+    );
+
+    await oneShotExecutor.pollOnce();
+
+    final updated = await tasks.get('task-codex-session-baseline');
+    expect(updated?.sessionId, continuedSession.id);
+    expect(updated?.configJson['_workflowInputTokensNew'], 30);
+    expect(updated?.configJson['_workflowCacheReadTokens'], 40);
+    expect(updated?.configJson['_workflowOutputTokens'], 15);
+
+    final stepExecution = await workflowStepExecutions.getByTaskId('task-codex-session-baseline');
+    expect(stepExecution?.stepTokenBreakdown, {'inputTokensNew': 30, 'cacheReadTokens': 40, 'outputTokens': 15});
+
+    final raw = await kvService.get('session_cost:${continuedSession.id}');
+    expect(raw, isNotNull);
+    final costData = jsonDecode(raw!) as Map<String, dynamic>;
+    expect(costData['input_tokens'], 50);
+    expect(costData['output_tokens'], 25);
+    expect(costData['cache_read_tokens'], 120);
+    expect(costData['cache_write_tokens'], 0);
+    expect(costData['total_tokens'], 75);
+    expect(costData['effective_tokens'], 87);
+    expect(costData['turn_count'], 2);
   });
 
   test('workflow oneshot short-circuits extraction when inline <workflow-context> is valid', () async {

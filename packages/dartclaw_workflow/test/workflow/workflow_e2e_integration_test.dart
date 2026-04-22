@@ -683,7 +683,7 @@ void _copyDirectorySync(Directory source, Directory target) {
   }
 }
 
-Future<void> _cloneWorkflowTestingRepo(String targetDir) async {
+Future<void> _cloneTodoAppFixtureRepo(String targetDir) async {
   Directory(targetDir).parent.createSync(recursive: true);
 
   // Two auth paths:
@@ -698,9 +698,9 @@ Future<void> _cloneWorkflowTestingRepo(String targetDir) async {
           scheme: 'https',
           userInfo: 'x-access-token:$githubToken',
           host: 'github.com',
-          path: '/tolo/dartclaw-workflow-testing.git',
+          path: '/DartClaw/workflow-test-todo-app.git',
         ).toString()
-      : 'git@github.com:tolo/dartclaw-workflow-testing.git';
+      : 'git@github.com:DartClaw/workflow-test-todo-app.git';
   final cloneEnv = <String, String>{
     'GIT_TERMINAL_PROMPT': '0',
     if (!useHttps) 'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
@@ -714,7 +714,7 @@ Future<void> _cloneWorkflowTestingRepo(String targetDir) async {
   if (result.exitCode != 0) {
     final mode = useHttps ? 'HTTPS+token' : 'SSH (ssh-agent)';
     throw StateError(
-      'Failed to clone workflow-testing fixture repo over $mode: ${result.stderr}\n'
+      'Failed to clone workflow-test-todo-app fixture repo over $mode: ${result.stderr}\n'
       'Tip: set GITHUB_TOKEN for HTTPS, or ensure your SSH key is loaded via `ssh-add` for SSH.',
     );
   }
@@ -783,8 +783,8 @@ void main() {
       Directory(p.join(e2eFixtureProfileDir, 'workflow-workspace')),
       Directory(p.join(dataDir, 'workflow-workspace')),
     );
-    fixtureDir = p.join(dataDir, 'projects', 'workflow-testing');
-    await _cloneWorkflowTestingRepo(fixtureDir);
+    fixtureDir = p.join(dataDir, 'projects', 'workflow-test-todo-app');
+    await _cloneTodoAppFixtureRepo(fixtureDir);
     // Keep the cloned project checkout pristine so workflow bootstrap can
     // switch to its owned branch before the first step runs. The fixture
     // workspace/workflow-workspace already provide the AGENTS.md content that
@@ -804,7 +804,7 @@ void main() {
       await _closePr(url);
     }
     for (final branch in createdBranches) {
-      await _closePrByBranch(branch, 'tolo/dartclaw-workflow-testing');
+      await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app');
     }
 
     if (runtimeDir.existsSync()) {
@@ -823,7 +823,7 @@ void main() {
       'pr',
       'create',
       '--repo',
-      'tolo/dartclaw-workflow-testing',
+      'DartClaw/workflow-test-todo-app',
       '--head',
       branch,
       '--base',
@@ -954,11 +954,19 @@ void main() {
       recorder.start();
 
       // Start workflow
+      //
+      // The FEATURE text references a defect tracked in the fixture repo's
+      // docs/PRODUCT-BACKLOG.md. The agent is expected to consult the backlog
+      // via discover-project / spec steps rather than reason from the prose
+      // description alone — this exercises the project-index → spec handoff
+      // that a trivial "create a markdown file" prompt cannot.
       final variables = {
         'FEATURE':
-            'Create exactly one new markdown file at notes/e2e-spec-$timestamp.md '
-            'with one heading "E2E Spec Test" and one bullet "Automated test artifact" only.',
-        'PROJECT': 'workflow-testing',
+            'Fix BUG-001 from docs/PRODUCT-BACKLOG.md (Known Defects section): '
+            'the sidebar incomplete-count is not updated when a todo is deleted. '
+            'Follow the codebase\'s existing HTMX out-of-band swap pattern — '
+            'see how toggle_todo updates the same count in its response.',
+        'PROJECT': 'workflow-test-todo-app',
         'BRANCH': 'main',
       };
       final run = await w.workflowService.start(definition, variables, headless: true);
@@ -1070,12 +1078,18 @@ void main() {
       );
       recorder.start();
 
+      // Two independent defects from the fixture repo's Known Defects backlog.
+      // Chosen so the two story worktrees touch disjoint files and can merge
+      // without conflict, while still exercising the full plan → parallel
+      // implement → review → remediate pipeline against a realistic codebase.
       final variables = {
         'REQUIREMENTS':
-            'Split the work into exactly two THIN stories. '
-            'Story 1: Create notes/e2e-plan-a-$timestamp.md with heading "Plan A" and one bullet only. '
-            'Story 2: Create notes/e2e-plan-b-$timestamp.md with heading "Plan B" and one bullet only.',
-        'PROJECT': 'workflow-testing',
+            'Fix BUG-002 and BUG-003 from docs/PRODUCT-BACKLOG.md (Known Defects section) '
+            'as two independent, thin stories. '
+            'Story 1: BUG-002 — due dates set in the edit dialog do not persist after save. '
+            'Story 2: BUG-003 — quick-add todos have no default priority. '
+            'Keep each story isolated to its own files; they must merge without conflict.',
+        'PROJECT': 'workflow-test-todo-app',
         'BRANCH': 'main',
         'MAX_PARALLEL': '2',
       };

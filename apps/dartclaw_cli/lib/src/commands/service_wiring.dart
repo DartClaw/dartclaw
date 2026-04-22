@@ -465,7 +465,7 @@ class ServiceWiring {
             projectDir: resolvedProject.localPath,
             branch: integrationBranch,
             baseRef: effectiveBaseRef,
-            remoteBacked: resolvedProject.id != '_local',
+            remoteBacked: resolvedProject.remoteUrl.isNotEmpty,
           );
           return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
         },
@@ -1101,7 +1101,7 @@ List<String> _workflowSkillProjectDirs(config_tools.DartclawConfig config) {
 
 String? _workflowFreshnessRefForProject(Project project, String? branch) {
   if (branch == null || branch.isEmpty) return null;
-  if (project.id != '_local' && branch.startsWith('origin/')) {
+  if (project.remoteUrl.isNotEmpty && branch.startsWith('origin/')) {
     final trimmed = branch.substring('origin/'.length).trim();
     return trimmed.isEmpty ? null : trimmed;
   }

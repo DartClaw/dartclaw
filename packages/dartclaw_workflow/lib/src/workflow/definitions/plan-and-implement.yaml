@@ -12,7 +12,7 @@ variables:
   BRANCH:
     required: false
     description: Base branch/ref used for workflow bootstrap and comparisons
-    default: "main"
+    default: ""
   MAX_PARALLEL:
     required: false
     description: Max parallel story executions

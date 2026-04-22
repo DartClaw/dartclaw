@@ -643,6 +643,20 @@ class WorkflowDefinitionValidator {
         );
       }
     }
+
+    final branchDefault = definition.variables['BRANCH']?.defaultValue?.trim();
+    if (strategy.bootstrap == true && branchDefault == 'main') {
+      warnings.add(
+        ValidationError(
+          message:
+              'variables.BRANCH.default: "main" with gitStrategy.bootstrap: true '
+              'hardcodes workflow bootstrap to main for local-path projects. '
+              'Prefer leaving BRANCH empty and letting workflow start resolve '
+              'the effective base ref from the project.',
+          type: ValidationErrorType.invalidReference,
+        ),
+      );
+    }
   }
 
   String _resolvedWorktreeModeForValidation(WorkflowDefinition definition, WorkflowGitStrategy strategy) {
@@ -819,8 +833,7 @@ class WorkflowDefinitionValidator {
       final aliases = aliasesByStepId[step.id];
       // Extract variable references from all prompts combined (prompts optional for skill steps).
       final allPromptRefs = <String>{
-        for (final p in step.prompts ?? const <String>[])
-          ..._engine.extractVariableReferences(p, mapAliases: aliases),
+        for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p, mapAliases: aliases),
       };
       for (final ref in allPromptRefs) {
         if (!declaredVars.contains(ref)) {
@@ -876,7 +889,8 @@ class WorkflowDefinitionValidator {
         final stepProject = step.project;
         if (stepProject == null) continue;
         final resolvedStepProject = _resolveProjectTemplate(stepProject, comparisonContext);
-        final sameProject = stepProject.trim() == workflowProject.trim() ||
+        final sameProject =
+            stepProject.trim() == workflowProject.trim() ||
             (resolvedWorkflowProject != null &&
                 resolvedStepProject != null &&
                 resolvedWorkflowProject == resolvedStepProject);
@@ -930,7 +944,8 @@ class WorkflowDefinitionValidator {
       if (!step.isMapStep) {
         errors.add(
           ValidationError(
-            message: 'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
+            message:
+                'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
                 '(steps that declare map_over).',
             type: ValidationErrorType.invalidReference,
             stepId: step.id,
@@ -940,7 +955,8 @@ class WorkflowDefinitionValidator {
       if (declaredVars.contains(alias)) {
         errors.add(
           ValidationError(
-            message: 'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
+            message:
+                'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
                 '(pick a different identifier).',
             type: ValidationErrorType.invalidReference,
             stepId: step.id,

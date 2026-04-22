@@ -144,7 +144,9 @@ void main() {
           name: 'wf',
           description: 'd',
           project: '{{PROJECT}}',
-          steps: const [WorkflowStep(id: 's', name: 'S', prompts: ['p'])],
+          steps: const [
+            WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+          ],
         );
         final errors = validator.validate(def).errors;
         expect(errors.any((e) => e.message.contains('Workflow project field references undeclared variable')), isTrue);
@@ -159,12 +161,7 @@ void main() {
           project: '{{PROJECT}}',
           variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'demo-project')},
           steps: const [
-            WorkflowStep(
-              id: 'implement',
-              name: 'Implement',
-              prompts: ['p'],
-              project: '{{PROJECT}}',
-            ),
+            WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p'], project: '{{PROJECT}}'),
           ],
         );
         final warnings = validator.validate(def).warnings;
@@ -181,10 +178,7 @@ void main() {
           ],
         );
         final warnings = validator.validate(def).warnings;
-        expect(
-          warnings.where((w) => w.message.contains('Semantic step types')).length,
-          1,
-        );
+        expect(warnings.where((w) => w.message.contains('Semantic step types')).length, 1);
       });
     });
 
@@ -771,6 +765,24 @@ void main() {
         ),
       );
       expect(validator.validate(def).errors, isEmpty);
+    });
+
+    test('bootstrap workflows warn when BRANCH defaults to main', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        variables: const {'BRANCH': WorkflowVariable(required: false, description: 'Base ref', defaultValue: 'main')},
+        steps: const [
+          WorkflowStep(id: 's', name: 'S', prompts: ['p']),
+        ],
+        gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+      );
+
+      final report = validator.validate(def);
+      expect(report.errors, isEmpty);
+      expect(report.warnings, hasLength(1));
+      expect(report.warnings.single.message, contains('variables.BRANCH.default: "main"'));
+      expect(report.warnings.single.message, contains('gitStrategy.bootstrap: true'));
     });
 
     test('invalid gitStrategy enum-like values produce validation errors', () {
@@ -1991,12 +2003,7 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'setup',
-            name: 'Setup',
-            prompts: ['Setup'],
-            contextOutputs: ['items'],
-          ),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
           WorkflowStep(
             id: 'each',
             name: 'Each',
@@ -2029,12 +2036,7 @@ void main() {
         description: 'd',
         variables: const {'PROJECT': WorkflowVariable(required: false, defaultValue: 'x')},
         steps: const [
-          WorkflowStep(
-            id: 'setup',
-            name: 'Setup',
-            prompts: ['Setup'],
-            contextOutputs: ['items'],
-          ),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
           WorkflowStep(
             id: 'each',
             name: 'Each',
@@ -2056,12 +2058,7 @@ void main() {
         name: 'wf',
         description: 'd',
         steps: const [
-          WorkflowStep(
-            id: 'setup',
-            name: 'Setup',
-            prompts: ['Setup'],
-            contextOutputs: ['items'],
-          ),
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['Setup'], contextOutputs: ['items']),
           WorkflowStep(
             id: 'pipeline',
             name: 'Pipeline',
@@ -2071,11 +2068,7 @@ void main() {
             foreachSteps: ['implement'],
             contextOutputs: ['results'],
           ),
-          WorkflowStep(
-            id: 'implement',
-            name: 'Implement',
-            prompts: ['Implement {{story.item.spec_path}}'],
-          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{story.item.spec_path}}']),
         ],
       );
       final errors = validator.validate(def).errors;

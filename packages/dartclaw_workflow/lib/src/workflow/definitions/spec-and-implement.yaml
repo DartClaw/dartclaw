@@ -13,7 +13,7 @@ variables:
   BRANCH:
     required: false
     description: Base branch/ref used for workflow bootstrap and comparisons
-    default: "main"
+    default: ""
 
 project: "{{PROJECT}}"
 

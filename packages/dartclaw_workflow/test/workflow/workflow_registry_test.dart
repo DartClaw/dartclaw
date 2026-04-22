@@ -123,6 +123,21 @@ void main() {
       expect(def!.name, equals('spec-and-implement'));
     });
 
+    test('bootstrap built-ins leave BRANCH empty so project resolution can infer the base ref', () async {
+      final parser = WorkflowDefinitionParser();
+      for (final name in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
+        final definition = await parser.parseFile(p.join(_workflowDefinitionsDir(), name));
+        expect(
+          definition.variables['BRANCH']?.defaultValue,
+          anyOf(isNull, isEmpty),
+          reason: '$name should not hardcode main for workflow bootstrap',
+        );
+      }
+
+      final codeReview = await parser.parseFile(p.join(_workflowDefinitionsDir(), 'code-review.yaml'));
+      expect(codeReview.variables['BASE_BRANCH']?.defaultValue, 'main');
+    });
+
     test('getByName("nonexistent") returns null', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(_workflowDefinitionsDir(), source: WorkflowSource.materialized);

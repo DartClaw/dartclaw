@@ -1239,6 +1239,8 @@ class TaskExecutor {
       buffer
         ..writeln()
         ..writeln('### Working Directory')
+        ..writeln('`$workingDirectory`')
+        ..writeln()
         ..writeln('Use the reserved task worktree as the only workspace for this task.');
     }
 
@@ -1278,6 +1280,8 @@ class TaskExecutor {
       lines
         ..add('')
         ..add('### Working Directory')
+        ..add('`$workingDirectory`')
+        ..add('')
         ..add('Continue using `$workingDirectory` as the only workspace for this task.');
     }
 
@@ -1595,7 +1599,7 @@ class TaskExecutor {
 
   String? _freshnessRefFor(Project project, String? baseRef) {
     if (baseRef == null || baseRef.isEmpty) return null;
-    if (project.id != '_local' && baseRef.startsWith('origin/')) {
+    if (project.remoteUrl.isNotEmpty && baseRef.startsWith('origin/')) {
       final trimmed = baseRef.substring('origin/'.length).trim();
       return trimmed.isEmpty ? null : trimmed;
     }
@@ -1608,7 +1612,7 @@ class TaskExecutor {
       // Workflow-owned branches are local refs; do not rewrite to origin/*.
       return baseRef;
     }
-    if (project.id == '_local') return baseRef;
+    if (project.remoteUrl.isEmpty) return baseRef;
     if (baseRef.startsWith('origin/') || baseRef.startsWith('refs/')) {
       return baseRef;
     }
@@ -2044,6 +2048,10 @@ class TaskExecutor {
     if (!_isWorkflowOrchestrated(task)) {
       return task;
     }
+    final current = await _tasks.get(task.id);
+    if (current == null || current.status.terminal) {
+      return current ?? task;
+    }
     // Atomic merge so a concurrent config update on the same status (e.g.
     // token-budget-warning flag) cannot be lost by a read-modify-write.
     final patch = WorkflowTaskConfig.taskConfigTokenBreakdownPatch(
@@ -2051,7 +2059,7 @@ class TaskExecutor {
       cacheReadTokens: cacheReadTokens,
       outputTokens: outputTokens,
     );
-    return _tasks.mergeConfigJson(task.id, patch);
+    return _tasks.mergeConfigJson(current.id, patch);
   }
 }
 

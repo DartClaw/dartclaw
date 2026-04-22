@@ -3343,9 +3343,9 @@ class WorkflowExecutor {
     _approvalTimers.clear();
   }
 
-  /// Persists [context] to `<dataDir>/workflows/<runId>/context.json` atomically.
+  /// Persists [context] to `<dataDir>/workflows/runs/<runId>/context.json` atomically.
   Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final dir = Directory(p.join(_dataDir, 'workflows', runId));
+    final dir = Directory(p.join(_dataDir, 'workflows', 'runs', runId));
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, 'context.json'));
     await atomicWriteJson(file, context.toJson());

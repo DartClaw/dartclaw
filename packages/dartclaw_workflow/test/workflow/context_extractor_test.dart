@@ -172,42 +172,42 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
-  test('uses the most recent assistant message containing workflow-context, not only the last assistant message', () async {
-    final session = await sessionService.getOrCreateMain();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content:
-          'Done.\n\n<workflow-context>{"prd":"PRD text","stories":{"items":[{"id":"S01"}]}}</workflow-context>',
-    );
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: '{"stories":{"items":[{"id":"S01"}]}}',
-    );
+  test(
+    'uses the most recent assistant message containing workflow-context, not only the last assistant message',
+    () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: 'Done.\n\n<workflow-context>{"prd":"PRD text","stories":{"items":[{"id":"S01"}]}}</workflow-context>',
+      );
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '{"stories":{"items":[{"id":"S01"}]}}',
+      );
 
-    await taskService.create(
-      id: 'task-workflow-context-history',
-      title: 'Test',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
-    await taskService.updateFields('task-workflow-context-history', sessionId: session.id);
-    final taskWithSession = (await taskService.get('task-workflow-context-history'))!;
+      await taskService.create(
+        id: 'task-workflow-context-history',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-workflow-context-history', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-workflow-context-history'))!;
 
-    final step = makeStep(
-      contextOutputs: ['prd', 'stories'],
-      outputs: const {
-        'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan'),
-      },
-    );
-    final outputs = await extractor.extract(step, taskWithSession);
+      final step = makeStep(
+        contextOutputs: ['prd', 'stories'],
+        outputs: const {'stories': OutputConfig(format: OutputFormat.json, schema: 'story-plan')},
+      );
+      final outputs = await extractor.extract(step, taskWithSession);
 
-    expect(outputs['prd'], equals('PRD text'));
-    expect(outputs['stories'], isA<Map<Object?, Object?>>());
-    expect(((outputs['stories'] as Map<Object?, Object?>)['items'] as List<Object?>), hasLength(1));
-  });
+      expect(outputs['prd'], equals('PRD text'));
+      expect(outputs['stories'], isA<Map<Object?, Object?>>());
+      expect(((outputs['stories'] as Map<Object?, Object?>)['items'] as List<Object?>), hasLength(1));
+    },
+  );
 
   test('format-aware json output stores parsed list from last assistant message', () async {
     final session = await sessionService.getOrCreateMain();
@@ -424,8 +424,7 @@ void main() {
         workflowRunId: 'wf-structured-config',
         stepIndex: 0,
         stepId: 'step1',
-        structuredOutputJson:
-            '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
+        structuredOutputJson: '{"verdict":{"pass":true,"findings_count":0,"findings":[],"summary":"Clean"}}',
       ),
     );
     final task = (await taskService.get('task-structured-config'))!;
@@ -534,7 +533,7 @@ void main() {
     expect(outputs['findings_count'], 2);
   });
 
-  group('S04 (0.16.1): worktree source outputs', () {
+  group('worktree source outputs', () {
     test('source: worktree.branch extracts branch from task.worktreeJson', () async {
       final task = await taskService.create(
         id: 'task-wt1',
@@ -617,6 +616,43 @@ void main() {
 
       final outputs = await extractor.extract(step, task);
       expect(outputs['branch'], equals(''));
+    });
+  });
+
+  group('project-index path sanitization', () {
+    test('clears document locations that escape project_root via relative segments', () async {
+      final session = await sessionService.getOrCreateMain();
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content:
+            '<workflow-context>{"project_index":{"framework":"none","project_root":"/repo/public","document_locations":{"product":null,"backlog":null,"roadmap":"../../private/docs/ROADMAP.md","prd":"docs/prd.md","plan":"/repo/public/docs/plan.md","spec":null,"state":"../STATE.md","readme":"README.md","agent_rules":"AGENTS.md","architecture":"docs/architecture","guide":"docs/guide/README.md"},"state_protocol":{"type":"none","state_file":null,"format":null}}}</workflow-context>',
+      );
+
+      await taskService.create(
+        id: 'task-project-index-1',
+        title: 'Test',
+        description: 'Test',
+        type: TaskType.research,
+        autoStart: true,
+      );
+      await taskService.updateFields('task-project-index-1', sessionId: session.id);
+      final taskWithSession = (await taskService.get('task-project-index-1'))!;
+
+      final step = makeStep(
+        contextOutputs: const ['project_index'],
+        outputs: const {'project_index': OutputConfig(format: OutputFormat.json, schema: 'project-index')},
+      );
+
+      final outputs = await extractor.extract(step, taskWithSession);
+      final projectIndex = outputs['project_index'] as Map<String, dynamic>;
+      final documentLocations = projectIndex['document_locations'] as Map<String, dynamic>;
+
+      expect(documentLocations['roadmap'], isNull);
+      expect(documentLocations['state'], isNull);
+      expect(documentLocations['prd'], equals('docs/prd.md'));
+      expect(documentLocations['plan'], equals('docs/plan.md'));
+      expect(documentLocations['readme'], equals('README.md'));
     });
   });
 }

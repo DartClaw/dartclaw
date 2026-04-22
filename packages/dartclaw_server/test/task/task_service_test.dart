@@ -405,6 +405,25 @@ void main() {
     });
   });
 
+  group('mergeConfigJson', () {
+    test('returns the task unchanged when status is terminal (no throw)', () async {
+      final created = await service.create(
+        id: 'task-merge-terminal',
+        title: 'Will be cancelled',
+        description: 'desc',
+        type: TaskType.automation,
+        autoStart: true,
+      );
+      await service.transition(created.id, TaskStatus.cancelled);
+
+      final result = await service.mergeConfigJson(created.id, const {'token_breakdown': 1});
+
+      expect(result.status.terminal, isTrue);
+      final stored = await repo.getById(created.id);
+      expect(stored?.configJson.containsKey('token_breakdown'), isFalse);
+    });
+  });
+
   group('dispose', () {
     test('disposes repository', () async {
       await service.dispose();

@@ -347,6 +347,38 @@ const projectIndexPreset = SchemaPreset(
           },
         },
       },
+      'project_name': {
+        'type': ['string', 'null'],
+        'description': 'Human-readable project name, when derivable from the root instruction files.',
+      },
+      'detected_markers': {
+        'type': ['array', 'null'],
+        'description': 'Framework markers that were observed during detection (e.g. `.specify/`, `docs/STATE.md`).',
+        'items': {'type': 'string'},
+      },
+      'active_milestone': {
+        'type': ['string', 'null'],
+        'description': 'Current milestone identifier (e.g. "0.16.5"), or `null` when unresolved.',
+      },
+      'active_prd': {
+        'type': ['string', 'null'],
+        'description': 'Workspace-relative PRD path for the active milestone, or `null` when absent.',
+      },
+      'active_plan': {
+        'type': ['string', 'null'],
+        'description': 'Workspace-relative plan path for the active milestone, or `null` when absent.',
+      },
+      'artifact_locations': {
+        'type': ['object', 'null'],
+        'description': 'Canonical artifact-write paths (`prd`, `plan`, `fis_dir`). Each value is workspace-relative or `null`.',
+        'additionalProperties': {
+          'type': ['string', 'null'],
+        },
+      },
+      'notes': {
+        'type': ['string', 'null'],
+        'description': 'Free-form notes, e.g. cross-repo relationships that cannot be expressed in `document_locations`.',
+      },
     },
   },
 );

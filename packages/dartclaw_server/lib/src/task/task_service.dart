@@ -327,14 +327,16 @@ class TaskService implements WorkflowTaskService {
   /// update — no read-modify-write round trip.
   ///
   /// Returns the refreshed task, or the original if the task is missing or
-  /// its status changed before the write.
+  /// its status changed before the write. Terminal tasks are treated as a
+  /// status drift: the merge is skipped and the refreshed task is returned,
+  /// so late arrivals after a concurrent cancel/fail do not raise.
   Future<Task> mergeConfigJson(String taskId, Map<String, dynamic> patch) async {
     if (patch.isEmpty) {
       return await _repo.getById(taskId) ?? (throw ArgumentError('Task not found: $taskId'));
     }
     final task = await _requireTask(taskId);
     if (task.status.terminal) {
-      throw StateError('Cannot update terminal task: ${task.status.name}');
+      return task;
     }
     await _repo.mergeConfigJsonIfStatus(taskId, patch, expectedStatus: task.status);
     // Return the freshest snapshot even when the merge was a no-op (e.g.

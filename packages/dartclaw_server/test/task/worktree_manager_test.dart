@@ -420,6 +420,50 @@ void main() {
         expect(worktreeCall.arguments, contains('origin/release/0.16'));
       });
 
+      test('create() with local-path project keeps explicit baseRef local when no remote exists', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: '',
+          localPath: '/data/projects/my-app',
+          defaultBranch: '',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await manager.create('task-1', project: project, baseRef: 'feature/local');
+
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
+        expect(worktreeCall.arguments, contains('feature/local'));
+        expect(worktreeCall.arguments, isNot(contains('origin/feature/local')));
+      });
+
+      test('create() with local-path project and no explicit baseRef uses the local defaultBranch', () async {
+        final project = Project(
+          id: 'my-app',
+          name: 'My App',
+          remoteUrl: '',
+          localPath: '/data/projects/my-app',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.now(),
+        );
+
+        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+
+        await manager.create('task-1', project: project);
+
+        final worktreeCall = calls.firstWhere(
+          (c) => c.arguments.length >= 2 && c.arguments[0] == 'worktree' && c.arguments[1] == 'add',
+        );
+        expect(worktreeCall.arguments, contains('main'));
+        expect(worktreeCall.arguments, isNot(contains('origin/main')));
+      });
+
       test('create() with project preserves explicit local workflow refs when they already exist locally', () async {
         final project = Project(
           id: 'my-app',

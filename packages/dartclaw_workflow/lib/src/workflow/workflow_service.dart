@@ -750,7 +750,7 @@ class WorkflowService {
   }
 
   Future<void> _persistContext(String runId, WorkflowContext context) async {
-    final dir = Directory(p.join(_dataDir, 'workflows', runId));
+    final dir = Directory(p.join(_dataDir, 'workflows', 'runs', runId));
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, 'context.json'));
     await atomicWriteJson(file, context.toJson());
@@ -769,7 +769,7 @@ class WorkflowService {
   }
 
   Future<WorkflowContext?> _loadContext(String runId) async {
-    final file = File(p.join(_dataDir, 'workflows', runId, 'context.json'));
+    final file = File(p.join(_dataDir, 'workflows', 'runs', runId, 'context.json'));
     if (!file.existsSync()) return null;
     try {
       final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;

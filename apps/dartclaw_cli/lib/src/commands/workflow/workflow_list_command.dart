@@ -116,8 +116,11 @@ class WorkflowListCommand extends Command<void> {
 /// extracted here for reuse.
 Future<WorkflowRegistry> buildWorkflowRegistry(DartclawConfig config, {AssetResolver? assetResolver}) async {
   final registry = WorkflowRegistry(parser: WorkflowDefinitionParser(), validator: WorkflowDefinitionValidator());
-  await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
-  await registry.loadFromDirectory(p.join(config.workspaceDir, 'workflows'), source: WorkflowSource.materialized);
+  await WorkflowMaterializer.materialize(dataDir: config.server.dataDir, assetResolver: assetResolver);
+  await registry.loadFromDirectory(
+    WorkflowMaterializer.definitionsDir(config.server.dataDir),
+    source: WorkflowSource.materialized,
+  );
   for (final projectDef in config.projects.definitions.values) {
     await registry.loadFromDirectory(p.join(configuredProjectDirectory(config, projectDef), 'workflows'));
   }

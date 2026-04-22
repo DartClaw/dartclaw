@@ -129,7 +129,7 @@ class ContextExtractor {
       // On miss, record the fallback event and fall through to the heuristic chain.
       if (config != null && config.outputMode == OutputMode.structured) {
         if (structuredOutputPayload.containsKey(outputKey)) {
-          final structuredValue = structuredOutputPayload[outputKey];
+          final structuredValue = _normalizeJsonOutput(structuredOutputPayload[outputKey], config, step.id, outputKey);
           _softValidate(structuredValue, config, step.id, outputKey);
           outputs[outputKey] = structuredValue;
           continue;
@@ -149,8 +149,9 @@ class ContextExtractor {
         } else {
           switch (config.format) {
             case OutputFormat.json:
-              _softValidate(payloadValue, config, step.id, outputKey);
-              outputs[outputKey] = payloadValue;
+              final normalizedValue = _normalizeJsonOutput(payloadValue, config, step.id, outputKey);
+              _softValidate(normalizedValue, config, step.id, outputKey);
+              outputs[outputKey] = normalizedValue;
             case OutputFormat.lines:
               outputs[outputKey] = switch (payloadValue) {
                 final List<dynamic> values =>
@@ -180,7 +181,7 @@ class ContextExtractor {
         switch (config.format) {
           case OutputFormat.json:
             try {
-              var parsed = extractJson(rawContent);
+              Object? parsed = extractJson(rawContent);
               // Unwrap: if the parsed JSON is an envelope containing a key
               // matching this outputKey, extract just the nested value. This
               // handles Codex-style responses that emit a flat JSON with all
@@ -188,6 +189,7 @@ class ContextExtractor {
               if (parsed is Map<String, dynamic> && parsed.containsKey(outputKey) && parsed[outputKey] is Map) {
                 parsed = parsed[outputKey] as Object;
               }
+              parsed = _normalizeJsonOutput(parsed, config, step.id, outputKey);
               // Soft validation if schema is present.
               _softValidate(parsed, config, step.id, outputKey);
               outputs[outputKey] = parsed; // Store as Map/List, not String.
@@ -337,6 +339,106 @@ class ContextExtractor {
     for (final w in warnings) {
       _log.warning('Schema validation for "$outputKey" in step "$stepId": $w');
     }
+  }
+
+  Object? _normalizeJsonOutput(Object? parsed, OutputConfig config, String stepId, String outputKey) {
+    if (parsed == null || config.format != OutputFormat.json) return parsed;
+    if (config.presetName == 'project-index') {
+      return _sanitizeProjectIndex(parsed, stepId, outputKey);
+    }
+    return parsed;
+  }
+
+  Object _sanitizeProjectIndex(Object parsed, String stepId, String outputKey) {
+    final projectIndex = _asStringKeyedMap(parsed);
+    if (projectIndex == null) return parsed;
+
+    final rawProjectRoot = projectIndex['project_root'];
+    if (rawProjectRoot is! String || rawProjectRoot.trim().isEmpty) {
+      return projectIndex;
+    }
+    final projectRoot = p.normalize(rawProjectRoot.trim());
+    final sanitized = Map<String, dynamic>.from(projectIndex);
+
+    final rawDocumentLocations = _asStringKeyedMap(projectIndex['document_locations']);
+    if (rawDocumentLocations != null) {
+      sanitized['document_locations'] = {
+        for (final entry in rawDocumentLocations.entries)
+          entry.key: _sanitizeProjectRelativePath(
+            projectRoot,
+            entry.value,
+            stepId: stepId,
+            outputKey: outputKey,
+            fieldPath: 'document_locations.${entry.key}',
+          ),
+      };
+    }
+
+    final rawArtifactLocations = _asStringKeyedMap(projectIndex['artifact_locations']);
+    if (rawArtifactLocations != null) {
+      sanitized['artifact_locations'] = {
+        for (final entry in rawArtifactLocations.entries)
+          entry.key: _sanitizeProjectRelativePath(
+            projectRoot,
+            entry.value,
+            stepId: stepId,
+            outputKey: outputKey,
+            fieldPath: 'artifact_locations.${entry.key}',
+          ),
+      };
+    }
+
+    for (final key in const ['active_prd', 'active_plan']) {
+      if (!sanitized.containsKey(key)) continue;
+      sanitized[key] = _sanitizeProjectRelativePath(
+        projectRoot,
+        sanitized[key],
+        stepId: stepId,
+        outputKey: outputKey,
+        fieldPath: key,
+      );
+    }
+
+    return sanitized;
+  }
+
+  Map<String, dynamic>? _asStringKeyedMap(Object? value) {
+    return switch (value) {
+      final Map<String, dynamic> typed => Map<String, dynamic>.from(typed),
+      final Map<dynamic, dynamic> dynamicMap => dynamicMap.map((key, value) => MapEntry('$key', value)),
+      _ => null,
+    };
+  }
+
+  /// Path-string-based containment check — `..` and absolute escapes are
+  /// cleared, but symlinks are not resolved. Threat model is LLM-emitted
+  /// paths, not adversarial filesystems; a symlink inside project_root that
+  /// targets outside would pass this check.
+  Object? _sanitizeProjectRelativePath(
+    String projectRoot,
+    Object? value, {
+    required String stepId,
+    required String outputKey,
+    required String fieldPath,
+  }) {
+    if (value == null || value is! String) return value;
+
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    final normalizedRoot = p.normalize(projectRoot);
+    final resolved = p.isAbsolute(trimmed) ? p.normalize(trimmed) : p.normalize(p.join(normalizedRoot, trimmed));
+    final withinRoot = resolved == normalizedRoot || p.isWithin(normalizedRoot, resolved);
+    if (!withinRoot) {
+      _log.warning(
+        'Schema normalization for "$outputKey" in step "$stepId": '
+        '$fieldPath points outside project_root and will be cleared: $trimmed',
+      );
+      return null;
+    }
+
+    final relative = p.relative(resolved, from: normalizedRoot);
+    return relative == '.' ? '' : relative;
   }
 
   /// Dispatches to the appropriate extraction handler based on [config.type].

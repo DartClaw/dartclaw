@@ -37,7 +37,7 @@ void main() {
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
 
-      final workflowsDir = Directory(p.join(config.workspaceDir, 'workflows'))..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'ci-demo.yaml')).writeAsStringSync('''
 name: ci-demo
 description: Demo standalone workflow
@@ -132,7 +132,7 @@ steps:
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 0)}),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
-      final workflowsDir = Directory(p.join(config.workspaceDir, 'workflows'))..createSync(recursive: true);
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'definitions'))..createSync(recursive: true);
       File(p.join(workflowsDir.path, 'agent-demo.yaml')).writeAsStringSync('''
 name: agent-demo
 description: Demo standalone agent workflow

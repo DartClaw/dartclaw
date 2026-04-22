@@ -67,27 +67,41 @@ stepDefaults:
 
 steps:
   # Discover the project layout and document/state locations before planning begins.
+  # When REQUIREMENTS is already a path to an existing PRD file in this project,
+  # discover-project emits it as `prd` so the next step's entryGate can skip
+  # authoring. A pre-authored `plan.md` is intentionally NOT fast-pathed here
+  # because the `plan` step must still run to emit `story_specs` for the
+  # foreach controller — the `dartclaw-plan` skill's own reuse path handles
+  # existing plan files.
   - id: discover-project
     name: Discover Project
     type: custom
     skill: dartclaw-discover-project
     allowedTools: [shell, file_read]
-    contextOutputs: [project_index]
+    workflowVariables: [REQUIREMENTS]
+    contextOutputs: [project_index, prd]
     outputs:
       project_index:
         format: json
         schema: project-index
         description: Normalized snapshot of the project layout — framework, root path, document locations, and state protocol.
+      prd:
+        format: path
+        description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
 
   # Synthesize a PRD from the input requirements, or reuse an existing one at
   # context.project_index.active_prd. Writes prd.md to disk and emits the path
   # + a source tag — never emits the PRD body inline. Also emits a 1-10
   # self-rated confidence score; downstream review/revise steps are gated on
-  # this value so high-confidence PRDs skip the review loop entirely.
+  # this value so high-confidence PRDs skip the review loop entirely. Skipped
+  # entirely when discover-project already populated `prd` — in that case
+  # `prd_source` stays unset and the revise-prd gate below falls through to
+  # a no-op.
   - id: prd
     name: Draft PRD
     type: custom
     skill: dartclaw-prd
+    entryGate: "prd == null"
     contextInputs: [project_index]
     workflowVariables: [REQUIREMENTS]
     allowedTools: [shell, file_read, file_write]
@@ -95,7 +109,7 @@ steps:
     outputs:
       prd:
         format: path
-        description: Workspace-relative path to prd.md on disk (either reused or freshly synthesized).
+        description: Workspace-relative path to prd.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the prd step.
       prd_source:
         format: text
         description: "'existing' when reused from context.project_index.active_prd, 'synthesized' when this step wrote a new file."
@@ -142,7 +156,7 @@ steps:
         description: Per-story records — id, title, spec_path. Drives the foreach; exec-spec reads the FIS body (including acceptance criteria) from disk at spec_path.
       plan:
         format: path
-        description: Workspace-relative path to plan.md on disk.
+        description: Workspace-relative path to plan.md on disk — pre-authored (if REQUIREMENTS resolves to one) or freshly synthesized by the plan step.
       plan_source:
         format: text
         description: "'existing' when reused from context.project_index.active_plan, 'synthesized' when this step wrote a new file. Gates plan-review."

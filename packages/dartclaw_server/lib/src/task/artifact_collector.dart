@@ -157,16 +157,15 @@ class ArtifactCollector {
       return const <TaskArtifact>[];
     }
 
-    final baseRef = _baseRef ?? 'main';
     try {
       final worktreeInfo = WorktreeInfo.fromJson(worktreeData);
-      var effectiveBaseRef = baseRef;
+      var effectiveBaseRef = _taskBaseRef(task) ?? _baseRef ?? 'main';
       final projectDir = worktreeInfo.path;
       final projectId = taskProjectId(task);
       if (projectId != null && projectId != '_local') {
         final project = await _projectService?.get(projectId);
         if (project != null) {
-          effectiveBaseRef = 'origin/${project.defaultBranch}';
+          effectiveBaseRef = _effectiveProjectBaseRef(project, effectiveBaseRef);
         }
       }
       final diffResult = await diffGen.generate(
@@ -193,6 +192,38 @@ class ArtifactCollector {
       _log.warning('Failed to generate diff for task ${task.id}: $e');
       return const <TaskArtifact>[];
     }
+  }
+
+  String? _taskBaseRef(Task task) {
+    final raw = task.configJson['_baseRef'] ?? task.configJson['baseRef'];
+    if (raw is! String) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String _effectiveProjectBaseRef(Project project, String currentBaseRef) {
+    final trimmed = currentBaseRef.trim();
+    if (trimmed.startsWith('dartclaw/workflow/')) {
+      return trimmed;
+    }
+    if (project.remoteUrl.isEmpty) {
+      if (trimmed.isNotEmpty) {
+        return trimmed;
+      }
+      final configured = project.defaultBranch.trim();
+      return configured.isNotEmpty ? configured : 'main';
+    }
+    final configured = project.defaultBranch.trim();
+    if (configured.isNotEmpty) {
+      return 'origin/$configured';
+    }
+    if (trimmed.isNotEmpty) {
+      if (trimmed.startsWith('origin/') || trimmed.startsWith('refs/')) {
+        return trimmed;
+      }
+      return 'origin/$trimmed';
+    }
+    return 'main';
   }
 
   Future<void> _clearExistingArtifacts(String taskId) async {

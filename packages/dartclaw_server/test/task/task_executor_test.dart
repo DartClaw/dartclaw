@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -876,6 +877,41 @@ void main() {
 
     expect((await tasks.get('task-cancelled'))!.status, TaskStatus.cancelled);
     expect(calls, isEmpty);
+  });
+
+  test('does not throw when a workflow one-shot task is cancelled before token mirroring', () async {
+    final cancellingExecutor = buildExecutor();
+    addTearDown(cancellingExecutor.stop);
+    final records = <LogRecord>[];
+    final sub = Logger('TaskExecutor').onRecord.listen(records.add);
+    addTearDown(sub.cancel);
+
+    worker.responseText = 'Done.';
+    worker.beforeComplete = (_) async {
+      await tasks.transition('task-workflow-cancelled', TaskStatus.cancelled);
+    };
+    await tasks.create(
+      id: 'task-workflow-cancelled',
+      title: 'Cancelled workflow task',
+      description: 'Should skip token mirroring once cancelled.',
+      type: TaskType.automation,
+      autoStart: true,
+      workflowRunId: 'run-cancelled',
+      agentExecutionId: 'ae-task-workflow-cancelled',
+      configJson: const {'_workflowStructuredMode': false},
+    );
+    await seedWorkflowExecution(
+      'task-workflow-cancelled',
+      workflowRunId: 'run-cancelled',
+      agentExecutionId: 'ae-task-workflow-cancelled',
+      git: const {'worktree': 'shared'},
+    );
+
+    await cancellingExecutor.pollOnce();
+
+    final task = await tasks.get('task-workflow-cancelled');
+    expect(task?.status.terminal, isTrue);
+    expect(records.any((record) => record.message.contains('Cannot update terminal task')), isFalse);
   });
 
   test('processes queued tasks in FIFO order', () async {

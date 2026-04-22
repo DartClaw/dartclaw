@@ -529,9 +529,11 @@ void main() {
       },
     );
 
+    // discover-project receives FEATURE via workflowVariables so it can fast-path
+    // when the input resolves to a pre-authored FIS file.
     final discover = trace.tasksForStep('discover-project').single.description;
     expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
-    expect(discover, isNot(contains(feature)));
+    expect(discover, contains('<FEATURE>\n$feature\n</FEATURE>'));
     expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
@@ -1165,9 +1167,11 @@ void main() {
       },
     );
 
+    // discover-project receives REQUIREMENTS via workflowVariables so it can
+    // fast-path when the input resolves to a pre-authored PRD/plan file.
     final discover = trace.tasksForStep('discover-project').single.description;
     expect(discover, contains("Use the 'dartclaw-discover-project' skill."));
-    expect(discover, isNot(contains(requirements)));
+    expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
     expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
@@ -1254,10 +1258,11 @@ void main() {
     final prd = trace.tasksForStep('prd').single.description;
     final plan = trace.tasksForStep('plan').single.description;
 
-    // Only `prd` opts in to REQUIREMENTS via `workflowVariables: [REQUIREMENTS]`;
-    // the engine frames it as a multi-line <REQUIREMENTS> block. Other steps
-    // must not receive the raw requirements string.
-    expect(discover, isNot(contains(requirements)));
+    // Both `prd` and `discover-project` opt in to REQUIREMENTS via
+    // `workflowVariables: [REQUIREMENTS]` — the engine frames it as a
+    // multi-line <REQUIREMENTS> block in both step prompts. The plan step
+    // and all downstream steps must not receive the raw requirements string.
+    expect(discover, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
     expect(prd, contains('<REQUIREMENTS>\n$requirements\n</REQUIREMENTS>'));
     expect(plan, isNot(contains(requirements)));
     expect(plan, isNot(contains('<REQUIREMENTS>')));

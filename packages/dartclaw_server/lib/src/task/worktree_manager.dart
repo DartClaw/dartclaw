@@ -177,12 +177,17 @@ class WorktreeManager {
               await _resolveBranchName(taskId, projectDir: effectiveProjectDir));
 
     if (project != null) {
-      // Project-backed: create from remote tracking ref by default.
+      // Project-backed: create from remote tracking ref by default, but stay
+      // on the local default branch when the project has no remote.
       final hasExplicitBaseRef = baseRef != null && baseRef.trim().isNotEmpty;
-      final requestedBaseRef = hasExplicitBaseRef ? baseRef.trim() : 'origin/${project.defaultBranch}';
+      final hasRemote = project.remoteUrl.isNotEmpty;
+      final requestedBaseRef = hasExplicitBaseRef
+          ? baseRef.trim()
+          : (hasRemote ? 'origin/${project.defaultBranch}' : project.defaultBranch);
       final effectiveBaseRef = await _resolveProjectBaseRef(
         requestedBaseRef: requestedBaseRef,
         defaultBranch: project.defaultBranch,
+        hasRemote: hasRemote,
         workingDirectory: effectiveProjectDir,
         preserveLocalRef: hasExplicitBaseRef,
       );
@@ -246,14 +251,18 @@ class WorktreeManager {
   Future<String> _resolveProjectBaseRef({
     required String requestedBaseRef,
     required String defaultBranch,
+    required bool hasRemote,
     required String workingDirectory,
     required bool preserveLocalRef,
   }) async {
     final ref = requestedBaseRef;
     final trimmed = ref.trim();
-    if (trimmed.isEmpty) return 'origin/$defaultBranch';
+    if (trimmed.isEmpty) return hasRemote ? 'origin/$defaultBranch' : defaultBranch;
     if (trimmed.startsWith('origin/') || trimmed.startsWith('refs/')) return trimmed;
     if (preserveLocalRef && trimmed != defaultBranch && await _localRefExists(trimmed, workingDirectory)) {
+      return trimmed;
+    }
+    if (!hasRemote) {
       return trimmed;
     }
     return 'origin/$trimmed';

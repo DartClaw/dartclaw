@@ -132,7 +132,7 @@ void main() {
 
     final run = await workflowService.start(definition, {});
 
-    final contextFile = File(p.join(tempDir.path, 'workflows', run.id, 'context.json'));
+    final contextFile = File(p.join(tempDir.path, 'workflows', 'runs', run.id, 'context.json'));
     expect(contextFile.existsSync(), isTrue);
   });
 
@@ -819,7 +819,7 @@ void main() {
         },
       );
       await repository.insert(run);
-      final contextDir = Directory(p.join(tempDir.path, 'workflows', runId));
+      final contextDir = Directory(p.join(tempDir.path, 'workflows', 'runs', runId));
       contextDir.createSync(recursive: true);
       File(p.join(contextDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
       return run;
@@ -900,7 +900,7 @@ void main() {
       await workflowService.resume('run-approval');
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      final file = File(p.join(tempDir.path, 'workflows', 'run-approval', 'context.json'));
+      final file = File(p.join(tempDir.path, 'workflows', 'runs', 'run-approval', 'context.json'));
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       final data = json['data'] as Map<String, dynamic>;
       expect(data['gate.status'], equals('accepted'));
@@ -982,7 +982,7 @@ void main() {
       final run = buildFailedRun();
       await repository.insert(run);
       // Seed context.json so _loadContext doesn't build from DB only.
-      final ctxDir = Directory(p.join(tempDir.path, 'workflows', run.id))..createSync(recursive: true);
+      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
       File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
       autoCompleteNewTasks();
 
@@ -999,7 +999,7 @@ void main() {
     test('clears failing step status/outcome context keys', () async {
       final run = buildFailedRun();
       await repository.insert(run);
-      final ctxDir = Directory(p.join(tempDir.path, 'workflows', run.id))..createSync(recursive: true);
+      final ctxDir = Directory(p.join(tempDir.path, 'workflows', 'runs', run.id))..createSync(recursive: true);
       File(p.join(ctxDir.path, 'context.json')).writeAsStringSync(jsonEncode(run.contextJson));
       autoCompleteNewTasks();
 

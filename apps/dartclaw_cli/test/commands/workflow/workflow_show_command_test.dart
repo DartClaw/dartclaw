@@ -67,7 +67,7 @@ void main() {
     });
 
     test('standalone raw mode prints authored YAML from the local workspace registry', () async {
-      final workflowsDir = Directory('${config.workspaceDir}/workflows')..createSync(recursive: true);
+      final workflowsDir = Directory('${config.server.dataDir}/workflows/definitions')..createSync(recursive: true);
       File('${workflowsDir.path}/show-demo.yaml').writeAsStringSync('''
 name: show-demo
 description: Demo workflow

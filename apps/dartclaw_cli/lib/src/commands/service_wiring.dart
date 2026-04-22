@@ -578,7 +578,7 @@ class ServiceWiring {
         .where((r) => r.harness.supportsSessionContinuity)
         .map((r) => r.providerId)
         .toSet();
-    await WorkflowMaterializer.materialize(workspaceDir: config.workspaceDir, assetResolver: assetResolver);
+    await WorkflowMaterializer.materialize(dataDir: dataDir, assetResolver: assetResolver);
     final workflowRegistry = WorkflowRegistry(
       parser: WorkflowDefinitionParser(),
       validator: WorkflowDefinitionValidator(),
@@ -586,7 +586,7 @@ class ServiceWiring {
     );
     workflowRegistry.skillRegistry = skillRegistry;
     await workflowRegistry.loadFromDirectory(
-      p.join(config.workspaceDir, 'workflows'),
+      WorkflowMaterializer.definitionsDir(dataDir),
       source: WorkflowSource.materialized,
     );
     for (final projectDef in config.projects.definitions.values) {

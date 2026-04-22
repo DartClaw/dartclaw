@@ -31,15 +31,19 @@ WorkflowDefinition _load(String fileName) {
 
 void main() {
   group('Built-in workflow variable passthrough contract', () {
-    test('plan-and-implement: only prd opts in to REQUIREMENTS', () {
+    test('plan-and-implement: only prd and discover-project opt in to REQUIREMENTS', () {
       final def = _load('plan-and-implement.yaml');
       final prd = def.steps.firstWhere((s) => s.id == 'prd');
       expect(prd.workflowVariables, ['REQUIREMENTS']);
 
-      // Every other step — including foreach controllers, foreach children,
-      // loop bodies, and loop finalizers — must not opt in to REQUIREMENTS.
+      // discover-project also receives REQUIREMENTS so it can detect when the
+      // input resolves to a pre-authored PRD/plan file and emit a fast-path
+      // signal for the prd step's entryGate. No other step should opt in.
+      final discover = def.steps.firstWhere((s) => s.id == 'discover-project');
+      expect(discover.workflowVariables, ['REQUIREMENTS']);
+
       for (final step in def.steps) {
-        if (step.id == 'prd') continue;
+        if (step.id == 'prd' || step.id == 'discover-project') continue;
         expect(
           step.workflowVariables,
           isEmpty,
@@ -69,13 +73,19 @@ void main() {
       }
     });
 
-    test('spec-and-implement: only spec opts in to FEATURE', () {
+    test('spec-and-implement: only spec and discover-project opt in to FEATURE', () {
       final def = _load('spec-and-implement.yaml');
       final spec = def.steps.firstWhere((s) => s.id == 'spec');
       expect(spec.workflowVariables, ['FEATURE']);
 
+      // discover-project also receives FEATURE so it can detect when the input
+      // resolves to a pre-authored FIS file and emit `spec_path` for the spec
+      // step's entryGate. No other step should opt in.
+      final discover = def.steps.firstWhere((s) => s.id == 'discover-project');
+      expect(discover.workflowVariables, ['FEATURE']);
+
       for (final step in def.steps) {
-        if (step.id == 'spec') continue;
+        if (step.id == 'spec' || step.id == 'discover-project') continue;
         expect(
           step.workflowVariables,
           isEmpty,

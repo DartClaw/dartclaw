@@ -5,22 +5,27 @@ import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-/// Materializes built-in workflow YAMLs into the active workspace.
+/// Materializes built-in workflow YAMLs into the instance data directory.
 class WorkflowMaterializer {
   static final _log = Logger('WorkflowMaterializer');
   static const _managedMarkerSuffix = '.dartclaw-managed.json';
 
-  /// Copies built-in workflow YAMLs into `<workspaceDir>/workflows/`.
+  /// Returns the directory where workflow YAML definitions live
+  /// (`<dataDir>/workflows/definitions/`). Shared between the materializer
+  /// target and the workflow registry load path so both always agree.
+  static String definitionsDir(String dataDir) => p.join(dataDir, 'workflows', 'definitions');
+
+  /// Copies built-in workflow YAMLs into `<dataDir>/workflows/definitions/`.
   ///
   /// The source directory is resolved from the installed asset root when
   /// available. In source checkouts, it falls back to the checked-out
   /// workflow definitions directory.
   static Future<int> materialize({
-    required String workspaceDir,
+    required String dataDir,
     AssetResolver? assetResolver,
     String? sourceDir,
   }) async {
-    final targetRoot = Directory(p.join(workspaceDir, 'workflows'))..createSync(recursive: true);
+    final targetRoot = Directory(definitionsDir(dataDir))..createSync(recursive: true);
     final resolvedSourceDir = sourceDir ?? resolveBuiltInWorkflowSourceDir(assetResolver: assetResolver);
     if (resolvedSourceDir == null) {
       _log.warning('Built-in workflow source tree not found; skipping workflow materialization');

@@ -89,7 +89,7 @@ void main() {
   });
 
   test('excludes custom workflows that reference missing skills', () async {
-    final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workspace', 'workflows'))
+    final workspaceWorkflowsDir = Directory(p.join(tempDir.path, 'workflows', 'definitions'))
       ..createSync(recursive: true);
     File(p.join(workspaceWorkflowsDir.path, 'invalid.yaml')).writeAsStringSync('''
 name: invalid-missing-skill

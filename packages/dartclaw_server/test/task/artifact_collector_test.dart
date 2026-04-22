@@ -371,6 +371,63 @@ void main() {
     expect(mockDiffGen.lastBranch, 'dartclaw/task-project-diff');
     expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
   });
+
+  test('local workflow-owned coding task diffs against the local workflow branch', () async {
+    final startedAt = DateTime.parse('2026-03-10T10:00:00Z');
+    final session = await sessions.createSession(type: SessionType.task);
+
+    final mockDiffGen = _MockDiffGenerator(
+      result: DiffResult(files: const [], totalAdditions: 0, totalDeletions: 0, filesChanged: 0),
+    );
+    final project = Project(
+      id: 'my-app',
+      name: 'My App',
+      remoteUrl: '',
+      localPath: '/projects/my-app',
+      defaultBranch: '',
+      status: ProjectStatus.ready,
+      createdAt: startedAt,
+    );
+    final collectorWithProject = ArtifactCollector(
+      tasks: tasks,
+      messages: messages,
+      sessionsDir: sessionsDir,
+      dataDir: tempDir.path,
+      workspaceDir: workspaceDir,
+      diffGenerator: mockDiffGen,
+      projectService: FakeProjectService(
+        projects: [project],
+        includeLocalProjectInGetAll: false,
+        defaultProjectId: project.id,
+      ),
+      baseRef: 'main',
+    );
+
+    var task = await _createTask(
+      tasks,
+      id: 'task-project-workflow-ref',
+      type: TaskType.coding,
+      sessionId: session.id,
+      startedAt: startedAt,
+    );
+    task = await tasks.updateFields(
+      task.id,
+      projectId: 'my-app',
+      configJson: const {'_baseRef': 'dartclaw/workflow/run123'},
+      worktreeJson: const {
+        'path': '/tmp/worktree-project',
+        'branch': 'dartclaw/workflow/run123',
+        'createdAt': '2026-03-10T10:00:00.000Z',
+      },
+    );
+
+    final artifacts = await collectorWithProject.collect(task);
+
+    expect(artifacts, hasLength(1));
+    expect(mockDiffGen.lastBaseRef, 'dartclaw/workflow/run123');
+    expect(mockDiffGen.lastBranch, 'dartclaw/workflow/run123');
+    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
+  });
 }
 
 Future<Task> _createTask(

@@ -2105,6 +2105,7 @@ class WorkflowExecutor {
         );
       }
       outputs = _normalizeWorkflowOutputs(run, step, outputs, context);
+      final validationFailure = outputs.remove(_validationFailureKey) as String?;
       final providerSessionId = _workflowStepExecutionRepository == null
           ? null
           : await WorkflowTaskConfig.readProviderSessionId(finalTask, _workflowStepExecutionRepository);
@@ -2118,10 +2119,23 @@ class WorkflowExecutor {
       }
 
       final (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask);
-      final effectiveOutcome = outcome;
+      // Override a "succeeded" outcome when post-extraction validation flags
+      // the outputs as unusable. `_normalizeWorkflowOutputs` stashes the
+      // reason under `_validationFailureKey` above; taking it out here and
+      // forcing `failed` lets `OnFailurePolicy.retry` (if configured on the
+      // step) re-invoke the skill, and falls back to the usual fail/pause
+      // paths otherwise.
+      final effectiveOutcome = validationFailure != null && outcome != 'needsInput' ? 'failed' : outcome;
       final effectiveReason = (outcomeReason != null && outcomeReason.isNotEmpty)
           ? outcomeReason
-          : (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name;
+          : validationFailure ?? (finalTask.configJson['failReason'] as String?) ?? finalTask.status.name;
+      if (validationFailure != null && outcome != effectiveOutcome) {
+        _log.warning(
+          "Workflow '${run.id}': step '${step.id}' outcome overridden from "
+          "'$outcome' to 'failed' due to post-extraction validation failure: "
+          '$validationFailure',
+        );
+      }
 
       if (effectiveOutcome == 'needsInput') {
         return _ParallelStepResult(
@@ -3064,23 +3078,59 @@ class WorkflowExecutor {
         '${duplicateSpecPaths.toList()..sort()}',
       );
     }
-    if (missingSpecPaths.isNotEmpty) {
-      _log.warning(
-        "Workflow '${run.id}': step '${step.id}' produced story_specs.spec_path values that do not exist on disk: "
-        '${missingSpecPaths.toList()..sort()}',
-      );
-    }
-
-    return {
+    final result = <String, dynamic>{
       ...outputs,
       'story_specs': {...rawStorySpecs, 'items': normalizedItems},
     };
+    if (missingSpecPaths.isNotEmpty) {
+      // Escalate from warning → step failure. Historically this was a
+      // silent warning, which let the workflow proceed into the foreach
+      // with phantom FIS paths — exec-spec would then block at "Resolve
+      // FIS" long after the planner stalled, wasting tokens on a run
+      // that was already unrecoverable. Stashing a failure marker here
+      // lets the step result-path (line ~2120 in _runWorkflowStep) see
+      // it and override the step outcome to `failed`, which in turn
+      // lets `onFailure: retry` on the plan step re-invoke the skill.
+      final sorted = missingSpecPaths.toList()..sort();
+      final reason =
+          'Plan skill produced story_specs.spec_path values that do not '
+          'exist on disk: $sorted. Expected the skill to write a FIS file '
+          'per story record.';
+      _log.severe("Workflow '${run.id}': step '${step.id}': $reason");
+      result[_validationFailureKey] = reason;
+    }
+
+    return result;
   }
+
+  /// Special output key used by `_normalizeWorkflowOutputs` to signal that
+  /// the step produced outputs that failed post-extraction validation.
+  /// Consumed (and removed) by the step-execution path before outcome
+  /// resolution. Not forwarded into the workflow context.
+  static const _validationFailureKey = '_dartclaw.internal.validationFailure';
 
   String _normalizeStorySpecPath(String specPath, String planDir) {
     if (specPath.isEmpty) return specPath;
     if (p.isAbsolute(specPath)) return p.normalize(specPath);
     if (planDir.isEmpty || planDir == '.') return p.normalize(specPath);
+    // The plan skill's contract calls `spec_path` "workspace-relative", but
+    // historic invocations (and some skill variants) emit it plan-relative —
+    // just the basename, or a directory-local path like `fis/s01-...md`.
+    // When `specPath` is already rooted at `planDir`, joining with `planDir`
+    // again produces a duplicated segment (`docs/specs/X/docs/specs/X/s01.md`)
+    // that the foreach agent then feeds into `exec-spec`, pointing at a path
+    // that doesn't exist on disk.
+    //
+    // Detect both exact-prefix and normalized-prefix cases to avoid the
+    // duplication while still honouring genuinely plan-relative emissions.
+    final normalizedSpec = p.normalize(specPath);
+    final normalizedPlanDir = p.normalize(planDir);
+    final planDirPrefix = normalizedPlanDir.endsWith(p.separator)
+        ? normalizedPlanDir
+        : '$normalizedPlanDir${p.separator}';
+    if (normalizedSpec == normalizedPlanDir || normalizedSpec.startsWith(planDirPrefix)) {
+      return normalizedSpec;
+    }
     return p.normalize(p.join(planDir, specPath));
   }
 

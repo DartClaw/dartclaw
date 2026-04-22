@@ -238,6 +238,37 @@ class ContextExtractor {
       outputs[outputKey] = '';
     }
 
+    // Path-existence validation for `format: path` outputs.
+    //
+    // Workflows routinely gate downstream steps on whether an upstream step
+    // produced a file (e.g. `dartclaw-prd` sets `prd` to the path it wrote;
+    // the next step's entryGate `prd == null` skips authoring when a PRD
+    // already exists). LLMs occasionally emit the *intended* write path even
+    // when they didn't (or couldn't) actually produce the file — poisoning
+    // the gate into skipping a step that was supposed to author the file.
+    //
+    // Defensive policy: if `format: path` resolves to a non-empty string but
+    // the file doesn't exist under any of the task's plausible roots, coerce
+    // the value to an empty string and log a warning. An empty string is
+    // treated as null by the gate evaluator, so the downstream authoring
+    // step runs and can produce the file. Coercion is a narrow safety net;
+    // skills should still emit correct values.
+    for (final entry in configs?.entries ?? const <MapEntry<String, OutputConfig>>[]) {
+      final outputKey = entry.key;
+      final outputConfig = entry.value;
+      if (outputConfig.format != OutputFormat.path) continue;
+      final rawValue = outputs[outputKey];
+      if (rawValue is! String || rawValue.isEmpty) continue;
+      if (_pathResolvesToExistingFile(rawValue, task)) continue;
+      _log.warning(
+        'Context key "$outputKey" from step "${step.id}" (task ${task.id}) '
+        'resolved to path "$rawValue" which does not exist under any known root '
+        '(worktree, project, dataDir, cwd). Coercing to empty string — '
+        'downstream gates treat this as null. Skill should emit only paths to existing files.',
+      );
+      outputs[outputKey] = '';
+    }
+
     // Warn on large values.
     for (final entry in outputs.entries) {
       final value = entry.value?.toString() ?? '';
@@ -250,6 +281,36 @@ class ContextExtractor {
     }
 
     return outputs;
+  }
+
+  /// Returns `true` if [value] (possibly relative) resolves to an existing
+  /// file under any plausible root for [task].
+  ///
+  /// Tries, in order: absolute path, task worktree path, project dir under
+  /// dataDir (via `task.projectId`), and the process CWD. The check is
+  /// read-only and tolerates missing roots.
+  bool _pathResolvesToExistingFile(String value, Task task) {
+    try {
+      if (p.isAbsolute(value)) {
+        return File(value).existsSync();
+      }
+      final roots = <String>[];
+      final worktreePath = (task.worktreeJson?['path'] as String?)?.trim();
+      if (worktreePath != null && worktreePath.isNotEmpty) roots.add(worktreePath);
+      final projectId = task.projectId?.trim();
+      if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
+        roots.add(p.join(_dataDir, 'projects', projectId));
+      }
+      roots.add(Directory.current.path);
+      for (final root in roots) {
+        if (File(p.join(root, value)).existsSync()) return true;
+      }
+      return false;
+    } catch (error, st) {
+      _log.fine('Path-existence probe failed for "$value" on task ${task.id}: $error\n$st');
+      // On any filesystem error, preserve original value (fail-open).
+      return true;
+    }
   }
 
   /// Parses the last well-formed `<step-outcome>` payload from [task]'s

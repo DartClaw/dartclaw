@@ -383,7 +383,26 @@ class WorkflowCliRunner {
     String? appendSystemPrompt,
     String? sandboxOverride,
   }) {
-    final args = <String>['exec', '--json', '--full-auto', '--skip-git-repo-check', '-c', 'approval_policy="never"'];
+    // Resolve the effective sandbox first so we can decide whether to pass
+    // `--full-auto` (an alias for `--sandbox workspace-write`). Passing both
+    // `--full-auto` and `--sandbox <mode>` leaves Codex with two conflicting
+    // sandbox declarations on the same invocation — when the explicit mode
+    // is stricter (`read-only`), the alias's implicit workspace-write can
+    // still let writes through, which is how a read-only discover-project
+    // task has been seen modifying the working tree. Prefer the explicit
+    // sandbox and drop the alias when we have one.
+    final sandbox = sandboxOverride?.trim().isNotEmpty == true
+        ? sandboxOverride!.trim()
+        : providers['codex']?.options['sandbox']?.toString().trim();
+    final hasExplicitSandbox = sandbox != null && sandbox.isNotEmpty;
+    final args = <String>[
+      'exec',
+      '--json',
+      if (!hasExplicitSandbox) '--full-auto',
+      '--skip-git-repo-check',
+      '-c',
+      'approval_policy="never"',
+    ];
     if (model != null && model.trim().isNotEmpty) {
       args.addAll(['--model', model]);
     }
@@ -393,10 +412,7 @@ class WorkflowCliRunner {
     if (appendSystemPrompt != null && appendSystemPrompt.trim().isNotEmpty) {
       args.addAll(['-c', 'developer_instructions=${jsonEncode(appendSystemPrompt)}']);
     }
-    final sandbox = sandboxOverride?.trim().isNotEmpty == true
-        ? sandboxOverride!.trim()
-        : providers['codex']?.options['sandbox']?.toString().trim();
-    if (sandbox != null && sandbox.isNotEmpty) {
+    if (hasExplicitSandbox) {
       args.addAll(['--sandbox', sandbox]);
     }
     // Codex 0.120.0+ removed --ask-for-approval; approval behavior is now

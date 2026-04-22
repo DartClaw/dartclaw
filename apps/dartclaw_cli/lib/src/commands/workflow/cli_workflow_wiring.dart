@@ -276,8 +276,28 @@ class CliWorkflowWiring {
       providerId: defaultProviderId,
     );
 
-    final taskRunners = <TurnRunner>[await _buildTaskRunner(defaultProviderId)];
     final maxConcurrentTasks = _standaloneTaskRunnerCapacity(config);
+    // Spawn up to the default provider's configured `pool_size` task runners
+    // at wire time (bounded by the pool's overall task capacity). Previously
+    // only a single task runner was spawned eagerly — subsequent slots were
+    // reserved on the pool but never filled, so `HarnessPool.availableCount`
+    // was capped at 1. That silently serialised workflows that declared
+    // `max_parallel > 1` (e.g. `plan-and-implement` foreach), because the
+    // executor's `effectiveConcurrency(poolAvailable)` path saw `poolAvailable`
+    // drop to 0 whenever the single live runner was busy.
+    final desiredDefaultRunners = providerEntry?.poolSize ?? 0;
+    final defaultRunnersToSpawn = desiredDefaultRunners > 0
+        ? (desiredDefaultRunners > maxConcurrentTasks ? maxConcurrentTasks : desiredDefaultRunners)
+        : 1;
+    final taskRunners = <TurnRunner>[];
+    for (var i = 0; i < defaultRunnersToSpawn; i++) {
+      taskRunners.add(await _buildTaskRunner(defaultProviderId));
+    }
+    wiringLog.info(
+      'Spawned $defaultRunnersToSpawn task runner(s) for default provider "$defaultProviderId" '
+      '(pool_size=${providerEntry?.poolSize ?? "(unset, default 1)"}, '
+      'maxConcurrentTasks=$maxConcurrentTasks)',
+    );
     pool = HarnessPool(runners: [primaryRunner, ...taskRunners], maxConcurrentTasks: maxConcurrentTasks);
 
     final turns = TurnManager.fromPool(pool: pool, sessions: sessionService);

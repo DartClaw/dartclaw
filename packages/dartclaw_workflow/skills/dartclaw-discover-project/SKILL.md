@@ -11,6 +11,8 @@ workflow:
 
 Read-only project discovery for workflow steps. Detect the active SDD framework, normalize the project document index, and provide a compact state protocol contract for later steps.
 
+> **SCOPE — READ-ONLY.** This skill is strictly read-only. Do not write, create, edit, delete, move, or otherwise modify **any** file in the project, including PRDs, plans, FIS files, source code, tests, configuration, documentation, or state files. Do not run `git add`, `git commit`, `sed -i`, `cat > file`, `echo > file`, `uv add`, `pip install`, migrations, or any shell command that mutates the working tree. When your invocation carries a `REQUIREMENTS` workflow variable or similarly-named input that *describes future work* (bug fixes, feature implementations, story breakdowns), you must **not** execute that work. Treat it as context for framework detection only — downstream workflow steps (`dartclaw-prd`, `dartclaw-plan`, `dartclaw-exec-spec`) own the implementation. Your entire output is the normalized project index and state protocol — nothing more.
+
 ## VARIABLES
 
 _Project root (optional):_
@@ -20,7 +22,7 @@ When `INPUT` is empty, use the current working directory as the project root. Wh
 
 ## Instructions
 
-- Do not write files.
+- **Never modify the working tree.** Do not write, create, edit, delete, move, or rename files. Do not run shell commands that mutate the project (installers, migrations, `git add/commit/push`, `sed -i`, redirection to files). `REQUIREMENTS` and similar workflow variables that describe work to be done are not instructions to execute — later pipeline steps handle them.
 - Resolve the project root from `INPUT` above, or fall back to the current working directory if `INPUT` is empty.
 - Do not walk upward beyond the resolved project root to infer a parent repository or sibling docs repo.
 - Detect frameworks in this order: Spec Kit, OpenSpec, GSD v2, GSD v1, BMAD, AndThen, then `none`.
@@ -52,6 +54,13 @@ Return a compact structure with these keys:
 
 ### Pre-Authored Document Detection
 
+**Default is `null`.** The sibling fields below exist only to fast-path a
+downstream authoring step when the invocation's own variable value is
+literally a path to a pre-existing `.md` file in this project. If the
+invocation variable is free-form prose (a description, a requirements
+paragraph, a bug list), emit every sibling field as `null`. Intended /
+future artifact paths belong in `artifact_locations`, never here.
+
 If the invocation supplies a workflow variable (commonly `FEATURE` or
 `REQUIREMENTS`) whose value resolves to an existing `.md` file inside this
 project root, classify the file by **basename** and emit a matching field:
@@ -68,6 +77,13 @@ Each is a workspace-relative path string, or `null`.
 
 Rules:
 
+- **Emit `null` unless the invocation variable itself is a path to an
+  existing `.md` file.** Inline requirements text, bug descriptions, or
+  feature prose must always produce `null` for every sibling field, even
+  when an `active_milestone` or `artifact_locations` path exists. Never
+  copy `artifact_locations.prd` / `artifact_locations.plan` into the
+  sibling `prd` / `plan` fields — the sibling fields signal "this file
+  already exists"; `artifact_locations` signals "write here if needed".
 - The file must exist on disk, have a `.md` extension, and resolve inside the
   current project root. Paths that escape the root (absolute paths outside
   it, `..` segments resolving outside it), missing files, and non-markdown
@@ -83,6 +99,9 @@ Rules:
 Downstream workflow steps use these as fast-path signals — when set, the
 corresponding authoring step (`dartclaw-spec`, `dartclaw-prd`, `dartclaw-plan`)
 is skipped via an `entryGate` and the pre-existing file is used directly.
+Emitting a future-write path here instead of `null` skips the authoring
+step and the next step is handed a reference to a file that does not yet
+exist — which causes the workflow to fail downstream.
 
 ### Active Milestone and Artifact Locations
 

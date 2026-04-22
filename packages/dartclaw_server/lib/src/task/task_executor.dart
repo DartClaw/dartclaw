@@ -1118,11 +1118,40 @@ class TaskExecutor {
     if (decoded is! Map) return null;
 
     final payload = decoded.map((key, value) => MapEntry(key.toString(), value));
+    if (payload.isEmpty) return null;
+
+    // Accept a partial inline payload: if the agent populated at least one
+    // required key with a non-empty value in `<workflow-context>`, treat it
+    // as authoritative for the keys it emitted. Missing keys fall through to
+    // the ContextExtractor's downstream resolution chain (artifacts, diff,
+    // etc.). The old "all required keys present or null" gate was too strict:
+    // it routinely forced a second extraction turn that asked the model to
+    // re-summarize its own work, at which point the model frequently dropped
+    // deeply-nested values (empty arrays, empty strings) — producing
+    // schema-shaped but semantically empty payloads that poisoned downstream
+    // steps (e.g. foreach over `story_specs` seeing 0 items).
     final requiredKeys = _requiredTopLevelKeys(structuredSchema);
-    if (requiredKeys.any((key) => !payload.containsKey(key))) {
+    final populatedRequired = requiredKeys.where((key) => _isNonEmptyPayloadValue(payload[key])).toList();
+    if (requiredKeys.isNotEmpty && populatedRequired.isEmpty) {
       return null;
     }
+    final missing = requiredKeys.where((key) => !payload.containsKey(key)).toList();
+    if (missing.isNotEmpty) {
+      _log.info(
+        'Inline structured payload from <workflow-context> is partial: '
+        '${populatedRequired.length}/${requiredKeys.length} required keys populated. '
+        'Missing: $missing — will be resolved by downstream extraction chain.',
+      );
+    }
     return payload;
+  }
+
+  static bool _isNonEmptyPayloadValue(Object? value) {
+    if (value == null) return false;
+    if (value is String) return value.isNotEmpty;
+    if (value is Iterable) return value.isNotEmpty;
+    if (value is Map) return value.isNotEmpty;
+    return true;
   }
 
   List<String> _requiredTopLevelKeys(Map<String, dynamic> schema) {

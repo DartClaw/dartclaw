@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,6 +18,13 @@ class SessionService {
   final EventBus? eventBus;
   static const _uuid = Uuid();
   static final _log = Logger('SessionService');
+
+  /// Serialises read-modify-write operations on `.session_keys.json` so
+  /// concurrent `getOrCreateByKey` calls (e.g. parallel foreach iterations
+  /// in workflow tasks) don't lose index entries or race on the temp
+  /// rename. Each caller awaits the prior chain link before entering the
+  /// critical section.
+  Future<void>? _keyIndexChain;
 
   SessionService({required this.baseDir, this.eventBus});
 
@@ -111,7 +119,36 @@ class SessionService {
   /// Creates or retrieves a session by deterministic external key.
   /// Maps external keys (e.g. 'cron:daily-summary') to internal UUID sessions
   /// via a key->UUID index file.
+  ///
+  /// Serialised with an in-process Future chain so concurrent callers (e.g.
+  /// parallel workflow foreach iterations each creating their own session)
+  /// don't interleave the read-modify-write on `.session_keys.json` and
+  /// lose each other's mappings.
   Future<Session> getOrCreateByKey(String key, {SessionType type = SessionType.user, String? provider}) async {
+    final prior = _keyIndexChain;
+    final completer = Completer<void>();
+    _keyIndexChain = completer.future;
+    if (prior != null) {
+      try {
+        await prior;
+      } catch (_) {
+        // The prior holder's error is its own; we just needed to wait for
+        // it to leave the critical section.
+      }
+    }
+    try {
+      return await _getOrCreateByKeyLocked(key, type: type, provider: provider);
+    } finally {
+      completer.complete();
+      // Release the chain reference once fully drained so failures don't
+      // keep dangling futures referenced for the process lifetime.
+      if (identical(_keyIndexChain, completer.future)) {
+        _keyIndexChain = null;
+      }
+    }
+  }
+
+  Future<Session> _getOrCreateByKeyLocked(String key, {required SessionType type, String? provider}) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
     // Load existing index

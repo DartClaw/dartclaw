@@ -154,6 +154,20 @@ class MergeExecutor {
               'Stashed untracked files overlap with merge result for branch $branch; '
               'dropping stash entry. Overlap: ${popStderr.trim()}',
             );
+            // The partial stash pop on the overlap path can leave the index
+            // with unmerged entries (`git stash pop` aborts mid-apply when
+            // the untracked file collision fires). A subsequent `git checkout`
+            // then fails with "you need to resolve your current index first",
+            // which cascades into a workflow failure even though the merge
+            // itself succeeded. Reset to HEAD to scrub any partial apply
+            // before dropping the stash — safe because the stash contents
+            // are intentionally being discarded.
+            final resetResult = await _git(['reset', '--hard', 'HEAD']);
+            if (resetResult.exitCode != 0) {
+              _log.warning(
+                'Failed to reset working tree after stash-pop overlap: ${_stderr(resetResult)}',
+              );
+            }
             final dropResult = await _git(['stash', 'drop']);
             if (dropResult.exitCode != 0) {
               _log.warning('Failed to drop stash after overlap: ${_stderr(dropResult)}');

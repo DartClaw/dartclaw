@@ -147,7 +147,14 @@ steps:
     type: custom
     skill: dartclaw-plan
     allowedTools: [shell, file_read, file_write]
-    contextInputs: [project_index, prd]    
+    contextInputs: [project_index, prd]
+    # Retry once on failure so we recover from a flaky plan pass where the
+    # agent reports `succeeded` without writing every per-story FIS file
+    # (post-extraction validation in `_normalizeWorkflowOutputs` promotes
+    # that silent drop-out to a real failure; this gives the skill a
+    # fresh turn to fill the gap before the workflow hard-fails).
+    onFailure: retry
+    maxRetries: 1
     contextOutputs: [story_specs, plan, plan_source]
     outputs:
       story_specs:
@@ -178,6 +185,11 @@ steps:
         type: custom
         skill: dartclaw-exec-spec
         allowedTools: [shell, file_read, file_write]
+        # Transient Codex CLI exits (exit code 1 with only `thread.started`
+        # on stdout, typically under memory pressure with parallel runners)
+        # have been observed mid-turn. Retry once before failing the story.
+        onFailure: retry
+        maxRetries: 1
         prompt: |
           {{map.item.spec_path}} (story {{map.display_index}} of {{map.length}}):
         contextInputs: [project_index, story_specs]
@@ -194,6 +206,11 @@ steps:
         type: custom
         skill: dartclaw-quick-review
         allowedTools: [file_read]
+        # Same transient-crash mitigation as `implement`; a dropped Codex
+        # process on the review turn shouldn't fail the story when a retry
+        # would succeed.
+        onFailure: retry
+        maxRetries: 1
         prompt: |
           Story {{map.display_index}}/{{map.length}}:
           <story>{{map.item}}</story>

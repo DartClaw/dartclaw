@@ -30,7 +30,7 @@ credentials:
   github-main:
     type: github-token
     token: ${GITHUB_TOKEN}
-    repository: tolo/dartclaw-workflow-testing
+    repository: DartClaw/workflow-test-todo-app
 
 workflow:
   workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
@@ -45,8 +45,8 @@ workflow:
       model: codex/gpt-5.3-codex
 
 projects:
-  workflow-testing:
-    remote: git@github.com:tolo/dartclaw-workflow-testing.git
+  workflow-test-todo-app:
+    remote: git@github.com:DartClaw/workflow-test-todo-app.git
     branch: main
     credentials: github-main
     default: true

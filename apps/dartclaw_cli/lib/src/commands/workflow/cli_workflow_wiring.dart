@@ -371,6 +371,9 @@ class CliWorkflowWiring {
           final declaresBranch = definition.variables.containsKey('BRANCH');
           final resolvedProjectId = (projectId ?? variables['PROJECT'])?.trim();
           final workflowProjectDir = await _resolveWorkflowProjectDir(resolvedProjectId);
+          final resolvedProject = resolvedProjectId == null || resolvedProjectId.isEmpty
+              ? null
+              : await projectService.get(resolvedProjectId);
           String? resolvedBranch;
           if (declaresBranch) {
             final requested = variables['BRANCH']?.trim();
@@ -380,19 +383,19 @@ class CliWorkflowWiring {
                 throw ArgumentError('Ref "$requested" not found in project repository');
               }
               resolvedBranch = requested;
+            } else if (resolvedProject != null) {
+              resolvedBranch = await projectService.resolveWorkflowBaseRef(resolvedProject);
             } else {
               resolvedBranch = await _resolveSymbolicHeadBranch(workflowProjectDir) ?? 'main';
             }
           }
-          if (resolvedProjectId != null && resolvedProjectId.isNotEmpty) {
-            final project = await projectService.get(resolvedProjectId);
-            if (project != null) {
-              await ensureWorkflowProjectReady(
-                project: project,
-                publishEnabled: definition.gitStrategy?.publish?.enabled == true,
-                allowDirty: allowDirtyLocalPath,
-              );
-            }
+          if (resolvedProject != null) {
+            await ensureWorkflowProjectReady(
+              project: resolvedProject,
+              publishEnabled: definition.gitStrategy?.publish?.enabled == true,
+              allowDirty: allowDirtyLocalPath,
+              hasExplicitBranch: (variables['BRANCH']?.trim().isNotEmpty ?? false),
+            );
           }
           return WorkflowStartResolution(
             projectId: declaresProject ? resolvedProjectId : null,
@@ -400,13 +403,19 @@ class CliWorkflowWiring {
           );
         },
         bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+          final resolvedProject = await projectService.get(projectId);
+          final effectiveBaseRef = resolvedProject != null
+              ? await projectService.resolveWorkflowBaseRef(resolvedProject, requestedBranch: baseRef)
+              : ((baseRef.trim().isNotEmpty)
+                    ? baseRef
+                    : (await _resolveSymbolicHeadBranch(await _resolveWorkflowProjectDir(projectId)) ?? 'main'));
           final integrationBranch = perMapItem
               ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
               : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
           await _ensureLocalBranch(
             projectDir: await _resolveWorkflowProjectDir(projectId),
             branch: integrationBranch,
-            baseRef: baseRef,
+            baseRef: effectiveBaseRef,
           );
           return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
         },

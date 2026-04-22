@@ -4883,7 +4883,7 @@ class WorkflowExecutor {
     if (projectId == null || projectId.isEmpty) return null;
     final baseRef = (context.variables['BRANCH']?.trim().isNotEmpty ?? false)
         ? context.variables['BRANCH']!.trim()
-        : 'main';
+        : '';
 
     try {
       final result = await bootstrap(

@@ -140,6 +140,32 @@ void main() {
       expect(await errorCode(response), 'INVALID_LOCAL_PATH');
     });
 
+    test('allowlist rejects ancestor symlink escapes even outside container mode', () async {
+      final tempDir = Directory.systemTemp.createTempSync('project_routes_allowlist_symlink_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final allowedRoot = Directory(p.join(tempDir.path, 'allowed'))..createSync(recursive: true);
+      final outsideRoot = Directory(p.join(tempDir.path, 'outside'))..createSync(recursive: true);
+      final escapeLink = p.join(allowedRoot.path, 'link-out');
+      Link(escapeLink).createSync(outsideRoot.path);
+      final escapedPath = p.join(escapeLink, 'repo');
+
+      final localPathHandler = projectRoutes(
+        projects,
+        projectConfig: ProjectConfig(allowApiLocalPath: true, localPathAllowlist: [allowedRoot.path]),
+      ).call;
+
+      final response = await localPathHandler(
+        jsonRequest('POST', '/api/projects', {'name': 'Escaped App', 'localPath': escapedPath}),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await errorCode(response), 'INVALID_LOCAL_PATH');
+    });
+
     test('container mode rejects API localPath projects outside mounted roots', () async {
       final localPathHandler = projectRoutes(
         projects,

@@ -96,6 +96,24 @@ void main() {
     expect(response.statusCode, 409);
     expect(await response.readAsString(), contains('Local-path project'));
   });
+
+  test('POST /api/workflows/run-form returns 409 for remote ref precondition failures', () async {
+    workflows.startError = StateError(
+      "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
+    );
+
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/run-form'),
+        headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
+        body: 'definition=spec-and-implement&var_FEATURE=Ship+CLI',
+      ),
+    );
+
+    expect(response.statusCode, 409);
+    expect(await response.readAsString(), contains('git fetch failed'));
+  });
 }
 
 class _FakeWorkflowService extends WorkflowService {

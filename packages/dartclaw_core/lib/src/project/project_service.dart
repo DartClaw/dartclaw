@@ -73,6 +73,15 @@ abstract class ProjectService {
   /// When [strict] is true, fetch/validation failures are surfaced to the caller.
   Future<void> ensureFresh(Project project, {String? ref, bool strict = false});
 
+  /// Resolves the effective workflow base ref for [project].
+  ///
+  /// Resolution order:
+  /// 1. Non-empty [requestedBranch]
+  /// 2. Non-empty [project.defaultBranch]
+  /// 3. Current symbolic `HEAD` for local-path projects
+  /// 4. `'main'` as a last resort
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch});
+
   /// Deletes a runtime-created project.
   ///
   /// Throws [StateError] if the project is config-defined.

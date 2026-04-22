@@ -88,6 +88,13 @@ Router projectRoutes(
           });
         }
         normalizedLocalPath = validation.normalizedPath;
+        if (projectConfig.localPathAllowlist.isNotEmpty &&
+            !_isPathWithinRoots(normalizedLocalPath, projectConfig.localPathAllowlist)) {
+          return errorResponse(400, 'INVALID_LOCAL_PATH', 'localPath is outside the configured allowlist', {
+            'field': 'localPath',
+            'reason': 'outside-allowlist',
+          });
+        }
         if (containerEnabled && !_isPathWithinRoots(normalizedLocalPath, containerMountRoots)) {
           return errorResponse(
             400,

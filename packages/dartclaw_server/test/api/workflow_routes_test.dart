@@ -345,6 +345,22 @@ void main() {
       expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
     });
 
+    test('remote strict ref failures return workflow precondition failed', () async {
+      workflows.startError = StateError(
+        "git fetch failed for \"alpha\" (ref: missing/ref): fatal: couldn't find remote ref",
+      );
+
+      final response = await handler(
+        jsonRequest('POST', '/api/workflows/run', {
+          'definition': 'spec-and-implement',
+          'variables': {'FEATURE': 'Pagination'},
+        }),
+      );
+
+      expect(response.statusCode, 409);
+      expect(await errorCode(response), 'WORKFLOW_PRECONDITION_FAILED');
+    });
+
     test('optional variable with default can be omitted', () async {
       // PROJECT has no default (null) and is not required — should succeed without it.
       final response = await handler(

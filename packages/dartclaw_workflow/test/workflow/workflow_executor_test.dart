@@ -850,6 +850,59 @@ void main() {
     expect(context['publish.pr_url'], 'https://example.test/pr/123');
   });
 
+  test('workflow git bootstrap passes an empty baseRef when BRANCH is absent', () async {
+    String? capturedBaseRef;
+    final bootstrapExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+      ),
+      dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      turnAdapter: WorkflowTurnAdapter(
+        reserveTurn: (_) => Future.value('turn-1'),
+        executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+        waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
+        bootstrapWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+          capturedBaseRef = baseRef;
+          return const WorkflowGitBootstrapResult(integrationBranch: 'dartclaw/integration/test');
+        },
+      ),
+    );
+
+    final definition = WorkflowDefinition(
+      name: 'bootstrap-no-branch',
+      description: 'Bootstrap resolves the base ref upstream',
+      gitStrategy: const WorkflowGitStrategy(bootstrap: true),
+      steps: const [],
+    );
+
+    final run = WorkflowRun(
+      id: 'bootstrap-no-branch',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'my-project'},
+      definitionJson: definition.toJson(),
+    );
+    await repository.insert(run);
+
+    await bootstrapExecutor.execute(run, definition, WorkflowContext(variables: const {'PROJECT': 'my-project'}));
+
+    expect(capturedBaseRef, isEmpty);
+  });
+
   test('artifact commit stages path outputs from the producing task worktree', () async {
     final projectDir = Directory(p.join(tempDir.path, 'projects', 'my-project'))..createSync(recursive: true);
     final worktreeDir = Directory(p.join(tempDir.path, 'worktree'));

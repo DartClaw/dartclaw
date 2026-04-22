@@ -136,9 +136,7 @@ void main() {
     test('seeds config-defined localPath projects without cloning', () async {
       final commands = <List<String>>[];
       final config = ProjectConfig(
-        definitions: {
-          'cfg-project': ProjectDefinition(id: 'cfg-project', localPath: gitRepoDir.path),
-        },
+        definitions: {'cfg-project': ProjectDefinition(id: 'cfg-project', localPath: gitRepoDir.path)},
       );
 
       final svc = makeService(
@@ -484,6 +482,58 @@ void main() {
           isA<ProjectAuthException>().having((error) => error.message, 'message', contains('cannot access u/repo')),
         ),
       );
+    });
+  });
+
+  group('resolveWorkflowBaseRef', () {
+    Project makeWorkflowProject({String defaultBranch = 'main'}) => Project(
+      id: 'repo',
+      name: 'Repo',
+      remoteUrl: 'git@example.com:u/r.git',
+      localPath: gitRepoDir.path,
+      defaultBranch: defaultBranch,
+      status: ProjectStatus.ready,
+      createdAt: DateTime.now(),
+    );
+
+    test('returns the explicit requested branch when provided', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(makeWorkflowProject(), requestedBranch: 'feature/requested');
+
+      expect(resolved, 'feature/requested');
+    });
+
+    test('returns the configured default branch when it is non-empty', () async {
+      final svc = makeService();
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(makeWorkflowProject(defaultBranch: 'release/0.16'));
+
+      expect(resolved, 'release/0.16');
+    });
+
+    test('resolves local-path projects from symbolic HEAD when defaultBranch is empty', () async {
+      final commands = <List<String>>[];
+      final svc = makeService(
+        gitRunner: (args, {environment, workingDirectory}) async {
+          commands.add(args);
+          if (args.join(' ') == 'symbolic-ref --quiet --short HEAD') {
+            return (exitCode: 0, stderr: '', stdout: 'feature/live\n');
+          }
+          return (exitCode: 0, stderr: '', stdout: '');
+        },
+      );
+      await svc.initialize();
+
+      final resolved = await svc.resolveWorkflowBaseRef(
+        makeWorkflowProject(defaultBranch: '').copyWith(remoteUrl: '', localPath: gitRepoDir.path),
+      );
+
+      expect(resolved, 'feature/live');
+      expect(commands, hasLength(1));
+      expect(commands.single, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
     });
   });
 

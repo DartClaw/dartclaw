@@ -430,7 +430,8 @@ Future<Response> _startWorkflowResponse(
 bool _isWorkflowStartPreconditionError(String message) {
   return message.startsWith('Local-path project "') ||
       message.startsWith('Publish requires an origin remote in local-path project "') ||
-      message.startsWith('Failed to inspect local-path project "');
+      message.startsWith('Failed to inspect local-path project "') ||
+      message.startsWith('git fetch failed for "');
 }
 
 Response _workflowFormError(String message, {int statusCode = 400}) {

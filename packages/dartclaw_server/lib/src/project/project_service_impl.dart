@@ -334,6 +334,28 @@ class ProjectServiceImpl implements ProjectService {
     }
   }
 
+  @override
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch}) async {
+    final requested = requestedBranch?.trim();
+    if (requested != null && requested.isNotEmpty) {
+      return requested;
+    }
+
+    final configured = project.defaultBranch.trim();
+    if (configured.isNotEmpty) {
+      return configured;
+    }
+
+    if (project.remoteUrl.isEmpty) {
+      final observed = await _resolveSymbolicHeadBranch(project.localPath);
+      if (observed != null && observed.isNotEmpty) {
+        return observed;
+      }
+    }
+
+    return 'main';
+  }
+
   Future<void> _fetchExternal(Project project, {String? ref, bool strict = false}) async {
     final prepared = await _requireCompatibleAuth(project, persistFailure: strict || project.configDefined);
     final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
@@ -373,6 +395,15 @@ class ProjectServiceImpl implements ProjectService {
     final normalizedRef = (ref == null || ref.isEmpty) ? '<default>' : ref;
     final strictness = strict ? 'strict' : 'best-effort';
     return '$projectId::$normalizedRef::$strictness';
+  }
+
+  Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
+    final result = await _gitRunner(['symbolic-ref', '--quiet', '--short', 'HEAD'], workingDirectory: workingDirectory);
+    if (result.exitCode != 0) {
+      return null;
+    }
+    final stdout = result.stdout.trim();
+    return stdout.isEmpty ? null : stdout;
   }
 
   @override

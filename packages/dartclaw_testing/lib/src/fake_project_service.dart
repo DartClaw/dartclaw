@@ -24,6 +24,7 @@ typedef FakeProjectUpdateCallback =
 typedef FakeProjectFetchCallback = Future<Project> Function(String id);
 typedef FakeProjectDeleteCallback = Future<void> Function(String id);
 typedef FakeProjectEnsureFreshCallback = Future<void> Function(Project project, {String? ref, bool strict});
+typedef FakeProjectResolveWorkflowBaseRefCallback = Future<String> Function(Project project, {String? requestedBranch});
 
 typedef RecordedProjectCreate = ({
   String name,
@@ -57,6 +58,7 @@ class FakeProjectService implements ProjectService {
     this.onFetch,
     this.onDelete,
     this.onEnsureFresh,
+    this.onResolveWorkflowBaseRef,
   }) : _localProject =
            localProject ??
            Project(
@@ -82,6 +84,7 @@ class FakeProjectService implements ProjectService {
   final FakeProjectFetchCallback? onFetch;
   final FakeProjectDeleteCallback? onDelete;
   final FakeProjectEnsureFreshCallback? onEnsureFresh;
+  final FakeProjectResolveWorkflowBaseRefCallback? onResolveWorkflowBaseRef;
 
   final Project _localProject;
   final Map<String, Project> _projects = {};
@@ -93,6 +96,7 @@ class FakeProjectService implements ProjectService {
   final List<String> fetchCalls = [];
   final List<String> deleteCalls = [];
   final List<({Project project, String? ref, bool strict})> ensureFreshCalls = [];
+  final List<({Project project, String? requestedBranch})> resolveWorkflowBaseRefCalls = [];
   final List<RecordedProjectCreate> createCalls = [];
   final List<RecordedProjectUpdate> updateCalls = [];
 
@@ -281,6 +285,25 @@ class FakeProjectService implements ProjectService {
   Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {
     ensureFreshCalls.add((project: project, ref: ref, strict: strict));
     await onEnsureFresh?.call(project, ref: ref, strict: strict);
+  }
+
+  @override
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch}) async {
+    resolveWorkflowBaseRefCalls.add((project: project, requestedBranch: requestedBranch));
+    final callback = onResolveWorkflowBaseRef;
+    if (callback != null) {
+      return callback(project, requestedBranch: requestedBranch);
+    }
+
+    final requested = requestedBranch?.trim();
+    if (requested != null && requested.isNotEmpty) {
+      return requested;
+    }
+    final configured = project.defaultBranch.trim();
+    if (configured.isNotEmpty) {
+      return configured;
+    }
+    return 'main';
   }
 
   @override

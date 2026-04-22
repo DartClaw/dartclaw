@@ -453,6 +453,16 @@ class _StaticProjectService implements ProjectService {
   Future<void> ensureFresh(Project project, {String? ref, bool strict = false}) async {}
 
   @override
+  Future<String> resolveWorkflowBaseRef(Project project, {String? requestedBranch}) async {
+    final requested = requestedBranch?.trim();
+    if (requested != null && requested.isNotEmpty) {
+      return requested;
+    }
+    final configured = project.defaultBranch.trim();
+    return configured.isNotEmpty ? configured : 'main';
+  }
+
+  @override
   Future<void> delete(String id) => throw UnimplementedError();
 
   @override

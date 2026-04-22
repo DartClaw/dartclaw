@@ -92,6 +92,37 @@ void main() {
       completes,
     );
   });
+
+  test('detached HEAD fails when configuredBranch is empty and no explicit branch was supplied', () async {
+    _runGit(repoDir.path, ['checkout', '--detach', 'HEAD']);
+
+    await expectLater(
+      ensureWorkflowLocalPathProjectReady(
+        projectId: 'live-project',
+        localPath: repoDir.path,
+        configuredBranch: '',
+        publishEnabled: false,
+        allowDirty: false,
+      ),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('expected an attached branch'))),
+    );
+  });
+
+  test('detached HEAD is allowed when an explicit branch was supplied', () async {
+    _runGit(repoDir.path, ['checkout', '--detach', 'HEAD']);
+
+    await expectLater(
+      ensureWorkflowLocalPathProjectReady(
+        projectId: 'live-project',
+        localPath: repoDir.path,
+        configuredBranch: '',
+        publishEnabled: false,
+        allowDirty: false,
+        hasExplicitBranch: true,
+      ),
+      completes,
+    );
+  });
 }
 
 void _runGit(String workingDirectory, List<String> args) {

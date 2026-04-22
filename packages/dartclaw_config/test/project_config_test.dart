@@ -105,10 +105,7 @@ void main() {
     test('parses localPath-backed project definitions', () {
       final warns = <String>[];
       final config = parseProjectConfig({
-        'local-app': {
-          'localPath': gitRepoDir.path,
-          'branch': 'main',
-        },
+        'local-app': {'localPath': gitRepoDir.path, 'branch': 'main'},
       }, warns);
 
       final def = config.definitions['local-app']!;
@@ -118,13 +115,46 @@ void main() {
       expect(def.branch, 'main');
     });
 
+    test('localPath-backed project definitions default branch to empty for HEAD inference', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'local-app': {'localPath': gitRepoDir.path},
+      }, warns);
+
+      final def = config.definitions['local-app']!;
+      expect(warns, isEmpty);
+      expect(def.localPath, gitRepoDir.path);
+      expect(def.branch, isEmpty);
+    });
+
+    test('remote-backed project definitions still default branch to main', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'remote-app': {'remote': 'git@github.com:user/remote-app.git'},
+      }, warns);
+
+      final def = config.definitions['remote-app']!;
+      expect(warns, isEmpty);
+      expect(def.remote, 'git@github.com:user/remote-app.git');
+      expect(def.branch, 'main');
+    });
+
+    test('trims explicit branch values for both remote and localPath projects', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'remote-app': {'remote': 'git@github.com:user/remote-app.git', 'branch': '  develop  '},
+        'local-app': {'localPath': gitRepoDir.path, 'branch': '  feature/live  '},
+      }, warns);
+
+      expect(warns, isEmpty);
+      expect(config.definitions['remote-app']!.branch, 'develop');
+      expect(config.definitions['local-app']!.branch, 'feature/live');
+    });
+
     test('warns and skips entries supplying both remote and localPath', () {
       final warns = <String>[];
       final config = parseProjectConfig({
-        'bad': {
-          'remote': 'git@github.com:user/repo.git',
-          'localPath': gitRepoDir.path,
-        },
+        'bad': {'remote': 'git@github.com:user/repo.git', 'localPath': gitRepoDir.path},
       }, warns);
 
       expect(config.isEmpty, isTrue);
@@ -235,7 +265,9 @@ void main() {
 
   group('project scalar settings', () {
     test('fetchCooldownMinutes defaults to 5', () {
-      final config = parseProjectConfig({'my-app': {'remote': 'git@github.com:u/r.git'}}, []);
+      final config = parseProjectConfig({
+        'my-app': {'remote': 'git@github.com:u/r.git'},
+      }, []);
 
       expect(config.fetchCooldownMinutes, 5);
     });
@@ -263,7 +295,9 @@ void main() {
     });
 
     test('allowApiLocalPath defaults to false', () {
-      final config = parseProjectConfig({'my-app': {'remote': 'git@github.com:u/r.git'}}, []);
+      final config = parseProjectConfig({
+        'my-app': {'remote': 'git@github.com:u/r.git'},
+      }, []);
 
       expect(config.allowApiLocalPath, isFalse);
     });

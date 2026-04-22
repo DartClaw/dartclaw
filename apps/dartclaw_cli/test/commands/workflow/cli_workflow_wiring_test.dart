@@ -224,6 +224,55 @@ steps:
     );
   });
 
+  test('workflow start infers BRANCH from HEAD for local-path projects when branch is omitted', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'live-project'))..createSync(recursive: true);
+    _runGit(projectDir.path, ['init', '-b', 'main']);
+    _runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    _runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('hello\n');
+    _runGit(projectDir.path, ['add', 'README.md']);
+    _runGit(projectDir.path, ['commit', '-m', 'initial']);
+    _runGit(projectDir.path, ['checkout', '-b', 'feature/local']);
+
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'claude'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+      ),
+      server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      projects: ProjectConfig(
+        definitions: {'alpha': ProjectDefinition(id: 'alpha', localPath: projectDir.path, branch: '')},
+      ),
+    );
+
+    final wiring = CliWorkflowWiring(
+      config: config,
+      dataDir: tempDir.path,
+      skillsHomeDir: p.join(tempDir.path, 'home'),
+      harnessFactory: _harnessFactoryFor(() => FakeAgentHarness()),
+      searchDbFactory: (_) => sqlite3.openInMemory(),
+      taskDbFactory: (_) => sqlite3.openInMemory(),
+    );
+    addTearDown(wiring.dispose);
+
+    await wiring.wire();
+
+    final definition = WorkflowDefinition(
+      name: 'branch-guard',
+      description: 'Checks local-path branch safety',
+      variables: const {
+        'PROJECT': WorkflowVariable(required: true, description: 'Target project'),
+        'BRANCH': WorkflowVariable(required: false, description: 'Requested branch'),
+      },
+      steps: const [
+        WorkflowStep(id: 'check', name: 'Check', type: 'analysis', prompts: ['Say OK']),
+      ],
+    );
+
+    final run = await wiring.workflowService.start(definition, const {'PROJECT': 'alpha'}, headless: true);
+    expect(run.variablesJson['BRANCH'], 'feature/local');
+  });
+
   test('workflow start propagates the configured workflow workspace into created tasks', () async {
     final workflowWorkspaceDir = Directory(p.join(tempDir.path, 'workflow-workspace'))..createSync(recursive: true);
     File(p.join(workflowWorkspaceDir.path, 'AGENTS.md')).writeAsStringSync('CLI workflow workspace rules');

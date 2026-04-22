@@ -235,9 +235,7 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
       }
       final validation = validateProjectLocalPath(entry);
       if (!validation.isValid && validation.errorCode != 'outside-allowlist') {
-        warns.add(
-          'projects.localPathAllowlist[$index]: ${validation.errorMessage ?? "invalid path"} — skipping',
-        );
+        warns.add('projects.localPathAllowlist[$index]: ${validation.errorMessage ?? "invalid path"} — skipping');
         continue;
       }
       localPathAllowlist.add(validation.normalizedPath);
@@ -294,7 +292,8 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
       }
     }
 
-    final branch = projectMap['branch'] is String ? projectMap['branch'] as String : 'main';
+    final branchRaw = _trimmedStringOrNull(projectMap['branch']);
+    final branch = branchRaw ?? (localPath != null ? '' : 'main');
     final credentials = projectMap['credentials'] is String ? projectMap['credentials'] as String : null;
     final isDefault = projectMap['default'] is bool ? projectMap['default'] as bool : false;
 

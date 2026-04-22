@@ -430,11 +430,8 @@ class ServiceWiring {
                 }
               }
               effectiveBranch = requestedBranch;
-            } else if (resolvedProject.id == '_local') {
-              effectiveBranch =
-                  await _resolveSymbolicHeadBranch(resolvedProject.localPath) ?? resolvedProject.defaultBranch;
             } else {
-              effectiveBranch = resolvedProject.defaultBranch;
+              effectiveBranch = await projectService.resolveWorkflowBaseRef(resolvedProject);
             }
           }
 
@@ -442,6 +439,7 @@ class ServiceWiring {
             project: resolvedProject,
             publishEnabled: definition.gitStrategy?.publish?.enabled == true,
             allowDirty: allowDirtyLocalPath,
+            hasExplicitBranch: (variables['BRANCH']?.trim().isNotEmpty ?? false),
           );
 
           final refToValidate = _workflowFreshnessRefForProject(resolvedProject, effectiveBranch);
@@ -456,13 +454,17 @@ class ServiceWiring {
           if (resolvedProject == null) {
             throw ArgumentError('Project "$projectId" not found');
           }
+          final effectiveBaseRef = await project.projectService.resolveWorkflowBaseRef(
+            resolvedProject,
+            requestedBranch: baseRef,
+          );
           final integrationBranch = perMapItem
               ? 'dartclaw/workflow/${runId.replaceAll('-', '')}/integration'
               : 'dartclaw/workflow/${runId.replaceAll('-', '')}';
           await _ensureLocalBranch(
             projectDir: resolvedProject.localPath,
             branch: integrationBranch,
-            baseRef: baseRef,
+            baseRef: effectiveBaseRef,
             remoteBacked: resolvedProject.id != '_local',
           );
           return WorkflowGitBootstrapResult(integrationBranch: integrationBranch);
@@ -1104,22 +1106,6 @@ String? _workflowFreshnessRefForProject(Project project, String? branch) {
     return trimmed.isEmpty ? null : trimmed;
   }
   return branch;
-}
-
-Future<String?> _resolveSymbolicHeadBranch(String workingDirectory) async {
-  try {
-    final result = await _workflowGit([
-      'symbolic-ref',
-      '--quiet',
-      '--short',
-      'HEAD',
-    ], workingDirectory: workingDirectory);
-    if (result.exitCode != 0) return null;
-    final stdout = (result.stdout as String).trim();
-    return stdout.isEmpty ? null : stdout;
-  } catch (_) {
-    return null;
-  }
 }
 
 Future<bool> _localRefExists(String workingDirectory, String ref) async {

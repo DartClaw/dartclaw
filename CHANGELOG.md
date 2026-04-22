@@ -40,6 +40,7 @@ CLI Operations, Connected Workflows & Workflow Platform Hardening — connected-
 
 ### Changed
 
+- **Local-path branch inference**: `branch:` is now optional for `localPath:` projects. When omitted, workflow start/bootstrap resolves the effective branch from the checkout's current `HEAD`, while an explicit `branch:` still acts as a drift-detection guard
 - **`workflow run` is now connected-by-default**: the CLI uses the server API unless `--standalone` is explicitly requested
 - **Standalone safety guard**: `workflow run --standalone` aborts when a server is already running unless `--force` is provided
 - **`workflow status` is now connected-by-default** with an explicit `--standalone` fallback for local DB inspection

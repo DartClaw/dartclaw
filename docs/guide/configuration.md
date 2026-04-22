@@ -483,16 +483,16 @@ projects:
 
   live-checkout:
     localPath: /Users/alice/repos/dartclaw-public
-    branch: main
 ```
 
 Rules and behavior:
 
 - `localPath` must be an absolute path. Relative paths and any `..` traversal segments are rejected at config-load time.
+- `branch` is optional for `localPath` projects. When omitted, DartClaw resolves the effective workflow branch from the checkout's current symbolic `HEAD`.
 - `projects.localPathAllowlist` lets you restrict which host paths are valid for `localPath` projects.
 - Non-existent paths and directories that are not yet git repositories are accepted with a warning so operators can pre-seed or mount them later.
 - Local-path projects are treated as local-only runtime projects (`remoteUrl == ''`). DartClaw does not `git clone` or `git fetch` them automatically.
-- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, or the checked-out branch does not match the configured `branch:`, the run aborts before creating coding tasks. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
+- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, the run aborts before creating coding tasks. A branch mismatch only aborts when you explicitly configured `branch:` on the local-path project, which lets you use `branch:` as an intentional drift-detection guard instead of mandatory duplicate state. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
 - When `gitStrategy.publish.enabled: true`, publish auto-resolves the push target from the checkout's existing `origin` remote. If `origin` is missing, workflow start fails before any coding work begins.
 
 API-created local-path projects are opt-in:

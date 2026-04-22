@@ -9,6 +9,7 @@ Future<void> ensureWorkflowProjectReady({
   required Project project,
   required bool publishEnabled,
   required bool allowDirty,
+  bool hasExplicitBranch = false,
 }) async {
   if (project.id == '_local' || project.remoteUrl.isNotEmpty) {
     return;
@@ -20,6 +21,7 @@ Future<void> ensureWorkflowProjectReady({
     configuredBranch: project.defaultBranch,
     publishEnabled: publishEnabled,
     allowDirty: allowDirty,
+    hasExplicitBranch: hasExplicitBranch,
   );
 }
 
@@ -29,6 +31,7 @@ Future<void> ensureWorkflowLocalPathProjectReady({
   required String configuredBranch,
   required bool publishEnabled,
   required bool allowDirty,
+  bool hasExplicitBranch = false,
 }) async {
   final status = await SafeProcess.git(
     const ['status', '--porcelain=v2', '--branch'],
@@ -44,12 +47,15 @@ Future<void> ensureWorkflowLocalPathProjectReady({
   }
 
   final parsed = _parseStatus(status.stdout as String);
-  final branchMismatch = parsed.observedBranch != configuredBranch;
+  final branchMismatch = configuredBranch.isNotEmpty
+      ? parsed.observedBranch != configuredBranch
+      : (!hasExplicitBranch && parsed.observedBranch == '(detached)');
   final dirty = parsed.dirtyPathCount > 0;
   if (branchMismatch || dirty) {
+    final branchExpectation = configuredBranch.isEmpty ? 'an attached branch' : '"$configuredBranch"';
     final message =
         'Local-path project "$projectId" is not safe to mutate: observed branch '
-        '"${parsed.observedBranch}", expected "$configuredBranch", dirty path count ${parsed.dirtyPathCount}.';
+        '"${parsed.observedBranch}", expected $branchExpectation, dirty path count ${parsed.dirtyPathCount}.';
     if (!allowDirty) {
       throw StateError('$message Re-run with --allow-dirty-localpath to override.');
     }

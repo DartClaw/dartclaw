@@ -100,6 +100,41 @@ void main() {
       expect(html, contains('width: 50%'));
     });
 
+    test('progress bar counts skipped steps as progressed', () {
+      final steps = [
+        ...makeSteps(count: 2, completedCount: 2),
+        {
+          'index': 2,
+          'id': 'step-2',
+          'name': 'Step 3',
+          'status': 'skipped',
+          'type': 'research',
+          'parallel': false,
+          'taskId': null,
+        },
+        {
+          'index': 3,
+          'id': 'step-3',
+          'name': 'Step 4',
+          'status': 'pending',
+          'type': 'research',
+          'parallel': false,
+          'taskId': null,
+        },
+      ];
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: makeRun(),
+        steps: steps,
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      expect(html, contains('width: 75%'));
+    });
+
     test('progress bar: 6/6 -> 100%', () {
       final html = workflowDetailPageTemplate(
         sidebarData: emptySidebar,

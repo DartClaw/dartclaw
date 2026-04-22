@@ -3,9 +3,27 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 
 /// Maps a task's status (or absence) to a workflow step status string.
 ///
-/// Shared by the API routes (S05) and the workflow UI templates (S11, S12)
-/// to avoid duplicating this mapping in multiple places.
-String stepStatusFromTask(WorkflowRun run, int index, Task? task) {
+/// Status comes from four layers, in precedence order:
+/// 1. Step-local outcome markers in `run.contextJson` (for steps with no task,
+///    e.g. skipped entryGate branches)
+/// 2. Child task lifecycle (`Task.status`) when a task exists
+/// 3. `run.currentStepIndex` while the workflow is actively running
+/// 4. The workflow run's terminal state
+///
+/// Shared by the API routes and the workflow UI templates to avoid duplicating
+/// this mapping in multiple places.
+String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepId}) {
+  final contextData = switch (run.contextJson['data']) {
+    final Map<String, dynamic> data => data,
+    final Map<Object?, Object?> data => Map<String, dynamic>.from(data),
+    _ => const <String, dynamic>{},
+  };
+  final outcome = stepId == null
+      ? null
+      : (run.contextJson['step.$stepId.outcome'] ?? contextData['step.$stepId.outcome']);
+  if (outcome == 'skipped') {
+    return 'skipped';
+  }
   if (task == null) {
     if (index == run.currentStepIndex && run.status == WorkflowRunStatus.running) {
       return 'running';

@@ -20,6 +20,7 @@ FIS_FILE_PATH: $ARGUMENTS
 - **Complete implementation** — 100% required. Reporting incomplete work with a caveat is **not** completion.
 - **FIS is source of truth** — follow it exactly.
 - **Execution discipline** — Stop-the-Line on red gates (build, tests, lint, stub, wiring, task `Verify`); iterate until green; escalate only on real external blockers. See `references/execution-discipline.md`.
+- **Diff discipline** — only format lines you are modifying. Do not reformat unrelated lines. If a local edit triggers whole-function or whole-file formatting churn, revert the cascade and keep only the semantic diff.
 - **Direct execution** — implement the code yourself. Sub-agents are for advisory work, review, and validation only.
 - **Anti-rationalization** — if you catch yourself skipping test scaffolding, deferring verification, batching status updates, or pushing past a red gate, reject these common rationalizations:
   - "I'll verify after the next group" — defects compound; verify before more work builds on a bad assumption.

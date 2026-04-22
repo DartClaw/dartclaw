@@ -584,6 +584,107 @@ void main() {
     expect(events.any((e) => e.kind.name == 'structuredOutputInlineUsed'), isFalse);
   });
 
+  test('workflow oneshot structured-output fallback turn emits correlated progress events', () async {
+    // Regression guard for the gap where the fallback `runner.executeTurn(...)`
+    // call omitted taskId/sessionId, causing WorkflowCliTurnProgressEvent to
+    // emit empty identifiers on the second of two one-shot execution paths.
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'required': ['verdict'],
+      'properties': {
+        'verdict': {
+          'type': 'object',
+          'required': ['pass'],
+          'properties': {
+            'pass': {'type': 'boolean'},
+          },
+        },
+      },
+    };
+    final eventBus = EventBus();
+    addTearDown(eventBus.dispose);
+    final progressEvents = <WorkflowCliTurnProgressEvent>[];
+    final sub = eventBus.on<WorkflowCliTurnProgressEvent>().listen(progressEvents.add);
+    addTearDown(sub.cancel);
+
+    var invocation = 0;
+    final cliRunner = WorkflowCliRunner(
+      providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+      eventBus: eventBus,
+      processStarter: (exe, args, {workingDirectory, environment}) async {
+        invocation++;
+        final List<String> lines;
+        if (invocation == 1) {
+          // Main turn: prose without a <workflow-context> block, forcing the
+          // extraction fallback.
+          lines = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-fallback-main'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'Analysis without any context block.'},
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 50, 'output_tokens': 10},
+            }),
+          ];
+        } else {
+          // Fallback turn: emit the structured payload.
+          lines = [
+            jsonEncode({'type': 'thread.started', 'thread_id': 'codex-fallback-extract'}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {
+                'type': 'agent_message',
+                'text': jsonEncode({
+                  'verdict': {'pass': false},
+                }),
+              },
+            }),
+            jsonEncode({
+              'type': 'turn.completed',
+              'usage': {'input_tokens': 70, 'output_tokens': 15},
+            }),
+          ];
+        }
+        final stdout = lines.join('\n').replaceAll("'", "'\\''");
+        return Process.start('/bin/sh', ['-lc', "printf '%s' '$stdout'"]);
+      },
+    );
+    final fallbackExecutor = buildExecutor(workflowCliRunner: cliRunner);
+    addTearDown(fallbackExecutor.stop);
+
+    await tasks.create(
+      id: 'task-fallback-progress',
+      title: 'Extraction fallback progress',
+      description: 'Fallback path must carry taskId/sessionId into progress events.',
+      type: TaskType.coding,
+      autoStart: true,
+      agentExecutionId: 'ae-task-fallback-progress',
+      workflowRunId: 'wf-fallback-progress',
+      provider: 'codex',
+    );
+    await seedWorkflowExecution(
+      'task-fallback-progress',
+      agentExecutionId: 'ae-task-fallback-progress',
+      workflowRunId: 'wf-fallback-progress',
+      structuredSchema: schema,
+      stepId: 'plan',
+    );
+
+    await fallbackExecutor.pollOnce();
+
+    expect(invocation, 2, reason: 'fallback extraction turn must run when inline is missing');
+    expect(progressEvents, hasLength(2), reason: 'both main and fallback turns must emit progress events');
+    final sessionId = (await tasks.get('task-fallback-progress'))?.sessionId;
+    expect(sessionId, isNotNull);
+    for (final event in progressEvents) {
+      expect(event.taskId, 'task-fallback-progress');
+      expect(event.sessionId, sessionId);
+      expect(event.provider, 'codex');
+    }
+  });
+
   test('workflow oneshot extraction turn receives appendSystemPrompt: null even when main turn received it', () async {
     final schema = <String, dynamic>{
       'type': 'object',

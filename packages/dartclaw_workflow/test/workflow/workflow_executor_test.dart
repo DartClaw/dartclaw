@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_models/dartclaw_models.dart' show Project, ProjectStatus, SessionType;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -44,6 +44,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -318,6 +319,40 @@ void main() {
 
     final finalRun = await repository.getById('run-1');
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  test('entry-gated skip records skipped outcome and still executes following steps', () async {
+    final definition = makeDefinition(
+      steps: [
+        const WorkflowStep(id: 'spec', name: 'Spec', entryGate: 'should_run == true', prompts: ['Write the spec']),
+        const WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement the change']),
+      ],
+    );
+
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final context = WorkflowContext(data: {'should_run': false});
+
+    final queuedTaskIds = <String>[];
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      await Future<void>.delayed(Duration.zero);
+      queuedTaskIds.add(e.taskId);
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, context);
+    await sub.cancel();
+
+    expect(queuedTaskIds, hasLength(1));
+    final queuedTask = await taskService.get(queuedTaskIds.single);
+    expect(queuedTask?.title, contains('Implement'));
+
+    final finalRun = await repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(finalRun?.currentStepIndex, equals(2));
+    final contextData = Map<String, dynamic>.from(finalRun?.contextJson['data'] as Map? ?? const {});
+    expect(contextData['step.spec.outcome'], equals('skipped'));
+    expect(contextData['step.spec.outcome.reason'], equals('should_run == true'));
   });
 
   test('workflow-owned git coding task auto-advances on accepted terminal status', () async {
@@ -987,6 +1022,113 @@ void main() {
     expect((logResult.stdout as String).trim(), 'workflow artifacts run-1');
     final showResult = runGit(worktreeDir.path, ['show', 'HEAD:docs/specs/test.md']);
     expect(showResult.stdout, contains('# test'));
+  });
+
+  test('artifact commit resolves localPath projects without relying on dataDir/projects', () async {
+    final projectDir = Directory(p.join(tempDir.path, 'named-local-project'))..createSync(recursive: true);
+
+    ProcessResult runGit(String workingDir, List<String> args) {
+      final result = Process.runSync('git', args, workingDirectory: workingDir);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed in $workingDir: ${result.stderr}');
+      }
+      return result;
+    }
+
+    runGit(projectDir.path, ['init', '-b', 'main']);
+    runGit(projectDir.path, ['config', 'user.name', 'Test User']);
+    runGit(projectDir.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# local repo\n');
+    runGit(projectDir.path, ['add', 'README.md']);
+    runGit(projectDir.path, ['commit', '-m', 'initial']);
+
+    final projectService = FakeProjectService(
+      projects: [
+        Project(
+          id: 'my-project',
+          name: 'My Project',
+          remoteUrl: '',
+          localPath: projectDir.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
+        ),
+      ],
+    );
+
+    final localPathExecutor = WorkflowExecutor(
+      taskService: taskService,
+      eventBus: eventBus,
+      kvService: kvService,
+      repository: repository,
+      gateEvaluator: GateEvaluator(),
+      contextExtractor: ContextExtractor(
+        taskService: taskService,
+        messageService: messageService,
+        dataDir: tempDir.path,
+        workflowStepExecutionRepository: workflowStepExecutionRepository,
+      ),
+      dataDir: tempDir.path,
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionTransactor: executionRepositoryTransactor,
+      projectService: projectService,
+    );
+
+    final definition = WorkflowDefinition(
+      name: 'artifact-commit-local-path',
+      description: 'Commits artifacts in named localPath projects',
+      gitStrategy: const WorkflowGitStrategy(
+        artifacts: WorkflowGitArtifactsStrategy(commit: true, commitMessage: 'workflow artifacts {{runId}}'),
+      ),
+      variables: const {'PROJECT': WorkflowVariable(required: false)},
+      steps: const [
+        WorkflowStep(
+          id: 'spec',
+          name: 'Spec',
+          type: 'writing',
+          project: '{{PROJECT}}',
+          contextOutputs: ['spec_path'],
+          outputs: {'spec_path': OutputConfig(format: OutputFormat.path)},
+          prompts: ['Write spec'],
+        ),
+      ],
+    );
+
+    final run = WorkflowRun(
+      id: 'run-local-path',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      variablesJson: const {'PROJECT': 'my-project'},
+      definitionJson: definition.toJson(),
+    );
+    await repository.insert(run);
+
+    final context = WorkflowContext(variables: const {'PROJECT': 'my-project'});
+    final sub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+      final outputPath = p.join(projectDir.path, 'docs', 'specs', 'test.md');
+      File(outputPath).parent.createSync(recursive: true);
+      File(outputPath).writeAsStringSync('# local path test\n');
+      final session = await sessionService.createSession(type: SessionType.task);
+      await taskService.updateFields(e.taskId, sessionId: session.id);
+      await messageService.insertMessage(
+        sessionId: session.id,
+        role: 'assistant',
+        content: '<workflow-context>${jsonEncode({'spec_path': 'docs/specs/test.md'})}</workflow-context>',
+      );
+      await completeTask(e.taskId);
+    });
+
+    await localPathExecutor.execute(run, definition, context);
+    await sub.cancel();
+
+    final logResult = runGit(projectDir.path, ['log', '-1', '--pretty=%s']);
+    expect((logResult.stdout as String).trim(), 'workflow artifacts run-local-path');
+    final showResult = runGit(projectDir.path, ['show', 'HEAD:docs/specs/test.md']);
+    expect(showResult.stdout, contains('# local path test'));
   });
 
   test('step failure pauses workflow', () async {

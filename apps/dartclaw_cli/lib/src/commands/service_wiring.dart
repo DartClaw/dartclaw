@@ -566,6 +566,7 @@ class ServiceWiring {
       agentExecutionRepository: storage.agentExecutionRepository,
       workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
       executionRepositoryTransactor: storage.executionRepositoryTransactor,
+      projectService: project.projectService,
       eventBus: eventBus,
       kvService: storage.kvService,
       dataDir: dataDir,

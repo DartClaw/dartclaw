@@ -197,6 +197,7 @@ class TaskWiring {
           ),
       },
       containerManagers: _containerManagers,
+      eventBus: _eventBus,
       // Hand the runner its own data dir so any provider-specific
       // env-isolation helpers it owns (e.g. the Codex isolated profile,
       // opt-in via `providers.codex.options.isolated_profile`) can

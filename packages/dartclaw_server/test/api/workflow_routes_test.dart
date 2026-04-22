@@ -148,6 +148,7 @@ WorkflowRun _makeRun({
   WorkflowRunStatus status = WorkflowRunStatus.running,
   int currentStepIndex = 0,
   Map<String, dynamic>? definitionJson,
+  Map<String, dynamic>? contextJson,
 }) {
   final now = DateTime.parse('2026-03-24T10:00:00Z');
   return WorkflowRun(
@@ -159,6 +160,7 @@ WorkflowRun _makeRun({
     variablesJson: const {'FEATURE': 'User pagination'},
     definitionJson: definitionJson ?? _makeDefinition().toJson(),
     currentStepIndex: currentStepIndex,
+    contextJson: contextJson ?? const {},
   );
 }
 
@@ -529,6 +531,21 @@ void main() {
       final body = decodeObject(await response.readAsString());
       final steps = body['steps'] as List;
       expect(steps[1]['status'], 'running'); // current step, no task yet
+    });
+
+    test('skipped outcome in run context is surfaced for taskless steps', () async {
+      workflows.getResult = _makeRun(
+        currentStepIndex: 1,
+        status: WorkflowRunStatus.running,
+        contextJson: const {'step.research.outcome': 'skipped'},
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List;
+      expect(steps[0]['status'], 'skipped');
     });
   });
 

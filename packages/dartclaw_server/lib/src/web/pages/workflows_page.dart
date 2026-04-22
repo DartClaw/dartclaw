@@ -19,6 +19,20 @@ final _log = Logger('WorkflowsPage');
 /// `/workflows/<runId>/steps/<stepIndex>` (HTMX lazy-load partial).
 /// The workflow run list page is S12's responsibility.
 class WorkflowsPage extends DashboardPage {
+  static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
+    if (step.type == 'approval') {
+      final approvalStatus = run.contextJson['${step.id}.approval.status'] as String?;
+      return switch (approvalStatus) {
+        'pending' => 'awaiting_approval',
+        'approved' => 'completed',
+        'rejected' => 'rejected',
+        'timed_out' => 'timed_out',
+        _ => 'pending',
+      };
+    }
+    return stepStatusFromTask(run, index, task, stepId: step.id);
+  }
+
   @override
   String get route => '/workflows';
 
@@ -83,14 +97,20 @@ class WorkflowsPage extends DashboardPage {
         definition = WorkflowDefinition.fromJson(run.definitionJson);
       } catch (_) {}
       final totalSteps = definition?.steps.length ?? 0;
-      final childTasks = allTasks.where((t) => t.workflowRunId == run.id);
-      // Use distinct step indices to avoid overcounting in loop workflows.
-      final completedStepIndices = childTasks
-          .where((t) => t.status == TaskStatus.accepted && t.stepIndex != null)
-          .map((t) => t.stepIndex!)
-          .toSet()
-          .length;
-      final completedSteps = totalSteps > 0 ? completedStepIndices.clamp(0, totalSteps) : 0;
+      final tasksByStepIndex = <int, Task>{
+        for (final task in allTasks.where((t) => t.workflowRunId == run.id))
+          if (task.stepIndex != null) task.stepIndex!: task,
+      };
+      final completedSteps = definition == null
+          ? 0
+          : definition.steps.indexed
+                .where((entry) {
+                  final (index, step) = entry;
+                  final status = _stepStatusForRunDetail(run, index, step, tasksByStepIndex[index]);
+                  return status == 'completed' || status == 'skipped';
+                })
+                .length
+                .clamp(0, totalSteps);
       final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
       runSummaries.add({
@@ -214,15 +234,7 @@ class WorkflowsPage extends DashboardPage {
       final task = tasksByStepIndex[i];
       final isApproval = step.type == 'approval';
       final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
-      final stepStatus = isApproval
-          ? switch (approvalStatus) {
-              'pending' => 'awaiting_approval',
-              'approved' => 'completed',
-              'rejected' => 'rejected',
-              'timed_out' => 'timed_out',
-              _ => 'pending',
-            }
-          : stepStatusFromTask(run, i, task);
+      final stepStatus = _stepStatusForRunDetail(run, i, step, task);
       final stepEntry = <String, dynamic>{
         'index': i,
         'id': step.id,

@@ -32,6 +32,8 @@ Technical research that supports the FIS but doesn't require intent review belon
 
 When writing the FIS, reference the technical research rather than inlining findings. Example: `See [Technical Research](./.technical-research.md#architecture-analysis) for detailed trade-off analysis`.
 
+For split-repo milestones, apply the companion private-repo cross-reference rule: tasks that point at private-only docs or assets should be marked `(private-only; handle out-of-band)` instead of emitting an unqualified sibling-repo path.
+
 
 ## Scenarios and Proof-of-Work
 

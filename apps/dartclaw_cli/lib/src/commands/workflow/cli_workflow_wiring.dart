@@ -302,6 +302,7 @@ class CliWorkflowWiring {
             options: _providerOptions(config, providerId),
           ),
       },
+      eventBus: eventBus,
     );
 
     taskExecutor = TaskExecutor(
@@ -339,6 +340,7 @@ class CliWorkflowWiring {
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
       executionRepositoryTransactor: executionRepositoryTransactor,
+      projectService: projectService,
       roleDefaults: WorkflowRoleDefaults(
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,

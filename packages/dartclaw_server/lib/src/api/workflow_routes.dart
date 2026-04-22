@@ -514,7 +514,7 @@ String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, String
       _ => index < run.currentStepIndex ? 'pending' : 'pending',
     };
   }
-  return stepStatusFromTask(run, index, task);
+  return stepStatusFromTask(run, index, task, stepId: stepId);
 }
 
 Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {
@@ -572,7 +572,7 @@ Future<Response> _workflowRunSseHandler(
         'index': i,
         'id': definition.steps[i].id,
         'name': definition.steps[i].name,
-        'status': stepStatusFromTask(run, i, tasksByStepIndex[i]),
+        'status': stepStatusFromTask(run, i, tasksByStepIndex[i], stepId: definition.steps[i].id),
         'taskId': tasksByStepIndex[i]?.id,
       },
   ];

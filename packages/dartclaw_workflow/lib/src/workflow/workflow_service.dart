@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ExecutionRepositoryTransactor,
         KvService,
         MessageService,
+        ProjectService,
         TaskRepository,
         Task,
         TaskStatus,
@@ -59,6 +60,7 @@ class WorkflowService {
   final AgentExecutionRepository? _agentExecutionRepository;
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final ExecutionRepositoryTransactor? _executionRepositoryTransactor;
+  final ProjectService? _projectService;
   final FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
   _hydrateWorkflowWorktreeBinding;
   final Map<String, String>? _hostEnvironment;
@@ -90,6 +92,7 @@ class WorkflowService {
     AgentExecutionRepository? agentExecutionRepository,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     ExecutionRepositoryTransactor? executionRepositoryTransactor,
+    ProjectService? projectService,
     FutureOr<void> Function(WorkflowWorktreeBinding binding, {required String workflowRunId})?
     hydrateWorkflowWorktreeBinding,
     Map<String, String>? hostEnvironment,
@@ -111,6 +114,7 @@ class WorkflowService {
        _agentExecutionRepository = agentExecutionRepository,
        _workflowStepExecutionRepository = workflowStepExecutionRepository,
        _executionRepositoryTransactor = executionRepositoryTransactor,
+       _projectService = projectService,
        _hydrateWorkflowWorktreeBinding = hydrateWorkflowWorktreeBinding,
        _hostEnvironment = hostEnvironment,
        _bashStepEnvAllowlist = bashStepEnvAllowlist,
@@ -658,6 +662,7 @@ class WorkflowService {
       agentExecutionRepository: _agentExecutionRepository,
       workflowStepExecutionRepository: _workflowStepExecutionRepository,
       executionTransactor: _executionRepositoryTransactor,
+      projectService: _projectService,
       hostEnvironment: _hostEnvironment,
       bashStepEnvAllowlist: _bashStepEnvAllowlist,
       bashStepExtraStripPatterns: _bashStepExtraStripPatterns,

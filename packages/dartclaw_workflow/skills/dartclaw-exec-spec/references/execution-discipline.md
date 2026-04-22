@@ -12,6 +12,11 @@ Shared rules for orchestration and execution skills.
 Borrowed from Toyota. A red **objective gate** — failing build, tests, lint, type-check, stub check, wiring check, task-level `Verify` — is work to finish, not a delivery caveat. Do not advance past a red gate, do not mark `Done` on a broken tree, do not report the broken state as completion.
 
 
+## Diff Discipline
+
+Keep diffs surgical. Format only the lines you are modifying and avoid opportunistic reformatting of unrelated code. If an edit cascades into whole-function or whole-file formatting churn, revert the cascade and keep only the semantic change unless the FIS explicitly requires a broader formatting pass.
+
+
 ## Gate Classes
 
 Two failure classes with different persistence policies:

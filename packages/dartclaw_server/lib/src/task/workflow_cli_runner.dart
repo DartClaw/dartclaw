@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, WorkflowCliTurnProgressEvent;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -62,6 +62,7 @@ class WorkflowCliRunner {
 
   final Map<String, WorkflowCliProviderConfig> providers;
   final Map<String, ContainerExecutor> containerManagers;
+  final EventBus? _eventBus;
   final WorkflowCliProcessStarter _processStarter;
   final Uuid _uuid;
 
@@ -81,11 +82,13 @@ class WorkflowCliRunner {
   WorkflowCliRunner({
     required this.providers,
     this.containerManagers = const <String, ContainerExecutor>{},
+    EventBus? eventBus,
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
     String? dataDir,
     CodexProfileManager? codexProfile,
   }) : _processStarter = processStarter ?? _defaultProcessStarter,
+       _eventBus = eventBus,
        _uuid = uuid ?? const Uuid(),
        _codexProfile = _resolveCodexProfile(providers: providers, dataDir: dataDir, preInjected: codexProfile);
 
@@ -154,6 +157,8 @@ class WorkflowCliRunner {
     required String prompt,
     required String workingDirectory,
     required String profileId,
+    String? taskId,
+    String? sessionId,
     String? providerSessionId,
     String? model,
     String? effort,
@@ -219,11 +224,56 @@ class WorkflowCliRunner {
       // is detected, even when a prompt argument is provided. Without EOF the
       // process blocks on "Reading additional input from stdin…" indefinitely.
       await process.stdin.close();
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
+      final stdoutBuffer = StringBuffer();
+      final stderrBuffer = StringBuffer();
+      final stdoutDone = Completer<void>();
+      final stderrDone = Completer<void>();
+      final codexState = provider == 'codex' ? _CodexStreamState() : null;
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              stdoutBuffer.writeln(line);
+              if (provider == 'codex' && codexState != null) {
+                _handleCodexLine(line, codexState, taskId: taskId, sessionId: sessionId, emitProgress: true);
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!stdoutDone.isCompleted) {
+                stdoutDone.completeError(error, stackTrace);
+              }
+            },
+            onDone: () {
+              if (!stdoutDone.isCompleted) {
+                stdoutDone.complete();
+              }
+            },
+            cancelOnError: true,
+          );
+      process.stderr
+          .transform(utf8.decoder)
+          .listen(
+            stderrBuffer.write,
+            onError: (Object error, StackTrace stackTrace) {
+              if (!stderrDone.isCompleted) {
+                stderrDone.completeError(error, stackTrace);
+              }
+            },
+            onDone: () {
+              if (!stderrDone.isCompleted) {
+                stderrDone.complete();
+              }
+            },
+            cancelOnError: true,
+          );
+
       final exitCode = await process.exitCode;
-      final stdout = await stdoutFuture;
-      final stderr = await stderrFuture;
+      await stdoutDone.future;
+      await stderrDone.future;
+      final stdout = stdoutBuffer.toString();
+      final stderr = stderrBuffer.toString();
       stopwatch.stop();
 
       if (exitCode != 0) {
@@ -393,42 +443,98 @@ class WorkflowCliRunner {
     );
   }
 
-  WorkflowCliTurnResult _parseCodex(String stdout, {required Duration fallbackDuration}) {
-    String providerSessionId = '';
-    String responseText = '';
-    int inputTokens = 0;
-    int outputTokens = 0;
-    int cacheReadTokens = 0;
-    int cacheWriteTokens = 0;
+  void _handleCodexLine(
+    String line,
+    _CodexStreamState state, {
+    String? taskId,
+    String? sessionId,
+    bool emitProgress = false,
+  }) {
+    if (line.trim().isEmpty) return;
 
-    for (final line in const LineSplitter().convert(stdout)) {
-      if (line.trim().isEmpty) continue;
-      final event = jsonDecode(line) as Map<String, dynamic>;
-      final type = event['type'] as String?;
-      switch (type) {
-        case 'thread.started':
-          providerSessionId = (event['thread_id'] as String?) ?? providerSessionId;
-        case 'item.completed':
-          final item = event['item'];
-          if (item is Map<String, dynamic>) {
-            final itemType = item['type'] as String?;
-            if (itemType == 'agent_message' || itemType == 'agentMessage') {
-              responseText = (item['text'] as String?) ?? (item['delta'] as String?) ?? responseText;
-            }
-          }
-        case 'turn.completed':
-          final usage = event['usage'];
-          if (usage is Map<String, dynamic>) {
-            inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? inputTokens;
-            outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? outputTokens;
-            cacheReadTokens = (usage['cache_read_tokens'] as num?)?.toInt() ?? cacheReadTokens;
-            cacheWriteTokens = (usage['cache_write_tokens'] as num?)?.toInt() ?? cacheWriteTokens;
-          }
-      }
+    Map<String, dynamic>? event;
+    try {
+      event = _mapValue(jsonDecode(line));
+    } on FormatException {
+      _log.fine('WorkflowCliRunner: ignoring non-JSON Codex stdout line: ${_previewText(line)}');
+      return;
     }
+    if (event == null) return;
 
+    final type = event['type'] as String?;
+    switch (type) {
+      case 'thread.started':
+        state.providerSessionId = (event['thread_id'] as String?) ?? state.providerSessionId;
+        break;
+
+      case 'turn.started':
+        if (emitProgress) {
+          _log.info(
+            'WorkflowCliRunner: ${taskId == null ? 'workflow turn' : 'task $taskId'} '
+            'started for codex thread '
+            '${state.providerSessionId.isEmpty ? '<pending>' : state.providerSessionId}',
+          );
+        }
+        break;
+
+      case 'item.completed':
+        final item = _mapValue(event['item']);
+        if (item == null) break;
+        final itemType = item['type'] as String?;
+        if (itemType == 'agent_message' || itemType == 'agentMessage') {
+          state.responseText = (item['text'] as String?) ?? (item['delta'] as String?) ?? state.responseText;
+          if (emitProgress && state.responseText.trim().isNotEmpty) {
+            _log.fine('WorkflowCliRunner: codex agent message completed: ${_previewText(state.responseText)}');
+          }
+        }
+        break;
+
+      case 'turn.completed':
+        final usage = _mapValue(event['usage']);
+        if (usage == null) break;
+
+        _log.fine('WorkflowCliRunner: raw codex turn.completed usage payload: $usage');
+
+        final previousCumulative = state.inputTokens + state.outputTokens;
+        state.inputTokens = _intValue(usage['input_tokens']) ?? state.inputTokens;
+        state.outputTokens = _intValue(usage['output_tokens']) ?? state.outputTokens;
+        state.cacheReadTokens =
+            _intValue(usage['cache_read_tokens']) ?? _intValue(usage['cached_input_tokens']) ?? state.cacheReadTokens;
+        state.cacheWriteTokens = _intValue(usage['cache_write_tokens']) ?? state.cacheWriteTokens;
+        state.turnCount++;
+
+        if (emitProgress) {
+          final cumulativeTokens = state.inputTokens + state.outputTokens;
+          final deltaTokens = math.max(0, cumulativeTokens - previousCumulative);
+          _log.info(
+            'WorkflowCliRunner: ${taskId == null ? 'workflow' : 'task $taskId'} '
+            'turn ${state.turnCount} completed (+$deltaTokens tokens, cumulative $cumulativeTokens)',
+          );
+          _eventBus?.fire(
+            WorkflowCliTurnProgressEvent(
+              taskId: taskId ?? '',
+              sessionId: sessionId ?? '',
+              provider: 'codex',
+              turnIndex: state.turnCount,
+              cumulativeTokens: cumulativeTokens,
+              inputTokens: state.inputTokens,
+              outputTokens: state.outputTokens,
+              cacheReadTokens: state.cacheReadTokens,
+              cacheWriteTokens: state.cacheWriteTokens,
+              timestamp: DateTime.now(),
+            ),
+          );
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  WorkflowCliTurnResult _buildCodexTurnResult(_CodexStreamState state, {required Duration fallbackDuration}) {
     Map<String, dynamic>? structuredOutput;
-    final trimmed = responseText.trim();
+    final trimmed = state.responseText.trim();
     if (trimmed.startsWith('{')) {
       try {
         final decoded = jsonDecode(trimmed);
@@ -444,15 +550,46 @@ class WorkflowCliRunner {
     }
 
     return WorkflowCliTurnResult(
-      providerSessionId: providerSessionId,
-      responseText: responseText,
+      providerSessionId: state.providerSessionId,
+      responseText: state.responseText,
       structuredOutput: structuredOutput,
-      inputTokens: inputTokens,
-      outputTokens: outputTokens,
-      cacheReadTokens: cacheReadTokens,
-      cacheWriteTokens: cacheWriteTokens,
+      inputTokens: state.inputTokens,
+      outputTokens: state.outputTokens,
+      cacheReadTokens: state.cacheReadTokens,
+      cacheWriteTokens: state.cacheWriteTokens,
       duration: fallbackDuration,
     );
+  }
+
+  WorkflowCliTurnResult _parseCodex(String stdout, {required Duration fallbackDuration}) {
+    final state = _CodexStreamState();
+    for (final line in const LineSplitter().convert(stdout)) {
+      _handleCodexLine(line, state);
+    }
+    return _buildCodexTurnResult(state, fallbackDuration: fallbackDuration);
+  }
+
+  static Map<String, dynamic>? _mapValue(Object? value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  static int? _intValue(Object? value) {
+    return switch (value) {
+      int() => value,
+      num() => value.toInt(),
+      String() => int.tryParse(value),
+      _ => null,
+    };
+  }
+
+  static String _previewText(String text, {int maxLength = 120}) {
+    final singleLine = text.replaceAll('\n', ' ').trim();
+    if (singleLine.length <= maxLength) {
+      return singleLine;
+    }
+    return '${singleLine.substring(0, maxLength)}...';
   }
 
   Future<Map<String, String>> _resolveProcessEnvironment(
@@ -632,4 +769,14 @@ class _WorkflowCliCommand {
   final String? tempSchemaPath;
 
   const _WorkflowCliCommand(this.command, {this.tempSchemaPath});
+}
+
+class _CodexStreamState {
+  String providerSessionId = '';
+  String responseText = '';
+  int inputTokens = 0;
+  int outputTokens = 0;
+  int cacheReadTokens = 0;
+  int cacheWriteTokens = 0;
+  int turnCount = 0;
 }

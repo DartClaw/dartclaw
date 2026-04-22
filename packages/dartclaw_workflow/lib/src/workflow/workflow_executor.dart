@@ -21,6 +21,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MessageService,
         OutputConfig,
         OutputFormat,
+        ProjectService,
         WorkflowExecutionCursor,
         WorkflowExecutionCursorNodeType,
         ParallelGroupNode,
@@ -161,6 +162,7 @@ class WorkflowExecutor {
   final Map<String, String>? _hostEnvironment;
   final List<String> _bashStepEnvAllowlist;
   final List<String> _bashStepExtraStripPatterns;
+  final ProjectService? _projectService;
   String? _workflowWorkspaceDirCache;
 
   // Approval timeout timers keyed by "<runId>:<stepId>".
@@ -272,18 +274,20 @@ class WorkflowExecutor {
   /// `<dataDir>/projects/<projectId>/`. Returns a `(projectId, dir, exists)`
   /// triple so callers can log the resolved path even when the directory is
   /// missing — makes misconfigured `artifacts.project` templates debuggable.
-  _ResolvedArtifactProject? _resolveArtifactCommitProject(
+  Future<_ResolvedArtifactProject?> _resolveArtifactCommitProject(
     WorkflowDefinition definition,
     WorkflowStep step,
     WorkflowContext context,
     WorkflowGitArtifactsStrategy strategy,
-  ) {
+  ) async {
     final projectId =
         _resolveProjectTemplate(strategy.project, context) ??
         _resolveProjectTemplate(step.project, context) ??
         _resolveProjectTemplate(definition.project, context);
     if (projectId == null) return null;
-    final dir = p.join(_dataDir, 'projects', projectId);
+    final project = await _projectService?.get(projectId);
+    final localPath = project?.localPath.trim();
+    final dir = (localPath != null && localPath.isNotEmpty) ? localPath : p.join(_dataDir, 'projects', projectId);
     return _ResolvedArtifactProject(projectId: projectId, dir: dir, exists: Directory(dir).existsSync());
   }
 
@@ -327,7 +331,7 @@ class WorkflowExecutor {
     if (producedPaths.isEmpty) return;
 
     // Resolve the project working directory for the commit.
-    final resolved = _resolveArtifactCommitProject(
+    final resolved = await _resolveArtifactCommitProject(
       definition,
       step,
       context,
@@ -341,15 +345,20 @@ class WorkflowExecutor {
       );
       return;
     }
-    if (!resolved.exists) {
+    final worktreeDir = (task.worktreeJson?['path'] as String?)?.trim();
+    final effectiveWorktreeDir = switch (worktreeDir) {
+      final String dir when dir.isNotEmpty && Directory(dir).existsSync() => dir,
+      _ => null,
+    };
+    final projectDir = effectiveWorktreeDir ?? resolved.dir;
+
+    if (!Directory(projectDir).existsSync()) {
       _log.warning(
         "artifact-commit: step '${step.id}' resolved project '${resolved.projectId}' "
-        "but directory '${resolved.dir}' does not exist — skipping commit",
+        "but directory '$projectDir' does not exist — skipping commit",
       );
       return;
     }
-    final worktreeDir = (task.worktreeJson?['path'] as String?)?.trim();
-    final projectDir = (worktreeDir != null && worktreeDir.isNotEmpty) ? worktreeDir : resolved.dir;
 
     final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
     final resolvedMessage = _templateEngine.resolve(messageTemplate.replaceAll('{{runId}}', run.id), context).trim();
@@ -404,18 +413,40 @@ class WorkflowExecutor {
     }
   }
 
-  /// Returns `true` when [step].entryGate is set and evaluates false — the
-  /// caller should skip the step (advance cursor, do not pause). Fires a
-  /// [StepSkippedEvent] as a side effect. Unlike [WorkflowStep.gate], entryGate
-  /// does not pause the run on false; it is a clean skip.
-  bool _shouldSkipDueToEntryGate(WorkflowStep step, WorkflowContext context, String runId) {
+  /// Returns an updated [WorkflowRun] when [step].entryGate evaluates false.
+  ///
+  /// Unlike [WorkflowStep.gate], entryGate does not pause the run on false; it
+  /// is a clean skip. The skip outcome is written both to the in-memory
+  /// [context] and to `run.contextJson` so later observers can distinguish a
+  /// skipped step from "current step with no task yet".
+  Future<WorkflowRun?> _skipDueToEntryGate(
+    WorkflowRun run,
+    WorkflowStep step,
+    int stepIndex,
+    WorkflowContext context,
+  ) async {
     final expr = step.entryGate;
-    if (expr == null || expr.trim().isEmpty) return false;
+    if (expr == null || expr.trim().isEmpty) return null;
     final passes = _gateEvaluator.evaluate(expr, context);
-    if (passes) return false;
-    _log.info("Workflow '$runId': step '${step.id}' skipped: entryGate='$expr' evaluated false");
-    _eventBus.fire(StepSkippedEvent(runId: runId, stepId: step.id, reason: expr, timestamp: DateTime.now()));
-    return true;
+    if (passes) return null;
+
+    final now = DateTime.now();
+    final outcomeKey = 'step.${step.id}.outcome';
+    final reasonKey = 'step.${step.id}.outcome.reason';
+    context[outcomeKey] = 'skipped';
+    context[reasonKey] = expr;
+
+    _log.info("Workflow '${run.id}': step '${step.id}' skipped: entryGate='$expr' evaluated false");
+    _eventBus.fire(StepSkippedEvent(runId: run.id, stepId: step.id, reason: expr, timestamp: now));
+
+    final updated = run.copyWith(
+      currentStepIndex: stepIndex + 1,
+      contextJson: {...run.contextJson, outcomeKey: 'skipped', reasonKey: expr},
+      updatedAt: now,
+    );
+    await _persistContext(run.id, context);
+    await _repository.update(updated);
+    return updated;
   }
 
   WorkflowExecutor({
@@ -439,6 +470,7 @@ class WorkflowExecutor {
     AgentExecutionRepository? agentExecutionRepository,
     WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     ExecutionRepositoryTransactor? executionTransactor,
+    ProjectService? projectService,
     Map<String, String>? hostEnvironment,
     List<String>? bashStepEnvAllowlist,
     List<String>? bashStepExtraStripPatterns,
@@ -471,6 +503,7 @@ class WorkflowExecutor {
              const <String>['PATH', 'HOME', 'LANG', 'LC_*', 'TZ', 'USER', 'SHELL', 'TERM', 'TMPDIR', 'TMP', 'TEMP'],
        ),
        _bashStepExtraStripPatterns = List.unmodifiable(bashStepExtraStripPatterns ?? const <String>[]),
+       _projectService = projectService,
        _uuid = uuid ?? const Uuid();
 
   /// Executes a workflow run in authored order over normalized steps/loops.
@@ -567,7 +600,9 @@ class WorkflowExecutor {
             return;
           }
 
-          if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+          final skippedRun = await _skipDueToEntryGate(run, step, stepIndex, context);
+          if (skippedRun != null) {
+            run = skippedRun;
             nodeIndex++;
             continue;
           }
@@ -689,10 +724,21 @@ class WorkflowExecutor {
 
           // Drop any parallel-group steps whose entryGate evaluates false.
           // They are skipped individually; the rest of the group proceeds.
-          group = [
-            for (final groupStep in group)
-              if (!_shouldSkipDueToEntryGate(groupStep, context, run.id)) groupStep,
-          ];
+          final filteredGroup = <WorkflowStep>[];
+          for (final groupStep in group) {
+            final groupStepIndex = stepIndexById[groupStep.id];
+            if (groupStepIndex == null) {
+              await _failRun(run, 'Normalized parallel group references missing step "${groupStep.id}".');
+              return;
+            }
+            final skippedRun = await _skipDueToEntryGate(run, groupStep, groupStepIndex, context);
+            if (skippedRun != null) {
+              run = skippedRun;
+              continue;
+            }
+            filteredGroup.add(groupStep);
+          }
+          group = filteredGroup;
           if (group.isEmpty) {
             nodeIndex++;
             continue;
@@ -902,7 +948,9 @@ class WorkflowExecutor {
             return;
           }
 
-          if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+          final skippedRun = await _skipDueToEntryGate(run, step, stepIndex, context);
+          if (skippedRun != null) {
+            run = skippedRun;
             nodeIndex++;
             continue;
           }
@@ -1422,6 +1470,7 @@ class WorkflowExecutor {
         }
 
         final step = definition.steps.firstWhere((s) => s.id == stepId);
+        final stepIndex = definition.steps.indexOf(step);
 
         if (step.parallel) {
           _log.warning(
@@ -1430,7 +1479,10 @@ class WorkflowExecutor {
           );
         }
 
-        if (_shouldSkipDueToEntryGate(step, context, run.id)) {
+        final skippedRun = await _skipDueToEntryGate(run, step, stepIndex, context);
+        if (skippedRun != null) {
+          run = skippedRun;
+          onRunUpdated(run);
           continue;
         }
 
@@ -1457,9 +1509,6 @@ class WorkflowExecutor {
           await _failRun(run, msg);
           return true;
         }
-
-        // Find step index in definition for task metadata and resume support.
-        final stepIndex = definition.steps.indexOf(step);
 
         // Persist current step ID for resume support.
         run = run.copyWith(
@@ -4146,7 +4195,9 @@ class WorkflowExecutor {
       final childStep = childSteps[childIndex];
       final childStepIndex = definition.steps.indexOf(childStep);
 
-      if (_shouldSkipDueToEntryGate(childStep, iterContext, run.id)) {
+      final skippedRun = await _skipDueToEntryGate(run, childStep, childStepIndex, iterContext);
+      if (skippedRun != null) {
+        run = skippedRun;
         continue;
       }
 

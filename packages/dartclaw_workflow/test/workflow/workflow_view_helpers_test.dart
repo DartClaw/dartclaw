@@ -56,6 +56,11 @@ void main() {
       expect(stepStatusFromTask(pausedRun, 1, null), 'pending');
     });
 
+    test('skipped outcome in context wins when no task exists', () {
+      final skippedRun = _makeRun(currentStepIndex: 1, contextJson: const {'step.spec.outcome': 'skipped'});
+      expect(stepStatusFromTask(skippedRun, 1, null, stepId: 'spec'), 'skipped');
+    });
+
     test('draft/queued task -> queued', () {
       expect(stepStatusFromTask(run, 0, _makeTask(status: TaskStatus.draft)), 'queued');
       expect(stepStatusFromTask(run, 0, _makeTask(status: TaskStatus.queued)), 'queued');

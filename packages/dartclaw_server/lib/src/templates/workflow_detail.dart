@@ -37,7 +37,10 @@ String workflowDetailPageTemplate({
 
   // Compute progress.
   final totalSteps = steps.length;
-  final completedSteps = steps.where((s) => s['status'] == 'completed').length;
+  final completedSteps = steps.where((s) {
+    final status = s['status'];
+    return status == 'completed' || status == 'skipped';
+  }).length;
   final progressPercent = totalSteps > 0 ? (completedSteps * 100 ~/ totalSteps) : 0;
 
   // Determine which actions are available.

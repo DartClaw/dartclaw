@@ -132,16 +132,16 @@ void main() {
       late List<String> arguments;
       final runner = WorkflowCliRunner(
         providers: const {
-          'codex': WorkflowCliProviderConfig(
-            executable: 'codex',
-            options: {'sandbox': 'workspace-write'},
-          ),
+          'codex': WorkflowCliProviderConfig(executable: 'codex', options: {'sandbox': 'workspace-write'}),
         },
         processStarter: (exe, args, {workingDirectory, environment}) async {
           arguments = List<String>.from(args);
           final stdout = [
             jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-arg-test'}),
-            jsonEncode({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'done'}}),
+            jsonEncode({
+              'type': 'item.completed',
+              'item': {'type': 'agent_message', 'text': 'done'},
+            }),
             jsonEncode({
               'type': 'turn.completed',
               'usage': {'input_tokens': 1, 'output_tokens': 1},
@@ -626,6 +626,124 @@ void main() {
       expect(result.outputTokens, 2000);
       expect(result.cacheReadTokens, 116000);
       expect(result.newInputTokens, 5000);
+    });
+
+    test('emits WorkflowCliTurnProgressEvent and normalizes cached_input_tokens', () async {
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final progressEvents = <WorkflowCliTurnProgressEvent>[];
+      final sub = eventBus.on<WorkflowCliTurnProgressEvent>().listen(progressEvents.add);
+      addTearDown(sub.cancel);
+
+      final stdout = [
+        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-progress'}),
+        jsonEncode({'type': 'turn.started'}),
+        jsonEncode({
+          'type': 'item.completed',
+          'item': {'type': 'agent_message', 'text': 'OK'},
+        }),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {'input_tokens': 20, 'cached_input_tokens': 7, 'output_tokens': 4},
+        }),
+      ].join('\n');
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        eventBus: eventBus,
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
+        },
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Reply with OK',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        taskId: 'task-progress',
+        sessionId: 'sess-progress',
+      );
+
+      expect(result.cacheReadTokens, 7);
+      expect(result.newInputTokens, 13);
+      expect(progressEvents, hasLength(1));
+      expect(progressEvents.single.taskId, 'task-progress');
+      expect(progressEvents.single.sessionId, 'sess-progress');
+      expect(progressEvents.single.provider, 'codex');
+      expect(progressEvents.single.turnIndex, 1);
+      expect(progressEvents.single.cumulativeTokens, 24);
+      expect(progressEvents.single.cacheReadTokens, 7);
+    });
+
+    test('emits progress events in order for multiple cumulative Codex turns', () async {
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final progressEvents = <WorkflowCliTurnProgressEvent>[];
+      final sub = eventBus.on<WorkflowCliTurnProgressEvent>().listen(progressEvents.add);
+      addTearDown(sub.cancel);
+
+      final stdout = [
+        jsonEncode({'type': 'thread.started', 'thread_id': 'codex-thread-ordered'}),
+        jsonEncode({'type': 'turn.started'}),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {'input_tokens': 100, 'cached_input_tokens': 20, 'output_tokens': 10},
+        }),
+        jsonEncode({'type': 'turn.started'}),
+        jsonEncode({
+          'type': 'turn.completed',
+          'usage': {'input_tokens': 140, 'cached_input_tokens': 30, 'output_tokens': 18},
+        }),
+      ].join('\n');
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        eventBus: eventBus,
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'"]);
+        },
+      );
+
+      final result = await runner.executeTurn(
+        provider: 'codex',
+        prompt: 'List changed files',
+        workingDirectory: Directory.systemTemp.path,
+        profileId: 'workspace',
+        taskId: 'task-ordered',
+        sessionId: 'sess-ordered',
+      );
+
+      expect(progressEvents.map((event) => event.turnIndex), [1, 2]);
+      expect(progressEvents.map((event) => event.cumulativeTokens), [110, 158]);
+      expect(result.inputTokens, 140);
+      expect(result.outputTokens, 18);
+      expect(result.cacheReadTokens, 30);
+      expect(result.newInputTokens, 110);
+    });
+
+    test('nonzero Codex exit still includes stdout excerpt after streaming parse', () async {
+      final stdout = jsonEncode({'type': 'error', 'message': 'fatal workflow error'});
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '${stdout.replaceAll("'", "'\\''")}'; exit 1"]);
+        },
+      );
+
+      await expectLater(
+        () => runner.executeTurn(
+          provider: 'codex',
+          prompt: 'List changed files',
+          workingDirectory: Directory.systemTemp.path,
+          profileId: 'workspace',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('stdout:'), contains('fatal workflow error')),
+          ),
+        ),
+      );
     });
 
     test('forwards appendSystemPrompt to Codex via developer_instructions override', () async {

@@ -1,7 +1,7 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show Task, TaskStatus, WorkflowDefinition, WorkflowRun, WorkflowRunStatus;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService, stepStatusFromTask;
 
 import 'task/task_service.dart';
 import 'templates/sidebar.dart' show SidebarActiveTask, SidebarActiveWorkflow;
@@ -33,13 +33,25 @@ Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService 
       definition = WorkflowDefinition.fromJson(run.definitionJson);
     } catch (_) {}
     final totalSteps = definition?.steps.length ?? 0;
-    final childTasks = allTasks.where((Task t) => t.workflowRunId == run.id);
-    final completedStepIndices = childTasks
-        .where((Task t) => t.status == TaskStatus.accepted && t.stepIndex != null)
-        .map((Task t) => t.stepIndex!)
-        .toSet()
-        .length;
-    final completedSteps = totalSteps > 0 ? completedStepIndices.clamp(0, totalSteps) : 0;
+    final tasksByStepIndex = <int, Task>{
+      for (final task in allTasks.where((Task t) => t.workflowRunId == run.id))
+        if (task.stepIndex != null) task.stepIndex!: task,
+    };
+    final completedSteps = definition == null
+        ? 0
+        : definition.steps.indexed
+              .where((entry) {
+                final (index, step) = entry;
+                final status = step.type == 'approval'
+                    ? switch (run.contextJson['${step.id}.approval.status']) {
+                        'approved' => 'completed',
+                        _ => 'pending',
+                      }
+                    : stepStatusFromTask(run, index, tasksByStepIndex[index], stepId: step.id);
+                return status == 'completed' || status == 'skipped';
+              })
+              .length
+              .clamp(0, totalSteps);
 
     return (
       id: run.id,

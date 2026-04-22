@@ -180,6 +180,7 @@ export 'src/events/dartclaw_event.dart'
         WorkflowApprovalResolvedEvent,
         WorkflowBudgetWarningEvent,
         WorkflowLifecycleEvent,
+        WorkflowCliTurnProgressEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         CompactionLifecycleEvent,

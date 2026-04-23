@@ -33,6 +33,7 @@ import 'workflow_template_engine.dart';
 import 'workflow_task_config.dart';
 import 'workflow_turn_adapter.dart';
 export 'workflow_runner_types.dart';
+part 'public_node_runners.dart';
 part 'public_step_dispatcher.dart';
 part 'step_dispatcher.dart';
 part 'parallel_group_runner.dart';
@@ -78,16 +79,14 @@ class WorkflowExecutor {
     WorkflowRoleDefaults? roleDefaults,
     BashStepPolicy bashStepPolicy = const BashStepPolicy(),
     Uuid? uuid,
-  }) {
-    return WorkflowExecutor._internal(
-      executionContext: executionContext,
-      promptConfiguration: promptConfiguration ?? StepPromptConfiguration(),
-      dataDir: dataDir,
-      roleDefaults: roleDefaults,
-      bashStepPolicy: bashStepPolicy,
-      uuid: uuid,
-    );
-  }
+  }) => WorkflowExecutor._internal(
+    executionContext: executionContext,
+    promptConfiguration: promptConfiguration ?? StepPromptConfiguration(),
+    dataDir: dataDir,
+    roleDefaults: roleDefaults,
+    bashStepPolicy: bashStepPolicy,
+    uuid: uuid,
+  );
   WorkflowExecutor._internal({
     required StepExecutionContext executionContext,
     required StepPromptConfiguration promptConfiguration,

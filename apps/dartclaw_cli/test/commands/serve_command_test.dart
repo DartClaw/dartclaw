@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/asset_downloader.dart';
@@ -19,27 +20,23 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf.dart' show Handler, Request;
 import 'package:test/test.dart';
 
-String _templatesDir() {
-  const fromWorkspace = 'packages/dartclaw_server/lib/src/templates';
-  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
-  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'templates');
-  if (Directory(fromApp).existsSync()) return fromApp;
-  return fromWorkspace;
-}
+late String _templatesDir;
+late String _staticDir;
 
-String _staticDir() {
-  const fromWorkspace = 'packages/dartclaw_server/lib/src/static';
-  if (Directory(fromWorkspace).existsSync()) return fromWorkspace;
-  final fromApp = p.join('..', '..', 'packages', 'dartclaw_server', 'lib', 'src', 'static');
-  if (Directory(fromApp).existsSync()) return fromApp;
-  return fromWorkspace;
+Future<String> _resolveDartclawServerAssetDir(String child) async {
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+  if (uri == null) {
+    throw StateError('Could not resolve package:dartclaw_server.');
+  }
+  final libDir = File.fromUri(uri).parent;
+  return p.join(libDir.path, 'src', child);
 }
 
 AssetResolver _assetResolverFor(Directory tempDir) {
   final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
   final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-  Link(p.join(assetRoot.path, 'templates')).createSync(p.absolute(_templatesDir()));
-  Link(p.join(assetRoot.path, 'static')).createSync(p.absolute(_staticDir()));
+  Link(p.join(assetRoot.path, 'templates')).createSync(_templatesDir);
+  Link(p.join(assetRoot.path, 'static')).createSync(_staticDir);
   Directory(p.join(assetRoot.path, 'skills')).createSync(recursive: true);
   Directory(p.join(assetRoot.path, 'workflows')).createSync(recursive: true);
   return AssetResolver(resolvedExecutable: p.join(prefixDir.path, 'bin', 'dartclaw'));
@@ -91,6 +88,11 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
 void main() {
   late DartclawRunner runner;
   late ServeCommand serveCommand;
+
+  setUpAll(() async {
+    _templatesDir = await _resolveDartclawServerAssetDir('templates');
+    _staticDir = await _resolveDartclawServerAssetDir('static');
+  });
 
   setUp(() {
     serveCommand = ServeCommand();
@@ -181,7 +183,7 @@ void main() {
           host: '0.0.0.0',
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -237,7 +239,7 @@ channels:
         cliOverrides: {
           'data_dir': tempDir.path,
           'static_dir': Directory.current.path,
-          'templates_dir': _templatesDir(),
+          'templates_dir': _templatesDir,
           'claude_executable': Platform.resolvedExecutable,
         },
         env: {'HOME': '/home/user'},
@@ -276,7 +278,7 @@ channels:
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -347,8 +349,8 @@ channels:
       final worker = _FakeWorkerService();
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_source_tree_test_');
       final downloader = _FailingAssetDownloader();
-      final realTemplatesDir = p.absolute(_templatesDir());
-      final realStaticDir = p.absolute(_staticDir());
+      final realTemplatesDir = _templatesDir;
+      final realStaticDir = _staticDir;
 
       addTearDown(() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -396,8 +398,8 @@ channels:
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_serve_asset_root_test_');
       final prefixDir = Directory(p.join(tempDir.path, 'prefix'))..createSync(recursive: true);
       final assetRoot = Directory(p.join(prefixDir.path, 'share', 'dartclaw'))..createSync(recursive: true);
-      final realTemplatesDir = p.absolute(_templatesDir());
-      final realStaticDir = p.absolute(_staticDir());
+      final realTemplatesDir = _templatesDir;
+      final realStaticDir = _staticDir;
 
       Link(p.join(assetRoot.path, 'templates')).createSync(realTemplatesDir);
       Link(p.join(assetRoot.path, 'static')).createSync(realStaticDir);
@@ -469,7 +471,7 @@ channels:
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -520,7 +522,7 @@ channels:
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -558,7 +560,7 @@ channels:
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
       );
@@ -607,7 +609,7 @@ channels:
       });
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()),
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir),
       );
 
       final command = ServeCommand(
@@ -638,7 +640,7 @@ channels:
       });
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir()),
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir),
       );
 
       final command = ServeCommand(
@@ -678,7 +680,7 @@ channels:
         server: ServerConfig(
           dataDir: tempDir.path,
           staticDir: Directory.current.path,
-          templatesDir: _templatesDir(),
+          templatesDir: _templatesDir,
           claudeExecutable: Platform.resolvedExecutable,
         ),
         security: SecurityConfig(contentGuardEnabled: true),

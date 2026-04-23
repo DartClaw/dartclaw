@@ -1,9 +1,5 @@
 part of 'workflow_executor.dart';
 
-/// Uniform runner signature for direct map nodes.
-Future<StepOutcome> mapRun(MapNode node, StepExecutionContext ctx) async =>
-    _stepOutcomeFromHandoff(node, ctx, await dispatchStep(node, ctx));
-
 /// Runs direct map and foreach iteration nodes.
 extension WorkflowExecutorMapIterationRunner on WorkflowExecutor {
   // ── Map step execution ─────────────────────────────────────────────────────

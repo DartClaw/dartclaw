@@ -1,9 +1,5 @@
 part of 'workflow_executor.dart';
 
-/// Uniform runner signature for parallel-group nodes.
-Future<StepOutcome> parallelGroupRun(ParallelGroupNode node, StepExecutionContext ctx) async =>
-    _stepOutcomeFromHandoff(node, ctx, await dispatchStep(node, ctx));
-
 /// Runs parallel workflow groups and shared step-result merge helpers.
 extension WorkflowExecutorParallelGroupRunner on WorkflowExecutor {
   Future<List<StepOutcome>> _executeParallelGroup(

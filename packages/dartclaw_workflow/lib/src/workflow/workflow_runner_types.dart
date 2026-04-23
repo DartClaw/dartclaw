@@ -119,15 +119,6 @@ final class StepHandoffSuccess extends StepHandoff {
     this.outcome,
   }) : outputs = Map.unmodifiable(outputs);
 
-  factory StepHandoffSuccess.fromOutcome(StepOutcome outcome, {StepRetryState retryState = StepRetryState.none}) {
-    return StepHandoffSuccess(
-      outputs: Map<String, Object?>.from(outcome.outputs),
-      cost: StepTokenBreakdown(totalTokens: outcome.tokenCount),
-      retryState: retryState,
-      outcome: outcome,
-    );
-  }
-
   @override
   StepValidationFailure? get validationFailure => null;
 }

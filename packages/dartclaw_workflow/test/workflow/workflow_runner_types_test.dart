@@ -8,7 +8,11 @@ void main() {
       const step = WorkflowStep(id: 's1', name: 'Step 1', prompts: ['do it']);
       const outcome = StepOutcome(step: step, outputs: {'answer': 42}, tokenCount: 7, success: true);
 
-      final handoff = StepHandoffSuccess.fromOutcome(outcome);
+      final handoff = StepHandoffSuccess(
+        outputs: Map<String, Object?>.from(outcome.outputs),
+        cost: const StepTokenBreakdown(totalTokens: 7),
+        outcome: outcome,
+      );
 
       expect(handoff.outputs, equals({'answer': 42}));
       expect(handoff.validationFailure, isNull);

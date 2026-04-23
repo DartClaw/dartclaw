@@ -55,6 +55,7 @@ export 'src/fake_codex_process.dart' show FakeCodexProcess;
 export 'src/fake_google_chat_rest_client.dart' show FakeGoogleChatRestClient;
 export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier;
 export 'src/fake_guard.dart' show FakeGuard;
+export 'src/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/fake_project_service.dart' show FakeProjectService;
 export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;

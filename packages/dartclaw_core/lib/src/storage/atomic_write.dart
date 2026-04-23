@@ -13,7 +13,10 @@ final _tempSuffixRand = Random();
 /// Note: concurrency safety is limited to avoiding crashes during the
 /// write/rename dance. The final contents of [target] are last-writer-wins;
 /// callers that need read-modify-write semantics under contention should
-/// serialise their own access above this utility.
+/// serialise their own access above this utility. Callers targeting shared
+/// `.git/` metadata or `.session_keys.json` must acquire `RepoLock` before
+/// calling this function; routing all disjoint worktree writes through that
+/// repo-level lock would incorrectly serialize independent work.
 Future<void> atomicWriteJson(File target, Object json) async {
   final suffix = '${DateTime.now().microsecondsSinceEpoch}-${_tempSuffixRand.nextInt(0x7fffffff).toRadixString(16)}';
   final tempFile = File('${target.path}.$suffix.tmp');

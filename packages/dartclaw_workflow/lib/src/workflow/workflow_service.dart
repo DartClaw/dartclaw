@@ -35,6 +35,7 @@ import 'gate_evaluator.dart';
 import 'skill_registry.dart';
 import 'step_config_resolver.dart';
 import 'workflow_executor.dart';
+import 'workflow_git_port.dart';
 import 'workflow_turn_adapter.dart';
 
 /// Public API facade for workflow lifecycle management.
@@ -50,6 +51,7 @@ class WorkflowService {
   final WorkflowTaskService _taskService;
   final MessageService _messageService;
   final WorkflowTurnAdapter? _turnAdapter;
+  final WorkflowGitPort? _workflowGitPort;
   final EventBus _eventBus;
   final KvService _kvService;
   final String _dataDir;
@@ -83,6 +85,7 @@ class WorkflowService {
     required WorkflowTaskService taskService,
     required MessageService messageService,
     WorkflowTurnAdapter? turnAdapter,
+    WorkflowGitPort? workflowGitPort,
     required EventBus eventBus,
     required KvService kvService,
     required String dataDir,
@@ -105,6 +108,7 @@ class WorkflowService {
        _taskService = taskService,
        _messageService = messageService,
        _turnAdapter = turnAdapter,
+       _workflowGitPort = workflowGitPort,
        _eventBus = eventBus,
        _kvService = kvService,
        _dataDir = dataDir,
@@ -652,6 +656,7 @@ class WorkflowService {
           structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
         ),
         turnAdapter: _turnAdapter,
+        workflowGitPort: _workflowGitPort,
         outputTransformer: _outputTransformer,
         skillRegistry: _skillRegistry,
         taskRepository: _taskRepository,

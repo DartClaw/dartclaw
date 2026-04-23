@@ -398,6 +398,10 @@ class ServiceWiring {
           effort: config.workflow.defaults.reviewer.effort,
         ),
       ),
+      workflowGitPort: WorkflowGitPortProcess(
+        worktreeManager: task.worktreeManager,
+        remotePushService: task.remotePushService,
+      ),
       turnAdapter: WorkflowTurnAdapter(
         workflowWorkspaceDir: config.workflow.workspaceDir ?? p.join(dataDir, 'workflow-workspace'),
         resolveStartContext: (definition, variables, {projectId, allowDirtyLocalPath = false}) async {
@@ -492,6 +496,15 @@ class ServiceWiring {
               } catch (error) {
                 return WorkflowGitPromotionError(error.toString());
               }
+              final expectedBaseShaResult = await _workflowGit([
+                'rev-parse',
+                integrationBranch,
+              ], workingDirectory: resolvedProject.localPath);
+              if (expectedBaseShaResult.exitCode != 0) {
+                return WorkflowGitPromotionError(
+                  'Failed to record merge target "$integrationBranch": ${expectedBaseShaResult.stderr}',
+                );
+              }
               final mergeExecutor = MergeExecutor(
                 projectDir: resolvedProject.localPath,
                 defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
@@ -501,6 +514,7 @@ class ServiceWiring {
                 baseRef: integrationBranch,
                 taskId: storyId ?? runId,
                 taskTitle: storyId == null ? 'workflow promotion' : 'promote $storyId',
+                expectedBaseSha: (expectedBaseShaResult.stdout as String).trim(),
                 strategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
               );
               return switch (mergeResult) {

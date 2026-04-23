@@ -61,7 +61,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   // auto-framed by SkillPromptBuilder when `autoFrameContext` is true.
   List<String> _autoFrameVariableNames(WorkflowStep step) => step.workflowVariables;
 
-  Future<void> _maybeCommitArtifacts({
+  Future<workflow_artifact_committer.ArtifactCommitResult> _maybeCommitArtifacts({
     required WorkflowRun run,
     required WorkflowDefinition definition,
     required WorkflowStep step,
@@ -77,6 +77,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       projectService: _projectService,
       dataDir: _dataDir,
       templateEngine: _templateEngine,
+      workflowGitPort: _workflowGitPort,
     ),
   );
 
@@ -219,6 +220,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
       executionTransactor: _executionTransactor,
       projectService: _projectService,
       uuid: _uuid,
+      workflowGitPort: _workflowGitPort,
     ),
     workflowWorkspaceDir: _resolveWorkflowWorkspaceDir(),
     taskId: taskId,

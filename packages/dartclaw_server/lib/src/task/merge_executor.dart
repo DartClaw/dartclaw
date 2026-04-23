@@ -1,10 +1,11 @@
 import 'dart:io';
 
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show GitStatus, WorkflowGitCommit, WorkflowGitException, WorkflowGitMergeStrategy, WorkflowGitPort;
 import 'package:logging/logging.dart';
 
-import 'git_credential_env.dart';
 import 'worktree_manager.dart';
+import 'workflow_git_port_process.dart';
 
 enum MergeStrategy { squash, merge }
 
@@ -28,7 +29,28 @@ class MergeConflict extends MergeResult {
   Map<String, dynamic> toJson() => {'conflictingFiles': conflictingFiles, 'details': details};
 }
 
-enum PreMergeInvariantReason { uncleanIndex }
+sealed class PreMergeInvariantReason {
+  const PreMergeInvariantReason();
+}
+
+final class UncleanIndex extends PreMergeInvariantReason {
+  final List<String> modified;
+
+  const UncleanIndex({required this.modified});
+}
+
+final class UntrackedOverlap extends PreMergeInvariantReason {
+  final List<String> paths;
+
+  const UntrackedOverlap({required this.paths});
+}
+
+final class TargetShaMismatch extends PreMergeInvariantReason {
+  final String expected;
+  final String actual;
+
+  const TargetShaMismatch({required this.expected, required this.actual});
+}
 
 /// Thrown when a pre-merge repository invariant is already broken.
 class PreMergeInvariantException extends WorktreeException implements Exception {
@@ -48,28 +70,21 @@ class MergeExecutor {
 
   final String _projectDir;
   final MergeStrategy _defaultStrategy;
-  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
-  _runProcess;
+  final WorkflowGitPort _gitPort;
 
   MergeExecutor({
     required String projectDir,
     MergeStrategy defaultStrategy = MergeStrategy.squash,
+    WorkflowGitPort? gitPort,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
   }) : _projectDir = projectDir,
        _defaultStrategy = defaultStrategy,
-       _runProcess = processRunner ?? _defaultProcessRunner;
-
-  static Future<ProcessResult> _defaultProcessRunner(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) {
-    if (executable == 'git') {
-      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
-    }
-    return Process.run(executable, arguments, workingDirectory: workingDirectory);
-  }
+       _gitPort =
+           gitPort ??
+           (processRunner == null
+               ? WorkflowGitPortProcess()
+               : _ProcessRunnerWorkflowGitPort(processRunner: processRunner));
 
   /// Merges [branch] onto [baseRef] using the configured strategy.
   ///
@@ -80,41 +95,25 @@ class MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     final effectiveStrategy = strategy ?? _defaultStrategy;
     final commitMessage = 'task($taskId): $taskTitle';
-    await _assertCleanIndex();
+    await _assertPreMergeInvariants(baseRef: baseRef, expectedBaseSha: expectedBaseSha);
 
     // 1. Record current HEAD and branch
-    final originalHeadResult = await _git(['rev-parse', 'HEAD']);
-    if (originalHeadResult.exitCode != 0) {
-      throw WorktreeException(
-        'Failed to record current HEAD',
-        gitStderr: _stderr(originalHeadResult),
-        exitCode: originalHeadResult.exitCode,
-      );
-    }
-    final originalHead = _stdout(originalHeadResult).trim();
+    final originalHead = await _revParse('HEAD', failureMessage: 'Failed to record current HEAD');
 
-    final originalBranchResult = await _git(['rev-parse', '--abbrev-ref', 'HEAD']);
-    final originalBranch = _stdout(originalBranchResult).trim();
+    final originalBranch = await _revParse('--abbrev-ref HEAD', failureMessage: 'Failed to record current branch');
     final isDetached = originalBranch == 'HEAD';
 
     // 2. Stash uncommitted changes
-    final stashResult = await _git(['stash', '--include-untracked']);
-    final didStash = stashResult.exitCode == 0 && !_stdout(stashResult).contains('No local changes to save');
+    final didStash = await _wrapGit('Failed to stash local changes', () => _gitPort.stashPush(_projectDir));
 
     try {
       // 3. Checkout base ref
-      final checkoutResult = await _git(['checkout', baseRef]);
-      if (checkoutResult.exitCode != 0) {
-        throw WorktreeException(
-          'Failed to checkout $baseRef',
-          gitStderr: _stderr(checkoutResult),
-          exitCode: checkoutResult.exitCode,
-        );
-      }
+      await _wrapGit('Failed to checkout $baseRef', () => _gitPort.checkout(_projectDir, baseRef));
 
       try {
         // 4. Merge
@@ -141,17 +140,18 @@ class MergeExecutor {
       } finally {
         // 5. Restore original branch/HEAD
         if (isDetached) {
-          await _git(['checkout', originalHead]);
+          await _gitPort.checkout(_projectDir, originalHead);
         } else {
-          await _git(['checkout', originalBranch]);
+          await _gitPort.checkout(_projectDir, originalBranch);
         }
       }
     } finally {
       // 6. Restore stash
       if (didStash) {
-        final popResult = await _git(['stash', 'pop']);
-        if (popResult.exitCode != 0) {
-          final popStderr = _stderr(popResult);
+        try {
+          await _gitPort.stashPop(_projectDir);
+        } on WorkflowGitException catch (e) {
+          final popStderr = e.stderr;
           if (_isUntrackedOverlap(popStderr)) {
             // The stash contained untracked files that the completed merge
             // already materialised in the working tree (common in map/fan-in
@@ -170,13 +170,15 @@ class MergeExecutor {
             // itself succeeded. Reset to HEAD to scrub any partial apply
             // before dropping the stash — safe because the stash contents
             // are intentionally being discarded.
-            final resetResult = await _git(['reset', '--hard', 'HEAD']);
-            if (resetResult.exitCode != 0) {
-              _log.warning('Failed to reset working tree after stash-pop overlap: ${_stderr(resetResult)}');
+            try {
+              await _gitPort.resetHard(_projectDir, 'HEAD');
+            } on WorkflowGitException catch (resetError) {
+              _log.warning('Failed to reset working tree after stash-pop overlap: ${resetError.stderr}');
             }
-            final dropResult = await _git(['stash', 'drop']);
-            if (dropResult.exitCode != 0) {
-              _log.warning('Failed to drop stash after overlap: ${_stderr(dropResult)}');
+            try {
+              await _gitPort.stashDrop(_projectDir);
+            } on WorkflowGitException catch (dropError) {
+              _log.warning('Failed to drop stash after overlap: ${dropError.stderr}');
             }
           } else {
             _log.warning('Failed to restore stash: $popStderr');
@@ -194,48 +196,41 @@ class MergeExecutor {
   }
 
   Future<MergeResult> _squashMerge(String branch, String commitMessage) async {
-    final mergeResult = await _git(['merge', '--squash', branch]);
-
-    if (mergeResult.exitCode != 0) {
-      return _handleConflict(mergeResult, strategy: MergeStrategy.squash);
+    try {
+      await _gitPort.merge(_projectDir, ref: branch, strategy: WorkflowGitMergeStrategy.squash);
+    } on WorkflowGitException catch (e) {
+      return _handleConflict(e, strategy: MergeStrategy.squash);
     }
 
     // Commit the squashed changes
-    final commitResult = await _git(['commit', '-m', commitMessage]);
-    if (commitResult.exitCode != 0) {
-      // If commit fails with "nothing to commit", treat as empty merge success
-      if (_stdout(commitResult).contains('nothing to commit')) {
-        final shaResult = await _git(['rev-parse', 'HEAD']);
-        return MergeSuccess(commitSha: _stdout(shaResult).trim(), commitMessage: commitMessage);
+    try {
+      final commit = await _gitPort.commit(_projectDir, message: commitMessage);
+      return MergeSuccess(commitSha: commit.sha, commitMessage: commitMessage);
+    } on WorkflowGitException catch (e) {
+      if (e.stdout.contains('nothing to commit')) {
+        final sha = await _revParse('HEAD', failureMessage: 'Failed to record empty merge HEAD');
+        return MergeSuccess(commitSha: sha, commitMessage: commitMessage);
       }
-      throw WorktreeException(
-        'Failed to commit squash merge',
-        gitStderr: _stderr(commitResult),
-        exitCode: commitResult.exitCode,
-      );
+      throw _toWorktreeException('Failed to commit squash merge', e);
     }
-
-    final shaResult = await _git(['rev-parse', 'HEAD']);
-    return MergeSuccess(commitSha: _stdout(shaResult).trim(), commitMessage: commitMessage);
   }
 
   Future<MergeResult> _mergeMerge(String branch, String commitMessage) async {
-    final mergeResult = await _git(['merge', '--no-ff', branch, '-m', commitMessage]);
-
-    if (mergeResult.exitCode != 0) {
-      return _handleConflict(mergeResult, strategy: MergeStrategy.merge);
+    try {
+      await _gitPort.merge(_projectDir, ref: branch, strategy: WorkflowGitMergeStrategy.merge, message: commitMessage);
+    } on WorkflowGitException catch (e) {
+      return _handleConflict(e, strategy: MergeStrategy.merge);
     }
 
-    final shaResult = await _git(['rev-parse', 'HEAD']);
-    return MergeSuccess(commitSha: _stdout(shaResult).trim(), commitMessage: commitMessage);
+    final sha = await _revParse('HEAD', failureMessage: 'Failed to record merge HEAD');
+    return MergeSuccess(commitSha: sha, commitMessage: commitMessage);
   }
 
-  Future<MergeConflict> _handleConflict(ProcessResult mergeResult, {required MergeStrategy strategy}) async {
+  Future<MergeConflict> _handleConflict(WorkflowGitException mergeError, {required MergeStrategy strategy}) async {
     // Get conflicting files
-    final conflictResult = await _git(['diff', '--name-only', '--diff-filter=U']);
-    final conflictingFiles = _stdout(conflictResult).trim().split('\n').where((line) => line.isNotEmpty).toList();
+    final conflictingFiles = await _gitPort.diffNameOnly(_projectDir, diffFilter: 'U');
 
-    final details = _stderr(mergeResult).isNotEmpty ? _stderr(mergeResult) : _stdout(mergeResult);
+    final details = mergeError.stderr.isNotEmpty ? mergeError.stderr : mergeError.stdout;
 
     await _restoreAfterConflict(strategy);
 
@@ -249,44 +244,239 @@ class MergeExecutor {
   /// conflict result can still propagate to the caller.
   Future<void> _restoreAfterConflict(MergeStrategy strategy) async {
     if (strategy == MergeStrategy.squash) {
-      final resetResult = await _git(['reset', '--hard', 'HEAD']);
-      if (resetResult.exitCode != 0) {
-        _log.warning('Failed to restore repo after squash conflict: ${_stderr(resetResult)}');
+      try {
+        await _gitPort.resetHard(_projectDir, 'HEAD');
+      } on WorkflowGitException catch (e) {
+        _log.warning('Failed to restore repo after squash conflict: ${e.stderr}');
       }
       return;
     }
 
-    final abortResult = await _git(['merge', '--abort']);
-    if (abortResult.exitCode != 0) {
-      _log.warning('Failed to abort merge conflict cleanly: ${_stderr(abortResult)}');
+    try {
+      await _gitPort.mergeAbort(_projectDir);
+    } on WorkflowGitException catch (e) {
+      _log.warning('Failed to abort merge conflict cleanly: ${e.stderr}');
     }
   }
 
-  Future<ProcessResult> _git(List<String> args) {
-    return _runProcess('git', args, workingDirectory: _projectDir);
-  }
-
-  Future<void> _assertCleanIndex() async {
-    final statusResult = await _git(['status', '--porcelain']);
-    if (statusResult.exitCode != 0) {
+  Future<void> _assertPreMergeInvariants({required String baseRef, String? expectedBaseSha}) async {
+    final status = await _wrapGit(
+      'Failed to verify merge precondition: repository index state is unknown',
+      () => _gitPort.status(_projectDir),
+    );
+    if (!status.indexClean) {
       throw PreMergeInvariantException(
-        reason: PreMergeInvariantReason.uncleanIndex,
-        detail: 'Failed to verify merge precondition: repository index state is unknown',
-        gitStderr: _stderr(statusResult),
-        exitCode: statusResult.exitCode,
+        reason: UncleanIndex(modified: status.modified),
+        detail: 'Merge requires a clean index before checkout/merge. Resolve or stash local changes first.',
+        gitStderr: status.modified.join('\n'),
       );
     }
-    final dirtyEntries = _stdout(statusResult).trim();
-    if (dirtyEntries.isEmpty) {
-      return;
+
+    if (status.untracked.isNotEmpty) {
+      final stashPaths = await _wrapGit('Failed to inspect stash paths', () => _gitPort.stashedPaths(_projectDir));
+      final overlap = status.untracked.toSet().intersection(stashPaths.toSet()).toList()..sort();
+      if (overlap.isNotEmpty) {
+        throw PreMergeInvariantException(
+          reason: UntrackedOverlap(paths: overlap),
+          detail: 'Merge would overwrite untracked files that are also present in the current stash.',
+          gitStderr: overlap.join('\n'),
+        );
+      }
     }
-    throw PreMergeInvariantException(
-      reason: PreMergeInvariantReason.uncleanIndex,
-      detail: 'Merge requires a clean index before checkout/merge. Resolve or stash local changes first.',
-      gitStderr: dirtyEntries,
+
+    final expected = expectedBaseSha?.trim();
+    if (expected != null && expected.isNotEmpty) {
+      final actual = await _revParse(baseRef, failureMessage: 'Failed to verify target branch SHA');
+      if (actual != expected) {
+        throw PreMergeInvariantException(
+          reason: TargetShaMismatch(expected: expected, actual: actual),
+          detail: 'Merge target $baseRef moved before merge entry.',
+          gitStderr: 'expected $expected, actual $actual',
+        );
+      }
+    }
+  }
+
+  Future<String> _revParse(String ref, {required String failureMessage}) async {
+    return _wrapGit(failureMessage, () => _gitPort.revParse(_projectDir, ref));
+  }
+
+  Future<T> _wrapGit<T>(String failureMessage, Future<T> Function() action) async {
+    try {
+      return await action();
+    } on WorkflowGitException catch (e) {
+      throw _toWorktreeException(failureMessage, e);
+    }
+  }
+
+  static WorktreeException _toWorktreeException(String message, WorkflowGitException e) {
+    final detail = e.stderr.isNotEmpty ? e.stderr : e.stdout;
+    return WorktreeException(message, gitStderr: detail, exitCode: e.exitCode);
+  }
+}
+
+final class _ProcessRunnerWorkflowGitPort implements WorkflowGitPort {
+  final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
+  processRunner;
+
+  const _ProcessRunnerWorkflowGitPort({required this.processRunner});
+
+  @override
+  Future<String> revParse(String worktreePath, String ref) async {
+    final args = ref == '--abbrev-ref HEAD'
+        ? <String>['rev-parse', '--abbrev-ref', 'HEAD']
+        : <String>['rev-parse', ref];
+    final result = await _expect(args, worktreePath, 'Failed to resolve ref $ref');
+    return _stdout(result).trim();
+  }
+
+  @override
+  Future<List<String>> diffNameOnly(
+    String worktreePath, {
+    String? against,
+    bool cached = false,
+    String? diffFilter,
+  }) async {
+    final args = <String>['diff'];
+    if (cached) {
+      args.add('--cached');
+    }
+    args.add('--name-only');
+    if (diffFilter != null && diffFilter.trim().isNotEmpty) {
+      args.add('--diff-filter=$diffFilter');
+    }
+    if (against != null && against.trim().isNotEmpty) {
+      args.add(against);
+    }
+    final result = await _expect(args, worktreePath, 'Failed to list changed paths');
+    return _lines(_stdout(result));
+  }
+
+  @override
+  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async {
+    final result = await _git(['cat-file', '-e', '$ref:$path'], worktreePath);
+    return result.exitCode == 0;
+  }
+
+  @override
+  Future<GitStatus> status(String worktreePath) async {
+    final result = await _expect(['status', '--porcelain'], worktreePath, 'Failed to inspect status');
+    final modified = <String>[];
+    final untracked = <String>[];
+    for (final line in _lines(_stdout(result))) {
+      if (line.startsWith('?? ')) {
+        untracked.add(line.substring(3).trim());
+      } else if (line.length > 3) {
+        modified.add(line.substring(3).trim());
+      } else {
+        modified.add(line.trim());
+      }
+    }
+    return GitStatus(indexClean: modified.isEmpty, modified: modified, untracked: untracked);
+  }
+
+  @override
+  Future<List<String>> untrackedFiles(String worktreePath) async {
+    return (await status(worktreePath)).untracked;
+  }
+
+  @override
+  Future<List<String>> stashedPaths(String worktreePath, {int index = 0}) async {
+    final result = await _git(['stash', 'show', '--name-only', 'stash@{$index}'], worktreePath);
+    if (result.exitCode != 0) return const <String>[];
+    return _lines(_stdout(result));
+  }
+
+  @override
+  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) async {
+    if (!all && paths.isEmpty) return;
+    await _expect(all ? <String>['add', '-A'] : <String>['add', '--', ...paths], worktreePath, 'Failed to stage paths');
+  }
+
+  @override
+  Future<WorkflowGitCommit> commit(
+    String worktreePath, {
+    required String message,
+    String? authorName,
+    String? authorEmail,
+  }) async {
+    final args = <String>[
+      if (authorName != null && authorName.trim().isNotEmpty) ...['-c', 'user.name=$authorName'],
+      if (authorEmail != null && authorEmail.trim().isNotEmpty) ...['-c', 'user.email=$authorEmail'],
+      'commit',
+      '-m',
+      message,
+    ];
+    await _expect(args, worktreePath, 'Failed to commit staged changes');
+    return WorkflowGitCommit(sha: await revParse(worktreePath, 'HEAD'), message: message);
+  }
+
+  @override
+  Future<void> checkout(String worktreePath, String ref) async {
+    await _expect(['checkout', ref], worktreePath, 'Failed to checkout $ref');
+  }
+
+  @override
+  Future<bool> stashPush(String worktreePath, {bool includeUntracked = true}) async {
+    final args = <String>['stash', if (includeUntracked) '--include-untracked'];
+    final result = await _expect(args, worktreePath, 'Failed to stash local changes');
+    return !_stdout(result).contains('No local changes to save');
+  }
+
+  @override
+  Future<void> stashPop(String worktreePath) async {
+    await _expect(['stash', 'pop'], worktreePath, 'Failed to restore stash');
+  }
+
+  @override
+  Future<void> stashDrop(String worktreePath, {int index = 0}) async {
+    await _expect(['stash', 'drop'], worktreePath, 'Failed to drop stash entry');
+  }
+
+  @override
+  Future<void> merge(
+    String worktreePath, {
+    required String ref,
+    required WorkflowGitMergeStrategy strategy,
+    String? message,
+  }) async {
+    final args = switch (strategy) {
+      WorkflowGitMergeStrategy.squash => <String>['merge', '--squash', ref],
+      WorkflowGitMergeStrategy.merge => <String>['merge', '--no-ff', ref, '-m', message ?? 'Merge $ref'],
+    };
+    await _expect(args, worktreePath, 'Failed to merge $ref');
+  }
+
+  @override
+  Future<void> mergeAbort(String worktreePath) async {
+    await _expect(['merge', '--abort'], worktreePath, 'Failed to abort merge');
+  }
+
+  @override
+  Future<void> resetHard(String worktreePath, String ref) async {
+    await _expect(['reset', '--hard', ref], worktreePath, 'Failed to reset');
+  }
+
+  Future<ProcessResult> _expect(List<String> args, String worktreePath, String message) async {
+    final result = await _git(args, worktreePath);
+    if (result.exitCode == 0) return result;
+    throw WorkflowGitException(
+      message,
+      args: args,
+      stdout: _stdout(result),
+      stderr: _stderr(result),
+      exitCode: result.exitCode,
     );
   }
 
+  Future<ProcessResult> _git(List<String> args, String worktreePath) {
+    return processRunner('git', args, workingDirectory: worktreePath);
+  }
+
+  static List<String> _lines(String output) =>
+      output.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+
   static String _stdout(ProcessResult result) => result.stdout as String;
+
   static String _stderr(ProcessResult result) => result.stderr as String;
 }

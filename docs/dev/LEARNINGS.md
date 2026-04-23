@@ -138,6 +138,7 @@ Non-obvious traps and recurring patterns. Bar for inclusion: *would a competent 
 - **Local-path projects need their dirty-tree / branch-mismatch gate at the same workflow-start seam.** Putting the check later leaks coding tasks against a live checkout.
 - **Workflow-owned refs stay local refs all the way through publish.** Coding steps must attach to the existing branch/worktree; base-ref freshness logic must stop rewriting back to `origin/*`.
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows.
+- **Artifact auto-commit must verify task worktree paths are real git worktrees.** Test scaffolds and workflow workspaces may use temporary directories for output materialization; commit load-bearing artifacts to the resolved project checkout instead.
 
 ## Storage / Data Model
 

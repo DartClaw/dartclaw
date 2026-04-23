@@ -808,6 +808,7 @@ class _RecordingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount += 1;
@@ -829,6 +830,7 @@ class _BlockingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount += 1;
@@ -851,6 +853,7 @@ class _ThrowingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     throw error;

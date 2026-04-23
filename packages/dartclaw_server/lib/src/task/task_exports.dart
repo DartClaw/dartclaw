@@ -13,7 +13,10 @@ export 'merge_executor.dart'
         MergeConflict,
         MergeStrategy,
         PreMergeInvariantException,
-        PreMergeInvariantReason;
+        PreMergeInvariantReason,
+        TargetShaMismatch,
+        UncleanIndex,
+        UntrackedOverlap;
 export 'pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrGhNotFound, PrCreationFailed;
 export 'remote_push_service.dart'
     show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;
@@ -37,3 +40,4 @@ export 'task_review_service.dart'
         ReviewActionFailed;
 export 'task_service.dart' show TaskService;
 export 'worktree_manager.dart' show WorktreeManager, WorktreeInfo, WorktreeException, GitNotFoundException;
+export 'workflow_git_port_process.dart' show WorkflowGitPortProcess;

@@ -25,6 +25,7 @@ import 'workflow_context.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
 import 'workflow_budget_monitor.dart' as workflow_budget_monitor;
 import 'workflow_git_lifecycle.dart' as workflow_git_lifecycle;
+import 'workflow_git_port.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_task_factory.dart' as workflow_task_factory;
 import 'workflow_template_engine.dart';
@@ -49,6 +50,7 @@ class WorkflowExecutor {
   final GateEvaluator _gateEvaluator;
   final ContextExtractor _contextExtractor;
   final WorkflowTemplateEngine _templateEngine;
+  final WorkflowGitPort? _workflowGitPort;
   final SkillPromptBuilder _skillPromptBuilder;
   final WorkflowTurnAdapter? _turnAdapter;
   final WorkflowStepOutputTransformer? _outputTransformer;
@@ -98,6 +100,7 @@ class WorkflowExecutor {
        _gateEvaluator = executionContext.gateEvaluator,
        _contextExtractor = executionContext.contextExtractor,
        _templateEngine = promptConfiguration.templateEngine,
+       _workflowGitPort = executionContext.workflowGitPort,
        _skillPromptBuilder = promptConfiguration.skillPromptBuilder,
        _turnAdapter = executionContext.turnAdapter,
        _outputTransformer = executionContext.outputTransformer,
@@ -624,6 +627,45 @@ class WorkflowExecutor {
             return;
           }
           _mergeStepResultIntoContext(context, result, fallbackStatus: result.task?.status.name ?? 'completed');
+          var artifactCommitResult = const workflow_artifact_committer.ArtifactCommitResult.skipped();
+          if (result.task != null) {
+            artifactCommitResult = await _maybeCommitArtifacts(
+              run: run,
+              definition: definition,
+              step: step,
+              context: context,
+              task: result.task!,
+            );
+          }
+          if (artifactCommitResult.failed && artifactCommitResult.fatal) {
+            final msg = artifactCommitResult.failureReason ?? "Artifact commit failed for step '${step.id}'";
+            run = run.copyWith(
+              totalTokens: run.totalTokens + result.tokenCount,
+              contextJson: {
+                for (final e in run.contextJson.entries)
+                  if (e.key.startsWith('_')) e.key: e.value,
+                ...context.toJson(),
+              },
+              updatedAt: DateTime.now(),
+            );
+            await _persistContext(run.id, context);
+            await _repository.update(run);
+            _eventBus.fire(
+              WorkflowStepCompletedEvent(
+                runId: run.id,
+                stepId: step.id,
+                stepName: step.name,
+                stepIndex: stepIndex,
+                totalSteps: totalSteps,
+                taskId: result.task?.id ?? '',
+                success: false,
+                tokenCount: result.tokenCount,
+                timestamp: DateTime.now(),
+              ),
+            );
+            await _failRun(run, msg);
+            return;
+          }
           run = run.copyWith(
             totalTokens: run.totalTokens + result.tokenCount,
             currentStepIndex: stepIndex + 1,
@@ -649,15 +691,6 @@ class WorkflowExecutor {
               timestamp: DateTime.now(),
             ),
           );
-          if (result.task != null) {
-            await _maybeCommitArtifacts(
-              run: run,
-              definition: definition,
-              step: step,
-              context: context,
-              task: result.task!,
-            );
-          }
           nodeIndex++;
       }
     }

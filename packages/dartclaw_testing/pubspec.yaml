@@ -26,6 +26,8 @@ dependencies:
     path: ../dartclaw_security
   dartclaw_server:
     path: ../dartclaw_server
+  dartclaw_workflow:
+    path: ../dartclaw_workflow
   http: ^1.6.0
 
 dev_dependencies:

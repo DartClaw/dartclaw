@@ -34,7 +34,7 @@ void main() {
         () => executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug'),
         throwsA(
           isA<PreMergeInvariantException>()
-              .having((error) => error.reason, 'reason', PreMergeInvariantReason.uncleanIndex)
+              .having((error) => error.reason, 'reason', isA<UncleanIndex>())
               .having((error) => error.detail, 'detail', contains('clean index')),
         ),
       );
@@ -43,11 +43,62 @@ void main() {
       expect(gitArgs, ['status --porcelain']);
     });
 
+    test('throws PreMergeInvariantException when untracked files overlap with stash', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['status --porcelain'] = pr('?? foo.md\n');
+      responses['stash show --name-only stash@{0}'] = pr('foo.md\nbar.md\n');
+
+      await expectLater(
+        () => executor.merge(branch: 'dartclaw/task-t1', baseRef: 'main', taskId: 't1', taskTitle: 'Fix bug'),
+        throwsA(
+          isA<PreMergeInvariantException>().having((error) => error.reason, 'reason', isA<UntrackedOverlap>()).having(
+            (error) => (error.reason as UntrackedOverlap).paths,
+            'paths',
+            ['foo.md'],
+          ),
+        ),
+      );
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, ['status --porcelain', 'stash show --name-only stash@{0}']);
+    });
+
+    test('throws PreMergeInvariantException when target branch SHA drifted', () async {
+      executor = MergeExecutor(projectDir: '/project', processRunner: mockRunner);
+
+      responses['rev-parse main'] = pr('new-sha\n');
+
+      await expectLater(
+        () => executor.merge(
+          branch: 'dartclaw/task-t1',
+          baseRef: 'main',
+          taskId: 't1',
+          taskTitle: 'Fix bug',
+          expectedBaseSha: 'old-sha',
+        ),
+        throwsA(
+          isA<PreMergeInvariantException>()
+              .having((error) => error.reason, 'reason', isA<TargetShaMismatch>())
+              .having((error) => (error.reason as TargetShaMismatch).expected, 'expected', 'old-sha')
+              .having((error) => (error.reason as TargetShaMismatch).actual, 'actual', 'new-sha'),
+        ),
+      );
+
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, ['status --porcelain', 'rev-parse main']);
+    });
+
     test('PreMergeInvariantException reason is switch-exhaustive', () {
-      const error = PreMergeInvariantException(reason: PreMergeInvariantReason.uncleanIndex, detail: 'index dirty');
+      const error = PreMergeInvariantException(
+        reason: UncleanIndex(modified: ['lib/main.dart']),
+        detail: 'index dirty',
+      );
 
       final label = switch (error.reason) {
-        PreMergeInvariantReason.uncleanIndex => 'unclean-index',
+        UncleanIndex() => 'unclean-index',
+        UntrackedOverlap() => 'untracked-overlap',
+        TargetShaMismatch() => 'target-sha-mismatch',
       };
 
       expect(label, 'unclean-index');

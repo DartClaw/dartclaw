@@ -3,11 +3,12 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' show OutputFormat, ProjectService, Task;
 import 'package:dartclaw_models/dartclaw_models.dart'
     show WorkflowDefinition, WorkflowGitArtifactsStrategy, WorkflowNode, WorkflowRun, WorkflowStep;
-import 'package:dartclaw_security/dartclaw_security.dart' show ProcessEnvironmentPlan, SafeProcess;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'step_config_policy.dart' as step_config_policy;
 import 'workflow_context.dart';
+import 'workflow_git_port.dart';
 import 'workflow_runner_types.dart';
 import 'workflow_template_engine.dart';
 
@@ -23,13 +24,6 @@ const _artifactProducingSkills = <String>{
   'dartclaw-remediate-findings',
 };
 
-final class _EmptyProcessEnvironmentPlan implements ProcessEnvironmentPlan {
-  @override
-  final Map<String, String> environment;
-
-  const _EmptyProcessEnvironmentPlan() : environment = const <String, String>{};
-}
-
 /// Policy inputs needed to commit path artifacts after a successful step.
 final class ArtifactCommitPolicy {
   final WorkflowRun run;
@@ -40,6 +34,7 @@ final class ArtifactCommitPolicy {
   final ProjectService? projectService;
   final String dataDir;
   final WorkflowTemplateEngine templateEngine;
+  final WorkflowGitPort? workflowGitPort;
 
   const ArtifactCommitPolicy({
     required this.run,
@@ -50,28 +45,64 @@ final class ArtifactCommitPolicy {
     required this.projectService,
     required this.dataDir,
     required this.templateEngine,
+    this.workflowGitPort,
   });
 }
 
+/// Outcome of an artifact auto-commit attempt.
+final class ArtifactCommitResult {
+  final List<String> committedPaths;
+  final List<String> skippedPaths;
+  final String? commitSha;
+  final String? failureReason;
+  final bool fatal;
+
+  const ArtifactCommitResult._({
+    this.committedPaths = const <String>[],
+    this.skippedPaths = const <String>[],
+    this.commitSha,
+    this.failureReason,
+    this.fatal = false,
+  });
+
+  const ArtifactCommitResult.skipped({List<String> skippedPaths = const <String>[]})
+    : this._(skippedPaths: skippedPaths);
+
+  const ArtifactCommitResult.committed({required List<String> committedPaths, required String commitSha})
+    : this._(committedPaths: committedPaths, commitSha: commitSha);
+
+  const ArtifactCommitResult.failed({
+    required String failureReason,
+    List<String> skippedPaths = const <String>[],
+    required bool fatal,
+  }) : this._(failureReason: failureReason, skippedPaths: skippedPaths, fatal: fatal);
+
+  bool get failed => failureReason != null;
+}
+
 /// Commits path artifacts for successful handoffs when the workflow requests it.
-Future<void> maybeCommitArtifacts(WorkflowNode node, StepHandoff handoff, ArtifactCommitPolicy policy) async {
-  if (handoff is! StepHandoffSuccess) return;
-  if (!node.stepIds.contains(policy.step.id)) return;
-  await maybeCommitStepArtifacts(policy);
+Future<ArtifactCommitResult> maybeCommitArtifacts(
+  WorkflowNode node,
+  StepHandoff handoff,
+  ArtifactCommitPolicy policy,
+) async {
+  if (handoff is! StepHandoffSuccess) return const ArtifactCommitResult.skipped();
+  if (!node.stepIds.contains(policy.step.id)) return const ArtifactCommitResult.skipped();
+  return maybeCommitStepArtifacts(policy);
 }
 
 /// Commits any path outputs produced by [policy.step].
-Future<void> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
+Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
   final definition = policy.definition;
   final step = policy.step;
   final artifacts = definition.gitStrategy?.artifacts;
   final hasProducer = workflowHasArtifactProducer(definition);
   final shouldCommit = artifacts?.commit ?? hasProducer;
-  if (!shouldCommit) return;
-  if (artifacts == null && !hasProducer) return;
+  if (!shouldCommit) return const ArtifactCommitResult.skipped();
+  if (artifacts == null && !hasProducer) return const ArtifactCommitResult.skipped();
 
   final outputs = step.outputs;
-  if (outputs == null) return;
+  if (outputs == null) return const ArtifactCommitResult.skipped();
   final producedPaths = <String>[];
   for (final outKey in step.contextOutputs) {
     final cfg = outputs[outKey];
@@ -80,7 +111,15 @@ Future<void> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
     if (value.isEmpty || value == 'null') continue;
     producedPaths.add(value);
   }
-  if (producedPaths.isEmpty) return;
+  if (producedPaths.isEmpty) return const ArtifactCommitResult.skipped();
+
+  final failureIsFatal = artifactCommitFailureIsFatal(policy);
+  final git = policy.workflowGitPort;
+  if (git == null) {
+    final reason = "artifact-commit: no WorkflowGitPort configured for step '${step.id}'";
+    _log.warning(reason);
+    return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
+  }
 
   final resolved = await resolveArtifactCommitProject(
     definition: definition,
@@ -97,11 +136,15 @@ Future<void> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
       'could be resolved (checked gitStrategy.artifacts.project, step.project, '
       'and the {{PROJECT}} workflow variable)',
     );
-    return;
+    return ArtifactCommitResult.failed(
+      failureReason: "artifact-commit: no project id resolved for step '${step.id}'",
+      skippedPaths: producedPaths,
+      fatal: failureIsFatal,
+    );
   }
   final worktreeDir = (policy.task.worktreeJson?['path'] as String?)?.trim();
   final effectiveWorktreeDir = switch (worktreeDir) {
-    final String dir when dir.isNotEmpty && Directory(dir).existsSync() => dir,
+    final String dir when dir.isNotEmpty && Directory(dir).existsSync() && _isGitWorktree(dir) => dir,
     _ => null,
   };
   final projectDir = effectiveWorktreeDir ?? resolved.dir;
@@ -111,7 +154,11 @@ Future<void> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
       "artifact-commit: step '${step.id}' resolved project '${resolved.projectId}' "
       "but directory '$projectDir' does not exist — skipping commit",
     );
-    return;
+    return ArtifactCommitResult.failed(
+      failureReason: "artifact-commit: directory '$projectDir' does not exist",
+      skippedPaths: producedPaths,
+      fatal: failureIsFatal,
+    );
   }
 
   final messageTemplate = artifacts?.commitMessage ?? 'chore(workflow): artifacts for run {{runId}}';
@@ -123,52 +170,43 @@ Future<void> maybeCommitStepArtifacts(ArtifactCommitPolicy policy) async {
       : resolvedMessage;
 
   try {
-    final addResult = await SafeProcess.git(
-      ['add', '--', ...producedPaths],
-      plan: const _EmptyProcessEnvironmentPlan(),
-      workingDirectory: projectDir,
-      noSystemConfig: true,
-    );
-    if (addResult.exitCode != 0) {
-      _log.warning("artifact-commit: git add failed in '$projectDir': ${addResult.stderr}");
-      return;
-    }
-    final stagedResult = await SafeProcess.git(
-      ['diff', '--cached', '--name-only'],
-      plan: const _EmptyProcessEnvironmentPlan(),
-      workingDirectory: projectDir,
-      noSystemConfig: true,
-    );
-    final staged = (stagedResult.stdout as String).trim();
+    await git.add(projectDir, producedPaths);
+    final staged = await git.diffNameOnly(projectDir, cached: true);
     if (staged.isEmpty) {
       _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' — skipping commit");
-      return;
+      return ArtifactCommitResult.skipped(skippedPaths: producedPaths);
     }
-    final commitResult = await SafeProcess.git(
-      [
-        '-c',
-        'user.name=$_artifactCommitAuthorName',
-        '-c',
-        'user.email=$_artifactCommitAuthorEmail',
-        'commit',
-        '-m',
-        commitMessage,
-      ],
-      plan: const _EmptyProcessEnvironmentPlan(),
-      workingDirectory: projectDir,
-      noSystemConfig: true,
+    final commit = await git.commit(
+      projectDir,
+      message: commitMessage,
+      authorName: _artifactCommitAuthorName,
+      authorEmail: _artifactCommitAuthorEmail,
     );
-    if (commitResult.exitCode != 0) {
-      _log.warning("artifact-commit: git commit failed in '$projectDir': ${commitResult.stderr}");
-      return;
-    }
     _log.info(
-      "artifact-commit: committed ${producedPaths.length} file(s) in '$projectDir' "
+      "artifact-commit: committed ${staged.length} file(s) in '$projectDir' "
       "after step '${step.id}' with message '$commitMessage'",
     );
+    return ArtifactCommitResult.committed(committedPaths: staged, commitSha: commit.sha);
+  } on WorkflowGitException catch (e) {
+    final reason = "artifact-commit: ${e.message} in '$projectDir'";
+    _log.warning('$reason: ${e.stderr.isNotEmpty ? e.stderr : e.stdout}');
+    return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   } catch (e) {
-    _log.warning("artifact-commit: unexpected error for step '${step.id}' in '$projectDir': $e");
+    final reason = "artifact-commit: unexpected error for step '${step.id}' in '$projectDir': $e";
+    _log.warning(reason);
+    return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   }
+}
+
+/// Returns true when a commit failure prevents downstream per-map-item worktrees
+/// from inheriting artifacts through the workflow branch.
+bool artifactCommitFailureIsFatal(ArtifactCommitPolicy policy) {
+  if (policy.definition.gitStrategy?.artifacts?.commit != true) return false;
+  return step_config_policy.requiresPerMapItemBootstrap(
+    policy.definition,
+    policy.context,
+    templateEngine: policy.templateEngine,
+  );
 }
 
 /// True when a workflow contains at least one artifact-producing step.
@@ -209,6 +247,10 @@ String? _resolveProjectTemplate(String? template, WorkflowContext context, Workf
   if (template == null) return null;
   final resolved = templateEngine.resolve(template, context).trim();
   return resolved.isEmpty ? null : resolved;
+}
+
+bool _isGitWorktree(String dir) {
+  return Directory(p.join(dir, '.git')).existsSync() || File(p.join(dir, '.git')).existsSync();
 }
 
 /// Resolved artifact-commit target project.

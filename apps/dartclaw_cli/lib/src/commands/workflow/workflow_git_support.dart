@@ -76,6 +76,15 @@ Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
 
   final integrationWorktreeDir =
       await _findWorktreePathForBranch(projectDir: projectDir, branch: integrationBranch) ?? projectDir;
+  final expectedBaseShaResult = await _workflowGit([
+    'rev-parse',
+    integrationBranch,
+  ], workingDirectory: integrationWorktreeDir);
+  if (expectedBaseShaResult.exitCode != 0) {
+    return WorkflowGitPromotionError(
+      'Failed to record merge target "$integrationBranch": ${expectedBaseShaResult.stderr}',
+    );
+  }
   final mergeExecutor = MergeExecutor(
     projectDir: integrationWorktreeDir,
     defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
@@ -85,6 +94,7 @@ Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
     baseRef: integrationBranch,
     taskId: storyId ?? runId,
     taskTitle: storyId == null ? 'workflow promotion' : 'promote $storyId',
+    expectedBaseSha: (expectedBaseShaResult.stdout as String).trim(),
     strategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
   );
 

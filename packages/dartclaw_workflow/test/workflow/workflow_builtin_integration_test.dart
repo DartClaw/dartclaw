@@ -27,7 +27,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRunStatus,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -252,6 +252,10 @@ void main() {
     if (projectId != null && projectId.isNotEmpty && projectId != '_local') {
       roots.add(p.join(tempDir.path, 'projects', projectId));
     }
+    final workflowProjectId = context.variable('PROJECT')?.trim();
+    if (workflowProjectId != null && workflowProjectId.isNotEmpty && workflowProjectId != '_local') {
+      roots.add(p.join(tempDir.path, 'projects', workflowProjectId));
+    }
     final projectIndex = context['project_index'];
     final projectRoot = switch (projectIndex) {
       final Map<dynamic, dynamic> map => map['project_root'] as String?,
@@ -333,6 +337,7 @@ void main() {
         agentExecutionRepository: agentExecutionRepository,
         workflowStepExecutionRepository: workflowStepExecutionRepository,
         executionTransactor: executionTransactor,
+        workflowGitPort: WorkflowGitPortProcess(),
         turnAdapter:
             turnAdapter ??
             WorkflowTurnAdapter(
@@ -366,12 +371,35 @@ void main() {
     );
   }
 
+  void ensureProjectRepo(String projectId) {
+    final projectDir = Directory(p.join(tempDir.path, 'projects', projectId));
+    if (Directory(p.join(projectDir.path, '.git')).existsSync()) return;
+    projectDir.createSync(recursive: true);
+    File(p.join(projectDir.path, 'README.md')).writeAsStringSync('# $projectId\n');
+
+    void git(List<String> args) {
+      final result = Process.runSync('git', args, workingDirectory: projectDir.path);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed in ${projectDir.path}: ${result.stderr}');
+      }
+    }
+
+    git(['init', '-q']);
+    git(['checkout', '-qb', 'main']);
+    git(['add', '.']);
+    git(['-c', 'user.name=DartClaw Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial']);
+  }
+
   Future<_ExecutionTrace> executeBuiltInWorkflow({
     required String workflowFileName,
     required Map<String, String> variables,
     required Future<_StubResponse> Function(_QueuedStep queued) responseForStep,
     WorkflowTurnAdapter? turnAdapter,
   }) async {
+    final projectId = variables['PROJECT']?.trim();
+    if (projectId != null && projectId.isNotEmpty) {
+      ensureProjectRepo(projectId);
+    }
     final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir(), workflowFileName));
     final run = WorkflowRun(
       id: '${definition.name}-run',

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -179,6 +180,17 @@ void main() {
       final fetched = await sessions.getSession(first.id);
       expect(fetched, isNotNull);
       expect(fetched!.provider, isNull);
+    });
+
+    test('50 parallel calls for the same key create one mapping', () async {
+      final results = await Future.wait(List.generate(50, (_) => sessions.getOrCreateByKey('agent:same-key')));
+
+      final ids = results.map((session) => session.id).toSet();
+      expect(ids, hasLength(1));
+
+      final indexFile = File('${tempDir.path}/.session_keys.json');
+      final index = jsonDecode(indexFile.readAsStringSync()) as Map<String, dynamic>;
+      expect(index, {'agent:same-key': ids.single});
     });
   });
 

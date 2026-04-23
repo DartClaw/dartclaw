@@ -49,6 +49,7 @@ export 'src/workflow/workflow_definition_resolver.dart';
 export 'src/workflow/workflow_definition_source.dart';
 export 'src/workflow/workflow_definition_validator.dart';
 export 'src/workflow/workflow_executor.dart';
+export 'src/workflow/workflow_git_port.dart';
 export 'src/workflow/workflow_output_contract.dart';
 export 'src/workflow/workflow_registry.dart';
 export 'src/workflow/workflow_task_config.dart';

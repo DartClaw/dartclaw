@@ -32,6 +32,7 @@ import 'skill_prompt_builder.dart';
 import 'skill_registry.dart';
 import 'step_config_resolver.dart';
 import 'workflow_context.dart';
+import 'workflow_git_port.dart';
 import 'workflow_template_engine.dart';
 import 'workflow_turn_adapter.dart';
 
@@ -225,6 +226,7 @@ final class StepExecutionContext {
   final ProjectService? projectService;
   final String? dataDir;
   final WorkflowTemplateEngine? templateEngine;
+  final WorkflowGitPort? workflowGitPort;
   final SkillPromptBuilder? skillPromptBuilder;
   final WorkflowRoleDefaults roleDefaults;
   final Map<String, String>? hostEnvironment;
@@ -252,6 +254,7 @@ final class StepExecutionContext {
     this.projectService,
     this.dataDir,
     this.templateEngine,
+    this.workflowGitPort,
     this.skillPromptBuilder,
     this.roleDefaults = const WorkflowRoleDefaults(),
     this.hostEnvironment,
@@ -287,6 +290,7 @@ final class StepExecutionContext {
       projectService: projectService,
       dataDir: dataDir,
       templateEngine: promptConfiguration.templateEngine,
+      workflowGitPort: workflowGitPort,
       skillPromptBuilder: promptConfiguration.skillPromptBuilder,
       roleDefaults: roleDefaults,
       hostEnvironment: bashStepPolicy.hostEnvironment,
@@ -321,6 +325,7 @@ final class StepExecutionContext {
       projectService: projectService,
       dataDir: dataDir,
       templateEngine: templateEngine,
+      workflowGitPort: workflowGitPort,
       skillPromptBuilder: skillPromptBuilder,
       roleDefaults: roleDefaults,
       hostEnvironment: hostEnvironment,

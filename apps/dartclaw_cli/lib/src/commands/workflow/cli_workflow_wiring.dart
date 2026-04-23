@@ -29,6 +29,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         WorkflowCliRunner,
         TaskExecutor,
         WorktreeManager,
+        WorkflowGitPortProcess,
         TaskService,
         TurnManager,
         TurnRunner;
@@ -361,6 +362,7 @@ class CliWorkflowWiring {
       workflowStepExecutionRepository: workflowStepExecutionRepository,
       executionRepositoryTransactor: executionRepositoryTransactor,
       projectService: projectService,
+      workflowGitPort: WorkflowGitPortProcess(worktreeManager: worktreeManager),
       roleDefaults: WorkflowRoleDefaults(
         workflow: WorkflowRoleDefault(
           provider: config.workflow.defaults.workflow.provider,

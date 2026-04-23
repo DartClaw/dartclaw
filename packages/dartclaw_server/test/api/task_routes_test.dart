@@ -1252,6 +1252,7 @@ class _MockMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     callCount++;
@@ -1270,6 +1271,7 @@ class _ThrowingMergeExecutor extends MergeExecutor {
     required String baseRef,
     required String taskId,
     required String taskTitle,
+    String? expectedBaseSha,
     MergeStrategy? strategy,
   }) async {
     throw error;

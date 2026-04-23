@@ -38,6 +38,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPublishStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowGitStrategy,
+        WorkflowGitPort,
         WorkflowExecutor,
         WorkflowStepOutputTransformer,
         WorkflowTurnAdapter,
@@ -45,10 +46,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable,
         WorkflowStep,
         WorkflowStepCompletedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
+import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProjectService;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -127,6 +128,7 @@ void main() {
     Map<String, String>? hostEnvironment,
     List<String>? bashStepEnvAllowlist,
     List<String>? bashStepExtraStripPatterns,
+    WorkflowGitPort? workflowGitPort,
   }) {
     return WorkflowExecutor(
       executionContext: StepExecutionContext(
@@ -145,6 +147,7 @@ void main() {
             ),
         turnAdapter: turnAdapter,
         outputTransformer: outputTransformer,
+        workflowGitPort: workflowGitPort ?? WorkflowGitPortProcess(),
         taskRepository: wirePersistence ? taskRepository : null,
         agentExecutionRepository: wirePersistence ? agentExecutionRepository : null,
         workflowStepExecutionRepository: wirePersistence ? workflowStepExecutionRepository : null,
@@ -316,6 +319,64 @@ void main() {
     await sub.cancel();
     return taskCompleter.future;
   }
+
+  test('fatal artifact commit failure emits failed step and stops before downstream dispatch', () async {
+    final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+    File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+    final git = FakeGitGateway()
+      ..initWorktree(repoDir.path)
+      ..addUntracked(repoDir.path, 'plan.md', content: 'plan')
+      ..failNextAdd('add failed');
+    executor = makeExecutor(
+      workflowGitPort: git,
+      outputTransformer: (run, definition, step, task, outputs) async => {'plan': 'plan.md'},
+    );
+    final definition = WorkflowDefinition(
+      name: 'artifact-failure',
+      description: 'Artifact failure workflow',
+      project: 'proj',
+      gitStrategy: const WorkflowGitStrategy(
+        worktree: WorkflowGitWorktreeStrategy(mode: 'per-map-item'),
+        artifacts: WorkflowGitArtifactsStrategy(commit: true),
+      ),
+      steps: const [
+        WorkflowStep(
+          id: 'plan',
+          name: 'Plan',
+          prompts: ['plan'],
+          contextOutputs: ['plan'],
+          outputs: {'plan': OutputConfig(format: OutputFormat.path)},
+        ),
+        WorkflowStep(
+          id: 'implement',
+          name: 'Implement',
+          prompts: ['implement'],
+          mapOver: 'story_specs',
+          maxParallel: 2,
+        ),
+      ],
+    );
+    final run = makeRun(definition);
+    await repository.insert(run);
+    final stepEvents = <WorkflowStepCompletedEvent>[];
+    final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
+    final taskSub = eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await completeTask(e.taskId);
+    });
+
+    await executor.execute(run, definition, WorkflowContext(data: {'story_specs': <Map<String, Object?>>[]}));
+    await taskSub.cancel();
+    await stepSub.cancel();
+
+    final stored = await repository.getById(run.id);
+    expect(stored?.status, WorkflowRunStatus.failed);
+    expect(stored?.currentStepIndex, 0);
+    expect(stored?.errorMessage, contains('add failed'));
+    expect(stepEvents.map((event) => (event.stepId, event.success)), [('plan', false)]);
+  });
 
   test('3-step sequential workflow executes all steps', () async {
     final definition = makeDefinition(
